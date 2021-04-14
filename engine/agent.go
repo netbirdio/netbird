@@ -151,14 +151,6 @@ func (pa *PeerAgent) OpenConnection(initiator bool) (net.Conn, error) {
 	}
 	pa.wgConn = wgConn
 
-	go func() {
-		pa.proxyToRemotePeer()
-	}()
-
-	go func() {
-		pa.proxyToLocalWireguard()
-	}()
-
 	return wgConn, nil
 }
 
@@ -201,7 +193,6 @@ func (pa *PeerAgent) onCandidate() error {
 
 // onConnectionStateChange listens on ice.Agent connection state change events and once connected checks a Candidate pair
 // the ice.Conn was established with
-// Mostly used for debugging purposes (e.g. connection time, etc)
 func (pa *PeerAgent) onConnectionStateChange() error {
 	return pa.iceAgent.OnConnectionStateChange(func(state ice.ConnectionState) {
 		log.Debugf("ICE Connection State has changed: %s", state.String())
@@ -213,36 +204,35 @@ func (pa *PeerAgent) onConnectionStateChange() error {
 				return
 			}
 			log.Debugf("connected to peer %s via selected candidate pair %s", pa.RemoteKey, pair)
+
+			// start proxying data between local Wireguard and remote peer
+			go func() {
+				pa.proxyToRemotePeer()
+			}()
+
+			go func() {
+				pa.proxyToLocalWireguard()
+			}()
 		}
 	})
 }
 
 // authenticate sets the signal.Credential of the remote peer
-// and sends local signal.Credential to teh remote peer via signal server
-func (pa *PeerAgent) Authenticate(credential *signal.Credential) error {
+// and returns local Credentials
+func (pa *PeerAgent) Authenticate(credential *signal.Credential) (*signal.Credential, error) {
 
 	err := pa.iceAgent.SetRemoteCredentials(credential.UFrag, credential.Pwd)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	localUFrag, localPwd, err := pa.iceAgent.GetLocalUserCredentials()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	// notify the remote peer about our credentials
-	answer := signal.MarshalCredential(pa.LocalKey, pa.RemoteKey, &signal.Credential{
+	return &signal.Credential{
 		UFrag: localUFrag,
-		Pwd:   localPwd,
-	}, sProto.Message_ANSWER)
-
-	//notify the remote peer of our credentials
-	err = pa.signal.Send(answer)
-	if err != nil {
-		return err
-	}
-
-	return nil
+		Pwd:   localPwd}, nil
 
 }

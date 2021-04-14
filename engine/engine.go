@@ -88,29 +88,30 @@ func (e *Engine) receiveSignal(localKey string) {
 
 		switch msg.Type {
 		case sProto.Message_OFFER:
+
+			cred, err := e.handle(msg, peerAgent, initiator)
+			if err != nil {
+				return err
+			}
+			// notify the remote peer about our credentials
+			answer := signal.MarshalCredential(peerAgent.LocalKey, peerAgent.RemoteKey, &signal.Credential{
+				UFrag: cred.UFrag,
+				Pwd:   cred.Pwd,
+			}, sProto.Message_ANSWER)
+
+			//notify the remote peer of our credentials
+			err = peerAgent.signal.Send(answer)
+			if err != nil {
+				return err
+			}
+
+			return nil
 		case sProto.Message_ANSWER:
-			remoteCred, err := signal.UnMarshalCredential(msg)
+			_, err := e.handle(msg, peerAgent, initiator)
 			if err != nil {
 				return err
 			}
 
-			err = peerAgent.Authenticate(remoteCred)
-			if err != nil {
-				log.Errorf("error authenticating remote peer %s", msg.Key)
-				return err
-			}
-
-			conn, err := peerAgent.OpenConnection(initiator)
-			if err != nil {
-				log.Errorf("error opening connection ot remote peer %s", msg.Key)
-				return err
-			}
-
-			err = iface.UpdatePeer(e.wgIface, peerAgent.RemoteKey, "0.0.0.0/0", 15*time.Second, conn.LocalAddr().String())
-			if err != nil {
-				log.Errorf("error while configuring Wireguard peer [%s] %s", peerAgent.RemoteKey, err.Error())
-				return err
-			}
 		case sProto.Message_CANDIDATE:
 			err := peerAgent.OnRemoteCandidate(msg)
 			if err != nil {
@@ -123,4 +124,32 @@ func (e *Engine) receiveSignal(localKey string) {
 	})
 
 	e.signal.WaitConnected()
+}
+
+func (e *Engine) handle(msg *sProto.Message, peerAgent *PeerAgent, initiator bool) (*signal.Credential, error) {
+	remoteCred, err := signal.UnMarshalCredential(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	cred, err := peerAgent.Authenticate(remoteCred)
+	if err != nil {
+		log.Errorf("error authenticating remote peer %s", msg.Key)
+		return nil, err
+	}
+
+	go func() {
+
+		conn, err := peerAgent.OpenConnection(initiator)
+		if err != nil {
+			log.Errorf("error opening connection ot remote peer %s", msg.Key)
+		}
+
+		err = iface.UpdatePeer(e.wgIface, peerAgent.RemoteKey, "0.0.0.0/0", 15*time.Second, conn.LocalAddr().String())
+		if err != nil {
+			log.Errorf("error while configuring Wireguard peer [%s] %s", peerAgent.RemoteKey, err.Error())
+		}
+	}()
+
+	return cred, nil
 }
