@@ -24,10 +24,13 @@ type Engine struct {
 	wgAddr string
 }
 
-func NewEngine(signal *signal.Client, stunsTurns []*ice.URL) *Engine {
+func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string) *Engine {
 	return &Engine{
 		stunsTurns: stunsTurns,
 		signal:     signal,
+		wgIface:    wgIface,
+		wgAddr:     wgAddr,
+		agents:     map[string]*PeerAgent{},
 	}
 }
 
@@ -40,7 +43,7 @@ func (e *Engine) Start(localKey string, peers []string) error {
 		return err
 	}
 
-	err = iface.Create(e.wgIface, e.wgIface)
+	err = iface.Create(e.wgIface, e.wgAddr)
 	if err != nil {
 		log.Errorf("error while creating interface %s: [%s]", e.wgIface, err.Error())
 		return err
@@ -69,6 +72,8 @@ func (e *Engine) Start(localKey string, peers []string) error {
 	}
 
 	e.receiveSignal(localKey)
+
+	// todo send offer to each peer
 
 	return nil
 }
