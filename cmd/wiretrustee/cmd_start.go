@@ -5,12 +5,18 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/signal"
-	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"os"
 )
 
 const (
 	ExitSetupFailed = 1
+)
+
+var (
+	opts struct {
+		config   string
+		logLevel string
+	}
 )
 
 func init() {
@@ -41,7 +47,9 @@ func init() {
 			select {}
 		},
 	}
-	rootCmd.AddCommand(runCmd)
+
+	// todo generate config if doesn't exist
+	runCmd.PersistentFlags().StringVar(&opts.config, "config", "", "--config <config file path>")
 }
 
 func ReadConfig(path string) (*Config, error) {
