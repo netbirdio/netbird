@@ -147,7 +147,7 @@ func (client *Client) receive(stream proto.SignalExchange_ConnectStreamClient,
 		err = msgHandler(msg)
 
 		if err != nil {
-			log.Errorf("error while handling message of Peer [fingerprint: %s] error: [%s]", msg.Key, err.Error())
+			log.Errorf("error while handling message of Peer [key: %s] error: [%s]", msg.Key, err.Error())
 			//todo send something??
 		}
 	}

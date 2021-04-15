@@ -8,7 +8,6 @@ import (
 	signal "github.com/wiretrustee/wiretrustee/signal"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"time"
 )
 
 type Engine struct {
@@ -64,7 +63,7 @@ func (e *Engine) Start(privateKey string, peers []string) error {
 
 	// initialize peer agents
 	for _, peer := range peers {
-		peerAgent, err := NewPeerAgent(myPubKey, peer, e.stunsTurns, fmt.Sprintf("127.0.0.1:%d", *wgPort), e.signal)
+		peerAgent, err := NewPeerAgent(myPubKey, peer, e.stunsTurns, fmt.Sprintf("127.0.0.1:%d", *wgPort), e.signal, e.wgIface)
 		if err != nil {
 			log.Fatalf("failed creating peer agent for pair %s - %s", myPubKey, peer)
 			return err
@@ -89,9 +88,12 @@ func (e *Engine) receiveSignal(localKey string) {
 	// connect to a stream of messages coming from the signal server
 	e.signal.Receive(localKey, func(msg *sProto.Message) error {
 
-		// check if this is our "buddy" peer
-		peerAgent := e.agents[msg.Key]
+		peerAgent := e.agents[msg.RemoteKey]
 		if peerAgent == nil {
+			return fmt.Errorf("wrongly addressed message %s", msg.Key)
+		}
+
+		if peerAgent.RemoteKey != msg.Key {
 			return fmt.Errorf("unknown peer %s", msg.Key)
 		}
 
@@ -152,14 +154,9 @@ func (e *Engine) handle(msg *sProto.Message, peerAgent *PeerAgent, initiator boo
 
 	go func() {
 
-		conn, err := peerAgent.OpenConnection(initiator)
+		err := peerAgent.OpenConnection(initiator)
 		if err != nil {
 			log.Errorf("error opening connection ot remote peer %s", msg.Key)
-		}
-
-		err = iface.UpdatePeer(e.wgIface, peerAgent.RemoteKey, "0.0.0.0/0", 15*time.Second, conn.LocalAddr().String())
-		if err != nil {
-			log.Errorf("error while configuring Wireguard peer [%s] %s", peerAgent.RemoteKey, err.Error())
 		}
 	}()
 

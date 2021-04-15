@@ -4,9 +4,11 @@ import (
 	"context"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/iface"
 	"github.com/wiretrustee/wiretrustee/signal"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"net"
+	"time"
 )
 
 // PeerAgent is responsible for establishing and maintaining of the connection between two peers (local and remote)
@@ -26,10 +28,13 @@ type PeerAgent struct {
 	wgConn net.Conn
 	// an address of local Wireguard instance
 	wgAddr string
+	//
+	wgIface string
 }
 
 // NewPeerAgent creates a new PeerAgent with give local and remote Wireguard public keys and initializes an ICE Agent
-func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wgAddr string, signal *signal.Client) (*PeerAgent, error) {
+func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wgAddr string, signal *signal.Client,
+	wgIface string) (*PeerAgent, error) {
 
 	// init ICE Agent
 	iceAgent, err := ice.NewAgent(&ice.AgentConfig{
@@ -48,6 +53,7 @@ func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wg
 		conn:      nil,
 		wgConn:    nil,
 		signal:    signal,
+		wgIface:   wgIface,
 	}
 
 	err = peerAgent.onConnectionStateChange()
@@ -112,19 +118,33 @@ func (pa *PeerAgent) proxyToLocalWireguard() {
 // 4. after connection has been established peer starts to:
 //	  - proxy all local Wireguard's packets to the remote peer
 //    - proxy all incoming data from the remote peer to local Wireguard
-// The returned connection address can be used to be set as Wireguard's remote peer endpoint
-func (pa *PeerAgent) OpenConnection(initiator bool) (net.Conn, error) {
-	// start gathering candidates
-	err := pa.iceAgent.GatherCandidates()
+func (pa *PeerAgent) OpenConnection(initiator bool) error {
+
+	// connect to local Wireguard instance
+	wgConn, err := net.Dial("udp", pa.wgAddr)
 	if err != nil {
-		return nil, err
+		log.Fatalf("failed dialing to local Wireguard port %s", err)
+		return err
+	}
+	pa.wgConn = wgConn
+
+	// add local proxy connection as a Wireguard peer
+	err = iface.UpdatePeer(pa.wgIface, pa.RemoteKey, "0.0.0.0/0", 15*time.Second, wgConn.LocalAddr().String())
+	if err != nil {
+		log.Errorf("error while configuring Wireguard peer [%s] %s", pa.RemoteKey, err.Error())
+	}
+
+	// start gathering candidates
+	err = pa.iceAgent.GatherCandidates()
+	if err != nil {
+		return err
 	}
 
 	// by that time it should be already set
 	frag, pwd, err := pa.iceAgent.GetRemoteUserCredentials()
 	if err != nil {
 		log.Errorf("remote credentials are not set for remote peer %s", pa.RemoteKey)
-		return nil, err
+		return err
 	}
 
 	// initiate remote connection
@@ -138,21 +158,13 @@ func (pa *PeerAgent) OpenConnection(initiator bool) (net.Conn, error) {
 
 	if err != nil {
 		log.Fatalf("failed listening on local port %s", err)
-		return nil, err
+		return err
 	}
 
 	log.Infof("Local addr %s, remote addr %s", conn.LocalAddr(), conn.RemoteAddr())
 	pa.conn = conn
 
-	// connect to local Wireguard instance
-	wgConn, err := net.Dial("udp", pa.wgAddr)
-	if err != nil {
-		log.Fatalf("failed dialing to local Wireguard port %s", err)
-		return nil, err
-	}
-	pa.wgConn = wgConn
-
-	return wgConn, nil
+	return nil
 }
 
 func (pa *PeerAgent) OnAnswer(msg *sProto.Message) error {
@@ -160,21 +172,21 @@ func (pa *PeerAgent) OnAnswer(msg *sProto.Message) error {
 }
 
 func (pa *PeerAgent) OnRemoteCandidate(msg *sProto.Message) error {
-	return nil
-}
 
-// signalCandidate sends a message with a local ice.Candidate details to the remote peer via signal server
-func (pa *PeerAgent) signalCandidate(c ice.Candidate) error {
-	err := pa.signal.Send(&sProto.Message{
-		Type:      sProto.Message_CANDIDATE,
-		Key:       pa.LocalKey,
-		RemoteKey: pa.RemoteKey,
-		Body:      c.Marshal(),
-	})
+	log.Debugf("received remote candidate %s", msg.Body)
 
+	candidate, err := ice.UnmarshalCandidate(msg.Body)
 	if err != nil {
+		log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
 		return err
 	}
+
+	err = pa.iceAgent.AddRemoteCandidate(candidate)
+	if err != nil {
+		log.Errorf("failed on adding remote candidate %s -> %s", candidate, err)
+		return err
+	}
+
 	return nil
 }
 
@@ -182,7 +194,15 @@ func (pa *PeerAgent) signalCandidate(c ice.Candidate) error {
 func (pa *PeerAgent) onCandidate() error {
 	return pa.iceAgent.OnCandidate(func(candidate ice.Candidate) {
 		if candidate != nil {
-			err := pa.signalCandidate(candidate)
+
+			log.Debugf("discovered local candidate %s", candidate.String())
+
+			err := pa.signal.Send(&sProto.Message{
+				Type:      sProto.Message_CANDIDATE,
+				Key:       pa.LocalKey,
+				RemoteKey: pa.RemoteKey,
+				Body:      candidate.Marshal(),
+			})
 			if err != nil {
 				log.Errorf("failed signaling candidate to the remote peer %s %s", pa.RemoteKey, err)
 				//todo ??

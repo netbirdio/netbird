@@ -159,6 +159,9 @@ func ifname(n string) []byte {
 // Updates existing Wireguard Peer or creates a new one if doesn't exist
 // Endpoint is optional
 func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.Duration, endpoint string) error {
+
+	log.Debugf("updating interface %s peer %s: endpoint %s ", iface, peerKey, endpoint)
+
 	wg, err := wgctrl.New()
 	if err != nil {
 		return err
@@ -207,6 +210,8 @@ func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.
 // Updates a Wireguard interface Peer with the new endpoint
 // Used when NAT hole punching was successful and an update of the remote peer endpoint is required
 func UpdatePeerEndpoint(iface string, peerKey string, newEndpoint string) error {
+
+	log.Debugf("updating peer %s endpoint %s ", peerKey, newEndpoint)
 
 	wg, err := wgctrl.New()
 	if err != nil {

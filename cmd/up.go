@@ -25,17 +25,8 @@ var (
 		Use:   "up",
 		Short: "start wiretrustee",
 		Run: func(cmd *cobra.Command, args []string) {
-			/*config, err := ReadConfig("config.yml")
-			if err != nil {
-				log.Fatal("failed to load config")
-				os.Exit(ExitSetupFailed)
-			}*/
+			log.SetLevel(log.DebugLevel)
 
-			//c := defaultConfig()
-
-			//todo print config
-
-			//todo connect to signal
 			ctx := context.Background()
 			signalClient, err := sig.NewClient(config.SignalAddr, ctx)
 			if err != nil {
@@ -73,8 +64,8 @@ func init() {
 	upCmd.PersistentFlags().StringVar(&config.WgIface, "interface", "wiretrustee0", "Wireguard interface name")
 	upCmd.PersistentFlags().StringVar(&config.StunURL, "stun", "stun:stun.wiretrustee.com:3468", "A comma separated list of STUN servers including protocol (e.g. stun:stun.wiretrustee.com:3468")
 	upCmd.PersistentFlags().StringVar(&config.TurnURL, "turn", "turn:stun.wiretrustee.com:3468", "A comma separated list of TURN servers including protocol (e.g. stun:stun.wiretrustee.com:3468")
-	upCmd.PersistentFlags().StringVar(&config.TurnPwd, "turnUser", "wiretrustee", "A comma separated list of TURN servers including protocol (e.g. stun:stun.wiretrustee.com:3468")
-	upCmd.PersistentFlags().StringVar(&config.TurnUser, "turnPwd", "wt2021hello@", "A comma separated list of TURN servers including protocol (e.g. stun:stun.wiretrustee.com:3468")
+	upCmd.PersistentFlags().StringVar(&config.TurnUser, "turnUser", "wiretrustee", "A comma separated list of TURN servers including protocol (e.g. stun:stun.wiretrustee.com:3468")
+	upCmd.PersistentFlags().StringVar(&config.TurnPwd, "turnPwd", "wt2021hello@", "A comma separated list of TURN servers including protocol (e.g. stun:stun.wiretrustee.com:3468")
 	upCmd.PersistentFlags().StringVar(&config.SignalAddr, "signal", "signal.wiretrustee.com:10000", "Signal server URL (e.g. signal.wiretrustee.com:10000")
 	//upCmd.MarkPersistentFlagRequired("config")
 	fmt.Printf("")
