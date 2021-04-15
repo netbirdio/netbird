@@ -26,13 +26,9 @@ type PeerAgent struct {
 	signal *signal.Client
 	// a connection to a local Wireguard instance to proxy data
 	wgConn net.Conn
-	// an address of local Wireguard instance
-	wgAddr string
-	//
-	wgIface string
 }
 
-// NewPeerAgent creates a new PeerAgent with give local and remote Wireguard public keys and initializes an ICE Agent
+// NewPeerAgent creates a new PeerAgent with given local and remote Wireguard public keys and initializes an ICE Agent
 func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wgAddr string, signal *signal.Client,
 	wgIface string) (*PeerAgent, error) {
 
@@ -61,22 +57,21 @@ func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wg
 		LocalKey:  localKey,
 		RemoteKey: remoteKey,
 		iceAgent:  iceAgent,
-		wgAddr:    wgAddr,
 		conn:      nil,
 		wgConn:    wgConn,
 		signal:    signal,
-		wgIface:   wgIface,
 	}
 
 	err = peerAgent.onConnectionStateChange()
 	if err != nil {
 		//todo close agent
+		log.Errorf("failed starting listener on ICE connection state change %s", err)
 		return nil, err
 	}
 
 	err = peerAgent.onCandidate()
 	if err != nil {
-		log.Errorf("failed listening on ICE connection state changes %s", err)
+		log.Errorf("failed starting listener on ICE Candidate %s", err)
 		//todo close agent
 		return nil, err
 	}
@@ -130,21 +125,20 @@ func (pa *PeerAgent) proxyToLocalWireguard() {
 // 4. after connection has been established peer starts to:
 //	  - proxy all local Wireguard's packets to the remote peer
 //    - proxy all incoming data from the remote peer to local Wireguard
-func (pa *PeerAgent) OpenConnection(initiator bool) error {
+func (pa *PeerAgent) OpenConnection(initiator bool) (*ice.Conn, error) {
 
 	// start gathering candidates
 	err := pa.iceAgent.GatherCandidates()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// by that time it should be already set
 	frag, pwd, err := pa.iceAgent.GetRemoteUserCredentials()
 	if err != nil {
 		log.Errorf("remote credentials are not set for remote peer %s", pa.RemoteKey)
-		return err
+		return nil, err
 	}
-
 	// initiate remote connection
 	// will block until connection was established
 	var conn *ice.Conn = nil
@@ -156,17 +150,59 @@ func (pa *PeerAgent) OpenConnection(initiator bool) error {
 
 	if err != nil {
 		log.Fatalf("failed listening on local port %s", err)
-		return err
 	}
 
 	log.Infof("Local addr %s, remote addr %s", conn.LocalAddr(), conn.RemoteAddr())
-	pa.conn = conn
+
+	return conn, err
+}
+
+func (pa *PeerAgent) prepareConnection(msg *sProto.Message, initiator bool) (*signal.Credential, error) {
+	remoteCred, err := signal.UnMarshalCredential(msg)
+	if err != nil {
+		return nil, err
+	}
+
+	cred, err := pa.Authenticate(remoteCred)
+	if err != nil {
+		log.Errorf("error authenticating remote peer %s", msg.Key)
+		return nil, err
+	}
+
+	go func() {
+		pa.conn, err = pa.OpenConnection(initiator)
+		if err != nil {
+			log.Errorf("error opening connection to remote peer %s %s", msg.Key, err)
+		}
+	}()
+
+	return cred, nil
+}
+
+func (pa *PeerAgent) OnOffer(msg *sProto.Message) error {
+
+	cred, err := pa.prepareConnection(msg, false)
+	if err != nil {
+		return err
+	}
+
+	// notify the remote peer about our credentials
+	answer := signal.MarshalCredential(pa.LocalKey, pa.RemoteKey, &signal.Credential{
+		UFrag: cred.UFrag,
+		Pwd:   cred.Pwd,
+	}, sProto.Message_ANSWER)
+
+	err = pa.signal.Send(answer)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
 func (pa *PeerAgent) OnAnswer(msg *sProto.Message) error {
-	return nil
+	_, err := pa.prepareConnection(msg, true)
+	return err
 }
 
 func (pa *PeerAgent) OnRemoteCandidate(msg *sProto.Message) error {
@@ -236,7 +272,8 @@ func (pa *PeerAgent) onConnectionStateChange() error {
 	})
 }
 
-func (pa *PeerAgent) Start() error {
+// OfferConnection starts sending a connection offer to a remote peer
+func (pa *PeerAgent) OfferConnection() error {
 	localUFrag, localPwd, err := pa.iceAgent.GetLocalUserCredentials()
 	if err != nil {
 		return err

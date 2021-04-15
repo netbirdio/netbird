@@ -61,6 +61,8 @@ func (e *Engine) Start(privateKey string, peers []string) error {
 		return err
 	}
 
+	e.receiveSignal(myPubKey)
+
 	// initialize peer agents
 	for _, peer := range peers {
 		peerAgent, err := NewPeerAgent(myPubKey, peer, e.stunsTurns, fmt.Sprintf("127.0.0.1:%d", *wgPort), e.signal, e.wgIface)
@@ -69,12 +71,8 @@ func (e *Engine) Start(privateKey string, peers []string) error {
 			return err
 		}
 		e.agents[myPubKey] = peerAgent
-	}
 
-	e.receiveSignal(myPubKey)
-
-	for _, pa := range e.agents {
-		err := pa.Start()
+		err = peerAgent.OfferConnection()
 		if err != nil {
 			log.Fatalf("failed starting agent %s %s", myPubKey, err)
 			return err
@@ -97,34 +95,20 @@ func (e *Engine) receiveSignal(localKey string) {
 			return fmt.Errorf("unknown peer %s", msg.Key)
 		}
 
-		// the one who send offer (expects answer) is the initiator of teh connection
-		initiator := msg.Type == sProto.Message_ANSWER
-
 		switch msg.Type {
 		case sProto.Message_OFFER:
-
-			cred, err := e.handle(msg, peerAgent, initiator)
+			err := peerAgent.OnOffer(msg)
 			if err != nil {
+				log.Errorf("error handling OFFER from %s", msg.Key)
 				return err
 			}
-			// notify the remote peer about our credentials
-			answer := signal.MarshalCredential(peerAgent.LocalKey, peerAgent.RemoteKey, &signal.Credential{
-				UFrag: cred.UFrag,
-				Pwd:   cred.Pwd,
-			}, sProto.Message_ANSWER)
-
-			err = e.signal.Send(answer)
-			if err != nil {
-				return err
-			}
-
 			return nil
 		case sProto.Message_ANSWER:
-			_, err := e.handle(msg, peerAgent, initiator)
+			err := peerAgent.OnAnswer(msg)
 			if err != nil {
+				log.Errorf("error handling ANSWER from %s", msg.Key)
 				return err
 			}
-
 		case sProto.Message_CANDIDATE:
 			err := peerAgent.OnRemoteCandidate(msg)
 			if err != nil {
@@ -137,27 +121,4 @@ func (e *Engine) receiveSignal(localKey string) {
 	})
 
 	e.signal.WaitConnected()
-}
-
-func (e *Engine) handle(msg *sProto.Message, peerAgent *PeerAgent, initiator bool) (*signal.Credential, error) {
-	remoteCred, err := signal.UnMarshalCredential(msg)
-	if err != nil {
-		return nil, err
-	}
-
-	cred, err := peerAgent.Authenticate(remoteCred)
-	if err != nil {
-		log.Errorf("error authenticating remote peer %s", msg.Key)
-		return nil, err
-	}
-
-	go func() {
-
-		err = peerAgent.OpenConnection(initiator)
-		if err != nil {
-			log.Errorf("error opening connection to remote peer %s %s", msg.Key, err)
-		}
-	}()
-
-	return cred, nil
 }
