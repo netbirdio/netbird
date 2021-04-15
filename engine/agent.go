@@ -21,7 +21,7 @@ type PeerAgent struct {
 	// Actual peer-to-peer connection
 	conn *ice.Conn
 	// a signal.Client to negotiate initial connection
-	signal signal.Client
+	signal *signal.Client
 	// a connection to a local Wireguard instance to proxy data
 	wgConn net.Conn
 	// an address of local Wireguard instance
@@ -29,7 +29,7 @@ type PeerAgent struct {
 }
 
 // NewPeerAgent creates a new PeerAgent with give local and remote Wireguard public keys and initializes an ICE Agent
-func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wgAddr string) (*PeerAgent, error) {
+func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wgAddr string, signal *signal.Client) (*PeerAgent, error) {
 
 	// init ICE Agent
 	iceAgent, err := ice.NewAgent(&ice.AgentConfig{
@@ -47,6 +47,7 @@ func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wg
 		wgAddr:    wgAddr,
 		conn:      nil,
 		wgConn:    nil,
+		signal:    signal,
 	}
 
 	err = peerAgent.onConnectionStateChange()
@@ -215,6 +216,24 @@ func (pa *PeerAgent) onConnectionStateChange() error {
 			}()
 		}
 	})
+}
+
+func (pa *PeerAgent) Start() error {
+	localUFrag, localPwd, err := pa.iceAgent.GetLocalUserCredentials()
+	if err != nil {
+		return err
+	}
+
+	offer := signal.MarshalCredential(pa.LocalKey, pa.RemoteKey, &signal.Credential{
+		UFrag: localUFrag,
+		Pwd:   localPwd}, sProto.Message_OFFER)
+
+	err = pa.signal.Send(offer)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // authenticate sets the signal.Credential of the remote peer

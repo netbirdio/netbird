@@ -34,12 +34,13 @@ func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgA
 	}
 }
 
-func (e *Engine) Start(localKey string, peers []string) error {
+func (e *Engine) Start(privateKey string, peers []string) error {
 
 	// setup wireguard
-	myKey, err := wgtypes.ParseKey(localKey)
+	myKey, err := wgtypes.ParseKey(privateKey)
+	myPubKey := myKey.PublicKey().String()
 	if err != nil {
-		log.Errorf("error parsing Wireguard key %s: [%s]", localKey, err.Error())
+		log.Errorf("error parsing Wireguard key %s: [%s]", privateKey, err.Error())
 		return err
 	}
 
@@ -63,17 +64,23 @@ func (e *Engine) Start(localKey string, peers []string) error {
 
 	// initialize peer agents
 	for _, peer := range peers {
-		peerAgent, err := NewPeerAgent(localKey, peer, e.stunsTurns, fmt.Sprintf("127.0.0.1:%d", *wgPort))
+		peerAgent, err := NewPeerAgent(myPubKey, peer, e.stunsTurns, fmt.Sprintf("127.0.0.1:%d", *wgPort), e.signal)
 		if err != nil {
-			log.Fatalf("failed creating peer agent for pair %s - %s", localKey, peer)
+			log.Fatalf("failed creating peer agent for pair %s - %s", myPubKey, peer)
 			return err
 		}
-		e.agents[localKey] = peerAgent
+		e.agents[myPubKey] = peerAgent
 	}
 
-	e.receiveSignal(localKey)
+	e.receiveSignal(myPubKey)
 
-	// todo send offer to each peer
+	for _, pa := range e.agents {
+		err := pa.Start()
+		if err != nil {
+			log.Fatalf("failed starting agent %s %s", myPubKey, err)
+			return err
+		}
+	}
 
 	return nil
 }

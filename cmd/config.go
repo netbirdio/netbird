@@ -1,12 +1,10 @@
 package cmd
 
-import "golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
 type Config struct {
 	// Wireguard private key of local peer
-	PrivateKey wgtypes.Key
+	PrivateKey string
 	// configured remote peers (Wireguard public keys)
-	Peers    []string
+	Peers    string
 	StunURL  string
 	TurnURL  string
 	TurnUser string
