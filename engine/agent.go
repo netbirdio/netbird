@@ -36,6 +36,18 @@ type PeerAgent struct {
 func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wgAddr string, signal *signal.Client,
 	wgIface string) (*PeerAgent, error) {
 
+	// connect to local Wireguard instance
+	wgConn, err := net.Dial("udp", wgAddr)
+	if err != nil {
+		log.Fatalf("failed dialing to local Wireguard port %s", err)
+		return nil, err
+	}
+	// add local proxy connection as a Wireguard peer
+	err = iface.UpdatePeer(wgIface, remoteKey, "0.0.0.0/0", 15*time.Second, wgConn.LocalAddr().String())
+	if err != nil {
+		log.Errorf("error while configuring Wireguard peer [%s] %s", remoteKey, err.Error())
+	}
+
 	// init ICE Agent
 	iceAgent, err := ice.NewAgent(&ice.AgentConfig{
 		NetworkTypes: []ice.NetworkType{ice.NetworkTypeUDP4},
@@ -51,7 +63,7 @@ func NewPeerAgent(localKey string, remoteKey string, stunTurnURLS []*ice.URL, wg
 		iceAgent:  iceAgent,
 		wgAddr:    wgAddr,
 		conn:      nil,
-		wgConn:    nil,
+		wgConn:    wgConn,
 		signal:    signal,
 		wgIface:   wgIface,
 	}
@@ -120,22 +132,8 @@ func (pa *PeerAgent) proxyToLocalWireguard() {
 //    - proxy all incoming data from the remote peer to local Wireguard
 func (pa *PeerAgent) OpenConnection(initiator bool) error {
 
-	// connect to local Wireguard instance
-	wgConn, err := net.Dial("udp", pa.wgAddr)
-	if err != nil {
-		log.Fatalf("failed dialing to local Wireguard port %s", err)
-		return err
-	}
-	pa.wgConn = wgConn
-
-	// add local proxy connection as a Wireguard peer
-	err = iface.UpdatePeer(pa.wgIface, pa.RemoteKey, "0.0.0.0/0", 15*time.Second, wgConn.LocalAddr().String())
-	if err != nil {
-		log.Errorf("error while configuring Wireguard peer [%s] %s", pa.RemoteKey, err.Error())
-	}
-
 	// start gathering candidates
-	err = pa.iceAgent.GatherCandidates()
+	err := pa.iceAgent.GatherCandidates()
 	if err != nil {
 		return err
 	}

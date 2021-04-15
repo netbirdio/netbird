@@ -113,8 +113,7 @@ func (e *Engine) receiveSignal(localKey string) {
 				Pwd:   cred.Pwd,
 			}, sProto.Message_ANSWER)
 
-			//notify the remote peer of our credentials
-			err = peerAgent.signal.Send(answer)
+			err = e.signal.Send(answer)
 			if err != nil {
 				return err
 			}
@@ -154,9 +153,9 @@ func (e *Engine) handle(msg *sProto.Message, peerAgent *PeerAgent, initiator boo
 
 	go func() {
 
-		err := peerAgent.OpenConnection(initiator)
+		err = peerAgent.OpenConnection(initiator)
 		if err != nil {
-			log.Errorf("error opening connection ot remote peer %s", msg.Key)
+			log.Errorf("error opening connection to remote peer %s %s", msg.Key, err)
 		}
 	}()
 
