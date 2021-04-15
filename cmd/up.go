@@ -9,9 +9,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/engine"
 	sig "github.com/wiretrustee/wiretrustee/signal"
 	"os"
-	"os/signal"
 	"strings"
-	"syscall"
 )
 
 const (
@@ -59,19 +57,10 @@ var (
 
 			//signalClient.WaitConnected()
 
-			SetupCloseHandler(signalClient)
+			SetupCloseHandler()
 		},
 	}
 )
-
-func SetupCloseHandler(signalClient *sig.Client) {
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
-	fmt.Println("\r- Ctrl+C pressed in Terminal")
-	signalClient.Close()
-	os.Exit(0)
-}
 
 func init() {
 	//upCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.wiretrustee.yaml)")

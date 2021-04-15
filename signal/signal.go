@@ -67,14 +67,6 @@ func (s *SignalExchangeServer) ConnectStream(stream proto.SignalExchange_Connect
 	return stream.Context().Err()
 }
 
-func copyMessage(msg *proto.Message) *proto.Message {
-	return &proto.Message{
-		Type:      msg.Type,
-		Key:       msg.Key,
-		RemoteKey: msg.RemoteKey,
-	}
-}
-
 // Handles initial Peer connection.
 // Each connection must provide an ID header.
 // At this moment the connecting Peer will be registered in the peer.Registry
