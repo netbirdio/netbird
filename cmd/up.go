@@ -6,7 +6,7 @@ import (
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/wiretrustee/wiretrustee/engine"
+	"github.com/wiretrustee/wiretrustee/connection"
 	sig "github.com/wiretrustee/wiretrustee/signal"
 	"os"
 	"strings"
@@ -42,7 +42,7 @@ var (
 			turnURL.Username = config.TurnUser
 			urls := []*ice.URL{turnURL, stunURL}
 
-			engine := engine.NewEngine(signalClient, urls, config.WgIface, config.WgAddr)
+			engine := connection.NewEngine(signalClient, urls, config.WgIface, config.WgAddr)
 
 			err = engine.Start(config.PrivateKey, strings.Split(config.Peers, ","))
 
