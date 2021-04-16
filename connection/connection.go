@@ -54,6 +54,8 @@ type Connection struct {
 
 	// agent is an actual ice.Agent that is used to negotiate and maintain a connection to a remote peer
 	agent *ice.Agent
+
+	wgConn net.Conn
 }
 
 func NewConnection(config Config,
@@ -73,6 +75,24 @@ func NewConnection(config Config,
 	}
 }
 
+func (conn *Connection) Close() error {
+
+	conn.closeChannel <- true
+	conn.closeChannel <- true
+
+	err := conn.agent.Close()
+	if err != nil {
+		return err
+	}
+
+	err = conn.wgConn.Close()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // Open opens connection to a remote peer.
 // Will block until the connection has successfully established
 func (conn *Connection) Open() error {
@@ -81,6 +101,7 @@ func (conn *Connection) Open() error {
 	if err != nil {
 		return err
 	}
+	conn.wgConn = *wgConn
 
 	// create an ice.Agent that will be responsible for negotiating and establishing actual peer-to-peer connection
 	conn.agent, err = ice.NewAgent(&ice.AgentConfig{
@@ -198,7 +219,6 @@ func (conn *Connection) signalCredentials() error {
 func (conn *Connection) listenOnLocalCandidates() error {
 	err := conn.agent.OnCandidate(func(candidate ice.Candidate) {
 		if candidate != nil {
-
 			log.Debugf("discovered local candidate %s", candidate.String())
 			err := conn.signalCandidate(candidate)
 			if err != nil {
@@ -228,11 +248,31 @@ func (conn *Connection) listenOnConnectionStateChanges() error {
 				return
 			}
 			log.Debugf("connected to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
+		} else if state == ice.ConnectionStateDisconnected || state == ice.ConnectionStateFailed {
+			err := conn.Restart()
+			if err != nil {
+				return
+			}
 		}
 	})
 
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (conn *Connection) Restart() error {
+	err := conn.Close()
+	if err != nil {
+		log.Errorf("failed closing connection to peer %s %s", conn.Config.RemoteWgKey.String(), err)
+		return nil
+	}
+	err = conn.Open()
+	if err != nil {
+		log.Errorf("failed reopenning connection to peer %s %s", conn.Config.RemoteWgKey.String(), err)
+		return nil
 	}
 
 	return nil
@@ -263,15 +303,21 @@ func (conn *Connection) proxyToRemotePeer(wgConn net.Conn, remoteConn *ice.Conn)
 
 	buf := make([]byte, 1500)
 	for {
-		n, err := wgConn.Read(buf)
-		if err != nil {
-			log.Warnln("Error reading from peer: ", err.Error())
-			continue
-		}
+		select {
+		default:
+			n, err := wgConn.Read(buf)
+			if err != nil {
+				log.Warnln("Error reading from peer: ", err.Error())
+				continue
+			}
 
-		n, err = remoteConn.Write(buf[:n])
-		if err != nil {
-			log.Warnln("Error writing to remote peer: ", err.Error())
+			n, err = remoteConn.Write(buf[:n])
+			if err != nil {
+				log.Warnln("Error writing to remote peer: ", err.Error())
+			}
+		case <-conn.closeChannel:
+			log.Infof("stopped proxying to remote peer %s", conn.Config.RemoteWgKey.String())
+			return
 		}
 	}
 }
@@ -282,14 +328,20 @@ func (conn *Connection) proxyToLocalWireguard(wgConn net.Conn, remoteConn *ice.C
 
 	buf := make([]byte, 1500)
 	for {
-		n, err := remoteConn.Read(buf)
-		if err != nil {
-			log.Errorf("failed reading from remote connection %s", err)
-		}
+		select {
+		default:
+			n, err := remoteConn.Read(buf)
+			if err != nil {
+				log.Errorf("failed reading from remote connection %s", err)
+			}
 
-		n, err = wgConn.Write(buf[:n])
-		if err != nil {
-			log.Errorf("failed writing to local Wireguard instance %s", err)
+			n, err = wgConn.Write(buf[:n])
+			if err != nil {
+				log.Errorf("failed writing to local Wireguard instance %s", err)
+			}
+		case <-conn.closeChannel:
+			log.Infof("stopped proxying from remote peer %s", conn.Config.RemoteWgKey.String())
+			return
 		}
 	}
 }
