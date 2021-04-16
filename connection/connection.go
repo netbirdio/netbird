@@ -82,7 +82,7 @@ func (conn *Connection) Open() error {
 		return err
 	}
 
-	// create an ice Agent that will be responsible for negotiating and establishing actual peer-to-peer connection
+	// create an ice.Agent that will be responsible for negotiating and establishing actual peer-to-peer connection
 	conn.agent, err = ice.NewAgent(&ice.AgentConfig{
 		NetworkTypes: []ice.NetworkType{ice.NetworkTypeUDP4},
 		Urls:         conn.Config.StunTurnURLS,
@@ -193,8 +193,8 @@ func (conn *Connection) signalCredentials() error {
 	return nil
 }
 
-// listenOnLocalCandidates registers callback of an ICE Agent to new local connection candidates and
-// signal them to the remote peer
+// listenOnLocalCandidates registers callback of an ICE Agent to receive new local connection candidates and then
+// signals them to the remote peer
 func (conn *Connection) listenOnLocalCandidates() error {
 	err := conn.agent.OnCandidate(func(candidate ice.Candidate) {
 		if candidate != nil {
@@ -238,8 +238,8 @@ func (conn *Connection) listenOnConnectionStateChanges() error {
 	return nil
 }
 
-// createWireguardProxy opens connection to the local Wireguard instance (proxy) and sets peer endpoint of Wireguard to point
-// to the local address of a proxy
+// createWireguardProxy opens connection to a local Wireguard instance (proxy) and sets Wireguard's peer endpoint to point
+// to a local address of a proxy
 func (conn *Connection) createWireguardProxy() (*net.Conn, error) {
 	wgConn, err := net.Dial("udp", conn.Config.WgListenAddr)
 	if err != nil {

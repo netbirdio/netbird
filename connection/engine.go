@@ -89,11 +89,13 @@ func (e *Engine) Start(privateKey string, peers []string) error {
 		conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
 		e.conns[myPubKey] = conn
 
-		err = conn.Open()
-		if err != nil {
-			log.Errorf("error openning connection to a remote peer %s %s", remoteKey.String(), err.Error())
-			return err
-		}
+		go func() {
+			err = conn.Open()
+			if err != nil {
+				log.Errorf("error openning connection to a remote peer %s %s", remoteKey.String(), err.Error())
+				//todo
+			}
+		}()
 	}
 
 	return nil
