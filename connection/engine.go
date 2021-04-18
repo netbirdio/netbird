@@ -87,7 +87,7 @@ func (e *Engine) Start(privateKey string, peers []string) error {
 		}
 
 		conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
-		e.conns[myPubKey] = conn
+		e.conns[remoteKey.String()] = conn
 
 		go func() {
 			err = conn.Open()
@@ -142,7 +142,7 @@ func (e *Engine) receiveSignal(localKey string) {
 	// connect to a stream of messages coming from the signal server
 	e.signal.Receive(localKey, func(msg *sProto.Message) error {
 
-		conn := e.conns[msg.RemoteKey]
+		conn := e.conns[msg.Key]
 		if conn == nil {
 			return fmt.Errorf("wrongly addressed message %s", msg.Key)
 		}
