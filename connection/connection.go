@@ -89,6 +89,11 @@ func (conn *Connection) Close() error {
 	conn.mux.Lock()
 	defer conn.mux.Unlock()
 
+	if !conn.isActive {
+		log.Infof("connection to peer %s has been already closed, skipping", conn.Config.RemoteWgKey.String())
+		return nil
+	}
+
 	log.Debugf("closing connection to peer %s", conn.Config.RemoteWgKey.String())
 
 	conn.closeChannel <- true
