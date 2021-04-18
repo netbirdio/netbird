@@ -5,6 +5,7 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
+	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
@@ -64,7 +65,7 @@ func NewClient(addr string, ctx context.Context) (*Client, error) {
 func (client *Client) Receive(key string, msgHandler func(msg *proto.Message) error) {
 	client.connWg.Add(1)
 	go func() {
-		err := Retry(15, time.Second, func() error {
+		err := util.Retry(15, time.Second, func() error {
 			return client.connect(key, msgHandler)
 		}, func(err error) {
 			log.Warnf("disconnected from the Signal Exchange due to an error %s. Retrying ... ", err)

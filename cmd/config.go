@@ -10,8 +10,7 @@ import (
 
 type Config struct {
 	// Wireguard private key of local peer
-	PrivateKey string
-	// configured remote peers (Wireguard public keys)
+	PrivateKey   string
 	Peers        []connection.Peer
 	StunTurnURLs []*ice.URL
 	// host:port of the signal server

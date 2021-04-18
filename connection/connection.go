@@ -5,6 +5,7 @@ import (
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
+	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 	"time"
@@ -156,6 +157,8 @@ func (conn *Connection) OnAnswer(remoteAuth IceCredentials) error {
 
 func (conn *Connection) OnOffer(remoteAuth IceCredentials) error {
 
+	conn.remoteAuthChannel <- remoteAuth
+
 	uFrag, pwd, err := conn.agent.GetLocalUserCredentials()
 	if err != nil {
 		return err
@@ -165,8 +168,6 @@ func (conn *Connection) OnOffer(remoteAuth IceCredentials) error {
 	if err != nil {
 		return err
 	}
-
-	conn.remoteAuthChannel <- remoteAuth
 
 	return nil
 }
@@ -250,8 +251,14 @@ func (conn *Connection) listenOnConnectionStateChanges() error {
 			}
 			log.Debugf("connected to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
 		} else if state == ice.ConnectionStateDisconnected || state == ice.ConnectionStateFailed {
-			err := conn.Restart()
+			err := util.Retry(15, time.Second, func() error {
+				return conn.Restart()
+			}, func(err error) {
+				log.Warnf("failed restarting connection, retrying ... %s", err)
+			})
+
 			if err != nil {
+				log.Errorf("failed restarting connection %s", err)
 				return
 			}
 		}
