@@ -11,17 +11,18 @@ import (
 )
 
 var (
-	DefaultAllowedIps  = "0.0.0.0/0"
 	DefaultWgKeepAlive = 20 * time.Second
 )
 
-type Config struct {
+type ConnConfig struct {
 	// Local Wireguard listening address  e.g. 127.0.0.1:51820
 	WgListenAddr string
 	// A Local Wireguard Peer IP address in CIDR notation e.g. 10.30.30.1/24
 	WgPeerIp string
 	// Local Wireguard Interface name (e.g. wg0)
 	WgIface string
+	// Wireguard allowed IPs (e.g. 10.30.30.2/32)
+	WgAllowedIPs string
 	// Local Wireguard private key
 	WgKey wgtypes.Key
 	// Remote Wireguard public key
@@ -37,7 +38,7 @@ type IceCredentials struct {
 }
 
 type Connection struct {
-	Config Config
+	Config ConnConfig
 	// signalCandidate is a handler function to signal remote peer about local connection candidate
 	signalCandidate func(candidate ice.Candidate) error
 
@@ -58,7 +59,7 @@ type Connection struct {
 	wgConn net.Conn
 }
 
-func NewConnection(config Config,
+func NewConnection(config ConnConfig,
 	signalCandidate func(candidate ice.Candidate) error,
 	signalOffer func(uFrag string, pwd string) error,
 	signalAnswer func(uFrag string, pwd string) error,
@@ -287,7 +288,7 @@ func (conn *Connection) createWireguardProxy() (*net.Conn, error) {
 		return nil, err
 	}
 	// add local proxy connection as a Wireguard peer
-	err = iface.UpdatePeer(conn.Config.WgIface, conn.Config.RemoteWgKey.String(), DefaultAllowedIps, DefaultWgKeepAlive,
+	err = iface.UpdatePeer(conn.Config.WgIface, conn.Config.RemoteWgKey.String(), conn.Config.WgAllowedIPs, DefaultWgKeepAlive,
 		wgConn.LocalAddr().String())
 	if err != nil {
 		log.Errorf("error while configuring Wireguard peer [%s] %s", conn.Config.RemoteWgKey.String(), err.Error())

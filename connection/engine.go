@@ -23,6 +23,11 @@ type Engine struct {
 	wgIp string
 }
 
+type Peer struct {
+	WgPubKey     string
+	WgAllowedIps string
+}
+
 func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string) *Engine {
 	return &Engine{
 		stunsTurns: stunsTurns,
@@ -33,7 +38,7 @@ func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgA
 	}
 }
 
-func (e *Engine) Start(privateKey string, peers []string) error {
+func (e *Engine) Start(privateKey string, peers []Peer) error {
 
 	// setup wireguard
 	myKey, err := wgtypes.ParseKey(privateKey)
@@ -65,11 +70,12 @@ func (e *Engine) Start(privateKey string, peers []string) error {
 
 	// initialize peer agents
 	for _, peer := range peers {
-		remoteKey, _ := wgtypes.ParseKey(peer)
-		connConfig := &Config{
+		remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
+		connConfig := &ConnConfig{
 			WgListenAddr: fmt.Sprintf("127.0.0.1:%d", *wgPort),
 			WgPeerIp:     e.wgIp,
 			WgIface:      e.wgIface,
+			WgAllowedIPs: peer.WgAllowedIps,
 			WgKey:        myKey,
 			RemoteWgKey:  remoteKey,
 			StunTurnURLS: e.stunsTurns,
