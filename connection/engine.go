@@ -9,6 +9,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/signal"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"time"
 )
 
 type Engine struct {
@@ -76,7 +77,7 @@ func (e *Engine) Start(privateKey string, peers []Peer) error {
 		go func() {
 
 			operation := func() error {
-				conn, closed, err := e.openConnection(*wgPort, myKey, peer)
+				_, closed, err := e.openConnection(*wgPort, myKey, peer)
 				if err != nil {
 					return err
 				}
@@ -84,12 +85,9 @@ func (e *Engine) Start(privateKey string, peers []Peer) error {
 				select {
 				case _, ok := <-closed:
 					if !ok {
-						err = conn.Close()
-						if err != nil {
-							return err
-						}
+						return fmt.Errorf("connection to peer %s has been closed", peer.WgPubKey)
 					}
-					return fmt.Errorf("connection to peer %s has been closed", peer.WgPubKey)
+					return nil
 				}
 			}
 
@@ -128,17 +126,15 @@ func (e *Engine) openConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Conn
 		return signalCandidate(candidate, myKey, remoteKey, e.signal)
 	}
 
-	connected := make(chan struct{}, 1)
-	closed := make(chan struct{})
-	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer, closed, connected)
+	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
 	e.conns[remoteKey.String()] = conn
-	// blocks until the connection is open (or timeout??)
-	err := conn.Open()
+	// blocks until the connection is open (or timeout)
+	closedCh, err := conn.Open(60 * time.Second)
 	if err != nil {
 		log.Errorf("error openning connection to a remote peer %s %s", remoteKey.String(), err.Error())
 		return nil, nil, err
 	}
-	return conn, closed, nil
+	return conn, closedCh, nil
 }
 
 func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client) error {
