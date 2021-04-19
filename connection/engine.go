@@ -77,14 +77,16 @@ func (e *Engine) Start(privateKey string, peers []Peer) error {
 		go func() {
 
 			operation := func() error {
-				_, closed, err := e.openConnection(*wgPort, myKey, peer)
+				_, closed, err := e.openPeerConnection(*wgPort, myKey, peer)
 				if err != nil {
+					e.conns[peer.WgPubKey] = nil
 					return err
 				}
 
 				select {
 				case _, ok := <-closed:
 					if !ok {
+						e.conns[peer.WgPubKey] = nil
 						return fmt.Errorf("connection to peer %s has been closed", peer.WgPubKey)
 					}
 					return nil
@@ -103,7 +105,8 @@ func (e *Engine) Start(privateKey string, peers []Peer) error {
 	return nil
 }
 
-func (e *Engine) openConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, chan struct{}, error) {
+func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, chan struct{}, error) {
+
 	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
 	connConfig := &ConnConfig{
 		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", wgPort),

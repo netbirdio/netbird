@@ -53,7 +53,7 @@ type Connection struct {
 	// remoteAuthChannel is a channel used to wait for remote credentials to proceed with the connection
 	remoteAuthChannel chan IceCredentials
 
-	closeChannel  chan bool
+	closeChannel  chan struct{}
 	closedChannel chan struct{}
 
 	// agent is an actual ice.Agent that is used to negotiate and maintain a connection to a remote peer
@@ -78,7 +78,7 @@ func NewConnection(config ConnConfig,
 		signalOffer:       signalOffer,
 		signalAnswer:      signalAnswer,
 		remoteAuthChannel: make(chan IceCredentials, 1),
-		closeChannel:      make(chan bool, 2),
+		closeChannel:      make(chan struct{}),
 		closedChannel:     make(chan struct{}),
 		agent:             nil,
 		isActive:          false,
@@ -108,8 +108,7 @@ func (conn *Connection) Close() error {
 
 	log.Debugf("closing connection to peer %s", conn.Config.RemoteWgKey.String())
 
-	conn.closeChannel <- true
-	conn.closeChannel <- true
+	close(conn.closeChannel)
 
 	log.Debugf("closed connection to peer %s", conn.Config.RemoteWgKey.String())
 
@@ -364,8 +363,10 @@ func (conn *Connection) proxyToRemotePeer(wgConn net.Conn, remoteConn *ice.Conn)
 			if err != nil {
 				log.Warnln("Error writing to remote peer: ", err.Error())
 			}
-		case <-conn.closeChannel:
-			log.Infof("stopped proxying to remote peer %s", conn.Config.RemoteWgKey.String())
+		case _, ok := <-conn.closeChannel:
+			if !ok {
+				log.Infof("stopped proxying to remote peer %s", conn.Config.RemoteWgKey.String())
+			}
 			return
 		}
 	}
@@ -388,8 +389,10 @@ func (conn *Connection) proxyToLocalWireguard(wgConn net.Conn, remoteConn *ice.C
 			if err != nil {
 				log.Errorf("failed writing to local Wireguard instance %s", err)
 			}
-		case <-conn.closeChannel:
-			log.Infof("stopped proxying from remote peer %s", conn.Config.RemoteWgKey.String())
+		case _, ok := <-conn.closeChannel:
+			if !ok {
+				log.Infof("stopped proxying from remote peer %s", conn.Config.RemoteWgKey.String())
+			}
 			return
 		}
 	}
