@@ -29,7 +29,18 @@ func NewServer() *SignalExchangeServer {
 	}
 }
 
-func (s *SignalExchangeServer) Connect(context.Context, *proto.Message) (*proto.Message, error) {
+func (s *SignalExchangeServer) Connect(ctx context.Context, msg *proto.Message) (*proto.Message, error) {
+	if dstPeer, found := s.registry.Peers[msg.RemoteKey]; found {
+		//forward the message to the target peer
+		err := dstPeer.Stream.Send(msg)
+		if err != nil {
+			log.Errorf("error while forwarding message from peer [%s] to peer [%s]", p.Id, msg.RemoteKey)
+			//todo respond to the sender?
+		}
+	} else {
+		log.Warnf("message from peer [%s] can't be forwarded to peer [%s] because destination peer is not connected", p.Id, msg.RemoteKey)
+		//todo respond to the sender?
+	}
 	return &proto.Message{}, nil
 }
 
