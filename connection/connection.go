@@ -317,12 +317,12 @@ func (conn *Connection) Restart() error {
 	err := conn.Close()
 	if err != nil {
 		log.Errorf("failed closing connection to peer %s %s", conn.Config.RemoteWgKey.String(), err)
-		return nil
+		return err
 	}
 	err = conn.Open()
 	if err != nil {
 		log.Errorf("failed reopenning connection to peer %s %s", conn.Config.RemoteWgKey.String(), err)
-		return nil
+		return err
 	}
 
 	return nil
