@@ -31,8 +31,8 @@ func NewServer() *SignalExchangeServer {
 
 func (s *SignalExchangeServer) Connect(ctx context.Context, msg *proto.Message) (*proto.Message, error) {
 
-	if _, found := s.registry.Peers[msg.Key]; found {
-		return &proto.Message{}, nil
+	if _, found := s.registry.Peers[msg.Key]; !found {
+		return nil, fmt.Errorf("unknown peer %s", msg.Key)
 	}
 
 	if dstPeer, found := s.registry.Peers[msg.RemoteKey]; found {
