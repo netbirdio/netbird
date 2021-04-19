@@ -2,6 +2,7 @@ package connection
 
 import (
 	"fmt"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
@@ -70,41 +71,74 @@ func (e *Engine) Start(privateKey string, peers []Peer) error {
 
 	// initialize peer agents
 	for _, peer := range peers {
-		remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
-		connConfig := &ConnConfig{
-			WgListenAddr: fmt.Sprintf("127.0.0.1:%d", *wgPort),
-			WgPeerIp:     e.wgIp,
-			WgIface:      e.wgIface,
-			WgAllowedIPs: peer.WgAllowedIps,
-			WgKey:        myKey,
-			RemoteWgKey:  remoteKey,
-			StunTurnURLS: e.stunsTurns,
-		}
 
-		signalOffer := func(uFrag string, pwd string) error {
-			return signalAuth(uFrag, pwd, myKey, remoteKey, e.signal, false)
-		}
-
-		signalAnswer := func(uFrag string, pwd string) error {
-			return signalAuth(uFrag, pwd, myKey, remoteKey, e.signal, true)
-		}
-		signalCandidate := func(candidate ice.Candidate) error {
-			return signalCandidate(candidate, myKey, remoteKey, e.signal)
-		}
-
-		conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
-		e.conns[remoteKey.String()] = conn
-
+		peer := peer
 		go func() {
-			err = conn.Open()
-			if err != nil {
-				log.Errorf("error openning connection to a remote peer %s %s", remoteKey.String(), err.Error())
-				//todo
+
+			operation := func() error {
+				conn, closed, err := e.openConnection(*wgPort, myKey, peer)
+				if err != nil {
+					return err
+				}
+
+				select {
+				case _, ok := <-closed:
+					if !ok {
+						err = conn.Close()
+						if err != nil {
+							return err
+						}
+					}
+					return fmt.Errorf("connection to peer %s has been closed", peer.WgPubKey)
+				}
 			}
+
+			err = backoff.Retry(operation, backoff.NewExponentialBackOff())
+			if err != nil {
+				log.Errorf("----------------------> %s ", err)
+				return
+			}
+
 		}()
 	}
 
 	return nil
+}
+
+func (e *Engine) openConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, chan struct{}, error) {
+	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
+	connConfig := &ConnConfig{
+		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", wgPort),
+		WgPeerIp:     e.wgIp,
+		WgIface:      e.wgIface,
+		WgAllowedIPs: peer.WgAllowedIps,
+		WgKey:        myKey,
+		RemoteWgKey:  remoteKey,
+		StunTurnURLS: e.stunsTurns,
+	}
+
+	signalOffer := func(uFrag string, pwd string) error {
+		return signalAuth(uFrag, pwd, myKey, remoteKey, e.signal, false)
+	}
+
+	signalAnswer := func(uFrag string, pwd string) error {
+		return signalAuth(uFrag, pwd, myKey, remoteKey, e.signal, true)
+	}
+	signalCandidate := func(candidate ice.Candidate) error {
+		return signalCandidate(candidate, myKey, remoteKey, e.signal)
+	}
+
+	connected := make(chan struct{}, 1)
+	closed := make(chan struct{})
+	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer, closed, connected)
+	e.conns[remoteKey.String()] = conn
+	// blocks until the connection is open (or timeout??)
+	err := conn.Open()
+	if err != nil {
+		log.Errorf("error openning connection to a remote peer %s %s", remoteKey.String(), err.Error())
+		return nil, nil, err
+	}
+	return conn, closed, nil
 }
 
 func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client) error {

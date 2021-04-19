@@ -2,7 +2,6 @@ package connection
 
 import (
 	"context"
-	"github.com/cenkalti/backoff/v4"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
@@ -53,7 +52,9 @@ type Connection struct {
 	// remoteAuthChannel is a channel used to wait for remote credentials to proceed with the connection
 	remoteAuthChannel chan IceCredentials
 
-	closeChannel chan bool
+	closeChannel     chan bool
+	connectedChannel chan struct{}
+	closedChannel    chan struct{}
 
 	// agent is an actual ice.Agent that is used to negotiate and maintain a connection to a remote peer
 	agent *ice.Agent
@@ -69,6 +70,8 @@ func NewConnection(config ConnConfig,
 	signalCandidate func(candidate ice.Candidate) error,
 	signalOffer func(uFrag string, pwd string) error,
 	signalAnswer func(uFrag string, pwd string) error,
+	closedChannel chan struct{},
+	connectedChannel chan struct{},
 ) *Connection {
 
 	return &Connection{
@@ -78,6 +81,8 @@ func NewConnection(config ConnConfig,
 		signalAnswer:      signalAnswer,
 		remoteAuthChannel: make(chan IceCredentials, 1),
 		closeChannel:      make(chan bool, 2),
+		connectedChannel:  connectedChannel,
+		closedChannel:     closedChannel,
 		agent:             nil,
 		isActive:          false,
 		mux:               sync.Mutex{},
@@ -94,11 +99,6 @@ func (conn *Connection) Close() error {
 		return nil
 	}
 
-	log.Debugf("closing connection to peer %s", conn.Config.RemoteWgKey.String())
-
-	conn.closeChannel <- true
-	conn.closeChannel <- true
-
 	err := conn.agent.Close()
 	if err != nil {
 		return err
@@ -108,6 +108,11 @@ func (conn *Connection) Close() error {
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("closing connection to peer %s", conn.Config.RemoteWgKey.String())
+
+	conn.closeChannel <- true
+	conn.closeChannel <- true
 
 	log.Debugf("closed connection to peer %s", conn.Config.RemoteWgKey.String())
 
@@ -120,22 +125,20 @@ func (conn *Connection) Close() error {
 // Will block until the connection has successfully established
 func (conn *Connection) Open() error {
 
-	log.Debugf("opening connection to peer %s", conn.Config.RemoteWgKey.String())
+	log.Debugf("1: opening connection to peer %s", conn.Config.RemoteWgKey.String())
 
 	conn.mux.Lock()
 	defer conn.mux.Unlock()
 
-	wgConn, err := conn.createWireguardProxy()
-	if err != nil {
-		return err
-	}
-	conn.wgConn = *wgConn
-
 	// create an ice.Agent that will be responsible for negotiating and establishing actual peer-to-peer connection
-	conn.agent, err = ice.NewAgent(&ice.AgentConfig{
+	a, err := ice.NewAgent(&ice.AgentConfig{
 		NetworkTypes: []ice.NetworkType{ice.NetworkTypeUDP4},
 		Urls:         conn.Config.StunTurnURLS,
 	})
+	conn.agent = a
+
+	log.Debugf("2: opening connection to peer %s", conn.Config.RemoteWgKey.String())
+
 	if err != nil {
 		return err
 	}
@@ -145,17 +148,23 @@ func (conn *Connection) Open() error {
 		return err
 	}
 
+	log.Debugf("3: opening connection to peer %s", conn.Config.RemoteWgKey.String())
+
 	err = conn.listenOnConnectionStateChanges()
 	if err != nil {
 		return err
 	}
+
+	log.Debugf("4: opening connection to peer %s", conn.Config.RemoteWgKey.String())
 
 	err = conn.signalCredentials()
 	if err != nil {
 		return err
 	}
 
-	// wait until credentials have been sent from the remote peer (will arrive via signal channel)
+	log.Debugf("5: opening connection to peer %s", conn.Config.RemoteWgKey.String())
+
+	// wait until credentials have been sent from the remote peer (will arrive via a signal server)
 	remoteAuth := <-conn.remoteAuthChannel
 
 	err = conn.agent.GatherCandidates()
@@ -168,6 +177,12 @@ func (conn *Connection) Open() error {
 		log.Errorf("failed establishing connection with the remote peer %s %s", conn.Config.RemoteWgKey.String(), err)
 		return err
 	}
+
+	wgConn, err := conn.createWireguardProxy()
+	if err != nil {
+		return err
+	}
+	conn.wgConn = *wgConn
 
 	go conn.proxyToRemotePeer(*wgConn, remoteConn)
 	go conn.proxyToLocalWireguard(*wgConn, remoteConn)
@@ -228,6 +243,7 @@ func (conn *Connection) OnRemoteCandidate(candidate ice.Candidate) error {
 }
 
 // openConnectionToRemote opens an ice.Conn to the remote peer. This is a real peer-to-peer connection
+// blocks until connection has been established
 func (conn *Connection) openConnectionToRemote(isControlling bool, credentials IceCredentials) (*ice.Conn, error) {
 	var realConn *ice.Conn
 	var err error
@@ -295,14 +311,7 @@ func (conn *Connection) listenOnConnectionStateChanges() error {
 			log.Debugf("connected to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
 		} else if state == ice.ConnectionStateDisconnected || state == ice.ConnectionStateFailed {
 			// todo do we really wanna have a connection restart within connection itself? Think of moving it outside
-			operation := func() error {
-				return conn.Restart()
-			}
-			err := backoff.Retry(operation, backoff.NewExponentialBackOff())
-			if err != nil {
-				log.Errorf("error while communicating with the Signal Exchange %s ", err)
-				return
-			}
+			close(conn.closedChannel)
 		}
 	})
 
