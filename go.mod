@@ -3,6 +3,7 @@ module github.com/wiretrustee/wiretrustee
 go 1.16
 
 require (
+	github.com/cenkalti/backoff/v4 v4.1.0
 	github.com/golang/protobuf v1.4.2
 	github.com/google/nftables v0.0.0-20201230142148-715e31cb3c31
 	github.com/pion/ice/v2 v2.0.17

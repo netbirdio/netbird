@@ -3,9 +3,9 @@ package signal
 import (
 	"context"
 	"fmt"
+	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
-	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
@@ -42,8 +42,8 @@ func NewClient(addr string, ctx context.Context) (*Client, error) {
 		grpc.WithInsecure(),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    30 * time.Second,
-			Timeout: 10 * time.Second,
+			Time:    3 * time.Second,
+			Timeout: 2 * time.Second,
 		}))
 
 	if err != nil {
@@ -65,13 +65,16 @@ func NewClient(addr string, ctx context.Context) (*Client, error) {
 func (client *Client) Receive(key string, msgHandler func(msg *proto.Message) error) {
 	client.connWg.Add(1)
 	go func() {
-		err := util.Retry(15, time.Second, func() error {
-			return client.connect(key, msgHandler)
-		}, func(err error) {
-			log.Warnf("disconnected from the Signal Exchange due to an error %s. Retrying ... ", err)
-			client.connWg.Add(1)
-		})
+		operation := func() error {
+			err := client.connect(key, msgHandler)
+			if err != nil {
+				log.Warnf("disconnected from the Signal Exchange due to an error %s. Retrying ... ", err)
+				client.connWg.Add(1)
+			}
+			return err
+		}
 
+		err := backoff.Retry(operation, backoff.NewExponentialBackOff())
 		if err != nil {
 			log.Errorf("error while communicating with the Signal Exchange %s ", err)
 			return
@@ -111,11 +114,14 @@ func (client *Client) WaitConnected() {
 // The Client.Receive method must be called before sending messages to establish initial connection to the Signal Exchange
 // Client.connWg can be used to wait
 func (client *Client) Send(msg *proto.Message) error {
-	if client.stream == nil {
+
+	_, err := client.realClient.Connect(context.TODO(), msg)
+
+	/*if client.stream == nil {
 		return fmt.Errorf("connection to the Signal Exchnage has not been established yet. Please call Client.Receive before sending messages")
 	}
 
-	err := client.stream.Send(msg)
+	err := client.stream.Send(msg)*/
 	if err != nil {
 		log.Errorf("error while sending message to peer [%s] [error: %v]", msg.RemoteKey, err)
 		return err
