@@ -30,7 +30,7 @@ func NewServer() *SignalExchangeServer {
 }
 
 func (s *SignalExchangeServer) Connect(context.Context, *proto.Message) (*proto.Message, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Receive not implemented")
+	return &proto.Message{}, nil
 }
 
 func (s *SignalExchangeServer) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) error {
