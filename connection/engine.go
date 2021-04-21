@@ -75,25 +75,33 @@ func (e *Engine) Start(privateKey string, peers []Peer) error {
 
 		peer := peer
 		go func() {
-
+			var backOff = &backoff.ExponentialBackOff{
+				InitialInterval:     backoff.DefaultInitialInterval,
+				RandomizationFactor: backoff.DefaultRandomizationFactor,
+				Multiplier:          backoff.DefaultMultiplier,
+				MaxInterval:         5 * time.Second,
+				MaxElapsedTime:      time.Duration(0), //never stop
+				Stop:                backoff.Stop,
+				Clock:               backoff.SystemClock,
+			}
 			operation := func() error {
 				_, err := e.openPeerConnection(*wgPort, myKey, peer)
 				if err != nil {
+					log.Warnln("retrying connection because of error: ", err.Error())
 					e.conns[peer.WgPubKey] = nil
 					return err
 				}
+				backOff.Reset()
 				return nil
 			}
 
-			err = backoff.Retry(operation, backoff.NewExponentialBackOff())
+			err = backoff.Retry(operation, backOff)
 			if err != nil {
-				log.Errorf("----------------------> %s ", err)
-				return
+				// should actually never happen
+				panic(err)
 			}
-
 		}()
 	}
-
 	return nil
 }
 
@@ -126,7 +134,6 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	// blocks until the connection is open (or timeout)
 	err := conn.Open(20 * time.Second)
 	if err != nil {
-		log.Errorf("error openning connection to a remote peer %s %s", remoteKey.String(), err.Error())
 		return nil, err
 	}
 	return conn, nil
