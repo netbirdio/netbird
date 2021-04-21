@@ -29,7 +29,9 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-
+      -
+        name: Install modules
+        run: go mod tidy
       -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v2
