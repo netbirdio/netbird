@@ -1,0 +1,19 @@
+project_name: wiretrustee
+builds:
+  - env: [CGO_ENABLED=0]
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: darwin
+        goarch: arm64
+nfpms:
+  - maintainer: Wiretrustee <wiretrustee@wiretrustee.com>
+    description: Wiretrustee project.
+    homepage: https://wiretrustee.com/
+    formats:
+      - deb
+      - rpm
