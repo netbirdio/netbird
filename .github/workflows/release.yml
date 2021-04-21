@@ -1,21 +1,19 @@
-name: release
+name: Release
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
 
 jobs:
-  build:
+  release:
     runs-on: ubuntu-latest
     steps:
       -
         name: Checkout
         uses: actions/checkout@v2
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # It is required for GoReleaser to work properly
       -
         name: Set up Go
         uses: actions/setup-go@v2
@@ -35,13 +33,9 @@ jobs:
       -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v2
-        #if: startsWith(github.ref, 'refs/tags/')
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           version: latest
-          args: --snapshot --skip-publish --rm-dist
+          args: release --rm-dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      -
-        name: Check dist directory
-        run: ls -lhR dist/
