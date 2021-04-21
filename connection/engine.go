@@ -132,7 +132,7 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
 	e.conns[remoteKey.String()] = conn
 	// blocks until the connection is open (or timeout)
-	err := conn.Open(20 * time.Second)
+	err := conn.Open(60 * time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -196,9 +196,8 @@ func (e *Engine) receiveSignal(localKey string) {
 				return err
 			}
 			err = conn.OnOffer(IceCredentials{
-				uFrag:         remoteCred.UFrag,
-				pwd:           remoteCred.Pwd,
-				isControlling: false,
+				uFrag: remoteCred.UFrag,
+				pwd:   remoteCred.Pwd,
 			})
 
 			if err != nil {
@@ -212,9 +211,8 @@ func (e *Engine) receiveSignal(localKey string) {
 				return err
 			}
 			err = conn.OnAnswer(IceCredentials{
-				uFrag:         remoteCred.UFrag,
-				pwd:           remoteCred.Pwd,
-				isControlling: true,
+				uFrag: remoteCred.UFrag,
+				pwd:   remoteCred.Pwd,
 			})
 
 			if err != nil {

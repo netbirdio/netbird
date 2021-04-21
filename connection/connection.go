@@ -34,9 +34,8 @@ type ConnConfig struct {
 }
 
 type IceCredentials struct {
-	uFrag         string
-	pwd           string
-	isControlling bool //todo think of better solution??
+	uFrag string
+	pwd   string
 }
 
 type Connection struct {
@@ -57,8 +56,6 @@ type Connection struct {
 	agent *ice.Agent
 
 	wgConn net.Conn
-	// isActive indicates whether connection is active or not.
-	isActive bool
 
 	connected *Cond
 	closeCond *Cond
@@ -81,7 +78,6 @@ func NewConnection(config ConnConfig,
 		closeCond:         NewCond(),
 		connected:         NewCond(),
 		agent:             nil,
-		isActive:          false,
 	}
 }
 
@@ -128,7 +124,8 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			return err
 		}
 
-		remoteConn, err := conn.openConnectionToRemote(remoteAuth.isControlling, remoteAuth)
+		isControlling := conn.Config.WgKey.PublicKey().String() > conn.Config.RemoteWgKey.String()
+		remoteConn, err := conn.openConnectionToRemote(isControlling, remoteAuth)
 		if err != nil {
 			log.Errorf("failed establishing connection with the remote peer %s %s", conn.Config.RemoteWgKey.String(), err)
 			return err
@@ -144,8 +141,6 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		go conn.proxyToLocalWireguard(*wgConn, remoteConn)
 
 		log.Infof("opened connection to peer %s", conn.Config.RemoteWgKey.String())
-
-		conn.isActive = true
 	case <-time.After(timeout):
 		err := conn.Close()
 		if err != nil {
