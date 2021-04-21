@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/iface"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"net"
 	"sync"
 	"time"
 )
@@ -55,7 +53,7 @@ type Connection struct {
 	// agent is an actual ice.Agent that is used to negotiate and maintain a connection to a remote peer
 	agent *ice.Agent
 
-	wgConn net.Conn
+	wgProxy *WgProxy
 
 	connected *Cond
 	closeCond *Cond
@@ -78,6 +76,7 @@ func NewConnection(config ConnConfig,
 		closeCond:         NewCond(),
 		connected:         NewCond(),
 		agent:             nil,
+		wgProxy:           NewWgProxy(config.WgIface, config.RemoteWgKey.String(), config.WgAllowedIPs, config.WgListenAddr),
 	}
 }
 
@@ -131,14 +130,10 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			return err
 		}
 
-		wgConn, err := conn.createWireguardProxy()
+		err = conn.wgProxy.Start(remoteConn)
 		if err != nil {
 			return err
 		}
-		conn.wgConn = *wgConn
-
-		go conn.proxyToRemotePeer(*wgConn, remoteConn)
-		go conn.proxyToLocalWireguard(*wgConn, remoteConn)
 
 		log.Infof("opened connection to peer %s", conn.Config.RemoteWgKey.String())
 	case <-time.After(timeout):
@@ -170,7 +165,7 @@ func (conn *Connection) Close() error {
 			}
 		}
 
-		if c := conn.wgConn; c != nil {
+		if c := conn.wgProxy; c != nil {
 			e := c.Close()
 			if e != nil {
 				log.Warnf("error while closingWireguard proxy connection of peer connection %s", conn.Config.RemoteWgKey.String())
@@ -300,73 +295,4 @@ func (conn *Connection) listenOnConnectionStateChanges() error {
 	}
 
 	return nil
-}
-
-// createWireguardProxy opens connection to a local Wireguard instance (proxy) and sets Wireguard's peer endpoint to point
-// to a local address of a proxy
-func (conn *Connection) createWireguardProxy() (*net.Conn, error) {
-	wgConn, err := net.Dial("udp", conn.Config.WgListenAddr)
-	if err != nil {
-		log.Fatalf("failed dialing to local Wireguard port %s", err)
-		return nil, err
-	}
-	// add local proxy connection as a Wireguard peer
-	err = iface.UpdatePeer(conn.Config.WgIface, conn.Config.RemoteWgKey.String(), conn.Config.WgAllowedIPs, DefaultWgKeepAlive,
-		wgConn.LocalAddr().String())
-	if err != nil {
-		log.Errorf("error while configuring Wireguard peer [%s] %s", conn.Config.RemoteWgKey.String(), err.Error())
-		return nil, err
-	}
-
-	return &wgConn, err
-}
-
-// proxyToRemotePeer proxies everything from Wireguard to the remote peer
-// blocks
-func (conn *Connection) proxyToRemotePeer(wgConn net.Conn, remoteConn *ice.Conn) {
-
-	buf := make([]byte, 1500)
-	for {
-		select {
-		case <-conn.closeCond.C:
-			log.Infof("stopped proxying from remote peer %s due to closed connection", conn.Config.RemoteWgKey.String())
-			return
-		default:
-			n, err := wgConn.Read(buf)
-			if err != nil {
-				//log.Warnln("failed reading from peer: ", err.Error())
-				continue
-			}
-
-			n, err = remoteConn.Write(buf[:n])
-			if err != nil {
-				//log.Warnln("failed writing to remote peer: ", err.Error())
-			}
-		}
-	}
-}
-
-// proxyToLocalWireguard proxies everything from the remote peer to local Wireguard
-// blocks
-func (conn *Connection) proxyToLocalWireguard(wgConn net.Conn, remoteConn *ice.Conn) {
-
-	buf := make([]byte, 1500)
-	for {
-		select {
-		case <-conn.closeCond.C:
-			log.Infof("stopped proxying from remote peer %s due to closed connection", conn.Config.RemoteWgKey.String())
-			return
-		default:
-			n, err := remoteConn.Read(buf)
-			if err != nil {
-				//log.Errorf("failed reading from remote connection %s", err)
-			}
-
-			n, err = wgConn.Write(buf[:n])
-			if err != nil {
-				//log.Errorf("failed writing to local Wireguard instance %s", err)
-			}
-
-		}
-	}
 }
