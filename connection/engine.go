@@ -77,20 +77,12 @@ func (e *Engine) Start(privateKey string, peers []Peer) error {
 		go func() {
 
 			operation := func() error {
-				_, closed, err := e.openPeerConnection(*wgPort, myKey, peer)
+				_, err := e.openPeerConnection(*wgPort, myKey, peer)
 				if err != nil {
 					e.conns[peer.WgPubKey] = nil
 					return err
 				}
-
-				select {
-				case _, ok := <-closed:
-					if !ok {
-						e.conns[peer.WgPubKey] = nil
-						return fmt.Errorf("connection to peer %s has been closed", peer.WgPubKey)
-					}
-					return nil
-				}
+				return nil
 			}
 
 			err = backoff.Retry(operation, backoff.NewExponentialBackOff())
@@ -105,7 +97,7 @@ func (e *Engine) Start(privateKey string, peers []Peer) error {
 	return nil
 }
 
-func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, chan struct{}, error) {
+func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, error) {
 
 	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
 	connConfig := &ConnConfig{
@@ -132,12 +124,12 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
 	e.conns[remoteKey.String()] = conn
 	// blocks until the connection is open (or timeout)
-	closedCh, err := conn.Open(60 * time.Second)
+	err := conn.Open(20 * time.Second)
 	if err != nil {
 		log.Errorf("error openning connection to a remote peer %s %s", remoteKey.String(), err.Error())
-		return nil, nil, err
+		return nil, err
 	}
-	return conn, closedCh, nil
+	return conn, nil
 }
 
 func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client) error {
