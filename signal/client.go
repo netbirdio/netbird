@@ -65,16 +65,30 @@ func NewClient(addr string, ctx context.Context) (*Client, error) {
 func (client *Client) Receive(key string, msgHandler func(msg *proto.Message) error) {
 	client.connWg.Add(1)
 	go func() {
+
+		var backOff = &backoff.ExponentialBackOff{
+			InitialInterval:     backoff.DefaultInitialInterval,
+			RandomizationFactor: backoff.DefaultRandomizationFactor,
+			Multiplier:          backoff.DefaultMultiplier,
+			MaxInterval:         3 * time.Second,
+			MaxElapsedTime:      time.Duration(0), //never stop
+			Stop:                backoff.Stop,
+			Clock:               backoff.SystemClock,
+		}
+
 		operation := func() error {
 			err := client.connect(key, msgHandler)
 			if err != nil {
 				log.Warnf("disconnected from the Signal Exchange due to an error %s. Retrying ... ", err)
 				client.connWg.Add(1)
+				return err
 			}
-			return err
+
+			backOff.Reset()
+			return nil
 		}
 
-		err := backoff.Retry(operation, backoff.NewExponentialBackOff())
+		err := backoff.Retry(operation, backOff)
 		if err != nil {
 			log.Errorf("error while communicating with the Signal Exchange %s ", err)
 			return
