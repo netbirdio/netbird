@@ -5,6 +5,7 @@ builds:
       - linux
       - darwin
     goarch:
+      - arm
       - amd64
       - arm64
     ignore:
