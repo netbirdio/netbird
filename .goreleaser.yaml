@@ -18,3 +18,13 @@ nfpms:
     formats:
       - deb
       - rpm
+    contents:
+      - src: release_files/wiretrustee.service
+        dst: /lib/systemd/system/wiretrustee.service
+
+      - src: release_files/wiretrustee.json
+        dst: /etc/wiretrustee/wiretrustee.json
+        type: "config|noreplace"
+
+    scripts:
+      postinstall: "release_files/post_install.sh"
