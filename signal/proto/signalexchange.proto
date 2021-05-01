@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = ".;proto";
+
+package signalexchange;
+
+service SignalExchange {
+  // Synchronously connect to the Signal Exchange service offering connection candidates and waiting for connection candidates from the other party (remote peer)
+  rpc Connect(Message) returns (Message) {}
+  // Connect to the Signal Exchange service offering connection candidates and maintain a channel for receiving candidates from the other party (remote peer)
+  rpc ConnectStream(stream Message) returns (stream Message) {}
+}
+
+message Message {
+
+  // Message type
+  enum Type {
+    OFFER = 0;
+    ANSWER = 1;
+    CANDIDATE = 2;
+  }
+
+  Type type = 1;
+
+  // a sha256 fingerprint of the Wireguard public key
+  string key = 2;
+
+  // a sha256 fingerprint of the Wireguard public key of the remote peer to connect to
+  string remoteKey = 3;
+
+  string body = 4;
+}
