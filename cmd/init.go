@@ -23,6 +23,11 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			InitLog(logLevel)
 
+			if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+				log.Warnf("config already exists under path %s", configPath)
+				os.Exit(ExitSetupFailed)
+			}
+
 			if wgKey == "" {
 				wgKey = generateKey()
 			}
