@@ -27,7 +27,7 @@ func NewServer() *SignalExchangeServer {
 	}
 }
 
-func (s *SignalExchangeServer) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.Message, error) {
+func (s *SignalExchangeServer) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 
 	if _, found := s.registry.Peers[msg.Key]; !found {
 		return nil, fmt.Errorf("unknown peer %s", msg.Key)
@@ -44,7 +44,7 @@ func (s *SignalExchangeServer) Send(ctx context.Context, msg *proto.EncryptedMes
 		log.Warnf("message from peer [%s] can't be forwarded to peer [%s] because destination peer is not connected", msg.Key, msg.RemoteKey)
 		//todo respond to the sender?
 	}
-	return &proto.Message{}, nil
+	return &proto.EncryptedMessage{}, nil
 }
 
 func (s *SignalExchangeServer) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) error {
