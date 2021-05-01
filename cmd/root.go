@@ -33,6 +33,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "/etc/wiretrustee/config.json", "Wiretrustee config file location to write new config to")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
 	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(addPeerCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(signalCmd)
 }
