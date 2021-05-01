@@ -9,24 +9,12 @@ import (
 	"os"
 )
 
-const (
-	ExitSetupFailed = 1
-)
-
 var (
-	configPath string
-	logLevel   string
-
 	upCmd = &cobra.Command{
 		Use:   "up",
 		Short: "start wiretrustee",
 		Run: func(cmd *cobra.Command, args []string) {
-			level, err := log.ParseLevel(logLevel)
-			if err != nil {
-				log.Errorf("efailed parsing log-level %s: %s", logLevel, err)
-				os.Exit(ExitSetupFailed)
-			}
-			log.SetLevel(level)
+			InitLog(logLevel)
 
 			config, _ := Read(configPath)
 
@@ -51,7 +39,6 @@ var (
 )
 
 func init() {
-	upCmd.PersistentFlags().StringVar(&configPath, "config", "", "")
-	upCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
+	//upCmd.PersistentFlags().StringVar(&configPath, "config", "", "")
 	upCmd.MarkPersistentFlagRequired("config")
 }
