@@ -27,7 +27,7 @@ func NewServer() *SignalExchangeServer {
 	}
 }
 
-func (s *SignalExchangeServer) Connect(ctx context.Context, msg *proto.Message) (*proto.Message, error) {
+func (s *SignalExchangeServer) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.Message, error) {
 
 	if _, found := s.registry.Peers[msg.Key]; !found {
 		return nil, fmt.Errorf("unknown peer %s", msg.Key)

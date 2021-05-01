@@ -13,7 +13,7 @@ import (
 // Wireguard keys are used for encryption
 
 // Encrypts a message using local Wireguard private key and remote peer's public key.
-func EncryptMessage(msg []byte, privateKey wgtypes.Key, remotePubKey wgtypes.Key) ([]byte, error) {
+func Encrypt(msg []byte, privateKey wgtypes.Key, remotePubKey wgtypes.Key) ([]byte, error) {
 	nonce, err := genNonce()
 	if err != nil {
 		return nil, err
@@ -23,7 +23,7 @@ func EncryptMessage(msg []byte, privateKey wgtypes.Key, remotePubKey wgtypes.Key
 }
 
 // Decrypts a message that has been encrypted by the remote peer using Wireguard private key and remote peer's public key.
-func DecryptMessage(encryptedMsg []byte, privateKey wgtypes.Key, remotePubKey wgtypes.Key) ([]byte, error) {
+func Decrypt(encryptedMsg []byte, privateKey wgtypes.Key, remotePubKey wgtypes.Key) ([]byte, error) {
 	nonce, err := genNonce()
 	if err != nil {
 		return nil, err

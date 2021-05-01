@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/connection"
 	sig "github.com/wiretrustee/wiretrustee/signal"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"os"
 )
 
@@ -18,8 +19,14 @@ var (
 
 			config, _ := Read(configPath)
 
+			myKey, err := wgtypes.ParseKey(config.PrivateKey)
+			if err != nil {
+				log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
+				os.Exit(ExitSetupFailed)
+			}
+
 			ctx := context.Background()
-			signalClient, err := sig.NewClient(config.SignalAddr, ctx)
+			signalClient, err := sig.NewClient(config.SignalAddr, myKey, ctx)
 			if err != nil {
 				log.Errorf("error while connecting to the Signal Exchange Service %s: %s", config.SignalAddr, err)
 				os.Exit(ExitSetupFailed)
@@ -29,7 +36,7 @@ var (
 
 			engine := connection.NewEngine(signalClient, config.StunTurnURLs, config.WgIface, config.WgAddr)
 
-			err = engine.Start(config.PrivateKey, config.Peers)
+			err = engine.Start(myKey, config.Peers)
 
 			//signalClient.WaitConnected()
 

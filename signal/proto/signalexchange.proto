@@ -8,27 +8,45 @@ package signalexchange;
 
 service SignalExchange {
   // Synchronously connect to the Signal Exchange service offering connection candidates and waiting for connection candidates from the other party (remote peer)
-  rpc Connect(Message) returns (Message) {}
+  rpc Send(EncryptedMessage) returns (EncryptedMessage) {}
   // Connect to the Signal Exchange service offering connection candidates and maintain a channel for receiving candidates from the other party (remote peer)
-  rpc ConnectStream(stream Message) returns (stream Message) {}
+  rpc ConnectStream(stream EncryptedMessage) returns (stream EncryptedMessage) {}
 }
 
-message Message {
+// Used for sending through signal.
+// The body of this message is the Body message encrypted with the Wireguard private key and the remote Peer key
+message EncryptedMessage {
 
+  // Wireguard public key
+  string key = 2;
+
+  // Wireguard public key of the remote peer to connect to
+  string remoteKey = 3;
+
+  // encrypted message Body
+  bytes body = 4;
+}
+
+// A decrypted representation of the EncryptedMessage. Used locally before/after encryption
+message Message {
+  // Wireguard public key
+  string key = 2;
+
+  // Wireguard public key of the remote peer to connect to
+  string remoteKey = 3;
+
+  Body body = 4;
+}
+
+// Actual body of the message that can contain credentials (type OFFER/ANSWER) or connection Candidate
+// This part will be encrypted
+message Body {
   // Message type
   enum Type {
     OFFER = 0;
     ANSWER = 1;
     CANDIDATE = 2;
   }
-
   Type type = 1;
-
-  // a sha256 fingerprint of the Wireguard public key
-  string key = 2;
-
-  // a sha256 fingerprint of the Wireguard public key of the remote peer to connect to
-  string remoteKey = 3;
-
-  string body = 4;
+  string payload = 2;
 }
