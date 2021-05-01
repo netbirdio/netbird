@@ -39,6 +39,4 @@ var (
 )
 
 func init() {
-	//upCmd.PersistentFlags().StringVar(&configPath, "config", "", "")
-	upCmd.MarkPersistentFlagRequired("config")
 }
