@@ -30,7 +30,16 @@ var (
 
 			if wgKey == "" {
 				wgKey = generateKey()
+				log.Warnf("there was no Wireguard private key specified, a new Wireguard key has been generated")
 			}
+
+			parsedKey, err := wgtypes.ParseKey(wgKey)
+			if err != nil {
+				log.Errorf("invalid Wireguard private key %s", wgKey)
+				os.Exit(ExitSetupFailed)
+			}
+
+			log.Infof("my public Wireguard key is %s", parsedKey.PublicKey().String())
 
 			var stunTurnURLs []*ice.URL
 			stuns := strings.Split(stunURLs, ",")
@@ -80,11 +89,13 @@ var (
 				WgIface:      wgInterface,
 			}
 
-			err := config.Write(configPath)
+			err = config.Write(configPath)
 			if err != nil {
 				log.Errorf("failed writing config to %s: %s", config, err.Error())
 				os.Exit(ExitSetupFailed)
 			}
+
+			log.Infof("a new config has been generated and written to %s", configPath)
 		},
 	}
 )
