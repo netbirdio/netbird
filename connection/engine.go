@@ -40,17 +40,9 @@ func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgA
 	}
 }
 
-func (e *Engine) Start(privateKey string, peers []Peer) error {
+func (e *Engine) Start(myKey wgtypes.Key, peers []Peer) error {
 
-	// setup wireguard
-	myKey, err := wgtypes.ParseKey(privateKey)
-	myPubKey := myKey.PublicKey().String()
-	if err != nil {
-		log.Errorf("error parsing Wireguard key %s: [%s]", privateKey, err.Error())
-		return err
-	}
-
-	err = iface.Create(e.wgIface, e.wgIp)
+	err := iface.Create(e.wgIface, e.wgIp)
 	if err != nil {
 		log.Errorf("error while creating interface %s: [%s]", e.wgIface, err.Error())
 		return err
@@ -68,7 +60,7 @@ func (e *Engine) Start(privateKey string, peers []Peer) error {
 		return err
 	}
 
-	e.receiveSignal(myPubKey)
+	e.receiveSignal()
 
 	// initialize peer agents
 	for _, peer := range peers {
@@ -141,10 +133,12 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 
 func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client) error {
 	err := s.Send(&sProto.Message{
-		Type:      sProto.Message_CANDIDATE,
 		Key:       myKey.PublicKey().String(),
 		RemoteKey: remoteKey.String(),
-		Body:      candidate.Marshal(),
+		Body: &sProto.Body{
+			Type:    sProto.Body_CANDIDATE,
+			Payload: candidate.Marshal(),
+		},
 	})
 	if err != nil {
 		log.Errorf("failed signaling candidate to the remote peer %s %s", remoteKey.String(), err)
@@ -157,18 +151,18 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 
 func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client, isAnswer bool) error {
 
-	var t sProto.Message_Type
+	var t sProto.Body_Type
 	if isAnswer {
-		t = sProto.Message_ANSWER
+		t = sProto.Body_ANSWER
 	} else {
-		t = sProto.Message_OFFER
+		t = sProto.Body_OFFER
 	}
 
-	msg := signal.MarshalCredential(myKey.PublicKey().String(), remoteKey.String(), &signal.Credential{
+	msg, err := signal.MarshalCredential(myKey, remoteKey, &signal.Credential{
 		UFrag: uFrag,
 		Pwd:   pwd}, t)
 
-	err := s.Send(msg)
+	err = s.Send(msg)
 	if err != nil {
 		return err
 	}
@@ -176,9 +170,9 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 	return nil
 }
 
-func (e *Engine) receiveSignal(localKey string) {
+func (e *Engine) receiveSignal() {
 	// connect to a stream of messages coming from the signal server
-	e.signal.Receive(localKey, func(msg *sProto.Message) error {
+	e.signal.Receive(func(msg *sProto.Message) error {
 
 		conn := e.conns[msg.Key]
 		if conn == nil {
@@ -189,8 +183,8 @@ func (e *Engine) receiveSignal(localKey string) {
 			return fmt.Errorf("unknown peer %s", msg.Key)
 		}
 
-		switch msg.Type {
-		case sProto.Message_OFFER:
+		switch msg.GetBody().Type {
+		case sProto.Body_OFFER:
 			remoteCred, err := signal.UnMarshalCredential(msg)
 			if err != nil {
 				return err
@@ -205,7 +199,7 @@ func (e *Engine) receiveSignal(localKey string) {
 			}
 
 			return nil
-		case sProto.Message_ANSWER:
+		case sProto.Body_ANSWER:
 			remoteCred, err := signal.UnMarshalCredential(msg)
 			if err != nil {
 				return err
@@ -219,9 +213,9 @@ func (e *Engine) receiveSignal(localKey string) {
 				return err
 			}
 
-		case sProto.Message_CANDIDATE:
+		case sProto.Body_CANDIDATE:
 
-			candidate, err := ice.UnmarshalCandidate(msg.Body)
+			candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
 			if err != nil {
 				log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
 				return err

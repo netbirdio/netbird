@@ -8,30 +8,30 @@ import (
 )
 
 // As set of tools to encrypt/decrypt messages being sent through the Signal Exchange Service.
-// We want to make sure that the Connection Candidates and other irrelevant (to the Signal Exchange) information can't be read anywhere else but the Peer the message is being sent to.
+// We want to make sure that the Connection Candidates and other irrelevant (to the Signal Exchange)
+// information can't be read anywhere else but the Peer the message is being sent to.
 // These tools use Golang crypto package (Curve25519, XSalsa20 and Poly1305 to encrypt and authenticate)
 // Wireguard keys are used for encryption
 
 // Encrypts a message using local Wireguard private key and remote peer's public key.
-func EncryptMessage(msg []byte, privateKey wgtypes.Key, remotePubKey wgtypes.Key) ([]byte, error) {
+func Encrypt(msg []byte, peersPublicKey wgtypes.Key, privateKey wgtypes.Key) ([]byte, error) {
 	nonce, err := genNonce()
 	if err != nil {
 		return nil, err
 	}
-
-	return box.Seal(nil, msg, nonce, toByte32(remotePubKey), toByte32(privateKey)), nil
+	return box.Seal(nonce[:], msg, nonce, toByte32(peersPublicKey), toByte32(privateKey)), nil
 }
 
 // Decrypts a message that has been encrypted by the remote peer using Wireguard private key and remote peer's public key.
-func DecryptMessage(encryptedMsg []byte, privateKey wgtypes.Key, remotePubKey wgtypes.Key) ([]byte, error) {
+func Decrypt(encryptedMsg []byte, peersPublicKey wgtypes.Key, privateKey wgtypes.Key) ([]byte, error) {
 	nonce, err := genNonce()
 	if err != nil {
 		return nil, err
 	}
-
-	opened, ok := box.Open(nil, encryptedMsg, nonce, toByte32(remotePubKey), toByte32(privateKey))
+	copy(nonce[:], encryptedMsg[:24])
+	opened, ok := box.Open(nil, encryptedMsg[24:], nonce, toByte32(peersPublicKey), toByte32(privateKey))
 	if !ok {
-		return nil, fmt.Errorf("failed to decrypt message from peer %s", remotePubKey.String())
+		return nil, fmt.Errorf("failed to decrypt message from peer %s", peersPublicKey.String())
 	}
 
 	return opened, nil
