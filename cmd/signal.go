@@ -42,5 +42,5 @@ var (
 )
 
 func init() {
-	upCmd.PersistentFlags().IntVar(&port, "port", 10000, "Server port to listen on (e.g. 10000)")
+	signalCmd.PersistentFlags().IntVar(&port, "port", 10000, "Server port to listen on (e.g. 10000)")
 }
