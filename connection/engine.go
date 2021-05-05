@@ -60,7 +60,7 @@ func (e *Engine) Start(myKey wgtypes.Key, peers []Peer) error {
 		return err
 	}
 
-	e.receiveSignal(myKey.PublicKey().String())
+	e.receiveSignal()
 
 	// initialize peer agents
 	for _, peer := range peers {
@@ -170,9 +170,9 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 	return nil
 }
 
-func (e *Engine) receiveSignal(localKey string) {
+func (e *Engine) receiveSignal() {
 	// connect to a stream of messages coming from the signal server
-	e.signal.Receive(localKey, func(msg *sProto.Message) error {
+	e.signal.Receive(func(msg *sProto.Message) error {
 
 		conn := e.conns[msg.Key]
 		if conn == nil {

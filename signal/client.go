@@ -23,11 +23,12 @@ import (
 
 // Wraps the Signal Exchange Service gRpc client
 type Client struct {
-	key        wgtypes.Key
-	realClient proto.SignalExchangeClient
-	signalConn *grpc.ClientConn
-	ctx        context.Context
-	stream     proto.SignalExchange_ConnectStreamClient
+	key           wgtypes.Key
+	encryptionKey string
+	realClient    proto.SignalExchangeClient
+	signalConn    *grpc.ClientConn
+	ctx           context.Context
+	stream        proto.SignalExchange_ConnectStreamClient
 	//waiting group to notify once stream is connected
 	connWg sync.WaitGroup //todo use a channel instead??
 }
@@ -66,7 +67,7 @@ func NewClient(addr string, key wgtypes.Key, ctx context.Context) (*Client, erro
 // The messages will be handled by msgHandler function provided.
 // This function runs a goroutine underneath and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
 // The key is the identifier of our Peer (could be Wireguard public key)
-func (c *Client) Receive(key string, msgHandler func(msg *proto.Message) error) {
+func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
 	c.connWg.Add(1)
 	go func() {
 
@@ -81,7 +82,7 @@ func (c *Client) Receive(key string, msgHandler func(msg *proto.Message) error) 
 		}
 
 		operation := func() error {
-			err := c.connect(key, msgHandler)
+			err := c.connect(c.key.PublicKey().String(), msgHandler)
 			if err != nil {
 				log.Warnf("disconnected from the Signal Exchange due to an error %s. Retrying ... ", err)
 				c.connWg.Add(1)
@@ -152,7 +153,7 @@ func (c *Client) decryptMessage(msg *proto.EncryptedMessage) (*proto.Message, er
 	if err != nil {
 		return nil, err
 	}
-	decryptedBody, err := Decrypt(msg.GetBody(), c.key, remoteKey)
+	decryptedBody, err := Decrypt(msg.GetBody(), remoteKey, c.key)
 	body := &proto.Body{}
 	err = pb.Unmarshal(decryptedBody, body)
 	if err != nil {
@@ -177,7 +178,7 @@ func (c *Client) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage, er
 		return nil, err
 	}
 
-	encryptedBody, err := Encrypt(body, c.key, remoteKey)
+	encryptedBody, err := Encrypt(body, remoteKey, c.key)
 	if err != nil {
 		return nil, err
 	}

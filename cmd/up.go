@@ -10,6 +10,10 @@ import (
 	"os"
 )
 
+func toByte32(key wgtypes.Key) *[32]byte {
+	return (*[32]byte)(&key)
+}
+
 var (
 	upCmd = &cobra.Command{
 		Use:   "up",
