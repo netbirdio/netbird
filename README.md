@@ -2,17 +2,17 @@
 
 A WireGuard®-based mesh network that connects your devices into a single private network.
 
-# Why using Wiretrustee?
+### Why using Wiretrustee?
 
-1. Connect multiple devices at home, office or anywhere else to each other via a secure peer-to-peer Wireguard VPN tunnel.
-2. No need to open ports and expose public IPs on the device.
-3. Automatic reconnects in case of network failures or switches. 
-4. Automatic NAT traversal.
-5. Relay server fallback in case of an unsuccessful peer-to-peer connection. 
-6. Private key never leaves your device.
-7. Works on ARM devices (e.g. Raspberry Pi).
+* Connect multiple devices at home, office or anywhere else to each other via a secure peer-to-peer Wireguard VPN tunnel.
+* No need to open ports and expose public IPs on the device.
+* Automatic reconnects in case of network failures or switches. 
+* Automatic NAT traversal.
+* Relay server fallback in case of an unsuccessful peer-to-peer connection. 
+* Private key never leaves your device.
+* Works on ARM devices (e.g. Raspberry Pi).
 
-# A bit on Wiretrustee internals
+### A bit on Wiretrustee internals
 * Wiretrustee uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates 
 when establishing a peer-to-peer connection between devices.
 * A connection session negotiation between peers is achieved with Wiretrustee Signalling server [signal](signal/)
@@ -22,14 +22,14 @@ when establishing a peer-to-peer connection between devices.
 * Sometimes NAT-traversal is unsuccessful due to strict NATs (e.g. mobile carrier grade NAT).  
 For that matter there is a support for a relay server fallback (TURN). In this case a secure Wireguard tunnel is established via a TURN server.
   [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Wiretrustee setups.
-  
-# What Wiretrustee is not doing (yet):
+
+### What Wiretrustee is not doing (yet):
 * Wireguard key management. For that reason you need to generate peer keys and specify them on Wiretrustee initialization step.
 However, the support for the key management feature is in our roadmap.
 * Peer address assignment. You have to specify a unique peer local address (e.g. 10.30.30.1/24) when configuring Wiretrustee 
   Same as for the key management it is in our roadmap.
 
-# Installation
+### Installation
 1. Checkout Wiretrustee releases
    https://github.com/wiretrustee/wiretrustee/releases
 2. Download the latest release:
@@ -62,6 +62,6 @@ A new config will be generated and stored under ```/etc/wiretrustee/config.json`
 sudo wiretrustee add-peer --allowedIPs 10.30.30.2/32 --key '<REMOTE PEER WIREUARD PUBLIC KEY>'
 ```
 
-#Roadmap
+###Roadmap
 * Android app
 * Key and address management service with SSO 
