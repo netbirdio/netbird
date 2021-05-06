@@ -5,6 +5,6 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/wiretrustee up --config /etc/wiretrustee/wiretrustee.json --log-level debug
+ExecStart=/usr/local/bin/wiretrustee up --config /etc/wiretrustee/config.json --log-level debug
 [Install]
 WantedBy=multi-user.target
