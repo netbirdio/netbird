@@ -38,7 +38,7 @@ wget https://github.com/wiretrustee/wiretrustee/releases/download/v0.0.4/wiretru
 ```
 3. Install the package
 ```shell
-sudo dpkg -i wiretrustee_0.0.4_linux_amd64.rpm
+sudo dpkg -i wiretrustee_0.0.4_linux_amd64.deb
 ```
 4. Initialize Wiretrustee:
 ```shell
@@ -62,6 +62,12 @@ A new config will be generated and stored under ```/etc/wiretrustee/config.json`
 sudo wiretrustee add-peer --allowedIPs 10.30.30.2/32 --key '<REMOTE PEER WIREUARD PUBLIC KEY>'
 ```
 
-###Roadmap
+6. Restart Wiretrustee
+```shell
+sudo systemctl restart wiretrustee.service
+sudo systemctl status wiretrustee.service 
+```
+
+### Roadmap
 * Android app
 * Key and address management service with SSO 
