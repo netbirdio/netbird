@@ -28,3 +28,41 @@ nfpms:
 
     scripts:
       postinstall: "release_files/post_install.sh"
+dockers:
+  - image_templates:
+      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
+    goarch: amd64
+    use_buildx: true
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
+    goarch: arm64
+    use_buildx: true
+    dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+
+docker_manifests:
+  - name_template: ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}
+    image_templates:
+      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
+      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
+
+  - name_template: ghcr.io/wiretrustee/wiretrustee:signal-latest
+    image_templates:
+      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
+      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
