@@ -18,7 +18,7 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 * Contents of the messages sent between peers through the signalling server are encrypted with Wireguard keys, making it impossible to inspect them.
   The routing of the messages on a Signalling server is based on public Wireguard keys. 
 * Occasionally, the NAT-traversal is unsuccessful due to strict NATs (e.g. mobile carrier grade NAT).
-  For that matter, there is support for a relay server fallback (TURN). So in case, the (NAT-traversal is unsuccessful???), a secure Wireguard tunnel is established via TURN server.
+  For that matter, there is support for a relay server fallback (TURN) and a secure Wireguard tunnel is established via TURN server.
   [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Wiretrustee setups.
 
 ### What Wiretrustee is not doing:
