@@ -40,6 +40,6 @@ var (
 func init() {
 	addPeerCmd.PersistentFlags().StringVar(&key, "key", "", "Wireguard public key of the remote peer")
 	addPeerCmd.PersistentFlags().StringVar(&allowedIPs, "allowedIPs", "", "Wireguard Allowed IPs for the remote peer, e.g 10.30.30.2/32")
-	addPeerCmd.MarkPersistentFlagRequired("key")
-	addPeerCmd.MarkPersistentFlagRequired("allowedIPs")
+	addPeerCmd.MarkPersistentFlagRequired("key")        //nolint
+	addPeerCmd.MarkPersistentFlagRequired("allowedIPs") //nolint
 }

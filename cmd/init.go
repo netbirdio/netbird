@@ -109,10 +109,10 @@ func init() {
 	//todo user:password@protocol:host:port not the best way to pass TURN credentials, do it according to https://tools.ietf.org/html/rfc7065 E.g. use oauth
 	initCmd.PersistentFlags().StringVar(&turnURLs, "turnURLs", "", "Comma separated TURN server URLs: user:password@protocol:host:port, e.g. user:password@turn:stun.wiretrustee.com:3468")
 	//initCmd.MarkPersistentFlagRequired("configPath")
-	initCmd.MarkPersistentFlagRequired("wgLocalAddr")
-	initCmd.MarkPersistentFlagRequired("signalAddr")
-	initCmd.MarkPersistentFlagRequired("stunURLs")
-	initCmd.MarkPersistentFlagRequired("turnURLs")
+	initCmd.MarkPersistentFlagRequired("wgLocalAddr") //nolint
+	initCmd.MarkPersistentFlagRequired("signalAddr")  //nolint
+	initCmd.MarkPersistentFlagRequired("stunURLs")    //nolint
+	initCmd.MarkPersistentFlagRequired("turnURLs")    //nolint
 }
 
 // generateKey generates a new Wireguard private key
