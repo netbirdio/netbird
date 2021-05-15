@@ -30,7 +30,7 @@ nfpms:
       postinstall: "release_files/post_install.sh"
 dockers:
   - image_templates:
-      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
+      - wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
     goarch: amd64
     use_buildx: true
     dockerfile: Dockerfile
@@ -43,7 +43,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=wiretrustee@wiretrustee.com"
   - image_templates:
-      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
+      - wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
     goarch: arm64
     use_buildx: true
     dockerfile: Dockerfile
@@ -57,12 +57,12 @@ dockers:
       - "--label=maintainer=wiretrustee@wiretrustee.com"
 
 docker_manifests:
-  - name_template: ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}
+  - name_template: wiretrustee/wiretrustee:signal-{{ .Version }}
     image_templates:
-      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
-      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
+      - wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
+      - wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
 
-  - name_template: ghcr.io/wiretrustee/wiretrustee:signal-latest
+  - name_template: wiretrustee/wiretrustee:signal-latest
     image_templates:
-      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
-      - ghcr.io/wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
+      - wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
+      - wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
