@@ -2,7 +2,6 @@ package signal
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/signal/peer"
@@ -13,20 +12,19 @@ import (
 	"io"
 )
 
-var (
-	port = flag.Int("port", 10000, "The server port")
-)
-
+// SignalExchangeServer an instance of a Signal server
 type SignalExchangeServer struct {
 	registry *peer.Registry
 }
 
+// NewServer creates a new Signal server
 func NewServer() *SignalExchangeServer {
 	return &SignalExchangeServer{
 		registry: peer.NewRegistry(),
 	}
 }
 
+// Send forwards a message to the signal peer
 func (s *SignalExchangeServer) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 
 	if _, found := s.registry.Peers[msg.Key]; !found {
@@ -47,6 +45,7 @@ func (s *SignalExchangeServer) Send(ctx context.Context, msg *proto.EncryptedMes
 	return &proto.EncryptedMessage{}, nil
 }
 
+// ConnectStream connects to the exchange stream
 func (s *SignalExchangeServer) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) error {
 	p, err := s.connectPeer(stream)
 	if err != nil {

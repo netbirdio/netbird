@@ -30,7 +30,7 @@ var (
 			}
 
 			ctx := context.Background()
-			signalClient, err := sig.NewClient(config.SignalAddr, myKey, ctx)
+			signalClient, err := sig.NewClient(ctx, config.SignalAddr, myKey)
 			if err != nil {
 				log.Errorf("error while connecting to the Signal Exchange Service %s: %s", config.SignalAddr, err)
 				os.Exit(ExitSetupFailed)
@@ -41,7 +41,10 @@ var (
 			engine := connection.NewEngine(signalClient, config.StunTurnURLs, config.WgIface, config.WgAddr)
 
 			err = engine.Start(myKey, config.Peers)
-
+			if err != nil {
+				log.Errorf("error while starting the engine: %s", err)
+				os.Exit(ExitSetupFailed)
+			}
 			//signalClient.WaitConnected()
 
 			SetupCloseHandler()

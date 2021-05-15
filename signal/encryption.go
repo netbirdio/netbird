@@ -13,7 +13,7 @@ import (
 // These tools use Golang crypto package (Curve25519, XSalsa20 and Poly1305 to encrypt and authenticate)
 // Wireguard keys are used for encryption
 
-// Encrypts a message using local Wireguard private key and remote peer's public key.
+// Encrypt encrypts a message using local Wireguard private key and remote peer's public key.
 func Encrypt(msg []byte, peersPublicKey wgtypes.Key, privateKey wgtypes.Key) ([]byte, error) {
 	nonce, err := genNonce()
 	if err != nil {
@@ -22,7 +22,7 @@ func Encrypt(msg []byte, peersPublicKey wgtypes.Key, privateKey wgtypes.Key) ([]
 	return box.Seal(nonce[:], msg, nonce, toByte32(peersPublicKey), toByte32(privateKey)), nil
 }
 
-// Decrypts a message that has been encrypted by the remote peer using Wireguard private key and remote peer's public key.
+// Decrypt decrypts a message that has been encrypted by the remote peer using Wireguard private key and remote peer's public key.
 func Decrypt(encryptedMsg []byte, peersPublicKey wgtypes.Key, privateKey wgtypes.Key) ([]byte, error) {
 	nonce, err := genNonce()
 	if err != nil {
