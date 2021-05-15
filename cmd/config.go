@@ -8,6 +8,7 @@ import (
 	"os"
 )
 
+// Config Configuration type
 type Config struct {
 	// Wireguard private key of local peer
 	PrivateKey   string
