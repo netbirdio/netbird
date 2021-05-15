@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-const (
-	interfacePrefix = "utun"
-)
+//const (
+//	interfacePrefix = "utun"
+//)
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func assignAddr(iface string, address string) error {

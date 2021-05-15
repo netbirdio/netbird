@@ -6,9 +6,9 @@ import (
 	"os"
 )
 
-const (
-	interfacePrefix = "wg"
-)
+//const (
+//	interfacePrefix = "wg"
+//)
 
 // assignAddr Adds IP address to the tunnel interface
 func assignAddr(iface string, address string) error {
