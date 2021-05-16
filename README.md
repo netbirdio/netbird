@@ -15,10 +15,10 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 ### A bit on Wiretrustee internals
 * Wiretrustee uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between devices.
 * A connection session negotiation between peers is achieved with the Wiretrustee Signalling server [signal](signal/)
-* Contents of the messages sent between peers through the signalling server are encrypted with Wireguard keys, making it impossible to inspect them.
+* Contents of the messages sent between peers through the signaling server are encrypted with Wireguard keys, making it impossible to inspect them.
   The routing of the messages on a Signalling server is based on public Wireguard keys. 
-* Occasionally, the NAT-traversal is unsuccessful due to strict NATs (e.g. mobile carrier grade NAT).
-  For that matter, there is support for a relay server fallback (TURN). So in case, the (NAT-traversal is unsuccessful???), a secure Wireguard tunnel is established via TURN server.
+* Occasionally, the NAT-traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT).
+  For that matter, there is support for a relay server fallback (TURN) and a secure Wireguard tunnel is established via TURN server.
   [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Wiretrustee setups.
 
 ### What Wiretrustee is not doing:
@@ -63,14 +63,20 @@ sudo systemctl restart wiretrustee.service
 sudo systemctl status wiretrustee.service 
 ```
 ### Running the Signal service
-We have packed the signal into docker images. You can pull the images from the Github registry and execute it with the following commands:
+After installing the application, you can run the signal using the command below:
 ````shell
-docker pull ghcr.io/wiretrustee/wiretrustee:signal-latest
-docker run -d --name wiretrustee-signal -p 10000:10000 ghcr.io/wiretrustee/wiretrustee:signal-latest
+/usr/local/bin/wiretrustee signal --log-level INFO
+````
+This will launch the signal service on port 10000, in case you want to change the port, use the flag --port.
+#### Docker image
+We have packed the signal into docker images. You can pull the images from the Docker Hub and execute it with the following commands:
+````shell
+docker pull wiretrustee/wiretrustee:signal-latest
+docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/wiretrustee:signal-latest
 ````
 The default log-level is set to INFO, if you need you can change it using by updating the docker cmd as followed:
 ````shell
-docker run -d --name wiretrustee-signal -p 10000:10000 ghcr.io/wiretrustee/wiretrustee:signal-latest --log-level DEBUG
+docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/wiretrustee:signal-latest --log-level DEBUG
 ````
 ### Roadmap
 * Android app
