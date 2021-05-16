@@ -38,7 +38,11 @@ var (
 			//todo proper close handling
 			defer func() { signalClient.Close() }()
 
-			engine := connection.NewEngine(signalClient, config.StunTurnURLs, config.WgIface, config.WgAddr)
+			iFaceBlackList := make(map[string]struct{})
+			for i := 0; i < len(config.IFaceBlackList); i += 2 {
+				iFaceBlackList[config.IFaceBlackList[i]] = struct{}{}
+			}
+			engine := connection.NewEngine(signalClient, config.StunTurnURLs, config.WgIface, config.WgAddr, iFaceBlackList)
 
 			err = engine.Start(myKey, config.Peers)
 

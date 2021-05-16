@@ -14,9 +14,10 @@ type Config struct {
 	Peers        []connection.Peer
 	StunTurnURLs []*ice.URL
 	// host:port of the signal server
-	SignalAddr string
-	WgAddr     string
-	WgIface    string
+	SignalAddr     string
+	WgAddr         string
+	WgIface        string
+	IFaceBlackList []string
 }
 
 //Write writes configPath to a file

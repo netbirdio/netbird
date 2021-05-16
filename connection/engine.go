@@ -23,6 +23,8 @@ type Engine struct {
 	wgIface string
 	// Wireguard local address
 	wgIp string
+
+	iFaceBlackList map[string]struct{}
 }
 
 type Peer struct {
@@ -30,13 +32,15 @@ type Peer struct {
 	WgAllowedIps string
 }
 
-func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string) *Engine {
+func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string,
+	iFaceBlackList map[string]struct{}) *Engine {
 	return &Engine{
-		stunsTurns: stunsTurns,
-		signal:     signal,
-		wgIface:    wgIface,
-		wgIp:       wgAddr,
-		conns:      map[string]*Connection{},
+		stunsTurns:     stunsTurns,
+		signal:         signal,
+		wgIface:        wgIface,
+		wgIp:           wgAddr,
+		conns:          map[string]*Connection{},
+		iFaceBlackList: iFaceBlackList,
 	}
 }
 
@@ -101,13 +105,14 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 
 	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
 	connConfig := &ConnConfig{
-		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", wgPort),
-		WgPeerIp:     e.wgIp,
-		WgIface:      e.wgIface,
-		WgAllowedIPs: peer.WgAllowedIps,
-		WgKey:        myKey,
-		RemoteWgKey:  remoteKey,
-		StunTurnURLS: e.stunsTurns,
+		WgListenAddr:   fmt.Sprintf("127.0.0.1:%d", wgPort),
+		WgPeerIp:       e.wgIp,
+		WgIface:        e.wgIface,
+		WgAllowedIPs:   peer.WgAllowedIps,
+		WgKey:          myKey,
+		RemoteWgKey:    remoteKey,
+		StunTurnURLS:   e.stunsTurns,
+		iFaceBlackList: e.iFaceBlackList,
 	}
 
 	signalOffer := func(uFrag string, pwd string) error {
