@@ -1,12 +1,13 @@
 package connection
 
 import (
-	"github.com/pion/ice/v2"
+	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
 	"net"
 )
 
+// WgProxy an instance of an instance of the Connection Wireguard Proxy
 type WgProxy struct {
 	iface      string
 	remoteKey  string
@@ -16,6 +17,7 @@ type WgProxy struct {
 	wgConn     net.Conn
 }
 
+// NewWgProxy creates a new Connection Wireguard Proxy
 func NewWgProxy(iface string, remoteKey string, allowedIps string, wgAddr string) *WgProxy {
 	return &WgProxy{
 		iface:      iface,
@@ -26,6 +28,7 @@ func NewWgProxy(iface string, remoteKey string, allowedIps string, wgAddr string
 	}
 }
 
+// Close closes the proxy
 func (p *WgProxy) Close() error {
 
 	close(p.close)
@@ -39,6 +42,7 @@ func (p *WgProxy) Close() error {
 	return nil
 }
 
+// Start starts a new proxy using the ICE connection
 func (p *WgProxy) Start(remoteConn *ice.Conn) error {
 
 	wgConn, err := net.Dial("udp", p.wgAddr)
@@ -78,9 +82,10 @@ func (p *WgProxy) proxyToRemotePeer(remoteConn *ice.Conn) {
 				continue
 			}
 
-			n, err = remoteConn.Write(buf[:n])
+			_, err = remoteConn.Write(buf[:n])
 			if err != nil {
 				//log.Warnln("failed writing to remote peer: ", err.Error())
+				continue
 			}
 		}
 	}
@@ -100,11 +105,13 @@ func (p *WgProxy) proxyToLocalWireguard(remoteConn *ice.Conn) {
 			n, err := remoteConn.Read(buf)
 			if err != nil {
 				//log.Errorf("failed reading from remote connection %s", err)
+				continue
 			}
 
-			n, err = p.wgConn.Write(buf[:n])
+			_, err = p.wgConn.Write(buf[:n])
 			if err != nil {
 				//log.Errorf("failed writing to local Wireguard instance %s", err)
+				continue
 			}
 		}
 	}

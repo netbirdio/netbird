@@ -2,12 +2,13 @@ package cmd
 
 import (
 	"encoding/json"
-	"github.com/pion/ice/v2"
+	ice "github.com/pion/ice/v2"
 	"github.com/wiretrustee/wiretrustee/connection"
 	"io/ioutil"
 	"os"
 )
 
+// Config Configuration type
 type Config struct {
 	// Wireguard private key of local peer
 	PrivateKey   string

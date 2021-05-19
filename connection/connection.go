@@ -3,7 +3,7 @@ package connection
 import (
 	"context"
 	"fmt"
-	"github.com/pion/ice/v2"
+	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"sync"
@@ -11,14 +11,16 @@ import (
 )
 
 var (
+	// DefaultWgKeepAlive default Wireguard keep alive constant
 	DefaultWgKeepAlive = 20 * time.Second
 )
 
+// ConnConfig Connection configuration struct
 type ConnConfig struct {
 	// Local Wireguard listening address  e.g. 127.0.0.1:51820
 	WgListenAddr string
 	// A Local Wireguard Peer IP address in CIDR notation e.g. 10.30.30.1/24
-	WgPeerIp string
+	WgPeerIP string
 	// Local Wireguard Interface name (e.g. wg0)
 	WgIface string
 	// Wireguard allowed IPs (e.g. 10.30.30.2/32)
@@ -33,11 +35,13 @@ type ConnConfig struct {
 	iFaceBlackList map[string]struct{}
 }
 
+// IceCredentials ICE protocol credentials struct
 type IceCredentials struct {
 	uFrag string
 	pwd   string
 }
 
+// Connection Holds information about a connection and handles signal protocol
 type Connection struct {
 	Config ConnConfig
 	// signalCandidate is a handler function to signal remote peer about local connection candidate
@@ -63,6 +67,7 @@ type Connection struct {
 	remoteAuthCond sync.Once
 }
 
+// NewConnection Creates a new connection and sets handling functions for signal protocol
 func NewConnection(config ConnConfig,
 	signalCandidate func(candidate ice.Candidate) error,
 	signalOffer func(uFrag string, pwd string) error,
@@ -154,12 +159,11 @@ func (conn *Connection) Open(timeout time.Duration) error {
 	}
 
 	// wait until connection has been closed
-	select {
-	case <-conn.closeCond.C:
-		return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
-	}
+	<-conn.closeCond.C
+	return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
 }
 
+// Close Closes a peer connection
 func (conn *Connection) Close() error {
 	var err error
 	conn.closeCond.Do(func() {
@@ -185,6 +189,7 @@ func (conn *Connection) Close() error {
 	return err
 }
 
+// OnAnswer Handles the answer from the other peer
 func (conn *Connection) OnAnswer(remoteAuth IceCredentials) error {
 
 	conn.remoteAuthCond.Do(func() {
@@ -194,23 +199,25 @@ func (conn *Connection) OnAnswer(remoteAuth IceCredentials) error {
 	return nil
 }
 
+// OnOffer Handles the offer from the other peer
 func (conn *Connection) OnOffer(remoteAuth IceCredentials) error {
 
 	conn.remoteAuthCond.Do(func() {
 		log.Debugf("OnOffer from peer %s", conn.Config.RemoteWgKey.String())
 		conn.remoteAuthChannel <- remoteAuth
 		uFrag, pwd, err := conn.agent.GetLocalUserCredentials()
-		if err != nil {
+		if err != nil { //nolint
 		}
 
 		err = conn.signalAnswer(uFrag, pwd)
-		if err != nil {
+		if err != nil { //nolint
 		}
 	})
 
 	return nil
 }
 
+// OnRemoteCandidate Handles remote candidate provided by the peer.
 func (conn *Connection) OnRemoteCandidate(candidate ice.Candidate) error {
 
 	log.Debugf("onRemoteCandidate from peer %s -> %s", conn.Config.RemoteWgKey.String(), candidate.String())
