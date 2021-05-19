@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"github.com/pion/ice/v2"
+	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"

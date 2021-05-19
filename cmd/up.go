@@ -48,6 +48,7 @@ var (
 			//signalClient.WaitConnected()
 
 			SetupCloseHandler()
+			select {}
 		},
 	}
 )

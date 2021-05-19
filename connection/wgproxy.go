@@ -1,7 +1,7 @@
 package connection
 
 import (
-	"github.com/pion/ice/v2"
+	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
 	"net"
@@ -85,6 +85,7 @@ func (p *WgProxy) proxyToRemotePeer(remoteConn *ice.Conn) {
 			_, err = remoteConn.Write(buf[:n])
 			if err != nil {
 				//log.Warnln("failed writing to remote peer: ", err.Error())
+				continue
 			}
 		}
 	}
@@ -104,11 +105,13 @@ func (p *WgProxy) proxyToLocalWireguard(remoteConn *ice.Conn) {
 			n, err := remoteConn.Read(buf)
 			if err != nil {
 				//log.Errorf("failed reading from remote connection %s", err)
+				continue
 			}
 
 			_, err = p.wgConn.Write(buf[:n])
 			if err != nil {
 				//log.Errorf("failed writing to local Wireguard instance %s", err)
+				continue
 			}
 		}
 	}

@@ -3,7 +3,7 @@ package connection
 import (
 	"context"
 	"fmt"
-	"github.com/pion/ice/v2"
+	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"sync"
