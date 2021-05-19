@@ -31,6 +31,8 @@ type ConnConfig struct {
 	RemoteWgKey wgtypes.Key
 
 	StunTurnURLS []*ice.URL
+
+	iFaceBlackList map[string]struct{}
 }
 
 // IceCredentials ICE protocol credentials struct
@@ -93,6 +95,13 @@ func (conn *Connection) Open(timeout time.Duration) error {
 	a, err := ice.NewAgent(&ice.AgentConfig{
 		NetworkTypes: []ice.NetworkType{ice.NetworkTypeUDP4},
 		Urls:         conn.Config.StunTurnURLS,
+		InterfaceFilter: func(s string) bool {
+			if conn.Config.iFaceBlackList == nil {
+				return true
+			}
+			_, ok := conn.Config.iFaceBlackList[s]
+			return !ok
+		},
 	})
 	conn.agent = a
 
@@ -289,7 +298,7 @@ func (conn *Connection) listenOnConnectionStateChanges() error {
 				log.Errorf("failed selecting active ICE candidate pair %s", err)
 				return
 			}
-			log.Debugf("closed to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
+			log.Infof("will connect to peer %s via a selected connnection candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
 		} else if state == ice.ConnectionStateDisconnected || state == ice.ConnectionStateFailed {
 			// todo do we really wanna have a connection restart within connection itself? Think of moving it outside
 			err := conn.Close()
