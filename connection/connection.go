@@ -159,10 +159,8 @@ func (conn *Connection) Open(timeout time.Duration) error {
 	}
 
 	// wait until connection has been closed
-	select {
-	case <-conn.closeCond.C:
-		return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
-	}
+	<-conn.closeCond.C
+	return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
 }
 
 // Close Closes a peer connection

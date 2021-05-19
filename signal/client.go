@@ -23,12 +23,11 @@ import (
 
 // Client Wraps the Signal Exchange Service gRpc client
 type Client struct {
-	key           wgtypes.Key
-	encryptionKey string
-	realClient    proto.SignalExchangeClient
-	signalConn    *grpc.ClientConn
-	ctx           context.Context
-	stream        proto.SignalExchange_ConnectStreamClient
+	key        wgtypes.Key
+	realClient proto.SignalExchangeClient
+	signalConn *grpc.ClientConn
+	ctx        context.Context
+	stream     proto.SignalExchange_ConnectStreamClient
 	//waiting group to notify once stream is connected
 	connWg sync.WaitGroup //todo use a channel instead??
 }
