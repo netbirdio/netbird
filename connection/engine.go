@@ -24,6 +24,8 @@ type Engine struct {
 	wgIface string
 	// Wireguard local address
 	wgIP string
+	// Network Interfaces to ignore
+	iFaceBlackList map[string]struct{}
 }
 
 // Peer is an instance of the Connection Peer
@@ -33,13 +35,15 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string) *Engine {
+func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string,
+	iFaceBlackList map[string]struct{}) *Engine {
 	return &Engine{
 		stunsTurns: stunsTurns,
 		signal:     signal,
 		wgIface:    wgIface,
 		wgIP:       wgAddr,
 		conns:      map[string]*Connection{},
+		iFaceBlackList: iFaceBlackList,
 	}
 }
 
@@ -113,6 +117,7 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 		WgKey:        myKey,
 		RemoteWgKey:  remoteKey,
 		StunTurnURLS: e.stunsTurns,
+		iFaceBlackList: e.iFaceBlackList,
 	}
 
 	signalOffer := func(uFrag string, pwd string) error {
