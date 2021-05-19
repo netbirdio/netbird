@@ -37,6 +37,7 @@ var (
 			}
 
 			SetupCloseHandler()
+			select {}
 		},
 	}
 )

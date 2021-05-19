@@ -6,7 +6,6 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"os/signal"
-	"syscall"
 )
 
 const (
@@ -41,11 +40,14 @@ func init() {
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
 func SetupCloseHandler() {
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
-	fmt.Println("\r- Ctrl+C pressed in Terminal")
-	os.Exit(0)
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	go func() {
+		for range c {
+			fmt.Println("\r- Ctrl+C pressed in Terminal")
+			os.Exit(0)
+		}
+	}()
 }
 
 // InitLog parses and sets log-level input

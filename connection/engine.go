@@ -3,7 +3,7 @@ package connection
 import (
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
-	"github.com/pion/ice/v2"
+	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
 	"github.com/wiretrustee/wiretrustee/signal"
@@ -38,11 +38,11 @@ type Peer struct {
 func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string,
 	iFaceBlackList map[string]struct{}) *Engine {
 	return &Engine{
-		stunsTurns: stunsTurns,
-		signal:     signal,
-		wgIface:    wgIface,
-		wgIP:       wgAddr,
-		conns:      map[string]*Connection{},
+		stunsTurns:     stunsTurns,
+		signal:         signal,
+		wgIface:        wgIface,
+		wgIP:           wgAddr,
+		conns:          map[string]*Connection{},
 		iFaceBlackList: iFaceBlackList,
 	}
 }
@@ -110,13 +110,13 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 
 	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
 	connConfig := &ConnConfig{
-		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", wgPort),
-		WgPeerIP:     e.wgIP,
-		WgIface:      e.wgIface,
-		WgAllowedIPs: peer.WgAllowedIps,
-		WgKey:        myKey,
-		RemoteWgKey:  remoteKey,
-		StunTurnURLS: e.stunsTurns,
+		WgListenAddr:   fmt.Sprintf("127.0.0.1:%d", wgPort),
+		WgPeerIP:       e.wgIP,
+		WgIface:        e.wgIface,
+		WgAllowedIPs:   peer.WgAllowedIps,
+		WgKey:          myKey,
+		RemoteWgKey:    remoteKey,
+		StunTurnURLS:   e.stunsTurns,
 		iFaceBlackList: e.iFaceBlackList,
 	}
 
