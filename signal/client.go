@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
-	pb "github.com/golang/protobuf/proto"
+	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
