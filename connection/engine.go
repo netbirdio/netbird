@@ -3,7 +3,7 @@ package connection
 import (
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
-	"github.com/pion/ice/v2"
+	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
 	"github.com/wiretrustee/wiretrustee/signal"
@@ -12,6 +12,7 @@ import (
 	"time"
 )
 
+// Engine is an instance of the Connection Engine
 type Engine struct {
 	// a list of STUN and TURN servers
 	stunsTurns []*ice.URL
@@ -22,31 +23,35 @@ type Engine struct {
 	// Wireguard interface
 	wgIface string
 	// Wireguard local address
-	wgIp string
-
+	wgIP string
+	// Network Interfaces to ignore
 	iFaceBlackList map[string]struct{}
 }
 
+// Peer is an instance of the Connection Peer
 type Peer struct {
 	WgPubKey     string
 	WgAllowedIps string
 }
 
+// NewEngine creates a new Connection Engine
 func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string,
 	iFaceBlackList map[string]struct{}) *Engine {
 	return &Engine{
 		stunsTurns:     stunsTurns,
 		signal:         signal,
 		wgIface:        wgIface,
-		wgIp:           wgAddr,
+		wgIP:           wgAddr,
 		conns:          map[string]*Connection{},
 		iFaceBlackList: iFaceBlackList,
 	}
 }
 
+// Start creates a new tunnel interface and listens to signals from the Signal service.
+// It also creates an Go routine to handle each peer communication from the config file
 func (e *Engine) Start(myKey wgtypes.Key, peers []Peer) error {
 
-	err := iface.Create(e.wgIface, e.wgIp)
+	err := iface.Create(e.wgIface, e.wgIP)
 	if err != nil {
 		log.Errorf("error while creating interface %s: [%s]", e.wgIface, err.Error())
 		return err
@@ -106,7 +111,7 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
 	connConfig := &ConnConfig{
 		WgListenAddr:   fmt.Sprintf("127.0.0.1:%d", wgPort),
-		WgPeerIp:       e.wgIp,
+		WgPeerIP:       e.wgIP,
 		WgIface:        e.wgIface,
 		WgAllowedIPs:   peer.WgAllowedIps,
 		WgKey:          myKey,
@@ -166,7 +171,9 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 	msg, err := signal.MarshalCredential(myKey, remoteKey, &signal.Credential{
 		UFrag: uFrag,
 		Pwd:   pwd}, t)
-
+	if err != nil {
+		return err
+	}
 	err = s.Send(msg)
 	if err != nil {
 		return err

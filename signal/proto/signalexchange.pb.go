@@ -6,7 +6,7 @@ package proto
 import (
 	context "context"
 	fmt "fmt"
-	proto "github.com/golang/protobuf/proto"
+	proto "github.com/golang/protobuf/proto" //nolint
 	_ "github.com/golang/protobuf/protoc-gen-go/descriptor"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
@@ -57,11 +57,11 @@ func (Body_Type) EnumDescriptor() ([]byte, []int) {
 // Used for sending through signal.
 // The body of this message is the Body message encrypted with the Wireguard private key and the remote Peer key
 type EncryptedMessage struct {
-	// a sha256 fingerprint of the Wireguard public key
+	// Wireguard public key
 	Key string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	// a sha256 fingerprint of the Wireguard public key of the remote peer to connect to
+	// Wireguard public key of the remote peer to connect to
 	RemoteKey string `protobuf:"bytes,3,opt,name=remoteKey,proto3" json:"remoteKey,omitempty"`
-	// encrypted message body
+	// encrypted message Body
 	Body                 []byte   `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -116,9 +116,9 @@ func (m *EncryptedMessage) GetBody() []byte {
 
 // A decrypted representation of the EncryptedMessage. Used locally before/after encryption
 type Message struct {
-	// a sha256 fingerprint of the Wireguard public key
+	// Wireguard public key
 	Key string `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
-	// a sha256 fingerprint of the Wireguard public key of the remote peer to connect to
+	// Wireguard public key of the remote peer to connect to
 	RemoteKey            string   `protobuf:"bytes,3,opt,name=remoteKey,proto3" json:"remoteKey,omitempty"`
 	Body                 *Body    `protobuf:"bytes,4,opt,name=body,proto3" json:"body,omitempty"`
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`

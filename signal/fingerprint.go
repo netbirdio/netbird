@@ -6,10 +6,11 @@ import (
 )
 
 const (
+	// HexTable Table of Hexadecimal chars
 	HexTable = "0123456789abcdef"
 )
 
-// Generates a SHA256 Fingerprint of the string
+// FingerPrint generates a SHA256 Fingerprint of the string
 func FingerPrint(key string) string {
 	hasher := sha256.New()
 	hasher.Write([]byte(key))

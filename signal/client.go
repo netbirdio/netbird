@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
-	pb "github.com/golang/protobuf/proto"
+	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -21,24 +21,24 @@ import (
 
 // A set of tools to exchange connection details (Wireguard endpoints) with the remote peer.
 
-// Wraps the Signal Exchange Service gRpc client
+// Client Wraps the Signal Exchange Service gRpc client
 type Client struct {
-	key           wgtypes.Key
-	encryptionKey string
-	realClient    proto.SignalExchangeClient
-	signalConn    *grpc.ClientConn
-	ctx           context.Context
-	stream        proto.SignalExchange_ConnectStreamClient
+	key        wgtypes.Key
+	realClient proto.SignalExchangeClient
+	signalConn *grpc.ClientConn
+	ctx        context.Context
+	stream     proto.SignalExchange_ConnectStreamClient
 	//waiting group to notify once stream is connected
 	connWg sync.WaitGroup //todo use a channel instead??
 }
 
-// Closes underlying connections to the Signal Exchange
+// Close Closes underlying connections to the Signal Exchange
 func (c *Client) Close() error {
 	return c.signalConn.Close()
 }
 
-func NewClient(addr string, key wgtypes.Key, ctx context.Context) (*Client, error) {
+// NewClient creates a new Signal client
+func NewClient(ctx context.Context, addr string, key wgtypes.Key) (*Client, error) {
 
 	conn, err := grpc.DialContext(
 		ctx,
@@ -63,7 +63,7 @@ func NewClient(addr string, key wgtypes.Key, ctx context.Context) (*Client, erro
 	}, nil
 }
 
-// Connects to the Signal Exchange message stream and starts receiving messages.
+// Receive Connects to the Signal Exchange message stream and starts receiving messages.
 // The messages will be handled by msgHandler function provided.
 // This function runs a goroutine underneath and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
 // The key is the identifier of our Peer (could be Wireguard public key)
@@ -124,12 +124,12 @@ func (c *Client) connect(key string, msgHandler func(msg *proto.Message) error) 
 	return c.receive(stream, msgHandler)
 }
 
-// Waits until the client is connected to the message stream
+// WaitConnected waits until the client is connected to the message stream
 func (c *Client) WaitConnected() {
 	c.connWg.Wait()
 }
 
-// Sends a message to the remote Peer through the Signal Exchange using established stream connection to the Signal Server
+// SendToStream sends a message to the remote Peer through the Signal Exchange using established stream connection to the Signal Server
 // The Client.Receive method must be called before sending messages to establish initial connection to the Signal Exchange
 // Client.connWg can be used to wait
 func (c *Client) SendToStream(msg *proto.EncryptedMessage) error {
@@ -154,6 +154,9 @@ func (c *Client) decryptMessage(msg *proto.EncryptedMessage) (*proto.Message, er
 		return nil, err
 	}
 	decryptedBody, err := Decrypt(msg.GetBody(), remoteKey, c.key)
+	if err != nil {
+		return nil, err
+	}
 	body := &proto.Body{}
 	err = pb.Unmarshal(decryptedBody, body)
 	if err != nil {
@@ -190,7 +193,7 @@ func (c *Client) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage, er
 	}, nil
 }
 
-// Sends a message to the remote Peer through the Signal Exchange.
+// Send sends a message to the remote Peer through the Signal Exchange.
 func (c *Client) Send(msg *proto.Message) error {
 
 	encryptedMessage, err := c.encryptMessage(msg)
@@ -206,7 +209,7 @@ func (c *Client) Send(msg *proto.Message) error {
 	return nil
 }
 
-// Receives messages from other peers coming through the Signal Exchange
+// receive receives messages from other peers coming through the Signal Exchange
 func (c *Client) receive(stream proto.SignalExchange_ConnectStreamClient,
 	msgHandler func(msg *proto.Message) error) error {
 
@@ -240,6 +243,7 @@ func (c *Client) receive(stream proto.SignalExchange_ConnectStreamClient,
 	}
 }
 
+// UnMarshalCredential parses the credentials from the message and returns a Credential instance
 func UnMarshalCredential(msg *proto.Message) (*Credential, error) {
 
 	credential := strings.Split(msg.GetBody().GetPayload(), ":")
@@ -252,6 +256,7 @@ func UnMarshalCredential(msg *proto.Message) (*Credential, error) {
 	}, nil
 }
 
+// MarshalCredential marsharl a Credential instance and returns a Message object
 func MarshalCredential(myKey wgtypes.Key, remoteKey wgtypes.Key, credential *Credential, t proto.Body_Type) (*proto.Message, error) {
 	return &proto.Message{
 		Key:       myKey.PublicKey().String(),
@@ -263,6 +268,7 @@ func MarshalCredential(myKey wgtypes.Key, remoteKey wgtypes.Key, credential *Cre
 	}, nil
 }
 
+// Credential is an instance of a Client's Credential
 type Credential struct {
 	UFrag string
 	Pwd   string

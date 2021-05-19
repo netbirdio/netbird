@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// Retries a given toExec function calling onError on failed attempts
+// Retry retries a given toExec function calling onError on failed attempts
 // onError shouldn be a lightweight function and shouldn't be blocking
 func Retry(attempts int, sleep time.Duration, toExec func() error, onError func(e error)) error {
 	if err := toExec(); err != nil {

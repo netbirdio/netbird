@@ -61,7 +61,7 @@ func Create(iface string, address string) error {
 	return nil
 }
 
-// Extends the functionality of Configure(iface string, privateKey string) by generating a new Wireguard private key
+// ConfigureWithKeyGen Extends the functionality of Configure(iface string, privateKey string) by generating a new Wireguard private key
 func ConfigureWithKeyGen(iface string) (*wgtypes.Key, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -70,7 +70,7 @@ func ConfigureWithKeyGen(iface string) (*wgtypes.Key, error) {
 	return &key, Configure(iface, key.String())
 }
 
-// Configures a Wireguard interface
+// Configure configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
 func Configure(iface string, privateKey string) error {
 
@@ -100,6 +100,7 @@ func Configure(iface string, privateKey string) error {
 	return nil
 }
 
+// GetListenPort returns the listening port of the Wireguard endpoint
 func GetListenPort(iface string) (*int, error) {
 	log.Debugf("getting Wireguard listen port of interface %s", iface)
 
@@ -119,7 +120,7 @@ func GetListenPort(iface string) (*int, error) {
 	return &d.ListenPort, nil
 }
 
-// Updates a Wireguard interface listen port
+// UpdateListenPort updates a Wireguard interface listen port
 func UpdateListenPort(iface string, newPort int) error {
 	log.Debugf("updating Wireguard listen port of interface %s, new port %d", iface, newPort)
 
@@ -156,7 +157,7 @@ func ifname(n string) []byte {
 	return b
 }
 
-// Updates existing Wireguard Peer or creates a new one if doesn't exist
+// UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
 // Endpoint is optional
 func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.Duration, endpoint string) error {
 
@@ -181,7 +182,9 @@ func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
-
+	if err != nil {
+		return err
+	}
 	peers := make([]wgtypes.PeerConfig, 0)
 	peer := wgtypes.PeerConfig{
 		PublicKey:                   peerKeyParsed,
@@ -207,7 +210,7 @@ func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.
 	return nil
 }
 
-// Updates a Wireguard interface Peer with the new endpoint
+// UpdatePeerEndpoint updates a Wireguard interface Peer with the new endpoint
 // Used when NAT hole punching was successful and an update of the remote peer endpoint is required
 func UpdatePeerEndpoint(iface string, peerKey string, newEndpoint string) error {
 
@@ -233,6 +236,9 @@ func UpdatePeerEndpoint(iface string, peerKey string, newEndpoint string) error 
 	log.Debugf("parsed peer endpoint [%s]", peerAddr.String())
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
 	peers := make([]wgtypes.PeerConfig, 0)
 	peer := wgtypes.PeerConfig{
 		PublicKey:         peerKeyParsed,
@@ -258,10 +264,12 @@ type wgLink struct {
 	attrs *netlink.LinkAttrs
 }
 
+// Attrs returns the Wireguard's default attributes
 func (w *wgLink) Attrs() *netlink.LinkAttrs {
 	return w.attrs
 }
 
+// Type returns the interface type
 func (w *wgLink) Type() string {
 	return "wireguard"
 }
