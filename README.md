@@ -28,7 +28,7 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 ### Client Installation
 #### Linux
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases)   
-2. Download the latest release (**Switch VERSION to the lates**):
+2. Download the latest release (**Switch VERSION to the latest**):
 
 **Debian packages**
 ```shell
@@ -48,7 +48,7 @@ sudo rpm -i wiretrustee_<VERSION>_linux_amd64.rpm
 ```
 #### MACOS
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
-2. Download the latest release (**Switch VERSION to the lates**):
+2. Download the latest release (**Switch VERSION to the latest**):
 ```shell
 curl -o ./wiretrustee_<VERSION>_darwin_amd64.tar.gz https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wiretrustee_<VERSION>_darwin_amd64.tar.gz
 ```
@@ -95,7 +95,7 @@ For **MACOS** you will just start the service:
 ````shell
 sudo wiretrustee up --log-level info 
 # or
-sudo wiretrustee up --log-level info & # for run it in background
+sudo wiretrustee up --log-level info & # to run it in background
 ````   
 For **Linux** systems:
 ```shell
@@ -107,9 +107,9 @@ After installing the application, you can run the signal using the command below
 ````shell
 /usr/local/bin/wiretrustee signal --log-level INFO
 ````
-This will launch the signal service on port 10000, in case you want to change the port, use the flag --port.
+This will launch the Signal server on port 10000, in case you want to change the port, use the flag --port.
 #### Docker image
-We have packed the signal into docker images. You can pull the images from the Docker Hub and execute it with the following commands:
+We have packed the Signal server into docker image. You can pull the image from Docker Hub and execute it with the following commands:
 ````shell
 docker pull wiretrustee/wiretrustee:signal-latest
 docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/wiretrustee:signal-latest
@@ -120,8 +120,8 @@ docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/wiretrustee:s
 ````
 
 ### Running Signal and Coturn
-Under infrastructure_files we have a docker-compose example to run both, Wiretrustee signal server and an instance of [Coturn](https://github.com/coturn/coturn), it also provides a turnserver.conf file as a simple example of Coturn configuration. 
-You can edit the turnserver.conf file and change its Realm (default to wiretrustee.com) setting to your own domain and the user (defaults to username1:password1) setting to **proper credentials**.
+Under infrastructure_files we have a docker-compose example to run both, Wiretrustee Signal server and an instance of [Coturn](https://github.com/coturn/coturn), it also provides a turnserver.conf file as a simple example of Coturn configuration. 
+You can edit the turnserver.conf file and change its Realm setting (defaults to wiretrustee.com) to your own domain and user setting (defaults to username1:password1) to **proper credentials**.
 
 The example is set to use the official images from Wiretrustee and Coturn, you can find our documentation to run the signal server in docker in [Running the Signal service](#Running the Signal service) and the Coturn official documentation [here](https://hub.docker.com/r/coturn/coturn).
 
