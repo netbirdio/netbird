@@ -125,9 +125,9 @@ You can edit the turnserver.conf file and change its Realm (default to wiretrust
 
 The example is set to use the official images from Wiretrustee and Coturn, you can find our documentation to run the signal server in docker in [Running the Signal service](#Running the Signal service) and the Coturn official documentation [here](https://hub.docker.com/r/coturn/coturn).
 
-> Run Coturn at you own risk, we are just providing an example, be sure to follow security best practices and to configure proper credentials as this service can be exploited and you may face large data transfer charges.
+> Run Coturn at your own risk, we are just providing an example, be sure to follow security best practices and to configure proper credentials as this service can be exploited and you may face large data transfer charges.
 
-Also, if you have a SSL certificate you can modify the docker-compose.yml file to point to its files in your host machine, then switch the domainname to your own SSL domain. If you don't already have a SLL certificate, you can follow [Certbot's](https://certbot.eff.org/docs/intro.html) official documentation
+Also, if you have an SSL certificate you can modify the docker-compose.yml file to point to its files in your host machine, then switch the domainname to your own SSL domain. If you don't already have an SSL certificate, you can follow [Certbot's](https://certbot.eff.org/docs/intro.html) official documentation
 to generate one from [Let’s Encrypt](https://letsencrypt.org/), or, we found that the example provided by [BigBlueButton](https://docs.bigbluebutton.org/2.2/setup-turn-server.html#generating-tls-certificates) covers the basics to configure Coturn with Let's Encrypt certs. 
 
 Simple docker-composer execution:
