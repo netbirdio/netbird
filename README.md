@@ -26,17 +26,50 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 * Peer address management. You have to specify a unique peer local address (e.g. 10.30.30.1/24) when configuring Wiretrustee
 
 ### Client Installation
+#### Linux
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases)   
-2. Download the latest release:
+2. Download the latest release (**Switch VERSION to the lates**):
+
+**Debian packages**
 ```shell
-wget https://github.com/wiretrustee/wiretrustee/releases/download/v0.0.4/wiretrustee_0.0.4_linux_amd64.rpm
+wget https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wiretrustee_<VERSION>_linux_amd64.deb
 ```
 3. Install the package
 ```shell
-sudo dpkg -i wiretrustee_0.0.4_linux_amd64.deb
+sudo dpkg -i wiretrustee_<VERSION>_linux_amd64.deb
 ```
+**Fedora/Centos packages**
+```shell
+wget https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wiretrustee_<VERSION>_linux_amd64.rpm
+```
+3. Install the package
+```shell
+sudo rpm -i wiretrustee_<VERSION>_linux_amd64.rpm
+```
+#### MACOS
+1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
+2. Download the latest release (**Switch VERSION to the lates**):
+```shell
+curl -o ./wiretrustee_<VERSION>_darwin_amd64.tar.gz https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wiretrustee_<VERSION>_darwin_amd64.tar.gz
+```
+3. Decompress
+```shell
+tar xcf ./wiretrustee_<VERSION>_darwin_amd64.tar.gz
+sudo mv wiretrusee /usr/local/bin/wiretrustee
+chmod +x /usr/local/bin/wiretrustee
+```
+After that you may need to add /usr/local/bin in your MAC's PATH environment variable:
+````shell
+export PATH=$PATH:/usr/local/bin
+````
 ### Client Configuration
 1. Initialize Wiretrustee:
+
+For **MACOS**, you need to create the configuration directory:
+````shell
+sudo mkdir /etc/wiretrustee
+````
+Then, for all systems:
 ```shell
 sudo wiretrustee init \
  --stunURLs stun:stun.wiretrustee.com:3468,stun:stun.l.google.com:19302 \
@@ -58,6 +91,13 @@ sudo wiretrustee add-peer --allowedIPs 10.30.30.2/32 --key '<REMOTE PEER WIREUAR
 ```
 
 3. Restart Wiretrustee to reload changes
+For **MACOS** you will just start the service:
+````shell
+sudo wiretrustee up --log-level info 
+# or
+sudo wiretrustee up --log-level info & # for run it in background
+````   
+For **Linux** systems:
 ```shell
 sudo systemctl restart wiretrustee.service
 sudo systemctl status wiretrustee.service 
@@ -77,6 +117,34 @@ docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/wiretrustee:s
 The default log-level is set to INFO, if you need you can change it using by updating the docker cmd as followed:
 ````shell
 docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/wiretrustee:signal-latest --log-level DEBUG
+````
+
+### Running Signal and Coturn
+Under infrastructure_files we have a docker-compose example to run both, Wiretrustee signal server and an instance of [Coturn](https://github.com/coturn/coturn), it also provides a turnserver.conf file as a simple example of Coturn configuration. 
+You can edit the turnserver.conf file and change its Realm (default to wiretrustee.com) setting to your own domain and the user (defaults to username1:password1) setting to **proper credentials**.
+
+The example is set to use the official images from Wiretrustee and Coturn, you can find our documentation to run the signal server in docker in [Running the Signal service](#Running the Signal service) and the Coturn official documentation [here](https://hub.docker.com/r/coturn/coturn).
+
+> Run Coturn at you own risk, we are just providing an example, be sure to follow security best practices and to configure proper credentials as this service can be exploited and you may face large data transfer charges.
+
+Also, if you have a SSL certificate you can modify the docker-compose.yml file to point to its files in your host machine, then switch the domainname to your own SSL domain. If you don't already have a SLL certificate, you can follow [Certbot's](https://certbot.eff.org/docs/intro.html) official documentation
+to generate one from [Let’s Encrypt](https://letsencrypt.org/), or, we found that the example provided by [BigBlueButton](https://docs.bigbluebutton.org/2.2/setup-turn-server.html#generating-tls-certificates) covers the basics to configure Coturn with Let's Encrypt certs. 
+
+Simple docker-composer execution:
+````shell
+cd infrastructure_files
+docker-compose up -d
+````
+You can check logs by running:
+````shell
+cd infrastructure_files
+docker-compose logs signal
+docker-compose logs coturn
+````
+If you need to stop the services, run the following:
+````shell
+cd infrastructure_files
+docker-compose down
 ````
 ### Roadmap
 * Android app
