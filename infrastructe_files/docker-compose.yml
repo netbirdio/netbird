@@ -1,0 +1,19 @@
+version: "3"
+services:
+  # Signal
+  signal:
+    image: wiretrustee/wiretrustee:signal-latest
+    restart: unless-stopped
+    ports:
+      - 10000:10000
+
+  # Coturn
+  coturn:
+    image: coturn/coturn
+    restart: unless-stopped
+    domainname: stun.wiretrustee.com
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+#      - ./privkey.pem:/etc/coturn/private/privkey.pem:ro
+#      - ./cert.pem:/etc/coturn/certs/cert.pem:ro
+    network_mode: host
