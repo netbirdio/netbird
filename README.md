@@ -25,6 +25,10 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 * Wireguard key management. In consequence, you need to generate peer keys and specify them on Wiretrustee initialization step.
 * Peer address management. You have to specify a unique peer local address (e.g. 10.30.30.1/24) when configuring Wiretrustee
 
+### Product Roadmap
+- [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/1)
+- [Public Roadmap Progress Tracking](https://github.com/wiretrustee/wiretrustee/projects/1)
+
 ### Client Installation
 #### Linux
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases)   
@@ -146,6 +150,5 @@ If you need to stop the services, run the following:
 cd infrastructure_files
 docker-compose down
 ````
-### Roadmap
-* Android app
+
  
