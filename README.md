@@ -26,7 +26,7 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 * Peer address management. You have to specify a unique peer local address (e.g. 10.30.30.1/24) when configuring Wiretrustee
 
 ### Product Roadmap
-- [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/1)
+- [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/2)
 - [Public Roadmap Progress Tracking](https://github.com/wiretrustee/wiretrustee/projects/1)
 
 ### Client Installation
