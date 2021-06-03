@@ -14,24 +14,24 @@ import (
 // Wireguard keys are used for encryption
 
 // Encrypt encrypts a message using local Wireguard private key and remote peer's public key.
-func Encrypt(msg []byte, peersPublicKey wgtypes.Key, privateKey wgtypes.Key) ([]byte, error) {
+func Encrypt(msg []byte, peerPublicKey wgtypes.Key, privateKey wgtypes.Key) ([]byte, error) {
 	nonce, err := genNonce()
 	if err != nil {
 		return nil, err
 	}
-	return box.Seal(nonce[:], msg, nonce, toByte32(peersPublicKey), toByte32(privateKey)), nil
+	return box.Seal(nonce[:], msg, nonce, toByte32(peerPublicKey), toByte32(privateKey)), nil
 }
 
 // Decrypt decrypts a message that has been encrypted by the remote peer using Wireguard private key and remote peer's public key.
-func Decrypt(encryptedMsg []byte, peersPublicKey wgtypes.Key, privateKey wgtypes.Key) ([]byte, error) {
+func Decrypt(encryptedMsg []byte, peerPublicKey wgtypes.Key, privateKey wgtypes.Key) ([]byte, error) {
 	nonce, err := genNonce()
 	if err != nil {
 		return nil, err
 	}
 	copy(nonce[:], encryptedMsg[:24])
-	opened, ok := box.Open(nil, encryptedMsg[24:], nonce, toByte32(peersPublicKey), toByte32(privateKey))
+	opened, ok := box.Open(nil, encryptedMsg[24:], nonce, toByte32(peerPublicKey), toByte32(privateKey))
 	if !ok {
-		return nil, fmt.Errorf("failed to decrypt message from peer %s", peersPublicKey.String())
+		return nil, fmt.Errorf("failed to decrypt message from peer %s", peerPublicKey.String())
 	}
 
 	return opened, nil
