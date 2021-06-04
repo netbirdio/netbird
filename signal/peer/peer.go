@@ -47,8 +47,8 @@ func (reg *Registry) Register(peer *Peer) {
 	reg.Peers[peer.Id] = peer
 }
 
-// DeregisterHub deregister Peer from the Registry (usually once it disconnects)
-func (reg *Registry) DeregisterHub(peer *Peer) {
+// Deregister deregister Peer from the Registry (usually once it disconnects)
+func (reg *Registry) Deregister(peer *Peer) {
 	if _, ok := reg.Peers[peer.Id]; ok {
 		delete(reg.Peers, peer.Id)
 		log.Printf("deregistered peer [%s]", peer.Id)
