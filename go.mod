@@ -11,10 +11,9 @@ require (
 	github.com/spf13/cobra v1.1.3
 	github.com/vishvananda/netlink v1.1.0
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df
-	golang.org/x/crypto v0.0.0-20210322153248-0c34fe9e7dc2
-	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
-	golang.org/x/tools v0.1.1 // indirect
-	golang.zx2c4.com/wireguard v0.0.20201118
-	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20200609130330-bd2cb7843e1b
+	golang.org/x/crypto v0.0.0-20210506145944-38f3c27a63bf
+	golang.zx2c4.com/wireguard v0.0.0-20210604143328-f9b48a961cd2
+	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20210506160403-92e472f520a5
+	golang.zx2c4.com/wireguard/windows v0.3.14
 	google.golang.org/grpc v1.32.0
 )

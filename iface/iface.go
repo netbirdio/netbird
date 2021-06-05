@@ -2,9 +2,8 @@ package iface
 
 import (
 	log "github.com/sirupsen/logrus"
-	"github.com/vishvananda/netlink"
+	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -30,13 +29,9 @@ func Create(iface string, address string) error {
 	}
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	tunDevice := device.NewDevice(tunIface, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	tunDevice.Up()
-	tunSock, err := ipc.UAPIOpen(iface)
-	if err != nil {
-		return err
-	}
-	uapi, err := ipc.UAPIListen(iface, tunSock)
+	uapi, err := getUAPI(iface)
 	if err != nil {
 		return err
 	}
@@ -54,7 +49,7 @@ func Create(iface string, address string) error {
 
 	log.Debugln("UAPI listener started")
 
-	err = assignAddr(iface, address)
+	err = assignAddr(address, tunIface)
 	if err != nil {
 		return err
 	}
@@ -176,7 +171,7 @@ func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.
 	log.Debugf("got Wireguard device %s", iface)
 
 	//parse allowed ips
-	ipNet, err := netlink.ParseIPNet(allowedIps)
+	_, ipNet, err := net.ParseCIDR(allowedIps)
 	if err != nil {
 		return err
 	}
@@ -258,18 +253,4 @@ func UpdatePeerEndpoint(iface string, peerKey string, newEndpoint string) error 
 	}
 
 	return nil
-}
-
-type wgLink struct {
-	attrs *netlink.LinkAttrs
-}
-
-// Attrs returns the Wireguard's default attributes
-func (w *wgLink) Attrs() *netlink.LinkAttrs {
-	return w.attrs
-}
-
-// Type returns the interface type
-func (w *wgLink) Type() string {
-	return "wireguard"
 }
