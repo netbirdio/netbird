@@ -6,7 +6,7 @@ import (
 
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
-
+	"golang.zx2c4.com/wireguard/windows/elevate"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 )
 
@@ -30,6 +30,22 @@ func assignAddr(address string, tunDevice tun.Device) error {
 		return err
 	}
 	return nil
+}
+
+// createIface creates a tun device
+func createIface(iface string, defaultMTU int) (tun.Device, error) {
+
+	var tunDevice tun.Device
+	err := elevate.DoAsSystem(func() error {
+		var err error
+		tunDevice, err = tun.CreateTUNWithRequestedGUID(iface, &windows.GUID{12, 12, 12, [8]byte{12, 12, 12, 12, 12, 12, 12, 12}}, defaultMTU)
+		return err
+	})
+	if err != nil {
+		log.Errorln("Failed to create the tunnel device: ", err)
+		return nil, err
+	}
+	return tunDevice, err
 }
 
 // getUAPI returns a Listener
