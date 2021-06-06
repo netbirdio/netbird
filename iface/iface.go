@@ -29,7 +29,10 @@ func Create(iface string, address string) error {
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
-	tunDevice.Up()
+	err = tunDevice.Up()
+	if err != nil {
+		return err
+	}
 	uapi, err := getUAPI(iface)
 	if err != nil {
 		return err
@@ -37,12 +40,12 @@ func Create(iface string, address string) error {
 
 	go func() {
 		for {
-			conn, err := uapi.Accept()
+			uapiConn, err := uapi.Accept()
 			if err != nil {
 				log.Debugln(err)
 				return
 			}
-			go tunDevice.IpcHandle(conn)
+			go tunDevice.IpcHandle(uapiConn)
 		}
 	}()
 

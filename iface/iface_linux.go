@@ -17,6 +17,9 @@ func assignAddr(address string, tunDevice tun.Device) error {
 	var err error
 	attrs := netlink.NewLinkAttrs()
 	attrs.Name, err = tunDevice.Name()
+	if err != nil {
+		return err
+	}
 
 	link := wgLink{
 		attrs: &attrs,
