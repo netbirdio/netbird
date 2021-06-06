@@ -22,8 +22,7 @@ var tunIface tun.Device
 // Will reuse an existing one.
 func Create(iface string, address string) error {
 	var err error
-
-	tunIface, err = tun.CreateTUN(iface, defaultMTU)
+	tunIface, err = createIface(iface, defaultMTU)
 	if err != nil {
 		return err
 	}
