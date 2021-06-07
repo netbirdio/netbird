@@ -1,9 +1,11 @@
 project_name: wiretrustee
 builds:
   - env: [CGO_ENABLED=0]
+
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - arm
       - amd64
@@ -11,6 +13,12 @@ builds:
     ignore:
       - goos: darwin
         goarch: arm64
+      - goos: windows
+        goarch: arm64
+      - goos: windows
+        goarch: arm
+    tags:
+      - load_wintun_from_rsrc
 nfpms:
   - maintainer: Wiretrustee <wiretrustee@wiretrustee.com>
     description: Wiretrustee project.

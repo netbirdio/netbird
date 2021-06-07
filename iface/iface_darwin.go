@@ -2,6 +2,7 @@ package iface
 
 import (
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun"
 	"net"
 	"os/exec"
 	"strings"
@@ -12,15 +13,16 @@ import (
 //)
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
-func assignAddr(iface string, address string) error {
+func assignAddr(address string, tunDevice tun.Device) error {
+	ifaceName, err := tunDevice.Name()
 	ip := strings.Split(address, "/")
-	cmd := exec.Command("ifconfig", iface, "inet", address, ip[0])
+	cmd := exec.Command("ifconfig", ifaceName, "inet", address, ip[0])
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Infoln("Command: %v failed with output %s and error: ", cmd.String(), out)
 		return err
 	}
 	_, resolvedNet, err := net.ParseCIDR(address)
-	err = addRoute(iface, resolvedNet)
+	err = addRoute(ifaceName, resolvedNet)
 	if err != nil {
 		log.Infoln("Adding route failed with error:", err)
 	}
