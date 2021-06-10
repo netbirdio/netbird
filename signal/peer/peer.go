@@ -3,6 +3,7 @@ package peer
 import (
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
+	"sync"
 )
 
 // Peer representation of a connected Peer
@@ -25,32 +26,46 @@ func NewPeer(id string, stream proto.SignalExchange_ConnectStreamServer) *Peer {
 // Registry registry that holds all currently connected Peers
 type Registry struct {
 	// Peer.key -> Peer
-	Peers map[string]*Peer
+	Peers sync.Map
 }
 
 // NewRegistry creates a new connected Peer registry
 func NewRegistry() *Registry {
-	return &Registry{
-		Peers: make(map[string]*Peer),
+	return &Registry{}
+}
+
+// Get gets a peer from the registry
+func (registry *Registry) Get(peerId string) (*Peer, bool) {
+	if load, ok := registry.Peers.Load(peerId); ok {
+		return load.(*Peer), ok
 	}
+	return nil, false
+
+}
+
+func (registry *Registry) IsPeerRegistered(peerId string) bool {
+	if _, ok := registry.Peers.Load(peerId); ok {
+		return ok
+	}
+	return false
 }
 
 // Register registers peer in the registry
-func (reg *Registry) Register(peer *Peer) {
-	if _, exists := reg.Peers[peer.Id]; exists {
-		log.Warnf("peer [%s] has been already registered", peer.Id)
-	} else {
-		log.Printf("registering new peer [%s]", peer.Id)
-	}
-	//replace Peer even if exists
-	//todo should we really replace?
-	reg.Peers[peer.Id] = peer
+func (registry *Registry) Register(peer *Peer) {
+	// can be that peer already exists but it is fine (e.g. reconnect)
+	// todo investigate what happens to the old peer (especially Peer.Stream) when we override it
+	registry.Peers.Store(peer.Id, peer)
+	log.Printf("registered peer [%s]", peer.Id)
+
 }
 
 // Deregister deregister Peer from the Registry (usually once it disconnects)
-func (reg *Registry) Deregister(peer *Peer) {
-	if _, ok := reg.Peers[peer.Id]; ok {
-		delete(reg.Peers, peer.Id)
+func (registry *Registry) Deregister(peer *Peer) {
+	_, loaded := registry.Peers.LoadAndDelete(peer.Id)
+	if loaded {
 		log.Printf("deregistered peer [%s]", peer.Id)
+	} else {
+		log.Warnf("attempted to remove non-existent peer [%s]", peer.Id)
 	}
+
 }

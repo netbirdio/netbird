@@ -27,11 +27,11 @@ func NewServer() *SignalExchangeServer {
 // Send forwards a message to the signal peer
 func (s *SignalExchangeServer) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 
-	if _, found := s.registry.Peers[msg.Key]; !found {
+	if !s.registry.IsPeerRegistered(msg.Key) {
 		return nil, fmt.Errorf("unknown peer %s", msg.Key)
 	}
 
-	if dstPeer, found := s.registry.Peers[msg.RemoteKey]; found {
+	if dstPeer, found := s.registry.Get(msg.RemoteKey); found {
 		//forward the message to the target peer
 		err := dstPeer.Stream.Send(msg)
 		if err != nil {
@@ -63,7 +63,7 @@ func (s *SignalExchangeServer) ConnectStream(stream proto.SignalExchange_Connect
 		}
 		log.Debugf("received a new message from peer [%s] to peer [%s]", p.Id, msg.RemoteKey)
 		// lookup the target peer where the message is going to
-		if dstPeer, found := s.registry.Peers[msg.RemoteKey]; found {
+		if dstPeer, found := s.registry.Get(msg.RemoteKey); found {
 			//forward the message to the target peer
 			err := dstPeer.Stream.Send(msg)
 			if err != nil {
