@@ -47,4 +47,4 @@ jobs:
         run: go mod tidy
 
       - name: run build
-        run: GOOS=${{ matrix.go-version }} go build .
+        run: GOOS=${{ matrix.os }} go build .
