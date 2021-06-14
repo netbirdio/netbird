@@ -23,7 +23,7 @@ jobs:
   test_build:
     strategy:
       matrix:
-        os: [ windows, linux, macos ]
+        os: [ windows, linux, darwin ]
         go-version: [1.16.x]
     runs-on: ubuntu-latest
     steps:
