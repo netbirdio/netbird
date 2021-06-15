@@ -1,14 +1,15 @@
 package iface
 
 import (
+	"net"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"net"
-	"time"
 )
 
 const (
@@ -146,12 +147,6 @@ func UpdateListenPort(iface string, newPort int) error {
 	log.Debugf("updated Wireguard listen port of interface %s, new port %d", iface, newPort)
 
 	return nil
-}
-
-func ifname(n string) []byte {
-	b := make([]byte, 16)
-	copy(b, []byte(n+"\x00"))
-	return b
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
