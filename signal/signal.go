@@ -12,20 +12,20 @@ import (
 	"io"
 )
 
-// SignalExchangeServer an instance of a Signal server
-type SignalExchangeServer struct {
+// Server an instance of a Signal server
+type Server struct {
 	registry *peer.Registry
 }
 
 // NewServer creates a new Signal server
-func NewServer() *SignalExchangeServer {
-	return &SignalExchangeServer{
+func NewServer() *Server {
+	return &Server{
 		registry: peer.NewRegistry(),
 	}
 }
 
 // Send forwards a message to the signal peer
-func (s *SignalExchangeServer) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 
 	if !s.registry.IsPeerRegistered(msg.Key) {
 		return nil, fmt.Errorf("unknown peer %s", msg.Key)
@@ -46,7 +46,7 @@ func (s *SignalExchangeServer) Send(ctx context.Context, msg *proto.EncryptedMes
 }
 
 // ConnectStream connects to the exchange stream
-func (s *SignalExchangeServer) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) error {
+func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) error {
 	p, err := s.connectPeer(stream)
 	if err != nil {
 		return err
@@ -82,7 +82,7 @@ func (s *SignalExchangeServer) ConnectStream(stream proto.SignalExchange_Connect
 // Handles initial Peer connection.
 // Each connection must provide an ID header.
 // At this moment the connecting Peer will be registered in the peer.Registry
-func (s SignalExchangeServer) connectPeer(stream proto.SignalExchange_ConnectStreamServer) (*peer.Peer, error) {
+func (s Server) connectPeer(stream proto.SignalExchange_ConnectStreamServer) (*peer.Peer, error) {
 	if meta, hasMeta := metadata.FromIncomingContext(stream.Context()); hasMeta {
 		if id, found := meta[proto.HeaderId]; found {
 			p := peer.NewPeer(id[0], stream)
