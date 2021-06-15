@@ -60,22 +60,28 @@ var _ = Describe("Client", func() {
 				clientB := createSignalClient(addr, keyB)
 				clientB.Receive(func(msg *sigProto.Message) error {
 					receivedOnB = msg.GetBody().GetPayload()
-					clientB.Send(&sigProto.Message{
+					err := clientB.Send(&sigProto.Message{
 						Key:       keyB.PublicKey().String(),
 						RemoteKey: keyA.PublicKey().String(),
 						Body:      &sigProto.Body{Payload: "pong"},
 					})
+					if err != nil {
+						Fail("failed sending a message to {PeerA}")
+					}
 					msgReceived.Done()
 					return nil
 				})
 				clientB.WaitConnected()
 
 				// PeerA initiates ping-pong
-				clientA.Send(&sigProto.Message{
+				err := clientA.Send(&sigProto.Message{
 					Key:       keyA.PublicKey().String(),
 					RemoteKey: keyB.PublicKey().String(),
 					Body:      &sigProto.Body{Payload: "ping"},
 				})
+				if err != nil {
+					Fail("failed sending a message to PeerB")
+				}
 
 				msgReceived.Wait()
 
