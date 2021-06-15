@@ -9,7 +9,11 @@ import (
 	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 	"net"
+	"sync"
+	"time"
 )
 
 var _ = Describe("Client", func() {
@@ -29,6 +33,57 @@ var _ = Describe("Client", func() {
 	AfterEach(func() {
 		server.Stop()
 		listener.Close()
+	})
+
+	Describe("Exchanging messages", func() {
+		Context("between connected peers", func() {
+			It("should be successful", func() {
+
+				var msgReceived sync.WaitGroup
+				msgReceived.Add(2)
+
+				var receivedOnA string
+				var receivedOnB string
+
+				// connect PeerA to Signal
+				keyA, _ := wgtypes.GenerateKey()
+				clientA := createSignalClient(addr, keyA)
+				clientA.Receive(func(msg *sigProto.Message) error {
+					receivedOnA = msg.GetBody().GetPayload()
+					msgReceived.Done()
+					return nil
+				})
+				clientA.WaitConnected()
+
+				// connect PeerB to Signal
+				keyB, _ := wgtypes.GenerateKey()
+				clientB := createSignalClient(addr, keyB)
+				clientB.Receive(func(msg *sigProto.Message) error {
+					receivedOnB = msg.GetBody().GetPayload()
+					clientB.Send(&sigProto.Message{
+						Key:       keyB.PublicKey().String(),
+						RemoteKey: keyA.PublicKey().String(),
+						Body:      &sigProto.Body{Payload: "pong"},
+					})
+					msgReceived.Done()
+					return nil
+				})
+				clientB.WaitConnected()
+
+				// PeerA initiates ping-pong
+				clientA.Send(&sigProto.Message{
+					Key:       keyA.PublicKey().String(),
+					RemoteKey: keyB.PublicKey().String(),
+					Body:      &sigProto.Body{Payload: "ping"},
+				})
+
+				msgReceived.Wait()
+
+				Expect(receivedOnA).To(BeEquivalentTo("pong"))
+				Expect(receivedOnB).To(BeEquivalentTo("ping"))
+
+			})
+		})
 	})
 
 	Describe("Connecting to the Signal stream channel", func() {
@@ -52,8 +107,24 @@ var _ = Describe("Client", func() {
 				client := createRawSignalClient(addr)
 				stream, err := client.ConnectStream(context.Background())
 
-				Expect(stream).To(BeNil())
+				_, err = stream.Recv()
+
+				Expect(stream).NotTo(BeNil())
 				Expect(err).NotTo(BeNil())
+			})
+		})
+
+		Context("with a raw client and with an ID header", func() {
+			It("should be successful", func() {
+
+				md := metadata.New(map[string]string{sigProto.HeaderId: "peer"})
+				ctx := metadata.NewOutgoingContext(context.Background(), md)
+
+				client := createRawSignalClient(addr)
+				stream, err := client.ConnectStream(ctx)
+
+				Expect(stream).NotTo(BeNil())
+				Expect(err).To(BeNil())
 			})
 		})
 
@@ -71,11 +142,15 @@ func createSignalClient(addr string, key wgtypes.Key) *signal.Client {
 
 func createRawSignalClient(addr string) sigProto.SignalExchangeClient {
 	ctx := context.Background()
-	conn, err := grpc.DialContext(ctx, addr, grpc.WithInsecure())
+	conn, err := grpc.DialContext(ctx, addr, grpc.WithInsecure(),
+		grpc.WithBlock(),
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    3 * time.Second,
+			Timeout: 2 * time.Second,
+		}))
 	if err != nil {
 		Fail("failed creating raw signal client")
 	}
-	defer conn.Close()
 
 	return sigProto.NewSignalExchangeClient(conn)
 }
