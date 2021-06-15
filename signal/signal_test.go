@@ -66,7 +66,7 @@ var _ = Describe("Client", func() {
 						Body:      &sigProto.Body{Payload: "pong"},
 					})
 					if err != nil {
-						Fail("failed sending a message to {PeerA}")
+						Fail("failed sending a message to PeerA")
 					}
 					msgReceived.Done()
 					return nil
@@ -83,7 +83,9 @@ var _ = Describe("Client", func() {
 					Fail("failed sending a message to PeerB")
 				}
 
-				msgReceived.Wait()
+				if waitTimeout(&msgReceived, 3*time.Second) {
+					Fail("test timed out on waiting for peers to exchange messages")
+				}
 
 				Expect(receivedOnA).To(BeEquivalentTo("pong"))
 				Expect(receivedOnB).To(BeEquivalentTo("ping"))
@@ -178,4 +180,20 @@ func startSignal() (*grpc.Server, net.Listener) {
 	}()
 
 	return s, lis
+}
+
+// waitTimeout waits for the waitgroup for the specified max timeout.
+// Returns true if waiting timed out.
+func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
+	c := make(chan struct{})
+	go func() {
+		defer close(c)
+		wg.Wait()
+	}()
+	select {
+	case <-c:
+		return false // completed normally
+	case <-time.After(timeout):
+		return true // timed out
+	}
 }

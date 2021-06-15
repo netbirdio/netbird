@@ -53,7 +53,6 @@ func (s *SignalExchangeServer) ConnectStream(stream proto.SignalExchange_Connect
 	}
 
 	log.Infof("peer [%s] has successfully connected", p.Id)
-
 	for {
 		msg, err := stream.Recv()
 		if err == io.EOF {
