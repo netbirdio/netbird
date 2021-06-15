@@ -112,6 +112,9 @@ var _ = Describe("Client", func() {
 
 				client := createRawSignalClient(addr)
 				stream, err := client.ConnectStream(context.Background())
+				if err != nil {
+					Fail("error connecting to stream")
+				}
 
 				_, err = stream.Recv()
 
