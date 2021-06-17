@@ -109,14 +109,21 @@ func (c *Client) connect(key string, msgHandler func(msg *proto.Message) error) 
 	// add key fingerprint to the request header to be identified on the server side
 	md := metadata.New(map[string]string{proto.HeaderId: key})
 	ctx := metadata.NewOutgoingContext(c.ctx, md)
-	//ctx, cancel := context.WithCancel(ctx)
-	//defer cancel()
 
 	stream, err := c.realClient.ConnectStream(ctx)
 
 	c.stream = stream
 	if err != nil {
 		return err
+	}
+	// blocks
+	header, err := c.stream.Header()
+	if err != nil {
+		return err
+	}
+	registered := header.Get(proto.HeaderRegistered)
+	if len(registered) == 0 {
+		return fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
 	}
 	//connection established we are good to use the stream
 	c.connWg.Done()

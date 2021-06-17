@@ -52,6 +52,13 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 		return err
 	}
 
+	//needed to confirm that the peer has been registered so that the client can proceed
+	header := metadata.Pairs(proto.HeaderRegistered, "1")
+	err = stream.SendHeader(header)
+	if err != nil {
+		return err
+	}
+
 	log.Infof("peer [%s] has successfully connected", p.Id)
 	for {
 		msg, err := stream.Recv()
