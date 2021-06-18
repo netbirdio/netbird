@@ -40,10 +40,12 @@ func Configure(iface string, privateKey string) error {
 		return err
 	}
 	fwmark := 0
+	p := WgPort
 	cfg := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: false,
 		FirewallMark: &fwmark,
+		ListenPort:   &p,
 	}
 	err = wg.ConfigureDevice(iface, cfg)
 	if err != nil {
