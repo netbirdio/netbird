@@ -1,61 +1,17 @@
-// +build !linux
-
 package iface
 
 import (
+	"net"
+	"time"
+
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
+	"golang.zx2c4.com/wireguard/wgctrl"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 const (
 	defaultMTU = 1280
-	WgPort     = 51820
 )
-
-// Saves tun device object - is it required?
-var tunIface tun.Device
-
-// Create Creates a new Wireguard interface, sets a given IP and brings it up.
-// Will reuse an existing one.
-func Create(iface string, address string) error {
-	var err error
-	tunIface, err = tun.CreateTUN(iface, defaultMTU)
-	if err != nil {
-		return err
-	}
-
-	// We need to create a wireguard-go device and listen to configuration requests
-	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
-	err = tunDevice.Up()
-	if err != nil {
-		return err
-	}
-	uapi, err := getUAPI(iface)
-	if err != nil {
-		return err
-	}
-
-	go func() {
-		for {
-			uapiConn, err := uapi.Accept()
-			if err != nil {
-				log.Debugln(err)
-				return
-			}
-			go tunDevice.IpcHandle(uapiConn)
-		}
-	}()
-
-	log.Debugln("UAPI listener started")
-
-	err = assignAddr(address, tunIface)
-	if err != nil {
-		return err
-	}
-	return nil
-}
 
 // ConfigureWithKeyGen Extends the functionality of Configure(iface string, privateKey string) by generating a new Wireguard private key
 func ConfigureWithKeyGen(iface string) (*wgtypes.Key, error) {
@@ -83,12 +39,10 @@ func Configure(iface string, privateKey string) error {
 		return err
 	}
 	fwmark := 0
-	p := WgPort
 	cfg := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: false,
 		FirewallMark: &fwmark,
-		ListenPort:   &p,
 	}
 	err = wg.ConfigureDevice(iface, cfg)
 	if err != nil {

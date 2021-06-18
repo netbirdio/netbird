@@ -94,9 +94,9 @@ func (conn *Connection) Open(timeout time.Duration) error {
 
 	// create an ice.Agent that will be responsible for negotiating and establishing actual peer-to-peer connection
 	a, err := ice.NewAgent(&ice.AgentConfig{
-		MulticastDNSMode: ice.MulticastDNSModeQueryAndGather,
-		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
-		Urls:             conn.Config.StunTurnURLS,
+		// MulticastDNSMode: ice.MulticastDNSModeQueryAndGather,
+		NetworkTypes: []ice.NetworkType{ice.NetworkTypeUDP4},
+		Urls:         conn.Config.StunTurnURLS,
 		InterfaceFilter: func(s string) bool {
 			if conn.Config.iFaceBlackList == nil {
 				return true
