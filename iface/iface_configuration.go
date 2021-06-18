@@ -11,6 +11,7 @@ import (
 
 const (
 	defaultMTU = 1280
+	WgPort     = 51820
 )
 
 // ConfigureWithKeyGen Extends the functionality of Configure(iface string, privateKey string) by generating a new Wireguard private key

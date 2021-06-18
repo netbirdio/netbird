@@ -9,11 +9,6 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-const (
-	defaultMTU = 1280
-	WgPort     = 51820
-)
-
 // Saves tun device object - is it required?
 var tunIface tun.Device
 
