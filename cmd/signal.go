@@ -6,7 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	sig "github.com/wiretrustee/wiretrustee/signal"
-	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
+	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"google.golang.org/grpc"
 	"net"
 )
@@ -30,7 +30,7 @@ var (
 			}
 			var opts []grpc.ServerOption
 			grpcServer := grpc.NewServer(opts...)
-			sProto.RegisterSignalExchangeServer(grpcServer, sig.NewServer())
+			sigProto.RegisterSignalExchangeServer(grpcServer, sig.NewServer())
 			log.Printf("started server: localhost:%v", port)
 			if err := grpcServer.Serve(lis); err != nil {
 				log.Fatalf("failed to serve: %v", err)
