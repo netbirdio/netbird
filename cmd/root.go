@@ -36,6 +36,8 @@ func init() {
 	rootCmd.AddCommand(addPeerCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(signalCmd)
+	rootCmd.AddCommand(serviceCmd)
+	serviceCmd.AddCommand(runCmd) // run is a subcommand of service
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
