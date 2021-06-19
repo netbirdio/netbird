@@ -48,10 +48,15 @@ var (
 			//signalClient.WaitConnected()
 
 			SetupCloseHandler()
-			select {}
+			<-stopUP
+			log.Println("Receive signal to stop running")
 		},
 	}
 )
 
+// Execution control channel for stopUP signal
+var stopUP chan int
+
 func init() {
+	stopUP = make(chan int)
 }
