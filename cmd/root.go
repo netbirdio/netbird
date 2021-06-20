@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"os/signal"
+	"runtime"
 )
 
 const (
@@ -14,8 +15,9 @@ const (
 )
 
 var (
-	configPath string
-	logLevel   string
+	configPath        string
+	defaultConfigPath string
+	logLevel          string
 
 	rootCmd = &cobra.Command{
 		Use:   "wiretrustee",
@@ -28,16 +30,20 @@ var (
 func Execute() error {
 	return rootCmd.Execute()
 }
-
 func init() {
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", "/etc/wiretrustee/config.json", "Wiretrustee config file location to write new config to")
+	defaultConfigPath = "/etc/wiretrustee/config.json"
+	if runtime.GOOS == "windows" {
+		defaultConfigPath = os.Getenv("PROGRAMDATA") + "Wiretrustee" + "config.json"
+	}
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location to write new config to")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(addPeerCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(signalCmd)
 	rootCmd.AddCommand(serviceCmd)
-	serviceCmd.AddCommand(runCmd) // run is a subcommand of service
+	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
+	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
