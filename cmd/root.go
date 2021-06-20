@@ -33,7 +33,7 @@ func Execute() error {
 func init() {
 	defaultConfigPath = "/etc/wiretrustee/config.json"
 	if runtime.GOOS == "windows" {
-		defaultConfigPath = os.Getenv("PROGRAMDATA") + "Wiretrustee" + "config.json"
+		defaultConfigPath = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "config.json"
 	}
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location to write new config to")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
