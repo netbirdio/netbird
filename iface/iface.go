@@ -19,6 +19,11 @@ const (
 // Saves tun device object - is it required?
 var tunIface tun.Device
 
+// Delete deletes an existing Wireguard interface
+func Delete() error {
+	return tunIface.Close()
+}
+
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
 func Create(iface string, address string) error {

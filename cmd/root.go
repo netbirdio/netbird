@@ -53,7 +53,7 @@ func SetupCloseHandler() {
 	go func() {
 		for range c {
 			fmt.Println("\r- Ctrl+C pressed in Terminal")
-			os.Exit(0)
+			stopUP <- 0
 		}
 	}()
 }
