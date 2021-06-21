@@ -39,7 +39,12 @@ var (
 				iFaceBlackList[config.IFaceBlackList[i]] = struct{}{}
 			}
 			engine := connection.NewEngine(signalClient, config.StunTurnURLs, config.WgIface, config.WgAddr, iFaceBlackList)
-			defer engine.Stop()
+			defer func() {
+				err := engine.Stop()
+				if err != nil {
+					log.Fatal(err)
+				}
+			}()
 
 			err = engine.Start(myKey, config.Peers)
 			if err != nil {
