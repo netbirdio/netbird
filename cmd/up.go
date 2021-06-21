@@ -39,6 +39,7 @@ var (
 				iFaceBlackList[config.IFaceBlackList[i]] = struct{}{}
 			}
 			engine := connection.NewEngine(signalClient, config.StunTurnURLs, config.WgIface, config.WgAddr, iFaceBlackList)
+			defer engine.Stop()
 
 			err = engine.Start(myKey, config.Peers)
 			if err != nil {
@@ -48,8 +49,9 @@ var (
 			//signalClient.WaitConnected()
 
 			SetupCloseHandler()
-			<-stopUP
+			code := <-stopUP
 			log.Println("Receive signal to stop running")
+			os.Exit(code)
 		},
 	}
 )
