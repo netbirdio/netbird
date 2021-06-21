@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"runtime"
 )
@@ -30,13 +29,16 @@ var (
 
 			s, err := newSVC(&program{}, svcConfig)
 			if err != nil {
-				log.Fatal(err)
+				cmd.PrintErrln(err)
+				return
 			}
 
 			err = s.Install()
 			if err != nil {
-				log.Error(err)
+				cmd.PrintErrln(err)
+				return
 			}
+			cmd.Printf("Wiretrustee service has been installed")
 		},
 	}
 )
@@ -49,13 +51,16 @@ var (
 
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
-				log.Fatal(err)
+				cmd.PrintErrln(err)
+				return
 			}
 
 			err = s.Uninstall()
 			if err != nil {
-				log.Error(err)
+				cmd.PrintErrln(err)
+				return
 			}
+			cmd.Printf("Wiretrustee has been uninstalled")
 		},
 	}
 )
