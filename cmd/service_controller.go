@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"github.com/kardianos/service"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -31,12 +30,15 @@ var (
 
 			s, err := newSVC(prg, newSVCConfig())
 			if err != nil {
-				log.Fatal(err)
+				cmd.PrintErrln(err)
+				return
 			}
 			err = s.Run()
 			if err != nil {
-				logger.Error(err) //nolint
+				cmd.PrintErrln(err)
+				return
 			}
+			cmd.Printf("Wiretrustee service is running")
 		},
 	}
 )
@@ -49,12 +51,15 @@ var (
 
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
-				log.Fatal(err)
+				cmd.PrintErrln(err)
+				return
 			}
 			err = s.Start()
 			if err != nil {
-				logger.Error(err) //nolint
+				cmd.PrintErrln(err)
+				return
 			}
+			cmd.Printf("Wiretrustee service has been started")
 		},
 	}
 )
@@ -67,12 +72,15 @@ var (
 
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
-				log.Fatal(err)
+				cmd.PrintErrln(err)
+				return
 			}
 			err = s.Stop()
 			if err != nil {
-				logger.Error(err) //nolint
+				cmd.PrintErrln(err)
+				return
 			}
+			cmd.Printf("Wiretrustee service has been stopped")
 		},
 	}
 )
@@ -85,12 +93,15 @@ var (
 
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
-				log.Fatal(err)
+				cmd.PrintErrln(err)
+				return
 			}
 			err = s.Restart()
 			if err != nil {
-				logger.Error(err) //nolint
+				cmd.PrintErrln(err)
+				return
 			}
+			cmd.Printf("Wiretrustee service has been restarted")
 		},
 	}
 )
