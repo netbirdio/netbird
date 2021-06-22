@@ -16,8 +16,8 @@ var logger service.Logger
 func newSVCConfig() *service.Config {
 	return &service.Config{
 		Name:        "wiretrustee",
-		DisplayName: "wiretrustee",
-		Description: "This is an example Go service.",
+		DisplayName: "Wiretrustee",
+		Description: "A WireGuard-based mesh network that connects your devices into a single private network.",
 	}
 }
 
