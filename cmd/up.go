@@ -54,9 +54,8 @@ var (
 			//signalClient.WaitConnected()
 
 			SetupCloseHandler()
-			code := <-stopUP
+			<-stopUP
 			log.Println("Receive signal to stop running")
-			os.Exit(code)
 		},
 	}
 )
