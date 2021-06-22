@@ -12,6 +12,7 @@ require (
 	github.com/vishvananda/netlink v1.1.0
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df
 	golang.org/x/crypto v0.0.0-20210506145944-38f3c27a63bf
+	golang.org/x/sys v0.0.0-20210510120138-977fb7262007
 	golang.zx2c4.com/wireguard v0.0.0-20210604143328-f9b48a961cd2
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20210506160403-92e472f520a5
 	golang.zx2c4.com/wireguard/windows v0.3.14
