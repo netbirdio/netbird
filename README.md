@@ -66,14 +66,28 @@ After that you may need to add /usr/local/bin in your MAC's PATH environment var
 ````shell
 export PATH=$PATH:/usr/local/bin
 ````
+
+#### Windows
+1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
+2. Download the latest Windows release ```wiretrustee_<VERSION>_windows_amd64.tar.gz``` (**Switch VERSION to the latest**):
+3. Decompress and move to a more fixed path in your system
+4. Open Powershell
+5. For Windows systems, we can use the service command to configure Wiretrustee as a service
+````shell
+cd C:\path\to\wiretrustee\bin
+.\wiretrustee.exe service --help
+.\wiretrustee.exe service install # This will prompt for administrator permissions in order to install a new service
+````
+6. After installing you can follow the [Client Configuration](#Client-Configuration) steps.
+7. To uninstall the service simple run the command above with the uninstall flag:
+````shell
+.\wiretrustee.exe service uninstall
+````
+
 ### Client Configuration
 1. Initialize Wiretrustee:
 
-For **MACOS**, you need to create the configuration directory:
-````shell
-sudo mkdir /etc/wiretrustee
-````
-Then, for all systems:
+For **Unix** systems:
 ```shell
 sudo wiretrustee init \
  --stunURLs stun:stun.wiretrustee.com:3468,stun:stun.l.google.com:19302 \
@@ -82,6 +96,16 @@ sudo wiretrustee init \
  --wgLocalAddr 10.30.30.1/24  \
  --log-level info
 ```
+For  **Windows** systems:
+```shell
+.\wiretrustee.exe init `
+ --stunURLs stun:stun.wiretrustee.com:3468,stun:stun.l.google.com:19302 `
+ --turnURLs <TURN User>:<TURN password>@turn:stun.wiretrustee.com:3468  `
+ --signalAddr signal.wiretrustee.com:10000  `
+ --wgLocalAddr 10.30.30.1/24  `
+ --log-level info
+ ```
+ 
 It is important to mention that the ```wgLocalAddr``` parameter has to be unique across your network.
 E.g. if you have Peer A with ```wgLocalAddr=10.30.30.1/24``` then another Peer B can have ```wgLocalAddr=10.30.30.2/24```
 
@@ -89,11 +113,16 @@ If for some reason, you already have a generated Wireguard key, you can specify 
 If not specified, then a new one will be generated, and its corresponding public key will be output to the log.
 A new config will be generated and stored under ```/etc/wiretrustee/config.json```
 
-2. Add a peer to connect to. 
+2. Add a peer to connect to.
+   
+For **Unix** systems:
 ```shell
 sudo wiretrustee add-peer --allowedIPs 10.30.30.2/32 --key '<REMOTE PEER WIREUARD PUBLIC KEY>'
 ```
-
+For  **Windows** systems:
+```shell
+.\wiretrustee.exe add-peer --allowedIPs 10.30.30.2/32 --key '<REMOTE PEER WIREUARD PUBLIC KEY>'
+```
 3. Restart Wiretrustee to reload changes
 For **MACOS** you will just start the service:
 ````shell
@@ -105,6 +134,10 @@ For **Linux** systems:
 ```shell
 sudo systemctl restart wiretrustee.service
 sudo systemctl status wiretrustee.service 
+```
+For **Windows** systems:
+```shell
+.\wiretrustee.exe service start
 ```
 ### Running the Signal service
 After installing the application, you can run the signal using the command below:
