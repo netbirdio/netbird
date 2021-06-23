@@ -1,3 +1,5 @@
+// +build linux
+
 package iface
 
 // Holds logic to check existence of Wireguard kernel module
