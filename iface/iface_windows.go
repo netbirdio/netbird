@@ -9,8 +9,8 @@ import (
 )
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
-func assignAddr(address string, tunDevice tun.Device) error {
-	ifaceName, err := tunDevice.Name()
+func assignAddr(address string, ifaceName string) error {
+
 	nativeTunDevice := tunDevice.(*tun.NativeTun)
 	luid := winipcfg.LUID(nativeTunDevice.LUID())
 
