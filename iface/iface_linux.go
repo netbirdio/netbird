@@ -11,6 +11,7 @@ import (
 func Create(iface string, address string) error {
 
 	if WireguardModExists() {
+		log.Debug("using kernel Wireguard module")
 		return CreateWithKernel(iface, address)
 	} else {
 		return CreateWithUserspace(iface, address)
