@@ -154,6 +154,9 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		if pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost {
 			log.Debugf("remote peer %s is in the local network with an address %s", conn.Config.RemoteWgKey.String(), pair.Remote.Address())
 			err = conn.wgProxy.StartLocal(fmt.Sprintf("%s:%d", pair.Remote.Address(), iface.WgPort))
+			if err != nil {
+				return err
+			}
 		} else {
 			err = conn.wgProxy.Start(remoteConn)
 			if err != nil {
