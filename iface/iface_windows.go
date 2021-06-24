@@ -17,7 +17,7 @@ func assignAddr(address string, ifaceName string) error {
 	ip, ipnet, _ := net.ParseCIDR(address)
 
 	log.Debugf("adding address %s to interface: %s", address, ifaceName)
-	err = luid.SetIPAddresses([]net.IPNet{{ip, ipnet.Mask}})
+	err := luid.SetIPAddresses([]net.IPNet{{ip, ipnet.Mask}})
 	if err != nil {
 		return err
 	}
