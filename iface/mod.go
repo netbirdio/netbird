@@ -38,10 +38,10 @@ func getModuleRoot() string {
 	)
 }
 
-// Name will, given a file descriptor to a Kernel Module (.ko file), parse the
+// modName will, given a file descriptor to a Kernel Module (.ko file), parse the
 // binary to get the module name. For instance, given a handle to the file at
 // `kernel/drivers/usb/gadget/legacy/g_ether.ko`, return `g_ether`.
-func Name(file *os.File) (string, error) {
+func modName(file *os.File) (string, error) {
 	f, err := elf.NewFile(file)
 	if err != nil {
 		return "", err
@@ -97,7 +97,7 @@ func elfMap(root string) (map[string]string, error) {
 				return err
 			}
 			defer fd.Close()
-			name, err := Name(fd)
+			name, err := modName(fd)
 			if err != nil {
 				/* For now, let's just ignore that and avoid adding to it */
 				return nil
