@@ -26,8 +26,8 @@ func ConfigureWithKeyGen(iface string) (*wgtypes.Key, error) {
 	return &key, Configure(iface, key.String())
 }
 
-// CreateInUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
-func CreateInUserspace(iface string, address string) error {
+// CreateWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
+func CreateWithUserspace(iface string, address string) error {
 	var err error
 	tunIface, err := tun.CreateTUN(iface, defaultMTU)
 	if err != nil {
