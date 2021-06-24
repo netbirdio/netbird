@@ -15,7 +15,6 @@ func Create(iface string, address string) error {
 	} else {
 		return CreateWithUserspace(iface, address)
 	}
-
 }
 
 // CreateWithKernel Creates a new Wireguard interface using kernel Wireguard module.
