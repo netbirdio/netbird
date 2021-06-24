@@ -83,6 +83,12 @@ func elfMap(root string) (map[string]string, error) {
 	err := filepath.Walk(
 		root,
 		func(path string, info os.FileInfo, err error) error {
+
+			if err != nil {
+				// skip broken files
+				return nil
+			}
+
 			if !info.Mode().IsRegular() {
 				return nil
 			}
@@ -118,11 +124,7 @@ func generateMap() (map[string]string, error) {
 // WireguardModExists returns true if Wireguard kernel module exists.
 func WireguardModExists() bool {
 	_, err := resolveModName("wireguard")
-	if err != nil {
-		return false
-	}
-
-	return true
+	return err == nil
 }
 
 // resolveModName will, given a module name (such as `wireguard`) return an absolute
