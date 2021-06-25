@@ -72,12 +72,13 @@ export PATH=$PATH:/usr/local/bin
 2. Download the latest Windows release ```wiretrustee_<VERSION>_windows_amd64.tar.gz``` (**Switch VERSION to the latest**):
 3. Decompress and move to a more fixed path in your system
 4. Open Powershell
-5. For Windows systems, we can use the service command to configure Wiretrustee as a service
+5. For Windows systems, we can use the service command to configure Wiretrustee as a service by running the following commands in Powershell:
 ````shell
 cd C:\path\to\wiretrustee\bin
 .\wiretrustee.exe service --help
 .\wiretrustee.exe service install # This will prompt for administrator permissions in order to install a new service
 ````
+> You may need to run Powershell as Administrator
 6. After installing you can follow the [Client Configuration](#Client-Configuration) steps.
 7. To uninstall the service simple run the command above with the uninstall flag:
 ````shell
@@ -139,6 +140,7 @@ For **Windows** systems:
 ```shell
 .\wiretrustee.exe service start
 ```
+> You may need to run Powershell as Administrator
 ### Running the Signal service
 After installing the application, you can run the signal using the command below:
 ````shell
