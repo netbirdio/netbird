@@ -18,7 +18,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Test
-        run: sudo go test ./...
+        run: sudo --preserve-env=GOROOT go test ./...
 
   test_build:
     strategy:
