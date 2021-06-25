@@ -5,6 +5,7 @@ import (
 	"fmt"
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/iface"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"sync"
 	"time"
@@ -93,6 +94,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 
 	// create an ice.Agent that will be responsible for negotiating and establishing actual peer-to-peer connection
 	a, err := ice.NewAgent(&ice.AgentConfig{
+		// MulticastDNSMode: ice.MulticastDNSModeQueryAndGather,
 		NetworkTypes: []ice.NetworkType{ice.NetworkTypeUDP4},
 		Urls:         conn.Config.StunTurnURLS,
 		InterfaceFilter: func(s string) bool {
@@ -144,9 +146,22 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			return err
 		}
 
-		err = conn.wgProxy.Start(remoteConn)
+		pair, err := conn.agent.GetSelectedCandidatePair()
 		if err != nil {
 			return err
+		}
+		// in case the remote peer is in the local network we don't need a Wireguard proxy, direct communication is possible.
+		if pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost {
+			log.Debugf("remote peer %s is in the local network with an address %s", conn.Config.RemoteWgKey.String(), pair.Remote.Address())
+			err = conn.wgProxy.StartLocal(fmt.Sprintf("%s:%d", pair.Remote.Address(), iface.WgPort))
+			if err != nil {
+				return err
+			}
+		} else {
+			err = conn.wgProxy.Start(remoteConn)
+			if err != nil {
+				return err
+			}
 		}
 
 		log.Infof("opened connection to peer %s", conn.Config.RemoteWgKey.String())
@@ -298,7 +313,6 @@ func (conn *Connection) listenOnConnectionStateChanges() error {
 			}
 			log.Infof("will connect to peer %s via a selected connnection candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
 		} else if state == ice.ConnectionStateDisconnected || state == ice.ConnectionStateFailed {
-			// todo do we really wanna have a connection restart within connection itself? Think of moving it outside
 			err := conn.Close()
 			if err != nil {
 				log.Warnf("error while closing connection to peer %s -> %s", conn.Config.RemoteWgKey.String(), err.Error())
