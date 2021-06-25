@@ -47,17 +47,18 @@ func Test_ServiceStartCMD(t *testing.T) {
 
 func Test_ServiceRunCMD(t *testing.T) {
 	rootCmd.SetArgs([]string{
+		"init",
 		"--stunURLs",
 		"stun:stun.wiretrustee.com:3468",
 		"--signalAddr",
 		"signal.wiretrustee.com:10000",
-		"--turnURLs foo:bar@turn:stun.wiretrustee.com:3468",
+		"--turnURLs",
+		"foo:bar@turn:stun.wiretrustee.com:3468",
 		"--wgInterface",
-		"wiretrustee",
+		"utun99",
 		"--wgLocalAddr",
 		"10.100.100.1/24",
 	})
-	rootCmd.SetArgs([]string{"init"})
 	err := rootCmd.Execute()
 	if err != nil {
 		t.Fatal(err)
