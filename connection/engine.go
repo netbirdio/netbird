@@ -46,23 +46,6 @@ func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgA
 		iFaceBlackList: iFaceBlackList,
 	}
 }
-func (e *Engine) Stop() error {
-	err := iface.Delete()
-	if err != nil {
-		log.Errorf("error while deleting Wireguard interface")
-		return err
-	}
-
-	err = e.signal.Close()
-	if err != nil {
-		log.Errorf("error while closing a connection to the signal server")
-		return err
-	}
-	for _, c := range e.conns {
-		c.Close() //nolint
-	}
-	return nil
-}
 
 // Start creates a new tunnel interface and listens to signals from the Signal service.
 // It also creates an Go routine to handle each peer communication from the config file
