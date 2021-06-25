@@ -11,7 +11,12 @@ func Test_ServiceInstallCMD(t *testing.T) {
 	b := bytes.NewBufferString("")
 	rootCmd.SetOut(b)
 	rootCmd.SetErr(b)
-	rootCmd.SetArgs([]string{"service", "install"})
+	rootCmd.SetArgs([]string{
+		"service",
+		"install",
+		"--config",
+		"/tmp/config.json",
+	})
 	err := rootCmd.Execute()
 	if err != nil {
 		t.Fatal(err)
@@ -58,6 +63,8 @@ func Test_ServiceRunCMD(t *testing.T) {
 		"utun99",
 		"--wgLocalAddr",
 		"10.100.100.1/24",
+		"--config",
+		"/tmp/config.json",
 	})
 	err := rootCmd.Execute()
 	if err != nil {
