@@ -1,32 +1,25 @@
 package iface
 
 import (
-	"net"
-	"time"
-
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"net"
+	"time"
 )
 
 const (
 	defaultMTU = 1280
+	WgPort     = 51820
 )
 
-// Saves tun device object - is it required?
 var tunIface tun.Device
 
-// Delete deletes an existing Wireguard interface
-func Delete() error {
-	return tunIface.Close()
-}
-
-// Create Creates a new Wireguard interface, sets a given IP and brings it up.
-// Will reuse an existing one.
-func Create(iface string, address string) error {
+// CreateWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
+func CreateWithUserspace(iface string, address string) error {
 	var err error
 	tunIface, err = tun.CreateTUN(iface, defaultMTU)
 	if err != nil {
@@ -57,7 +50,7 @@ func Create(iface string, address string) error {
 
 	log.Debugln("UAPI listener started")
 
-	err = assignAddr(address, tunIface)
+	err = assignAddr(address, iface)
 	if err != nil {
 		return err
 	}
@@ -90,10 +83,12 @@ func Configure(iface string, privateKey string) error {
 		return err
 	}
 	fwmark := 0
+	p := WgPort
 	cfg := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: false,
 		FirewallMark: &fwmark,
+		ListenPort:   &p,
 	}
 	err = wg.ConfigureDevice(iface, cfg)
 	if err != nil {
