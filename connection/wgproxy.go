@@ -42,6 +42,15 @@ func (p *WgProxy) Close() error {
 	return nil
 }
 
+func (p *WgProxy) StartLocal(host string) error {
+	err := iface.UpdatePeer(p.iface, p.remoteKey, p.allowedIps, DefaultWgKeepAlive, host)
+	if err != nil {
+		log.Errorf("error while configuring Wireguard peer [%s] %s", p.remoteKey, err.Error())
+		return err
+	}
+	return nil
+}
+
 // Start starts a new proxy using the ICE connection
 func (p *WgProxy) Start(remoteConn *ice.Conn) error {
 
