@@ -1,0 +1,9 @@
+#include <windows.h>
+
+#pragma code_page(65001) // UTF-8
+
+#define STRINGIZE(x) #x
+#define EXPAND(x) STRINGIZE(x)
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST manifest.xml
+wintun.dll RCDATA wintun.dll
+

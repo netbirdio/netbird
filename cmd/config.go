@@ -6,6 +6,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/connection"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 )
 
 // Config Configuration type
@@ -23,6 +24,15 @@ type Config struct {
 
 //Write writes configPath to a file
 func (cfg *Config) Write(path string) error {
+
+	if path == defaultConfigPath {
+		configDir := filepath.Dir(path)
+		err := os.MkdirAll(configDir, 0750)
+		if err != nil {
+			return err
+		}
+	}
+
 	bs, err := json.Marshal(cfg)
 	if err != nil {
 		return err

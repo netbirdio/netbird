@@ -113,7 +113,7 @@ func GetListenPort(iface string) (*int, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("got Wireguard device listen port %s, %d", iface, &d.ListenPort)
+	log.Debugf("got Wireguard device listen port %s, %d", iface, d.ListenPort)
 
 	return &d.ListenPort, nil
 }
