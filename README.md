@@ -22,8 +22,8 @@ A WireGuard®-based mesh network that connects your devices into a single privat
   [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Wiretrustee setups.
 
 ### What Wiretrustee is not doing:
-* Wireguard key management. In consequence, you need to generate peer keys and specify them on Wiretrustee initialization step.
-* Peer address management. You have to specify a unique peer local address (e.g. 10.30.30.1/24) when configuring Wiretrustee
+* Wireguard key management. In consequence, you need to generate peer keys and specify them on Wiretrustee initialization step. This feature is on the roadmap.
+* Peer address management. You have to specify a unique peer local address (e.g. 10.30.30.1/24) when configuring Wiretrustee. This feature is on the roadmap.
 
 ### Product Roadmap
 - [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/2)
@@ -186,4 +186,7 @@ cd infrastructure_files
 docker-compose down
 ````
 
- 
+
+### Legal
+ [WireGuard](https://wireguard.com/) is a registered trademark of Jason A. Donenfeld.
+
