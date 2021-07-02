@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = ".;proto";
+
+package management;
+
+service ManagementService {
+
+  rpc RegisterPeer(RegisterPeerRequest) returns (RegisterPeerResponse) {}
+
+  // health ;check endpoint
+  rpc isHealthy(Empty) returns (Empty) {}
+}
+
+message RegisterPeerRequest {
+  // Wireguard public key
+  string key = 1;
+
+  // Pre-authorized setup key
+  string setupKey = 2;
+}
+
+message RegisterPeerResponse {
+
+}
+
+message Empty {
+
+}
