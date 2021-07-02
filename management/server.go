@@ -21,5 +21,5 @@ func (*Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerRequest)
 }
 
 func (*Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method IsHealthy not implemented")
+	return &proto.Empty{}, nil
 }
