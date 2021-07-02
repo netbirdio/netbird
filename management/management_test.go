@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	mgmt "github.com/wiretrustee/wiretrustee/management"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"net"
@@ -40,6 +41,26 @@ var _ = Describe("Client", func() {
 				healthy, err := client.IsHealthy(context.TODO(), &mgmtProto.Empty{})
 
 				Expect(healthy).ToNot(BeNil())
+				Expect(err).To(BeNil())
+
+			})
+		})
+	})
+
+	Describe("Registration", func() {
+		Context("of a new peer", func() {
+			It("should be successful", func() {
+
+				key, _ := wgtypes.GenerateKey()
+				setupKey := "some_setup_key"
+
+				client := createRawClient(addr)
+				resp, err := client.RegisterPeer(context.TODO(), &mgmtProto.RegisterPeerRequest{
+					Key:      key.PublicKey().String(),
+					SetupKey: setupKey,
+				})
+
+				Expect(resp).ToNot(BeNil())
 				Expect(err).To(BeNil())
 
 			})
