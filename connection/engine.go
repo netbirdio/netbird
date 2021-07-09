@@ -1,7 +1,12 @@
 package connection
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"time"
+
 	"github.com/cenkalti/backoff/v4"
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
@@ -9,7 +14,6 @@ import (
 	"github.com/wiretrustee/wiretrustee/signal"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"time"
 )
 
 // Engine is an instance of the Connection Engine
@@ -73,37 +77,64 @@ func (e *Engine) Start(myKey wgtypes.Key, peers []Peer) error {
 
 	// initialize peer agents
 	for _, peer := range peers {
-
 		peer := peer
-		go func() {
-			var backOff = &backoff.ExponentialBackOff{
-				InitialInterval:     backoff.DefaultInitialInterval,
-				RandomizationFactor: backoff.DefaultRandomizationFactor,
-				Multiplier:          backoff.DefaultMultiplier,
-				MaxInterval:         5 * time.Second,
-				MaxElapsedTime:      time.Duration(0), //never stop
-				Stop:                backoff.Stop,
-				Clock:               backoff.SystemClock,
+		addPeer(e, wgPort, myKey, peer)
+	}
+
+	go func() {
+		http.HandleFunc("/peer", func(w http.ResponseWriter, r *http.Request) {
+			body, err := ioutil.ReadAll(r.Body)
+			if err != nil {
+				log.Error("%s", err)
+				return
 			}
-			operation := func() error {
-				_, err := e.openPeerConnection(*wgPort, myKey, peer)
-				if err != nil {
-					log.Warnln("retrying connection because of error: ", err.Error())
-					e.conns[peer.WgPubKey] = nil
-					return err
-				}
-				backOff.Reset()
-				return nil
+			var peer Peer
+			err = json.Unmarshal(body, &peer)
+			if err != nil {
+				log.Error("%s", err)
+				return
 			}
 
-			err = backoff.Retry(operation, backOff)
-			if err != nil {
-				// should actually never happen
-				panic(err)
-			}
-		}()
-	}
+			addPeer(e, wgPort, myKey, peer)
+		})
+
+		err := http.ListenAndServe(":7777", nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
 	return nil
+}
+
+func addPeer(e *Engine, wgPort *int, myKey wgtypes.Key, peer Peer) {
+	log.Infof("adding peer %s %s", peer.WgAllowedIps, peer.WgPubKey)
+	go func() {
+		var backOff = &backoff.ExponentialBackOff{
+			InitialInterval:     backoff.DefaultInitialInterval,
+			RandomizationFactor: backoff.DefaultRandomizationFactor,
+			Multiplier:          backoff.DefaultMultiplier,
+			MaxInterval:         5 * time.Second,
+			MaxElapsedTime:      time.Duration(0), //never stop
+			Stop:                backoff.Stop,
+			Clock:               backoff.SystemClock,
+		}
+		operation := func() error {
+			_, err := e.openPeerConnection(*wgPort, myKey, peer)
+			if err != nil {
+				log.Warnln("retrying connection because of error: ", err.Error())
+				e.conns[peer.WgPubKey] = nil
+				return err
+			}
+			backOff.Reset()
+			return nil
+		}
+
+		err := backoff.Retry(operation, backOff)
+		if err != nil {
+			// should actually never happen
+			panic(err)
+		}
+	}()
 }
 
 func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, error) {
