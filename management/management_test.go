@@ -48,8 +48,28 @@ var _ = Describe("Client", func() {
 	})
 
 	Describe("Registration", func() {
+		Context("of a new peer without a valid setup key", func() {
+			It("should fail", func() {
+
+				key, _ := wgtypes.GenerateKey()
+				setupKey := "invalid_setup_key"
+
+				client := createRawClient(addr)
+				resp, err := client.RegisterPeer(context.TODO(), &mgmtProto.RegisterPeerRequest{
+					Key:      key.PublicKey().String(),
+					SetupKey: setupKey,
+				})
+
+				Expect(err).ToNot(BeNil())
+				Expect(resp).To(BeNil())
+
+			})
+		})
+	})
+
+	/*Describe("Registration", func() {
 		Context("of a new peer", func() {
-			It("should be successful", func() {
+			It("should ", func() {
 
 				key, _ := wgtypes.GenerateKey()
 				setupKey := "some_setup_key"
@@ -65,7 +85,7 @@ var _ = Describe("Client", func() {
 
 			})
 		})
-	})
+	})*/
 })
 
 func createRawClient(addr string) mgmtProto.ManagementServiceClient {
