@@ -12,16 +12,20 @@ type Server struct {
 }
 
 // NewServer creates a new Management server
-func NewServer() *Server {
-	return &Server{
-		Store: NewStore(),
+func NewServer(config string) (*Server, error) {
+	store, err := NewStore(config)
+	if err != nil {
+		return nil, err
 	}
+	return &Server{
+		Store: store,
+	}, nil
 }
 
 func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerRequest) (*proto.RegisterPeerResponse, error) {
 
-	user := s.Store.AddPeer(req.SetupKey, req.Key)
-	if user == nil {
+	err := s.Store.AddPeer(req.SetupKey, req.Key)
+	if err != nil {
 		return &proto.RegisterPeerResponse{}, status.Errorf(404, "provided setup key doesn't exists")
 	}
 

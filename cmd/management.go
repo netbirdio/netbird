@@ -12,7 +12,8 @@ import (
 )
 
 var (
-	mgmtPort int
+	mgmtPort   int
+	mgmtConfig string
 
 	mgmtCmd = &cobra.Command{
 		Use:   "management",
@@ -30,7 +31,12 @@ var (
 			}
 			var opts []grpc.ServerOption
 			grpcServer := grpc.NewServer(opts...)
-			mgmtProto.RegisterManagementServiceServer(grpcServer, mgmt.NewServer())
+			server, err := mgmt.NewServer(mgmtConfig)
+			if err != nil {
+				log.Fatalf("failed creating new server: %v", err)
+				panic(err)
+			}
+			mgmtProto.RegisterManagementServiceServer(grpcServer, server)
 			log.Printf("started server: localhost:%v", mgmtPort)
 			if err := grpcServer.Serve(lis); err != nil {
 				log.Fatalf("failed to serve: %v", err)
@@ -44,4 +50,6 @@ var (
 
 func init() {
 	mgmtCmd.PersistentFlags().IntVar(&mgmtPort, "port", 33073, "Server port to listen on (e.g. 33073)")
+	mgmtCmd.PersistentFlags().StringVar(&mgmtConfig, "config", "/etc/wiretrustee/management.json", "Server config file location (e.g. /etc/wiretrustee/management/json")
+
 }
