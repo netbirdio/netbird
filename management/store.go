@@ -7,8 +7,8 @@ import (
 	"sync"
 )
 
-// User represents a user of the system
-type User struct {
+// Account represents a unique account of the system
+type Account struct {
 	Id        string
 	SetupKeys map[string]*SetupKey
 	Peers     map[string]*Peer
@@ -28,9 +28,9 @@ type Peer struct {
 	SetupKey *SetupKey
 }
 
-// Store represents a user storage
+// Store represents an account storage
 type Store struct {
-	Users map[string]*User
+	Accounts map[string]*Account
 
 	// mutex to synchronise Store read/write operations
 	mux    sync.Mutex `json:"-"`
@@ -53,19 +53,19 @@ func restore(file string) (*Store, error) {
 	return read.(*Store), nil
 }
 
-// persist persists user data to a file
+// persist persists account data to a file
 // It is recommended to call it with locking Store,mux
 func (s *Store) persist(file string) error {
 	return util.WriteJson(file, s)
 }
 
-// AddPeer adds peer to the store and associates it with a User and a SetupKey. Returns related User
-// Each User has a list of pre-authorised SetupKey and if no User has a given key nil will be returned, meaning the key is invalid
+// AddPeer adds peer to the store and associates it with a Account and a SetupKey. Returns related Account
+// Each Account has a list of pre-authorised SetupKey and if no Account has a given key nil will be returned, meaning the key is invalid
 func (s *Store) AddPeer(setupKey string, peerKey string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	for _, u := range s.Users {
+	for _, u := range s.Accounts {
 		for _, key := range u.SetupKeys {
 			if key.Key == strings.ToLower(setupKey) {
 				u.Peers[peerKey] = &Peer{Key: peerKey, SetupKey: key}
@@ -81,12 +81,12 @@ func (s *Store) AddPeer(setupKey string, peerKey string) error {
 	return fmt.Errorf("invalid setup key")
 }
 
-// AddUser adds new user to the store.
-func (s *Store) AddUser(user *User) error {
+// AddAccount adds new account to the store.
+func (s *Store) AddAccount(account *Account) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	// todo will override, handle existing keys
-	s.Users[user.Id] = user
+	s.Accounts[account.Id] = account
 	err := s.persist(s.config)
 	if err != nil {
 		return err

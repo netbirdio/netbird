@@ -118,7 +118,7 @@ var _ = Describe("Client", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(store.(*mgmt.Store)).NotTo(BeNil())
-				user := store.(*mgmt.Store).Users["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+				user := store.(*mgmt.Store).Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
 				Expect(user.Peers[key.PublicKey().String()]).NotTo(BeNil())
 				Expect(user.SetupKeys[strings.ToLower(setupKey)]).NotTo(BeNil())
 
