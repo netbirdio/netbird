@@ -12,8 +12,8 @@ type Server struct {
 }
 
 // NewServer creates a new Management server
-func NewServer(config string) (*Server, error) {
-	store, err := NewStore(config)
+func NewServer(dataDir string) (*Server, error) {
+	store, err := NewStore(dataDir)
 	if err != nil {
 		return nil, err
 	}

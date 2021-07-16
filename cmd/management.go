@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	mgmtPort   int
-	mgmtConfig string
+	mgmtPort    int
+	mgmtDataDir string
 
 	mgmtCmd = &cobra.Command{
 		Use:   "management",
@@ -29,9 +29,10 @@ var (
 			if err != nil {
 				log.Fatalf("failed to listen: %v", err)
 			}
+
 			var opts []grpc.ServerOption
 			grpcServer := grpc.NewServer(opts...)
-			server, err := mgmt.NewServer(mgmtConfig)
+			server, err := mgmt.NewServer(mgmtDataDir)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
 				panic(err)
@@ -50,6 +51,6 @@ var (
 
 func init() {
 	mgmtCmd.PersistentFlags().IntVar(&mgmtPort, "port", 33073, "Server port to listen on (e.g. 33073)")
-	mgmtCmd.PersistentFlags().StringVar(&mgmtConfig, "config", "/etc/wiretrustee/management.json", "Server config file location (e.g. /etc/wiretrustee/management/json")
+	mgmtCmd.PersistentFlags().StringVar(&mgmtDataDir, "datadir", "/data", "Server data directory location (e.g. /data")
 
 }

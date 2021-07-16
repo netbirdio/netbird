@@ -21,21 +21,20 @@ import (
 var _ = Describe("Client", func() {
 
 	var (
-		addr   string
-		server *grpc.Server
-		tmpDir string
-		config string
+		addr    string
+		server  *grpc.Server
+		tmpDir  string
+		dataDir string
 	)
 
 	BeforeEach(func() {
 		var err error
-		tmpDir, err = ioutil.TempDir("", "wiretrustee_mgmt_test_tmp_*")
+		dataDir, err = ioutil.TempDir("", "wiretrustee_mgmt_test_tmp_*")
 		Expect(err).NotTo(HaveOccurred())
-		config = tmpDir + "config.json"
-		err = util.CopyFileContents("testdata/config.json", config)
+		err = util.CopyFileContents("testdata/store.json", dataDir+"/store.json")
 		Expect(err).NotTo(HaveOccurred())
 		var listener net.Listener
-		server, listener = startServer(config)
+		server, listener = startServer(dataDir)
 		addr = listener.Addr().String()
 
 	})
@@ -84,7 +83,7 @@ var _ = Describe("Client", func() {
 			It("should be successful", func() {
 
 				key, _ := wgtypes.GenerateKey()
-				setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB" //present in the testdata/config.json file
+				setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB" //present in the testdata/store.json file
 
 				client := createRawClient(addr)
 				resp, err := client.RegisterPeer(context.TODO(), &mgmtProto.RegisterPeerRequest{
@@ -104,7 +103,7 @@ var _ = Describe("Client", func() {
 			It("should be persisted to a file", func() {
 
 				key, _ := wgtypes.GenerateKey()
-				setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB" //present in the testdata/config.json file
+				setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB" //present in the testdata/store.json file
 
 				client := createRawClient(addr)
 				_, err := client.RegisterPeer(context.TODO(), &mgmtProto.RegisterPeerRequest{
@@ -114,7 +113,7 @@ var _ = Describe("Client", func() {
 
 				Expect(err).NotTo(HaveOccurred())
 
-				store, err := util.ReadJson(config, &mgmt.Store{})
+				store, err := util.ReadJson(dataDir+"/store.json", &mgmt.Store{})
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(store.(*mgmt.Store)).NotTo(BeNil())
@@ -142,13 +141,13 @@ func createRawClient(addr string) mgmtProto.ManagementServiceClient {
 	return mgmtProto.NewManagementServiceClient(conn)
 }
 
-func startServer(config string) (*grpc.Server, net.Listener) {
+func startServer(dataDir string) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		panic(err)
 	}
 	s := grpc.NewServer()
-	server, err := mgmt.NewServer(config)
+	server, err := mgmt.NewServer(dataDir)
 	if err != nil {
 		panic(err)
 	}

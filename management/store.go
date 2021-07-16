@@ -7,6 +7,8 @@ import (
 	"sync"
 )
 
+const storeFileName = "store.json"
+
 // Account represents a unique account of the system
 type Account struct {
 	Id        string
@@ -33,12 +35,12 @@ type Store struct {
 	Accounts map[string]*Account
 
 	// mutex to synchronise Store read/write operations
-	mux    sync.Mutex `json:"-"`
-	config string     `json:"-"`
+	mux       sync.Mutex `json:"-"`
+	storeFile string     `json:"-"`
 }
 
-func NewStore(config string) (*Store, error) {
-	return restore(config)
+func NewStore(dataDir string) (*Store, error) {
+	return restore(dataDir + "/" + storeFileName)
 }
 
 // restore restores the state of the store from the file
@@ -48,7 +50,7 @@ func restore(file string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	read.(*Store).config = file
+	read.(*Store).storeFile = file
 
 	return read.(*Store), nil
 }
@@ -69,7 +71,7 @@ func (s *Store) AddPeer(setupKey string, peerKey string) error {
 		for _, key := range u.SetupKeys {
 			if key.Key == strings.ToLower(setupKey) {
 				u.Peers[peerKey] = &Peer{Key: peerKey, SetupKey: key}
-				err := s.persist(s.config)
+				err := s.persist(s.storeFile)
 				if err != nil {
 					return err
 				}
@@ -87,7 +89,7 @@ func (s *Store) AddAccount(account *Account) error {
 	defer s.mux.Unlock()
 	// todo will override, handle existing keys
 	s.Accounts[account.Id] = account
-	err := s.persist(s.config)
+	err := s.persist(s.storeFile)
 	if err != nil {
 		return err
 	}
