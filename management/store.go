@@ -26,6 +26,7 @@ type SetupKey struct {
 // Peer represents a machine connected to the network.
 // The Peer is a Wireguard peer identified by a public key
 type Peer struct {
+	// Wireguard public key
 	Key string
 	// A setup key this peer was registered with
 	SetupKey *SetupKey

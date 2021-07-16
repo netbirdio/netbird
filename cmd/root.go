@@ -24,6 +24,9 @@ var (
 		Short: "",
 		Long:  "",
 	}
+
+	// Execution control channel for stopCh signal
+	stopCh chan int
 )
 
 // Execute executes the root command.
@@ -31,6 +34,9 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 func init() {
+
+	stopCh = make(chan int)
+
 	defaultConfigPath = "/etc/wiretrustee/config.json"
 	if runtime.GOOS == "windows" {
 		defaultConfigPath = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "config.json"
@@ -54,7 +60,7 @@ func SetupCloseHandler() {
 	go func() {
 		for range c {
 			fmt.Println("\r- Ctrl+C pressed in Terminal")
-			stopUP <- 0
+			stopCh <- 0
 		}
 	}()
 }

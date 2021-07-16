@@ -32,6 +32,8 @@ var (
 
 			var opts []grpc.ServerOption
 			grpcServer := grpc.NewServer(opts...)
+			defer grpcServer.Stop()
+
 			server, err := mgmt.NewServer(mgmtDataDir)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
@@ -39,12 +41,15 @@ var (
 			}
 			mgmtProto.RegisterManagementServiceServer(grpcServer, server)
 			log.Printf("started server: localhost:%v", mgmtPort)
-			if err := grpcServer.Serve(lis); err != nil {
-				log.Fatalf("failed to serve: %v", err)
-			}
+			go func() {
+				if err = grpcServer.Serve(lis); err != nil {
+					log.Fatalf("failed to serve: %v", err)
+				}
+			}()
 
 			SetupCloseHandler()
-			select {}
+			<-stopCh
+			log.Println("Receive signal to stop running Management server")
 		},
 	}
 )
