@@ -14,6 +14,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -31,7 +32,8 @@ var _ = Describe("Client", func() {
 		var err error
 		dataDir, err = ioutil.TempDir("", "wiretrustee_mgmt_test_tmp_*")
 		Expect(err).NotTo(HaveOccurred())
-		err = util.CopyFileContents("testdata/store.json", dataDir+"/store.json")
+
+		err = util.CopyFileContents("testdata/store.json", filepath.Join(dataDir, "store.json"))
 		Expect(err).NotTo(HaveOccurred())
 		var listener net.Listener
 		server, listener = startServer(dataDir)
@@ -113,7 +115,7 @@ var _ = Describe("Client", func() {
 
 				Expect(err).NotTo(HaveOccurred())
 
-				store, err := util.ReadJson(dataDir+"/store.json", &mgmt.Store{})
+				store, err := util.ReadJson(filepath.Join(dataDir, "store.json"), &mgmt.Store{})
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(store.(*mgmt.Store)).NotTo(BeNil())

@@ -3,6 +3,7 @@ package management
 import (
 	"fmt"
 	"github.com/wiretrustee/wiretrustee/util"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -40,7 +41,7 @@ type Store struct {
 }
 
 func NewStore(dataDir string) (*Store, error) {
-	return restore(dataDir + "/" + storeFileName)
+	return restore(filepath.Join(dataDir, storeFileName))
 }
 
 // restore restores the state of the store from the file
