@@ -2,6 +2,7 @@ package util
 
 import (
 	"encoding/json"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -51,4 +52,28 @@ func ReadJson(file string, res interface{}) (interface{}, error) {
 	}
 
 	return res, nil
+}
+
+// CopyFileContents copies contents of the given src file to the dst file
+func CopyFileContents(src, dst string) (err error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return
+	}
+	defer func() {
+		cErr := out.Close()
+		if err == nil {
+			err = cErr
+		}
+	}()
+	if _, err = io.Copy(out, in); err != nil {
+		return
+	}
+	err = out.Sync()
+	return
 }

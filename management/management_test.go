@@ -11,7 +11,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
-	"io"
 	"io/ioutil"
 	"net"
 	"os"
@@ -33,7 +32,7 @@ var _ = Describe("Client", func() {
 		tmpDir, err = ioutil.TempDir("", "wiretrustee_mgmt_test_tmp_*")
 		Expect(err).NotTo(HaveOccurred())
 		config = tmpDir + "config.json"
-		err = copyFileContents("testdata/config.json", config)
+		err = util.CopyFileContents("testdata/config.json", config)
 		Expect(err).NotTo(HaveOccurred())
 		var listener net.Listener
 		server, listener = startServer(config)
@@ -43,7 +42,7 @@ var _ = Describe("Client", func() {
 
 	AfterEach(func() {
 		server.Stop()
-		err := os.Remove(tmpDir)
+		err := os.RemoveAll(tmpDir)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -161,27 +160,4 @@ func startServer(config string) (*grpc.Server, net.Listener) {
 	}()
 
 	return s, lis
-}
-
-func copyFileContents(src, dst string) (err error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return
-	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return
-	}
-	defer func() {
-		cErr := out.Close()
-		if err == nil {
-			err = cErr
-		}
-	}()
-	if _, err = io.Copy(out, in); err != nil {
-		return
-	}
-	err = out.Sync()
-	return
 }
