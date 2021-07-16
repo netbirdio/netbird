@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	mgmt "github.com/wiretrustee/wiretrustee/management"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
+	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -14,6 +15,7 @@ import (
 	"io/ioutil"
 	"net"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -23,16 +25,18 @@ var _ = Describe("Client", func() {
 		addr   string
 		server *grpc.Server
 		tmpDir string
+		config string
 	)
 
 	BeforeEach(func() {
 		var err error
 		tmpDir, err = ioutil.TempDir("", "wiretrustee_mgmt_test_tmp_*")
 		Expect(err).NotTo(HaveOccurred())
-		err = copyFileContents("testdata/config.json", tmpDir+"config.json")
+		config = tmpDir + "config.json"
+		err = copyFileContents("testdata/config.json", config)
 		Expect(err).NotTo(HaveOccurred())
 		var listener net.Listener
-		server, listener = startServer(tmpDir + "config.json")
+		server, listener = startServer(config)
 		addr = listener.Addr().String()
 
 	})
@@ -69,7 +73,7 @@ var _ = Describe("Client", func() {
 					SetupKey: setupKey,
 				})
 
-				Expect(err).ToNot(BeNil())
+				Expect(err).To(HaveOccurred())
 				Expect(resp).To(BeNil())
 
 			})
@@ -89,35 +93,39 @@ var _ = Describe("Client", func() {
 					SetupKey: setupKey,
 				})
 
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
 				Expect(resp).ToNot(BeNil())
 
 			})
 		})
 	})
 
-	//TODO add test with a valid setup KEY
-	//TODO create manually a user file with valid keys
-
-	/*Describe("Registration", func() {
-		Context("of a new peer", func() {
-			It("should ", func() {
+	Describe("Registration", func() {
+		Context("of a new peer with a valid setup key", func() {
+			It("should be persisted to a file", func() {
 
 				key, _ := wgtypes.GenerateKey()
-				setupKey := "some_setup_key"
+				setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB" //present in the testdata/config.json file
 
 				client := createRawClient(addr)
-				resp, err := client.RegisterPeer(context.TODO(), &mgmtProto.RegisterPeerRequest{
+				_, err := client.RegisterPeer(context.TODO(), &mgmtProto.RegisterPeerRequest{
 					Key:      key.PublicKey().String(),
 					SetupKey: setupKey,
 				})
 
-				Expect(resp).ToNot(BeNil())
-				Expect(err).To(BeNil())
+				Expect(err).NotTo(HaveOccurred())
+
+				store, err := util.ReadJson(config, &mgmt.Store{})
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(store.(*mgmt.Store)).NotTo(BeNil())
+				user := store.(*mgmt.Store).Users["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+				Expect(user.Peers[key.PublicKey().String()]).NotTo(BeNil())
+				Expect(user.SetupKeys[strings.ToLower(setupKey)]).NotTo(BeNil())
 
 			})
 		})
-	})*/
+	})
 })
 
 func createRawClient(addr string) mgmtProto.ManagementServiceClient {
@@ -155,10 +163,6 @@ func startServer(config string) (*grpc.Server, net.Listener) {
 	return s, lis
 }
 
-// copyFileContents copies the contents of the file named src to the file named
-// by dst. The file will be created if it does not already exist. If the
-// destination file exists, all it's contents will be replaced by the contents
-// of the source file.
 func copyFileContents(src, dst string) (err error) {
 	in, err := os.Open(src)
 	if err != nil {
@@ -170,9 +174,9 @@ func copyFileContents(src, dst string) (err error) {
 		return
 	}
 	defer func() {
-		cerr := out.Close()
+		cErr := out.Close()
 		if err == nil {
-			err = cerr
+			err = cErr
 		}
 	}()
 	if _, err = io.Copy(out, in); err != nil {

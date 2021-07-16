@@ -10,7 +10,7 @@ service ManagementService {
 
   rpc RegisterPeer(RegisterPeerRequest) returns (RegisterPeerResponse) {}
 
-  // health ;check endpoint
+  // health check endpoint
   rpc isHealthy(Empty) returns (Empty) {}
 }
 

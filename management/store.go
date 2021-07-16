@@ -1,11 +1,8 @@
 package management
 
 import (
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"os"
-	"path/filepath"
+	"github.com/wiretrustee/wiretrustee/util"
 	"strings"
 	"sync"
 )
@@ -47,49 +44,19 @@ func NewStore(config string) (*Store, error) {
 // restore restores the state of the store from the file
 func restore(file string) (*Store, error) {
 
-	f, err := os.Open(file)
+	read, err := util.ReadJson(file, &Store{})
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	read.(*Store).config = file
 
-	bs, err := ioutil.ReadAll(f)
-	if err != nil {
-		return nil, err
-	}
-
-	var store Store
-	err = json.Unmarshal(bs, &store)
-	if err != nil {
-		return nil, err
-	}
-
-	store.config = file
-
-	return &store, nil
+	return read.(*Store), nil
 }
 
 // persist persists user data to a file
 // It is recommended to call it with locking Store,mux
 func (s *Store) persist(file string) error {
-
-	configDir := filepath.Dir(file)
-	err := os.MkdirAll(configDir, 0750)
-	if err != nil {
-		return err
-	}
-
-	bs, err := json.MarshalIndent(s, "", "    ")
-	if err != nil {
-		return err
-	}
-
-	err = ioutil.WriteFile(file, bs, 0600)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return util.WriteJson(file, s)
 }
 
 // AddPeer adds peer to the store and associates it with a User and a SetupKey. Returns related User

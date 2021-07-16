@@ -177,7 +177,7 @@ const _ = grpc.SupportPackageIsVersion6
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type ManagementServiceClient interface {
 	RegisterPeer(ctx context.Context, in *RegisterPeerRequest, opts ...grpc.CallOption) (*RegisterPeerResponse, error)
-	// health ;check endpoint
+	// health check endpoint
 	IsHealthy(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 }
 
@@ -210,7 +210,7 @@ func (c *managementServiceClient) IsHealthy(ctx context.Context, in *Empty, opts
 // ManagementServiceServer is the server API for ManagementService service.
 type ManagementServiceServer interface {
 	RegisterPeer(context.Context, *RegisterPeerRequest) (*RegisterPeerResponse, error)
-	// health ;check endpoint
+	// health check endpoint
 	IsHealthy(context.Context, *Empty) (*Empty, error)
 }
 
