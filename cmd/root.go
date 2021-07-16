@@ -41,6 +41,7 @@ func init() {
 	rootCmd.AddCommand(addPeerCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(signalCmd)
+	rootCmd.AddCommand(mgmtCmd)
 	rootCmd.AddCommand(serviceCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
