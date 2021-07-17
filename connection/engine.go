@@ -34,9 +34,6 @@ type Peer struct {
 	WgAllowedIps string
 }
 
-// controls when to stop peer connection and retries
-type peerConnStop chan struct{}
-
 // NewEngine creates a new Connection Engine
 func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string,
 	iFaceBlackList map[string]struct{}) *Engine {
