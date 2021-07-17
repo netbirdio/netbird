@@ -44,7 +44,9 @@ var (
 
 			if _, err := os.Stat(mgmtDataDir); os.IsNotExist(err) {
 				err = os.MkdirAll(mgmtDataDir, os.ModeDir)
-				log.Fatalf("failed creating datadir: %s: %v", mgmtDataDir, err)
+				if err != nil {
+					log.Fatalf("failed creating datadir: %s: %v", mgmtDataDir, err)
+				}
 			}
 
 			var opts []grpc.ServerOption
@@ -55,7 +57,9 @@ var (
 
 				if _, err := os.Stat(certDir); os.IsNotExist(err) {
 					err = os.MkdirAll(certDir, os.ModeDir)
-					log.Fatalf("failed creating Let's encrypt certdir: %s: %v", certDir, err)
+					if err != nil {
+						log.Fatalf("failed creating Let's encrypt certdir: %s: %v", certDir, err)
+					}
 				}
 
 				log.Infof("running with Let's encrypt with domain %s. Cert will be stored in %s", mgmtLetsencryptDomain, certDir)
@@ -111,6 +115,6 @@ func init() {
 	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/var/lib/wiretrustee/", "server data directory location")
 	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 
-	_ = mgmtCmd.MarkFlagRequired("port")
-	_ = mgmtCmd.MarkFlagRequired("datadir")
+	//_ = mgmtCmd.MarkFlagRequired("port")
+	//_ = mgmtCmd.MarkFlagRequired("datadir")
 }
