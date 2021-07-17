@@ -111,6 +111,6 @@ func init() {
 	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/data", "server data directory location")
 	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 
-	mgmtCmd.MarkFlagRequired("port")
-	mgmtCmd.MarkFlagRequired("datadir")
+	_ = mgmtCmd.MarkFlagRequired("port")
+	_ = mgmtCmd.MarkFlagRequired("datadir")
 }
