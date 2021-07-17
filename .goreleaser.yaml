@@ -40,7 +40,7 @@ dockers:
   - image_templates:
       - wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
     goarch: amd64
-    use_buildx: true
+    use: buildx
     dockerfile: Dockerfile
     build_flag_templates:
       - "--platform=linux/amd64"
@@ -53,8 +53,34 @@ dockers:
   - image_templates:
       - wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
     goarch: arm64
-    use_buildx: true
+    use: buildx
     dockerfile: Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - wiretrustee/wiretrustee:management-{{ .Version }}-amd64
+    goarch: amd64
+    use: buildx
+    dockerfile: management/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - wiretrustee/wiretrustee:management-{{ .Version }}-arm64v8
+    goarch: arm64
+    use: buildx
+    dockerfile: management/Dockerfile
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -74,3 +100,13 @@ docker_manifests:
     image_templates:
       - wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
       - wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
+
+  - name_template: wiretrustee/wiretrustee:management-{{ .Version }}
+    image_templates:
+      - wiretrustee/wiretrustee:management-{{ .Version }}-arm64v8
+      - wiretrustee/wiretrustee:management-{{ .Version }}-amd64
+
+  - name_template: wiretrustee/wiretrustee:management-latest
+    image_templates:
+      - wiretrustee/wiretrustee:management-{{ .Version }}-arm64v8
+      - wiretrustee/wiretrustee:management-{{ .Version }}-amd64

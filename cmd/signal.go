@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	port int
+	signalPort int
 
 	signalCmd = &cobra.Command{
 		Use:   "signal",
@@ -20,7 +20,7 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
 
-			lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+			lis, err := net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
 			if err != nil {
 				log.Fatalf("failed to listen: %v", err)
 			}
@@ -31,7 +31,7 @@ var (
 			var opts []grpc.ServerOption
 			grpcServer := grpc.NewServer(opts...)
 			sigProto.RegisterSignalExchangeServer(grpcServer, sig.NewServer())
-			log.Printf("started server: localhost:%v", port)
+			log.Printf("started server: localhost:%v", signalPort)
 			if err := grpcServer.Serve(lis); err != nil {
 				log.Fatalf("failed to serve: %v", err)
 			}
@@ -43,5 +43,5 @@ var (
 )
 
 func init() {
-	signalCmd.PersistentFlags().IntVar(&port, "port", 10000, "Server port to listen on (e.g. 10000)")
+	signalCmd.PersistentFlags().IntVar(&signalPort, "port", 10000, "Server port to listen on (e.g. 10000)")
 }
