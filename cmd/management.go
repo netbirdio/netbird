@@ -108,7 +108,7 @@ var (
 
 func init() {
 	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 33073, "server port to listen on")
-	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/data", "server data directory location")
+	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/var/lib/wiretrustee/", "server data directory location")
 	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 
 	_ = mgmtCmd.MarkFlagRequired("port")
