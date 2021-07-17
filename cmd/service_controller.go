@@ -13,7 +13,7 @@ func (p *program) Start(s service.Service) error {
 }
 
 func (p *program) Stop(s service.Service) error {
-	stopUP <- 1
+	stopCh <- 1
 	return nil
 }
 
