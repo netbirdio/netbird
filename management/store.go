@@ -3,11 +3,13 @@ package management
 import (
 	"fmt"
 	"github.com/wiretrustee/wiretrustee/util"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 )
 
+// storeFileName Store file name. Stored in the datadir
 const storeFileName = "store.json"
 
 // Account represents a unique account of the system
@@ -41,12 +43,30 @@ type Store struct {
 	storeFile string     `json:"-"`
 }
 
+// NewStore restores a store from the file located in the datadir
 func NewStore(dataDir string) (*Store, error) {
 	return restore(filepath.Join(dataDir, storeFileName))
 }
 
-// restore restores the state of the store from the file
+// restore restores the state of the store from the file.
+// Creates a new empty store file if doesn't exist
 func restore(file string) (*Store, error) {
+
+	if _, err := os.Stat(file); os.IsNotExist(err) {
+		// create a new Store if previously didn't exist (e.g. first run)
+		s := &Store{
+			Accounts:  make(map[string]*Account),
+			mux:       sync.Mutex{},
+			storeFile: file,
+		}
+
+		err = s.persist(file)
+		if err != nil {
+			return nil, err
+		}
+
+		return s, nil
+	}
 
 	read, err := util.ReadJson(file, &Store{})
 	if err != nil {
