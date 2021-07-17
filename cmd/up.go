@@ -17,7 +17,10 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			InitLog(logLevel)
 
-			config, _ := Read(configPath)
+			config, err := Read(configPath)
+			if err != nil {
+				log.Fatalf("Error reading config file, message: %v", err)
+			}
 
 			myKey, err := wgtypes.ParseKey(config.PrivateKey)
 			if err != nil {

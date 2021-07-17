@@ -22,13 +22,16 @@ var (
 				os.Exit(ExitSetupFailed)
 			}
 
-			config, _ := Read(configPath)
+			config, err := Read(configPath)
+			if err != nil {
+				log.Fatalf("Error reading config file, message: %v", err)
+			}
 			config.Peers = append(config.Peers, connection.Peer{
 				WgPubKey:     key,
 				WgAllowedIps: allowedIPs,
 			})
 
-			err := config.Write(configPath)
+			err = config.Write(configPath)
 			if err != nil {
 				log.Errorf("failed writing config to %s: %s", config, err.Error())
 				os.Exit(ExitSetupFailed)
