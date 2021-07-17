@@ -20,8 +20,6 @@ type Engine struct {
 	signal *signal.Client
 	// peer agents indexed by local public key of the remote peers
 	conns map[string]*Connection
-	// peer agents connection control channel
-	connsControllers map[string]peerConnStop
 	// Wireguard interface
 	wgIface string
 	// Wireguard local address
@@ -43,13 +41,12 @@ type peerConnStop chan struct{}
 func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string,
 	iFaceBlackList map[string]struct{}) *Engine {
 	return &Engine{
-		stunsTurns:       stunsTurns,
-		signal:           signal,
-		wgIface:          wgIface,
-		wgIP:             wgAddr,
-		conns:            map[string]*Connection{},
-		connsControllers: make(map[string]peerConnStop),
-		iFaceBlackList:   iFaceBlackList,
+		stunsTurns:     stunsTurns,
+		signal:         signal,
+		wgIface:        wgIface,
+		wgIP:           wgAddr,
+		conns:          map[string]*Connection{},
+		iFaceBlackList: iFaceBlackList,
 	}
 }
 
@@ -95,22 +92,18 @@ func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}
-	e.connsControllers[peer.WgPubKey] = make(chan struct{})
 	operation := func() error {
 		_, err := e.openPeerConnection(wgPort, myKey, peer)
+		if _, ok := e.conns[peer.WgPubKey]; !ok {
+			log.Infof("removing connection with Peer: %v, not retrying", peer.WgPubKey)
+			return nil
+		}
+
 		if err != nil {
 			log.Warnln(err)
 			log.Warnln("retrying connection because of error: ", err.Error())
-			e.conns[peer.WgPubKey] = nil
 			return err
 		}
-		log.Infof("removing connection with Peer: %v, not retrying", peer.WgPubKey)
-
-		// Cleanup maps
-		delete(e.conns, peer.WgPubKey)
-		delete(e.connsControllers, peer.WgPubKey)
-
-		backOff.Reset()
 		return nil
 	}
 
@@ -125,7 +118,7 @@ func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
 func (e *Engine) ClosePeerConnection(peer Peer) error {
 	conn, exists := e.conns[peer.WgPubKey]
 	if exists && conn != nil {
-		close(e.connsControllers[peer.WgPubKey])
+		delete(e.conns, peer.WgPubKey)
 		return conn.Close()
 	}
 	return nil
@@ -159,17 +152,10 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
 	e.conns[remoteKey.String()] = conn
 
-	select {
-	// did we received stop retrying signal?
-	case <-e.connsControllers[remoteKey.String()]:
-		log.Infoln("received stop retrying signal for: ", remoteKey.String())
-	// opens a connection if is allowed to retry
-	default:
-		// blocks until the connection is open (or timeout)
-		err := conn.Open(60 * time.Second)
-		if err != nil {
-			return nil, err
-		}
+	// blocks until the connection is open (or timeout)
+	err := conn.Open(60 * time.Second)
+	if err != nil {
+		return nil, err
 	}
 	return conn, nil
 }
