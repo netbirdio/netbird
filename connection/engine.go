@@ -20,6 +20,8 @@ type Engine struct {
 	signal *signal.Client
 	// peer agents indexed by local public key of the remote peers
 	conns map[string]*Connection
+	// peer agents connection control channel
+	connsControllers map[string]peerConnStop
 	// Wireguard interface
 	wgIface string
 	// Wireguard local address
@@ -34,16 +36,20 @@ type Peer struct {
 	WgAllowedIps string
 }
 
+// controls when to stop peer connection and retries
+type peerConnStop chan struct{}
+
 // NewEngine creates a new Connection Engine
 func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string,
 	iFaceBlackList map[string]struct{}) *Engine {
 	return &Engine{
-		stunsTurns:     stunsTurns,
-		signal:         signal,
-		wgIface:        wgIface,
-		wgIP:           wgAddr,
-		conns:          map[string]*Connection{},
-		iFaceBlackList: iFaceBlackList,
+		stunsTurns:       stunsTurns,
+		signal:           signal,
+		wgIface:          wgIface,
+		wgIP:             wgAddr,
+		conns:            map[string]*Connection{},
+		connsControllers: make(map[string]peerConnStop),
+		iFaceBlackList:   iFaceBlackList,
 	}
 }
 
@@ -71,41 +77,61 @@ func (e *Engine) Start(myKey wgtypes.Key, peers []Peer) error {
 
 	e.receiveSignal()
 
-	// initialize peer agents
 	for _, peer := range peers {
-
 		peer := peer
-		go func() {
-			var backOff = &backoff.ExponentialBackOff{
-				InitialInterval:     backoff.DefaultInitialInterval,
-				RandomizationFactor: backoff.DefaultRandomizationFactor,
-				Multiplier:          backoff.DefaultMultiplier,
-				MaxInterval:         5 * time.Second,
-				MaxElapsedTime:      time.Duration(0), //never stop
-				Stop:                backoff.Stop,
-				Clock:               backoff.SystemClock,
-			}
-			operation := func() error {
-				_, err := e.openPeerConnection(*wgPort, myKey, peer)
-				if err != nil {
-					log.Warnln("retrying connection because of error: ", err.Error())
-					e.conns[peer.WgPubKey] = nil
-					return err
-				}
-				backOff.Reset()
-				return nil
-			}
-
-			err = backoff.Retry(operation, backOff)
-			if err != nil {
-				// should actually never happen
-				panic(err)
-			}
-		}()
+		go e.InitializePeer(*wgPort, myKey, peer)
 	}
 	return nil
 }
 
+// initialize peer agent attempt to close connection
+func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
+	var backOff = &backoff.ExponentialBackOff{
+		InitialInterval:     backoff.DefaultInitialInterval,
+		RandomizationFactor: backoff.DefaultRandomizationFactor,
+		Multiplier:          backoff.DefaultMultiplier,
+		MaxInterval:         5 * time.Second,
+		MaxElapsedTime:      time.Duration(0), //never stop
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}
+	e.connsControllers[peer.WgPubKey] = make(chan struct{})
+	operation := func() error {
+		_, err := e.openPeerConnection(wgPort, myKey, peer)
+		if err != nil {
+			log.Warnln(err)
+			log.Warnln("retrying connection because of error: ", err.Error())
+			e.conns[peer.WgPubKey] = nil
+			return err
+		}
+		log.Infof("removing connection with Peer: %v, not retrying", peer.WgPubKey)
+
+		// Cleanup maps
+		delete(e.conns, peer.WgPubKey)
+		delete(e.connsControllers, peer.WgPubKey)
+
+		backOff.Reset()
+		return nil
+	}
+
+	err := backoff.Retry(operation, backOff)
+	if err != nil {
+		// should actually never happen
+		panic(err)
+	}
+}
+
+// close existing peer connection attempt
+func (e *Engine) ClosePeerConnection(peer Peer) error {
+	conn, exists := e.conns[peer.WgPubKey]
+	if exists && conn != nil {
+		close(e.connsControllers[peer.WgPubKey])
+		return conn.Close()
+	}
+	return nil
+}
+
+// opens a new peer connection
 func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, error) {
 
 	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
@@ -130,13 +156,20 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	signalCandidate := func(candidate ice.Candidate) error {
 		return signalCandidate(candidate, myKey, remoteKey, e.signal)
 	}
-
 	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
 	e.conns[remoteKey.String()] = conn
-	// blocks until the connection is open (or timeout)
-	err := conn.Open(60 * time.Second)
-	if err != nil {
-		return nil, err
+
+	select {
+	// did we received stop retrying signal?
+	case <-e.connsControllers[remoteKey.String()]:
+		log.Infoln("received stop retrying signal for: ", remoteKey.String())
+	// opens a connection if is allowed to retry
+	default:
+		// blocks until the connection is open (or timeout)
+		err := conn.Open(60 * time.Second)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return conn, nil
 }
