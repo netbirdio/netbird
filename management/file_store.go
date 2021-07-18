@@ -15,7 +15,7 @@ import (
 // storeFileName Store file name. Stored in the datadir
 const storeFileName = "store.json"
 
-// Store represents an account storage
+// FileStore represents an account storage backed by a file persisted to disk
 type FileStore struct {
 	Accounts             map[string]*Account
 	SetupKeyId2AccountId map[string]string `json:"-"`
@@ -74,7 +74,7 @@ func (s *FileStore) persist(file string) error {
 }
 
 // AddPeer adds peer to the store and associates it with a Account and a SetupKey. Returns related Account
-// Each Account has a list of pre-authorised SetupKey and if no Account has a given key nil will be returned, meaning the key is invalid
+// Each Account has a list of pre-authorised SetupKey and if no Account has a given key err will be returned, meaning the key is invalid
 func (s *FileStore) AddPeer(setupKey string, peerKey string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
