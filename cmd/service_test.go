@@ -53,9 +53,11 @@ func Test_ServiceStartCMD(t *testing.T) {
 
 func Test_ServiceRunCMD(t *testing.T) {
 	configFilePath := "/tmp/config.json"
-	err := os.Remove(configFilePath)
-	if err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(configFilePath); err == nil {
+		e := os.Remove(configFilePath)
+		if e != nil {
+			t.Fatal(err)
+		}
 	}
 	rootCmd.SetArgs([]string{
 		"init",
@@ -72,7 +74,7 @@ func Test_ServiceRunCMD(t *testing.T) {
 		"--config",
 		configFilePath,
 	})
-	err = rootCmd.Execute()
+	err := rootCmd.Execute()
 	if err != nil {
 		t.Fatal(err)
 	}
