@@ -1,11 +1,13 @@
 package management
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/wiretrustee/wiretrustee/util"
 )
@@ -15,7 +17,8 @@ const storeFileName = "store.json"
 
 // Store represents an account storage
 type FileStore struct {
-	Accounts map[string]*Account
+	Accounts             map[string]*Account
+	SetupKeyId2AccountId map[string]string `json:"-"`
 
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
@@ -51,9 +54,17 @@ func restore(file string) (*FileStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	read.(*FileStore).storeFile = file
 
-	return read.(*FileStore), nil
+	store := read.(*FileStore)
+	store.storeFile = file
+	store.SetupKeyId2AccountId = make(map[string]string)
+	for accountId, account := range store.Accounts {
+		for setupKeyId, _ := range account.SetupKeys {
+			store.SetupKeyId2AccountId[strings.ToLower(setupKeyId)] = accountId
+		}
+	}
+
+	return store, nil
 }
 
 // persist persists account data to a file
@@ -68,28 +79,43 @@ func (s *FileStore) AddPeer(setupKey string, peerKey string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	for _, u := range s.Accounts {
-		for _, key := range u.SetupKeys {
-			if key.Key == strings.ToLower(setupKey) {
-				u.Peers[peerKey] = &Peer{Key: peerKey, SetupKey: key}
-				err := s.persist(s.storeFile)
-				if err != nil {
-					return err
-				}
-				return nil
-			}
-		}
+	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToLower(setupKey)]
+	if !accountIdFound {
+		return status.Errorf(codes.NotFound, "Provided setup key doesn't exists")
 	}
 
-	return fmt.Errorf("invalid setup key")
+	account, accountFound := s.Accounts[accountId]
+	if !accountFound {
+		return status.Errorf(codes.Internal, "Invalid setup key")
+	}
+
+	key, setupKeyFound := account.SetupKeys[strings.ToLower(setupKey)]
+	if !setupKeyFound {
+		return status.Errorf(codes.Internal, "Invalid setup key")
+	}
+
+	account.Peers[peerKey] = &Peer{Key: peerKey, SetupKey: key}
+	err := s.persist(s.storeFile)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // AddAccount adds new account to the store.
 func (s *FileStore) AddAccount(account *Account) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
+
 	// todo will override, handle existing keys
 	s.Accounts[account.Id] = account
+
+	// todo check that account.Id and keyId are not exist already
+	// because if keyId exists for other accounts this can be bad
+	for keyId, _ := range account.SetupKeys {
+		s.SetupKeyId2AccountId[strings.ToLower(keyId)] = account.Id
+	}
+
 	err := s.persist(s.storeFile)
 	if err != nil {
 		return err
