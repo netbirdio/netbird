@@ -52,8 +52,27 @@ var _ = Describe("Client", func() {
 				client := createRawClient(addr)
 				healthy, err := client.IsHealthy(context.TODO(), &mgmtProto.Empty{})
 
+				Expect(err).NotTo(HaveOccurred())
 				Expect(healthy).ToNot(BeNil())
-				Expect(err).To(BeNil())
+			})
+		})
+	})
+
+	Describe("Getting service Wireguard public key", func() {
+		Context("from teh GetServerKey", func() {
+			It("should be successful", func() {
+				client := createRawClient(addr)
+				resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).ToNot(BeNil())
+				Expect(resp.Key).ToNot(BeNil())
+				Expect(resp.ExpiresAt).ToNot(BeNil())
+
+				//check if the key is a valid Wireguard key
+				key, err := wgtypes.ParseKey(resp.Key)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(key).ToNot(BeNil())
 
 			})
 		})

@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/descriptor.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = ".;proto";
 
@@ -10,8 +11,34 @@ service ManagementService {
 
   rpc RegisterPeer(RegisterPeerRequest) returns (RegisterPeerResponse) {}
 
+  // Sync enables peer synchronization. Each peer that is connected to this stream will receive updates from the server.
+  // For example, if a new peer has been added to an account all other connected peers will receive this peer's Wireguard public key as an update
+  // The initial SyncResponse contains all of the available peers so the local state can be refreshed
+  rpc Sync(EncryptedMessage) returns (stream EncryptedMessage) {}
+
+  // Exposes a Wireguard public key of the Management service.
+  // This key is used to support message encryption between client and server
+  rpc GetServerKey(Empty) returns (ServerKeyResponse) {}
+
   // health check endpoint
   rpc isHealthy(Empty) returns (Empty) {}
+}
+
+message EncryptedMessage {
+  // Wireguard public key
+  string wgPubKey = 1;
+
+  // encrypted message Body
+  bytes body = 2;
+}
+
+message SyncRequest {
+
+}
+
+message SyncResponse {
+  // A list of peers available
+  repeated string peers = 1;
 }
 
 message RegisterPeerRequest {
@@ -24,6 +51,13 @@ message RegisterPeerRequest {
 
 message RegisterPeerResponse {
 
+}
+
+message ServerKeyResponse {
+  // Server's Wireguard public key
+  string key = 1;
+  // Key expiration timestamp after which the key should be fetched again by the client
+  google.protobuf.Timestamp expiresAt = 2;
 }
 
 message Empty {

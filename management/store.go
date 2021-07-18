@@ -89,10 +89,10 @@ func (s *Store) AddPeer(setupKey string, peerKey string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	for _, u := range s.Accounts {
-		for _, key := range u.SetupKeys {
+	for _, a := range s.Accounts {
+		for _, key := range a.SetupKeys {
 			if key.Key == strings.ToLower(setupKey) {
-				u.Peers[peerKey] = &Peer{Key: peerKey, SetupKey: key}
+				a.Peers[peerKey] = &Peer{Key: peerKey, SetupKey: key}
 				err := s.persist(s.storeFile)
 				if err != nil {
 					return err
@@ -114,6 +114,26 @@ func (s *Store) AddAccount(account *Account) error {
 	err := s.persist(s.storeFile)
 	if err != nil {
 		return err
+	}
+
+	return nil
+}
+
+// GetPeersForAPeer returns a list of peers available fr a given peer (key)
+func (s *Store) GetPeersForAPeer(peerKey string) []string {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	for _, a := range s.Accounts {
+		if _, ok := a.Peers[peerKey]; ok {
+			peers := make([]string, 0, len(a.Peers))
+			for p := range a.Peers {
+				if p != peerKey {
+					peers = append(peers, p)
+				}
+			}
+			return peers
+		}
 	}
 
 	return nil

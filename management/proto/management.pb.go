@@ -8,6 +8,7 @@ import (
 	fmt "fmt"
 	proto "github.com/golang/protobuf/proto"
 	_ "github.com/golang/protobuf/protoc-gen-go/descriptor"
+	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -25,6 +26,126 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion3 // please upgrade the proto package
 
+type EncryptedMessage struct {
+	// Wireguard public key
+	WgPubKey string `protobuf:"bytes,1,opt,name=wgPubKey,proto3" json:"wgPubKey,omitempty"`
+	// encrypted message Body
+	Body                 []byte   `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *EncryptedMessage) Reset()         { *m = EncryptedMessage{} }
+func (m *EncryptedMessage) String() string { return proto.CompactTextString(m) }
+func (*EncryptedMessage) ProtoMessage()    {}
+func (*EncryptedMessage) Descriptor() ([]byte, []int) {
+	return fileDescriptor_edc174f991dc0a25, []int{0}
+}
+
+func (m *EncryptedMessage) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_EncryptedMessage.Unmarshal(m, b)
+}
+func (m *EncryptedMessage) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_EncryptedMessage.Marshal(b, m, deterministic)
+}
+func (m *EncryptedMessage) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_EncryptedMessage.Merge(m, src)
+}
+func (m *EncryptedMessage) XXX_Size() int {
+	return xxx_messageInfo_EncryptedMessage.Size(m)
+}
+func (m *EncryptedMessage) XXX_DiscardUnknown() {
+	xxx_messageInfo_EncryptedMessage.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_EncryptedMessage proto.InternalMessageInfo
+
+func (m *EncryptedMessage) GetWgPubKey() string {
+	if m != nil {
+		return m.WgPubKey
+	}
+	return ""
+}
+
+func (m *EncryptedMessage) GetBody() []byte {
+	if m != nil {
+		return m.Body
+	}
+	return nil
+}
+
+type SyncRequest struct {
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *SyncRequest) Reset()         { *m = SyncRequest{} }
+func (m *SyncRequest) String() string { return proto.CompactTextString(m) }
+func (*SyncRequest) ProtoMessage()    {}
+func (*SyncRequest) Descriptor() ([]byte, []int) {
+	return fileDescriptor_edc174f991dc0a25, []int{1}
+}
+
+func (m *SyncRequest) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_SyncRequest.Unmarshal(m, b)
+}
+func (m *SyncRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_SyncRequest.Marshal(b, m, deterministic)
+}
+func (m *SyncRequest) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SyncRequest.Merge(m, src)
+}
+func (m *SyncRequest) XXX_Size() int {
+	return xxx_messageInfo_SyncRequest.Size(m)
+}
+func (m *SyncRequest) XXX_DiscardUnknown() {
+	xxx_messageInfo_SyncRequest.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SyncRequest proto.InternalMessageInfo
+
+type SyncResponse struct {
+	// A list of peers available
+	Peers                []string `protobuf:"bytes,1,rep,name=peers,proto3" json:"peers,omitempty"`
+	XXX_NoUnkeyedLiteral struct{} `json:"-"`
+	XXX_unrecognized     []byte   `json:"-"`
+	XXX_sizecache        int32    `json:"-"`
+}
+
+func (m *SyncResponse) Reset()         { *m = SyncResponse{} }
+func (m *SyncResponse) String() string { return proto.CompactTextString(m) }
+func (*SyncResponse) ProtoMessage()    {}
+func (*SyncResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_edc174f991dc0a25, []int{2}
+}
+
+func (m *SyncResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_SyncResponse.Unmarshal(m, b)
+}
+func (m *SyncResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_SyncResponse.Marshal(b, m, deterministic)
+}
+func (m *SyncResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_SyncResponse.Merge(m, src)
+}
+func (m *SyncResponse) XXX_Size() int {
+	return xxx_messageInfo_SyncResponse.Size(m)
+}
+func (m *SyncResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_SyncResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_SyncResponse proto.InternalMessageInfo
+
+func (m *SyncResponse) GetPeers() []string {
+	if m != nil {
+		return m.Peers
+	}
+	return nil
+}
+
 type RegisterPeerRequest struct {
 	// Wireguard public key
 	Key string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
@@ -39,7 +160,7 @@ func (m *RegisterPeerRequest) Reset()         { *m = RegisterPeerRequest{} }
 func (m *RegisterPeerRequest) String() string { return proto.CompactTextString(m) }
 func (*RegisterPeerRequest) ProtoMessage()    {}
 func (*RegisterPeerRequest) Descriptor() ([]byte, []int) {
-	return fileDescriptor_edc174f991dc0a25, []int{0}
+	return fileDescriptor_edc174f991dc0a25, []int{3}
 }
 
 func (m *RegisterPeerRequest) XXX_Unmarshal(b []byte) error {
@@ -84,7 +205,7 @@ func (m *RegisterPeerResponse) Reset()         { *m = RegisterPeerResponse{} }
 func (m *RegisterPeerResponse) String() string { return proto.CompactTextString(m) }
 func (*RegisterPeerResponse) ProtoMessage()    {}
 func (*RegisterPeerResponse) Descriptor() ([]byte, []int) {
-	return fileDescriptor_edc174f991dc0a25, []int{1}
+	return fileDescriptor_edc174f991dc0a25, []int{4}
 }
 
 func (m *RegisterPeerResponse) XXX_Unmarshal(b []byte) error {
@@ -105,6 +226,55 @@ func (m *RegisterPeerResponse) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_RegisterPeerResponse proto.InternalMessageInfo
 
+type ServerKeyResponse struct {
+	// Server's Wireguard public key
+	Key string `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	// Key expiration timestamp after which the key should be fetched again by the client
+	ExpiresAt            *timestamp.Timestamp `protobuf:"bytes,2,opt,name=expiresAt,proto3" json:"expiresAt,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
+	XXX_unrecognized     []byte               `json:"-"`
+	XXX_sizecache        int32                `json:"-"`
+}
+
+func (m *ServerKeyResponse) Reset()         { *m = ServerKeyResponse{} }
+func (m *ServerKeyResponse) String() string { return proto.CompactTextString(m) }
+func (*ServerKeyResponse) ProtoMessage()    {}
+func (*ServerKeyResponse) Descriptor() ([]byte, []int) {
+	return fileDescriptor_edc174f991dc0a25, []int{5}
+}
+
+func (m *ServerKeyResponse) XXX_Unmarshal(b []byte) error {
+	return xxx_messageInfo_ServerKeyResponse.Unmarshal(m, b)
+}
+func (m *ServerKeyResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
+	return xxx_messageInfo_ServerKeyResponse.Marshal(b, m, deterministic)
+}
+func (m *ServerKeyResponse) XXX_Merge(src proto.Message) {
+	xxx_messageInfo_ServerKeyResponse.Merge(m, src)
+}
+func (m *ServerKeyResponse) XXX_Size() int {
+	return xxx_messageInfo_ServerKeyResponse.Size(m)
+}
+func (m *ServerKeyResponse) XXX_DiscardUnknown() {
+	xxx_messageInfo_ServerKeyResponse.DiscardUnknown(m)
+}
+
+var xxx_messageInfo_ServerKeyResponse proto.InternalMessageInfo
+
+func (m *ServerKeyResponse) GetKey() string {
+	if m != nil {
+		return m.Key
+	}
+	return ""
+}
+
+func (m *ServerKeyResponse) GetExpiresAt() *timestamp.Timestamp {
+	if m != nil {
+		return m.ExpiresAt
+	}
+	return nil
+}
+
 type Empty struct {
 	XXX_NoUnkeyedLiteral struct{} `json:"-"`
 	XXX_unrecognized     []byte   `json:"-"`
@@ -115,7 +285,7 @@ func (m *Empty) Reset()         { *m = Empty{} }
 func (m *Empty) String() string { return proto.CompactTextString(m) }
 func (*Empty) ProtoMessage()    {}
 func (*Empty) Descriptor() ([]byte, []int) {
-	return fileDescriptor_edc174f991dc0a25, []int{2}
+	return fileDescriptor_edc174f991dc0a25, []int{6}
 }
 
 func (m *Empty) XXX_Unmarshal(b []byte) error {
@@ -137,8 +307,12 @@ func (m *Empty) XXX_DiscardUnknown() {
 var xxx_messageInfo_Empty proto.InternalMessageInfo
 
 func init() {
+	proto.RegisterType((*EncryptedMessage)(nil), "management.EncryptedMessage")
+	proto.RegisterType((*SyncRequest)(nil), "management.SyncRequest")
+	proto.RegisterType((*SyncResponse)(nil), "management.SyncResponse")
 	proto.RegisterType((*RegisterPeerRequest)(nil), "management.RegisterPeerRequest")
 	proto.RegisterType((*RegisterPeerResponse)(nil), "management.RegisterPeerResponse")
+	proto.RegisterType((*ServerKeyResponse)(nil), "management.ServerKeyResponse")
 	proto.RegisterType((*Empty)(nil), "management.Empty")
 }
 
@@ -147,21 +321,31 @@ func init() {
 }
 
 var fileDescriptor_edc174f991dc0a25 = []byte{
-	// 224 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0xe2, 0x12, 0xc8, 0x4d, 0xcc, 0x4b,
-	0x4c, 0x4f, 0xcd, 0x4d, 0xcd, 0x2b, 0xd1, 0x2b, 0x28, 0xca, 0x2f, 0xc9, 0x17, 0xe2, 0x42, 0x88,
-	0x48, 0x29, 0xa4, 0xe7, 0xe7, 0xa7, 0xe7, 0xa4, 0xea, 0x83, 0x65, 0x92, 0x4a, 0xd3, 0xf4, 0x53,
-	0x52, 0x8b, 0x93, 0x8b, 0x32, 0x0b, 0x4a, 0xf2, 0x8b, 0x20, 0xaa, 0x95, 0x9c, 0xb9, 0x84, 0x83,
-	0x52, 0xd3, 0x33, 0x8b, 0x4b, 0x52, 0x8b, 0x02, 0x52, 0x53, 0x8b, 0x82, 0x52, 0x0b, 0x4b, 0x53,
-	0x8b, 0x4b, 0x84, 0x04, 0xb8, 0x98, 0xb3, 0x53, 0x2b, 0x25, 0x18, 0x15, 0x18, 0x35, 0x38, 0x83,
-	0x40, 0x4c, 0x21, 0x29, 0x2e, 0x8e, 0xe2, 0xd4, 0x92, 0xd2, 0x02, 0xef, 0xd4, 0x4a, 0x09, 0x26,
-	0xb0, 0x30, 0x9c, 0xaf, 0x24, 0xc6, 0x25, 0x82, 0x6a, 0x48, 0x71, 0x41, 0x7e, 0x5e, 0x71, 0xaa,
-	0x12, 0x3b, 0x17, 0xab, 0x6b, 0x6e, 0x41, 0x49, 0xa5, 0xd1, 0x5c, 0x46, 0x2e, 0x41, 0x5f, 0xb8,
-	0xb3, 0x82, 0x53, 0x8b, 0xca, 0x32, 0x93, 0x53, 0x85, 0x82, 0xb9, 0x78, 0x90, 0xb5, 0x09, 0xc9,
-	0xeb, 0x21, 0x79, 0x06, 0x8b, 0xab, 0xa4, 0x14, 0x70, 0x2b, 0x80, 0xda, 0xc8, 0x20, 0x64, 0xcc,
-	0xc5, 0x99, 0x59, 0xec, 0x91, 0x9a, 0x98, 0x53, 0x92, 0x51, 0x29, 0x24, 0x88, 0xac, 0x01, 0xec,
-	0x14, 0x29, 0x4c, 0x21, 0x25, 0x06, 0x27, 0xce, 0x28, 0x76, 0x3d, 0x6b, 0x48, 0x20, 0xb1, 0x81,
-	0x29, 0x63, 0x40, 0x00, 0x00, 0x00, 0xff, 0xff, 0x55, 0x7e, 0x24, 0xf8, 0x59, 0x01, 0x00, 0x00,
+	// 383 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xff, 0x7c, 0x51, 0x4d, 0x6f, 0xda, 0x40,
+	0x10, 0xb5, 0xf9, 0x28, 0xf5, 0xe0, 0x4a, 0xb0, 0x45, 0x15, 0xb2, 0x5a, 0x61, 0xad, 0x7a, 0xe0,
+	0x64, 0x2a, 0xb8, 0x54, 0xea, 0xa9, 0x54, 0xb4, 0x95, 0x10, 0x12, 0x32, 0x39, 0xe5, 0x12, 0x19,
+	0x33, 0x71, 0xac, 0x60, 0x7b, 0xb3, 0xbb, 0x4e, 0xe2, 0x9f, 0x94, 0x7f, 0x19, 0xd9, 0x0b, 0xc6,
+	0x7c, 0x24, 0xa7, 0xdd, 0x37, 0xfb, 0xf6, 0xcd, 0x9b, 0x37, 0xd0, 0x89, 0xbc, 0xd8, 0x0b, 0x30,
+	0xc2, 0x58, 0x3a, 0x8c, 0x27, 0x32, 0x21, 0x70, 0xa8, 0x58, 0x76, 0x90, 0x24, 0xc1, 0x16, 0x47,
+	0xc5, 0xcb, 0x3a, 0xbd, 0x1d, 0x6d, 0x50, 0xf8, 0x3c, 0x64, 0x32, 0xe1, 0x8a, 0x6d, 0x0d, 0x4e,
+	0x19, 0x32, 0x8c, 0x50, 0x48, 0x2f, 0x62, 0x8a, 0x40, 0xa7, 0xd0, 0x99, 0xc5, 0x3e, 0xcf, 0x98,
+	0xc4, 0xcd, 0x02, 0x85, 0xf0, 0x02, 0x24, 0x16, 0x7c, 0x7c, 0x0a, 0x96, 0xe9, 0x7a, 0x8e, 0x59,
+	0x5f, 0xb7, 0xf5, 0xa1, 0xe1, 0x96, 0x98, 0x10, 0x68, 0xac, 0x93, 0x4d, 0xd6, 0xaf, 0xd9, 0xfa,
+	0xd0, 0x74, 0x8b, 0x3b, 0xfd, 0x04, 0xed, 0x55, 0x16, 0xfb, 0x2e, 0x3e, 0xa4, 0x28, 0x24, 0xfd,
+	0x0e, 0xa6, 0x82, 0x82, 0x25, 0xb1, 0x40, 0xd2, 0x83, 0x26, 0x43, 0xe4, 0xa2, 0xaf, 0xdb, 0xf5,
+	0xa1, 0xe1, 0x2a, 0x40, 0xff, 0xc0, 0x67, 0x17, 0x83, 0x50, 0x48, 0xe4, 0x4b, 0x44, 0xbe, 0xfb,
+	0x4c, 0x3a, 0x50, 0xbf, 0x2f, 0xdb, 0xe6, 0xd7, 0xdc, 0x8d, 0x40, 0x99, 0xb2, 0xdc, 0x4d, 0x4d,
+	0xb9, 0xd9, 0x63, 0xfa, 0x05, 0x7a, 0xc7, 0x22, 0xaa, 0x25, 0xbd, 0x81, 0xee, 0x0a, 0xf9, 0x23,
+	0xf2, 0x39, 0x66, 0xa5, 0x8f, 0x73, 0xe9, 0x9f, 0x60, 0xe0, 0x33, 0x0b, 0x39, 0x8a, 0xdf, 0xb2,
+	0xd0, 0x6e, 0x8f, 0x2d, 0x47, 0x25, 0xe6, 0xec, 0x13, 0x73, 0xae, 0xf6, 0x89, 0xb9, 0x07, 0x32,
+	0x6d, 0x41, 0x73, 0x16, 0x31, 0x99, 0x8d, 0x5f, 0x6a, 0xd0, 0x5d, 0x94, 0x1b, 0xc9, 0x9b, 0x86,
+	0x3e, 0x92, 0x15, 0x98, 0x55, 0x5f, 0x64, 0xe0, 0x54, 0xf6, 0x78, 0x61, 0x6c, 0xcb, 0x7e, 0x9b,
+	0xb0, 0x1b, 0x49, 0x23, 0x7f, 0xa1, 0x91, 0xe7, 0x4a, 0xbe, 0x56, 0xb9, 0xa7, 0xcb, 0xb3, 0xde,
+	0x7d, 0xa5, 0xda, 0x0f, 0x9d, 0x4c, 0xc1, 0xfc, 0x87, 0xb2, 0xcc, 0x87, 0x74, 0x8f, 0x7e, 0xe4,
+	0x53, 0x59, 0xdf, 0xaa, 0xa5, 0xb3, 0x24, 0xa9, 0x46, 0x26, 0x60, 0x84, 0xe2, 0x3f, 0x7a, 0x5b,
+	0x79, 0x77, 0x51, 0xe0, 0xbc, 0x44, 0xb5, 0xa9, 0x71, 0xdd, 0x72, 0x7e, 0xa9, 0x5c, 0x3f, 0x14,
+	0xc7, 0xe4, 0x35, 0x00, 0x00, 0xff, 0xff, 0x19, 0x4b, 0xe6, 0xa0, 0xe0, 0x02, 0x00, 0x00,
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -177,6 +361,13 @@ const _ = grpc.SupportPackageIsVersion6
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type ManagementServiceClient interface {
 	RegisterPeer(ctx context.Context, in *RegisterPeerRequest, opts ...grpc.CallOption) (*RegisterPeerResponse, error)
+	// Sync enables peer synchronization. Each peer that is connected to this stream will receive updates from the server.
+	// For example, if a new peer has been added to an account all other connected peers will receive this peer's Wireguard public key as an update
+	// The initial SyncResponse contains all of the available peers so the local state can be refreshed
+	Sync(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (ManagementService_SyncClient, error)
+	// Exposes a Wireguard public key of the Management service.
+	// This key is used to support message encryption between client and server
+	GetServerKey(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ServerKeyResponse, error)
 	// health check endpoint
 	IsHealthy(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 }
@@ -198,6 +389,47 @@ func (c *managementServiceClient) RegisterPeer(ctx context.Context, in *Register
 	return out, nil
 }
 
+func (c *managementServiceClient) Sync(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (ManagementService_SyncClient, error) {
+	stream, err := c.cc.NewStream(ctx, &_ManagementService_serviceDesc.Streams[0], "/management.ManagementService/Sync", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &managementServiceSyncClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type ManagementService_SyncClient interface {
+	Recv() (*EncryptedMessage, error)
+	grpc.ClientStream
+}
+
+type managementServiceSyncClient struct {
+	grpc.ClientStream
+}
+
+func (x *managementServiceSyncClient) Recv() (*EncryptedMessage, error) {
+	m := new(EncryptedMessage)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *managementServiceClient) GetServerKey(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ServerKeyResponse, error) {
+	out := new(ServerKeyResponse)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/GetServerKey", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *managementServiceClient) IsHealthy(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error) {
 	out := new(Empty)
 	err := c.cc.Invoke(ctx, "/management.ManagementService/isHealthy", in, out, opts...)
@@ -210,6 +442,13 @@ func (c *managementServiceClient) IsHealthy(ctx context.Context, in *Empty, opts
 // ManagementServiceServer is the server API for ManagementService service.
 type ManagementServiceServer interface {
 	RegisterPeer(context.Context, *RegisterPeerRequest) (*RegisterPeerResponse, error)
+	// Sync enables peer synchronization. Each peer that is connected to this stream will receive updates from the server.
+	// For example, if a new peer has been added to an account all other connected peers will receive this peer's Wireguard public key as an update
+	// The initial SyncResponse contains all of the available peers so the local state can be refreshed
+	Sync(*EncryptedMessage, ManagementService_SyncServer) error
+	// Exposes a Wireguard public key of the Management service.
+	// This key is used to support message encryption between client and server
+	GetServerKey(context.Context, *Empty) (*ServerKeyResponse, error)
 	// health check endpoint
 	IsHealthy(context.Context, *Empty) (*Empty, error)
 }
@@ -220,6 +459,12 @@ type UnimplementedManagementServiceServer struct {
 
 func (*UnimplementedManagementServiceServer) RegisterPeer(ctx context.Context, req *RegisterPeerRequest) (*RegisterPeerResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterPeer not implemented")
+}
+func (*UnimplementedManagementServiceServer) Sync(req *EncryptedMessage, srv ManagementService_SyncServer) error {
+	return status.Errorf(codes.Unimplemented, "method Sync not implemented")
+}
+func (*UnimplementedManagementServiceServer) GetServerKey(ctx context.Context, req *Empty) (*ServerKeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetServerKey not implemented")
 }
 func (*UnimplementedManagementServiceServer) IsHealthy(ctx context.Context, req *Empty) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IsHealthy not implemented")
@@ -243,6 +488,45 @@ func _ManagementService_RegisterPeer_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(ManagementServiceServer).RegisterPeer(ctx, req.(*RegisterPeerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ManagementService_Sync_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(EncryptedMessage)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ManagementServiceServer).Sync(m, &managementServiceSyncServer{stream})
+}
+
+type ManagementService_SyncServer interface {
+	Send(*EncryptedMessage) error
+	grpc.ServerStream
+}
+
+type managementServiceSyncServer struct {
+	grpc.ServerStream
+}
+
+func (x *managementServiceSyncServer) Send(m *EncryptedMessage) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _ManagementService_GetServerKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).GetServerKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/GetServerKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).GetServerKey(ctx, req.(*Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -274,10 +558,20 @@ var _ManagementService_serviceDesc = grpc.ServiceDesc{
 			Handler:    _ManagementService_RegisterPeer_Handler,
 		},
 		{
+			MethodName: "GetServerKey",
+			Handler:    _ManagementService_GetServerKey_Handler,
+		},
+		{
 			MethodName: "isHealthy",
 			Handler:    _ManagementService_IsHealthy_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "Sync",
+			Handler:       _ManagementService_Sync_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "management.proto",
 }
