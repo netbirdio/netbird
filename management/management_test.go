@@ -38,7 +38,6 @@ var _ = Describe("Client", func() {
 		var listener net.Listener
 		server, listener = startServer(dataDir)
 		addr = listener.Addr().String()
-
 	})
 
 	AfterEach(func() {
@@ -129,11 +128,12 @@ var _ = Describe("Client", func() {
 })
 
 func createRawClient(addr string) mgmtProto.ManagementServiceClient {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	conn, err := grpc.DialContext(ctx, addr, grpc.WithInsecure(),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    3 * time.Second,
+			Time:    10 * time.Second,
 			Timeout: 2 * time.Second,
 		}))
 	if err != nil {
