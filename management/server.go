@@ -2,7 +2,7 @@ package management
 
 import (
 	"context"
-	pb "github.com/golang/protobuf/proto"
+	pb "github.com/golang/protobuf/proto" //nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/proto"
