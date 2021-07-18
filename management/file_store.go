@@ -59,7 +59,7 @@ func restore(file string) (*FileStore, error) {
 	store.storeFile = file
 	store.SetupKeyId2AccountId = make(map[string]string)
 	for accountId, account := range store.Accounts {
-		for setupKeyId, _ := range account.SetupKeys {
+		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyId2AccountId[strings.ToLower(setupKeyId)] = accountId
 		}
 	}
@@ -112,7 +112,7 @@ func (s *FileStore) AddAccount(account *Account) error {
 
 	// todo check that account.Id and keyId are not exist already
 	// because if keyId exists for other accounts this can be bad
-	for keyId, _ := range account.SetupKeys {
+	for keyId := range account.SetupKeys {
 		s.SetupKeyId2AccountId[strings.ToLower(keyId)] = account.Id
 	}
 
