@@ -57,15 +57,6 @@ func CreateWithUserspace(iface string, address string) error {
 	return nil
 }
 
-// ConfigureWithKeyGen Extends the functionality of Configure(iface string, privateKey string) by generating a new Wireguard private key
-func ConfigureWithKeyGen(iface string) (*wgtypes.Key, error) {
-	key, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		return nil, err
-	}
-	return &key, Configure(iface, key.String())
-}
-
 // configure peer for the wireguard device
 func configureDevice(iface string, config wgtypes.Config) error {
 	wg, err := wgctrl.New()
@@ -124,24 +115,6 @@ func GetListenPort(iface string) (*int, error) {
 	log.Debugf("got Wireguard device listen port %s, %d", iface, d.ListenPort)
 
 	return &d.ListenPort, nil
-}
-
-// UpdateListenPort updates a Wireguard interface listen port
-func UpdateListenPort(iface string, newPort int) error {
-	log.Debugf("updating Wireguard listen port of interface %s, new port %d", iface, newPort)
-
-	config := wgtypes.Config{
-		ListenPort:   &newPort,
-		ReplacePeers: false,
-	}
-	err := configureDevice(iface, config)
-	if err != nil {
-		return err
-	}
-
-	log.Debugf("updated Wireguard listen port of interface %s, new port %d", iface, newPort)
-
-	return nil
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
