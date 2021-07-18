@@ -66,16 +66,28 @@ func ConfigureWithKeyGen(iface string) (*wgtypes.Key, error) {
 	return &key, Configure(iface, key.String())
 }
 
-// Configure configures a Wireguard interface
-// The interface must exist before calling this method (e.g. call interface.Create() before)
-func Configure(iface string, privateKey string) error {
-
-	log.Debugf("configuring Wireguard interface %s", iface)
+// configure peer for the wireguard device
+func configureDevice(iface string, config wgtypes.Config) error {
 	wg, err := wgctrl.New()
 	if err != nil {
 		return err
 	}
 	defer wg.Close()
+
+	_, err = wg.Device(iface)
+	if err != nil {
+		return err
+	}
+	log.Debugf("got Wireguard device %s", iface)
+
+	return wg.ConfigureDevice(iface, config)
+}
+
+// Configure configures a Wireguard interface
+// The interface must exist before calling this method (e.g. call interface.Create() before)
+func Configure(iface string, privateKey string) error {
+
+	log.Debugf("configuring Wireguard interface %s", iface)
 
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
@@ -84,18 +96,14 @@ func Configure(iface string, privateKey string) error {
 	}
 	fwmark := 0
 	p := WgPort
-	cfg := wgtypes.Config{
+	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: false,
 		FirewallMark: &fwmark,
 		ListenPort:   &p,
 	}
-	err = wg.ConfigureDevice(iface, cfg)
-	if err != nil {
-		return err
-	}
 
-	return nil
+	return configureDevice(iface, config)
 }
 
 // GetListenPort returns the listening port of the Wireguard endpoint
@@ -122,24 +130,11 @@ func GetListenPort(iface string) (*int, error) {
 func UpdateListenPort(iface string, newPort int) error {
 	log.Debugf("updating Wireguard listen port of interface %s, new port %d", iface, newPort)
 
-	//discover Wireguard current configuration
-	wg, err := wgctrl.New()
-	if err != nil {
-		return err
-	}
-	defer wg.Close()
-
-	_, err = wg.Device(iface)
-	if err != nil {
-		return err
-	}
-	log.Debugf("got Wireguard device %s", iface)
-
 	config := wgtypes.Config{
 		ListenPort:   &newPort,
 		ReplacePeers: false,
 	}
-	err = wg.ConfigureDevice(iface, config)
+	err := configureDevice(iface, config)
 	if err != nil {
 		return err
 	}
@@ -155,18 +150,6 @@ func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.
 
 	log.Debugf("updating interface %s peer %s: endpoint %s ", iface, peerKey, endpoint)
 
-	wg, err := wgctrl.New()
-	if err != nil {
-		return err
-	}
-	defer wg.Close()
-
-	_, err = wg.Device(iface)
-	if err != nil {
-		return err
-	}
-	log.Debugf("got Wireguard device %s", iface)
-
 	//parse allowed ips
 	_, ipNet, err := net.ParseCIDR(allowedIps)
 	if err != nil {
@@ -177,20 +160,18 @@ func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.
 	if err != nil {
 		return err
 	}
-	peers := make([]wgtypes.PeerConfig, 0)
 	peer := wgtypes.PeerConfig{
 		PublicKey:                   peerKeyParsed,
 		ReplaceAllowedIPs:           true,
 		AllowedIPs:                  []net.IPNet{*ipNet},
 		PersistentKeepaliveInterval: &keepAlive,
 	}
-	peers = append(peers, peer)
 
 	config := wgtypes.Config{
-		ReplacePeers: false,
-		Peers:        peers,
+		Peers: []wgtypes.PeerConfig{peer},
 	}
-	err = wg.ConfigureDevice(iface, config)
+
+	err = configureDevice(iface, config)
 	if err != nil {
 		return err
 	}
@@ -208,18 +189,6 @@ func UpdatePeerEndpoint(iface string, peerKey string, newEndpoint string) error 
 
 	log.Debugf("updating peer %s endpoint %s ", peerKey, newEndpoint)
 
-	wg, err := wgctrl.New()
-	if err != nil {
-		return err
-	}
-	defer wg.Close()
-
-	_, err = wg.Device(iface)
-	if err != nil {
-		return err
-	}
-	log.Debugf("got Wireguard device %s", iface)
-
 	peerAddr, err := net.ResolveUDPAddr("udp4", newEndpoint)
 	if err != nil {
 		return err
@@ -231,23 +200,36 @@ func UpdatePeerEndpoint(iface string, peerKey string, newEndpoint string) error 
 	if err != nil {
 		return err
 	}
-	peers := make([]wgtypes.PeerConfig, 0)
+
 	peer := wgtypes.PeerConfig{
 		PublicKey:         peerKeyParsed,
 		ReplaceAllowedIPs: false,
 		UpdateOnly:        true,
 		Endpoint:          peerAddr,
 	}
-	peers = append(peers, peer)
-
 	config := wgtypes.Config{
-		ReplacePeers: false,
-		Peers:        peers,
+		Peers: []wgtypes.PeerConfig{peer},
 	}
-	err = wg.ConfigureDevice(iface, config)
+	return configureDevice(iface, config)
+}
+
+// RemovePeer removes a Wireguard Peer from the interface iface
+func RemovePeer(iface string, peerKey string) error {
+	log.Debugf("Removing peer %s from interface %s ", peerKey, iface)
+
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	peer := wgtypes.PeerConfig{
+		PublicKey: peerKeyParsed,
+		Remove:    true,
+	}
+
+	config := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+
+	return configureDevice(iface, config)
 }
