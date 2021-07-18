@@ -41,8 +41,8 @@ func CreateWithUserspace(iface string, address string) error {
 		for {
 			uapiConn, err := uapi.Accept()
 			if err != nil {
-				log.Debugln(err)
-				return
+				log.Debugln("uapi Accept failed with error: ", err)
+				continue
 			}
 			go tunDevice.IpcHandle(uapiConn)
 		}
