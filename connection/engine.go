@@ -92,7 +92,7 @@ func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
 	operation := func() error {
 		_, err := e.openPeerConnection(wgPort, myKey, peer)
 		if _, ok := e.conns[peer.WgPubKey]; !ok {
-			log.Infof("removing connection with Peer: %v, not retrying", peer.WgPubKey)
+			log.Infof("removing connection attempt with Peer: %v, not retrying", peer.WgPubKey)
 			return nil
 		}
 
@@ -111,8 +111,8 @@ func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
 	}
 }
 
-// close existing peer connection attempt
-func (e *Engine) ClosePeerConnection(peer Peer) error {
+// close existing peer connection attempt and interface configuration
+func (e *Engine) RemovePeerConnection(peer Peer) error {
 	conn, exists := e.conns[peer.WgPubKey]
 	if exists && conn != nil {
 		delete(e.conns, peer.WgPubKey)
