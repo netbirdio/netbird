@@ -166,7 +166,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 
 		log.Infof("opened connection to peer %s", conn.Config.RemoteWgKey.String())
 	case <-conn.closeCond.C:
-		return nil
+		return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
 	case <-time.After(timeout):
 		err := conn.Close()
 		if err != nil {
