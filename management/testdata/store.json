@@ -7,14 +7,7 @@
                     "Key": "a2c8e62b-38f5-4553-b31e-dd66c696cebb"
                 }
             },
-            "Peers": {
-                "/znMkP3yvi0T/ho+RSMBohXZSPtucVYnb66BcuJ5oRU=": {
-                    "Key": "/znMkP3yvi0T/ho+RSMBohXZSPtucVYnb66BcuJ5oRU=",
-                    "SetupKey": {
-                        "Key": "a2c8e62b-38f5-4553-b31e-dd66c696cebb"
-                    }
-                }
-            }
+            "Peers": {}
         }
     }
 }
