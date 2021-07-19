@@ -39,3 +39,8 @@ func assignAddr(address string, ifaceName string) error {
 func getUAPI(iface string) (net.Listener, error) {
 	return ipc.UAPIListen(iface)
 }
+
+// Closes the tunnel interface
+func Close() error {
+	return CloseWithUserspace()
+}

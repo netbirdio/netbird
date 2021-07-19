@@ -38,10 +38,15 @@ func (p *WgProxy) Close() error {
 			return err
 		}
 	}
+	err := iface.RemovePeer(p.iface, p.remoteKey)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
+// StartLocal configure the interface with a peer using a direct IP:Port endpoint to the remote host
 func (p *WgProxy) StartLocal(host string) error {
 	err := iface.UpdatePeer(p.iface, p.remoteKey, p.allowedIps, DefaultWgKeepAlive, host)
 	if err != nil {
