@@ -24,5 +24,5 @@ type Peer struct {
 
 type Store interface {
 	AddPeer(setupKey string, peerKey string) error
-    GetPeersForAPeer(peerKey string) []string
+	GetPeersForAPeer(peerKey string) ([]string, error)
 }

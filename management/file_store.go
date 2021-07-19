@@ -19,6 +19,7 @@ const storeFileName = "store.json"
 type FileStore struct {
 	Accounts             map[string]*Account
 	SetupKeyId2AccountId map[string]string `json:"-"`
+	PeerKeyId2AccountId  map[string]string `json:"-"`
 
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
@@ -63,6 +64,12 @@ func restore(file string) (*FileStore, error) {
 			store.SetupKeyId2AccountId[strings.ToLower(setupKeyId)] = accountId
 		}
 	}
+	store.PeerKeyId2AccountId = make(map[string]string)
+	for accountId, account := range store.Accounts {
+		for peerId := range account.Peers {
+			store.PeerKeyId2AccountId[strings.ToLower(peerId)] = accountId
+		}
+	}
 
 	return store, nil
 }
@@ -95,6 +102,7 @@ func (s *FileStore) AddPeer(setupKey string, peerKey string) error {
 	}
 
 	account.Peers[peerKey] = &Peer{Key: peerKey, SetupKey: key}
+	s.PeerKeyId2AccountId[peerKey] = accountId
 	err := s.persist(s.storeFile)
 	if err != nil {
 		return err
@@ -122,4 +130,29 @@ func (s *FileStore) AddAccount(account *Account) error {
 	}
 
 	return nil
+}
+
+// GetPeersForAPeer returns a list of peers available for a given peer (key)
+// Effectively all the peers of the original peer's account if any
+func (s *FileStore) GetPeersForAPeer(peerKey string) ([]string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountId, accountIdFound := s.PeerKeyId2AccountId[peerKey]
+	if !accountIdFound {
+		return nil, status.Errorf(codes.NotFound, "Provided peer key doesn't exists %s", peerKey)
+	}
+
+	account, accountFound := s.Accounts[accountId]
+	if !accountFound {
+		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
+	}
+	peers := make([]string, 0, len(account.Peers))
+	for p := range account.Peers {
+		if p != peerKey {
+			peers = append(peers, p)
+		}
+	}
+
+	return peers, nil
 }

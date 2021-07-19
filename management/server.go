@@ -2,10 +2,10 @@ package management
 
 import (
 	"context"
-	"github.com/wiretrustee/wiretrustee/management/proto"
 	pb "github.com/golang/protobuf/proto" //nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/management/proto"
 	"github.com/wiretrustee/wiretrustee/signal"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/status"
@@ -70,8 +70,11 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return status.Errorf(400, "invalid request message")
 	}
 
-	peers := s.Store.GetPeersForAPeer(peerKey)
-
+	peers, err := s.Store.GetPeersForAPeer(peerKey)
+	if err != nil {
+		log.Warnf("error getting a list of peers for a peer %s", peerKey)
+		return err
+	}
 	plainResp := &proto.SyncResponse{
 		Peers: peers,
 	}
