@@ -16,6 +16,14 @@ var (
 	DefaultWgKeepAlive = 20 * time.Second
 )
 
+type Status string
+
+const (
+	StatusConnected    Status = "Connected"
+	StatusConnecting   Status = "Connecting"
+	StatusDisconnected Status = "Disconnected"
+)
+
 // ConnConfig Connection configuration struct
 type ConnConfig struct {
 	// Local Wireguard listening address  e.g. 127.0.0.1:51820
@@ -66,6 +74,8 @@ type Connection struct {
 	closeCond *Cond
 
 	remoteAuthCond sync.Once
+
+	Status Status
 }
 
 // NewConnection Creates a new connection and sets handling functions for signal protocol
@@ -85,6 +95,7 @@ func NewConnection(config ConnConfig,
 		connected:         NewCond(),
 		agent:             nil,
 		wgProxy:           NewWgProxy(config.WgIface, config.RemoteWgKey.String(), config.WgAllowedIPs, config.WgListenAddr),
+		Status:            StatusDisconnected,
 	}
 }
 
@@ -126,6 +137,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		return err
 	}
 
+	conn.Status = StatusConnecting
 	log.Infof("trying to connect to peer %s", conn.Config.RemoteWgKey.String())
 
 	// wait until credentials have been sent from the remote peer (will arrive via a signal server)
@@ -164,19 +176,23 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			}
 		}
 
+		conn.Status = StatusConnected
 		log.Infof("opened connection to peer %s", conn.Config.RemoteWgKey.String())
 	case <-conn.closeCond.C:
+		conn.Status = StatusDisconnected
 		return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
 	case <-time.After(timeout):
 		err := conn.Close()
 		if err != nil {
 			log.Warnf("error while closing connection to peer %s -> %s", conn.Config.RemoteWgKey.String(), err.Error())
 		}
+		conn.Status = StatusDisconnected
 		return fmt.Errorf("timeout of %vs exceeded while waiting for the remote peer %s", timeout.Seconds(), conn.Config.RemoteWgKey.String())
 	}
 
 	// wait until connection has been closed
 	<-conn.closeCond.C
+	conn.Status = StatusDisconnected
 	return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
 }
 

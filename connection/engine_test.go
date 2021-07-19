@@ -90,21 +90,61 @@ func TestEngine_InitializePeerWithoutRemote(t *testing.T) {
 	}
 	go engine.InitializePeer(iface.WgPort, testKey, testPeer)
 	// Let the connections initialize
-	time.Sleep(100 * time.Millisecond)
-	if _, exists := engine.conns[testPeer.WgPubKey]; !exists {
-		t.Fatal("couldn't initialize peer")
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	for {
+		status := engine.GetPeerConnectionStatus(testPeer.WgPubKey)
+		err = ctx.Err()
+		if (status != nil && *status == StatusConnecting) || err != nil {
+			if err != nil {
+				t.Fatal(err)
+			}
+			//success
+			break
+		}
 	}
+}
 
-	out, err := ioutil.ReadAll(b)
+func TestEngine_Initialize2PeersWithoutRemote(t *testing.T) {
+	b := bytes.NewBufferString("")
+	log.SetOutput(b)
+	tmpKey1, err := wgtypes.GenerateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	expectedMSG := "trying to connect to peer " + testPeer.WgPubKey
-	if !strings.Contains(string(out), expectedMSG) {
-		t.Fatalf("expected \"%s\" got \"%s\"", expectedMSG, string(out))
+	tmpKey2, err := wgtypes.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	testPeer1 := Peer{
+		tmpKey1.PublicKey().String(),
+		"10.99.91.2/32",
+	}
+	testPeer2 := Peer{
+		tmpKey2.PublicKey().String(),
+		"10.99.91.3/32",
+	}
+	go engine.InitializePeer(iface.WgPort, testKey, testPeer1)
+	go engine.InitializePeer(iface.WgPort, testKey, testPeer2)
+	// Let the connections initialize
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	for {
+		status1 := engine.GetPeerConnectionStatus(testPeer1.WgPubKey)
+		status2 := engine.GetPeerConnectionStatus(testPeer2.WgPubKey)
+		err = ctx.Err()
+		if (status1 != nil && status2 != nil) || err != nil {
+			if err != nil {
+				t.Fatal(err)
+			}
+			if *status1 == StatusConnecting && *status2 == StatusConnecting {
+				//success
+				break
+			}
+		}
 	}
 }
+
 func TestEngine_RemovePeerConnectionWithoutRemote(t *testing.T) {
 	b := bytes.NewBufferString("")
 	log.SetOutput(b)

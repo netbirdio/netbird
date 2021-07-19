@@ -133,6 +133,19 @@ func (e *Engine) RemovePeerConnection(peer Peer) error {
 	return nil
 }
 
+// GetPeerConnectionStatus returns a connection Status or nil if peer connection wasn't found
+func (e *Engine) GetPeerConnectionStatus(peerKey string) *Status {
+	e.PeerMux.Lock()
+	defer e.PeerMux.Unlock()
+
+	conn, exists := e.conns[peerKey]
+	if exists && conn != nil {
+		return &conn.Status
+	}
+
+	return nil
+}
+
 // opens a new peer connection
 func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, error) {
 	e.PeerMux.Lock()
