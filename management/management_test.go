@@ -2,6 +2,13 @@ package management_test
 
 import (
 	"context"
+	"io/ioutil"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
@@ -11,12 +18,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
-	"io/ioutil"
-	"net"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
 )
 
 var _ = Describe("Client", func() {
@@ -133,11 +134,11 @@ var _ = Describe("Client", func() {
 
 				Expect(err).NotTo(HaveOccurred())
 
-				store, err := util.ReadJson(filepath.Join(dataDir, "store.json"), &mgmt.Store{})
+				store, err := util.ReadJson(filepath.Join(dataDir, "store.json"), &mgmt.FileStore{})
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(store.(*mgmt.Store)).NotTo(BeNil())
-				user := store.(*mgmt.Store).Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+				Expect(store.(*mgmt.FileStore)).NotTo(BeNil())
+				user := store.(*mgmt.FileStore).Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
 				Expect(user.Peers[key.PublicKey().String()]).NotTo(BeNil())
 				Expect(user.SetupKeys[strings.ToLower(setupKey)]).NotTo(BeNil())
 

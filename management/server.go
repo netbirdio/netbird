@@ -2,10 +2,10 @@ package management
 
 import (
 	"context"
+	"github.com/wiretrustee/wiretrustee/management/proto"
 	pb "github.com/golang/protobuf/proto" //nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/management/proto"
 	"github.com/wiretrustee/wiretrustee/signal"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/status"
@@ -14,7 +14,7 @@ import (
 
 // Server an instance of a Management server
 type Server struct {
-	Store *Store
+	Store *FileStore
 	wgKey wgtypes.Key
 }
 
