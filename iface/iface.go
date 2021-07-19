@@ -206,3 +206,8 @@ func RemovePeer(iface string, peerKey string) error {
 
 	return configureDevice(iface, config)
 }
+
+// Closes the User Space tunnel interface
+func CloseWithUserspace() error {
+	return tunIface.Close()
+}
