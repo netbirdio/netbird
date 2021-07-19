@@ -111,6 +111,9 @@ func Close() error {
 		}
 		defer wg.Close()
 		devList, err := wg.Devices()
+		if err != nil {
+			return err
+		}
 		for _, wgDev := range devList {
 			if wgDev.ListenPort == WgPort {
 				iface = wgDev.Name
