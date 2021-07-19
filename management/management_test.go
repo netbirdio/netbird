@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -47,9 +46,9 @@ var _ = Describe("Client", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	Describe("Service health", func() {
-		Context("when it has been started", func() {
-			It("should be ok", func() {
+	Describe("Checking management service health", func() {
+		Context("with the IsHealthy endpoint", func() {
+			It("should be successful", func() {
 				client := createRawClient(addr)
 				healthy, err := client.IsHealthy(context.TODO(), &mgmtProto.Empty{})
 
@@ -60,7 +59,7 @@ var _ = Describe("Client", func() {
 	})
 
 	Describe("Getting service Wireguard public key", func() {
-		Context("from teh GetServerKey", func() {
+		Context("with the GetServerKey endpoint", func() {
 			It("should be successful", func() {
 				client := createRawClient(addr)
 				resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
@@ -97,9 +96,7 @@ var _ = Describe("Client", func() {
 
 			})
 		})
-	})
 
-	Describe("Registration", func() {
 		Context("of a new peer with a valid setup key", func() {
 			It("should be successful", func() {
 
@@ -114,33 +111,6 @@ var _ = Describe("Client", func() {
 
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp).ToNot(BeNil())
-
-			})
-		})
-	})
-
-	Describe("Registration", func() {
-		Context("of a new peer with a valid setup key", func() {
-			It("should be persisted to a file", func() {
-
-				key, _ := wgtypes.GenerateKey()
-				setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB" //present in the testdata/store.json file
-
-				client := createRawClient(addr)
-				_, err := client.RegisterPeer(context.TODO(), &mgmtProto.RegisterPeerRequest{
-					Key:      key.PublicKey().String(),
-					SetupKey: setupKey,
-				})
-
-				Expect(err).NotTo(HaveOccurred())
-
-				store, err := util.ReadJson(filepath.Join(dataDir, "store.json"), &mgmt.FileStore{})
-				Expect(err).NotTo(HaveOccurred())
-
-				Expect(store.(*mgmt.FileStore)).NotTo(BeNil())
-				user := store.(*mgmt.FileStore).Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
-				Expect(user.Peers[key.PublicKey().String()]).NotTo(BeNil())
-				Expect(user.SetupKeys[strings.ToLower(setupKey)]).NotTo(BeNil())
 
 			})
 		})
