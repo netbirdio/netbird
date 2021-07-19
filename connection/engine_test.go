@@ -109,7 +109,10 @@ func TestEngine_RemovePeerConnectionWithoutRemote(t *testing.T) {
 	b := bytes.NewBufferString("")
 	log.SetOutput(b)
 
-	engine.RemovePeerConnection(testPeer)
+	err := engine.RemovePeerConnection(testPeer)
+	if err != nil {
+		t.Fatal(err)
+	}
 	// Let the connections initialize
 	if _, exists := engine.conns[testPeer.WgPubKey]; exists {
 		t.Fatal("couldn't remove peer")
@@ -123,5 +126,12 @@ func TestEngine_RemovePeerConnectionWithoutRemote(t *testing.T) {
 	expectedMSG := "removing connection attempt with Peer: " + testPeer.WgPubKey + ", not retrying"
 	if !strings.Contains(string(out), expectedMSG) {
 		t.Fatalf("expected \"%s\" got \"%s\"", expectedMSG, string(out))
+	}
+}
+
+func Test_CloseInterface(t *testing.T) {
+	err := iface.Close()
+	if err != nil {
+		t.Fatal(err)
 	}
 }

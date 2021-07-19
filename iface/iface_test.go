@@ -2,6 +2,7 @@ package iface
 
 import (
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
@@ -11,13 +12,14 @@ import (
 
 // keep darwin compability
 const (
-	ifaceName  = "utun99"
+	ifaceName  = "utun999"
 	key        = "0PMI6OkB5JmB+Jj/iWWHekuQRx+bipZirWCWKFXexHc="
-	pubKey     = "+qso2I3q952FOPTka+97S1F40qjGlrpAqW1cf3w64W8="
 	peerPubKey = "Ok0mC0qlJyXEPKh2UFIpsI2jG0L7LRpC3sLAusSJ5CQ="
 )
 
 func Test_CreateInterface(t *testing.T) {
+	level, _ := log.ParseLevel("Debug")
+	log.SetLevel(level)
 	wgIP := "10.99.99.1/24"
 	err := Create(ifaceName, wgIP)
 	if err != nil {
@@ -52,7 +54,7 @@ func Test_ConfigureInterface(t *testing.T) {
 		t.Fatal(err)
 	}
 	if wgDevice.PrivateKey.String() != key {
-		t.Fatal("Private keys don't match after configure")
+		t.Fatalf("Private keys don't match after configure: %s != %s", key, wgDevice.PrivateKey.String())
 	}
 }
 
@@ -64,7 +66,6 @@ func Test_UpdatePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	peer, err := getPeer()
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +121,12 @@ func Test_RemovePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
+func Test_Close(t *testing.T) {
+	err := Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
 func getPeer() (wgtypes.Peer, error) {
 	emptyPeer := wgtypes.Peer{}
 	wg, err := wgctrl.New()

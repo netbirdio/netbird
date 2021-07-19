@@ -18,7 +18,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Test
-        run: GOBIN=$(which go) && sudo --preserve-env=GOROOT $GOBIN test ./...
+        run: GOBIN=$(which go) && sudo --preserve-env=GOROOT $GOBIN test -p 1 ./...
 
   test_build:
     strategy:
