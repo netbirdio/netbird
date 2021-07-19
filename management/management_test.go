@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-var _ = Describe("Client", func() {
+var _ = Describe("Management service", func() {
 
 	var (
 		addr    string
@@ -46,41 +46,46 @@ var _ = Describe("Client", func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 
-	Describe("Checking management service health", func() {
-		Context("with the IsHealthy endpoint", func() {
-			It("should be successful", func() {
-				client := createRawClient(addr)
-				healthy, err := client.IsHealthy(context.TODO(), &mgmtProto.Empty{})
+	Context("when calling IsHealthy endpoint", func() {
+		Specify("a non-error result is returned", func() {
+			client := createRawClient(addr)
+			healthy, err := client.IsHealthy(context.TODO(), &mgmtProto.Empty{})
 
-				Expect(err).NotTo(HaveOccurred())
-				Expect(healthy).ToNot(BeNil())
-			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(healthy).ToNot(BeNil())
 		})
 	})
 
-	Describe("Getting service Wireguard public key", func() {
-		Context("with the GetServerKey endpoint", func() {
+	/*Describe("Syncing with the service", func() {
+		Context("that has ", func() {
 			It("should be successful", func() {
-				client := createRawClient(addr)
-				resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
-
-				Expect(err).NotTo(HaveOccurred())
-				Expect(resp).ToNot(BeNil())
-				Expect(resp.Key).ToNot(BeNil())
-				Expect(resp.ExpiresAt).ToNot(BeNil())
-
-				//check if the key is a valid Wireguard key
-				key, err := wgtypes.ParseKey(resp.Key)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(key).ToNot(BeNil())
 
 			})
 		})
+	})*/
+
+	Context("when calling GetServerKey endpoint", func() {
+		Specify("a public Wireguard key of the service is returned", func() {
+			client := createRawClient(addr)
+			resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).ToNot(BeNil())
+			Expect(resp.Key).ToNot(BeNil())
+			Expect(resp.ExpiresAt).ToNot(BeNil())
+
+			//check if the key is a valid Wireguard key
+			key, err := wgtypes.ParseKey(resp.Key)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(key).ToNot(BeNil())
+
+		})
 	})
 
-	Describe("Registration", func() {
-		Context("of a new peer without a valid setup key", func() {
-			It("should fail", func() {
+	Context("when calling RegisterPeer endpoint", func() {
+
+		Context("with an invalid setup key", func() {
+			Specify("an error is returned", func() {
 
 				key, _ := wgtypes.GenerateKey()
 				setupKey := "invalid_setup_key"
@@ -97,8 +102,8 @@ var _ = Describe("Client", func() {
 			})
 		})
 
-		Context("of a new peer with a valid setup key", func() {
-			It("should be successful", func() {
+		Context("with a valid setup key", func() {
+			It("a non error result is returned", func() {
 
 				key, _ := wgtypes.GenerateKey()
 				setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB" //present in the testdata/store.json file
