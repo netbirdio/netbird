@@ -9,8 +9,13 @@ import (
 	"github.com/wiretrustee/wiretrustee/signal"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"sync"
 	"time"
 )
+
+// PeerConnectionTimeout is a timeout of an initial connection attempt to a remote peer.
+// E.g. this peer will wait PeerConnectionTimeout for the remote peer to respond, if not successful then it will retry the connection attempt.
+const PeerConnectionTimeout = 60 * time.Second
 
 // Engine is an instance of the Connection Engine
 type Engine struct {
@@ -26,6 +31,8 @@ type Engine struct {
 	wgIP string
 	// Network Interfaces to ignore
 	iFaceBlackList map[string]struct{}
+	// PeerMux is used to sync peer operations (e.g. open connection, peer removal)
+	PeerMux *sync.Mutex
 }
 
 // Peer is an instance of the Connection Peer
@@ -44,6 +51,7 @@ func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgA
 		wgIP:           wgAddr,
 		conns:          map[string]*Connection{},
 		iFaceBlackList: iFaceBlackList,
+		PeerMux:        &sync.Mutex{},
 	}
 }
 
@@ -71,42 +79,76 @@ func (e *Engine) Start(myKey wgtypes.Key, peers []Peer) error {
 
 	e.receiveSignal()
 
-	// initialize peer agents
 	for _, peer := range peers {
-
 		peer := peer
-		go func() {
-			var backOff = &backoff.ExponentialBackOff{
-				InitialInterval:     backoff.DefaultInitialInterval,
-				RandomizationFactor: backoff.DefaultRandomizationFactor,
-				Multiplier:          backoff.DefaultMultiplier,
-				MaxInterval:         5 * time.Second,
-				MaxElapsedTime:      time.Duration(0), //never stop
-				Stop:                backoff.Stop,
-				Clock:               backoff.SystemClock,
-			}
-			operation := func() error {
-				_, err := e.openPeerConnection(*wgPort, myKey, peer)
-				if err != nil {
-					log.Warnln("retrying connection because of error: ", err.Error())
-					e.conns[peer.WgPubKey] = nil
-					return err
-				}
-				backOff.Reset()
-				return nil
-			}
-
-			err = backoff.Retry(operation, backOff)
-			if err != nil {
-				// should actually never happen
-				panic(err)
-			}
-		}()
+		go e.InitializePeer(*wgPort, myKey, peer)
 	}
 	return nil
 }
 
+// InitializePeer peer agent attempt to open connection
+func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
+	var backOff = &backoff.ExponentialBackOff{
+		InitialInterval:     backoff.DefaultInitialInterval,
+		RandomizationFactor: backoff.DefaultRandomizationFactor,
+		Multiplier:          backoff.DefaultMultiplier,
+		MaxInterval:         5 * time.Second,
+		MaxElapsedTime:      time.Duration(0), //never stop
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}
+	operation := func() error {
+		_, err := e.openPeerConnection(wgPort, myKey, peer)
+		e.PeerMux.Lock()
+		defer e.PeerMux.Unlock()
+		if _, ok := e.conns[peer.WgPubKey]; !ok {
+			log.Infof("removing connection attempt with Peer: %v, not retrying", peer.WgPubKey)
+			return nil
+		}
+
+		if err != nil {
+			log.Warnln(err)
+			log.Warnln("retrying connection because of error: ", err.Error())
+			return err
+		}
+		return nil
+	}
+
+	err := backoff.Retry(operation, backOff)
+	if err != nil {
+		// should actually never happen
+		panic(err)
+	}
+}
+
+// RemovePeerConnection closes existing peer connection and removes peer
+func (e *Engine) RemovePeerConnection(peer Peer) error {
+	e.PeerMux.Lock()
+	defer e.PeerMux.Unlock()
+	conn, exists := e.conns[peer.WgPubKey]
+	if exists && conn != nil {
+		delete(e.conns, peer.WgPubKey)
+		return conn.Close()
+	}
+	return nil
+}
+
+// GetPeerConnectionStatus returns a connection Status or nil if peer connection wasn't found
+func (e *Engine) GetPeerConnectionStatus(peerKey string) *Status {
+	e.PeerMux.Lock()
+	defer e.PeerMux.Unlock()
+
+	conn, exists := e.conns[peerKey]
+	if exists && conn != nil {
+		return &conn.Status
+	}
+
+	return nil
+}
+
+// opens a new peer connection
 func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, error) {
+	e.PeerMux.Lock()
 
 	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
 	connConfig := &ConnConfig{
@@ -130,11 +172,12 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	signalCandidate := func(candidate ice.Candidate) error {
 		return signalCandidate(candidate, myKey, remoteKey, e.signal)
 	}
-
 	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
 	e.conns[remoteKey.String()] = conn
+	e.PeerMux.Unlock()
+
 	// blocks until the connection is open (or timeout)
-	err := conn.Open(60 * time.Second)
+	err := conn.Open(PeerConnectionTimeout)
 	if err != nil {
 		return nil, err
 	}

@@ -1,8 +1,10 @@
 package iface
 
 import (
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+	"golang.zx2c4.com/wireguard/wgctrl"
 	"os"
 )
 
@@ -36,14 +38,6 @@ func CreateWithKernel(iface string, address string) error {
 		return err
 	}
 
-	log.Debugf("adding address %s to interface: %s", address, iface)
-	addr, _ := netlink.ParseAddr(address)
-	err = netlink.AddrAdd(&link, addr)
-	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", iface, address)
-	} else if err != nil {
-		return err
-	}
 	err = assignAddr(address, iface)
 	if err != nil {
 		return err
@@ -102,4 +96,39 @@ func (w *wgLink) Attrs() *netlink.LinkAttrs {
 // Type returns the interface type
 func (w *wgLink) Type() string {
 	return "wireguard"
+}
+
+// Closes the tunnel interface
+func Close() error {
+
+	if tunIface != nil {
+		return CloseWithUserspace()
+	} else {
+		var iface = ""
+		wg, err := wgctrl.New()
+		if err != nil {
+			return err
+		}
+		defer wg.Close()
+		devList, err := wg.Devices()
+		if err != nil {
+			return err
+		}
+		for _, wgDev := range devList {
+			if wgDev.ListenPort == WgPort {
+				iface = wgDev.Name
+				break
+			}
+		}
+		if iface == "" {
+			return fmt.Errorf("Wireguard Interface not found")
+		}
+		attrs := netlink.NewLinkAttrs()
+		attrs.Name = iface
+
+		link := wgLink{
+			attrs: &attrs,
+		}
+		return netlink.LinkDel(&link)
+	}
 }
