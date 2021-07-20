@@ -19,4 +19,5 @@ require (
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20210506160403-92e472f520a5
 	golang.zx2c4.com/wireguard/windows v0.3.14
 	google.golang.org/grpc v1.32.0
+	google.golang.org/protobuf v1.26.0
 )
