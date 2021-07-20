@@ -16,6 +16,7 @@ import (
 type Server struct {
 	Store *FileStore
 	wgKey wgtypes.Key
+	proto.UnimplementedManagementServiceServer
 }
 
 // NewServer creates a new Management server
