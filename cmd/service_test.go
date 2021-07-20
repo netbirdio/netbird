@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"github.com/kardianos/service"
 	"io/ioutil"
+	"os"
 	"testing"
 )
 
@@ -51,6 +52,13 @@ func Test_ServiceStartCMD(t *testing.T) {
 }
 
 func Test_ServiceRunCMD(t *testing.T) {
+	configFilePath := "/tmp/config.json"
+	if _, err := os.Stat(configFilePath); err == nil {
+		e := os.Remove(configFilePath)
+		if e != nil {
+			t.Fatal(err)
+		}
+	}
 	rootCmd.SetArgs([]string{
 		"init",
 		"--stunURLs",
@@ -64,7 +72,7 @@ func Test_ServiceRunCMD(t *testing.T) {
 		"--wgLocalAddr",
 		"10.100.100.1/24",
 		"--config",
-		"/tmp/config.json",
+		configFilePath,
 	})
 	err := rootCmd.Execute()
 	if err != nil {

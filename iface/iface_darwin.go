@@ -37,3 +37,8 @@ func addRoute(iface string, ipNet *net.IPNet) error {
 	}
 	return nil
 }
+
+// Closes the tunnel interface
+func Close() error {
+	return CloseWithUserspace()
+}
