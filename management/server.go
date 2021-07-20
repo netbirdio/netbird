@@ -2,7 +2,6 @@ package management
 
 import (
 	"context"
-
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"google.golang.org/grpc/status"
 )
@@ -10,6 +9,7 @@ import (
 // Server an instance of a Management server
 type Server struct {
 	Store *FileStore
+	proto.UnimplementedManagementServiceServer
 }
 
 // NewServer creates a new Management server
