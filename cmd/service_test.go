@@ -99,7 +99,7 @@ func Test_ServiceRunCMD(t *testing.T) {
 	}
 }
 
-func Test_ServiceStopCMD(t *testing.T) {
+/*func Test_ServiceStopCMD(t *testing.T) {
 	b := bytes.NewBufferString("")
 	rootCmd.SetOut(b)
 	rootCmd.SetErr(b)
@@ -117,7 +117,7 @@ func Test_ServiceStopCMD(t *testing.T) {
 	if string(out) != expectedMSG {
 		t.Fatalf("expected \"%s\" got \"%s\"", expectedMSG, string(out))
 	}
-}
+}*/
 
 func Test_ServiceUninstallCMD(t *testing.T) {
 	b := bytes.NewBufferString("")
