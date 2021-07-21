@@ -10,11 +10,14 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"net"
+	"os"
 	"time"
 )
 
 var (
-	signalPort int
+	signalPort              int
+	signalLetsencryptDomain string
+	signalDataDir           string
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -34,6 +37,22 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
 
+			if _, err := os.Stat(signalDataDir); os.IsNotExist(err) {
+				err = os.MkdirAll(signalDataDir, os.ModeDir)
+				if err != nil {
+					log.Fatalf("failed creating datadir: %s: %v", signalDataDir, err)
+				}
+			}
+
+			var opts []grpc.ServerOption
+			if mgmtLetsencryptDomain != "" {
+				transportCredentials := enableLetsEncrypt(signalDataDir, signalLetsencryptDomain)
+				opts = append(opts, grpc.Creds(transportCredentials))
+			}
+
+			opts = append(opts, signalKaep, signalKasp)
+			grpcServer := grpc.NewServer(opts...)
+
 			lis, err := net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
 			if err != nil {
 				log.Fatalf("failed to listen: %v", err)
@@ -43,9 +62,6 @@ var (
 				log.Fatalf("failed to listen: %v", err)
 			}
 
-			opts := []grpc.ServerOption{signalKaep, signalKasp}
-
-			grpcServer := grpc.NewServer(opts...)
 			sigProto.RegisterSignalExchangeServer(grpcServer, sig.NewServer())
 			log.Printf("started server: localhost:%v", signalPort)
 			if err := grpcServer.Serve(lis); err != nil {
@@ -53,11 +69,14 @@ var (
 			}
 
 			SetupCloseHandler()
-			select {}
+			<-stopCh
+			log.Println("Receive signal to stop running the Signal server")
 		},
 	}
 )
 
 func init() {
 	signalCmd.PersistentFlags().IntVar(&signalPort, "port", 10000, "Server port to listen on (e.g. 10000)")
+	mgmtCmd.Flags().StringVar(&signalDataDir, "datadir", "/var/lib/wiretrustee/", "server data directory location")
+	signalCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 }
