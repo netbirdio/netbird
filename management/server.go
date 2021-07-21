@@ -57,6 +57,8 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 	}, nil
 }
 
+//Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
+// notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
@@ -84,7 +86,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	updates := s.openUpdatesChannel(peerKey.String())
 	defer s.closeUpdatesChannel(peerKey.String())
 
-	// keep the peer channel open and send updates when available
+	// keep a connection to the peer open and send updates when available
 	for {
 		update := <-updates
 
@@ -117,8 +119,10 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 		return nil, err
 	}
 
+	// notify other peers of our registration
 	for _, peer := range peers {
 		if channel, ok := s.peerChannels[peer]; ok {
+			// exclude notified peer and add ourselves
 			peersToSend := []string{req.Key}
 			for _, p := range peers {
 				if peer != p {
@@ -142,6 +146,7 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 func (s *Server) openUpdatesChannel(peerKey string) chan *UpdateChannelMessage {
 	s.channelsMux.Lock()
 	defer s.channelsMux.Unlock()
+	//mbragin: todo shouldn't it be more? or configurable?
 	channel := make(chan *UpdateChannelMessage, 10)
 	//mbragin: todo what if there was a value before?
 	s.peerChannels[peerKey] = channel
