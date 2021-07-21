@@ -83,55 +83,6 @@ var _ = Describe("Management service", func() {
 
 	Context("when calling Sync endpoint", func() {
 
-		/*	Context("when there are 3 peers registered under one account", func() {
-			Specify("a list containing other 2 peers is returned", func() {
-				key, _ := wgtypes.GenerateKey()
-				registerPeerWithValidSetupKey(key, client)
-
-				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
-				Expect(err).NotTo(HaveOccurred())
-				encryptedBytes, err := signal.Encrypt(messageBytes, serverPubKey, key)
-				Expect(err).NotTo(HaveOccurred())
-
-				sync1, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
-					WgPubKey: key.PublicKey().String(),
-					Body:     encryptedBytes,
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				sync2, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
-					WgPubKey: key.PublicKey().String(),
-					Body:     encryptedBytes,
-				})
-				Expect(err).NotTo(HaveOccurred())
-
-				time.Sleep(2 * time.Second)
-				key1, _ := wgtypes.GenerateKey()
-				registerPeerWithValidSetupKey(key1, client)
-
-				time.Sleep(2 * time.Second)
-				err = sync1.CloseSend()
-				Expect(err).NotTo(HaveOccurred())
-
-				time.Sleep(2 * time.Second)
-				key2, _ := wgtypes.GenerateKey()
-				registerPeerWithValidSetupKey(key2, client)
-
-				time.Sleep(2 * time.Second)
-
-				registerPeerWithValidSetupKey(key2, client)
-
-				time.Sleep(2 * time.Second)
-				registerPeerWithValidSetupKey(key2, client)
-
-				err = sync2.CloseSend()
-				Expect(err).NotTo(HaveOccurred())
-
-				select {}
-
-			})
-		})*/
-
 		Context("when there are 3 peers registered under one account", func() {
 			Specify("a list containing other 2 peers is returned", func() {
 				key, _ := wgtypes.GenerateKey()
