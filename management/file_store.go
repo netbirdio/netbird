@@ -86,10 +86,7 @@ func (s *FileStore) PeerExists(peerKey string) bool {
 	defer s.mux.Unlock()
 
 	_, accountIdFound := s.PeerKeyId2AccountId[peerKey]
-	if !accountIdFound {
-		return false
-	}
-	return true
+	return accountIdFound
 }
 
 // AddPeer adds peer to the store and associates it with a Account and a SetupKey. Returns related Account
