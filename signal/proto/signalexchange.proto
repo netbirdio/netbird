@@ -2,7 +2,7 @@ syntax = "proto3";
 
 import "google/protobuf/descriptor.proto";
 
-option go_package = ".;proto";
+option go_package = "/proto";
 
 package signalexchange;
 
