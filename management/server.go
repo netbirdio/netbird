@@ -87,9 +87,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	defer s.closeUpdatesChannel(peerKey.String())
 
 	// keep a connection to the peer open and send updates when available
-	for {
-		update := <-updates
 
+	for update := range updates {
 		encryptedResp, err := EncryptMessage(peerKey, s.wgKey, update.Update)
 		if err != nil {
 			return status.Errorf(codes.Internal, "failed processing update message")
@@ -100,6 +99,9 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 			return status.Errorf(codes.Internal, "failed sending update message")
 		}
 	}
+
+	srv.Context().Done()
+	return srv.Context().Err()
 }
 
 // RegisterPeer adds a peer to the Store. Returns 404 in case the provided setup key doesn't exist
