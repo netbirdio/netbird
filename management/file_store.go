@@ -80,6 +80,18 @@ func (s *FileStore) persist(file string) error {
 	return util.WriteJson(file, s)
 }
 
+// PeerExists checks whether peer exists or not
+func (s *FileStore) PeerExists(peerKey string) bool {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	_, accountIdFound := s.PeerKeyId2AccountId[peerKey]
+	if !accountIdFound {
+		return false
+	}
+	return true
+}
+
 // AddPeer adds peer to the store and associates it with a Account and a SetupKey. Returns related Account
 // Each Account has a list of pre-authorised SetupKey and if no Account has a given key err will be returned, meaning the key is invalid
 func (s *FileStore) AddPeer(setupKey string, peerKey string) error {

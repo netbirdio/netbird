@@ -25,7 +25,7 @@ var (
 	mgmtLetsencryptDomain string
 
 	kaep = keepalive.EnforcementPolicy{
-		MinTime:             5 * time.Second,
+		MinTime:             15 * time.Second,
 		PermitWithoutStream: true,
 	}
 

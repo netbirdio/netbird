@@ -2,12 +2,13 @@ package management_test
 
 import (
 	"context"
-	pb "github.com/golang/protobuf/proto"
+	pb "github.com/golang/protobuf/proto" //nolint
 	"github.com/wiretrustee/wiretrustee/signal"
 	"io/ioutil"
 	"net"
 	"os"
 	"path/filepath"
+	sync2 "sync"
 	"time"
 
 	. "github.com/onsi/ginkgo"
@@ -34,6 +35,7 @@ var _ = Describe("Management service", func() {
 		dataDir      string
 		client       mgmtProto.ManagementServiceClient
 		serverPubKey wgtypes.Key
+		conn         *grpc.ClientConn
 	)
 
 	BeforeEach(func() {
@@ -46,7 +48,7 @@ var _ = Describe("Management service", func() {
 		var listener net.Listener
 		server, listener = startServer(dataDir)
 		addr = listener.Addr().String()
-		client = createRawClient(addr)
+		client, conn = createRawClient(addr)
 
 		// server public key
 		resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
@@ -58,7 +60,9 @@ var _ = Describe("Management service", func() {
 
 	AfterEach(func() {
 		server.Stop()
-		err := os.RemoveAll(tmpDir)
+		err := conn.Close()
+		Expect(err).NotTo(HaveOccurred())
+		err = os.RemoveAll(tmpDir)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -106,6 +110,60 @@ var _ = Describe("Management service", func() {
 				Expect(resp.Peers).To(HaveLen(2))
 				Expect(resp.Peers).To(ContainElements(key1.PublicKey().String(), key2.PublicKey().String()))
 
+			})
+		})
+
+		Context("when there is a new peer registered", func() {
+			Specify("an update is returned", func() {
+				// register only a single peer
+				key, _ := wgtypes.GenerateKey()
+				registerPeerWithValidSetupKey(key, client)
+
+				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
+				Expect(err).NotTo(HaveOccurred())
+				encryptedBytes, err := signal.Encrypt(messageBytes, serverPubKey, key)
+				Expect(err).NotTo(HaveOccurred())
+
+				sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+					WgPubKey: key.PublicKey().String(),
+					Body:     encryptedBytes,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				// after the initial sync call we have 0 peer updates
+				encryptedResponse := &mgmtProto.EncryptedMessage{}
+				err = sync.RecvMsg(encryptedResponse)
+				Expect(err).NotTo(HaveOccurred())
+				decryptedBytes, err := signal.Decrypt(encryptedResponse.Body, serverPubKey, key)
+				Expect(err).NotTo(HaveOccurred())
+				resp := &mgmtProto.SyncResponse{}
+				err = pb.Unmarshal(decryptedBytes, resp)
+				Expect(resp.Peers).To(HaveLen(0))
+
+				wg := sync2.WaitGroup{}
+				wg.Add(1)
+
+				// continue listening on updates for a peer
+				go func() {
+					err = sync.RecvMsg(encryptedResponse)
+
+					decryptedBytes, err = signal.Decrypt(encryptedResponse.Body, serverPubKey, key)
+					Expect(err).NotTo(HaveOccurred())
+					resp = &mgmtProto.SyncResponse{}
+					err = pb.Unmarshal(decryptedBytes, resp)
+					wg.Done()
+
+				}()
+
+				// register a new peer
+				key1, _ := wgtypes.GenerateKey()
+				registerPeerWithValidSetupKey(key1, client)
+
+				wg.Wait()
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Peers).To(ContainElements(key1.PublicKey().String()))
+				Expect(resp.Peers).To(HaveLen(1))
 			})
 		})
 	})
@@ -171,7 +229,7 @@ func registerPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementS
 
 }
 
-func createRawClient(addr string) mgmtProto.ManagementServiceClient {
+func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	conn, err := grpc.DialContext(ctx, addr, grpc.WithInsecure(),
@@ -182,7 +240,7 @@ func createRawClient(addr string) mgmtProto.ManagementServiceClient {
 		}))
 	Expect(err).NotTo(HaveOccurred())
 
-	return mgmtProto.NewManagementServiceClient(conn)
+	return mgmtProto.NewManagementServiceClient(conn), conn
 }
 
 func startServer(dataDir string) (*grpc.Server, net.Listener) {

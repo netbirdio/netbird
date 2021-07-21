@@ -2,13 +2,13 @@ package management
 
 import (
 	"context"
-	pb "github.com/golang/protobuf/proto" //nolint
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/proto"
-	"github.com/wiretrustee/wiretrustee/signal"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"sync"
 	"time"
 )
 
@@ -17,6 +17,12 @@ type Server struct {
 	Store *FileStore
 	wgKey wgtypes.Key
 	proto.UnimplementedManagementServiceServer
+	peerChannels map[string]chan *UpdateChannelMessage
+	channelsMux  *sync.Mutex
+}
+
+type UpdateChannelMessage struct {
+	Update *proto.SyncResponse
 }
 
 // NewServer creates a new Management server
@@ -30,8 +36,10 @@ func NewServer(dataDir string) (*Server, error) {
 		return nil, err
 	}
 	return &Server{
-		Store: store,
-		wgKey: key,
+		Store:        store,
+		wgKey:        key,
+		peerChannels: make(map[string]chan *UpdateChannelMessage),
+		channelsMux:  &sync.Mutex{},
 	}, nil
 }
 
@@ -51,66 +59,75 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 
 func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
 
-	peerKey := req.GetWgPubKey()
-	parsedPeerKey, err := wgtypes.ParseKey(peerKey)
+	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
-		log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", peerKey)
-		return status.Errorf(400, "provided wgPubKey %s is invalid", peerKey)
+		log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", peerKey.String())
+		return status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", peerKey.String())
 	}
 
-	decrypted, err := signal.Decrypt(req.Body, parsedPeerKey, s.wgKey)
-	if err != nil {
-		log.Warnf("error while decrypting Sync request message from peer %s", peerKey)
-		return status.Errorf(400, "invalid request message")
+	exists := s.Store.PeerExists(peerKey.String())
+	if !exists {
+		return status.Errorf(codes.Unauthenticated, "provided peer with the key wgPubKey %s is not registered", peerKey.String())
 	}
 
 	syncReq := &proto.SyncRequest{}
-	err = pb.Unmarshal(decrypted, syncReq)
+	err = DecryptMessage(peerKey, s.wgKey, req, syncReq)
 	if err != nil {
-		log.Warnf("error while umarshalling Sync request message from peer %s", peerKey)
-		return status.Errorf(400, "invalid request message")
+		return status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
 
-	peers, err := s.Store.GetPeersForAPeer(peerKey)
+	err = s.sendInitialSync(peerKey, srv)
 	if err != nil {
-		log.Warnf("error getting a list of peers for a peer %s", peerKey)
 		return err
 	}
-	plainResp := &proto.SyncResponse{
-		Peers: peers,
+
+	updates := s.openUpdatesChannel(peerKey.String())
+	defer s.closeUpdatesChannel(peerKey.String())
+
+	// keep the peer channel open and send updates when available
+	for {
+		update := <-updates
+
+		encryptedResp, err := EncryptMessage(peerKey, s.wgKey, update.Update)
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed processing update message")
+		}
+
+		err = srv.SendMsg(encryptedResp)
+		if err != nil {
+			return status.Errorf(codes.Internal, "failed sending update message")
+		}
 	}
-
-	byteResp, err := pb.Marshal(plainResp)
-	if err != nil {
-		log.Errorf("failed marshalling SyncResponse %v", err)
-		return status.Errorf(500, "error handling request")
-	}
-
-	encResp, err := signal.Encrypt(byteResp, parsedPeerKey, s.wgKey)
-	if err != nil {
-		log.Errorf("failed encrypting SyncResponse %v", err)
-		return status.Errorf(500, "error handling request")
-	}
-
-	err = srv.Send(&proto.EncryptedMessage{
-		WgPubKey: s.wgKey.PublicKey().String(),
-		Body:     encResp,
-	})
-
-	if err != nil {
-		log.Errorf("failed sending SyncResponse %v", err)
-		return status.Errorf(500, "error handling request")
-	}
-
-	return nil
 }
 
 // RegisterPeer adds a peer to the Store. Returns 404 in case the provided setup key doesn't exist
 func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerRequest) (*proto.RegisterPeerResponse, error) {
 
+	s.channelsMux.Lock()
+	defer s.channelsMux.Unlock()
+
 	err := s.Store.AddPeer(req.SetupKey, req.Key)
 	if err != nil {
-		return &proto.RegisterPeerResponse{}, status.Errorf(404, "provided setup key doesn't exists")
+		return &proto.RegisterPeerResponse{}, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
+	}
+
+	peers, err := s.Store.GetPeersForAPeer(req.Key)
+	if err != nil {
+		//todo return a proper error
+		return nil, err
+	}
+
+	for _, peer := range peers {
+		if channel, ok := s.peerChannels[peer]; ok {
+			peersToSend := []string{req.Key}
+			for _, p := range peers {
+				if peer != p {
+					peersToSend = append(peersToSend, p)
+				}
+			}
+			update := &proto.SyncResponse{Peers: peersToSend}
+			channel <- &UpdateChannelMessage{Update: update}
+		}
 	}
 
 	return &proto.RegisterPeerResponse{}, nil
@@ -119,4 +136,55 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 // IsHealthy indicates whether the service is healthy
 func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty, error) {
 	return &proto.Empty{}, nil
+}
+
+// openUpdatesChannel creates a go channel for a given peer used to deliver updates relevant to the peer.
+func (s *Server) openUpdatesChannel(peerKey string) chan *UpdateChannelMessage {
+	s.channelsMux.Lock()
+	defer s.channelsMux.Unlock()
+	channel := make(chan *UpdateChannelMessage, 10)
+	//mbragin: todo what if there was a value before?
+	s.peerChannels[peerKey] = channel
+
+	log.Debugf("opened updates channel for a peer %s", peerKey)
+	return channel
+}
+
+// closeUpdatesChannel closes updates channel of a given peer
+func (s *Server) closeUpdatesChannel(peerKey string) {
+	s.channelsMux.Lock()
+	defer s.channelsMux.Unlock()
+	if channel, ok := s.peerChannels[peerKey]; ok {
+		delete(s.peerChannels, peerKey)
+		close(channel)
+	}
+
+	log.Debugf("closed updates channel of a peer %s", peerKey)
+}
+
+// sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
+func (s *Server) sendInitialSync(peerKey wgtypes.Key, srv proto.ManagementService_SyncServer) error {
+
+	peers, err := s.Store.GetPeersForAPeer(peerKey.String())
+	if err != nil {
+		log.Warnf("error getting a list of peers for a peer %s", peerKey.String())
+		return err
+	}
+	plainResp := &proto.SyncResponse{
+		Peers: peers,
+	}
+
+	encryptedResp, err := EncryptMessage(peerKey, s.wgKey, plainResp)
+	if err != nil {
+		return status.Errorf(codes.Internal, "error handling request")
+	}
+
+	err = srv.Send(encryptedResp)
+
+	if err != nil {
+		log.Errorf("failed sending SyncResponse %v", err)
+		return status.Errorf(codes.Internal, "error handling request")
+	}
+
+	return nil
 }
