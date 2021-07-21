@@ -61,6 +61,8 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
 
+	log.Debugf("Sync request from peer %s", req.WgPubKey)
+
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", peerKey.String())
@@ -84,28 +86,40 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 
 	updates := s.openUpdatesChannel(peerKey.String())
-	defer s.closeUpdatesChannel(peerKey.String())
+	//defer s.closeUpdatesChannel(peerKey.String())
 
 	// keep a connection to the peer open and send updates when available
+	for {
+		select {
+		case update, open := <-updates:
+			if !open {
+				// updates channel has been closed
+				return nil
+			}
+			log.Debugf("recevied an update for peer %s", peerKey.String())
 
-	for update := range updates {
-		encryptedResp, err := EncryptMessage(peerKey, s.wgKey, update.Update)
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed processing update message")
-		}
+			encryptedResp, err := EncryptMessage(peerKey, s.wgKey, update.Update)
+			if err != nil {
+				return status.Errorf(codes.Internal, "failed processing update message")
+			}
 
-		err = srv.SendMsg(encryptedResp)
-		if err != nil {
-			return status.Errorf(codes.Internal, "failed sending update message")
+			err = srv.SendMsg(encryptedResp)
+			if err != nil {
+				return status.Errorf(codes.Internal, "failed sending update message")
+			}
+		case <-srv.Context().Done():
+			// happens when connection drops, e.g. client disconnects
+			log.Debugf("stream of peer %s has been closed", peerKey.String())
+			s.closeUpdatesChannel(peerKey.String())
+			return srv.Context().Err()
 		}
 	}
-
-	srv.Context().Done()
-	return srv.Context().Err()
 }
 
 // RegisterPeer adds a peer to the Store. Returns 404 in case the provided setup key doesn't exist
 func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerRequest) (*proto.RegisterPeerResponse, error) {
+
+	log.Debugf("RegisterPeer request from peer %s", req.Key)
 
 	s.channelsMux.Lock()
 	defer s.channelsMux.Unlock()
@@ -148,6 +162,10 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 func (s *Server) openUpdatesChannel(peerKey string) chan *UpdateChannelMessage {
 	s.channelsMux.Lock()
 	defer s.channelsMux.Unlock()
+	if channel, ok := s.peerChannels[peerKey]; ok {
+		delete(s.peerChannels, peerKey)
+		close(channel)
+	}
 	//mbragin: todo shouldn't it be more? or configurable?
 	channel := make(chan *UpdateChannelMessage, 10)
 	//mbragin: todo what if there was a value before?
