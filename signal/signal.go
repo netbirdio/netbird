@@ -15,6 +15,7 @@ import (
 // Server an instance of a Signal server
 type Server struct {
 	registry *peer.Registry
+	proto.UnimplementedSignalExchangeServer
 }
 
 // NewServer creates a new Signal server

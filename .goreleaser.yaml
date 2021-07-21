@@ -41,7 +41,7 @@ dockers:
       - wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
     goarch: amd64
     use: buildx
-    dockerfile: Dockerfile
+    dockerfile: signal/Dockerfile
     build_flag_templates:
       - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -54,7 +54,7 @@ dockers:
       - wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
     goarch: arm64
     use: buildx
-    dockerfile: Dockerfile
+    dockerfile: signal/Dockerfile
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.created={{.Date}}"
