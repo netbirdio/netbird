@@ -36,8 +36,9 @@ func NewServer(dataDir string) (*Server, error) {
 		return nil, err
 	}
 	return &Server{
-		Store:        store,
-		wgKey:        key,
+		Store: store,
+		wgKey: key,
+		// peerKey -> event channel
 		peerChannels: make(map[string]chan *UpdateChannelMessage),
 		channelsMux:  &sync.Mutex{},
 	}, nil
@@ -86,11 +87,11 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 
 	updates := s.openUpdatesChannel(peerKey.String())
-	//defer s.closeUpdatesChannel(peerKey.String())
 
-	// keep a connection to the peer open and send updates when available
+	// keep a connection to the peer and send updates when available
 	for {
 		select {
+		// condition when there are some updates
 		case update, open := <-updates:
 			if !open {
 				// updates channel has been closed
@@ -107,6 +108,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 			if err != nil {
 				return status.Errorf(codes.Internal, "failed sending update message")
 			}
+		// condition when client <-> server connection has been terminated
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.Debugf("stream of peer %s has been closed", peerKey.String())
@@ -167,8 +169,7 @@ func (s *Server) openUpdatesChannel(peerKey string) chan *UpdateChannelMessage {
 		close(channel)
 	}
 	//mbragin: todo shouldn't it be more? or configurable?
-	channel := make(chan *UpdateChannelMessage, 10)
-	//mbragin: todo what if there was a value before?
+	channel := make(chan *UpdateChannelMessage, 100)
 	s.peerChannels[peerKey] = channel
 
 	log.Debugf("opened updates channel for a peer %s", peerKey)

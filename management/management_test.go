@@ -3,8 +3,11 @@ package management_test
 import (
 	"context"
 	pb "github.com/golang/protobuf/proto" //nolint
+	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/signal"
+	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -39,6 +42,8 @@ var _ = Describe("Management service", func() {
 	)
 
 	BeforeEach(func() {
+		level, _ := log.ParseLevel("Debug")
+		log.SetLevel(level)
 		var err error
 		dataDir, err = ioutil.TempDir("", "wiretrustee_mgmt_test_tmp_*")
 		Expect(err).NotTo(HaveOccurred())
@@ -77,6 +82,56 @@ var _ = Describe("Management service", func() {
 	})
 
 	Context("when calling Sync endpoint", func() {
+
+		/*	Context("when there are 3 peers registered under one account", func() {
+			Specify("a list containing other 2 peers is returned", func() {
+				key, _ := wgtypes.GenerateKey()
+				registerPeerWithValidSetupKey(key, client)
+
+				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
+				Expect(err).NotTo(HaveOccurred())
+				encryptedBytes, err := signal.Encrypt(messageBytes, serverPubKey, key)
+				Expect(err).NotTo(HaveOccurred())
+
+				sync1, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+					WgPubKey: key.PublicKey().String(),
+					Body:     encryptedBytes,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				sync2, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+					WgPubKey: key.PublicKey().String(),
+					Body:     encryptedBytes,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				time.Sleep(2 * time.Second)
+				key1, _ := wgtypes.GenerateKey()
+				registerPeerWithValidSetupKey(key1, client)
+
+				time.Sleep(2 * time.Second)
+				err = sync1.CloseSend()
+				Expect(err).NotTo(HaveOccurred())
+
+				time.Sleep(2 * time.Second)
+				key2, _ := wgtypes.GenerateKey()
+				registerPeerWithValidSetupKey(key2, client)
+
+				time.Sleep(2 * time.Second)
+
+				registerPeerWithValidSetupKey(key2, client)
+
+				time.Sleep(2 * time.Second)
+				registerPeerWithValidSetupKey(key2, client)
+
+				err = sync2.CloseSend()
+				Expect(err).NotTo(HaveOccurred())
+
+				select {}
+
+			})
+		})*/
+
 		Context("when there are 3 peers registered under one account", func() {
 			Specify("a list containing other 2 peers is returned", func() {
 				key, _ := wgtypes.GenerateKey()
@@ -210,6 +265,73 @@ var _ = Describe("Management service", func() {
 				resp := registerPeerWithValidSetupKey(key, client)
 
 				Expect(resp).ToNot(BeNil())
+
+			})
+		})
+	})
+
+	Context("when there are 50 peers registered under one account", func() {
+		Context("when there are 10 more peers registered under the same account", func() {
+			Specify("all of the 50 peers will get updates of 10 newly registered peers", func() {
+
+				initialPeers := 50
+				additionalPeers := 10
+
+				var peers []wgtypes.Key
+				for i := 0; i < initialPeers; i++ {
+					key, _ := wgtypes.GenerateKey()
+					registerPeerWithValidSetupKey(key, client)
+					peers = append(peers, key)
+				}
+
+				wg := sync2.WaitGroup{}
+				wg.Add(initialPeers + initialPeers*additionalPeers)
+				for _, peer := range peers {
+					messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
+					Expect(err).NotTo(HaveOccurred())
+					encryptedBytes, err := signal.Encrypt(messageBytes, serverPubKey, peer)
+					Expect(err).NotTo(HaveOccurred())
+
+					// receive stream
+					peer := peer
+					go func() {
+
+						// open stream
+						sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+							WgPubKey: peer.PublicKey().String(),
+							Body:     encryptedBytes,
+						})
+						Expect(err).NotTo(HaveOccurred())
+						for {
+							encryptedResponse := &mgmtProto.EncryptedMessage{}
+							err = sync.RecvMsg(encryptedResponse)
+							if err == io.EOF {
+								break
+							} else if err != nil {
+								Expect(err).NotTo(HaveOccurred())
+							}
+							decryptedBytes, err := signal.Decrypt(encryptedResponse.Body, serverPubKey, peer)
+							Expect(err).NotTo(HaveOccurred())
+
+							resp := &mgmtProto.SyncResponse{}
+							err = pb.Unmarshal(decryptedBytes, resp)
+							Expect(err).NotTo(HaveOccurred())
+							wg.Done()
+
+						}
+					}()
+				}
+
+				time.Sleep(1 * time.Second)
+				for i := 0; i < additionalPeers; i++ {
+					key, _ := wgtypes.GenerateKey()
+					registerPeerWithValidSetupKey(key, client)
+					rand.Seed(time.Now().UnixNano())
+					n := rand.Intn(500)
+					time.Sleep(time.Duration(n) * time.Millisecond)
+				}
+
+				wg.Wait()
 
 			})
 		})
