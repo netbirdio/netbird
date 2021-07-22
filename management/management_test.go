@@ -111,8 +111,8 @@ var _ = Describe("Management service", func() {
 				err = pb.Unmarshal(decryptedBytes, resp)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(resp.Peers).To(HaveLen(2))
-				Expect(resp.Peers).To(ContainElements(key1.PublicKey().String(), key2.PublicKey().String()))
+				Expect(resp.GetPeers()).To(HaveLen(2))
+				Expect(resp.GetPeers()).To(ContainElements(key1.PublicKey().String(), key2.PublicKey().String()))
 
 			})
 		})
@@ -142,7 +142,7 @@ var _ = Describe("Management service", func() {
 				Expect(err).NotTo(HaveOccurred())
 				resp := &mgmtProto.SyncResponse{}
 				err = pb.Unmarshal(decryptedBytes, resp)
-				Expect(resp.Peers).To(HaveLen(0))
+				Expect(resp.GetPeers()).To(HaveLen(0))
 
 				wg := sync2.WaitGroup{}
 				wg.Add(1)
@@ -166,8 +166,8 @@ var _ = Describe("Management service", func() {
 				wg.Wait()
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(resp.Peers).To(ContainElements(key1.PublicKey().String()))
-				Expect(resp.Peers).To(HaveLen(1))
+				Expect(resp.GetPeers()).To(ContainElements(key1.PublicKey().String()))
+				Expect(resp.GetPeers()).To(HaveLen(1))
 			})
 		})
 	})
