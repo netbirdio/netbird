@@ -4,7 +4,7 @@ import (
 	"context"
 	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/signal"
+	"github.com/wiretrustee/wiretrustee/common"
 	"io"
 	"io/ioutil"
 	"math/rand"
@@ -94,7 +94,7 @@ var _ = Describe("Management service", func() {
 
 				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
 				Expect(err).NotTo(HaveOccurred())
-				encryptedBytes, err := signal.Encrypt(messageBytes, serverPubKey, key)
+				encryptedBytes, err := common.Encrypt(messageBytes, serverPubKey, key)
 				Expect(err).NotTo(HaveOccurred())
 
 				sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
@@ -106,7 +106,7 @@ var _ = Describe("Management service", func() {
 				encryptedResponse := &mgmtProto.EncryptedMessage{}
 				err = sync.RecvMsg(encryptedResponse)
 				Expect(err).NotTo(HaveOccurred())
-				decryptedBytes, err := signal.Decrypt(encryptedResponse.Body, serverPubKey, key)
+				decryptedBytes, err := common.Decrypt(encryptedResponse.Body, serverPubKey, key)
 				Expect(err).NotTo(HaveOccurred())
 
 				resp := &mgmtProto.SyncResponse{}
@@ -127,7 +127,7 @@ var _ = Describe("Management service", func() {
 
 				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
 				Expect(err).NotTo(HaveOccurred())
-				encryptedBytes, err := signal.Encrypt(messageBytes, serverPubKey, key)
+				encryptedBytes, err := common.Encrypt(messageBytes, serverPubKey, key)
 				Expect(err).NotTo(HaveOccurred())
 
 				sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
@@ -140,7 +140,7 @@ var _ = Describe("Management service", func() {
 				encryptedResponse := &mgmtProto.EncryptedMessage{}
 				err = sync.RecvMsg(encryptedResponse)
 				Expect(err).NotTo(HaveOccurred())
-				decryptedBytes, err := signal.Decrypt(encryptedResponse.Body, serverPubKey, key)
+				decryptedBytes, err := common.Decrypt(encryptedResponse.Body, serverPubKey, key)
 				Expect(err).NotTo(HaveOccurred())
 				resp := &mgmtProto.SyncResponse{}
 				err = pb.Unmarshal(decryptedBytes, resp)
@@ -153,7 +153,7 @@ var _ = Describe("Management service", func() {
 				go func() {
 					err = sync.RecvMsg(encryptedResponse)
 
-					decryptedBytes, err = signal.Decrypt(encryptedResponse.Body, serverPubKey, key)
+					decryptedBytes, err = common.Decrypt(encryptedResponse.Body, serverPubKey, key)
 					Expect(err).NotTo(HaveOccurred())
 					resp = &mgmtProto.SyncResponse{}
 					err = pb.Unmarshal(decryptedBytes, resp)
@@ -240,7 +240,7 @@ var _ = Describe("Management service", func() {
 				for _, peer := range peers {
 					messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
 					Expect(err).NotTo(HaveOccurred())
-					encryptedBytes, err := signal.Encrypt(messageBytes, serverPubKey, peer)
+					encryptedBytes, err := common.Encrypt(messageBytes, serverPubKey, peer)
 					Expect(err).NotTo(HaveOccurred())
 
 					// receive stream
@@ -261,7 +261,7 @@ var _ = Describe("Management service", func() {
 							} else if err != nil {
 								Expect(err).NotTo(HaveOccurred())
 							}
-							decryptedBytes, err := signal.Decrypt(encryptedResponse.Body, serverPubKey, peer)
+							decryptedBytes, err := common.Decrypt(encryptedResponse.Body, serverPubKey, peer)
 							Expect(err).NotTo(HaveOccurred())
 
 							resp := &mgmtProto.SyncResponse{}

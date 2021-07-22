@@ -1,4 +1,4 @@
-package signal
+package common
 
 import (
 	"crypto/rand"
