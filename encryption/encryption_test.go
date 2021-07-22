@@ -13,15 +13,15 @@ const ()
 var _ = Describe("Encryption", func() {
 
 	var (
-		encryptingKey wgtypes.Key
-		decryptingKey wgtypes.Key
+		encryptionKey wgtypes.Key
+		decryptionKey wgtypes.Key
 	)
 
 	BeforeEach(func() {
 		var err error
-		encryptingKey, err = wgtypes.GenerateKey()
+		encryptionKey, err = wgtypes.GenerateKey()
 		Expect(err).NotTo(HaveOccurred())
-		decryptingKey, err = wgtypes.GenerateKey()
+		decryptionKey, err = wgtypes.GenerateKey()
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -29,10 +29,10 @@ var _ = Describe("Encryption", func() {
 		Context("when it was encrypted with Wireguard keys", func() {
 			Specify("should be successful", func() {
 				msg := "message"
-				encryptedMsg, err := encryption.Encrypt([]byte(msg), decryptingKey.PublicKey(), encryptingKey)
+				encryptedMsg, err := encryption.Encrypt([]byte(msg), decryptionKey.PublicKey(), encryptionKey)
 				Expect(err).NotTo(HaveOccurred())
 
-				decryptedMsg, err := encryption.Decrypt(encryptedMsg, encryptingKey.PublicKey(), decryptingKey)
+				decryptedMsg, err := encryption.Decrypt(encryptedMsg, encryptionKey.PublicKey(), decryptionKey)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(string(decryptedMsg)).To(BeEquivalentTo(msg))
@@ -45,11 +45,11 @@ var _ = Describe("Encryption", func() {
 			Specify("should be successful", func() {
 
 				protoMsg := &testprotos.TestMessage{Body: "message"}
-				encryptedMsg, err := encryption.EncryptMessage(decryptingKey.PublicKey(), encryptingKey, protoMsg)
+				encryptedMsg, err := encryption.EncryptMessage(decryptionKey.PublicKey(), encryptionKey, protoMsg)
 				Expect(err).NotTo(HaveOccurred())
 
 				decryptedMsg := &testprotos.TestMessage{}
-				err = encryption.DecryptMessage(encryptingKey.PublicKey(), decryptingKey, encryptedMsg, decryptedMsg)
+				err = encryption.DecryptMessage(encryptionKey.PublicKey(), decryptionKey, encryptedMsg, decryptedMsg)
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(decryptedMsg.GetBody()).To(BeEquivalentTo(protoMsg.GetBody()))
