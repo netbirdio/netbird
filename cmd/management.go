@@ -1,21 +1,18 @@
 package cmd
 
 import (
-	"crypto/tls"
 	"flag"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/wiretrustee/wiretrustee/encryption"
 	mgmt "github.com/wiretrustee/wiretrustee/management"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
-	"golang.org/x/crypto/acme/autocert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"net"
-	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 )
 
@@ -52,34 +49,8 @@ var (
 			var opts []grpc.ServerOption
 
 			if mgmtLetsencryptDomain != "" {
-
-				certDir := filepath.Join(mgmtDataDir, "letsencrypt")
-
-				if _, err := os.Stat(certDir); os.IsNotExist(err) {
-					err = os.MkdirAll(certDir, os.ModeDir)
-					if err != nil {
-						log.Fatalf("failed creating Let's encrypt certdir: %s: %v", certDir, err)
-					}
-				}
-
-				log.Infof("running with Let's encrypt with domain %s. Cert will be stored in %s", mgmtLetsencryptDomain, certDir)
-
-				certManager := autocert.Manager{
-					Prompt:     autocert.AcceptTOS,
-					Cache:      autocert.DirCache(certDir),
-					HostPolicy: autocert.HostWhitelist(mgmtLetsencryptDomain),
-				}
-				tls := &tls.Config{GetCertificate: certManager.GetCertificate}
-
-				credentials := credentials.NewTLS(tls)
-				opts = append(opts, grpc.Creds(credentials))
-
-				// listener to handle Let's encrypt certificate challenge
-				go func() {
-					if err := http.Serve(certManager.Listener(), certManager.HTTPHandler(nil)); err != nil {
-						log.Fatalf("failed to serve letsencrypt handler: %v", err)
-					}
-				}()
+				transportCredentials := credentials.NewTLS(encryption.EnableLetsEncrypt(mgmtDataDir, mgmtLetsencryptDomain))
+				opts = append(opts, grpc.Creds(transportCredentials))
 			}
 
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
-	pb "github.com/golang/protobuf/proto" //nolint
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/encryption"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -162,12 +162,9 @@ func (c *Client) decryptMessage(msg *proto.EncryptedMessage) (*proto.Message, er
 	if err != nil {
 		return nil, err
 	}
-	decryptedBody, err := Decrypt(msg.GetBody(), remoteKey, c.key)
-	if err != nil {
-		return nil, err
-	}
+
 	body := &proto.Body{}
-	err = pb.Unmarshal(decryptedBody, body)
+	err = encryption.DecryptMessage(remoteKey, c.key, msg.GetBody(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -181,16 +178,13 @@ func (c *Client) decryptMessage(msg *proto.EncryptedMessage) (*proto.Message, er
 
 // encryptMessage encrypts the body of the msg using Wireguard private key and Remote peer's public key
 func (c *Client) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage, error) {
-	body, err := pb.Marshal(msg.GetBody())
-	if err != nil {
-		return nil, err
-	}
+
 	remoteKey, err := wgtypes.ParseKey(msg.RemoteKey)
 	if err != nil {
 		return nil, err
 	}
 
-	encryptedBody, err := Encrypt(body, remoteKey, c.key)
+	encryptedBody, err := encryption.EncryptMessage(remoteKey, c.key, msg.Body)
 	if err != nil {
 		return nil, err
 	}
