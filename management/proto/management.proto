@@ -31,13 +31,19 @@ message EncryptedMessage {
   bytes body = 2;
 }
 
-message SyncRequest {
+message SyncRequest {}
 
-}
-
+// SyncResponse represents a state that should be applied to the local peer (e.g. Wiretrustee servers config as well as local peer and remote peers configs)
 message SyncResponse {
-  // A list of peers available
-  repeated string peers = 1;
+  // Global config
+  WiretrusteeConfig wiretrusteeConfig = 1;
+
+  PeerConfig peerConfig = 2;
+
+  repeated RemotePeerConfig remotePeers = 3;
+
+  // Deprecated: used for compatibility
+  repeated string peers = 4;
 }
 
 message RegisterPeerRequest {
@@ -48,9 +54,7 @@ message RegisterPeerRequest {
   string setupKey = 2;
 }
 
-message RegisterPeerResponse {
-
-}
+message RegisterPeerResponse {}
 
 message ServerKeyResponse {
   // Server's Wireguard public key
@@ -59,6 +63,47 @@ message ServerKeyResponse {
   google.protobuf.Timestamp expiresAt = 2;
 }
 
-message Empty {
+message Empty {}
 
+// WiretrusteeConfig is a common configuration of any Wiretrustee peer. It contains STUN, TURN, Signal and Management servers configurations
+message WiretrusteeConfig {
+  // a list of STUN servers
+  repeated HostConfig stuns = 1;
+  // a list of TURN servers
+  repeated HostConfig turns = 2;
+
+  // a Signal server config
+  HostConfig signal = 3;
+
+  // a Management server config
+  HostConfig management = 4;
+}
+
+// HostConfig describes connection properties of some server (e.g. STUN, TURN, Signal, Management)
+// User and Password are mostly used for TURN servers.
+message HostConfig {
+  string host = 1;
+  int32 port = 2;
+  string user = 3;
+  string password = 4;
+}
+
+// PeerConfig represents a configuration of a "our" peer.
+// The properties are used to configure local Wireguard
+message PeerConfig {
+  // Peer's virtual IP address within the Wiretrustee VPN (a Wireguard address config)
+  string  address = 1;
+  // Wiretrustee DNS server (a Wireguard DNS config)
+  string dns = 2;
+}
+
+// RemotePeerConfig represents a configuration of a remote peer.
+// The properties are used to configure Wireguard Peers sections
+message RemotePeerConfig {
+
+  // A Wireguard public key of a remote peer
+  string wgPubKey = 1;
+
+  // Wireguard allowed IPs of a remote peer e.g. [10.30.30.1/32]
+  repeated string allowedIps = 2;
 }
