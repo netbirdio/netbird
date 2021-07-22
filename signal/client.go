@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/common"
+	"github.com/wiretrustee/wiretrustee/encryption"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -164,7 +164,7 @@ func (c *Client) decryptMessage(msg *proto.EncryptedMessage) (*proto.Message, er
 	}
 
 	body := &proto.Body{}
-	err = common.DecryptMessage(remoteKey, c.key, msg.GetBody(), body)
+	err = encryption.DecryptMessage(remoteKey, c.key, msg.GetBody(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +184,7 @@ func (c *Client) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage, er
 		return nil, err
 	}
 
-	encryptedBody, err := common.EncryptMessage(remoteKey, c.key, msg.Body)
+	encryptedBody, err := encryption.EncryptMessage(remoteKey, c.key, msg.Body)
 	if err != nil {
 		return nil, err
 	}

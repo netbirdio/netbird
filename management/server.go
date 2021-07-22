@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/common"
+	"github.com/wiretrustee/wiretrustee/encryption"
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -77,7 +77,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 
 	syncReq := &proto.SyncRequest{}
-	err = common.DecryptMessage(peerKey, s.wgKey, req.Body, syncReq)
+	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, syncReq)
 	if err != nil {
 		return status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
@@ -100,7 +100,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 			}
 			log.Debugf("recevied an update for peer %s", peerKey.String())
 
-			encryptedResp, err := common.EncryptMessage(peerKey, s.wgKey, update.Update)
+			encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
 			if err != nil {
 				return status.Errorf(codes.Internal, "failed processing update message")
 			}
@@ -204,7 +204,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, srv proto.ManagementServic
 		Peers: peers,
 	}
 
-	encryptedResp, err := common.EncryptMessage(peerKey, s.wgKey, plainResp)
+	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}

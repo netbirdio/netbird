@@ -5,7 +5,7 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/wiretrustee/wiretrustee/common"
+	"github.com/wiretrustee/wiretrustee/encryption"
 	mgmt "github.com/wiretrustee/wiretrustee/management"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	"google.golang.org/grpc"
@@ -49,7 +49,7 @@ var (
 			var opts []grpc.ServerOption
 
 			if mgmtLetsencryptDomain != "" {
-				transportCredentials := credentials.NewTLS(common.EnableLetsEncrypt(mgmtDataDir, mgmtLetsencryptDomain))
+				transportCredentials := credentials.NewTLS(encryption.EnableLetsEncrypt(mgmtDataDir, mgmtLetsencryptDomain))
 				opts = append(opts, grpc.Creds(transportCredentials))
 			}
 

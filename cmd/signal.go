@@ -5,7 +5,7 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/wiretrustee/wiretrustee/common"
+	"github.com/wiretrustee/wiretrustee/encryption"
 	sig "github.com/wiretrustee/wiretrustee/signal"
 	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"google.golang.org/grpc"
@@ -48,7 +48,7 @@ var (
 
 			var opts []grpc.ServerOption
 			if signalLetsencryptDomain != "" {
-				transportCredentials := credentials.NewTLS(common.EnableLetsEncrypt(signalDataDir, signalLetsencryptDomain))
+				transportCredentials := credentials.NewTLS(encryption.EnableLetsEncrypt(signalDataDir, signalLetsencryptDomain))
 				opts = append(opts, grpc.Creds(transportCredentials))
 			}
 

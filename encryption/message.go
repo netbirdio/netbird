@@ -1,4 +1,4 @@
-package common
+package encryption
 
 import (
 	pb "github.com/golang/protobuf/proto" //nolint
