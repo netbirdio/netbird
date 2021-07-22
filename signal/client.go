@@ -110,7 +110,7 @@ func (c *Client) connect(key string, msgHandler func(msg *proto.Message) error) 
 	md := metadata.New(map[string]string{proto.HeaderId: key})
 	ctx := metadata.NewOutgoingContext(c.ctx, md)
 
-	stream, err := c.realClient.ConnectStream(ctx)
+	stream, err := c.realClient.ConnectStream(ctx, grpc.WaitForReady(true))
 
 	c.stream = stream
 	if err != nil {
