@@ -1,16 +1,11 @@
 package cmd
 
 import (
-	"crypto/tls"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"golang.org/x/crypto/acme/autocert"
-	"google.golang.org/grpc/credentials"
-	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 )
 
@@ -78,32 +73,4 @@ func InitLog(logLevel string) {
 		os.Exit(ExitSetupFailed)
 	}
 	log.SetLevel(level)
-}
-
-func enableLetsEncrypt(datadir string, letsencryptDomain string) credentials.TransportCredentials {
-	certDir := filepath.Join(datadir, "letsencrypt")
-
-	if _, err := os.Stat(certDir); os.IsNotExist(err) {
-		err = os.MkdirAll(certDir, os.ModeDir)
-		if err != nil {
-			log.Fatalf("failed creating Let's encrypt certdir: %s: %v", certDir, err)
-		}
-	}
-
-	log.Infof("running with Let's encrypt with domain %s. Cert will be stored in %s", letsencryptDomain, certDir)
-
-	certManager := autocert.Manager{
-		Prompt:     autocert.AcceptTOS,
-		Cache:      autocert.DirCache(certDir),
-		HostPolicy: autocert.HostWhitelist(letsencryptDomain),
-	}
-
-	// listener to handle Let's encrypt certificate challenge
-	go func() {
-		if err := http.Serve(certManager.Listener(), certManager.HTTPHandler(nil)); err != nil {
-			log.Fatalf("failed to serve letsencrypt handler: %v", err)
-		}
-	}()
-
-	return credentials.NewTLS(&tls.Config{GetCertificate: certManager.GetCertificate})
 }

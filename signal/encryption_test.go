@@ -1,6 +1,7 @@
 package signal
 
 import (
+	"github.com/wiretrustee/wiretrustee/encryption"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"testing"
 )
@@ -21,13 +22,13 @@ func TestEncryptDecrypt(t *testing.T) {
 		return
 	}
 
-	encryptedMessage, err := Encrypt(bytesMsg, peerBKey.PublicKey(), peerAKey)
+	encryptedMessage, err := encryption.Encrypt(bytesMsg, peerBKey.PublicKey(), peerAKey)
 	if err != nil {
 		t.Error(err)
 		return
 	}
 
-	decryptedMessage, err := Decrypt(encryptedMessage, peerAKey.PublicKey(), peerBKey)
+	decryptedMessage, err := encryption.Decrypt(encryptedMessage, peerAKey.PublicKey(), peerBKey)
 	if err != nil {
 		t.Error(err)
 		return
