@@ -6,7 +6,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-// EncryptMessage encrypts a body of the given pb.Message
+// EncryptMessage encrypts a body of the given protobuf Message
 func EncryptMessage(remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key, message pb.Message) ([]byte, error) {
 	byteResp, err := pb.Marshal(message)
 	if err != nil {
@@ -23,7 +23,7 @@ func EncryptMessage(remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key, message
 	return encryptedBytes, nil
 }
 
-// DecryptMessage decrypts an encrypted message into given pb.Message
+// DecryptMessage decrypts an encrypted message into given protobuf Message
 func DecryptMessage(remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key, encryptedMessage []byte, message pb.Message) error {
 	decrypted, err := Decrypt(encryptedMessage, remotePubKey, ourPrivateKey)
 	if err != nil {

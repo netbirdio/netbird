@@ -7,9 +7,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-// As set of tools to encrypt/decrypt messages being sent through the Signal Exchange Service.
-// We want to make sure that the Connection Candidates and other irrelevant (to the Signal Exchange)
-// information can't be read anywhere else but the Peer the message is being sent to.
+// A set of tools to encrypt/decrypt messages being sent through the Signal Exchange Service or Management Service
 // These tools use Golang crypto package (Curve25519, XSalsa20 and Poly1305 to encrypt and authenticate)
 // Wireguard keys are used for encryption
 
