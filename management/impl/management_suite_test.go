@@ -1,4 +1,4 @@
-package management_test
+package impl_test
 
 import (
 	. "github.com/onsi/ginkgo"

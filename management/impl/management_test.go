@@ -1,10 +1,7 @@
-package management_test
+package impl_test
 
 import (
 	"context"
-	pb "github.com/golang/protobuf/proto" //nolint
-	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/encryption"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -13,9 +10,13 @@ import (
 	sync2 "sync"
 	"time"
 
+	pb "github.com/golang/protobuf/proto" //nolint
+	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/encryption"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	mgmt "github.com/wiretrustee/wiretrustee/management"
+	mgmt "github.com/wiretrustee/wiretrustee/management/impl"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"

@@ -1,19 +1,19 @@
-package cmd
+package impl
 
 import (
 	"flag"
 	"fmt"
+	"net"
+	"os"
+	"time"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/encryption"
-	mgmt "github.com/wiretrustee/wiretrustee/management"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-	"net"
-	"os"
-	"time"
 )
 
 var (
@@ -56,7 +56,7 @@ var (
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 			grpcServer := grpc.NewServer(opts...)
 
-			server, err := mgmt.NewServer(mgmtDataDir)
+			server, err := NewServer(mgmtDataDir)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
 			}

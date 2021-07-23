@@ -1,7 +1,10 @@
-package management
+package impl
 
 import (
 	"context"
+	"sync"
+	"time"
+
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/encryption"
@@ -9,8 +12,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sync"
-	"time"
 )
 
 // Server an instance of a Management server
