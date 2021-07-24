@@ -1,8 +1,10 @@
-package impl
+package cmd
 
 import (
 	"flag"
 	"fmt"
+	server2 "github.com/wiretrustee/wiretrustee/management/server"
+
 	"net"
 	"os"
 	"time"
@@ -56,7 +58,7 @@ var (
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 			grpcServer := grpc.NewServer(opts...)
 
-			server, err := NewServer(mgmtDataDir)
+			server, err := server2.NewServer(mgmtDataDir)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
 			}

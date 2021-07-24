@@ -1,7 +1,8 @@
-package impl_test
+package server_test
 
 import (
 	"context"
+	server2 "github.com/wiretrustee/wiretrustee/management/server"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -16,7 +17,6 @@ import (
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	mgmt "github.com/wiretrustee/wiretrustee/management/impl"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -324,7 +324,7 @@ func startServer(dataDir string) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
-	server, err := mgmt.NewServer(dataDir)
+	server, err := server2.NewServer(dataDir)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, server)
 	go func() {

@@ -1,7 +1,8 @@
-package impl
+package server
 
 import (
 	"context"
+	"github.com/wiretrustee/wiretrustee/management/store"
 	"sync"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 
 // Server an instance of a Management server
 type Server struct {
-	Store *FileStore
+	Store *store.FileStore
 	wgKey wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peerChannels map[string]chan *UpdateChannelMessage
@@ -33,7 +34,7 @@ func NewServer(dataDir string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	store, err := NewStore(dataDir)
+	store, err := store.NewStore(dataDir)
 	if err != nil {
 		return nil, err
 	}
