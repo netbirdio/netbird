@@ -1,4 +1,4 @@
-package management
+package store
 
 import (
 	"os"

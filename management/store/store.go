@@ -1,4 +1,4 @@
-package management
+package store
 
 // Account represents a unique account of the system
 type Account struct {
