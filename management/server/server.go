@@ -1,7 +1,11 @@
-package management
+package server
 
 import (
 	"context"
+	"github.com/wiretrustee/wiretrustee/management/store"
+	"sync"
+	"time"
+
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/encryption"
@@ -9,13 +13,11 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"sync"
-	"time"
 )
 
 // Server an instance of a Management server
 type Server struct {
-	Store *FileStore
+	Store *store.FileStore
 	wgKey wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peerChannels map[string]chan *UpdateChannelMessage
@@ -32,7 +34,7 @@ func NewServer(dataDir string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	store, err := NewStore(dataDir)
+	store, err := store.NewStore(dataDir)
 	if err != nil {
 		return nil, err
 	}
