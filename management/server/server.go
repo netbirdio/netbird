@@ -2,9 +2,10 @@ package server
 
 import (
 	"context"
-	"github.com/wiretrustee/wiretrustee/management/store"
 	"sync"
 	"time"
+
+	"github.com/wiretrustee/wiretrustee/management/store"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
@@ -126,8 +127,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 // RegisterPeer adds a peer to the Store. Returns 404 in case the provided setup key doesn't exist
 func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerRequest) (*proto.RegisterPeerResponse, error) {
-
-	log.Debugf("RegisterPeer request from peer %s", req.Key)
+	log.Printf("RegisterPeer request from peer %s", req.Key)
 
 	s.channelsMux.Lock()
 	defer s.channelsMux.Unlock()

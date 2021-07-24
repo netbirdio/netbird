@@ -1,6 +1,7 @@
 package store
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/google/uuid"
 	"github.com/wiretrustee/wiretrustee/util"
 )
 
@@ -94,6 +96,30 @@ func (s *FileStore) PeerExists(peerKey string) bool {
 func (s *FileStore) AddPeer(setupKey string, peerKey string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
+
+	if len(setupKey) == 0 {
+		// Empty setup key, create a new account for it.
+		log.Printf("Creating new account")
+		accountId := uuid.New().String()
+		account := &Account{Id: accountId}
+		setupKeyId := uuid.New().String()
+		sk := &SetupKey{Key: setupKeyId}
+		account.SetupKeys = make(map[string]*SetupKey)
+		account.SetupKeys[setupKeyId] = sk
+		account.Peers = make(map[string]*Peer)
+		account.Peers[peerKey] = &Peer{Key: peerKey, SetupKey: sk}
+		s.Accounts[accountId] = account
+		s.SetupKeyId2AccountId[setupKeyId] = accountId
+		s.PeerKeyId2AccountId[peerKey] = accountId
+
+		err := s.persist(s.storeFile)
+		if err != nil {
+			return status.Errorf(codes.Internal, "Failed to create new account: %s", err)
+		}
+
+		log.Printf("Created new account %s with setup key %s", accountId, setupKeyId)
+		return nil
+	}
 
 	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToLower(setupKey)]
 	if !accountIdFound {
