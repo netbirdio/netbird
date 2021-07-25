@@ -6,7 +6,17 @@ services:
     restart: unless-stopped
     ports:
       - 10000:10000
-
+  # Management
+  management:
+    image: wiretrustee/management:latest
+    restart: unless-stopped
+    volumes:
+      - wiretrustee-mgmt:/var/lib/wiretrustee
+    ports:
+      - 33073:33073
+#     # port and command for Let's Encrypt validation
+#      - 443:443
+#    command: ["--letsencrypt-domain", "<YOUR-DOMAIN>"]
   # Coturn
   coturn:
     image: coturn/coturn
@@ -17,3 +27,5 @@ services:
 #      - ./privkey.pem:/etc/coturn/private/privkey.pem:ro
 #      - ./cert.pem:/etc/coturn/certs/cert.pem:ro
     network_mode: host
+volumes:
+  wiretrustee-mgmt:
