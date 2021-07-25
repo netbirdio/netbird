@@ -2,12 +2,14 @@ package cmd
 
 import (
 	"context"
+	"io"
 	"os"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/connection"
+	"github.com/wiretrustee/wiretrustee/encryption"
 	mgm "github.com/wiretrustee/wiretrustee/management/proto"
 	sig "github.com/wiretrustee/wiretrustee/signal"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -53,12 +55,28 @@ var (
 
 			setupKey := "" // todo read from config
 			mgmClient := mgm.NewManagementServiceClient(mgmConn)
+			serverKeyResponse, err := mgmClient.GetServerKey(mgmCtx, &mgm.Empty{})
+			if err != nil {
+				// todo reconnect
+				log.Errorf("error while getting server key: %s", err)
+				os.Exit(ExitSetupFailed)
+			}
+
+			serverKey, err := wgtypes.ParseKey(serverKeyResponse.Key)
+			if err != nil {
+				log.Errorf("failed parsing Wireguard public server key %s: [%s]", serverKeyResponse.Key, err.Error())
+				os.Exit(ExitSetupFailed)
+			}
+
 			_, err = mgmClient.RegisterPeer(mgmCtx, &mgm.RegisterPeerRequest{Key: myKey.String(), SetupKey: setupKey})
 			if err != nil {
+				// todo reconnect
 				log.Errorf("error while registering account: %s", err)
 				os.Exit(ExitSetupFailed)
 			}
 			log.Println("Peer registered")
+
+			go updatePeers(mgmClient, serverKey, myKey)
 
 			ctx := context.Background()
 			signalClient, err := sig.NewClient(ctx, config.SignalAddr, myKey)
@@ -88,3 +106,44 @@ var (
 		},
 	}
 )
+
+func updatePeers(mgmClient mgm.ManagementServiceClient, remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key) {
+	log.Printf("Getting peers updates")
+	ctx := context.Background()
+	req := &mgm.SyncRequest{}
+	encryptedReq, err := encryption.EncryptMessage(remotePubKey, ourPrivateKey, req)
+	if err != nil {
+		// todo re-connect
+		log.Errorf("Failed to encrypt message:", err)
+	}
+
+	syncReq := &mgm.EncryptedMessage{WgPubKey: ourPrivateKey.PublicKey().String(), Body: encryptedReq}
+	stream, err := mgmClient.Sync(ctx, syncReq)
+	if err != nil {
+		// todo re-connect
+		log.Errorf("Failed to open management stream: %s", err)
+	}
+	for {
+		update, err := stream.Recv()
+		if err == io.EOF {
+			// todo re-connect
+			break
+		}
+		if err != nil {
+			// todo re-connect
+			log.Errorf("Managment stream disconnected: %s", err)
+		}
+
+		log.Infof("Got peers update")
+		resp := &mgm.SyncResponse{}
+		err = encryption.DecryptMessage(remotePubKey, ourPrivateKey, update.Body, resp)
+		if err != nil {
+			// todo re-connect
+			log.Errorf("Failed to decrypt message: %s", err)
+		}
+
+		for _, peer := range resp.Peers {
+			log.Infof("Peer: %s", peer)
+		}
+	}
+}
