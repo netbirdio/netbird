@@ -98,6 +98,7 @@ var _ = Describe("Management service", func() {
 
 				encryptedResponse := &mgmtProto.EncryptedMessage{}
 				err = sync.RecvMsg(encryptedResponse)
+				Expect(err).NotTo(HaveOccurred())
 
 				resp := &mgmtProto.SyncResponse{}
 				err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)

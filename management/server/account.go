@@ -98,13 +98,13 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 		Addr:      nextIp.String(),
 	}
 
-	err = manager.Store.SavePeer(newPeer)
+	// save changes of the Network
+	err = manager.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")
 	}
 
-	// save changes of the Network
-	err = manager.Store.SaveAccount(account)
+	err = manager.Store.SavePeer(newPeer)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")
 	}
