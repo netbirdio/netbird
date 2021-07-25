@@ -80,7 +80,7 @@ message WiretrusteeConfig {
 message HostConfig {
   string host = 1;
   int32 port = 2;
-  Protocol protocol = 5;
+  Protocol protocol = 3;
 
   enum Protocol {
     PLAIN = 0;
