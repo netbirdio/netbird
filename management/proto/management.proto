@@ -70,22 +70,30 @@ message WiretrusteeConfig {
   // a list of STUN servers
   repeated HostConfig stuns = 1;
   // a list of TURN servers
-  repeated HostConfig turns = 2;
+  repeated ProtectedHostConfig turns = 2;
 
   // a Signal server config
   HostConfig signal = 3;
-
-  // a Management server config
-  HostConfig management = 4;
 }
 
-// HostConfig describes connection properties of some server (e.g. STUN, TURN, Signal, Management)
-// User and Password are mostly used for TURN servers.
+// HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
 message HostConfig {
   string host = 1;
   int32 port = 2;
-  string user = 3;
-  string password = 4;
+  Protocol protocol = 5;
+
+  enum Protocol {
+    PLAIN = 0;
+    TLS = 1;
+    DTLS = 2;
+  }
+}
+// ProtectedHostConfig is similar to HostConfig but has additional user and password
+// Mostly used for TURN servers
+message ProtectedHostConfig {
+  HostConfig hostConfig = 1;
+  string user = 2;
+  string password = 3;
 }
 
 // PeerConfig represents a configuration of a "our" peer.
