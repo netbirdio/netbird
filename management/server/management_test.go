@@ -82,6 +82,56 @@ var _ = Describe("Management service", func() {
 
 	Context("when calling Sync endpoint", func() {
 
+		Context("when there is a new peer registered", func() {
+			Specify("a proper configuration is returned", func() {
+				key, _ := wgtypes.GenerateKey()
+				registerPeerWithValidSetupKey(key, client)
+
+				encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.SyncRequest{})
+				Expect(err).NotTo(HaveOccurred())
+
+				sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+					WgPubKey: key.PublicKey().String(),
+					Body:     encryptedBytes,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				encryptedResponse := &mgmtProto.EncryptedMessage{}
+				err = sync.RecvMsg(encryptedResponse)
+
+				resp := &mgmtProto.SyncResponse{}
+				err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(resp.PeerConfig.Address).To(BeEquivalentTo("100.30.0.1"))
+
+				expectedSignalConfig := &mgmtProto.HostConfig{
+					Host:     "signal.wiretrustee.com",
+					Port:     10000,
+					Protocol: mgmtProto.HostConfig_PLAIN,
+				}
+				expectedStunsConfig := &mgmtProto.HostConfig{
+					Host:     "stun.wiretrustee.com",
+					Port:     3468,
+					Protocol: mgmtProto.HostConfig_PLAIN,
+				}
+				expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
+					HostConfig: &mgmtProto.HostConfig{
+						Host:     "stun.wiretrustee.com",
+						Port:     3468,
+						Protocol: mgmtProto.HostConfig_PLAIN,
+					},
+					User:     "some_user",
+					Password: "some_password",
+				}
+
+				Expect(resp.WiretrusteeConfig.Signal).To(BeEquivalentTo(expectedSignalConfig))
+				Expect(resp.WiretrusteeConfig.Stuns).To(ConsistOf(expectedStunsConfig))
+				Expect(resp.WiretrusteeConfig.Turns).To(ConsistOf(expectedTurnsConfig))
+
+			})
+		})
+
 		Context("when there are 3 peers registered under one account", func() {
 			Specify("a list containing other 2 peers is returned", func() {
 				key, _ := wgtypes.GenerateKey()
@@ -112,8 +162,9 @@ var _ = Describe("Management service", func() {
 				err = pb.Unmarshal(decryptedBytes, resp)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(resp.GetPeers()).To(HaveLen(2))
-				Expect(resp.GetPeers()).To(ContainElements(key1.PublicKey().String(), key2.PublicKey().String()))
+				Expect(resp.GetRemotePeers()).To(HaveLen(2))
+				peers := []string{resp.GetRemotePeers()[0].WgPubKey, resp.GetRemotePeers()[1].WgPubKey}
+				Expect(peers).To(ContainElements(key1.PublicKey().String(), key2.PublicKey().String()))
 
 			})
 		})
@@ -143,7 +194,7 @@ var _ = Describe("Management service", func() {
 				Expect(err).NotTo(HaveOccurred())
 				resp := &mgmtProto.SyncResponse{}
 				err = pb.Unmarshal(decryptedBytes, resp)
-				Expect(resp.GetPeers()).To(HaveLen(0))
+				Expect(resp.GetRemotePeers()).To(HaveLen(0))
 
 				wg := sync2.WaitGroup{}
 				wg.Add(1)
@@ -167,8 +218,8 @@ var _ = Describe("Management service", func() {
 				wg.Wait()
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(resp.GetPeers()).To(ContainElements(key1.PublicKey().String()))
-				Expect(resp.GetPeers()).To(HaveLen(1))
+				Expect(resp.GetRemotePeers()).To(HaveLen(1))
+				Expect(resp.GetRemotePeers()[0].WgPubKey).To(BeEquivalentTo(key1.PublicKey().String()))
 			})
 		})
 	})

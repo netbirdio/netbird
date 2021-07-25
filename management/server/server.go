@@ -2,7 +2,7 @@ package server
 
 import (
 	"context"
-	"github.com/wiretrustee/wiretrustee/management/store"
+	"fmt"
 	"sync"
 	"time"
 
@@ -17,12 +17,15 @@ import (
 
 // Server an instance of a Management server
 type Server struct {
-	Store *store.FileStore
-	wgKey wgtypes.Key
+	accountManager *AccountManager
+	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peerChannels map[string]chan *UpdateChannelMessage
 	channelsMux  *sync.Mutex
 }
+
+// AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
+const AllowedIPsFormat = "%s/32"
 
 type UpdateChannelMessage struct {
 	Update *proto.SyncResponse
@@ -34,16 +37,16 @@ func NewServer(dataDir string) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	store, err := store.NewStore(dataDir)
+	store, err := NewStore(dataDir)
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
-		Store: store,
 		wgKey: key,
 		// peerKey -> event channel
-		peerChannels: make(map[string]chan *UpdateChannelMessage),
-		channelsMux:  &sync.Mutex{},
+		peerChannels:   make(map[string]chan *UpdateChannelMessage),
+		channelsMux:    &sync.Mutex{},
+		accountManager: NewManager(store),
 	}, nil
 }
 
@@ -73,8 +76,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", peerKey.String())
 	}
 
-	exists := s.Store.PeerExists(peerKey.String())
-	if !exists {
+	peer, err := s.accountManager.GetPeer(peerKey.String())
+	if err != nil {
 		return status.Errorf(codes.Unauthenticated, "provided peer with the key wgPubKey %s is not registered", peerKey.String())
 	}
 
@@ -84,7 +87,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
 
-	err = s.sendInitialSync(peerKey, srv)
+	err = s.sendInitialSync(peerKey, peer, srv)
 	if err != nil {
 		return err
 	}
@@ -132,33 +135,76 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 	s.channelsMux.Lock()
 	defer s.channelsMux.Unlock()
 
-	err := s.Store.AddPeer(req.SetupKey, req.Key)
+	peer, err := s.accountManager.AddPeer(req.SetupKey, req.Key)
 	if err != nil {
 		return &proto.RegisterPeerResponse{}, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
 
-	peers, err := s.Store.GetPeersForAPeer(req.Key)
+	peers, err := s.accountManager.GetPeersForAPeer(peer.Key)
 	if err != nil {
 		//todo return a proper error
 		return nil, err
 	}
 
 	// notify other peers of our registration
-	for _, peer := range peers {
-		if channel, ok := s.peerChannels[peer]; ok {
+	for _, remotePeer := range peers {
+		if channel, ok := s.peerChannels[remotePeer.Key]; ok {
 			// exclude notified peer and add ourselves
-			peersToSend := []string{req.Key}
+			peersToSend := []*Peer{peer}
 			for _, p := range peers {
-				if peer != p {
+				if remotePeer.Key != p.Key {
 					peersToSend = append(peersToSend, p)
 				}
 			}
-			update := &proto.SyncResponse{Peers: peersToSend}
+			update := toSyncResponse(peer, peersToSend)
 			channel <- &UpdateChannelMessage{Update: update}
 		}
 	}
 
 	return &proto.RegisterPeerResponse{}, nil
+}
+
+func toSyncResponse(peer *Peer, peers []*Peer) *proto.SyncResponse {
+	//todo move to config
+	wtConfig := &proto.WiretrusteeConfig{
+		Stuns: []*proto.HostConfig{{
+			Host:     "stun.wiretrustee.com",
+			Port:     3468,
+			Protocol: proto.HostConfig_PLAIN,
+		}},
+		Turns: []*proto.ProtectedHostConfig{{
+			HostConfig: &proto.HostConfig{
+				Host:     "stun.wiretrustee.com",
+				Port:     3468,
+				Protocol: proto.HostConfig_PLAIN,
+			},
+			Password: "some_password",
+			User:     "some_user",
+		}},
+		Signal: &proto.HostConfig{
+			Host:     "signal.wiretrustee.com",
+			Port:     10000,
+			Protocol: proto.HostConfig_PLAIN,
+		},
+	}
+
+	pConfig := &proto.PeerConfig{
+		Address: peer.Addr,
+	}
+
+	remotePeers := make([]*proto.RemotePeerConfig, 0, len(peers))
+	for _, rPeer := range peers {
+		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
+			WgPubKey:   rPeer.Key,
+			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.Addr)}, //todo /32
+		})
+	}
+
+	return &proto.SyncResponse{
+		WiretrusteeConfig: wtConfig,
+		PeerConfig:        pConfig,
+		RemotePeers:       remotePeers,
+	}
 }
 
 // IsHealthy indicates whether the service is healthy
@@ -195,16 +241,14 @@ func (s *Server) closeUpdatesChannel(peerKey string) {
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *Server) sendInitialSync(peerKey wgtypes.Key, srv proto.ManagementService_SyncServer) error {
+func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
 
-	peers, err := s.Store.GetPeersForAPeer(peerKey.String())
+	peers, err := s.accountManager.GetPeersForAPeer(peer.Key)
 	if err != nil {
-		log.Warnf("error getting a list of peers for a peer %s", peerKey.String())
+		log.Warnf("error getting a list of peers for a peer %s", peer.Key)
 		return err
 	}
-	plainResp := &proto.SyncResponse{
-		Peers: peers,
-	}
+	plainResp := toSyncResponse(peer, peers)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

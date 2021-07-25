@@ -41,9 +41,6 @@ message SyncResponse {
   PeerConfig peerConfig = 2;
 
   repeated RemotePeerConfig remotePeers = 3;
-
-  // Deprecated: used for compatibility
-  repeated string peers = 4;
 }
 
 message RegisterPeerRequest {
