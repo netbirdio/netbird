@@ -189,14 +189,14 @@ func toSyncResponse(peer *Peer, peers []*Peer) *proto.SyncResponse {
 	}
 
 	pConfig := &proto.PeerConfig{
-		Address: peer.Addr,
+		Address: peer.IP.String(),
 	}
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(peers))
 	for _, rPeer := range peers {
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
-			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.Addr)}, //todo /32
+			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)}, //todo /32
 		})
 	}
 

@@ -343,6 +343,51 @@ var _ = Describe("Management service", func() {
 			})
 		})
 	})
+
+	Context("when there are peers registered under one account concurrently", func() {
+		Specify("then there are no duplicate IPs", func() {
+
+			initialPeers := 30
+
+			ipChannel := make(chan string, 20)
+			for i := 0; i < initialPeers; i++ {
+				go func() {
+					key, _ := wgtypes.GenerateKey()
+					registerPeerWithValidSetupKey(key, client)
+					encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.SyncRequest{})
+					Expect(err).NotTo(HaveOccurred())
+
+					// open stream
+					sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+						WgPubKey: key.PublicKey().String(),
+						Body:     encryptedBytes,
+					})
+					Expect(err).NotTo(HaveOccurred())
+					encryptedResponse := &mgmtProto.EncryptedMessage{}
+					err = sync.RecvMsg(encryptedResponse)
+
+					resp := &mgmtProto.SyncResponse{}
+					err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)
+					Expect(err).NotTo(HaveOccurred())
+
+					ipChannel <- resp.GetPeerConfig().Address
+
+				}()
+			}
+
+			ips := make(map[string]struct{})
+			for ip := range ipChannel {
+				if _, ok := ips[ip]; ok {
+					Fail("found duplicate IP: " + ip)
+				}
+				ips[ip] = struct{}{}
+				if len(ips) == initialPeers {
+					break
+				}
+			}
+			close(ipChannel)
+		})
+	})
 })
 
 func registerPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.RegisterPeerResponse {

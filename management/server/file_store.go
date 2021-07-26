@@ -136,19 +136,19 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	return nil
 }
 
-// GetPeersForAPeer returns a list of peers available for a given peer (key)
+// GetAccountPeers returns a list of peers available for a given account
 // Effectively all the peers of the original peer's account if any
-func (s *FileStore) GetPeersForAPeer(accountId string, peerKey string) ([]*Peer, error) {
+func (s *FileStore) GetAccountPeers(accountId string) ([]*Peer, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
 	_, accountFound := s.Accounts[accountId]
 	if !accountFound {
-		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
+		return nil, status.Errorf(codes.Internal, "account not found")
 	}
 	var peers []*Peer
-	for id, peer := range s.Peers {
-		if id != peerKey && peer.AccountId == accountId {
+	for _, peer := range s.Peers {
+		if peer.AccountId == accountId {
 			peers = append(peers, peer)
 		}
 	}

@@ -3,6 +3,7 @@ package server
 import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"net"
 	"sync"
 )
 
@@ -35,7 +36,7 @@ type Peer struct {
 	SetupKey *SetupKey
 
 	// IP address of the Peer
-	Addr string
+	IP net.IP
 }
 
 // NewManager creates a new AccountManager with a provided Store
@@ -60,7 +61,7 @@ func (manager *AccountManager) GetPeer(peerKey string) (*Peer, error) {
 }
 
 // GetPeersForAPeer returns a list of peers available for a given peer (key)
-// Effectively all the peers of the original peer's account if any
+// Effectively all the peers of the original peer's account except for the peer itself
 func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
 	manager.mux.Lock()
 	defer manager.mux.Unlock()
@@ -70,7 +71,19 @@ func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error)
 		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
 	}
 
-	return manager.Store.GetPeersForAPeer(account.Id, peerKey)
+	peers, err := manager.Store.GetAccountPeers(account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	var res []*Peer
+	for _, peer := range peers {
+		if peer.Key != peerKey {
+			res = append(res, peer)
+		}
+	}
+
+	return res, nil
 }
 
 // AddPeer adds a new peer to the Store.
@@ -87,21 +100,24 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 		return nil, err
 	}
 
+	peers, err := manager.Store.GetAccountPeers(account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	var takenIps []net.IP
+	for _, peer := range peers {
+		takenIps = append(takenIps, peer.IP)
+	}
+
 	network := account.Network
-	nextIp := network.GetNextIP()
-	network.LastIP = nextIp
+	nextIp, _ := AllocatePeerIP(network.Net, takenIps)
 
 	newPeer := &Peer{
 		AccountId: account.Id,
 		Key:       peerKey,
 		SetupKey:  &SetupKey{Key: setupKey},
-		Addr:      nextIp.String(),
-	}
-
-	// save changes of the Network
-	err = manager.Store.SaveAccount(account)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed adding peer")
+		IP:        nextIp,
 	}
 
 	err = manager.Store.SavePeer(newPeer)
