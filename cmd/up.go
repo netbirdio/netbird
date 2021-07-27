@@ -68,7 +68,7 @@ var (
 				os.Exit(ExitSetupFailed)
 			}
 
-			_, err = mgmClient.RegisterPeer(mgmCtx, &mgm.RegisterPeerRequest{Key: myKey.String(), SetupKey: setupKey})
+			_, err = mgmClient.RegisterPeer(mgmCtx, &mgm.RegisterPeerRequest{Key: myKey.PublicKey().String(), SetupKey: setupKey})
 			if err != nil {
 				// todo reconnect
 				log.Errorf("error while registering account: %s", err)
@@ -132,6 +132,7 @@ func updatePeers(mgmClient mgm.ManagementServiceClient, remotePubKey wgtypes.Key
 		if err != nil {
 			// todo re-connect
 			log.Errorf("Managment stream disconnected: %s", err)
+			break
 		}
 
 		log.Infof("Got peers update")
