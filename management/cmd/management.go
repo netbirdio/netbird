@@ -22,7 +22,7 @@ import (
 var (
 	mgmtPort              int
 	mgmtDataDir           string
-	mgmtConfig            string
+	mgmtHostsConfig       string
 	mgmtLetsencryptDomain string
 
 	kaep = keepalive.EnforcementPolicy{
@@ -43,10 +43,10 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
 
-			config := &server.Config{}
-			_, err := util.ReadJson(mgmtConfig, config)
+			config := &server.HostsConfig{}
+			_, err := util.ReadJson(mgmtHostsConfig, config)
 			if err != nil {
-				log.Fatalf("failed reading provided config file: %s: %v", mgmtConfig, err)
+				log.Fatalf("failed reading provided config file: %s: %v", mgmtHostsConfig, err)
 			}
 
 			if _, err := os.Stat(mgmtDataDir); os.IsNotExist(err) {
@@ -66,7 +66,7 @@ var (
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 			grpcServer := grpc.NewServer(opts...)
 
-			server, err := server.NewServer(config)
+			server, err := server.NewServer(mgmtDataDir, config)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
 			}
@@ -93,9 +93,10 @@ var (
 
 func init() {
 	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 33073, "server port to listen on")
-	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", "/etc/wiretrustee/management.json", "management server config file")
+	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/var/lib/wiretrustee/", "server data directory location")
+	mgmtCmd.Flags().StringVar(&mgmtHostsConfig, "hosts-config", "/etc/wiretrustee/hosts-config.json", "Wiretrustee system hosts config (STUN, TURN, Signal, etc). These will be advertised to peers ")
 	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 
-	rootCmd.MarkFlagRequired("config") //nolint
+	rootCmd.MarkFlagRequired("hosts-config") //nolint
 
 }

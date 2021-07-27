@@ -19,7 +19,8 @@ docker run -d --name wiretrustee-management \
 -v /etc/wiretrustee/:/etc/wiretrustee/  \
 wiretrustee/wiretrustee:management-v0.0.8-SNAPSHOT-079d35e-amd64  \
 --port 33073  \
---config /etc/wiretrustee/management.json \
+--datadir /var/lib/wiretrustee/ \
+--hosts-config /etc/wiretrustee/hosts-config.json \
 --letsencrypt-domain <YOUR-DOMAIN>  \
 --log-level info
 ```
@@ -31,7 +32,6 @@ curl https://<YOUR-DOMAIN>
 
 The certificate will be persisted in the ```datadir/letsencrypt/``` folder (e.g. ```/var/lib/wiretrustee/letsencrypt/```). Make sure that the ```datadir``` is mapped to some folder on a host machine.
 Consequent restarts of the container will pick up previously generated certificate so there is no need to trigger certificate generation with the ```curl``` command on every restart.
-The ``datadir`` is specified in the config file.
 
 **Below are optional steps (some checks).**
 
@@ -96,12 +96,13 @@ docker run -d --name wiretrustee-management \
 -v /etc/wiretrustee/:/etc/wiretrustee/  \
 wiretrustee/wiretrustee:management-v0.0.8-SNAPSHOT-079d35e-amd64  \
 --port 33073  \
---config /etc/wiretrustee/management.json \
+--datadir /var/lib/wiretrustee/ \
+--hosts-config /etc/wiretrustee/hosts-config.json \
 --letsencrypt-domain app.wiretrustee.com  \
 --log-level debug
 ```
 
-### Config file example:
+### hosts-config.json file example:
 
 ```json
 {
@@ -129,8 +130,7 @@ wiretrustee/wiretrustee:management-v0.0.8-SNAPSHOT-079d35e-amd64  \
         "Port": 10000,
         "Username": "",
         "Password": null
-    },
-    "DataDir": "/var/lib/wiretrustee/datadir"
+    }
 }
 ```
 
