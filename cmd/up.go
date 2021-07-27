@@ -148,8 +148,8 @@ func updatePeers(mgmClient mgm.ManagementServiceClient, remotePubKey wgtypes.Key
 			log.Errorf("Failed to decrypt message: %s", err)
 		}
 
-		for _, peer := range resp.Peers {
-			log.Infof("Peer: %s", peer)
+		for _, peer := range resp.RemotePeers {
+			log.Infof("Peer: %s", peer.WgPubKey)
 		}
 	}
 }
