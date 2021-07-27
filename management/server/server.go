@@ -22,6 +22,7 @@ type Server struct {
 	proto.UnimplementedManagementServiceServer
 	peerChannels map[string]chan *UpdateChannelMessage
 	channelsMux  *sync.Mutex
+	config       *Config
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
@@ -32,12 +33,12 @@ type UpdateChannelMessage struct {
 }
 
 // NewServer creates a new Management server
-func NewServer(dataDir string) (*Server, error) {
+func NewServer(config *Config) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
 	}
-	store, err := NewStore(dataDir)
+	store, err := NewStore(config.DataDir)
 	if err != nil {
 		return nil, err
 	}
@@ -47,6 +48,7 @@ func NewServer(dataDir string) (*Server, error) {
 		peerChannels:   make(map[string]chan *UpdateChannelMessage),
 		channelsMux:    &sync.Mutex{},
 		accountManager: NewManager(store),
+		config:         config,
 	}, nil
 }
 
@@ -156,7 +158,7 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 					peersToSend = append(peersToSend, p)
 				}
 			}
-			update := toSyncResponse(peer, peersToSend)
+			update := s.toSyncResponse(peer, peersToSend)
 			channel <- &UpdateChannelMessage{Update: update}
 		}
 	}
@@ -164,27 +166,53 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 	return &proto.RegisterPeerResponse{}, nil
 }
 
-func toSyncResponse(peer *Peer, peers []*Peer) *proto.SyncResponse {
+func toResponseProto(configProto ConfigProto) proto.HostConfig_Protocol {
+	switch configProto {
+	case UDP:
+		return proto.HostConfig_UDP
+	case UDP_WITH_TLS:
+		return proto.HostConfig_UDP_WITH_TLS
+	case TCP:
+		return proto.HostConfig_TCP
+	case TCP_WITH_TLS:
+		return proto.HostConfig_UDP_WITH_TLS
+	default:
+		//mbragin: todo something better?
+		panic(fmt.Errorf("unexpected config protocol type %v", configProto))
+	}
+}
+
+func (s *Server) toSyncResponse(peer *Peer, peers []*Peer) *proto.SyncResponse {
+
+	var stuns []*proto.HostConfig
+	for _, stun := range s.config.Stuns {
+		stuns = append(stuns, &proto.HostConfig{
+			Host:     stun.Host,
+			Port:     stun.Port,
+			Protocol: toResponseProto(stun.Proto),
+		})
+	}
+	var turns []*proto.ProtectedHostConfig
+	for _, turn := range s.config.Turns {
+		turns = append(turns, &proto.ProtectedHostConfig{
+			HostConfig: &proto.HostConfig{
+				Host:     turn.Host,
+				Port:     turn.Port,
+				Protocol: toResponseProto(turn.Proto),
+			},
+			User:     turn.Username,
+			Password: string(turn.Password),
+		})
+	}
+
 	//todo move to config
 	wtConfig := &proto.WiretrusteeConfig{
-		Stuns: []*proto.HostConfig{{
-			Host:     "stun.wiretrustee.com",
-			Port:     3468,
-			Protocol: proto.HostConfig_PLAIN,
-		}},
-		Turns: []*proto.ProtectedHostConfig{{
-			HostConfig: &proto.HostConfig{
-				Host:     "stun.wiretrustee.com",
-				Port:     3468,
-				Protocol: proto.HostConfig_PLAIN,
-			},
-			Password: "some_password",
-			User:     "some_user",
-		}},
+		Stuns: stuns,
+		Turns: turns,
 		Signal: &proto.HostConfig{
-			Host:     "signal.wiretrustee.com",
-			Port:     10000,
-			Protocol: proto.HostConfig_PLAIN,
+			Host:     s.config.Signal.Host,
+			Port:     s.config.Signal.Port,
+			Protocol: toResponseProto(s.config.Signal.Proto),
 		},
 	}
 
@@ -248,7 +276,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 		log.Warnf("error getting a list of peers for a peer %s", peer.Key)
 		return err
 	}
-	plainResp := toSyncResponse(peer, peers)
+	plainResp := s.toSyncResponse(peer, peers)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

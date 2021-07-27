@@ -80,9 +80,10 @@ message HostConfig {
   Protocol protocol = 3;
 
   enum Protocol {
-    PLAIN = 0;
-    TLS = 1;
-    DTLS = 2;
+    UDP = 0;
+    TCP = 1;
+    TCP_WITH_TLS = 2;
+    UDP_WITH_TLS = 3;
   }
 }
 // ProtectedHostConfig is similar to HostConfig but has additional user and password

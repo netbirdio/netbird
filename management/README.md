@@ -16,9 +16,10 @@ docker run -d --name wiretrustee-management \
 -p 33073:33073  \
 -p 443:443  \
 -v /var/lib/wiretrustee/:/var/lib/wiretrustee/  \
+-v /etc/wiretrustee/:/etc/wiretrustee/  \
 wiretrustee/wiretrustee:management-v0.0.8-SNAPSHOT-079d35e-amd64  \
 --port 33073  \
---datadir /var/lib/wiretrustee/ \
+--config /etc/wiretrustee/management.json \
 --letsencrypt-domain <YOUR-DOMAIN>  \
 --log-level info
 ```
@@ -30,6 +31,7 @@ curl https://<YOUR-DOMAIN>
 
 The certificate will be persisted in the ```datadir/letsencrypt/``` folder (e.g. ```/var/lib/wiretrustee/letsencrypt/```). Make sure that the ```datadir``` is mapped to some folder on a host machine.
 Consequent restarts of the container will pick up previously generated certificate so there is no need to trigger certificate generation with the ```curl``` command on every restart.
+The ``datadir`` is specified in the config file.
 
 **Below are optional steps (some checks).**
 
@@ -91,11 +93,45 @@ Certificate:
 docker run -d --name wiretrustee-management \
 -p 33073:33073  \
 -v /var/lib/wiretrustee/:/var/lib/wiretrustee/  \
+-v /etc/wiretrustee/:/etc/wiretrustee/  \
 wiretrustee/wiretrustee:management-v0.0.8-SNAPSHOT-079d35e-amd64  \
 --port 33073  \
---datadir /var/lib/wiretrustee/ \
+--config /etc/wiretrustee/management.json \
 --letsencrypt-domain app.wiretrustee.com  \
 --log-level debug
+```
+
+### Config file example:
+
+```json
+{
+    "Stuns": [
+        {
+            "Proto": 2,
+            "Host": "stun.wiretrustee.com",
+            "Port": 3468,
+            "Username": "",
+            "Password": null
+        }
+    ],
+    "Turns": [
+        {
+            "Proto": 2,
+            "Host": "stun.wiretrustee.com",
+            "Port": 3468,
+            "Username": "some_user",
+            "Password": "c29tZV9wYXNzd29yZA=="
+        }
+    ],
+    "Signal": {
+        "Proto": 2,
+        "Host": "signal.wiretrustee.com",
+        "Port": 10000,
+        "Username": "",
+        "Password": null
+    },
+    "DataDir": "/var/lib/wiretrustee/datadir"
+}
 ```
 
 ## For development purposes:

@@ -2,7 +2,7 @@ package server_test
 
 import (
 	"context"
-	server2 "github.com/wiretrustee/wiretrustee/management/server"
+	server "github.com/wiretrustee/wiretrustee/management/server"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -50,7 +50,7 @@ var _ = Describe("Management service", func() {
 		err = util.CopyFileContents("testdata/store.json", filepath.Join(dataDir, "store.json"))
 		Expect(err).NotTo(HaveOccurred())
 		var listener net.Listener
-		server, listener = startServer(dataDir)
+		server, listener = startServer(dataDir, "testdata/management.json")
 		addr = listener.Addr().String()
 		client, conn = createRawClient(addr)
 
@@ -109,18 +109,18 @@ var _ = Describe("Management service", func() {
 				expectedSignalConfig := &mgmtProto.HostConfig{
 					Host:     "signal.wiretrustee.com",
 					Port:     10000,
-					Protocol: mgmtProto.HostConfig_PLAIN,
+					Protocol: mgmtProto.HostConfig_TCP,
 				}
 				expectedStunsConfig := &mgmtProto.HostConfig{
 					Host:     "stun.wiretrustee.com",
 					Port:     3468,
-					Protocol: mgmtProto.HostConfig_PLAIN,
+					Protocol: mgmtProto.HostConfig_TCP,
 				}
 				expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
 					HostConfig: &mgmtProto.HostConfig{
 						Host:     "stun.wiretrustee.com",
 						Port:     3468,
-						Protocol: mgmtProto.HostConfig_PLAIN,
+						Protocol: mgmtProto.HostConfig_TCP,
 					},
 					User:     "some_user",
 					Password: "some_password",
@@ -418,13 +418,17 @@ func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.Clie
 	return mgmtProto.NewManagementServiceClient(conn), conn
 }
 
-func startServer(dataDir string) (*grpc.Server, net.Listener) {
+func startServer(dataDir string, configFile string) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
-	server, err := server2.NewServer(dataDir)
+	config := &server.Config{}
+	_, err = util.ReadJson(configFile, config)
+	config.DataDir = dataDir
 	Expect(err).NotTo(HaveOccurred())
-	mgmtProto.RegisterManagementServiceServer(s, server)
+	mgmtServer, err := server.NewServer(config)
+	Expect(err).NotTo(HaveOccurred())
+	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			Expect(err).NotTo(HaveOccurred())
