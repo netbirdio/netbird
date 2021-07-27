@@ -18,6 +18,8 @@ import (
 )
 
 var (
+	setupKey string
+
 	upCmd = &cobra.Command{
 		Use:   "up",
 		Short: "start wiretrustee",
@@ -53,7 +55,6 @@ var (
 			}
 			defer mgmConn.Close()
 
-			setupKey := "" // todo read from config
 			mgmClient := mgm.NewManagementServiceClient(mgmConn)
 			serverKeyResponse, err := mgmClient.GetServerKey(mgmCtx, &mgm.Empty{})
 			if err != nil {
@@ -106,6 +107,10 @@ var (
 		},
 	}
 )
+
+func init() {
+	upCmd.PersistentFlags().StringVar(&setupKey, "setupKey", "", "Setup key to join a network, if not specified a new network will be created")
+}
 
 func updatePeers(mgmClient mgm.ManagementServiceClient, remotePubKey wgtypes.Key, ourPrivateKey wgtypes.Key) {
 	log.Printf("Getting peers updates")
