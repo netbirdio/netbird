@@ -119,7 +119,7 @@ func updatePeers(mgmClient mgm.ManagementServiceClient, remotePubKey wgtypes.Key
 	encryptedReq, err := encryption.EncryptMessage(remotePubKey, ourPrivateKey, req)
 	if err != nil {
 		// todo re-connect
-		log.Errorf("Failed to encrypt message:", err)
+		log.Errorf("Failed to encrypt message: %s", err)
 	}
 
 	syncReq := &mgm.EncryptedMessage{WgPubKey: ourPrivateKey.PublicKey().String(), Body: encryptedReq}
