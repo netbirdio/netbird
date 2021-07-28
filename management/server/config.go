@@ -9,13 +9,14 @@ const (
 	UDPWithTLS
 )
 
-// HostsConfig specifies properties of the Wiretrustee services essential for the communication between peers.
-// These properties will be sent to peers.
-// These properties DO NOT configure anything in the Management service
-type HostsConfig struct {
+// Config of the Management service
+type Config struct {
 	Stuns  []*Host
 	Turns  []*Host
 	Signal *Host
+
+	Datadir           string
+	LetsEncryptDomain string
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)

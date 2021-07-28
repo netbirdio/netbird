@@ -33,7 +33,7 @@ var _ = Describe("Management service", func() {
 
 	var (
 		addr         string
-		server       *grpc.Server
+		s            *grpc.Server
 		dataDir      string
 		client       mgmtProto.ManagementServiceClient
 		serverPubKey wgtypes.Key
@@ -50,11 +50,17 @@ var _ = Describe("Management service", func() {
 		err = util.CopyFileContents("testdata/store.json", filepath.Join(dataDir, "store.json"))
 		Expect(err).NotTo(HaveOccurred())
 		var listener net.Listener
-		server, listener = startServer(dataDir, "testdata/hosts-config.json")
+
+		config := &server.Config{}
+		_, err = util.ReadJson("testdata/management.json", config)
+		Expect(err).NotTo(HaveOccurred())
+		config.Datadir = dataDir
+
+		s, listener = startServer(config)
 		addr = listener.Addr().String()
 		client, conn = createRawClient(addr)
 
-		// server public key
+		// s public key
 		resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
 		Expect(err).NotTo(HaveOccurred())
 		serverPubKey, err = wgtypes.ParseKey(resp.Key)
@@ -63,7 +69,7 @@ var _ = Describe("Management service", func() {
 	})
 
 	AfterEach(func() {
-		server.Stop()
+		s.Stop()
 		err := conn.Close()
 		Expect(err).NotTo(HaveOccurred())
 		err = os.RemoveAll(dataDir)
@@ -418,14 +424,11 @@ func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.Clie
 	return mgmtProto.NewManagementServiceClient(conn), conn
 }
 
-func startServer(dataDir string, hostsConfig string) (*grpc.Server, net.Listener) {
+func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
-	hConfig := &server.HostsConfig{}
-	_, err = util.ReadJson(hostsConfig, hConfig)
-	Expect(err).NotTo(HaveOccurred())
-	mgmtServer, err := server.NewServer(dataDir, hConfig)
+	mgmtServer, err := server.NewServer(config)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {

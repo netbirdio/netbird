@@ -22,7 +22,7 @@ type Server struct {
 	proto.UnimplementedManagementServiceServer
 	peerChannels map[string]chan *UpdateChannelMessage
 	channelsMux  *sync.Mutex
-	hostsConfig  *HostsConfig
+	config       *Config
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
@@ -33,12 +33,12 @@ type UpdateChannelMessage struct {
 }
 
 // NewServer creates a new Management server
-func NewServer(datadir string, hostsConfig *HostsConfig) (*Server, error) {
+func NewServer(config *Config) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
 	}
-	store, err := NewStore(datadir)
+	store, err := NewStore(config.Datadir)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +48,7 @@ func NewServer(datadir string, hostsConfig *HostsConfig) (*Server, error) {
 		peerChannels:   make(map[string]chan *UpdateChannelMessage),
 		channelsMux:    &sync.Mutex{},
 		accountManager: NewManager(store),
-		hostsConfig:    hostsConfig,
+		config:         config,
 	}, nil
 }
 
@@ -178,14 +178,14 @@ func toResponseProto(configProto ConfigProto) proto.HostConfig_Protocol {
 		return proto.HostConfig_UDP_WITH_TLS
 	default:
 		//mbragin: todo something better?
-		panic(fmt.Errorf("unexpected hostsConfig protocol type %v", configProto))
+		panic(fmt.Errorf("unexpected config protocol type %v", configProto))
 	}
 }
 
 func (s *Server) toSyncResponse(peer *Peer, peers []*Peer) *proto.SyncResponse {
 
 	var stuns []*proto.HostConfig
-	for _, stun := range s.hostsConfig.Stuns {
+	for _, stun := range s.config.Stuns {
 		stuns = append(stuns, &proto.HostConfig{
 			Host:     stun.Host,
 			Port:     stun.Port,
@@ -193,7 +193,7 @@ func (s *Server) toSyncResponse(peer *Peer, peers []*Peer) *proto.SyncResponse {
 		})
 	}
 	var turns []*proto.ProtectedHostConfig
-	for _, turn := range s.hostsConfig.Turns {
+	for _, turn := range s.config.Turns {
 		turns = append(turns, &proto.ProtectedHostConfig{
 			HostConfig: &proto.HostConfig{
 				Host:     turn.Host,
@@ -205,14 +205,14 @@ func (s *Server) toSyncResponse(peer *Peer, peers []*Peer) *proto.SyncResponse {
 		})
 	}
 
-	//todo move to hostsConfig
+	//todo move to config
 	wtConfig := &proto.WiretrusteeConfig{
 		Stuns: stuns,
 		Turns: turns,
 		Signal: &proto.HostConfig{
-			Host:     s.hostsConfig.Signal.Host,
-			Port:     s.hostsConfig.Signal.Port,
-			Protocol: toResponseProto(s.hostsConfig.Signal.Proto),
+			Host:     s.config.Signal.Host,
+			Port:     s.config.Signal.Port,
+			Protocol: toResponseProto(s.config.Signal.Proto),
 		},
 	}
 

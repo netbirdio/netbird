@@ -22,7 +22,7 @@ import (
 var (
 	mgmtPort              int
 	mgmtDataDir           string
-	mgmtHostsConfig       string
+	mgmtConfig            string
 	mgmtLetsencryptDomain string
 
 	kaep = keepalive.EnforcementPolicy{
@@ -43,30 +43,29 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
 
-			config := &server.HostsConfig{}
-			_, err := util.ReadJson(mgmtHostsConfig, config)
+			config, err := loadConfig()
 			if err != nil {
-				log.Fatalf("failed reading provided config file: %s: %v", mgmtHostsConfig, err)
+				log.Fatalf("failed reading provided config file: %s: %v", mgmtConfig, err)
 			}
 
-			if _, err := os.Stat(mgmtDataDir); os.IsNotExist(err) {
-				err = os.MkdirAll(mgmtDataDir, os.ModeDir)
+			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
+				err = os.MkdirAll(config.Datadir, os.ModeDir)
 				if err != nil {
-					log.Fatalf("failed creating datadir: %s: %v", mgmtDataDir, err)
+					log.Fatalf("failed creating datadir: %s: %v", config.Datadir, err)
 				}
 			}
 
 			var opts []grpc.ServerOption
 
-			if mgmtLetsencryptDomain != "" {
-				transportCredentials := credentials.NewTLS(encryption.EnableLetsEncrypt(mgmtDataDir, mgmtLetsencryptDomain))
+			if config.LetsEncryptDomain != "" {
+				transportCredentials := credentials.NewTLS(encryption.EnableLetsEncrypt(config.Datadir, config.LetsEncryptDomain))
 				opts = append(opts, grpc.Creds(transportCredentials))
 			}
 
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 			grpcServer := grpc.NewServer(opts...)
 
-			server, err := server.NewServer(mgmtDataDir, config)
+			server, err := server.NewServer(config)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
 			}
@@ -91,12 +90,28 @@ var (
 	}
 )
 
+func loadConfig() (*server.Config, error) {
+	config := &server.Config{}
+	_, err := util.ReadJson(mgmtConfig, config)
+	if err != nil {
+		return nil, err
+	}
+	if mgmtLetsencryptDomain != "" {
+		config.LetsEncryptDomain = mgmtLetsencryptDomain
+	}
+	if mgmtDataDir != "" {
+		config.Datadir = mgmtDataDir
+	}
+
+	return config, err
+}
+
 func init() {
 	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 33073, "server port to listen on")
 	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/var/lib/wiretrustee/", "server data directory location")
-	mgmtCmd.Flags().StringVar(&mgmtHostsConfig, "hosts-config", "/etc/wiretrustee/hosts-config.json", "Wiretrustee system hosts config (STUN, TURN, Signal, etc). These will be advertised to peers ")
+	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", "/etc/wiretrustee/management.json", "Wiretrustee config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
 	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 
-	rootCmd.MarkFlagRequired("hosts-config") //nolint
+	rootCmd.MarkFlagRequired("config") //nolint
 
 }
