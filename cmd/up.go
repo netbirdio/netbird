@@ -37,11 +37,11 @@ var (
 				os.Exit(ExitSetupFailed)
 			}
 
-			mgmAddr := "localhost:33073" // todo read from config
+			log.Printf("Connecting to management server %s", config.ManagementAddr)
 			mgmCtx := context.Background()
 			mgmConn, err := grpc.DialContext(
 				mgmCtx,
-				mgmAddr,
+				config.ManagementAddr,
 				grpc.WithInsecure(),
 				grpc.WithBlock(),
 				grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -50,10 +50,12 @@ var (
 				}))
 
 			if err != nil {
-				log.Errorf("error while connecting to the Management Service %s: %s", mgmAddr, err)
+				log.Errorf("error while connecting to the Management Service %s: %s", config.ManagementAddr, err)
 				os.Exit(ExitSetupFailed)
 			}
 			defer mgmConn.Close()
+
+			log.Printf("Connected to management server %s", managementAddr)
 
 			mgmClient := mgm.NewManagementServiceClient(mgmConn)
 			serverKeyResponse, err := mgmClient.GetServerKey(mgmCtx, &mgm.Empty{})

@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"encoding/json"
-	ice "github.com/pion/ice/v2"
-	"github.com/wiretrustee/wiretrustee/connection"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+
+	ice "github.com/pion/ice/v2"
+	"github.com/wiretrustee/wiretrustee/connection"
 )
 
 // Config Configuration type
@@ -17,6 +18,7 @@ type Config struct {
 	StunTurnURLs []*ice.URL
 	// host:port of the signal server
 	SignalAddr     string
+	ManagementAddr string
 	WgAddr         string
 	WgIface        string
 	IFaceBlackList []string
