@@ -18,6 +18,7 @@ type Account struct {
 	Id        string
 	SetupKeys map[string]*SetupKey
 	Network   *Network
+	Peers     []*Peer
 }
 
 // SetupKey represents a pre-authorized key used to register machines (peers)
@@ -29,12 +30,10 @@ type SetupKey struct {
 // Peer represents a machine connected to the network.
 // The Peer is a Wireguard peer identified by a public key
 type Peer struct {
-	AccountId string
 	// Wireguard public key
 	Key string
 	// A setup key this peer was registered with
 	SetupKey *SetupKey
-
 	// IP address of the Peer
 	IP net.IP
 }
@@ -71,13 +70,8 @@ func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error)
 		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
 	}
 
-	peers, err := manager.Store.GetAccountPeers(account.Id)
-	if err != nil {
-		return nil, err
-	}
-
 	var res []*Peer
-	for _, peer := range peers {
+	for _, peer := range account.Peers {
 		if peer.Key != peerKey {
 			res = append(res, peer)
 		}
@@ -100,13 +94,8 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 		return nil, err
 	}
 
-	peers, err := manager.Store.GetAccountPeers(account.Id)
-	if err != nil {
-		return nil, err
-	}
-
 	var takenIps []net.IP
-	for _, peer := range peers {
+	for _, peer := range account.Peers {
 		takenIps = append(takenIps, peer.IP)
 	}
 
@@ -114,13 +103,13 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 	nextIp, _ := AllocatePeerIP(network.Net, takenIps)
 
 	newPeer := &Peer{
-		AccountId: account.Id,
-		Key:       peerKey,
-		SetupKey:  &SetupKey{Key: setupKey},
-		IP:        nextIp,
+		Key:      peerKey,
+		SetupKey: &SetupKey{Key: setupKey},
+		IP:       nextIp,
 	}
 
-	err = manager.Store.SavePeer(newPeer)
+	account.Peers = append(account.Peers, newPeer)
+	err = manager.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")
 	}
