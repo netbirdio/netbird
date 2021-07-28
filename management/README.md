@@ -78,7 +78,17 @@ docker run -d --name wiretrustee-management \
 -v wiretrustee-mgmt:/var/lib/wiretrustee  \
 wiretrustee/management:latest
 ```
+### Debug tag
+We also publish a docker image with the debug tag which has the log-level set to default, plus it uses the ```gcr.io/distroless/base:debug``` image that can be used with docker exec in order to run some commands in the Management container.
+```shell
+shell $ docker run -d --name wiretrustee-management-debug \
+-p 33073:33073  \
+-v wiretrustee-mgmt:/var/lib/wiretrustee  \
+wiretrustee/management:debug-latest
 
+shell $ docker exec -ti wiretrustee-management-debug /bin/sh
+container-shell $ 
+```
 ## For development purposes:
 
 Install golang gRpc tools:

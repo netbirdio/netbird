@@ -99,6 +99,21 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=wiretrustee@wiretrustee.com"
   - image_templates:
+      - wiretrustee/management:{{ .Version }}-arm64v8
+    ids:
+      - wiretrustee-mgmt
+    goarch: arm64
+    use: buildx
+    dockerfile: management/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
       - wiretrustee/management:{{ .Version }}-debug-amd64
     ids:
       - wiretrustee-mgmt
@@ -114,12 +129,12 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=wiretrustee@wiretrustee.com"
   - image_templates:
-      - wiretrustee/management:{{ .Version }}-arm64v8
+      - wiretrustee/management:{{ .Version }}-debug-arm64v8
     ids:
       - wiretrustee-mgmt
     goarch: arm64
     use: buildx
-    dockerfile: management/Dockerfile
+    dockerfile: management/Dockerfile.debug
     build_flag_templates:
       - "--platform=linux/arm64"
       - "--label=org.opencontainers.image.created={{.Date}}"
@@ -149,3 +164,8 @@ docker_manifests:
     image_templates:
       - wiretrustee/management:{{ .Version }}-arm64v8
       - wiretrustee/management:{{ .Version }}-amd64
+
+  - name_template: wiretrustee/management:debug-latest
+    image_templates:
+      - wiretrustee/management:{{ .Version }}-debug-arm64v8
+      - wiretrustee/management:{{ .Version }}-debug-amd64
