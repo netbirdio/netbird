@@ -153,6 +153,8 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 					peersToSend = append(peersToSend, p)
 				}
 			}
+
+			log.Printf("Sending %v peers to %s", len(peersToSend), peer)
 			update := &proto.SyncResponse{Peers: peersToSend}
 			channel <- &UpdateChannelMessage{Update: update}
 		}
