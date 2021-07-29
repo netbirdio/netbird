@@ -164,7 +164,7 @@ func updatePeers(mgmClient mgm.ManagementServiceClient, remotePubKey wgtypes.Key
 
 		for _, peer := range resp.Peers {
 			log.Infof("Peer: %s", peer)
-			addPeer(peer, "")
+			_ = addPeer(peer, "")
 		}
 
 		// for _, peer := range resp.RemotePeers {
