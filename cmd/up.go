@@ -88,7 +88,8 @@ func processManagement(managementAddr string, setupKey string, ourPrivateKey wgt
 
 func connectToManagement(managementAddr string, setupKey string, ourPrivateKey wgtypes.Key) error {
 	log.Printf("Connecting to management server %s", managementAddr)
-	mgmCtx := context.Background()
+	mgmCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	mgmConn, err := grpc.DialContext(
 		mgmCtx,
 		managementAddr,
