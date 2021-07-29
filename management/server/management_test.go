@@ -113,20 +113,17 @@ var _ = Describe("Management service", func() {
 				Expect(resp.PeerConfig.Address).To(BeEquivalentTo("100.64.0.1"))
 
 				expectedSignalConfig := &mgmtProto.HostConfig{
-					Host:     "signal.wiretrustee.com",
-					Port:     10000,
-					Protocol: mgmtProto.HostConfig_TCP,
+					Uri:      "signal.wiretrustee.com:10000",
+					Protocol: mgmtProto.HostConfig_HTTP,
 				}
 				expectedStunsConfig := &mgmtProto.HostConfig{
-					Host:     "stun.wiretrustee.com",
-					Port:     3468,
-					Protocol: mgmtProto.HostConfig_TCP,
+					Uri:      "stun:stun.wiretrustee.com:3468",
+					Protocol: mgmtProto.HostConfig_UDP,
 				}
 				expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
 					HostConfig: &mgmtProto.HostConfig{
-						Host:     "stun.wiretrustee.com",
-						Port:     3468,
-						Protocol: mgmtProto.HostConfig_TCP,
+						Uri:      "turn:stun.wiretrustee.com:3468",
+						Protocol: mgmtProto.HostConfig_UDP,
 					},
 					User:     "some_user",
 					Password: "some_password",

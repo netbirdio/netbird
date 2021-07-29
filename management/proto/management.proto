@@ -75,15 +75,16 @@ message WiretrusteeConfig {
 
 // HostConfig describes connection properties of some server (e.g. STUN, Signal, Management)
 message HostConfig {
-  string host = 1;
-  int32 port = 2;
-  Protocol protocol = 3;
+  // URI of the resource e.g. turns://stun.wiretrustee.com:4430 or signal.wiretrustee.com:10000
+  string uri = 1;
+  Protocol protocol = 2;
 
   enum Protocol {
     UDP = 0;
     TCP = 1;
-    TCP_WITH_TLS = 2;
-    UDP_WITH_TLS = 3;
+    HTTP = 2;
+    HTTPS = 3;
+    DTLS = 4;
   }
 }
 // ProtectedHostConfig is similar to HostConfig but has additional user and password

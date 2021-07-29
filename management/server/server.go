@@ -158,7 +158,7 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 					peersToSend = append(peersToSend, p)
 				}
 			}
-			update := s.toSyncResponse(peer, peersToSend)
+			update := toSyncResponse(s.config, peer, peersToSend)
 			channel <- &UpdateChannelMessage{Update: update}
 		}
 	}
@@ -166,38 +166,38 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 	return &proto.RegisterPeerResponse{}, nil
 }
 
-func toResponseProto(configProto ConfigProto) proto.HostConfig_Protocol {
+func toResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	switch configProto {
 	case UDP:
 		return proto.HostConfig_UDP
-	case UDPWithTLS:
-		return proto.HostConfig_UDP_WITH_TLS
+	case DTLS:
+		return proto.HostConfig_DTLS
+	case HTTP:
+		return proto.HostConfig_HTTP
+	case HTTPS:
+		return proto.HostConfig_HTTPS
 	case TCP:
 		return proto.HostConfig_TCP
-	case TCPWithTLS:
-		return proto.HostConfig_UDP_WITH_TLS
 	default:
 		//mbragin: todo something better?
 		panic(fmt.Errorf("unexpected config protocol type %v", configProto))
 	}
 }
 
-func (s *Server) toSyncResponse(peer *Peer, peers []*Peer) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *Peer, peers []*Peer) *proto.SyncResponse {
 
 	var stuns []*proto.HostConfig
-	for _, stun := range s.config.Stuns {
+	for _, stun := range config.Stuns {
 		stuns = append(stuns, &proto.HostConfig{
-			Host:     stun.Host,
-			Port:     stun.Port,
+			Uri:      stun.URI,
 			Protocol: toResponseProto(stun.Proto),
 		})
 	}
 	var turns []*proto.ProtectedHostConfig
-	for _, turn := range s.config.Turns {
+	for _, turn := range config.Turns {
 		turns = append(turns, &proto.ProtectedHostConfig{
 			HostConfig: &proto.HostConfig{
-				Host:     turn.Host,
-				Port:     turn.Port,
+				Uri:      turn.URI,
 				Protocol: toResponseProto(turn.Proto),
 			},
 			User:     turn.Username,
@@ -205,14 +205,12 @@ func (s *Server) toSyncResponse(peer *Peer, peers []*Peer) *proto.SyncResponse {
 		})
 	}
 
-	//todo move to config
 	wtConfig := &proto.WiretrusteeConfig{
 		Stuns: stuns,
 		Turns: turns,
 		Signal: &proto.HostConfig{
-			Host:     s.config.Signal.Host,
-			Port:     s.config.Signal.Port,
-			Protocol: toResponseProto(s.config.Signal.Proto),
+			Uri:      config.Signal.URI,
+			Protocol: toResponseProto(config.Signal.Proto),
 		},
 	}
 
@@ -276,7 +274,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 		log.Warnf("error getting a list of peers for a peer %s", peer.Key)
 		return err
 	}
-	plainResp := s.toSyncResponse(peer, peers)
+	plainResp := toSyncResponse(s.config, peer, peers)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
