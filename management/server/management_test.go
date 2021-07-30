@@ -2,7 +2,7 @@ package server_test
 
 import (
 	"context"
-	server2 "github.com/wiretrustee/wiretrustee/management/server"
+	server "github.com/wiretrustee/wiretrustee/management/server"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -33,7 +33,7 @@ var _ = Describe("Management service", func() {
 
 	var (
 		addr         string
-		server       *grpc.Server
+		s            *grpc.Server
 		dataDir      string
 		client       mgmtProto.ManagementServiceClient
 		serverPubKey wgtypes.Key
@@ -50,11 +50,17 @@ var _ = Describe("Management service", func() {
 		err = util.CopyFileContents("testdata/store.json", filepath.Join(dataDir, "store.json"))
 		Expect(err).NotTo(HaveOccurred())
 		var listener net.Listener
-		server, listener = startServer(dataDir)
+
+		config := &server.Config{}
+		_, err = util.ReadJson("testdata/management.json", config)
+		Expect(err).NotTo(HaveOccurred())
+		config.Datadir = dataDir
+
+		s, listener = startServer(config)
 		addr = listener.Addr().String()
 		client, conn = createRawClient(addr)
 
-		// server public key
+		// s public key
 		resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
 		Expect(err).NotTo(HaveOccurred())
 		serverPubKey, err = wgtypes.ParseKey(resp.Key)
@@ -63,7 +69,7 @@ var _ = Describe("Management service", func() {
 	})
 
 	AfterEach(func() {
-		server.Stop()
+		s.Stop()
 		err := conn.Close()
 		Expect(err).NotTo(HaveOccurred())
 		err = os.RemoveAll(dataDir)
@@ -81,6 +87,54 @@ var _ = Describe("Management service", func() {
 	})
 
 	Context("when calling Sync endpoint", func() {
+
+		Context("when there is a new peer registered", func() {
+			Specify("a proper configuration is returned", func() {
+				key, _ := wgtypes.GenerateKey()
+				registerPeerWithValidSetupKey(key, client)
+
+				encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.SyncRequest{})
+				Expect(err).NotTo(HaveOccurred())
+
+				sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+					WgPubKey: key.PublicKey().String(),
+					Body:     encryptedBytes,
+				})
+				Expect(err).NotTo(HaveOccurred())
+
+				encryptedResponse := &mgmtProto.EncryptedMessage{}
+				err = sync.RecvMsg(encryptedResponse)
+				Expect(err).NotTo(HaveOccurred())
+
+				resp := &mgmtProto.SyncResponse{}
+				err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)
+				Expect(err).NotTo(HaveOccurred())
+
+				Expect(resp.PeerConfig.Address).To(BeEquivalentTo("100.64.0.1"))
+
+				expectedSignalConfig := &mgmtProto.HostConfig{
+					Uri:      "signal.wiretrustee.com:10000",
+					Protocol: mgmtProto.HostConfig_HTTP,
+				}
+				expectedStunsConfig := &mgmtProto.HostConfig{
+					Uri:      "stun:stun.wiretrustee.com:3468",
+					Protocol: mgmtProto.HostConfig_UDP,
+				}
+				expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
+					HostConfig: &mgmtProto.HostConfig{
+						Uri:      "turn:stun.wiretrustee.com:3468",
+						Protocol: mgmtProto.HostConfig_UDP,
+					},
+					User:     "some_user",
+					Password: "some_password",
+				}
+
+				Expect(resp.WiretrusteeConfig.Signal).To(BeEquivalentTo(expectedSignalConfig))
+				Expect(resp.WiretrusteeConfig.Stuns).To(ConsistOf(expectedStunsConfig))
+				Expect(resp.WiretrusteeConfig.Turns).To(ConsistOf(expectedTurnsConfig))
+
+			})
+		})
 
 		Context("when there are 3 peers registered under one account", func() {
 			Specify("a list containing other 2 peers is returned", func() {
@@ -112,8 +166,9 @@ var _ = Describe("Management service", func() {
 				err = pb.Unmarshal(decryptedBytes, resp)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(resp.GetPeers()).To(HaveLen(2))
-				Expect(resp.GetPeers()).To(ContainElements(key1.PublicKey().String(), key2.PublicKey().String()))
+				Expect(resp.GetRemotePeers()).To(HaveLen(2))
+				peers := []string{resp.GetRemotePeers()[0].WgPubKey, resp.GetRemotePeers()[1].WgPubKey}
+				Expect(peers).To(ContainElements(key1.PublicKey().String(), key2.PublicKey().String()))
 
 			})
 		})
@@ -143,7 +198,7 @@ var _ = Describe("Management service", func() {
 				Expect(err).NotTo(HaveOccurred())
 				resp := &mgmtProto.SyncResponse{}
 				err = pb.Unmarshal(decryptedBytes, resp)
-				Expect(resp.GetPeers()).To(HaveLen(0))
+				Expect(resp.GetRemotePeers()).To(HaveLen(0))
 
 				wg := sync2.WaitGroup{}
 				wg.Add(1)
@@ -167,8 +222,8 @@ var _ = Describe("Management service", func() {
 				wg.Wait()
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(resp.GetPeers()).To(ContainElements(key1.PublicKey().String()))
-				Expect(resp.GetPeers()).To(HaveLen(1))
+				Expect(resp.GetRemotePeers()).To(HaveLen(1))
+				Expect(resp.GetRemotePeers()[0].WgPubKey).To(BeEquivalentTo(key1.PublicKey().String()))
 			})
 		})
 	})
@@ -291,6 +346,52 @@ var _ = Describe("Management service", func() {
 			})
 		})
 	})
+
+	Context("when there are peers registered under one account concurrently", func() {
+		Specify("then there are no duplicate IPs", func() {
+
+			initialPeers := 30
+
+			ipChannel := make(chan string, 20)
+			for i := 0; i < initialPeers; i++ {
+				go func() {
+					key, _ := wgtypes.GenerateKey()
+					registerPeerWithValidSetupKey(key, client)
+					encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.SyncRequest{})
+					Expect(err).NotTo(HaveOccurred())
+
+					// open stream
+					sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
+						WgPubKey: key.PublicKey().String(),
+						Body:     encryptedBytes,
+					})
+					Expect(err).NotTo(HaveOccurred())
+					encryptedResponse := &mgmtProto.EncryptedMessage{}
+					err = sync.RecvMsg(encryptedResponse)
+					Expect(err).NotTo(HaveOccurred())
+
+					resp := &mgmtProto.SyncResponse{}
+					err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)
+					Expect(err).NotTo(HaveOccurred())
+
+					ipChannel <- resp.GetPeerConfig().Address
+
+				}()
+			}
+
+			ips := make(map[string]struct{})
+			for ip := range ipChannel {
+				if _, ok := ips[ip]; ok {
+					Fail("found duplicate IP: " + ip)
+				}
+				ips[ip] = struct{}{}
+				if len(ips) == initialPeers {
+					break
+				}
+			}
+			close(ipChannel)
+		})
+	})
 })
 
 func registerPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.RegisterPeerResponse {
@@ -320,13 +421,13 @@ func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.Clie
 	return mgmtProto.NewManagementServiceClient(conn), conn
 }
 
-func startServer(dataDir string) (*grpc.Server, net.Listener) {
+func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
-	server, err := server2.NewServer(dataDir)
+	mgmtServer, err := server.NewServer(config)
 	Expect(err).NotTo(HaveOccurred())
-	mgmtProto.RegisterManagementServiceServer(s, server)
+	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			Expect(err).NotTo(HaveOccurred())

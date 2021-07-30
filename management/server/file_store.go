@@ -1,4 +1,4 @@
-package store
+package server
 
 import (
 	"os"
@@ -24,6 +24,9 @@ type FileStore struct {
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
 	storeFile string     `json:"-"`
+}
+
+type StoredAccount struct {
 }
 
 // NewStore restores a store from the file located in the datadir
@@ -59,15 +62,13 @@ func restore(file string) (*FileStore, error) {
 	store := read.(*FileStore)
 	store.storeFile = file
 	store.SetupKeyId2AccountId = make(map[string]string)
+	store.PeerKeyId2AccountId = make(map[string]string)
 	for accountId, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyId2AccountId[strings.ToLower(setupKeyId)] = accountId
 		}
-	}
-	store.PeerKeyId2AccountId = make(map[string]string)
-	for accountId, account := range store.Accounts {
-		for peerId := range account.Peers {
-			store.PeerKeyId2AccountId[strings.ToLower(peerId)] = accountId
+		for _, peer := range account.Peers {
+			store.PeerKeyId2AccountId[strings.ToLower(peer.Key)] = accountId
 		}
 	}
 
@@ -80,47 +81,32 @@ func (s *FileStore) persist(file string) error {
 	return util.WriteJson(file, s)
 }
 
-// PeerExists checks whether peer exists or not
-func (s *FileStore) PeerExists(peerKey string) bool {
+// GetPeer returns a peer from a Store
+func (s *FileStore) GetPeer(peerKey string) (*Peer, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	_, accountIdFound := s.PeerKeyId2AccountId[peerKey]
-	return accountIdFound
-}
-
-// AddPeer adds peer to the store and associates it with a Account and a SetupKey. Returns related Account
-// Each Account has a list of pre-authorised SetupKey and if no Account has a given key err will be returned, meaning the key is invalid
-func (s *FileStore) AddPeer(setupKey string, peerKey string) error {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToLower(setupKey)]
+	accountId, accountIdFound := s.PeerKeyId2AccountId[peerKey]
 	if !accountIdFound {
-		return status.Errorf(codes.NotFound, "Provided setup key doesn't exists")
+		return nil, status.Errorf(codes.Internal, "account not found")
 	}
 
-	account, accountFound := s.Accounts[accountId]
-	if !accountFound {
-		return status.Errorf(codes.Internal, "Invalid setup key")
-	}
-
-	key, setupKeyFound := account.SetupKeys[strings.ToLower(setupKey)]
-	if !setupKeyFound {
-		return status.Errorf(codes.Internal, "Invalid setup key")
-	}
-
-	account.Peers[peerKey] = &Peer{Key: peerKey, SetupKey: key}
-	s.PeerKeyId2AccountId[peerKey] = accountId
-	err := s.persist(s.storeFile)
+	account, err := s.GetAccount(accountId)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+
+	for _, peer := range account.Peers {
+		if peer.Key == peerKey {
+			return peer, nil
+		}
+	}
+
+	return nil, status.Errorf(codes.NotFound, "peer not found")
 }
 
-// AddAccount adds new account to the store.
-func (s *FileStore) AddAccount(account *Account) error {
+// SaveAccount updates an existing account or adds a new one
+func (s *FileStore) SaveAccount(account *Account) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -133,6 +119,10 @@ func (s *FileStore) AddAccount(account *Account) error {
 		s.SetupKeyId2AccountId[strings.ToLower(keyId)] = account.Id
 	}
 
+	for _, peer := range account.Peers {
+		s.PeerKeyId2AccountId[peer.Key] = account.Id
+	}
+
 	err := s.persist(s.storeFile)
 	if err != nil {
 		return err
@@ -141,9 +131,32 @@ func (s *FileStore) AddAccount(account *Account) error {
 	return nil
 }
 
-// GetPeersForAPeer returns a list of peers available for a given peer (key)
-// Effectively all the peers of the original peer's account if any
-func (s *FileStore) GetPeersForAPeer(peerKey string) ([]string, error) {
+func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
+
+	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToLower(setupKey)]
+	if !accountIdFound {
+		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
+	}
+
+	account, err := s.GetAccount(accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
+}
+
+func (s *FileStore) GetAccount(accountId string) (*Account, error) {
+
+	account, accountFound := s.Accounts[accountId]
+	if !accountFound {
+		return nil, status.Errorf(codes.Internal, "account not found")
+	}
+
+	return account, nil
+}
+
+func (s *FileStore) GetPeerAccount(peerKey string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -152,16 +165,5 @@ func (s *FileStore) GetPeersForAPeer(peerKey string) ([]string, error) {
 		return nil, status.Errorf(codes.NotFound, "Provided peer key doesn't exists %s", peerKey)
 	}
 
-	account, accountFound := s.Accounts[accountId]
-	if !accountFound {
-		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
-	}
-	peers := make([]string, 0, len(account.Peers))
-	for p := range account.Peers {
-		if p != peerKey {
-			peers = append(peers, p)
-		}
-	}
-
-	return peers, nil
+	return s.GetAccount(accountId)
 }
