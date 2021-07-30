@@ -16,9 +16,11 @@ docker run -d --name wiretrustee-management \
 -p 33073:33073  \
 -p 443:443  \
 -v /var/lib/wiretrustee/:/var/lib/wiretrustee/  \
+-v /etc/wiretrustee/:/etc/wiretrustee/  \
 wiretrustee/wiretrustee:management-v0.0.8-SNAPSHOT-079d35e-amd64  \
 --port 33073  \
 --datadir /var/lib/wiretrustee/ \
+--hosts-config /etc/wiretrustee/hosts-config.json \
 --letsencrypt-domain <YOUR-DOMAIN>  \
 --log-level info
 ```
@@ -91,11 +93,45 @@ Certificate:
 docker run -d --name wiretrustee-management \
 -p 33073:33073  \
 -v /var/lib/wiretrustee/:/var/lib/wiretrustee/  \
+-v /etc/wiretrustee/:/etc/wiretrustee/  \
 wiretrustee/wiretrustee:management-v0.0.8-SNAPSHOT-079d35e-amd64  \
 --port 33073  \
 --datadir /var/lib/wiretrustee/ \
+--hosts-config /etc/wiretrustee/hosts-config.json \
 --letsencrypt-domain app.wiretrustee.com  \
 --log-level debug
+```
+
+### hosts-config.json file example:
+
+```json
+{
+    "Stuns": [
+        {
+            "Proto": 2,
+            "Host": "stun.wiretrustee.com",
+            "Port": 3468,
+            "Username": "",
+            "Password": null
+        }
+    ],
+    "Turns": [
+        {
+            "Proto": 2,
+            "Host": "stun.wiretrustee.com",
+            "Port": 3468,
+            "Username": "some_user",
+            "Password": "c29tZV9wYXNzd29yZA=="
+        }
+    ],
+    "Signal": {
+        "Proto": 2,
+        "Host": "signal.wiretrustee.com",
+        "Port": 10000,
+        "Username": "",
+        "Password": null
+    }
+}
 ```
 
 ## For development purposes:
