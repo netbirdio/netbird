@@ -21,7 +21,7 @@ var (
 	logLevel          string
 
 	rootCmd = &cobra.Command{
-		Use:   "wiretrustee",
+		Use:   "wiretrustee-mgmt",
 		Short: "",
 		Long:  "",
 	}
