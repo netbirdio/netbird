@@ -7,7 +7,7 @@ The CLI accepts the command **management** with the following options:
 start Wiretrustee Management Server
 
 Usage:
-  wiretrustee management [flags]
+  wiretrustee-mgmt management [flags]
 
 Flags:
       --datadir string              server data directory location (default "/var/lib/wiretrustee/")
@@ -39,9 +39,11 @@ docker run -d --name wiretrustee-management \
 -p 33073:33073  \
 -p 443:443  \
 -v wiretrustee-mgmt:/var/lib/wiretrustee  \
+-v ./config.json:/etc/wiretrustee/config.json  \
 wiretrustee/management:latest \
 --letsencrypt-domain <YOUR-DOMAIN>
 ```
+> An example of config.json can be found here [config.json](../infrastructure_files/config.json)
 
 Trigger Let's encrypt certificate generation:
 ```bash
@@ -76,6 +78,7 @@ docker volume create wiretrustee-mgmt
 docker run -d --name wiretrustee-management \
 -p 33073:33073  \
 -v wiretrustee-mgmt:/var/lib/wiretrustee  \
+-v ./config.json:/etc/wiretrustee/config.json  \
 wiretrustee/management:latest
 ```
 ### Debug tag
@@ -84,6 +87,7 @@ We also publish a docker image with the debug tag which has the log-level set to
 shell $ docker run -d --name wiretrustee-management-debug \
 -p 33073:33073  \
 -v wiretrustee-mgmt:/var/lib/wiretrustee  \
+-v ./config.json:/etc/wiretrustee/config.json  \
 wiretrustee/management:debug-latest
 
 shell $ docker exec -ti wiretrustee-management-debug /bin/sh
