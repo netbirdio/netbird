@@ -24,7 +24,7 @@ builds:
   - id: wiretrustee-mgmt
     dir: management
     env: [CGO_ENABLED=0]
-
+    binary: wiretrustee-mgmt
     goos:
       - linux
     goarch:

@@ -7,7 +7,7 @@ The CLI accepts the command **management** with the following options:
 start Wiretrustee Management Server
 
 Usage:
-  wiretrustee management [flags]
+  wiretrustee-mgmt management [flags]
 
 Flags:
       --datadir string              server data directory location (default "/var/lib/wiretrustee/")
