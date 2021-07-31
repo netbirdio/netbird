@@ -1,0 +1,24 @@
+{
+    "Stuns": [
+        {
+            "Proto": "udp",
+            "URI": "stun:stun.wiretrustee.com:3468",
+            "Username": "",
+            "Password": null
+        }
+    ],
+    "Turns": [
+        {
+            "Proto": "udp",
+            "URI": "turn:stun.wiretrustee.com:3468",
+            "Username": "some_turn_user",
+            "Password": "some_turn_passwd"
+        }
+    ],
+    "Signal": {
+        "Proto": "http",
+        "URI": "signal.wiretrustee.com:10000",
+        "Username": "",
+        "Password": null
+    }
+}
