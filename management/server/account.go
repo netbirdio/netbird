@@ -1,6 +1,8 @@
 package server
 
 import (
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net"
@@ -18,7 +20,7 @@ type Account struct {
 	Id        string
 	SetupKeys map[string]*SetupKey
 	Network   *Network
-	Peers     []*Peer
+	Peers     map[string]*Peer
 }
 
 // SetupKey represents a pre-authorized key used to register machines (peers)
@@ -84,14 +86,23 @@ func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error)
 // Each Account has a list of pre-authorised SetupKey and if no Account has a given key err wit ha code codes.Unauthenticated
 // will be returned, meaning the key is invalid
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
+// If the specified setupKey is empty then a new Account will be created //todo make it more explicit?
 func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, error) {
 	manager.mux.Lock()
 	defer manager.mux.Unlock()
 
-	account, err := manager.Store.GetAccountBySetupKey(setupKey)
-	if err != nil {
-		//todo
-		return nil, err
+	var account *Account
+	var err error
+	var sk *SetupKey
+	if len(setupKey) == 0 {
+		// Empty setup key, create a new account for it.
+		account, sk = manager.newAccount()
+	} else {
+		sk = &SetupKey{Key: setupKey}
+		account, err = manager.Store.GetAccountBySetupKey(sk.Key)
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", setupKey)
+		}
 	}
 
 	var takenIps []net.IP
@@ -104,11 +115,11 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 
 	newPeer := &Peer{
 		Key:      peerKey,
-		SetupKey: &SetupKey{Key: setupKey},
+		SetupKey: sk,
 		IP:       nextIp,
 	}
 
-	account.Peers = append(account.Peers, newPeer)
+	account.Peers[newPeer.Key] = newPeer
 	err = manager.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")
@@ -116,4 +127,22 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 
 	return newPeer, nil
 
+}
+
+// newAccount creates a new Account with a default SetupKey (doesn't store in a Store)
+func (manager *AccountManager) newAccount() (*Account, *SetupKey) {
+
+	log.Debugf("creating new account")
+
+	accountId := uuid.New().String()
+	setupKeyId := uuid.New().String()
+	setupKeys := make(map[string]*SetupKey)
+	setupKey := &SetupKey{Key: setupKeyId}
+	setupKeys[setupKeyId] = setupKey
+	network := &Network{Id: uuid.New().String(), Net: net.IPNet{}, Dns: ""}
+	peers := make(map[string]*Peer)
+
+	log.Debugf("created new account %s with setup key %s", accountId, setupKeyId)
+
+	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers}, setupKey
 }

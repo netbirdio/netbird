@@ -1,21 +1,23 @@
 package cmd
 
 import (
+	"os"
+	"strings"
+
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"os"
-	"strings"
 )
 
 var (
-	wgKey       string
-	wgInterface string
-	wgLocalAddr string
-	signalAddr  string
-	stunURLs    string
-	turnURLs    string
+	wgKey          string
+	wgInterface    string
+	wgLocalAddr    string
+	signalAddr     string
+	managementAddr string
+	stunURLs       string
+	turnURLs       string
 
 	initCmd = &cobra.Command{
 		Use:   "init",
@@ -81,12 +83,13 @@ var (
 			}
 
 			config := &Config{
-				PrivateKey:   wgKey,
-				Peers:        nil,
-				StunTurnURLs: stunTurnURLs,
-				SignalAddr:   signalAddr,
-				WgAddr:       wgLocalAddr,
-				WgIface:      wgInterface,
+				PrivateKey:     wgKey,
+				Peers:          nil,
+				StunTurnURLs:   stunTurnURLs,
+				SignalAddr:     signalAddr,
+				ManagementAddr: managementAddr,
+				WgAddr:         wgLocalAddr,
+				WgIface:        wgInterface,
 			}
 
 			err = config.Write(configPath)
@@ -105,14 +108,16 @@ func init() {
 	initCmd.PersistentFlags().StringVar(&wgInterface, "wgInterface", "wiretrustee0", "Wireguard interface name, e.g. wiretreustee0 or wg0")
 	initCmd.PersistentFlags().StringVar(&wgLocalAddr, "wgLocalAddr", "", "Wireguard local address, e.g. 10.30.30.1/24")
 	initCmd.PersistentFlags().StringVar(&signalAddr, "signalAddr", "", "Signal server address, e.g. signal.wiretrustee.com:10000")
+	initCmd.PersistentFlags().StringVar(&managementAddr, "managementAddr", "", "Management server address, e.g. management.wiretrustee.com:10000")
 	initCmd.PersistentFlags().StringVar(&stunURLs, "stunURLs", "", "Comma separated STUN server URLs: protocol:host:port, e.g. stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302")
 	//todo user:password@protocol:host:port not the best way to pass TURN credentials, do it according to https://tools.ietf.org/html/rfc7065 E.g. use oauth
 	initCmd.PersistentFlags().StringVar(&turnURLs, "turnURLs", "", "Comma separated TURN server URLs: user:password@protocol:host:port, e.g. user:password@turn:stun.wiretrustee.com:3468")
 	//initCmd.MarkPersistentFlagRequired("configPath")
-	initCmd.MarkPersistentFlagRequired("wgLocalAddr") //nolint
-	initCmd.MarkPersistentFlagRequired("signalAddr")  //nolint
-	initCmd.MarkPersistentFlagRequired("stunURLs")    //nolint
-	initCmd.MarkPersistentFlagRequired("turnURLs")    //nolint
+	initCmd.MarkPersistentFlagRequired("wgLocalAddr")    //nolint
+	initCmd.MarkPersistentFlagRequired("signalAddr")     //nolint
+	initCmd.MarkPersistentFlagRequired("managementAddr") //nolint
+	initCmd.MarkPersistentFlagRequired("stunURLs")       //nolint
+	initCmd.MarkPersistentFlagRequired("turnURLs")       //nolint
 }
 
 // generateKey generates a new Wireguard private key

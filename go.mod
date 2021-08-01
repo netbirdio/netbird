@@ -5,6 +5,7 @@ go 1.16
 require (
 	github.com/cenkalti/backoff/v4 v4.1.0
 	github.com/golang/protobuf v1.5.2
+	github.com/google/uuid v1.2.0 // indirect
 	github.com/kardianos/service v1.2.0
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.13.0
