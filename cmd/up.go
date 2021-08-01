@@ -42,8 +42,9 @@ var (
 
 			go processManagement(config.ManagementAddr, setupKey, myKey)
 
+			var sigTLSEnabled = false
 			ctx := context.Background()
-			signalClient, err := sig.NewClient(ctx, config.SignalAddr, myKey)
+			signalClient, err := sig.NewClient(ctx, config.SignalAddr, myKey, sigTLSEnabled)
 			if err != nil {
 				log.Errorf("error while connecting to the Signal Exchange Service %s: %s", config.SignalAddr, err)
 				os.Exit(ExitSetupFailed)

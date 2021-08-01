@@ -2,6 +2,7 @@ package signal
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
@@ -10,6 +11,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -38,12 +40,18 @@ func (c *Client) Close() error {
 }
 
 // NewClient creates a new Signal client
-func NewClient(ctx context.Context, addr string, key wgtypes.Key) (*Client, error) {
+func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (*Client, error) {
+
+	transportOption := grpc.WithInsecure()
+
+	if tlsEnabled {
+		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
+	}
 
 	conn, err := grpc.DialContext(
 		ctx,
 		addr,
-		grpc.WithInsecure(),
+		transportOption,
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    3 * time.Second,
