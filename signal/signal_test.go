@@ -144,7 +144,8 @@ var _ = Describe("Client", func() {
 })
 
 func createSignalClient(addr string, key wgtypes.Key) *signal.Client {
-	client, err := signal.NewClient(context.Background(), addr, key)
+	var sigTLSEnabled = false
+	client, err := signal.NewClient(context.Background(), addr, key, sigTLSEnabled)
 	if err != nil {
 		Fail("failed creating signal client")
 	}

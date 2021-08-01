@@ -39,7 +39,9 @@ func Test_Start(t *testing.T) {
 
 	iFaceBlackList := make(map[string]struct{})
 
-	signalClient, err := sig.NewClient(ctx, "signal.wiretrustee.com:10000", testKey)
+	var sigTLSEnabled = false
+
+	signalClient, err := sig.NewClient(ctx, "signal.wiretrustee.com:10000", testKey, sigTLSEnabled)
 	if err != nil {
 		t.Fatal(err)
 	}
