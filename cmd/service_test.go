@@ -2,10 +2,11 @@ package cmd
 
 import (
 	"bytes"
-	"github.com/kardianos/service"
 	"io/ioutil"
 	"os"
 	"testing"
+
+	"github.com/kardianos/service"
 )
 
 func Test_ServiceInstallCMD(t *testing.T) {
@@ -65,6 +66,8 @@ func Test_ServiceRunCMD(t *testing.T) {
 		"stun:stun.wiretrustee.com:3468",
 		"--signalAddr",
 		"signal.wiretrustee.com:10000",
+		"--managementAddr",
+		"management.wiretrustee.com:10000",
 		"--turnURLs",
 		"foo:bar@turn:stun.wiretrustee.com:3468",
 		"--wgInterface",

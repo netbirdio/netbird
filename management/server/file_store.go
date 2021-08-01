@@ -96,10 +96,8 @@ func (s *FileStore) GetPeer(peerKey string) (*Peer, error) {
 		return nil, err
 	}
 
-	for _, peer := range account.Peers {
-		if peer.Key == peerKey {
-			return peer, nil
-		}
+	if peer, ok := account.Peers[peerKey]; ok {
+		return peer, nil
 	}
 
 	return nil, status.Errorf(codes.NotFound, "peer not found")

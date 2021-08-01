@@ -14,7 +14,8 @@
                     "Mask": "/8AAAA=="
                 },
                 "Dns": null
-            }
+            },
+            "Peers": {}
         }
     }
 }
