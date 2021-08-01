@@ -1,0 +1,3 @@
+FROM gcr.io/distroless/base:debug
+ENTRYPOINT [ "/go/bin/wiretrustee-mgmt","management","--log-level","debug"]
+COPY wiretrustee-mgmt /go/bin/wiretrustee-mgmt
