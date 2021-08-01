@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -163,9 +164,9 @@ func updatePeers(mgmClient mgm.ManagementServiceClient, remotePubKey wgtypes.Key
 			return
 		}
 
-		for _, peer := range resp.Peers {
+		for _, peer := range resp.RemotePeers {
 			log.Infof("Peer: %s", peer)
-			_ = addPeer(peer, "")
+			_ = addPeer(peer.WgPubKey, strings.Join(peer.AllowedIps, ","))
 		}
 
 		// for _, peer := range resp.RemotePeers {
