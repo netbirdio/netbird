@@ -3,6 +3,7 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"github.com/wiretrustee/wiretrustee/management/http_server"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
 
@@ -81,6 +82,10 @@ var (
 				if err = grpcServer.Serve(lis); err != nil {
 					log.Fatalf("failed to serve gRpc server: %v", err)
 				}
+			}()
+
+			go func() {
+				http_server.StartServer()
 			}()
 
 			SetupCloseHandler()
