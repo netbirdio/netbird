@@ -2,6 +2,7 @@ package http_server
 
 import (
 	"encoding/gob"
+	"fmt"
 	"github.com/joho/godotenv"
 	"github.com/wiretrustee/wiretrustee/management/http_server/handler"
 	"github.com/wiretrustee/wiretrustee/management/http_server/middleware"
@@ -10,7 +11,6 @@ import (
 	"os"
 
 	"github.com/codegangsta/negroni"
-	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 )
 
@@ -33,21 +33,20 @@ func StartServer() {
 	sessionStore := sessions.NewFilesystemStore("", []byte("something-very-secret"))
 	authenticator, err := middleware.NewAuthenticator(authDomain, authClientId, authClientSecret, authCallback)
 	if err != nil {
-		panic(err)
+		log.Fatal(fmt.Errorf("failed cerating authentication middleware %v", err))
 	}
 
 	gob.Register(map[string]interface{}{})
 
-	r := mux.NewRouter()
+	r := http.NewServeMux()
 
-	r.HandleFunc("/login", handler.NewLogin(authenticator, sessionStore).Handle)
-	r.HandleFunc("/logout", handler.NewLogout().Handle)
-	r.HandleFunc("/callback", handler.NewCallback(authenticator, sessionStore).Handle)
+	r.Handle("/login", handler.NewLogin(authenticator, sessionStore))
+	r.Handle("/logout", handler.NewLogout(authDomain, authClientId))
+	r.Handle("/callback", handler.NewCallback(authenticator, sessionStore))
 	r.Handle("/dashboard", negroni.New(
 		negroni.HandlerFunc(middleware.NewAuth(sessionStore).IsAuthenticated),
-		negroni.Wrap(http.HandlerFunc(handler.NewDashboard(sessionStore).Handle)),
-	))
-	r.PathPrefix("/public/").Handler(http.StripPrefix("/public/", http.FileServer(http.Dir("public/"))))
+		negroni.Wrap(handler.NewDashboard(sessionStore))),
+	)
 	http.Handle("/", r)
 	log.Print("Server listening on http://localhost:3000/login")
 	log.Fatal(http.ListenAndServe("0.0.0.0:3000", nil))

@@ -17,7 +17,9 @@ func (am *AuthMiddleware) IsAuthenticated(w http.ResponseWriter, r *http.Request
 
 	session, err := am.sessionStore.Get(r, "auth-session")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
+		//http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 

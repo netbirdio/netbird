@@ -9,6 +9,7 @@ import (
 	"net/http"
 )
 
+// Callback handler used to receive a callback from the identity provider
 type Callback struct {
 	authenticator *middleware.Authenticator
 	sessionStore  sessions.Store
@@ -21,29 +22,38 @@ func NewCallback(authenticator *middleware.Authenticator, sessionStore sessions.
 	}
 }
 
-// https://wiretrustee.eu.auth0.com/authorize?client_id=cdE0PVSXMFUNqGvvFq9XrWyr3EB23Uu1&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&response_type=code&scope=openid+profile&state=oAfXxceIT9bmLI%2Bw3GKrtMixfEvh5ZotheBg2cADlTY%3D
-func (h *Callback) Handle(w http.ResponseWriter, r *http.Request) {
+// ServeHTTP checks the user session, verifies the state, verifies the token, stores user profile in a session,
+// and in case of the successful auth redirects user to the main page
+func (h *Callback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	session, err := h.sessionStore.Get(r, "auth-session")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
+		//http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
 	if r.URL.Query().Get("state") != session.Values["state"] {
-		http.Error(w, "Invalid state parameter", http.StatusBadRequest)
+		//todo redirect to the error page stating: "error authenticating plz try to login once again"
+		//http.Error(w, "invalid state parameter", http.StatusBadRequest)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
 	token, err := h.authenticator.Config.Exchange(context.TODO(), r.URL.Query().Get("code"))
 	if err != nil {
 		log.Printf("no token found: %v", err)
-		w.WriteHeader(http.StatusUnauthorized)
+		//todo redirect to the error page stating: "error authenticating plz try to login once again"
+		//w.WriteHeader(http.StatusUnauthorized)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok {
-		http.Error(w, "No id_token field in oauth2 token.", http.StatusInternalServerError)
+		//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
+		//http.Error(w, "no id_token field in oauth2 token.", http.StatusInternalServerError)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
@@ -54,14 +64,18 @@ func (h *Callback) Handle(w http.ResponseWriter, r *http.Request) {
 	idToken, err := h.authenticator.Provider.Verifier(oidcConfig).Verify(context.TODO(), rawIDToken)
 
 	if err != nil {
-		http.Error(w, "Failed to verify ID Token: "+err.Error(), http.StatusInternalServerError)
+		//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
+		//http.Error(w, "failed to verify ID Token: "+err.Error(), http.StatusInternalServerError)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
-	// Getting now the userInfo
+	// get the userInfo from the token
 	var profile map[string]interface{}
 	if err := idToken.Claims(&profile); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
+		//http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
@@ -71,10 +85,12 @@ func (h *Callback) Handle(w http.ResponseWriter, r *http.Request) {
 
 	err = session.Save(r, w)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
+		//http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
 
-	// Redirect to logged in page
+	// redirect to logged in page
 	http.Redirect(w, r, "/dashboard", http.StatusSeeOther)
 }

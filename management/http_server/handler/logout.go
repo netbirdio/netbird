@@ -3,21 +3,22 @@ package handler
 import (
 	"net/http"
 	"net/url"
-	"os"
 )
 
+// Logout logs out a user
 type Logout struct {
+	authDomain   string
+	authClientId string
 }
 
-func NewLogout() *Logout {
-	return &Logout{}
+func NewLogout(authDomain string, authClientId string) *Logout {
+	return &Logout{authDomain: authDomain, authClientId: authClientId}
 }
 
-func (h *Logout) Handle(w http.ResponseWriter, r *http.Request) {
+// ServeHTTP redirects user to teh auth identity provider logout URL
+func (h *Logout) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
-	domain := os.Getenv("AUTH0_DOMAIN")
-
-	logoutUrl, err := url.Parse("https://" + domain)
+	logoutUrl, err := url.Parse("https://" + h.authDomain)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -34,13 +35,13 @@ func (h *Logout) Handle(w http.ResponseWriter, r *http.Request) {
 		scheme = "https"
 	}
 
-	returnTo, err := url.Parse(scheme + "://" + r.Host)
+	returnTo, err := url.Parse(scheme + "://" + r.Host + "/login")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	parameters.Add("returnTo", returnTo.String())
-	parameters.Add("client_id", os.Getenv("AUTH0_CLIENT_ID"))
+	parameters.Add("client_id", h.authClientId)
 	logoutUrl.RawQuery = parameters.Encode()
 
 	http.Redirect(w, r, logoutUrl.String(), http.StatusTemporaryRedirect)
