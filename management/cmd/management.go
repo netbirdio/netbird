@@ -7,7 +7,6 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/http_server"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
-
 	"net"
 	"os"
 	"time"
@@ -59,9 +58,15 @@ var (
 
 			var opts []grpc.ServerOption
 
+			var httpServer *http_server.Server
 			if config.LetsEncryptDomain != "" {
-				transportCredentials := credentials.NewTLS(encryption.EnableLetsEncrypt(config.Datadir, config.LetsEncryptDomain))
+				certManager := encryption.CreateCertManager(config.Datadir, config.LetsEncryptDomain)
+				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
+
+				httpServer = http_server.NewHttpsServer(config.HttpConfig, certManager)
+			} else {
+				httpServer = http_server.NewHttpServer(config.HttpConfig)
 			}
 
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
@@ -85,8 +90,6 @@ var (
 				}
 			}()
 
-			httpServer := http_server.NewServer(config.HttpConfig)
-
 			go func() {
 				err = httpServer.Start()
 				if err != nil {
@@ -103,6 +106,8 @@ var (
 			if err != nil {
 				log.Fatalf("failed stopping the http server %v", err)
 			}
+
+			grpcServer.Stop()
 		},
 	}
 )

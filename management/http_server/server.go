@@ -7,6 +7,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/http_server/handler"
 	"github.com/wiretrustee/wiretrustee/management/http_server/middleware"
 	s "github.com/wiretrustee/wiretrustee/management/server"
+	"golang.org/x/crypto/acme/autocert"
 	"net/http"
 	"time"
 
@@ -15,18 +16,26 @@ import (
 )
 
 type Server struct {
-	server *http.Server
-	config *s.HttpServerConfig
+	server      *http.Server
+	config      *s.HttpServerConfig
+	certManager *autocert.Manager
 }
 
-func NewServer(config *s.HttpServerConfig) *Server {
+// NewHttpsServer creates a new HTTPs server (with HTTPS support)
+// The listening address will be :443 no matter what was specified in s.HttpServerConfig.Address
+func NewHttpsServer(config *s.HttpServerConfig, certManager *autocert.Manager) *Server {
 	server := &http.Server{
 		Addr:         config.Address,
 		WriteTimeout: time.Second * 15,
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,
 	}
-	return &Server{server: server, config: config}
+	return &Server{server: server, config: config, certManager: certManager}
+}
+
+// NewHttpServer creates a new HTTP server (without HTTPS)
+func NewHttpServer(config *s.HttpServerConfig) *Server {
+	return NewHttpsServer(config, nil)
 }
 
 // Stop stops the http server
@@ -62,10 +71,20 @@ func (s *Server) Start() error {
 	)
 	http.Handle("/", r)
 
-	log.Infof("http server listening on %s", s.config.Address)
-
-	if err = s.server.ListenAndServe(); err != nil {
-		log.Fatal(err)
+	if s.certManager != nil {
+		// if HTTPS is enabled we reuse the listener from the cert manager
+		listener := s.certManager.Listener()
+		log.Infof("http server listening on %s", listener.Addr())
+		if err = http.Serve(listener, s.certManager.HTTPHandler(r)); err != nil {
+			log.Errorf("failed to serve https server: %v", err)
+			return err
+		}
+	} else {
+		log.Infof("http server listening on %s", s.server.Addr)
+		if err = s.server.ListenAndServe(); err != nil {
+			log.Errorf("failed to serve http server: %v", err)
+			return err
+		}
 	}
 
 	return nil
