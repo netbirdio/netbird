@@ -18,6 +18,16 @@ type Config struct {
 
 	Datadir           string
 	LetsEncryptDomain string
+
+	HttpConfig *HttpServerConfig
+}
+
+type HttpServerConfig struct {
+	Address          string
+	AuthDomain       string
+	AuthClientId     string
+	AuthClientSecret string
+	AuthCallback     string
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)

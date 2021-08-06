@@ -2,3 +2,4 @@
 *.iml
 dist/
 .env
+conf.json

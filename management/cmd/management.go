@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"github.com/wiretrustee/wiretrustee/management/http_server"
@@ -84,13 +85,24 @@ var (
 				}
 			}()
 
+			httpServer := http_server.NewServer(config.HttpConfig)
+
 			go func() {
-				http_server.StartServer()
+				err = httpServer.Start()
+				if err != nil {
+					log.Fatalf("failed to serve http server: %v", err)
+				}
 			}()
 
 			SetupCloseHandler()
 			<-stopCh
 			log.Println("Receive signal to stop running Management server")
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err = httpServer.Stop(ctx)
+			if err != nil {
+				log.Fatalf("failed stopping the http server %v", err)
+			}
 		},
 	}
 )
