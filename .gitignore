@@ -1,3 +1,5 @@
 .idea
 *.iml
 dist/
+.env
+conf.json
