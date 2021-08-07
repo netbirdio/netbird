@@ -4,8 +4,9 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/wiretrustee/wiretrustee/management/http_server"
 	"github.com/wiretrustee/wiretrustee/management/server"
+	grpc2 "github.com/wiretrustee/wiretrustee/management/server/grpc"
+	"github.com/wiretrustee/wiretrustee/management/server/http"
 	"github.com/wiretrustee/wiretrustee/util"
 	"net"
 	"os"
@@ -58,21 +59,21 @@ var (
 
 			var opts []grpc.ServerOption
 
-			var httpServer *http_server.Server
+			var httpServer *http.Server
 			if config.HttpConfig.LetsEncryptDomain != "" {
 				certManager := encryption.CreateCertManager(config.Datadir, config.HttpConfig.LetsEncryptDomain)
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 
-				httpServer = http_server.NewHttpsServer(config.HttpConfig, certManager)
+				httpServer = http.NewHttpsServer(config.HttpConfig, certManager)
 			} else {
-				httpServer = http_server.NewHttpServer(config.HttpConfig)
+				httpServer = http.NewHttpServer(config.HttpConfig)
 			}
 
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 			grpcServer := grpc.NewServer(opts...)
 
-			server, err := server.NewServer(config)
+			server, err := grpc2.NewServer(config)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
 			}
