@@ -59,8 +59,8 @@ var (
 			var opts []grpc.ServerOption
 
 			var httpServer *http_server.Server
-			if config.LetsEncryptDomain != "" {
-				certManager := encryption.CreateCertManager(config.Datadir, config.LetsEncryptDomain)
+			if config.HttpConfig.LetsEncryptDomain != "" {
+				certManager := encryption.CreateCertManager(config.Datadir, config.HttpConfig.LetsEncryptDomain)
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 
@@ -119,7 +119,7 @@ func loadConfig() (*server.Config, error) {
 		return nil, err
 	}
 	if mgmtLetsencryptDomain != "" {
-		config.LetsEncryptDomain = mgmtLetsencryptDomain
+		config.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
 	}
 	if mgmtDataDir != "" {
 		config.Datadir = mgmtDataDir

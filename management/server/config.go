@@ -16,18 +16,19 @@ type Config struct {
 	Turns  []*Host
 	Signal *Host
 
-	Datadir           string
-	LetsEncryptDomain string
+	Datadir string
 
 	HttpConfig *HttpServerConfig
 }
 
+// HttpServerConfig is a config of the HTTP Management service server
 type HttpServerConfig struct {
-	Address          string
-	AuthDomain       string
-	AuthClientId     string
-	AuthClientSecret string
-	AuthCallback     string
+	LetsEncryptDomain string
+	Address           string
+	AuthDomain        string
+	AuthClientId      string
+	AuthClientSecret  string
+	AuthCallback      string
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)

@@ -11,8 +11,8 @@
         {
             "Proto": "udp",
             "URI": "turn:stun.wiretrustee.com:3468",
-            "Username": "some_turn_user",
-            "Password": "some_turn_passwd"
+            "Username": "some_user",
+            "Password": "c29tZV9wYXNzd29yZA=="
         }
     ],
     "Signal": {
@@ -20,5 +20,14 @@
         "URI": "signal.wiretrustee.com:10000",
         "Username": "",
         "Password": null
+    },
+    "Datadir": "",
+    "HttpConfig": {
+        "LetsEncryptDomain": "",
+        "Address": "0.0.0.0:3000",
+        "AuthDomain": "<PASTE YOUR AUTH0 DOMAIN HERE>",
+        "AuthClientId": "<PASTE YOUR AUTH0 CLIENT ID HERE>",
+        "AuthClientSecret": "<PASTE YOUR AUTH0 SECRET>",
+        "AuthCallback": "http://localhost:3000/callback"
     }
 }
