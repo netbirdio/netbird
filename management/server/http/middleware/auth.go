@@ -28,7 +28,7 @@ func NewAuthenticator(authDomain string, authClientId string, authClientSecret s
 		ClientSecret: authClientSecret,
 		RedirectURL:  authCallback,
 		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile"},
+		Scopes:       []string{oidc.ScopeOpenID, "profile", "email", "email_verified"},
 	}
 
 	return &Authenticator{

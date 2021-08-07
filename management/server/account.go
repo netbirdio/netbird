@@ -82,6 +82,53 @@ func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error)
 	return res, nil
 }
 
+func (manager *AccountManager) GetAccount(accountId string) (*Account, error) {
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	account, err := manager.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed retrieving account")
+	}
+
+	return account, nil
+}
+
+func (manager *AccountManager) AccountExists(accountId string) (*bool, error) {
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	res := false
+	_, err := manager.Store.GetAccount(accountId)
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+			return &res, nil
+		} else {
+			return nil, err
+		}
+	}
+
+	res = true
+	return &res, nil
+}
+
+// AddAccount generates a new Account with a provided accountId and saves to the Store
+func (manager *AccountManager) AddAccount(accountId string) (*Account, error) {
+
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	account, _ := newAccountWithId(accountId)
+
+	err := manager.Store.SaveAccount(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed creating account")
+	}
+
+	return account, nil
+
+}
+
 // AddPeer adds a new peer to the Store.
 // Each Account has a list of pre-authorised SetupKey and if no Account has a given key err wit ha code codes.Unauthenticated
 // will be returned, meaning the key is invalid
@@ -96,7 +143,7 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 	var sk *SetupKey
 	if len(setupKey) == 0 {
 		// Empty setup key, create a new account for it.
-		account, sk = manager.newAccount()
+		account, sk = newAccount()
 	} else {
 		sk = &SetupKey{Key: setupKey}
 		account, err = manager.Store.GetAccountBySetupKey(sk.Key)
@@ -129,20 +176,28 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 
 }
 
-// newAccount creates a new Account with a default SetupKey (doesn't store in a Store)
-func (manager *AccountManager) newAccount() (*Account, *SetupKey) {
+// newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
+func newAccountWithId(accountId string) (*Account, *SetupKey) {
 
 	log.Debugf("creating new account")
 
-	accountId := uuid.New().String()
 	setupKeyId := uuid.New().String()
 	setupKeys := make(map[string]*SetupKey)
 	setupKey := &SetupKey{Key: setupKeyId}
 	setupKeys[setupKeyId] = setupKey
-	network := &Network{Id: uuid.New().String(), Net: net.IPNet{}, Dns: ""}
+	network := &Network{
+		Id:  uuid.New().String(),
+		Net: net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
+		Dns: ""}
 	peers := make(map[string]*Peer)
 
 	log.Debugf("created new account %s with setup key %s", accountId, setupKeyId)
 
 	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers}, setupKey
+}
+
+// newAccount creates a new Account with a default SetupKey (doesn't store in a Store)
+func newAccount() (*Account, *SetupKey) {
+	accountId := uuid.New().String()
+	return newAccountWithId(accountId)
 }

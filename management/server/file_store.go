@@ -148,7 +148,7 @@ func (s *FileStore) GetAccount(accountId string) (*Account, error) {
 
 	account, accountFound := s.Accounts[accountId]
 	if !accountFound {
-		return nil, status.Errorf(codes.Internal, "account not found")
+		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
 	return account, nil

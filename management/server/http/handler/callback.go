@@ -4,21 +4,24 @@ import (
 	"context"
 	"github.com/coreos/go-oidc"
 	"github.com/gorilla/sessions"
-	middleware2 "github.com/wiretrustee/wiretrustee/management/server/http/middleware"
-	"log"
+	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/management/server"
+	"github.com/wiretrustee/wiretrustee/management/server/http/middleware"
 	"net/http"
 )
 
 // Callback handler used to receive a callback from the identity provider
 type Callback struct {
-	authenticator *middleware2.Authenticator
-	sessionStore  sessions.Store
+	authenticator  *middleware.Authenticator
+	sessionStore   sessions.Store
+	accountManager *server.AccountManager
 }
 
-func NewCallback(authenticator *middleware2.Authenticator, sessionStore sessions.Store) *Callback {
+func NewCallback(authenticator *middleware.Authenticator, sessionStore sessions.Store, accountManager *server.AccountManager) *Callback {
 	return &Callback{
-		authenticator: authenticator,
-		sessionStore:  sessionStore,
+		authenticator:  authenticator,
+		sessionStore:   sessionStore,
+		accountManager: accountManager,
 	}
 }
 
@@ -89,6 +92,28 @@ func (h *Callback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		//http.Error(w, err.Error(), http.StatusInternalServerError)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
+	}
+
+	if profile["https://app.wiretrustee.com/is_new"].(bool) {
+		//actually a user id but for now we have a 1 to 1 mapping.
+		accountId := profile["sub"].(string)
+		//new user -> create a new account
+		accountExists, err := h.accountManager.AccountExists(accountId)
+		if err != nil {
+			//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
+			return
+		}
+
+		if !*accountExists {
+			_, err := h.accountManager.AddAccount(accountId)
+			if err != nil {
+				//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
+				http.Redirect(w, r, "/login", http.StatusSeeOther)
+				return
+			}
+			log.Debugf("created new account for user %s", accountId)
+		}
 	}
 
 	// redirect to logged in page
