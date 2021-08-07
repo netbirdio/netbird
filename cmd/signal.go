@@ -48,7 +48,8 @@ var (
 
 			var opts []grpc.ServerOption
 			if signalLetsencryptDomain != "" {
-				transportCredentials := credentials.NewTLS(encryption.EnableLetsEncrypt(signalDataDir, signalLetsencryptDomain))
+				certManager := encryption.CreateCertManager(signalDataDir, signalLetsencryptDomain)
+				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 			}
 

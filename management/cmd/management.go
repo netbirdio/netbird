@@ -1,11 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"github.com/wiretrustee/wiretrustee/management/http_server"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
-
 	"net"
 	"os"
 	"time"
@@ -57,9 +58,15 @@ var (
 
 			var opts []grpc.ServerOption
 
+			var httpServer *http_server.Server
 			if config.LetsEncryptDomain != "" {
-				transportCredentials := credentials.NewTLS(encryption.EnableLetsEncrypt(config.Datadir, config.LetsEncryptDomain))
+				certManager := encryption.CreateCertManager(config.Datadir, config.LetsEncryptDomain)
+				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
+
+				httpServer = http_server.NewHttpsServer(config.HttpConfig, certManager)
+			} else {
+				httpServer = http_server.NewHttpServer(config.HttpConfig)
 			}
 
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
@@ -83,9 +90,24 @@ var (
 				}
 			}()
 
+			go func() {
+				err = httpServer.Start()
+				if err != nil {
+					log.Fatalf("failed to serve http server: %v", err)
+				}
+			}()
+
 			SetupCloseHandler()
 			<-stopCh
 			log.Println("Receive signal to stop running Management server")
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err = httpServer.Stop(ctx)
+			if err != nil {
+				log.Fatalf("failed stopping the http server %v", err)
+			}
+
+			grpcServer.Stop()
 		},
 	}
 )
