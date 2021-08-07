@@ -4,18 +4,18 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"github.com/gorilla/sessions"
-	"github.com/wiretrustee/wiretrustee/management/http_server/middleware"
+	middleware2 "github.com/wiretrustee/wiretrustee/management/server/http/middleware"
 	"io/fs"
 	"net/http"
 )
 
 // Login handler used to login a user
 type Login struct {
-	authenticator *middleware.Authenticator
+	authenticator *middleware2.Authenticator
 	sessionStore  sessions.Store
 }
 
-func NewLogin(authenticator *middleware.Authenticator, sessionStore sessions.Store) *Login {
+func NewLogin(authenticator *middleware2.Authenticator, sessionStore sessions.Store) *Login {
 	return &Login{
 		authenticator: authenticator,
 		sessionStore:  sessionStore,

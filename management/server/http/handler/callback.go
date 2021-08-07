@@ -4,18 +4,18 @@ import (
 	"context"
 	"github.com/coreos/go-oidc"
 	"github.com/gorilla/sessions"
-	"github.com/wiretrustee/wiretrustee/management/http_server/middleware"
+	middleware2 "github.com/wiretrustee/wiretrustee/management/server/http/middleware"
 	"log"
 	"net/http"
 )
 
 // Callback handler used to receive a callback from the identity provider
 type Callback struct {
-	authenticator *middleware.Authenticator
+	authenticator *middleware2.Authenticator
 	sessionStore  sessions.Store
 }
 
-func NewCallback(authenticator *middleware.Authenticator, sessionStore sessions.Store) *Callback {
+func NewCallback(authenticator *middleware2.Authenticator, sessionStore sessions.Store) *Callback {
 	return &Callback{
 		authenticator: authenticator,
 		sessionStore:  sessionStore,

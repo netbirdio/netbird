@@ -1,8 +1,9 @@
-package server
+package grpc
 
 import (
 	"context"
 	"fmt"
+	"github.com/wiretrustee/wiretrustee/management/server"
 	"sync"
 	"time"
 
@@ -17,12 +18,12 @@ import (
 
 // Server an instance of a Management server
 type Server struct {
-	accountManager *AccountManager
+	accountManager *server.AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peerChannels map[string]chan *UpdateChannelMessage
 	channelsMux  *sync.Mutex
-	config       *Config
+	config       *server.Config
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
@@ -33,12 +34,12 @@ type UpdateChannelMessage struct {
 }
 
 // NewServer creates a new Management server
-func NewServer(config *Config) (*Server, error) {
+func NewServer(config *server.Config) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
 	}
-	store, err := NewStore(config.Datadir)
+	store, err := server.NewStore(config.Datadir)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +48,7 @@ func NewServer(config *Config) (*Server, error) {
 		// peerKey -> event channel
 		peerChannels:   make(map[string]chan *UpdateChannelMessage),
 		channelsMux:    &sync.Mutex{},
-		accountManager: NewManager(store),
+		accountManager: server.NewManager(store),
 		config:         config,
 	}, nil
 }
@@ -152,7 +153,7 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 	for _, remotePeer := range peers {
 		if channel, ok := s.peerChannels[remotePeer.Key]; ok {
 			// exclude notified peer and add ourselves
-			peersToSend := []*Peer{peer}
+			peersToSend := []*server.Peer{peer}
 			for _, p := range peers {
 				if remotePeer.Key != p.Key {
 					peersToSend = append(peersToSend, p)
@@ -166,17 +167,17 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 	return &proto.RegisterPeerResponse{}, nil
 }
 
-func toResponseProto(configProto Protocol) proto.HostConfig_Protocol {
+func toResponseProto(configProto server.Protocol) proto.HostConfig_Protocol {
 	switch configProto {
-	case UDP:
+	case server.UDP:
 		return proto.HostConfig_UDP
-	case DTLS:
+	case server.DTLS:
 		return proto.HostConfig_DTLS
-	case HTTP:
+	case server.HTTP:
 		return proto.HostConfig_HTTP
-	case HTTPS:
+	case server.HTTPS:
 		return proto.HostConfig_HTTPS
-	case TCP:
+	case server.TCP:
 		return proto.HostConfig_TCP
 	default:
 		//mbragin: todo something better?
@@ -184,7 +185,7 @@ func toResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toSyncResponse(config *Config, peer *Peer, peers []*Peer) *proto.SyncResponse {
+func toSyncResponse(config *server.Config, peer *server.Peer, peers []*server.Peer) *proto.SyncResponse {
 
 	var stuns []*proto.HostConfig
 	for _, stun := range config.Stuns {
@@ -267,7 +268,7 @@ func (s *Server) closeUpdatesChannel(peerKey string) {
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
+func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *server.Peer, srv proto.ManagementService_SyncServer) error {
 
 	peers, err := s.accountManager.GetPeersForAPeer(peer.Key)
 	if err != nil {

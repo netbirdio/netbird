@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	server "github.com/wiretrustee/wiretrustee/management/server"
+	grpc2 "github.com/wiretrustee/wiretrustee/management/server/grpc"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -425,7 +426,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
-	mgmtServer, err := server.NewServer(config)
+	mgmtServer, err := grpc2.NewServer(config)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {

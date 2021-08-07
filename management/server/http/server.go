@@ -1,12 +1,12 @@
-package http_server
+package http
 
 import (
 	"context"
 	"encoding/gob"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/management/http_server/handler"
-	"github.com/wiretrustee/wiretrustee/management/http_server/middleware"
 	s "github.com/wiretrustee/wiretrustee/management/server"
+	handler2 "github.com/wiretrustee/wiretrustee/management/server/http/handler"
+	middleware2 "github.com/wiretrustee/wiretrustee/management/server/http/middleware"
 	"golang.org/x/crypto/acme/autocert"
 	"net/http"
 	"time"
@@ -51,7 +51,7 @@ func (s *Server) Stop(ctx context.Context) error {
 func (s *Server) Start() error {
 
 	sessionStore := sessions.NewFilesystemStore("", []byte("something-very-secret"))
-	authenticator, err := middleware.NewAuthenticator(s.config.AuthDomain, s.config.AuthClientId, s.config.AuthClientSecret, s.config.AuthCallback)
+	authenticator, err := middleware2.NewAuthenticator(s.config.AuthDomain, s.config.AuthClientId, s.config.AuthClientSecret, s.config.AuthCallback)
 	if err != nil {
 		log.Errorf("failed cerating authentication middleware %v", err)
 		return err
@@ -62,12 +62,12 @@ func (s *Server) Start() error {
 	r := http.NewServeMux()
 	s.server.Handler = r
 
-	r.Handle("/login", handler.NewLogin(authenticator, sessionStore))
-	r.Handle("/logout", handler.NewLogout(s.config.AuthDomain, s.config.AuthClientId))
-	r.Handle("/callback", handler.NewCallback(authenticator, sessionStore))
+	r.Handle("/login", handler2.NewLogin(authenticator, sessionStore))
+	r.Handle("/logout", handler2.NewLogout(s.config.AuthDomain, s.config.AuthClientId))
+	r.Handle("/callback", handler2.NewCallback(authenticator, sessionStore))
 	r.Handle("/dashboard", negroni.New(
-		negroni.HandlerFunc(middleware.NewAuth(sessionStore).IsAuthenticated),
-		negroni.Wrap(handler.NewDashboard(sessionStore))),
+		negroni.HandlerFunc(middleware2.NewAuth(sessionStore).IsAuthenticated),
+		negroni.Wrap(handler2.NewDashboard(sessionStore))),
 	)
 	http.Handle("/", r)
 
