@@ -21,5 +21,13 @@
         "Username": "",
         "Password": null
     },
-    "DataDir": ""
+    "DataDir": "",
+    "HttpConfig": {
+        "LetsEncryptDomain": "",
+        "Address": "0.0.0.0:3000",
+        "AuthDomain": "<PASTE YOUR AUTH0 DOMAIN HERE>",
+        "AuthClientId": "<PASTE YOUR AUTH0 CLIENT ID HERE>",
+        "AuthClientSecret": "<PASTE YOUR AUTH0 SECRET>",
+        "AuthCallback": "http://localhost:3000/callback"
+    }
 }
