@@ -1,11 +1,10 @@
-package signal_test
+package client
 
 import (
 	"context"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
-	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"github.com/wiretrustee/wiretrustee/signal/server"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -144,9 +143,9 @@ var _ = Describe("Client", func() {
 
 })
 
-func createSignalClient(addr string, key wgtypes.Key) *signal.Client {
+func createSignalClient(addr string, key wgtypes.Key) *Client {
 	var sigTLSEnabled = false
-	client, err := signal.NewClient(context.Background(), addr, key, sigTLSEnabled)
+	client, err := NewClient(context.Background(), addr, key, sigTLSEnabled)
 	if err != nil {
 		Fail("failed creating signal client")
 	}
