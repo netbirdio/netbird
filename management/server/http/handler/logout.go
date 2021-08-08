@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/gorilla/sessions"
 	"net/http"
 	"net/url"
 )
@@ -9,14 +10,28 @@ import (
 type Logout struct {
 	authDomain   string
 	authClientId string
+	sessionStore sessions.Store
 }
 
-func NewLogout(authDomain string, authClientId string) *Logout {
-	return &Logout{authDomain: authDomain, authClientId: authClientId}
+func NewLogout(authDomain string, authClientId string, sessionStore sessions.Store) *Logout {
+	return &Logout{authDomain: authDomain, authClientId: authClientId, sessionStore: sessionStore}
 }
 
 // ServeHTTP redirects user to teh auth identity provider logout URL
 func (h *Logout) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	session, err := h.sessionStore.Get(r, "auth-session")
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
+	session.Options.MaxAge = -1
+	err = h.sessionStore.Save(r, w, session)
+
+	if err != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
 
 	logoutUrl, err := url.Parse("https://" + h.authDomain)
 

@@ -13,12 +13,16 @@ import (
 type Login struct {
 	authenticator *middleware2.Authenticator
 	sessionStore  sessions.Store
+	sessionMaxAge int
+	sessionDomain string
 }
 
-func NewLogin(authenticator *middleware2.Authenticator, sessionStore sessions.Store) *Login {
+func NewLogin(authenticator *middleware2.Authenticator, sessionStore sessions.Store, sessionMaxAge int, sessionDomain string) *Login {
 	return &Login{
 		authenticator: authenticator,
 		sessionStore:  sessionStore,
+		sessionMaxAge: sessionMaxAge,
+		sessionDomain: sessionDomain,
 	}
 }
 
@@ -34,7 +38,6 @@ func (h *Login) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state := base64.StdEncoding.EncodeToString(b)
-
 	session, err := h.sessionStore.Get(r, "auth-session")
 	if err != nil {
 		switch err.(type) {
@@ -48,7 +51,11 @@ func (h *Login) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	session.Values["state"] = state //nolint
-	err = session.Save(r, w)        //nolint
+	session.Options.MaxAge = h.sessionMaxAge
+	session.Options.Secure = true
+	session.Options.HttpOnly = true
+	session.Options.Domain = h.sessionDomain
+	err = session.Save(r, w) //nolint
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

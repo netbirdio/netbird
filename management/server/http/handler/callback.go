@@ -15,13 +15,17 @@ type Callback struct {
 	authenticator  *middleware.Authenticator
 	sessionStore   sessions.Store
 	accountManager *server.AccountManager
+	sessionMaxAge  int
+	sessionDomain  string
 }
 
-func NewCallback(authenticator *middleware.Authenticator, sessionStore sessions.Store, accountManager *server.AccountManager) *Callback {
+func NewCallback(authenticator *middleware.Authenticator, sessionStore sessions.Store, accountManager *server.AccountManager, sessionMaxAge int, sessionDomain string) *Callback {
 	return &Callback{
 		authenticator:  authenticator,
 		sessionStore:   sessionStore,
 		accountManager: accountManager,
+		sessionMaxAge:  sessionMaxAge,
+		sessionDomain:  sessionDomain,
 	}
 }
 
@@ -45,7 +49,6 @@ func (h *Callback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	token, err := h.authenticator.Config.Exchange(context.TODO(), r.URL.Query().Get("code"))
 	if err != nil {
-		log.Printf("no token found: %v", err)
 		//todo redirect to the error page stating: "error authenticating plz try to login once again"
 		//w.WriteHeader(http.StatusUnauthorized)
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
@@ -85,6 +88,10 @@ func (h *Callback) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	session.Values["id_token"] = rawIDToken
 	session.Values["access_token"] = token.AccessToken
 	session.Values["profile"] = profile
+	session.Options.MaxAge = h.sessionMaxAge
+	session.Options.Secure = true
+	session.Options.HttpOnly = true
+	session.Options.Domain = h.sessionDomain
 
 	err = session.Save(r, w)
 	if err != nil {

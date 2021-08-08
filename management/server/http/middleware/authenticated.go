@@ -22,7 +22,6 @@ func (am *AuthMiddleware) IsAuthenticated(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-
 	if _, ok := session.Values["profile"]; !ok {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	} else {
