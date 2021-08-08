@@ -5,7 +5,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/signal"
+	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"github.com/wiretrustee/wiretrustee/signal/server"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"

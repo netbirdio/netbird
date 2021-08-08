@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	"io"
 	"os"
 	"strings"
@@ -12,7 +13,6 @@ import (
 	"github.com/wiretrustee/wiretrustee/connection"
 	"github.com/wiretrustee/wiretrustee/encryption"
 	mgm "github.com/wiretrustee/wiretrustee/management/proto"
-	sig "github.com/wiretrustee/wiretrustee/signal"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -44,7 +44,7 @@ var (
 
 			var sigTLSEnabled = false
 			ctx := context.Background()
-			signalClient, err := sig.NewClient(ctx, config.SignalAddr, myKey, sigTLSEnabled)
+			signalClient, err := signal.NewClient(ctx, config.SignalAddr, myKey, sigTLSEnabled)
 			if err != nil {
 				log.Errorf("error while connecting to the Signal Exchange Service %s: %s", config.SignalAddr, err)
 				os.Exit(ExitSetupFailed)

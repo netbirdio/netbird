@@ -6,7 +6,7 @@ import (
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
-	sig "github.com/wiretrustee/wiretrustee/signal"
+	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"testing"
@@ -41,7 +41,7 @@ func Test_Start(t *testing.T) {
 
 	var sigTLSEnabled = false
 
-	signalClient, err := sig.NewClient(ctx, "signal.wiretrustee.com:10000", testKey, sigTLSEnabled)
+	signalClient, err := signal.NewClient(ctx, "signal.wiretrustee.com:10000", testKey, sigTLSEnabled)
 	if err != nil {
 		t.Fatal(err)
 	}
