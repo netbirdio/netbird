@@ -6,8 +6,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/encryption"
-	sig "github.com/wiretrustee/wiretrustee/signal"
 	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
+	"github.com/wiretrustee/wiretrustee/signal/server"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -65,7 +65,7 @@ var (
 				log.Fatalf("failed to listen: %v", err)
 			}
 
-			sigProto.RegisterSignalExchangeServer(grpcServer, sig.NewServer())
+			sigProto.RegisterSignalExchangeServer(grpcServer, server.NewServer())
 			log.Printf("started server: localhost:%v", signalPort)
 			if err := grpcServer.Serve(lis); err != nil {
 				log.Fatalf("failed to serve: %v", err)
