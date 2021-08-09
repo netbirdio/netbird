@@ -1,12 +1,12 @@
-package signal_test
+package client
 
 import (
 	"context"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/signal"
 	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
+	"github.com/wiretrustee/wiretrustee/signal/server"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -143,9 +143,9 @@ var _ = Describe("Client", func() {
 
 })
 
-func createSignalClient(addr string, key wgtypes.Key) *signal.Client {
+func createSignalClient(addr string, key wgtypes.Key) *Client {
 	var sigTLSEnabled = false
-	client, err := signal.NewClient(context.Background(), addr, key, sigTLSEnabled)
+	client, err := NewClient(context.Background(), addr, key, sigTLSEnabled)
 	if err != nil {
 		Fail("failed creating signal client")
 	}
@@ -173,7 +173,7 @@ func startSignal() (*grpc.Server, net.Listener) {
 		panic(err)
 	}
 	s := grpc.NewServer()
-	sigProto.RegisterSignalExchangeServer(s, signal.NewServer())
+	sigProto.RegisterSignalExchangeServer(s, server.NewServer())
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			log.Fatalf("failed to serve: %v", err)

@@ -1,4 +1,4 @@
-package signal_test
+package client
 
 import (
 	. "github.com/onsi/ginkgo"
