@@ -25,21 +25,12 @@ type Config struct {
 type HttpServerConfig struct {
 	LetsEncryptDomain string
 	Address           string
-	AuthDomain        string
-	AuthClientId      string
-	AuthClientSecret  string
-	AuthCallback      string
-	Session           *Session
-}
-
-// Session is a configuration for user HTTP session
-type Session struct {
-	// CookieCodecs is a key pair of a auth key and a encryption key to be used for securing cookies
-	CookieCodecs map[string]string
-	// CookieDomain is a user session cookie domain to be set
-	CookieDomain string
-	// MaxAgeSec is a user session duration in seconds
-	MaxAgeSec int
+	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
+	AuthAudience string
+	// AuthIssuer identifies principal that issued the JWT.
+	AuthIssuer string
+	// AuthKeysLocation is a location of JWT key set containing the public keys used to verify JWT
+	AuthKeysLocation string
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)

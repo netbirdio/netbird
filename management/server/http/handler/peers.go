@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"github.com/golang-jwt/jwt"
 	"io"
 	"net/http"
 	"strings"
@@ -16,7 +17,11 @@ func NewPeers() *Peers {
 }
 
 func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	name := "whateverdsdsds@gmail.com"
+	// since we are here it means that JWT validation was successful in the middleware
+	// therefore we can get parsed user token from the request context
+	token := r.Context().Value("user").(*jwt.Token)
+	claims := token.Claims.(jwt.MapClaims)
+	name := claims["sub"]
 	w.WriteHeader(200)
 	_, err := io.Copy(w, strings.NewReader(fmt.Sprintf("{\"name\":\"%v\"}", name)))
 	if err != nil {
