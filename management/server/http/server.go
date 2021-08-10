@@ -2,7 +2,6 @@ package http
 
 import (
 	"context"
-	"encoding/gob"
 	log "github.com/sirupsen/logrus"
 	s "github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/management/server/http/handler"
@@ -10,9 +9,6 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 	"net/http"
 	"time"
-
-	"github.com/codegangsta/negroni"
-	"github.com/gorilla/sessions"
 )
 
 type Server struct {
@@ -50,29 +46,22 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // Start defines http handlers and starts the http server. Blocks until server is shutdown.
 func (s *Server) Start() error {
-	var keyPairs [][]byte
-	for k, v := range s.config.Session.CookieCodecs {
-		keyPairs = append(keyPairs, []byte(k), []byte(v))
-	}
-	sessionStore := sessions.NewFilesystemStore("", keyPairs...)
-	authenticator, err := middleware.NewAuthenticator(s.config.AuthDomain, s.config.AuthClientId, s.config.AuthClientSecret, s.config.AuthCallback)
+
+	jwtMiddleware, err := middleware.NewJwtMiddleware(s.config.AuthIssuer, s.config.AuthAudience, s.config.AuthKeysLocation)
 	if err != nil {
-		log.Errorf("failed cerating authentication middleware %v", err)
 		return err
 	}
-
-	gob.Register(map[string]interface{}{})
 
 	r := http.NewServeMux()
 	s.server.Handler = r
 
-	r.Handle("/login", handler.NewLogin(authenticator, sessionStore, s.config.Session.MaxAgeSec, s.config.Session.CookieDomain))
-	r.Handle("/logout", handler.NewLogout(s.config.AuthDomain, s.config.AuthClientId, sessionStore))
-	r.Handle("/callback", handler.NewCallback(authenticator, sessionStore, s.accountManager, s.config.Session.MaxAgeSec, s.config.Session.CookieDomain))
-	r.Handle("/dashboard", negroni.New(
-		negroni.HandlerFunc(middleware.NewAuth(sessionStore).IsAuthenticated),
-		negroni.Wrap(handler.NewDashboard(sessionStore))),
-	)
+	// serve public website
+	fs := http.FileServer(http.Dir("management/server/http/public"))
+	r.Handle("/", fs)
+	fsStatic := http.FileServer(http.Dir("management/server/http/public/static"))
+	r.Handle("/static/", http.StripPrefix("/static/", fsStatic))
+
+	r.Handle("/api", jwtMiddleware.Handler(handler.NewPeers()))
 	http.Handle("/", r)
 
 	if s.certManager != nil {
