@@ -51,7 +51,8 @@ func NewJwtMiddleware(issuer string, audience string, keysLocation string) (*JWT
 			result, _ := jwt.ParseRSAPublicKeyFromPEM([]byte(cert))
 			return result, nil
 		},
-		SigningMethod: jwt.SigningMethodRS256,
+		SigningMethod:       jwt.SigningMethodRS256,
+		EnableAuthOnOptions: true,
 	}), nil
 }
 

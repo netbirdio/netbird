@@ -104,6 +104,7 @@ func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, 
 }
 
 func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Let secure process the request. If it returns an error,
 		// that indicates the request should not continue.

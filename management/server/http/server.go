@@ -61,7 +61,7 @@ func (s *Server) Start() error {
 	fsStatic := http.FileServer(http.Dir("management/server/http/public/static"))
 	r.Handle("/static/", http.StripPrefix("/static/", fsStatic))
 
-	r.Handle("/api", jwtMiddleware.Handler(handler.NewPeers()))
+	r.Handle("/api/peers", jwtMiddleware.Handler(handler.NewPeers(s.accountManager)))
 	http.Handle("/", r)
 
 	if s.certManager != nil {
