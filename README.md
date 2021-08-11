@@ -141,22 +141,6 @@ For **Windows** systems:
 .\wiretrustee.exe service start
 ```
 > You may need to run Powershell as Administrator
-### Running the Signal service
-After installing the application, you can run the signal using the command below:
-````shell
-/usr/local/bin/wiretrustee signal --log-level INFO
-````
-This will launch the Signal server on port 10000, in case you want to change the port, use the flag --port.
-#### Docker image
-We have packed the Signal server into docker image. You can pull the image from Docker Hub and execute it with the following commands:
-````shell
-docker pull wiretrustee/wiretrustee:signal-latest
-docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/wiretrustee:signal-latest
-````
-The default log-level is set to INFO, if you need you can change it using by updating the docker cmd as followed:
-````shell
-docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/wiretrustee:signal-latest --log-level DEBUG
-````
 
 ### Running Management, Signal and Coturn
 Under infrastructure_files we have a docker-compose example to run both, Wiretrustee Management and Signal services, plus an instance of [Coturn](https://github.com/coturn/coturn), it also provides a turnserver.conf file as a simple example of Coturn configuration. 
