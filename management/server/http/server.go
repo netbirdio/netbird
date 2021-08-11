@@ -64,6 +64,7 @@ func (s *Server) Start() error {
 	r.Handle("/static/", http.StripPrefix("/static/", fsStatic))
 
 	r.Handle("/api/peers", jwtMiddleware.Handler(handler.NewPeers(s.accountManager)))
+	r.Handle("/api/setup-keys", jwtMiddleware.Handler(handler.NewSetupKeysHandler(s.accountManager)))
 	http.Handle("/", r)
 
 	if s.certManager != nil {

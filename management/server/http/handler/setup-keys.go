@@ -7,24 +7,23 @@ import (
 	"net/http"
 )
 
-// Peers is a handler that returns peers of the account
-type Peers struct {
+// SetupKeys is a handler that returns a list of setup keys of the account
+type SetupKeys struct {
 	accountManager *server.AccountManager
 }
 
-// PeerResponse is a response sent to the client
-type PeerResponse struct {
+// SetupKeyResponse is a response sent to the client
+type SetupKeyResponse struct {
 	Key string
-	IP  string
 }
 
-func NewPeers(accountManager *server.AccountManager) *Peers {
-	return &Peers{
+func NewSetupKeysHandler(accountManager *server.AccountManager) *SetupKeys {
+	return &SetupKeys{
 		accountManager: accountManager,
 	}
 }
 
-func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *SetupKeys) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		accountId := extractAccountIdFromRequestContext(r)
@@ -39,11 +38,10 @@ func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
 
-		var respBody []*PeerResponse
-		for _, peer := range account.Peers {
-			respBody = append(respBody, &PeerResponse{
-				Key: peer.Key,
-				IP:  peer.IP.String(),
+		var respBody []*SetupKeyResponse
+		for _, key := range account.SetupKeys {
+			respBody = append(respBody, &SetupKeyResponse{
+				Key: key.Key,
 			})
 		}
 
