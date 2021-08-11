@@ -14,9 +14,7 @@ const (
 )
 
 var (
-	configPath        string
-	defaultConfigPath string
-	logLevel          string
+	logLevel string
 
 	rootCmd = &cobra.Command{
 		Use:   "wiretrustee-signal",
