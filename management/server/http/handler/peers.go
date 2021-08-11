@@ -30,24 +30,7 @@ func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		//actually a user id but for now we have a 1 to 1 mapping.
 		accountId := claims["sub"].(string)
 		//new user -> create a new account
-		accountExists, err := h.accountManager.AccountExists(accountId)
-		if err != nil {
-			//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
-			http.Redirect(w, r, "/", http.StatusSeeOther)
-			return
-		}
-
-		if !*accountExists {
-			_, err := h.accountManager.AddAccount(accountId)
-			if err != nil {
-				//todo redirect to the error page stating: "error occurred plz try again later and a link to login"
-				http.Redirect(w, r, "/", http.StatusSeeOther)
-				return
-			}
-			log.Debugf("created new account for user %s", accountId)
-		}
-
-		account, err := h.accountManager.GetAccount(accountId)
+		account, err := h.accountManager.GetOrCreateAccount(accountId)
 		if err != nil {
 			log.Errorf("failed getting user account %s: %v", accountId, err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)

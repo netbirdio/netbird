@@ -82,6 +82,7 @@ func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error)
 	return res, nil
 }
 
+//GetAccount returns an existing account or error (NotFound) if doesn't exist
 func (manager *AccountManager) GetAccount(accountId string) (*Account, error) {
 	manager.mux.Lock()
 	defer manager.mux.Unlock()
@@ -94,14 +95,39 @@ func (manager *AccountManager) GetAccount(accountId string) (*Account, error) {
 	return account, nil
 }
 
+// GetOrCreateAccount returns an existing account or creates a new one if doesn't exist
+func (manager *AccountManager) GetOrCreateAccount(accountId string) (*Account, error) {
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	_, err := manager.Store.GetAccount(accountId)
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+			return manager.createAccount(accountId)
+		} else {
+			// other error
+			return nil, err
+		}
+	}
+
+	account, err := manager.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed retrieving account")
+	}
+
+	return account, nil
+}
+
+//AccountExists checks whether account exists (returns true) or not (returns false)
 func (manager *AccountManager) AccountExists(accountId string) (*bool, error) {
 	manager.mux.Lock()
 	defer manager.mux.Unlock()
 
-	res := false
+	var res bool
 	_, err := manager.Store.GetAccount(accountId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+			res = false
 			return &res, nil
 		} else {
 			return nil, err
@@ -118,6 +144,11 @@ func (manager *AccountManager) AddAccount(accountId string) (*Account, error) {
 	manager.mux.Lock()
 	defer manager.mux.Unlock()
 
+	return manager.createAccount(accountId)
+
+}
+
+func (manager *AccountManager) createAccount(accountId string) (*Account, error) {
 	account, _ := newAccountWithId(accountId)
 
 	err := manager.Store.SaveAccount(account)
@@ -126,7 +157,6 @@ func (manager *AccountManager) AddAccount(accountId string) (*Account, error) {
 	}
 
 	return account, nil
-
 }
 
 // AddPeer adds a new peer to the Store.
