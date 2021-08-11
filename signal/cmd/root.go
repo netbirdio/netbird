@@ -2,12 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"os/signal"
-	"runtime"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"os"
+	"os/signal"
 )
 
 const (
@@ -38,11 +36,6 @@ func init() {
 
 	stopCh = make(chan int)
 
-	defaultConfigPath = "/etc/wiretrustee/config.json"
-	if runtime.GOOS == "windows" {
-		defaultConfigPath = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "config.json"
-	}
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location to write new config to")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
 	rootCmd.AddCommand(signalCmd)
 	InitLog(logLevel)

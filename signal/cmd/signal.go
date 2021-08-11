@@ -80,6 +80,6 @@ var (
 
 func init() {
 	signalCmd.PersistentFlags().IntVar(&signalPort, "port", 10000, "Server port to listen on (e.g. 10000)")
-	signalCmd.Flags().StringVar(&signalSSLDir, "ssldir", "/var/lib/wiretrustee/", "server ssl directory location")
+	signalCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", "/var/lib/wiretrustee/", "server ssl directory location")
 	signalCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 }
