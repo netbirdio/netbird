@@ -39,15 +39,14 @@ var (
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
 
-			if _, err := os.Stat(signalSSLDir); os.IsNotExist(err) {
-				err = os.MkdirAll(signalSSLDir, os.ModeDir)
-				if err != nil {
-					log.Fatalf("failed creating datadir: %s: %v", signalSSLDir, err)
-				}
-			}
-
 			var opts []grpc.ServerOption
 			if signalLetsencryptDomain != "" {
+				if _, err := os.Stat(signalSSLDir); os.IsNotExist(err) {
+					err = os.MkdirAll(signalSSLDir, os.ModeDir)
+					if err != nil {
+						log.Fatalf("failed creating datadir: %s: %v", signalSSLDir, err)
+					}
+				}
 				certManager := encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
@@ -80,6 +79,6 @@ var (
 
 func init() {
 	signalCmd.PersistentFlags().IntVar(&signalPort, "port", 10000, "Server port to listen on (e.g. 10000)")
-	signalCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", "/var/lib/wiretrustee/", "server ssl directory location")
+	signalCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", "/var/lib/wiretrustee/", "server ssl directory location. *Required only for Let's Encrypt certificates.")
 	signalCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 }
