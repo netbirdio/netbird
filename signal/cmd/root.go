@@ -21,7 +21,7 @@ var (
 	logLevel          string
 
 	rootCmd = &cobra.Command{
-		Use:   "wiretrustee",
+		Use:   "wiretrustee-signal",
 		Short: "",
 		Long:  "",
 	}
@@ -44,12 +44,8 @@ func init() {
 	}
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location to write new config to")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
-	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(addPeerCmd)
-	rootCmd.AddCommand(upCmd)
-	rootCmd.AddCommand(serviceCmd)
-	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
-	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
+	rootCmd.AddCommand(signalCmd)
+	InitLog(logLevel)
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
