@@ -8,6 +8,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/server/http/middleware"
 	"golang.org/x/crypto/acme/autocert"
 	"net/http"
+	"path/filepath"
 	"time"
 )
 
@@ -56,9 +57,10 @@ func (s *Server) Start() error {
 	s.server.Handler = r
 
 	// serve public website
-	fs := http.FileServer(http.Dir("management/server/http/public"))
+	uiPath := filepath.Clean(s.config.UIFilesLocation)
+	fs := http.FileServer(http.Dir(uiPath))
 	r.Handle("/", fs)
-	fsStatic := http.FileServer(http.Dir("management/server/http/public/static"))
+	fsStatic := http.FileServer(http.Dir(filepath.Join(uiPath, "static/")))
 	r.Handle("/static/", http.StripPrefix("/static/", fsStatic))
 
 	r.Handle("/api/peers", jwtMiddleware.Handler(handler.NewPeers(s.accountManager)))
