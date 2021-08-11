@@ -39,7 +39,7 @@ func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(w).Encode(account)
+		err = json.NewEncoder(w).Encode(account.Peers)
 		if err != nil {
 			log.Errorf("failed encoding account peers %s: %v", accountId, err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
