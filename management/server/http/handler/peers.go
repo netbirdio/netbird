@@ -39,7 +39,7 @@ func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
 
-		var respBody []*PeerResponse
+		respBody := []*PeerResponse{}
 		for _, peer := range account.Peers {
 			respBody = append(respBody, &PeerResponse{
 				Key: peer.Key,

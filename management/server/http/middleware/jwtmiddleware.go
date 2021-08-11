@@ -205,7 +205,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	// Check if there was an error in parsing...
 	if err != nil {
-		m.logf("Error parsing token: %v", err)
+		m.logf("rrror parsing token: %v", err)
 		m.Options.ErrorHandler(w, r, err.Error())
 		return fmt.Errorf("Error parsing token: %w", err)
 	}
@@ -223,7 +223,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	if !parsedToken.Valid {
 		m.logf("Token is invalid")
 		m.Options.ErrorHandler(w, r, "The token isn't valid")
-		return errors.New("Token is invalid")
+		return errors.New("token is invalid")
 	}
 
 	m.logf("JWT: %v", parsedToken)

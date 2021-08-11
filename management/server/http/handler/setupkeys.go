@@ -38,7 +38,7 @@ func (h *SetupKeys) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
 
-		var respBody []*SetupKeyResponse
+		respBody := []*SetupKeyResponse{}
 		for _, key := range account.SetupKeys {
 			respBody = append(respBody, &SetupKeyResponse{
 				Key: key.Key,
