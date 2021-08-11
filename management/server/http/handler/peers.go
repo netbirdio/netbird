@@ -13,6 +13,12 @@ type Peers struct {
 	accountManager *server.AccountManager
 }
 
+// PeerResponse is a response sent to the client
+type PeerResponse struct {
+	Key string
+	IP  string
+}
+
 func NewPeers(accountManager *server.AccountManager) *Peers {
 	return &Peers{
 		accountManager: accountManager,
@@ -39,7 +45,16 @@ func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
-		err = json.NewEncoder(w).Encode(account.Peers)
+
+		var respBody []*PeerResponse
+		for _, peer := range account.Peers {
+			respBody = append(respBody, &PeerResponse{
+				Key: peer.Key,
+				IP:  peer.IP.String(),
+			})
+		}
+
+		err = json.NewEncoder(w).Encode(respBody)
 		if err != nil {
 			log.Errorf("failed encoding account peers %s: %v", accountId, err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
