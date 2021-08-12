@@ -33,9 +33,9 @@ var (
 		Timeout:               2 * time.Second,
 	})
 
-	signalCmd = &cobra.Command{
-		Use:   "signal",
-		Short: "start Wiretrustee Signal Server",
+	runCmd = &cobra.Command{
+		Use:   "run",
+		Short: "start Wiretrustee Signal Server daemon",
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
 
@@ -78,7 +78,7 @@ var (
 )
 
 func init() {
-	signalCmd.PersistentFlags().IntVar(&signalPort, "port", 10000, "Server port to listen on (e.g. 10000)")
-	signalCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", "/var/lib/wiretrustee/", "server ssl directory location. *Required only for Let's Encrypt certificates.")
-	signalCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+	runCmd.PersistentFlags().IntVar(&signalPort, "port", 10000, "Server port to listen on (e.g. 10000)")
+	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", "/var/lib/wiretrustee/", "server ssl directory location. *Required only for Let's Encrypt certificates.")
+	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 }

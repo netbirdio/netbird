@@ -5,29 +5,16 @@ This is a Wiretrustee signal-exchange server and client library to exchange conn
 ## Command Options
 The CLI accepts the command **management** with the following options:
 ```shell
-start Wiretrustee Signal Server
+start Wiretrustee Signal Server daemon
 
 Usage:
-  wiretrustee-signal signal [flags]
+  wiretrustee-signal run [flags]
 
 Flags:
-  -h, --help                        help for signal
-      --letsencrypt-domain string   a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS
-      --port int                    Server port to listen on (e.g. 10000) (default 10000)
-      --ssl-dir string         start Wiretrustee Signal Server
-
-Usage:
-  wiretrustee-signal signal [flags]
-
-Flags:
-  -h, --help                        help for signal
+  -h, --help                        help for run
       --letsencrypt-domain string   a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS
       --port int                    Server port to listen on (e.g. 10000) (default 10000)
       --ssl-dir string              server ssl directory location. *Required only for Let's Encrypt certificates. (default "/var/lib/wiretrustee/")
-
-Global Flags:
-      --log-level string    (default "info")
-     server ssl directory location (default "/var/lib/wiretrustee/")
 
 Global Flags:
       --log-level string    (default "info")

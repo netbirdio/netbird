@@ -35,7 +35,7 @@ func init() {
 	stopCh = make(chan int)
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
-	rootCmd.AddCommand(signalCmd)
+	rootCmd.AddCommand(runCmd)
 	InitLog(logLevel)
 }
 
