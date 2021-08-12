@@ -41,9 +41,11 @@ func restore(file string) (*FileStore, error) {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		// create a new FileStore if previously didn't exist (e.g. first run)
 		s := &FileStore{
-			Accounts:  make(map[string]*Account),
-			mux:       sync.Mutex{},
-			storeFile: file,
+			Accounts:             make(map[string]*Account),
+			mux:                  sync.Mutex{},
+			SetupKeyId2AccountId: make(map[string]string),
+			PeerKeyId2AccountId:  make(map[string]string),
+			storeFile:            file,
 		}
 
 		err = s.persist(file)
@@ -148,7 +150,7 @@ func (s *FileStore) GetAccount(accountId string) (*Account, error) {
 
 	account, accountFound := s.Accounts[accountId]
 	if !accountFound {
-		return nil, status.Errorf(codes.Internal, "account not found")
+		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
 	return account, nil

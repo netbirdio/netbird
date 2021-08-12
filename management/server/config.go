@@ -25,10 +25,14 @@ type Config struct {
 type HttpServerConfig struct {
 	LetsEncryptDomain string
 	Address           string
-	AuthDomain        string
-	AuthClientId      string
-	AuthClientSecret  string
-	AuthCallback      string
+	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
+	AuthAudience string
+	// AuthIssuer identifies principal that issued the JWT.
+	AuthIssuer string
+	// AuthKeysLocation is a location of JWT key set containing the public keys used to verify JWT
+	AuthKeysLocation string
+	// UIFilesLocation is the location of static UI files for management frontend
+	UIFilesLocation string
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)
