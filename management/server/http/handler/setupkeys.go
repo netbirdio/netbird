@@ -5,6 +5,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	"net/http"
+	"time"
 )
 
 // SetupKeys is a handler that returns a list of setup keys of the account
@@ -14,7 +15,10 @@ type SetupKeys struct {
 
 // SetupKeyResponse is a response sent to the client
 type SetupKeyResponse struct {
-	Key string
+	Key     string
+	Name    string
+	Expires time.Time
+	Type    string
 }
 
 func NewSetupKeysHandler(accountManager *server.AccountManager) *SetupKeys {
@@ -41,7 +45,10 @@ func (h *SetupKeys) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respBody := []*SetupKeyResponse{}
 		for _, key := range account.SetupKeys {
 			respBody = append(respBody, &SetupKeyResponse{
-				Key: key.Key,
+				Key:     key.Key,
+				Name:    key.Key,
+				Expires: time.Now().Add(30 * (time.Second * 60 * 60 * 24)),
+				Type:    "reusable",
 			})
 		}
 
