@@ -8,7 +8,8 @@ package management;
 
 service ManagementService {
 
-  rpc RegisterPeer(RegisterPeerRequest) returns (RegisterPeerResponse) {}
+  // Login logs in peer. In case server returns codes.PermissionDenied this endpoint can be used to register Peer providing LoginRequest.setupKey
+  rpc Login(EncryptedMessage) returns (EncryptedMessage) {}
 
   // Sync enables peer synchronization. Each peer that is connected to this stream will receive updates from the server.
   // For example, if a new peer has been added to an account all other connected peers will receive this peer's Wireguard public key as an update
@@ -43,15 +44,12 @@ message SyncResponse {
   repeated RemotePeerConfig remotePeers = 3;
 }
 
-message RegisterPeerRequest {
-  // Wireguard public key
-  string key = 1;
-
-  // Pre-authorized setup key
-  string setupKey = 2;
+message LoginRequest {
+  // Pre-authorized setup key (can be empty)
+  string setupKey = 1;
 }
 
-message RegisterPeerResponse {}
+message LoginResponse {}
 
 message ServerKeyResponse {
   // Server's Wireguard public key

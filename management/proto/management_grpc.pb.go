@@ -18,7 +18,8 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ManagementServiceClient interface {
-	RegisterPeer(ctx context.Context, in *RegisterPeerRequest, opts ...grpc.CallOption) (*RegisterPeerResponse, error)
+	// Login logs in peer. In case server returns codes.PermissionDenied this endpoint can be used to register Peer providing LoginRequest.setupKey
+	Login(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 	// Sync enables peer synchronization. Each peer that is connected to this stream will receive updates from the server.
 	// For example, if a new peer has been added to an account all other connected peers will receive this peer's Wireguard public key as an update
 	// The initial SyncResponse contains all of the available peers so the local state can be refreshed
@@ -38,9 +39,9 @@ func NewManagementServiceClient(cc grpc.ClientConnInterface) ManagementServiceCl
 	return &managementServiceClient{cc}
 }
 
-func (c *managementServiceClient) RegisterPeer(ctx context.Context, in *RegisterPeerRequest, opts ...grpc.CallOption) (*RegisterPeerResponse, error) {
-	out := new(RegisterPeerResponse)
-	err := c.cc.Invoke(ctx, "/management.ManagementService/RegisterPeer", in, out, opts...)
+func (c *managementServiceClient) Login(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
+	out := new(EncryptedMessage)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/Login", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +102,8 @@ func (c *managementServiceClient) IsHealthy(ctx context.Context, in *Empty, opts
 // All implementations must embed UnimplementedManagementServiceServer
 // for forward compatibility
 type ManagementServiceServer interface {
-	RegisterPeer(context.Context, *RegisterPeerRequest) (*RegisterPeerResponse, error)
+	// Login logs in peer. In case server returns codes.PermissionDenied this endpoint can be used to register Peer providing LoginRequest.setupKey
+	Login(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	// Sync enables peer synchronization. Each peer that is connected to this stream will receive updates from the server.
 	// For example, if a new peer has been added to an account all other connected peers will receive this peer's Wireguard public key as an update
 	// The initial SyncResponse contains all of the available peers so the local state can be refreshed
@@ -118,8 +120,8 @@ type ManagementServiceServer interface {
 type UnimplementedManagementServiceServer struct {
 }
 
-func (UnimplementedManagementServiceServer) RegisterPeer(context.Context, *RegisterPeerRequest) (*RegisterPeerResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method RegisterPeer not implemented")
+func (UnimplementedManagementServiceServer) Login(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Login not implemented")
 }
 func (UnimplementedManagementServiceServer) Sync(*EncryptedMessage, ManagementService_SyncServer) error {
 	return status.Errorf(codes.Unimplemented, "method Sync not implemented")
@@ -143,20 +145,20 @@ func RegisterManagementServiceServer(s grpc.ServiceRegistrar, srv ManagementServ
 	s.RegisterService(&ManagementService_ServiceDesc, srv)
 }
 
-func _ManagementService_RegisterPeer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RegisterPeerRequest)
+func _ManagementService_Login_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncryptedMessage)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ManagementServiceServer).RegisterPeer(ctx, in)
+		return srv.(ManagementServiceServer).Login(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/management.ManagementService/RegisterPeer",
+		FullMethod: "/management.ManagementService/Login",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ManagementServiceServer).RegisterPeer(ctx, req.(*RegisterPeerRequest))
+		return srv.(ManagementServiceServer).Login(ctx, req.(*EncryptedMessage))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -226,8 +228,8 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*ManagementServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "RegisterPeer",
-			Handler:    _ManagementService_RegisterPeer_Handler,
+			MethodName: "Login",
+			Handler:    _ManagementService_Login_Handler,
 		},
 		{
 			MethodName: "GetServerKey",

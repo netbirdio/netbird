@@ -77,7 +77,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 	peer, err := s.accountManager.GetPeer(peerKey.String())
 	if err != nil {
-		return status.Errorf(codes.Unauthenticated, "provided peer with the key wgPubKey %s is not registered", peerKey.String())
+		return status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered", peerKey.String())
 	}
 
 	syncReq := &proto.SyncRequest{}
@@ -126,23 +126,18 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 }
 
-// RegisterPeer adds a peer to the Store. Returns 404 in case the provided setup key doesn't exist
-func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerRequest) (*proto.RegisterPeerResponse, error) {
-
-	log.Debugf("RegisterPeer request from peer %s", req.Key)
-
+func (s *Server) registerPeer(peerKey wgtypes.Key, setupKey string) (*server.Peer, error) {
 	s.channelsMux.Lock()
 	defer s.channelsMux.Unlock()
 
-	peer, err := s.accountManager.AddPeer(req.SetupKey, req.Key)
+	peer, err := s.accountManager.AddPeer(setupKey, peerKey.String())
 	if err != nil {
-		return &proto.RegisterPeerResponse{}, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
+		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
 
 	peers, err := s.accountManager.GetPeersForAPeer(peer.Key)
 	if err != nil {
-		//todo return a proper error
-		return nil, err
+		return nil, status.Error(codes.Internal, "internal server error")
 	}
 
 	// notify other peers of our registration
@@ -160,7 +155,59 @@ func (s *Server) RegisterPeer(ctx context.Context, req *proto.RegisterPeerReques
 		}
 	}
 
-	return &proto.RegisterPeerResponse{}, nil
+	return peer, nil
+}
+
+// Login endpoint first checks whether peer is registered under any account
+// In case it is, the login is successful
+// In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
+// In case of the successful registration login is also successful
+func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+
+	log.Debugf("Login request from peer %s", req.WgPubKey)
+
+	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
+	if err != nil {
+		log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", req.WgPubKey)
+		return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
+	}
+
+	_, err = s.accountManager.GetPeer(peerKey.String())
+	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.NotFound {
+			//peer doesn't exist -> check if setup key was provided
+			loginReq := &proto.LoginRequest{}
+			err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, loginReq)
+			if err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "invalid request message")
+			}
+
+			if loginReq.GetSetupKey() == "" {
+				//absent setup key -> permission denied
+				return nil, status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered", peerKey.String())
+			}
+
+			//setup key is present -> try normal registration flow
+			_, err = s.registerPeer(peerKey, loginReq.GetSetupKey())
+			if err != nil {
+				return nil, err
+			}
+
+		} else {
+			return nil, status.Error(codes.Internal, "internal server error")
+		}
+	}
+
+	// if peer has reached this point then it has logged in
+	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, &proto.LoginResponse{})
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed logging in peer")
+	}
+
+	return &proto.EncryptedMessage{
+		WgPubKey: s.wgKey.PublicKey().String(),
+		Body:     encryptedResp,
+	}, nil
 }
 
 func toResponseProto(configProto server.Protocol) proto.HostConfig_Protocol {

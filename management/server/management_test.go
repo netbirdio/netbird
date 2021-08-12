@@ -92,7 +92,7 @@ var _ = Describe("Management service", func() {
 		Context("when there is a new peer registered", func() {
 			Specify("a proper configuration is returned", func() {
 				key, _ := wgtypes.GenerateKey()
-				registerPeerWithValidSetupKey(key, client)
+				loginPeerWithValidSetupKey(serverPubKey, key, client)
 
 				encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.SyncRequest{})
 				Expect(err).NotTo(HaveOccurred())
@@ -142,9 +142,9 @@ var _ = Describe("Management service", func() {
 				key, _ := wgtypes.GenerateKey()
 				key1, _ := wgtypes.GenerateKey()
 				key2, _ := wgtypes.GenerateKey()
-				registerPeerWithValidSetupKey(key, client)
-				registerPeerWithValidSetupKey(key1, client)
-				registerPeerWithValidSetupKey(key2, client)
+				loginPeerWithValidSetupKey(serverPubKey, key, client)
+				loginPeerWithValidSetupKey(serverPubKey, key1, client)
+				loginPeerWithValidSetupKey(serverPubKey, key2, client)
 
 				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
 				Expect(err).NotTo(HaveOccurred())
@@ -178,7 +178,7 @@ var _ = Describe("Management service", func() {
 			Specify("an update is returned", func() {
 				// register only a single peer
 				key, _ := wgtypes.GenerateKey()
-				registerPeerWithValidSetupKey(key, client)
+				loginPeerWithValidSetupKey(serverPubKey, key, client)
 
 				messageBytes, err := pb.Marshal(&mgmtProto.SyncRequest{})
 				Expect(err).NotTo(HaveOccurred())
@@ -218,7 +218,7 @@ var _ = Describe("Management service", func() {
 
 				// register a new peer
 				key1, _ := wgtypes.GenerateKey()
-				registerPeerWithValidSetupKey(key1, client)
+				loginPeerWithValidSetupKey(serverPubKey, key1, client)
 
 				wg.Wait()
 
@@ -253,9 +253,12 @@ var _ = Describe("Management service", func() {
 			Specify("an error is returned", func() {
 
 				key, _ := wgtypes.GenerateKey()
-				resp, err := client.RegisterPeer(context.TODO(), &mgmtProto.RegisterPeerRequest{
-					Key:      key.PublicKey().String(),
-					SetupKey: InvalidSetupKey,
+				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: "invalid setup key"})
+				Expect(err).NotTo(HaveOccurred())
+
+				resp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
+					WgPubKey: key.PublicKey().String(),
+					Body:     message,
 				})
 
 				Expect(err).To(HaveOccurred())
@@ -268,7 +271,7 @@ var _ = Describe("Management service", func() {
 			It("a non error result is returned", func() {
 
 				key, _ := wgtypes.GenerateKey()
-				resp := registerPeerWithValidSetupKey(key, client)
+				resp := loginPeerWithValidSetupKey(serverPubKey, key, client)
 
 				Expect(resp).ToNot(BeNil())
 
@@ -286,7 +289,7 @@ var _ = Describe("Management service", func() {
 				var peers []wgtypes.Key
 				for i := 0; i < initialPeers; i++ {
 					key, _ := wgtypes.GenerateKey()
-					registerPeerWithValidSetupKey(key, client)
+					loginPeerWithValidSetupKey(serverPubKey, key, client)
 					peers = append(peers, key)
 				}
 
@@ -331,7 +334,7 @@ var _ = Describe("Management service", func() {
 				time.Sleep(1 * time.Second)
 				for i := 0; i < additionalPeers; i++ {
 					key, _ := wgtypes.GenerateKey()
-					registerPeerWithValidSetupKey(key, client)
+					loginPeerWithValidSetupKey(serverPubKey, key, client)
 					rand.Seed(time.Now().UnixNano())
 					n := rand.Intn(500)
 					time.Sleep(time.Duration(n) * time.Millisecond)
@@ -357,7 +360,7 @@ var _ = Describe("Management service", func() {
 			for i := 0; i < initialPeers; i++ {
 				go func() {
 					key, _ := wgtypes.GenerateKey()
-					registerPeerWithValidSetupKey(key, client)
+					loginPeerWithValidSetupKey(serverPubKey, key, client)
 					encryptedBytes, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.SyncRequest{})
 					Expect(err).NotTo(HaveOccurred())
 
@@ -395,16 +398,22 @@ var _ = Describe("Management service", func() {
 	})
 })
 
-func registerPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.RegisterPeerResponse {
+func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
 
-	resp, err := client.RegisterPeer(context.TODO(), &mgmtProto.RegisterPeerRequest{
-		Key:      key.PublicKey().String(),
-		SetupKey: ValidSetupKey,
+	message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: ValidSetupKey})
+	Expect(err).NotTo(HaveOccurred())
+
+	resp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
+		WgPubKey: key.PublicKey().String(),
+		Body:     message,
 	})
 
 	Expect(err).NotTo(HaveOccurred())
 
-	return resp
+	loginResp := &mgmtProto.LoginResponse{}
+	err = encryption.DecryptMessage(serverPubKey, key, resp.Body, loginResp)
+	Expect(err).NotTo(HaveOccurred())
+	return loginResp
 
 }
 
