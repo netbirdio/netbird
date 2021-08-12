@@ -49,7 +49,10 @@ message LoginRequest {
   string setupKey = 1;
 }
 
-message LoginResponse {}
+message LoginResponse {
+  // Global config
+  WiretrusteeConfig wiretrusteeConfig = 1;
+}
 
 message ServerKeyResponse {
   // Server's Wireguard public key

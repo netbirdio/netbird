@@ -199,7 +199,8 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}
 
 	// if peer has reached this point then it has logged in
-	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, &proto.LoginResponse{})
+	loginResp := &proto.LoginResponse{WiretrusteeConfig: toWiretrusteeConfig(s.config)}
+	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
@@ -228,7 +229,7 @@ func toResponseProto(configProto server.Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toSyncResponse(config *server.Config, peer *server.Peer, peers []*server.Peer) *proto.SyncResponse {
+func toWiretrusteeConfig(config *server.Config) *proto.WiretrusteeConfig {
 
 	var stuns []*proto.HostConfig
 	for _, stun := range config.Stuns {
@@ -249,7 +250,7 @@ func toSyncResponse(config *server.Config, peer *server.Peer, peers []*server.Pe
 		})
 	}
 
-	wtConfig := &proto.WiretrusteeConfig{
+	return &proto.WiretrusteeConfig{
 		Stuns: stuns,
 		Turns: turns,
 		Signal: &proto.HostConfig{
@@ -257,6 +258,11 @@ func toSyncResponse(config *server.Config, peer *server.Peer, peers []*server.Pe
 			Protocol: toResponseProto(config.Signal.Proto),
 		},
 	}
+}
+
+func toSyncResponse(config *server.Config, peer *server.Peer, peers []*server.Peer) *proto.SyncResponse {
+
+	wtConfig := toWiretrusteeConfig(config)
 
 	pConfig := &proto.PeerConfig{
 		Address: peer.IP.String(),

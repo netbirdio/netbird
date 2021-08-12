@@ -295,8 +295,31 @@ var _ = Describe("Management service", func() {
 				})
 
 				Expect(err).NotTo(HaveOccurred())
-				Expect(loginResp).NotTo(BeNil())
 
+				decryptedResp := &mgmtProto.LoginResponse{}
+				err = encryption.DecryptMessage(serverPubKey, key, loginResp.Body, decryptedResp)
+				Expect(err).NotTo(HaveOccurred())
+
+				expectedSignalConfig := &mgmtProto.HostConfig{
+					Uri:      "signal.wiretrustee.com:10000",
+					Protocol: mgmtProto.HostConfig_HTTP,
+				}
+				expectedStunsConfig := &mgmtProto.HostConfig{
+					Uri:      "stun:stun.wiretrustee.com:3468",
+					Protocol: mgmtProto.HostConfig_UDP,
+				}
+				expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
+					HostConfig: &mgmtProto.HostConfig{
+						Uri:      "turn:stun.wiretrustee.com:3468",
+						Protocol: mgmtProto.HostConfig_UDP,
+					},
+					User:     "some_user",
+					Password: "some_password",
+				}
+
+				Expect(decryptedResp.GetWiretrusteeConfig().Signal).To(BeEquivalentTo(expectedSignalConfig))
+				Expect(decryptedResp.GetWiretrusteeConfig().Stuns).To(ConsistOf(expectedStunsConfig))
+				Expect(decryptedResp.GetWiretrusteeConfig().Turns).To(ConsistOf(expectedTurnsConfig))
 			})
 		})
 	})
