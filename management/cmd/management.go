@@ -57,6 +57,12 @@ var (
 				}
 			}
 
+			store, err := server.NewStore(config.Datadir)
+			if err != nil {
+				log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
+			}
+			accountManager := server.NewManager(store)
+
 			var opts []grpc.ServerOption
 
 			var httpServer *http.Server
@@ -65,15 +71,15 @@ var (
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 
-				httpServer = http.NewHttpsServer(config.HttpConfig, certManager)
+				httpServer = http.NewHttpsServer(config.HttpConfig, certManager, accountManager)
 			} else {
-				httpServer = http.NewHttpServer(config.HttpConfig)
+				httpServer = http.NewHttpServer(config.HttpConfig, accountManager)
 			}
 
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 			grpcServer := grpc.NewServer(opts...)
 
-			server, err := grpc2.NewServer(config)
+			server, err := grpc2.NewServer(config, accountManager)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
 			}

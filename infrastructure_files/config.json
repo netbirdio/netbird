@@ -25,9 +25,9 @@
     "HttpConfig": {
         "LetsEncryptDomain": "",
         "Address": "0.0.0.0:3000",
-        "AuthDomain": "<PASTE YOUR AUTH0 DOMAIN HERE>",
-        "AuthClientId": "<PASTE YOUR AUTH0 CLIENT ID HERE>",
-        "AuthClientSecret": "<PASTE YOUR AUTH0 SECRET>",
-        "AuthCallback": "http://localhost:3000/callback"
+        "AuthIssuer": "<PASTE YOUR AUTH0 ISSUER HERE>",
+        "AuthAudience": "<PASTE YOUR AUTH0 AUDIENCE HERE>",
+        "AuthKeysLocation": "<PASTE YOUR JWT KEY SET location>",
+        "UIFilesLocation": "/var/lib/wiretrustee/ui/"
     }
 }

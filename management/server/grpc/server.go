@@ -34,12 +34,8 @@ type UpdateChannelMessage struct {
 }
 
 // NewServer creates a new Management server
-func NewServer(config *server.Config) (*Server, error) {
+func NewServer(config *server.Config, accountManager *server.AccountManager) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
-	if err != nil {
-		return nil, err
-	}
-	store, err := server.NewStore(config.Datadir)
 	if err != nil {
 		return nil, err
 	}
@@ -48,7 +44,7 @@ func NewServer(config *server.Config) (*Server, error) {
 		// peerKey -> event channel
 		peerChannels:   make(map[string]chan *UpdateChannelMessage),
 		channelsMux:    &sync.Mutex{},
-		accountManager: server.NewManager(store),
+		accountManager: accountManager,
 		config:         config,
 	}, nil
 }

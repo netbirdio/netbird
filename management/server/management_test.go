@@ -426,7 +426,12 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
-	mgmtServer, err := grpc2.NewServer(config)
+	store, err := server.NewStore(config.Datadir)
+	if err != nil {
+		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
+	}
+	accountManager := server.NewManager(store)
+	mgmtServer, err := grpc2.NewServer(config, accountManager)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
