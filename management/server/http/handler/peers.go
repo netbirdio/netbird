@@ -5,6 +5,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	"net/http"
+	"time"
 )
 
 // Peers is a handler that returns peers of the account
@@ -14,8 +15,11 @@ type Peers struct {
 
 // PeerResponse is a response sent to the client
 type PeerResponse struct {
-	Key string
-	IP  string
+	Name      string
+	IP        string
+	Connected bool
+	LastSeen  time.Time
+	Os        string
 }
 
 func NewPeers(accountManager *server.AccountManager) *Peers {
@@ -42,8 +46,11 @@ func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respBody := []*PeerResponse{}
 		for _, peer := range account.Peers {
 			respBody = append(respBody, &PeerResponse{
-				Key: peer.Key,
-				IP:  peer.IP.String(),
+				Name:      peer.Key,
+				IP:        peer.IP.String(),
+				LastSeen:  time.Now(),
+				Connected: false,
+				Os:        "Ubuntu 21.04 (Hirsute Hippo)",
 			})
 		}
 
