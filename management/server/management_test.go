@@ -247,7 +247,7 @@ var _ = Describe("Management service", func() {
 		})
 	})
 
-	Context("when calling RegisterPeer endpoint", func() {
+	Context("when calling Login endpoint", func() {
 
 		Context("with an invalid setup key", func() {
 			Specify("an error is returned", func() {
@@ -274,6 +274,28 @@ var _ = Describe("Management service", func() {
 				resp := loginPeerWithValidSetupKey(serverPubKey, key, client)
 
 				Expect(resp).ToNot(BeNil())
+
+			})
+		})
+
+		Context("with a registered peer", func() {
+			It("a non error result is returned", func() {
+
+				key, _ := wgtypes.GenerateKey()
+				regResp := loginPeerWithValidSetupKey(serverPubKey, key, client)
+				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: "invalid setup key"})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(regResp).NotTo(BeNil())
+
+				// just login without registration
+				message, err = encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{})
+				loginResp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
+					WgPubKey: key.PublicKey().String(),
+					Body:     message,
+				})
+
+				Expect(err).NotTo(HaveOccurred())
+				Expect(loginResp).NotTo(BeNil())
 
 			})
 		})
