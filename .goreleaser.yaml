@@ -30,6 +30,16 @@ builds:
     goarch:
       - amd64
       - arm64
+
+  - id: wiretrustee-signal
+    dir: signal
+    env: [CGO_ENABLED=0]
+    binary: wiretrustee-signal
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
 archives:
   - builds:
       - wiretrustee
@@ -54,9 +64,9 @@ nfpms:
       postinstall: "release_files/post_install.sh"
 dockers:
   - image_templates:
-      - wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
+      - wiretrustee/signal:{{ .Version }}-amd64
     ids:
-      - wiretrustee
+      - wiretrustee-signal
     goarch: amd64
     use: buildx
     dockerfile: signal/Dockerfile
@@ -69,9 +79,9 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=wiretrustee@wiretrustee.com"
   - image_templates:
-      - wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
+      - wiretrustee/signal:{{ .Version }}-arm64v8
     ids:
-      - wiretrustee
+      - wiretrustee-signal
     goarch: arm64
     use: buildx
     dockerfile: signal/Dockerfile
@@ -145,15 +155,15 @@ dockers:
       - "--label=maintainer=wiretrustee@wiretrustee.com"
 
 docker_manifests:
-  - name_template: wiretrustee/wiretrustee:signal-{{ .Version }}
+  - name_template: wiretrustee/signal:{{ .Version }}
     image_templates:
-      - wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
-      - wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
+      - wiretrustee/signal:{{ .Version }}-arm64v8
+      - wiretrustee/signal:{{ .Version }}-amd64
 
-  - name_template: wiretrustee/wiretrustee:signal-latest
+  - name_template: wiretrustee/signal:latest
     image_templates:
-      - wiretrustee/wiretrustee:signal-{{ .Version }}-arm64v8
-      - wiretrustee/wiretrustee:signal-{{ .Version }}-amd64
+      - wiretrustee/signal:{{ .Version }}-arm64v8
+      - wiretrustee/signal:{{ .Version }}-amd64
 
   - name_template: wiretrustee/management:{{ .Version }}
     image_templates:
