@@ -172,7 +172,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
 	}
 
-	_, err = s.accountManager.GetPeer(peerKey.String())
+	peer, err := s.accountManager.GetPeer(peerKey.String())
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.NotFound {
 			//peer doesn't exist -> check if setup key was provided
@@ -188,7 +188,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			}
 
 			//setup key is present -> try normal registration flow
-			_, err = s.registerPeer(peerKey, loginReq.GetSetupKey())
+			peer, err = s.registerPeer(peerKey, loginReq.GetSetupKey())
 			if err != nil {
 				return nil, err
 			}
@@ -199,7 +199,10 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}
 
 	// if peer has reached this point then it has logged in
-	loginResp := &proto.LoginResponse{WiretrusteeConfig: toWiretrusteeConfig(s.config)}
+	loginResp := &proto.LoginResponse{
+		WiretrusteeConfig: toWiretrusteeConfig(s.config),
+		PeerConfig:        toPeerConfig(peer),
+	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
@@ -260,13 +263,17 @@ func toWiretrusteeConfig(config *server.Config) *proto.WiretrusteeConfig {
 	}
 }
 
+func toPeerConfig(peer *server.Peer) *proto.PeerConfig {
+	return &proto.PeerConfig{
+		Address: peer.IP.String(),
+	}
+}
+
 func toSyncResponse(config *server.Config, peer *server.Peer, peers []*server.Peer) *proto.SyncResponse {
 
 	wtConfig := toWiretrusteeConfig(config)
 
-	pConfig := &proto.PeerConfig{
-		Address: peer.IP.String(),
-	}
+	pConfig := toPeerConfig(peer)
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(peers))
 	for _, rPeer := range peers {

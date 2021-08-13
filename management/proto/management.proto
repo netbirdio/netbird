@@ -52,6 +52,8 @@ message LoginRequest {
 message LoginResponse {
   // Global config
   WiretrusteeConfig wiretrusteeConfig = 1;
+  // Peer local config
+  PeerConfig peerConfig = 2;
 }
 
 message ServerKeyResponse {

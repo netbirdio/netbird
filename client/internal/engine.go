@@ -6,6 +6,8 @@ import (
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
+	mgm "github.com/wiretrustee/wiretrustee/management/client"
+	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -17,22 +19,32 @@ import (
 // E.g. this peer will wait PeerConnectionTimeout for the remote peer to respond, if not successful then it will retry the connection attempt.
 const PeerConnectionTimeout = 60 * time.Second
 
-// Engine is an instance of the Connection Engine
+// EngineConfig is a config for the Engine
+type EngineConfig struct {
+	// StunsTurns is a list of STUN and TURN servers used by ICE
+	StunsTurns []*ice.URL
+	WgIface    string
+	// WgAddr is a Wireguard local address (Wiretrustee Network IP)
+	WgAddr string
+	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
+	WgPrivateKey wgtypes.Key
+	// IFaceBlackList is a list of network interfaces to ignore when discovering connection candidates (ICE related)
+	IFaceBlackList map[string]struct{}
+}
+
+// Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
 type Engine struct {
-	// a list of STUN and TURN servers
-	stunsTurns []*ice.URL
-	// signal server client
+	// signal is a Signal Service client
 	signal *signal.Client
-	// peer agents indexed by local public key of the remote peers
+	// mgmClient is a Management Service client
+	mgmClient *mgm.Client
+	// conns is a collection of remote peer connections indexed by local public key of the remote peers
 	conns map[string]*Connection
-	// Wireguard interface
-	wgIface string
-	// Wireguard local address
-	wgIP string
-	// Network Interfaces to ignore
-	iFaceBlackList map[string]struct{}
-	// PeerMux is used to sync peer operations (e.g. open connection, peer removal)
-	PeerMux *sync.Mutex
+
+	// peerMux is used to sync peer operations (e.g. open connection, peer removal)
+	peerMux *sync.Mutex
+
+	config *EngineConfig
 }
 
 // Peer is an instance of the Connection Peer
@@ -42,47 +54,40 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signal *signal.Client, stunsTurns []*ice.URL, wgIface string, wgAddr string,
-	iFaceBlackList map[string]struct{}) *Engine {
+func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig) *Engine {
 	return &Engine{
-		stunsTurns:     stunsTurns,
-		signal:         signal,
-		wgIface:        wgIface,
-		wgIP:           wgAddr,
-		conns:          map[string]*Connection{},
-		iFaceBlackList: iFaceBlackList,
-		PeerMux:        &sync.Mutex{},
+		signal:    signalClient,
+		mgmClient: mgmClient,
+		conns:     map[string]*Connection{},
+		peerMux:   &sync.Mutex{},
+		config:    config,
 	}
 }
 
-// Start creates a new tunnel interface and listens to signals from the Signal service.
-// It also creates an Go routine to handle each peer communication from the config file
-func (e *Engine) Start(myKey wgtypes.Key, peers []Peer) error {
+// Start creates a new Wireguard tunnel interface and listens to events from Signal and Management services
+// Connections to remote peers are not established here.
+// However, they will be established once an event with a list of peers to connect to will be received from Management Service
+func (e *Engine) Start() error {
 
-	err := iface.Create(e.wgIface, e.wgIP)
+	wgIface := e.config.WgIface
+	wgAddr := e.config.WgAddr
+	myPrivateKey := e.config.WgPrivateKey
+
+	err := iface.Create(wgIface, wgAddr)
 	if err != nil {
-		log.Errorf("error while creating interface %s: [%s]", e.wgIface, err.Error())
+		log.Errorf("failed creating interface %s: [%s]", wgIface, err.Error())
 		return err
 	}
 
-	err = iface.Configure(e.wgIface, myKey.String())
+	err = iface.Configure(wgIface, myPrivateKey.String())
 	if err != nil {
-		log.Errorf("error while configuring Wireguard interface [%s]: %s", e.wgIface, err.Error())
+		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIface, err.Error())
 		return err
 	}
 
-	wgPort, err := iface.GetListenPort(e.wgIface)
-	if err != nil {
-		log.Errorf("error while getting Wireguard interface port [%s]: %s", e.wgIface, err.Error())
-		return err
-	}
+	e.receiveSignalEvents()
+	e.receiveManagementEvents()
 
-	e.receiveSignal()
-
-	for _, peer := range peers {
-		peer := peer
-		go e.InitializePeer(*wgPort, myKey, peer)
-	}
 	return nil
 }
 
@@ -99,8 +104,8 @@ func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
 	}
 	operation := func() error {
 		_, err := e.openPeerConnection(wgPort, myKey, peer)
-		e.PeerMux.Lock()
-		defer e.PeerMux.Unlock()
+		e.peerMux.Lock()
+		defer e.peerMux.Unlock()
 		if _, ok := e.conns[peer.WgPubKey]; !ok {
 			log.Infof("removing connection attempt with Peer: %v, not retrying", peer.WgPubKey)
 			return nil
@@ -123,8 +128,8 @@ func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
 
 // RemovePeerConnection closes existing peer connection and removes peer
 func (e *Engine) RemovePeerConnection(peer Peer) error {
-	e.PeerMux.Lock()
-	defer e.PeerMux.Unlock()
+	e.peerMux.Lock()
+	defer e.peerMux.Unlock()
 	conn, exists := e.conns[peer.WgPubKey]
 	if exists && conn != nil {
 		delete(e.conns, peer.WgPubKey)
@@ -135,8 +140,8 @@ func (e *Engine) RemovePeerConnection(peer Peer) error {
 
 // GetPeerConnectionStatus returns a connection Status or nil if peer connection wasn't found
 func (e *Engine) GetPeerConnectionStatus(peerKey string) *Status {
-	e.PeerMux.Lock()
-	defer e.PeerMux.Unlock()
+	e.peerMux.Lock()
+	defer e.peerMux.Unlock()
 
 	conn, exists := e.conns[peerKey]
 	if exists && conn != nil {
@@ -146,20 +151,20 @@ func (e *Engine) GetPeerConnectionStatus(peerKey string) *Status {
 	return nil
 }
 
-// opens a new peer connection
+// openPeerConnection opens a new remote peer connection
 func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, error) {
-	e.PeerMux.Lock()
+	e.peerMux.Lock()
 
 	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
 	connConfig := &ConnConfig{
 		WgListenAddr:   fmt.Sprintf("127.0.0.1:%d", wgPort),
-		WgPeerIP:       e.wgIP,
-		WgIface:        e.wgIface,
+		WgPeerIP:       e.config.WgAddr,
+		WgIface:        e.config.WgIface,
 		WgAllowedIPs:   peer.WgAllowedIps,
 		WgKey:          myKey,
 		RemoteWgKey:    remoteKey,
-		StunTurnURLS:   e.stunsTurns,
-		iFaceBlackList: e.iFaceBlackList,
+		StunTurnURLS:   e.config.StunsTurns,
+		iFaceBlackList: e.config.IFaceBlackList,
 	}
 
 	signalOffer := func(uFrag string, pwd string) error {
@@ -174,7 +179,7 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	}
 	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
 	e.conns[remoteKey.String()] = conn
-	e.PeerMux.Unlock()
+	e.peerMux.Unlock()
 
 	// blocks until the connection is open (or timeout)
 	err := conn.Open(PeerConnectionTimeout)
@@ -225,7 +230,19 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 	return nil
 }
 
-func (e *Engine) receiveSignal() {
+// receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
+// E.g. when a new peer has been registered and we are allowed to connect to it.
+func (e *Engine) receiveManagementEvents() {
+	log.Debugf("connecting to Management Service updates stream")
+
+	e.mgmClient.Sync(func(msg *mgmProto.SyncResponse) error {
+		//todo
+		return nil
+	})
+}
+
+// receiveSignalEvents connects to the Signal Service event stream to negotiate connection with remote peers
+func (e *Engine) receiveSignalEvents() {
 	// connect to a stream of messages coming from the signal server
 	e.signal.Receive(func(msg *sProto.Message) error {
 
