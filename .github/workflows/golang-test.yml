@@ -46,5 +46,13 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
-      - name: run build
+      - name: run build cli
         run: GOOS=${{ matrix.os }} go build .
+
+      - name: run build management
+        run: GOOS=${{ matrix.os }} go build .
+        working-directory: management
+
+      - name: run build signal
+        run: GOOS=${{ matrix.os }} go build .
+        working-directory: signal
