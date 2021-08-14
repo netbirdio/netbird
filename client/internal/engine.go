@@ -11,6 +11,7 @@ import (
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"strings"
 	"sync"
 	"time"
 )
@@ -43,8 +44,13 @@ type Engine struct {
 
 	// peerMux is used to sync peer operations (e.g. open connection, peer removal)
 	peerMux *sync.Mutex
+	// syncMsgMux is used to guarantee sequential Management Service message processing
+	syncMsgMux *sync.Mutex
 
 	config *EngineConfig
+
+	// wgPort is a Wireguard local listen port
+	wgPort int
 }
 
 // Peer is an instance of the Connection Peer
@@ -56,11 +62,12 @@ type Peer struct {
 // NewEngine creates a new Connection Engine
 func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig) *Engine {
 	return &Engine{
-		signal:    signalClient,
-		mgmClient: mgmClient,
-		conns:     map[string]*Connection{},
-		peerMux:   &sync.Mutex{},
-		config:    config,
+		signal:     signalClient,
+		mgmClient:  mgmClient,
+		conns:      map[string]*Connection{},
+		peerMux:    &sync.Mutex{},
+		syncMsgMux: &sync.Mutex{},
+		config:     config,
 	}
 }
 
@@ -85,14 +92,21 @@ func (e *Engine) Start() error {
 		return err
 	}
 
+	port, err := iface.GetListenPort(wgIface)
+	if err != nil {
+		log.Errorf("failed getting Wireguard listen port [%s]: %s", wgIface, err.Error())
+		return err
+	}
+	e.wgPort = *port
+
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
 
 	return nil
 }
 
-// InitializePeer peer agent attempt to open connection
-func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
+// initializePeer peer agent attempt to open connection
+func (e *Engine) initializePeer(peer Peer) {
 	var backOff = &backoff.ExponentialBackOff{
 		InitialInterval:     backoff.DefaultInitialInterval,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
@@ -103,7 +117,7 @@ func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
 		Clock:               backoff.SystemClock,
 	}
 	operation := func() error {
-		_, err := e.openPeerConnection(wgPort, myKey, peer)
+		_, err := e.openPeerConnection(e.wgPort, e.config.WgPrivateKey, peer)
 		e.peerMux.Lock()
 		defer e.peerMux.Unlock()
 		if _, ok := e.conns[peer.WgPubKey]; !ok {
@@ -126,13 +140,23 @@ func (e *Engine) InitializePeer(wgPort int, myKey wgtypes.Key, peer Peer) {
 	}
 }
 
-// RemovePeerConnection closes existing peer connection and removes peer
-func (e *Engine) RemovePeerConnection(peer Peer) error {
+func (e *Engine) removePeerConnections(peers []string) error {
 	e.peerMux.Lock()
 	defer e.peerMux.Unlock()
-	conn, exists := e.conns[peer.WgPubKey]
+	for _, peer := range peers {
+		err := e.removePeerConnection(peer)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removePeerConnection closes existing peer connection and removes peer
+func (e *Engine) removePeerConnection(peerKey string) error {
+	conn, exists := e.conns[peerKey]
 	if exists && conn != nil {
-		delete(e.conns, peer.WgPubKey)
+		delete(e.conns, peerKey)
 		return conn.Close()
 	}
 	return nil
@@ -233,12 +257,54 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
+
 	log.Debugf("connecting to Management Service updates stream")
 
-	e.mgmClient.Sync(func(msg *mgmProto.SyncResponse) error {
-		//todo
+	e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
+		// todo handle changes of global settings (in update.GetWiretrusteeConfig())
+		// todo handle changes of peer settings (in update.GetPeerConfig())
+
+		e.syncMsgMux.Lock()
+		defer e.syncMsgMux.Unlock()
+
+		remotePeers := update.GetRemotePeers()
+		if remotePeers != nil && len(remotePeers) != 0 {
+
+			remotePeerMap := make(map[string]struct{})
+			for _, peer := range remotePeers {
+				remotePeerMap[peer.GetWgPubKey()] = struct{}{}
+			}
+
+			//remove peers that are no longer available for us
+			toRemove := []string{}
+			for p, _ := range e.conns {
+				if _, ok := remotePeerMap[p]; !ok {
+					toRemove = append(toRemove)
+				}
+			}
+			err := e.removePeerConnections(toRemove)
+			if err != nil {
+				return err
+			}
+
+			// add new peers
+			for _, peer := range remotePeers {
+				peerKey := peer.GetWgPubKey()
+				peerIPs := peer.GetAllowedIps()
+				if _, ok := e.conns[peerKey]; !ok {
+					go e.initializePeer(Peer{
+						WgPubKey:     peerKey,
+						WgAllowedIps: strings.Join(peerIPs, ","),
+					})
+				}
+
+			}
+		}
+
 		return nil
 	})
+
+	log.Infof("connected to Management Service updates stream")
 }
 
 // receiveSignalEvents connects to the Signal Service event stream to negotiate connection with remote peers

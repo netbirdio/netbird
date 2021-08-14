@@ -2,13 +2,12 @@ package internal
 
 import (
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/iface"
 	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"os"
 )
 
-// WgInterfaceDefault is a default interface name of Wiretrustee
-const WgInterfaceDefault = "wt0"
 const ManagementAddrDefault = "app.wiretrustee.com"
 
 // Config Configuration type
@@ -23,7 +22,7 @@ type Config struct {
 //createNewConfig creates a new config generating a new Wireguard key and saving to file
 func createNewConfig(managementAddr string, configPath string) (*Config, error) {
 	wgKey := generateKey()
-	config := &Config{PrivateKey: wgKey, WgIface: WgInterfaceDefault, IFaceBlackList: []string{}}
+	config := &Config{PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
 	if managementAddr != "" {
 		config.ManagementAddr = managementAddr
 	} else {

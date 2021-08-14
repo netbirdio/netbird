@@ -5,19 +5,18 @@ import (
 	"context"
 	"fmt"
 	"github.com/pion/ice/v2"
-	"github.com/wiretrustee/wiretrustee/client/internal"
-	mgm "github.com/wiretrustee/wiretrustee/management/client"
-	signal "github.com/wiretrustee/wiretrustee/signal/client"
-	"os"
-	"strings"
-	"time"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/wiretrustee/wiretrustee/client/internal"
+	"github.com/wiretrustee/wiretrustee/iface"
+	mgm "github.com/wiretrustee/wiretrustee/management/client"
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
+	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"os"
+	"strings"
 )
 
 var (
@@ -75,7 +74,7 @@ var (
 
 			SetupCloseHandler()
 			<-stopCh
-			log.Println("Receive signal to stop running")
+			log.Infof("receive signal to stop running")
 			err = mgmClient.Close()
 			if err != nil {
 				log.Errorf("failed closing Management Service client %v", err)
@@ -83,6 +82,12 @@ var (
 			err = signalClient.Close()
 			if err != nil {
 				log.Errorf("failed closing Signal Service client %v", err)
+			}
+
+			log.Debugf("removing Wiretrustee interface %s", config.WgIface)
+			err = iface.Close()
+			if err != nil {
+				log.Errorf("failed closing Wiretrustee interface %s %v", config.WgIface, err)
 			}
 		},
 	}
@@ -157,9 +162,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 // connectToManagement creates Management Services client, establishes a connection and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
 func connectToManagement(ctx context.Context, managementAddr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*mgm.Client, *mgmProto.LoginResponse, error) {
 	log.Debugf("connecting to management server %s", managementAddr)
-	mgmCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	mgmClient, err := mgm.NewClient(mgmCtx, managementAddr, ourPrivateKey, tlsEnabled)
+	mgmClient, err := mgm.NewClient(ctx, managementAddr, ourPrivateKey, tlsEnabled)
 	if err != nil {
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err)
 	}

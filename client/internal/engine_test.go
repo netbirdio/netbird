@@ -3,12 +3,18 @@ package internal
 import (
 	"context"
 	"fmt"
-	ice "github.com/pion/ice/v2"
+	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
-	signal "github.com/wiretrustee/wiretrustee/signal/client"
+	mgmClient "github.com/wiretrustee/wiretrustee/management/client"
+	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
+	"github.com/wiretrustee/wiretrustee/management/server"
+	mgmServer "github.com/wiretrustee/wiretrustee/management/server/grpc"
+	signalClient "github.com/wiretrustee/wiretrustee/signal/client"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc"
+	"net"
 	"testing"
 	"time"
 )
@@ -39,17 +45,25 @@ func Test_Start(t *testing.T) {
 
 	iFaceBlackList := make(map[string]struct{})
 
-	var sigTLSEnabled = false
-
-	signalClient, err := signal.NewClient(ctx, "signal.wiretrustee.com:10000", testKey, sigTLSEnabled)
+	signal, err := signalClient.NewClient(ctx, "signal.wiretrustee.com:10000", testKey, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	engine = NewEngine(signalClient, stunURLs, ifaceName, "10.99.91.1/24", iFaceBlackList)
+	mgm, err := mgmClient.NewClient(ctx, "app.wiretrustee.com:33073", testKey, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conf := &EngineConfig{
+		StunsTurns:     stunURLs,
+		WgIface:        ifaceName,
+		WgAddr:         "10.99.91.1/24",
+		WgPrivateKey:   testKey,
+		IFaceBlackList: iFaceBlackList,
+	}
+	engine = NewEngine(signal, mgm, conf)
 
-	var emptyPeer []Peer
-	err = engine.Start(testKey, emptyPeer)
+	err = engine.Start()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +88,7 @@ func TestEngine_InitializePeerWithoutRemote(t *testing.T) {
 		tmpKey.PublicKey().String(),
 		"10.99.91.2/32",
 	}
-	go engine.InitializePeer(iface.WgPort, testKey, testPeer)
+	go engine.initializePeer(testPeer)
 	// Let the connections initialize
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -108,8 +122,8 @@ func TestEngine_Initialize2PeersWithoutRemote(t *testing.T) {
 		tmpKey2.PublicKey().String(),
 		"10.99.91.3/32",
 	}
-	go engine.InitializePeer(iface.WgPort, testKey, testPeer1)
-	go engine.InitializePeer(iface.WgPort, testKey, testPeer2)
+	go engine.initializePeer(testPeer1)
+	go engine.initializePeer(testPeer2)
 	// Let the connections initialize
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -146,7 +160,7 @@ func TestEngine_RemovePeerConnectionWithoutRemote(t *testing.T) {
 	}
 
 	// Let the connections close
-	err := engine.RemovePeerConnection(testPeer)
+	err := engine.removePeerConnection(testPeer.WgPubKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,4 +176,29 @@ func Test_CloseInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func startManagement(config *server.Config) (*grpc.Server, net.Listener, error) {
+	lis, err := net.Listen("tcp", ":0")
+	if err != nil {
+		return nil, nil, err
+	}
+	s := grpc.NewServer()
+	store, err := server.NewStore(config.Datadir)
+	if err != nil {
+		return nil, nil, err
+	}
+	accountManager := server.NewManager(store)
+	mgmtServer, err := mgmServer.NewServer(config, accountManager)
+	if err != nil {
+		return nil, nil, err
+	}
+	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			return
+		}
+	}()
+
+	return s, lis, nil
 }
