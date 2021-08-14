@@ -153,7 +153,9 @@ func (c *Client) receiveEvents(stream proto.ManagementService_SyncClient, server
 
 // GetServerPublicKey returns server Wireguard public key (used later for encrypting messages sent to the server)
 func (c *Client) GetServerPublicKey() (*wgtypes.Key, error) {
-	resp, err := c.realClient.GetServerKey(c.ctx, &proto.Empty{})
+	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second) //todo make a general setting
+	defer cancel()
+	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +174,9 @@ func (c *Client) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.L
 		log.Errorf("failed to encrypt message: %s", err)
 		return nil, err
 	}
-	resp, err := c.realClient.Login(context.Background(), &proto.EncryptedMessage{
+	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second) //todo make a general setting
+	defer cancel()
+	resp, err := c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     loginReq,
 	})
