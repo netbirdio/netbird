@@ -1,3 +1,5 @@
+// +build darwin
+
 package iface
 
 // WgInterfaceDefault is a default interface name of Wiretrustee
