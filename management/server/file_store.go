@@ -70,7 +70,7 @@ func restore(file string) (*FileStore, error) {
 			store.SetupKeyId2AccountId[strings.ToLower(setupKeyId)] = accountId
 		}
 		for _, peer := range account.Peers {
-			store.PeerKeyId2AccountId[strings.ToLower(peer.Key)] = accountId
+			store.PeerKeyId2AccountId[peer.Key] = accountId
 		}
 	}
 
