@@ -2,10 +2,15 @@ version: "3"
 services:
   # Signal
   signal:
-    image: wiretrustee/wiretrustee:signal-latest
+    image: wiretrustee/signal:latest
     restart: unless-stopped
+    volumes:
+      - wiretrustee-mgmt:/var/lib/wiretrustee
     ports:
       - 10000:10000
+#     # port and command for Let's Encrypt validation
+#      - 443:443
+#    command: ["--letsencrypt-domain", "<YOUR-DOMAIN>"]
   # Management
   management:
     image: wiretrustee/management:latest
@@ -30,3 +35,4 @@ services:
     network_mode: host
 volumes:
   wiretrustee-mgmt:
+  wiretrustee-signal:

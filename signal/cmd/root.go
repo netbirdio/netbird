@@ -2,12 +2,10 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"os/signal"
-	"runtime"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"os"
+	"os/signal"
 )
 
 const (
@@ -16,12 +14,10 @@ const (
 )
 
 var (
-	configPath        string
-	defaultConfigPath string
-	logLevel          string
+	logLevel string
 
 	rootCmd = &cobra.Command{
-		Use:   "wiretrustee",
+		Use:   "wiretrustee-signal",
 		Short: "",
 		Long:  "",
 	}
@@ -38,15 +34,9 @@ func init() {
 
 	stopCh = make(chan int)
 
-	defaultConfigPath = "/etc/wiretrustee/config.json"
-	if runtime.GOOS == "windows" {
-		defaultConfigPath = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "config.json"
-	}
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location to write new config to")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
-	rootCmd.AddCommand(serviceCmd)
-	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
-	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
+	rootCmd.AddCommand(runCmd)
+	InitLog(logLevel)
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
