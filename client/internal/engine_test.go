@@ -7,14 +7,9 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
 	mgmClient "github.com/wiretrustee/wiretrustee/management/client"
-	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
-	"github.com/wiretrustee/wiretrustee/management/server"
-	mgmServer "github.com/wiretrustee/wiretrustee/management/server/grpc"
 	signalClient "github.com/wiretrustee/wiretrustee/signal/client"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/grpc"
-	"net"
 	"testing"
 	"time"
 )
@@ -176,29 +171,4 @@ func Test_CloseInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-}
-
-func startManagement(config *server.Config) (*grpc.Server, net.Listener, error) {
-	lis, err := net.Listen("tcp", ":0")
-	if err != nil {
-		return nil, nil, err
-	}
-	s := grpc.NewServer()
-	store, err := server.NewStore(config.Datadir)
-	if err != nil {
-		return nil, nil, err
-	}
-	accountManager := server.NewManager(store)
-	mgmtServer, err := mgmServer.NewServer(config, accountManager)
-	if err != nil {
-		return nil, nil, err
-	}
-	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
-	go func() {
-		if err := s.Serve(lis); err != nil {
-			return
-		}
-	}()
-
-	return s, lis, nil
 }

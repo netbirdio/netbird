@@ -268,7 +268,7 @@ func (e *Engine) receiveManagementEvents() {
 		defer e.syncMsgMux.Unlock()
 
 		remotePeers := update.GetRemotePeers()
-		if remotePeers != nil && len(remotePeers) != 0 {
+		if len(remotePeers) != 0 {
 
 			remotePeerMap := make(map[string]struct{})
 			for _, peer := range remotePeers {
@@ -277,9 +277,9 @@ func (e *Engine) receiveManagementEvents() {
 
 			//remove peers that are no longer available for us
 			toRemove := []string{}
-			for p, _ := range e.conns {
+			for p := range e.conns {
 				if _, ok := remotePeerMap[p]; !ok {
-					toRemove = append(toRemove)
+					toRemove = append(toRemove, p)
 				}
 			}
 			err := e.removePeerConnections(toRemove)

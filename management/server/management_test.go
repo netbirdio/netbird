@@ -111,7 +111,7 @@ var _ = Describe("Management service", func() {
 				err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(resp.PeerConfig.Address).To(BeEquivalentTo("100.64.0.1"))
+				Expect(resp.PeerConfig.Address).To(BeEquivalentTo("100.64.0.1/24"))
 
 				expectedSignalConfig := &mgmtProto.HostConfig{
 					Uri:      "signal.wiretrustee.com:10000",
@@ -283,12 +283,11 @@ var _ = Describe("Management service", func() {
 
 				key, _ := wgtypes.GenerateKey()
 				regResp := loginPeerWithValidSetupKey(serverPubKey, key, client)
-				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: "invalid setup key"})
-				Expect(err).NotTo(HaveOccurred())
 				Expect(regResp).NotTo(BeNil())
 
 				// just login without registration
-				message, err = encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{})
+				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{})
+				Expect(err).NotTo(HaveOccurred())
 				loginResp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
 					WgPubKey: key.PublicKey().String(),
 					Body:     message,
