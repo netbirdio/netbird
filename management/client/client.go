@@ -67,7 +67,7 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) {
 	go func() {
 
 		var backOff = &backoff.ExponentialBackOff{
-			InitialInterval:     backoff.DefaultInitialInterval,
+			InitialInterval:     800 * time.Millisecond,
 			RandomizationFactor: backoff.DefaultRandomizationFactor,
 			Multiplier:          backoff.DefaultMultiplier,
 			MaxInterval:         3 * time.Second,
@@ -91,6 +91,9 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) {
 				return err
 			}
 
+			log.Infof("connected to the Management Service Stream")
+
+			// blocking until error
 			err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 			if err != nil {
 				return err
@@ -131,7 +134,7 @@ func (c *Client) receiveEvents(stream proto.ManagementService_SyncClient, server
 			return err
 		}
 		if err != nil {
-			log.Errorf("managment stream disconnected: %s", err)
+			log.Errorf("disconnected from Management Service syn stream: %v", err)
 			return err
 		}
 

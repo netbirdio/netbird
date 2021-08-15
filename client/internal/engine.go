@@ -312,6 +312,9 @@ func (e *Engine) receiveSignalEvents() {
 	// connect to a stream of messages coming from the signal server
 	e.signal.Receive(func(msg *sProto.Message) error {
 
+		e.syncMsgMux.Lock()
+		e.syncMsgMux.Unlock()
+
 		conn := e.conns[msg.Key]
 		if conn == nil {
 			return fmt.Errorf("wrongly addressed message %s", msg.Key)
