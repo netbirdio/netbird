@@ -187,7 +187,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		myIp := net.ParseIP(pair.Remote.Address())
 		// in case the remote peer is in the local network or one of the peers has public static IP -> no need for a Wireguard proxy, direct communication is possible.
 		if (pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost) && (isPublicIP(remoteIP) || isPublicIP(myIp)) {
-			log.Debugf("remote peer %s is in the local network with an address %s", conn.Config.RemoteWgKey.String(), pair.Remote.Address())
+			log.Debugf("it is possible to establish a direct connection (without proxy) to peer %s - my addr: %s, remote addr: %s", conn.Config.RemoteWgKey.String(), pair.Local.Address(), pair.Remote.Address())
 			err = conn.wgProxy.StartLocal(fmt.Sprintf("%s:%d", pair.Remote.Address(), iface.WgPort))
 			if err != nil {
 				return err
