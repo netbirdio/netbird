@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"net"
 	"sync"
 	"time"
 )
@@ -14,6 +15,7 @@ import (
 var (
 	// DefaultWgKeepAlive default Wireguard keep alive constant
 	DefaultWgKeepAlive = 20 * time.Second
+	privateIPBlocks    []*net.IPNet
 )
 
 type Status string
@@ -23,6 +25,25 @@ const (
 	StatusConnecting   Status = "Connecting"
 	StatusDisconnected Status = "Disconnected"
 )
+
+func init() {
+	for _, cidr := range []string{
+		"127.0.0.0/8",    // IPv4 loopback
+		"10.0.0.0/8",     // RFC1918
+		"172.16.0.0/12",  // RFC1918
+		"192.168.0.0/16", // RFC1918
+		"169.254.0.0/16", // RFC3927 link-local
+		"::1/128",        // IPv6 loopback
+		"fe80::/10",      // IPv6 link-local
+		"fc00::/7",       // IPv6 unique local addr
+	} {
+		_, block, err := net.ParseCIDR(cidr)
+		if err != nil {
+			panic(fmt.Errorf("parse error on %q: %v", cidr, err))
+		}
+		privateIPBlocks = append(privateIPBlocks, block)
+	}
+}
 
 // ConnConfig Connection configuration struct
 type ConnConfig struct {
@@ -162,14 +183,17 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		if err != nil {
 			return err
 		}
-		// in case the remote peer is in the local network we don't need a Wireguard proxy, direct communication is possible.
-		if pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost {
+		remoteIP := net.ParseIP(pair.Remote.Address())
+		myIp := net.ParseIP(pair.Remote.Address())
+		// in case the remote peer is in the local network or one of the peers has public static IP -> no need for a Wireguard proxy, direct communication is possible.
+		if (pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost) && (isPublicIP(remoteIP) || isPublicIP(myIp)) {
 			log.Debugf("remote peer %s is in the local network with an address %s", conn.Config.RemoteWgKey.String(), pair.Remote.Address())
 			err = conn.wgProxy.StartLocal(fmt.Sprintf("%s:%d", pair.Remote.Address(), iface.WgPort))
 			if err != nil {
 				return err
 			}
 		} else {
+			log.Infof("establishing secure tunnel to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
 			err = conn.wgProxy.Start(remoteConn)
 			if err != nil {
 				return err
@@ -194,6 +218,19 @@ func (conn *Connection) Open(timeout time.Duration) error {
 	<-conn.closeCond.C
 	conn.Status = StatusDisconnected
 	return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
+}
+
+func isPublicIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return false
+	}
+
+	for _, block := range privateIPBlocks {
+		if block.Contains(ip) {
+			return false
+		}
+	}
+	return true
 }
 
 // Close Closes a peer connection
@@ -329,7 +366,7 @@ func (conn *Connection) listenOnConnectionStateChanges() error {
 				log.Errorf("failed selecting active ICE candidate pair %s", err)
 				return
 			}
-			log.Infof("will connect to peer %s via a selected connnection candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
+			log.Debugf("ICE connected to peer %s via a selected connnection candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
 		} else if state == ice.ConnectionStateDisconnected || state == ice.ConnectionStateFailed {
 			err := conn.Close()
 			if err != nil {
