@@ -313,7 +313,7 @@ func (e *Engine) receiveSignalEvents() {
 	e.signal.Receive(func(msg *sProto.Message) error {
 
 		e.syncMsgMux.Lock()
-		e.syncMsgMux.Unlock()
+		defer e.syncMsgMux.Unlock()
 
 		conn := e.conns[msg.Key]
 		if conn == nil {
