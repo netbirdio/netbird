@@ -61,19 +61,6 @@ func Test_ServiceRunCMD(t *testing.T) {
 		}
 	}
 	rootCmd.SetArgs([]string{
-		"init",
-		"--stunURLs",
-		"stun:stun.wiretrustee.com:3468",
-		"--signalAddr",
-		"signal.wiretrustee.com:10000",
-		"--managementAddr",
-		"management.wiretrustee.com:10000",
-		"--turnURLs",
-		"foo:bar@turn:stun.wiretrustee.com:3468",
-		"--wgInterface",
-		"utun99",
-		"--wgLocalAddr",
-		"10.100.100.1/24",
 		"--config",
 		configFilePath,
 	})

@@ -1,4 +1,4 @@
-package connection
+package internal
 
 import (
 	ice "github.com/pion/ice/v2"

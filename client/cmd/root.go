@@ -12,7 +12,8 @@ import (
 
 const (
 	// ExitSetupFailed defines exit code
-	ExitSetupFailed = 1
+	ExitSetupFailed   = 1
+	DefaultConfigPath = ""
 )
 
 var (
@@ -44,10 +45,8 @@ func init() {
 	}
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location to write new config to")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
-	rootCmd.AddCommand(initCmd)
-	rootCmd.AddCommand(addPeerCmd)
-	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(serviceCmd)
+	rootCmd.AddCommand(upCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
 }

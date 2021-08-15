@@ -8,7 +8,6 @@ import (
 func (p *program) Start(s service.Service) error {
 	// Start should not block. Do the actual work async.
 	logger.Info("Starting service") //nolint
-	go upCmd.Run(p.cmd, p.args)
 	return nil
 }
 

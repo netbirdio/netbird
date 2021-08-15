@@ -55,7 +55,7 @@ func (manager *AccountManager) GetPeer(peerKey string) (*Peer, error) {
 
 	peer, err := manager.Store.GetPeer(peerKey)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "provided peer key doesn't exists %s", peerKey)
+		return nil, err
 	}
 
 	return peer, nil
