@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"net"
+	"net/http"
 	"os"
 	"time"
 )
@@ -50,6 +51,14 @@ var (
 				certManager := encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
+
+				listener := certManager.Listener()
+				log.Infof("http server listening on %s", listener.Addr())
+				go func() {
+					if err := http.Serve(listener, certManager.HTTPHandler(nil)); err != nil {
+						log.Errorf("failed to serve https server: %v", err)
+					}
+				}()
 			}
 
 			opts = append(opts, signalKaep, signalKasp)

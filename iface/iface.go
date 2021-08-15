@@ -74,6 +74,30 @@ func configureDevice(iface string, config wgtypes.Config) error {
 	return wg.ConfigureDevice(iface, config)
 }
 
+// Exists checks whether specified Wireguard device exists or not
+func Exists(iface string) (*bool, error) {
+	wg, err := wgctrl.New()
+	if err != nil {
+		return nil, err
+	}
+	defer wg.Close()
+
+	devices, err := wg.Devices()
+	if err != nil {
+		return nil, err
+	}
+
+	var exists bool
+	for _, d := range devices {
+		if d.Name == iface {
+			exists = true
+			return &exists, nil
+		}
+	}
+	exists = false
+	return &exists, nil
+}
+
 // Configure configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
 func Configure(iface string, privateKey string) error {

@@ -44,7 +44,7 @@ func CreateWithKernel(iface string, address string) error {
 	}
 
 	// todo do a discovery
-	log.Debugf("setting MTU: %s", iface)
+	log.Debugf("setting MTU: %d interface: %s", defaultMTU, iface)
 	err = netlink.LinkSetMTU(&link, defaultMTU)
 	if err != nil {
 		log.Errorf("error setting MTU on interface: %s", iface)

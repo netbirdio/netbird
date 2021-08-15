@@ -1,6 +1,8 @@
 project_name: wiretrustee
 builds:
   - id: wiretrustee
+    dir: client
+    binary: wiretrustee
     env: [CGO_ENABLED=0]
 
     goos:

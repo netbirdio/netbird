@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/wiretrustee/wiretrustee/cmd"
+	"github.com/wiretrustee/wiretrustee/client/cmd"
 	"os"
 )
 

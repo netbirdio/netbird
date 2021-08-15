@@ -70,7 +70,7 @@ func restore(file string) (*FileStore, error) {
 			store.SetupKeyId2AccountId[strings.ToLower(setupKeyId)] = accountId
 		}
 		for _, peer := range account.Peers {
-			store.PeerKeyId2AccountId[strings.ToLower(peer.Key)] = accountId
+			store.PeerKeyId2AccountId[peer.Key] = accountId
 		}
 	}
 
@@ -90,7 +90,7 @@ func (s *FileStore) GetPeer(peerKey string) (*Peer, error) {
 
 	accountId, accountIdFound := s.PeerKeyId2AccountId[peerKey]
 	if !accountIdFound {
-		return nil, status.Errorf(codes.Internal, "account not found")
+		return nil, status.Errorf(codes.NotFound, "peer not found")
 	}
 
 	account, err := s.GetAccount(accountId)
