@@ -8,25 +8,25 @@ import (
 	"os"
 )
 
-const ManagementAddrDefault = "app.wiretrustee.com"
+const ManagementAddrDefault = "https://app.wiretrustee.com"
 
 // Config Configuration type
 type Config struct {
 	// Wireguard private key of local peer
 	PrivateKey     string
-	ManagementAddr string
+	ManagementURL  string
 	WgIface        string
 	IFaceBlackList []string
 }
 
 //createNewConfig creates a new config generating a new Wireguard key and saving to file
-func createNewConfig(managementAddr string, configPath string) (*Config, error) {
+func createNewConfig(managementURL string, configPath string) (*Config, error) {
 	wgKey := generateKey()
 	config := &Config{PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
-	if managementAddr != "" {
-		config.ManagementAddr = managementAddr
+	if managementURL != "" {
+		config.ManagementURL = managementURL
 	} else {
-		config.ManagementAddr = ManagementAddrDefault
+		config.ManagementURL = ManagementAddrDefault
 	}
 
 	err := util.WriteJson(configPath, config)
@@ -38,11 +38,12 @@ func createNewConfig(managementAddr string, configPath string) (*Config, error) 
 }
 
 // GetConfig reads existing config or generates a new one
-func GetConfig(managementAddr string, configPath string) (*Config, error) {
+func GetConfig(managementURL string, configPath string) (*Config, error) {
+
 	var config *Config
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		log.Warnf("first run - generating new config %s", configPath)
-		config, err = createNewConfig(managementAddr, configPath)
+		config, err = createNewConfig(managementURL, configPath)
 		if err != nil {
 			return nil, err
 		}
@@ -54,8 +55,8 @@ func GetConfig(managementAddr string, configPath string) (*Config, error) {
 		}
 	}
 
-	if managementAddr != "" {
-		config.ManagementAddr = managementAddr
+	if managementURL != "" {
+		config.ManagementURL = managementURL
 	}
 
 	return config, nil

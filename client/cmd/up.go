@@ -15,6 +15,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -43,9 +44,20 @@ var (
 
 			ctx := context.Background()
 
-			// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
+			managementURL, err := url.Parse(config.ManagementURL)
+			if err != nil {
+				log.Errorf("failed parsing managemtn URL%s: [%s]", config.ManagementURL, err.Error())
+				os.Exit(ExitSetupFailed)
+			}
+
 			mgmTlsEnabled := false
-			mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementAddr, myPrivateKey, mgmTlsEnabled)
+			if managementURL.Scheme == "https" {
+				mgmTlsEnabled = true
+			}
+
+			// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
+
+			mgmClient, loginResp, err := connectToManagement(ctx, managementURL.Host, myPrivateKey, mgmTlsEnabled)
 			if err != nil {
 				log.Error(err)
 				os.Exit(ExitSetupFailed)
