@@ -7,9 +7,13 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
 	mgmClient "github.com/wiretrustee/wiretrustee/management/client"
+	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
+	mgmt "github.com/wiretrustee/wiretrustee/management/server"
 	signalClient "github.com/wiretrustee/wiretrustee/signal/client"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc"
+	"net"
 	"testing"
 	"time"
 )
@@ -30,7 +34,8 @@ func Test_Start(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
 	iceUrl, err := ice.ParseURL("stun:stun.wiretrustee.com:3468")
 	if err != nil {
@@ -40,12 +45,14 @@ func Test_Start(t *testing.T) {
 
 	iFaceBlackList := make(map[string]struct{})
 
+	listener := startManagement(t)
+
 	signal, err := signalClient.NewClient(ctx, "signal.wiretrustee.com:10000", testKey, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	mgm, err := mgmClient.NewClient(ctx, "app.wiretrustee.com:33073", testKey, true)
+	mgm, err := mgmClient.NewClient(ctx, listener.Addr().String(), testKey, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,9 +63,10 @@ func Test_Start(t *testing.T) {
 		WgPrivateKey:   testKey,
 		IFaceBlackList: iFaceBlackList,
 	}
-	engine = NewEngine(signal, mgm, conf)
 
+	engine = NewEngine(signal, mgm, conf)
 	err = engine.Start()
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +80,59 @@ func Test_Start(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func startManagement(t *testing.T) net.Listener {
+	testDir := t.TempDir()
+	config := &mgmt.Config{
+		Stuns:      []*mgmt.Host{},
+		Turns:      []*mgmt.Host{},
+		Signal:     &mgmt.Host{},
+		Datadir:    testDir,
+		HttpConfig: nil,
+	}
+	config.Datadir = testDir
+
+	lis, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := grpc.NewServer()
+	store, err := mgmt.NewStore(config.Datadir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setupKeys := map[string]*mgmt.SetupKey{}
+	setupKeys["a2c8e62b-38f5-4553-b31e-dd66c696cebb"] = &mgmt.SetupKey{Key: "a2c8e62b-38f5-4553-b31e-dd66c696cebb"}
+	err = store.SaveAccount(&mgmt.Account{
+		Id:        "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+		SetupKeys: setupKeys,
+		Network: &mgmt.Network{
+			Id:  "bf1c8084-ba50-fdfd-9439-34653001fc3b",
+			Net: net.IPNet{IP: net.ParseIP("100.64.0.1"), Mask: net.IPMask{255, 255, 0, 0}},
+			Dns: "",
+		},
+		Peers: make(map[string]*mgmt.Peer),
+	})
+
+	if err != nil {
+		return nil
+	}
+
+	accountManager := mgmt.NewManager(store)
+	mgmtServer, err := mgmt.NewServer(config, accountManager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			t.Error(err)
+			return
+		}
+	}()
+
+	return lis
 }
 
 func TestEngine_InitializePeerWithoutRemote(t *testing.T) {
