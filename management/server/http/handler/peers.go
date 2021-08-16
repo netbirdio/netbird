@@ -39,7 +39,6 @@ func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
 			return
 		}
-
 		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
 
@@ -60,7 +59,6 @@ func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
 			return
 		}
-	case http.MethodOptions:
 	default:
 		http.Error(w, "", http.StatusNotFound)
 	}

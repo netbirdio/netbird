@@ -11,6 +11,7 @@ require (
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.13.0
 	github.com/pion/ice/v2 v2.1.7
+	github.com/rs/cors v1.8.0
 	github.com/sirupsen/logrus v1.7.0
 	github.com/spf13/cobra v1.1.3
 	github.com/vishvananda/netlink v1.1.0

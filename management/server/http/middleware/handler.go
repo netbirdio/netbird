@@ -52,7 +52,7 @@ func NewJwtMiddleware(issuer string, audience string, keysLocation string) (*JWT
 			return result, nil
 		},
 		SigningMethod:       jwt.SigningMethodRS256,
-		EnableAuthOnOptions: true,
+		EnableAuthOnOptions: false,
 	}), nil
 }
 

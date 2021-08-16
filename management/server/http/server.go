@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
 	s "github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/management/server/http/handler"
@@ -53,25 +54,28 @@ func (s *Server) Start() error {
 		return err
 	}
 
-	r := http.NewServeMux()
-	s.server.Handler = r
+	corsMiddleware := cors.AllowAll()
+	h := http.NewServeMux()
+	s.server.Handler = h
 
 	// serve public website
 	uiPath := filepath.Clean(s.config.UIFilesLocation)
 	fs := http.FileServer(http.Dir(uiPath))
-	r.Handle("/", fs)
+	h.Handle("/", fs)
 	fsStatic := http.FileServer(http.Dir(filepath.Join(uiPath, "static/")))
-	r.Handle("/static/", http.StripPrefix("/static/", fsStatic))
+	h.Handle("/static/", http.StripPrefix("/static/", fsStatic))
 
-	r.Handle("/api/peers", jwtMiddleware.Handler(handler.NewPeers(s.accountManager)))
-	r.Handle("/api/setup-keys", jwtMiddleware.Handler(handler.NewSetupKeysHandler(s.accountManager)))
-	http.Handle("/", r)
+	peersHandler := handler.NewPeers(s.accountManager)
+	keysHandler := handler.NewSetupKeysHandler(s.accountManager)
+	h.Handle("/api/peers", corsMiddleware.Handler(jwtMiddleware.Handler(peersHandler)))
+	h.Handle("/api/setup-keys", corsMiddleware.Handler(jwtMiddleware.Handler(keysHandler)))
+	http.Handle("/", h)
 
 	if s.certManager != nil {
 		// if HTTPS is enabled we reuse the listener from the cert manager
 		listener := s.certManager.Listener()
 		log.Infof("http server listening on %s", listener.Addr())
-		if err = http.Serve(listener, s.certManager.HTTPHandler(r)); err != nil {
+		if err = http.Serve(listener, s.certManager.HTTPHandler(h)); err != nil {
 			log.Errorf("failed to serve https server: %v", err)
 			return err
 		}
