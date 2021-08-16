@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/status"
 	"net/url"
 	"os"
-	"strings"
 )
 
 var (
@@ -230,17 +229,16 @@ func loginPeer(serverPublicKey wgtypes.Key, client *mgm.Client) (*mgmProto.Login
 // promptPeerSetupKey prompts user to input a Setup Key
 func promptPeerSetupKey() (*string, error) {
 	fmt.Print("Enter setup key: ")
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return nil, err
-	}
-	input = strings.TrimSuffix(input, "\n")
 
-	if input == "" {
-		fmt.Print("Specified key is empty, try again.")
-		return promptPeerSetupKey()
+	s := bufio.NewScanner(os.Stdin)
+	for s.Scan() {
+		input := s.Text()
+		if input != "" {
+			return &input, nil
+		}
+		fmt.Println("Specified key is empty, try again:")
+
 	}
 
-	return &input, err
+	return nil, s.Err()
 }
