@@ -23,7 +23,7 @@ type Client struct {
 }
 
 // NewClient creates a new client to Management service
-func NewClient(ctx context.Context, addr string, outPrivateKey wgtypes.Key, tlsEnabled bool) (*Client, error) {
+func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*Client, error) {
 
 	transportOption := grpc.WithInsecure()
 
@@ -49,7 +49,7 @@ func NewClient(ctx context.Context, addr string, outPrivateKey wgtypes.Key, tlsE
 	realClient := proto.NewManagementServiceClient(conn)
 
 	return &Client{
-		key:        outPrivateKey,
+		key:        ourPrivateKey,
 		realClient: realClient,
 		ctx:        ctx,
 		conn:       conn,
@@ -62,6 +62,7 @@ func (c *Client) Close() error {
 }
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
+// Non blocking request (executed in go routine). The result will be sent via msgHandler callback function
 func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) {
 
 	go func() {
