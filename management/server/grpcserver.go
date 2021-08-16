@@ -1,9 +1,8 @@
-package grpc
+package server
 
 import (
 	"context"
 	"fmt"
-	"github.com/wiretrustee/wiretrustee/management/server"
 	"sync"
 	"time"
 
@@ -18,12 +17,12 @@ import (
 
 // Server an instance of a Management server
 type Server struct {
-	accountManager *server.AccountManager
+	accountManager *AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peerChannels map[string]chan *UpdateChannelMessage
 	channelsMux  *sync.Mutex
-	config       *server.Config
+	config       *Config
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
@@ -34,7 +33,7 @@ type UpdateChannelMessage struct {
 }
 
 // NewServer creates a new Management server
-func NewServer(config *server.Config, accountManager *server.AccountManager) (*Server, error) {
+func NewServer(config *Config, accountManager *AccountManager) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -126,7 +125,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 }
 
-func (s *Server) registerPeer(peerKey wgtypes.Key, setupKey string) (*server.Peer, error) {
+func (s *Server) registerPeer(peerKey wgtypes.Key, setupKey string) (*Peer, error) {
 	s.channelsMux.Lock()
 	defer s.channelsMux.Unlock()
 
@@ -144,7 +143,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, setupKey string) (*server.Pee
 	for _, remotePeer := range peers {
 		if channel, ok := s.peerChannels[remotePeer.Key]; ok {
 			// exclude notified peer and add ourselves
-			peersToSend := []*server.Peer{peer}
+			peersToSend := []*Peer{peer}
 			for _, p := range peers {
 				if remotePeer.Key != p.Key {
 					peersToSend = append(peersToSend, p)
@@ -214,17 +213,17 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}, nil
 }
 
-func toResponseProto(configProto server.Protocol) proto.HostConfig_Protocol {
+func toResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	switch configProto {
-	case server.UDP:
+	case UDP:
 		return proto.HostConfig_UDP
-	case server.DTLS:
+	case DTLS:
 		return proto.HostConfig_DTLS
-	case server.HTTP:
+	case HTTP:
 		return proto.HostConfig_HTTP
-	case server.HTTPS:
+	case HTTPS:
 		return proto.HostConfig_HTTPS
-	case server.TCP:
+	case TCP:
 		return proto.HostConfig_TCP
 	default:
 		//mbragin: todo something better?
@@ -232,7 +231,7 @@ func toResponseProto(configProto server.Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toWiretrusteeConfig(config *server.Config) *proto.WiretrusteeConfig {
+func toWiretrusteeConfig(config *Config) *proto.WiretrusteeConfig {
 
 	var stuns []*proto.HostConfig
 	for _, stun := range config.Stuns {
@@ -263,13 +262,13 @@ func toWiretrusteeConfig(config *server.Config) *proto.WiretrusteeConfig {
 	}
 }
 
-func toPeerConfig(peer *server.Peer) *proto.PeerConfig {
+func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	return &proto.PeerConfig{
 		Address: peer.IP.String() + "/24", //todo make it explicit
 	}
 }
 
-func toSyncResponse(config *server.Config, peer *server.Peer, peers []*server.Peer) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *Peer, peers []*Peer) *proto.SyncResponse {
 
 	wtConfig := toWiretrusteeConfig(config)
 
@@ -324,7 +323,7 @@ func (s *Server) closeUpdatesChannel(peerKey string) {
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *server.Peer, srv proto.ManagementService_SyncServer) error {
+func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
 
 	peers, err := s.accountManager.GetPeersForAPeer(peer.Key)
 	if err != nil {

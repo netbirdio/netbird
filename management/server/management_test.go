@@ -3,7 +3,6 @@ package server_test
 import (
 	"context"
 	server "github.com/wiretrustee/wiretrustee/management/server"
-	grpc2 "github.com/wiretrustee/wiretrustee/management/server/grpc"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -484,7 +483,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	accountManager := server.NewManager(store)
-	mgmtServer, err := grpc2.NewServer(config, accountManager)
+	mgmtServer, err := server.NewServer(config, accountManager)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
