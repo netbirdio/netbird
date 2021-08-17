@@ -30,7 +30,7 @@ func TestUp_Start(t *testing.T) {
 
 	_, signalLis := startSignal(t)
 	signalAddr = signalLis.Addr().String()
-	config.Signal.URI = "http://" + signalAddr
+	config.Signal.URI = signalAddr
 
 	_, mgmLis := startManagement(config, t)
 	mgmAddr = mgmLis.Addr().String()
