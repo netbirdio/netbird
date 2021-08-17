@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"bufio"
 	"context"
-	"fmt"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -15,22 +13,19 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net/url"
 	"os"
 )
 
 var (
-	managementAddr string
-
 	upCmd = &cobra.Command{
 		Use:   "up",
 		Short: "start wiretrustee",
 		Run: func(cmd *cobra.Command, args []string) {
 			InitLog(logLevel)
 
-			config, err := internal.GetConfig(managementAddr, configPath)
+			config, err := internal.ReadConfig(managementURL, configPath)
 			if err != nil {
-				log.Errorf("failed getting config %s %v", configPath, err)
+				log.Errorf("failed reading config %s %v", configPath, err)
 				os.Exit(ExitSetupFailed)
 			}
 
@@ -43,22 +38,15 @@ var (
 
 			ctx := context.Background()
 
-			managementURL, err := url.Parse(config.ManagementURL)
-			if err != nil {
-				log.Errorf("failed parsing managemtn URL%s: [%s]", config.ManagementURL, err.Error())
-				os.Exit(ExitSetupFailed)
-			}
-
 			mgmTlsEnabled := false
-			if managementURL.Scheme == "https" {
+			if config.ManagementURL.Scheme == "https" {
 				mgmTlsEnabled = true
 			}
 
 			// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
-
-			mgmClient, loginResp, err := connectToManagement(ctx, managementURL.Host, myPrivateKey, mgmTlsEnabled)
+			mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 			if err != nil {
-				log.Error(err)
+				log.Warn(err)
 				os.Exit(ExitSetupFailed)
 			}
 
@@ -105,7 +93,6 @@ var (
 )
 
 func init() {
-	upCmd.PersistentFlags().StringVar(&managementAddr, "management-addr", "", "Management Service address (e.g. app.wiretrustee.com")
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
@@ -170,75 +157,31 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 	return signalClient, nil
 }
 
-// connectToManagement creates Management Services client, establishes a connection and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
+// connectToManagement creates Management Services client, establishes a connection, logs-in and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
 func connectToManagement(ctx context.Context, managementAddr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*mgm.Client, *mgmProto.LoginResponse, error) {
 	log.Debugf("connecting to management server %s", managementAddr)
-	mgmClient, err := mgm.NewClient(ctx, managementAddr, ourPrivateKey, tlsEnabled)
+	client, err := mgm.NewClient(ctx, managementAddr, ourPrivateKey, tlsEnabled)
 	if err != nil {
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err)
 	}
 	log.Debugf("connected to management server %s", managementAddr)
 
-	serverKey, err := mgmClient.GetServerPublicKey()
+	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
 	}
 
-	wtConfig, err := loginPeer(*serverKey, mgmClient)
-	if err != nil {
-		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed logging-in peer on Management Service : %s", err)
-	}
-
-	log.Debugf("peer logged in to Management Service %s", wtConfig)
-
-	return mgmClient, wtConfig, nil
-}
-
-func registerPeer(serverPublicKey wgtypes.Key, client *mgm.Client) (*mgmProto.LoginResponse, error) {
-	setupKey, err := promptPeerSetupKey()
-	if err != nil {
-		log.Errorf("failed getting setup key: %s", err)
-		return nil, err
-	}
-
-	log.Debugf("sending peer registration request")
-	loginResp, err := client.Register(serverPublicKey, *setupKey)
-	if err != nil {
-		log.Errorf("failed registering peer %v", err)
-		return nil, err
-	}
-
-	return loginResp, nil
-}
-
-func loginPeer(serverPublicKey wgtypes.Key, client *mgm.Client) (*mgmProto.LoginResponse, error) {
-
-	loginResp, err := client.Login(serverPublicKey)
+	loginResp, err := client.Login(*serverPublicKey)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
-			log.Debugf("peer registration required")
-			return registerPeer(serverPublicKey, client)
+			log.Error("peer registration required. Please run wiretrustee login command first")
+			return nil, nil, err
 		} else {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	return loginResp, nil
-}
+	log.Infof("peer logged in to Management Service %s", managementAddr)
 
-// promptPeerSetupKey prompts user to input a Setup Key
-func promptPeerSetupKey() (*string, error) {
-	fmt.Print("Enter setup key: ")
-
-	s := bufio.NewScanner(os.Stdin)
-	for s.Scan() {
-		input := s.Text()
-		if input != "" {
-			return &input, nil
-		}
-		fmt.Println("Specified key is empty, try again:")
-
-	}
-
-	return nil, s.Err()
+	return client, loginResp, nil
 }

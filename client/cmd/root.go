@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/wiretrustee/wiretrustee/client/internal"
 	"os"
 	"os/signal"
 	"runtime"
@@ -20,6 +21,7 @@ var (
 	configPath        string
 	defaultConfigPath string
 	logLevel          string
+	managementURL     string
 
 	rootCmd = &cobra.Command{
 		Use:   "wiretrustee",
@@ -43,10 +45,13 @@ func init() {
 	if runtime.GOOS == "windows" {
 		defaultConfigPath = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "config.json"
 	}
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location to write new config to")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
+
+	rootCmd.PersistentFlags().StringVar(&managementURL, "management-url", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.ManagementURLDefault().String()))
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "sets Wiretrustee log level")
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
+	rootCmd.AddCommand(loginCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
 }
