@@ -57,6 +57,8 @@ func TestUp_ShouldFail_On_NoConfig(t *testing.T) {
 
 func TestUp(t *testing.T) {
 
+	defer iface.Close()
+
 	tempDir := t.TempDir()
 	confPath := tempDir + "/config.json"
 	mgmtURL, err := url.Parse("http://" + mgmAddr)
@@ -105,6 +107,4 @@ func TestUp(t *testing.T) {
 	if !exists {
 		t.Errorf("expected wireguard interface %s to be created", iface.WgInterfaceDefault)
 	}
-
-	iface.Close()
 }
