@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -13,27 +14,29 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"os"
+	"net/url"
 )
 
 var (
 	upCmd = &cobra.Command{
 		Use:   "up",
 		Short: "start wiretrustee",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			InitLog(logLevel)
 
 			config, err := internal.ReadConfig(managementURL, configPath)
 			if err != nil {
 				log.Errorf("failed reading config %s %v", configPath, err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			//validate our peer's Wireguard PRIVATE key
 			myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 			if err != nil {
 				log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			ctx := context.Background()
@@ -47,20 +50,23 @@ var (
 			mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 			if err != nil {
 				log.Warn(err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 			signalClient, err := connectToSignal(ctx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
 			if err != nil {
 				log.Error(err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			engineConfig, err := createEngineConfig(myPrivateKey, config, loginResp.GetWiretrusteeConfig(), loginResp.GetPeerConfig())
 			if err != nil {
 				log.Error(err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			// create start the Wiretrustee Engine that will connect to the Signal and Management streams and manage connections to remote peers.
@@ -68,7 +74,8 @@ var (
 			err = engine.Start()
 			if err != nil {
 				log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			SetupCloseHandler()
@@ -77,17 +84,25 @@ var (
 			err = mgmClient.Close()
 			if err != nil {
 				log.Errorf("failed closing Management Service client %v", err)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 			err = signalClient.Close()
 			if err != nil {
 				log.Errorf("failed closing Signal Service client %v", err)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			log.Debugf("removing Wiretrustee interface %s", config.WgIface)
 			err = iface.Close()
 			if err != nil {
 				log.Errorf("failed closing Wiretrustee interface %s %v", config.WgIface, err)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
+
+			return nil
 		},
 	}
 )
@@ -148,7 +163,17 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 	} else {
 		sigTLSEnabled = false
 	}
-	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled)
+
+	signalURL, err := url.ParseRequestURI(wtConfig.Signal.GetUri())
+	if err != nil {
+		return nil, err
+	}
+
+	if !(signalURL.Scheme == "https" || signalURL.Scheme == "http") {
+		return nil, fmt.Errorf("invalid Soignal Service URL provided %s. Supported format [http|https]://[host]:[port]", managementURL)
+	}
+
+	signalClient, err := signal.NewClient(ctx, signalURL.Host, ourPrivateKey, sigTLSEnabled)
 	if err != nil {
 		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
 		return nil, status.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)

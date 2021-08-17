@@ -21,20 +21,22 @@ var (
 	loginCmd = &cobra.Command{
 		Use:   "login",
 		Short: "login to the Wiretrustee Management Service (first run)",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			InitLog(logLevel)
 
 			config, err := internal.GetConfig(managementURL, configPath)
 			if err != nil {
 				log.Errorf("failed getting config %s %v", configPath, err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			//validate our peer's Wireguard PRIVATE key
 			myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 			if err != nil {
 				log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			ctx := context.Background()
@@ -48,27 +50,33 @@ var (
 			mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 			if err != nil {
 				log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 			log.Debugf("connected to anagement Service %s", config.ManagementURL.String())
 
 			serverKey, err := mgmClient.GetServerPublicKey()
 			if err != nil {
 				log.Errorf("failed while getting Management Service public key: %v", err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			_, err = loginPeer(*serverKey, mgmClient, setupKey)
 			if err != nil {
 				log.Errorf("failed logging-in peer on Management Service : %v", err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			err = mgmClient.Close()
 			if err != nil {
 				log.Errorf("failed closing Management Service client: %v", err)
-				os.Exit(ExitSetupFailed)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
+
+			return nil
 		},
 	}
 )
