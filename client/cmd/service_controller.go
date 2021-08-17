@@ -2,12 +2,13 @@ package cmd
 
 import (
 	"github.com/kardianos/service"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
 func (p *program) Start(s service.Service) error {
 	// Start should not block. Do the actual work async.
-	logger.Info("Starting service") //nolint
+	log.Info("starting service") //nolint
 	go upCmd.Run(p.cmd, p.args)
 	return nil
 }
