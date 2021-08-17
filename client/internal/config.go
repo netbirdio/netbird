@@ -47,6 +47,8 @@ func createNewConfig(managementURL string, configPath string) (*Config, error) {
 		config.ManagementURL = managementURLDefault
 	}
 
+	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "tun0"}
+
 	err := util.WriteJson(configPath, config)
 	if err != nil {
 		return nil, err

@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"fmt"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -14,7 +13,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net/url"
 )
 
 var (
@@ -164,16 +162,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 		sigTLSEnabled = false
 	}
 
-	signalURL, err := url.ParseRequestURI(wtConfig.Signal.GetUri())
-	if err != nil {
-		return nil, err
-	}
-
-	if !(signalURL.Scheme == "https" || signalURL.Scheme == "http") {
-		return nil, fmt.Errorf("invalid Soignal Service URL provided %s. Supported format [http|https]://[host]:[port]", managementURL)
-	}
-
-	signalClient, err := signal.NewClient(ctx, signalURL.Host, ourPrivateKey, sigTLSEnabled)
+	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled)
 	if err != nil {
 		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
 		return nil, status.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)
