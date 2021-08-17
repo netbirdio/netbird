@@ -37,13 +37,6 @@ func CreateWithKernel(iface string, address string) error {
 	}
 
 	log.Debugf("adding address %s to interface: %s", address, iface)
-	addr, _ := netlink.ParseAddr(address)
-	err = netlink.AddrAdd(&link, addr)
-	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", iface, address)
-	} else if err != nil {
-		return err
-	}
 	err = assignAddr(address, iface)
 	if err != nil {
 		return err
@@ -75,6 +68,20 @@ func assignAddr(address, name string) error {
 
 	link := wgLink{
 		attrs: &attrs,
+	}
+
+	//delete existing addresses
+	list, err := netlink.AddrList(&link, 0)
+	if err != nil {
+		return err
+	}
+	if len(list) > 0 {
+		for _, a := range list {
+			err = netlink.AddrDel(&link, &a)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	log.Debugf("adding address %s to interface: %s", address, attrs.Name)
