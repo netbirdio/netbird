@@ -19,8 +19,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 	sigProto.RegisterSignalExchangeServer(s, sig.NewServer())
 	go func() {
 		if err := s.Serve(lis); err != nil {
-			t.Fatal(err)
-			return
+			panic(err)
 		}
 	}()
 

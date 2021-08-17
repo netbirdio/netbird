@@ -90,15 +90,16 @@ func TestUp(t *testing.T) {
 	}()
 
 	exists := false
-	for start := time.Now(); time.Since(start) < 3*time.Second; {
+	for start := time.Now(); time.Since(start) < 7*time.Second; {
 		e, err := iface.Exists(iface.WgInterfaceDefault)
 		if err != nil {
 			continue
 		}
-		if !*e {
-			continue
+		if *e {
+			exists = true
+			break
 		}
-		exists = true
+
 	}
 
 	if !exists {
