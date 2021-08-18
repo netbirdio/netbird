@@ -1,0 +1,33 @@
+{
+    "Stuns": [
+        {
+            "Proto": "udp",
+            "URI": "stun:stun.wiretrustee.com:3468",
+            "Username": "",
+            "Password": null
+        }
+    ],
+    "Turns": [
+        {
+            "Proto": "udp",
+            "URI": "turn:stun.wiretrustee.com:3468",
+            "Username": "some_user",
+            "Password": "c29tZV9wYXNzd29yZA=="
+        }
+    ],
+    "Signal": {
+        "Proto": "http",
+        "URI": "signal.wiretrustee.com:10000",
+        "Username": "",
+        "Password": null
+    },
+    "DataDir": "",
+    "HttpConfig": {
+        "LetsEncryptDomain": "",
+        "Address": "0.0.0.0:3000",
+        "AuthDomain": "<PASTE YOUR AUTH0 DOMAIN HERE>",
+        "AuthClientId": "<PASTE YOUR AUTH0 CLIENT ID HERE>",
+        "AuthClientSecret": "<PASTE YOUR AUTH0 SECRET>",
+        "AuthCallback": "http://localhost:3000/callback"
+    }
+}
