@@ -11,8 +11,6 @@ type program struct {
 	args []string
 }
 
-var logger service.Logger
-
 func newSVCConfig() *service.Config {
 	return &service.Config{
 		Name:        "wiretrustee",
@@ -27,11 +25,6 @@ func newSVC(prg *program, conf *service.Config) (service.Service, error) {
 		log.Fatal(err)
 		return nil, err
 	}
-	logger, err = s.Logger(nil)
-	if err != nil {
-		log.Fatal(err)
-		return nil, err
-	}
 	return s, nil
 }
 
@@ -39,8 +32,6 @@ var (
 	serviceCmd = &cobra.Command{
 		Use:   "service",
 		Short: "manages wiretrustee service",
-		//Run: func(cmd *cobra.Command, args []string) {
-		//},
 	}
 )
 
