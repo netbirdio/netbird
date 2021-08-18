@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/client/internal"
@@ -112,8 +113,13 @@ func registerPeer(serverPublicKey wgtypes.Key, client *mgm.Client, setupKey stri
 		}
 	}
 
+	validSetupKey, err := uuid.Parse(setupKey)
+	if err != nil {
+		return nil, err
+	}
+
 	log.Debugf("sending peer registration request to Management Service")
-	loginResp, err := client.Register(serverPublicKey, setupKey)
+	loginResp, err := client.Register(serverPublicKey, validSetupKey.String())
 	if err != nil {
 		log.Errorf("failed registering peer %v", err)
 		return nil, err
