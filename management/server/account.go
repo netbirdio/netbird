@@ -6,6 +6,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net"
+	"strings"
 	"sync"
 )
 
@@ -175,7 +176,7 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 		// Empty setup key, create a new account for it.
 		account, sk = newAccount()
 	} else {
-		sk = &SetupKey{Key: setupKey}
+		sk = &SetupKey{Key: strings.ToUpper(setupKey)}
 		account, err = manager.Store.GetAccountBySetupKey(sk.Key)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", setupKey)
@@ -211,7 +212,7 @@ func newAccountWithId(accountId string) (*Account, *SetupKey) {
 
 	log.Debugf("creating new account")
 
-	setupKeyId := uuid.New().String()
+	setupKeyId := strings.ToUpper(uuid.New().String())
 	setupKeys := make(map[string]*SetupKey)
 	setupKey := &SetupKey{Key: setupKeyId}
 	setupKeys[setupKeyId] = setupKey

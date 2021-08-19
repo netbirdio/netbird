@@ -67,7 +67,7 @@ func restore(file string) (*FileStore, error) {
 	store.PeerKeyId2AccountId = make(map[string]string)
 	for accountId, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
-			store.SetupKeyId2AccountId[strings.ToLower(setupKeyId)] = accountId
+			store.SetupKeyId2AccountId[strings.ToUpper(setupKeyId)] = accountId
 		}
 		for _, peer := range account.Peers {
 			store.PeerKeyId2AccountId[peer.Key] = accountId
@@ -133,7 +133,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 
-	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToLower(setupKey)]
+	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToUpper(setupKey)]
 	if !accountIdFound {
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
