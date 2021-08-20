@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/google/uuid"
 	"testing"
 	"time"
 )
@@ -90,5 +91,10 @@ func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke 
 
 	if key.CreatedAt.Sub(expectedCreatedAt).Round(time.Hour) != 0 {
 		t.Errorf("expected setup key to have CreatedAt ~ %v, got %v", expectedCreatedAt, key.CreatedAt)
+	}
+
+	_, err := uuid.Parse(key.Key)
+	if err != nil {
+		t.Errorf("expected key to be a valid UUID, got %v, %v", key.Key, err)
 	}
 }
