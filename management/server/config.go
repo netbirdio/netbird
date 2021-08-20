@@ -31,8 +31,6 @@ type HttpServerConfig struct {
 	AuthIssuer string
 	// AuthKeysLocation is a location of JWT key set containing the public keys used to verify JWT
 	AuthKeysLocation string
-	// UIFilesLocation is the location of static UI files for management frontend
-	UIFilesLocation string
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)
