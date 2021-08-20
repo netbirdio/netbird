@@ -7,6 +7,7 @@ import (
 	mgmt "github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -38,7 +39,7 @@ func TestLogin(t *testing.T) {
 		"--config",
 		confPath,
 		"--setup-key",
-		"a2c8e62b-38f5-4553-b31e-dd66c696cebb",
+		strings.ToUpper("a2c8e62b-38f5-4553-b31e-dd66c696cebb"),
 		"--management-url",
 		mgmtURL,
 	})

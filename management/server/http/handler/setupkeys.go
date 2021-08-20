@@ -19,6 +19,7 @@ type SetupKeyResponse struct {
 	Name    string
 	Expires time.Time
 	Type    string
+	Valid   bool
 }
 
 func NewSetupKeysHandler(accountManager *server.AccountManager) *SetupKeys {
@@ -45,9 +46,10 @@ func (h *SetupKeys) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		for _, key := range account.SetupKeys {
 			respBody = append(respBody, &SetupKeyResponse{
 				Key:     key.Key,
-				Name:    key.Key,
-				Expires: time.Now().Add(30 * (time.Second * 60 * 60 * 24)),
-				Type:    "reusable",
+				Name:    key.Name,
+				Expires: key.ExpiresAt,
+				Type:    string(key.Type),
+				Valid:   key.IsValid(),
 			})
 		}
 
