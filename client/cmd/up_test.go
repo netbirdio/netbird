@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -71,7 +70,7 @@ func TestUp(t *testing.T) {
 		"--config",
 		confPath,
 		"--setup-key",
-		strings.ToUpper("a2c8e62b-38f5-4553-b31e-dd66c696cebb"),
+		"A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
 		"--management-url",
 		mgmtURL.String(),
 	})
@@ -93,7 +92,7 @@ func TestUp(t *testing.T) {
 	}()
 
 	exists := false
-	for start := time.Now(); time.Since(start) < 7*time.Second; {
+	for start := time.Now(); time.Since(start) < 15*time.Second; {
 		e, err := iface.Exists(iface.WgInterfaceDefault)
 		if err != nil {
 			continue
