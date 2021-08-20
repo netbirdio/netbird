@@ -3,8 +3,14 @@
         "bf1c8084-ba50-4ce7-9439-34653001fc3b": {
             "Id": "bf1c8084-ba50-4ce7-9439-34653001fc3b",
             "SetupKeys": {
-                "a2c8e62b-38f5-4553-b31e-dd66c696cebb": {
-                    "Key": "a2c8e62b-38f5-4553-b31e-dd66c696cebb"
+                "A2C8E62B-38F5-4553-B31E-DD66C696CEBB": {
+                    "Key": "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
+                    "Name": "Default key",
+                    "Type": "reusable",
+                    "CreatedAt": "2021-08-19T20:46:20.005936822+02:00",
+                    "ExpiresAt": "2321-09-18T20:46:20.005936822+02:00",
+                    "Revoked": false,
+                    "UsedTimes": 0
                 }
             },
             "Network": {
