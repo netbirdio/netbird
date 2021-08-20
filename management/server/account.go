@@ -251,7 +251,7 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", upperKey)
 		}
 
-		sk = getAccountSetupKeyByKey(account, setupKey)
+		sk = getAccountSetupKeyByKey(account, upperKey)
 		if sk == nil {
 			// shouldn't happen actually
 			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", upperKey)
