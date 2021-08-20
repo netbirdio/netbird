@@ -180,6 +180,7 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 		for _, key := range account.SetupKeys {
 			if upperKey == key.Key {
 				sk = key
+				break
 			}
 		}
 
