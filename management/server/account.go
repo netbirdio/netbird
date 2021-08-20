@@ -224,7 +224,7 @@ func newAccountWithId(accountId string) (*Account, *SetupKey) {
 	log.Debugf("creating new account")
 
 	setupKeys := make(map[string]*SetupKey)
-	setupKey := GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration)
+	setupKey := GenerateDefaultSetupKey()
 	setupKeys[setupKey.Key] = setupKey
 	network := &Network{
 		Id:  uuid.New().String(),

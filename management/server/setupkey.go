@@ -54,3 +54,8 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration) *Setu
 		UsedTimes: 0,
 	}
 }
+
+// GenerateDefaultSetupKey generates a default setup key
+func GenerateDefaultSetupKey() *SetupKey {
+	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration)
+}
