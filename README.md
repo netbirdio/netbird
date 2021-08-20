@@ -2,7 +2,7 @@
 
 A WireGuard®-based mesh network that connects your devices into a single private network.
 
-**Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases][github-release].
+**Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/wiretrustee/wiretrustee/releases).
 
 ### Why using Wiretrustee?
 
