@@ -277,6 +277,7 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 	}
 
 	account.Peers[newPeer.Key] = newPeer
+	account.SetupKeys[sk.Key] = sk.IncrementUsage()
 	err = manager.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")

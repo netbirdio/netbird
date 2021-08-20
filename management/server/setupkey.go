@@ -35,6 +35,8 @@ type SetupKey struct {
 	Revoked bool
 	// UsedTimes indicates how many times the key was used
 	UsedTimes int
+	// LastUsed last time the key was used for peer registration
+	LastUsed time.Time
 }
 
 //Copy copies SetupKey to a new object
@@ -49,6 +51,14 @@ func (key *SetupKey) Copy() *SetupKey {
 		Revoked:   key.Revoked,
 		UsedTimes: key.UsedTimes,
 	}
+}
+
+//IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
+func (key *SetupKey) IncrementUsage() *SetupKey {
+	c := key.Copy()
+	c.UsedTimes = c.UsedTimes + 1
+	c.LastUsed = time.Now()
+	return c
 }
 
 // IsValid is true if the key was not revoked, is not expired and used not more than it was supposed to
