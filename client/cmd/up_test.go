@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,7 +71,7 @@ func TestUp(t *testing.T) {
 		"--config",
 		confPath,
 		"--setup-key",
-		"a2c8e62b-38f5-4553-b31e-dd66c696cebb",
+		strings.ToUpper("a2c8e62b-38f5-4553-b31e-dd66c696cebb"),
 		"--management-url",
 		mgmtURL.String(),
 	})
