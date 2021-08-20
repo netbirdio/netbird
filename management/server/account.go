@@ -84,7 +84,7 @@ func (manager *AccountManager) GetAccount(accountId string) (*Account, error) {
 
 	account, err := manager.Store.GetAccount(accountId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed retrieving account")
+		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
 	return account, nil

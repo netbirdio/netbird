@@ -116,7 +116,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	// todo check that account.Id and keyId are not exist already
 	// because if keyId exists for other accounts this can be bad
 	for keyId := range account.SetupKeys {
-		s.SetupKeyId2AccountId[strings.ToLower(keyId)] = account.Id
+		s.SetupKeyId2AccountId[strings.ToUpper(keyId)] = account.Id
 	}
 
 	for _, peer := range account.Peers {
