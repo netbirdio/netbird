@@ -9,7 +9,6 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/server/http/middleware"
 	"golang.org/x/crypto/acme/autocert"
 	"net/http"
-	"path/filepath"
 	"time"
 )
 
@@ -57,13 +56,6 @@ func (s *Server) Start() error {
 	corsMiddleware := cors.AllowAll()
 	h := http.NewServeMux()
 	s.server.Handler = h
-
-	// serve public website
-	uiPath := filepath.Clean(s.config.UIFilesLocation)
-	fs := http.FileServer(http.Dir(uiPath))
-	h.Handle("/", fs)
-	fsStatic := http.FileServer(http.Dir(filepath.Join(uiPath, "static/")))
-	h.Handle("/static/", http.StripPrefix("/static/", fsStatic))
 
 	peersHandler := handler.NewPeers(s.accountManager)
 	keysHandler := handler.NewSetupKeysHandler(s.accountManager)
