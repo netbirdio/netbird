@@ -25,8 +25,7 @@ import (
 )
 
 const (
-	ValidSetupKey   = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
-	InvalidSetupKey = "INVALID_SETUP_KEY"
+	ValidSetupKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 )
 
 var _ = Describe("Management service", func() {

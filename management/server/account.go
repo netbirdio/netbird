@@ -24,19 +24,13 @@ type Account struct {
 	Peers     map[string]*Peer
 }
 
-// SetupKey represents a pre-authorized key used to register machines (peers)
-// One key might have multiple machines
-type SetupKey struct {
-	Key string
-}
-
 // Peer represents a machine connected to the network.
 // The Peer is a Wireguard peer identified by a public key
 type Peer struct {
 	// Wireguard public key
 	Key string
 	// A setup key this peer was registered with
-	SetupKey *SetupKey
+	SetupKey string
 	// IP address of the Peer
 	IP net.IP
 }
@@ -90,7 +84,7 @@ func (manager *AccountManager) GetAccount(accountId string) (*Account, error) {
 
 	account, err := manager.Store.GetAccount(accountId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed retrieving account")
+		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
 	return account, nil
@@ -164,23 +158,40 @@ func (manager *AccountManager) createAccount(accountId string) (*Account, error)
 // Each Account has a list of pre-authorised SetupKey and if no Account has a given key err wit ha code codes.Unauthenticated
 // will be returned, meaning the key is invalid
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
-// If the specified setupKey is empty then a new Account will be created //todo make it more explicit?
+// If the specified setupKey is empty then a new Account will be created //todo remove this part
 func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, error) {
 	manager.mux.Lock()
 	defer manager.mux.Unlock()
 
+	upperKey := strings.ToUpper(setupKey)
+
 	var account *Account
 	var err error
 	var sk *SetupKey
-	if len(setupKey) == 0 {
+	if len(upperKey) == 0 {
 		// Empty setup key, create a new account for it.
 		account, sk = newAccount()
 	} else {
-		sk = &SetupKey{Key: strings.ToUpper(setupKey)}
-		account, err = manager.Store.GetAccountBySetupKey(sk.Key)
+		account, err = manager.Store.GetAccountBySetupKey(upperKey)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", setupKey)
+			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", upperKey)
 		}
+
+		for _, key := range account.SetupKeys {
+			if upperKey == key.Key {
+				sk = key
+				break
+			}
+		}
+
+		if sk == nil {
+			// shouldn't happen actually
+			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", upperKey)
+		}
+	}
+
+	if !sk.IsValid() {
+		return nil, status.Errorf(codes.FailedPrecondition, "setup key was expired or overused %s", upperKey)
 	}
 
 	var takenIps []net.IP
@@ -193,7 +204,7 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 
 	newPeer := &Peer{
 		Key:      peerKey,
-		SetupKey: sk,
+		SetupKey: sk.Key,
 		IP:       nextIp,
 	}
 
@@ -212,17 +223,16 @@ func newAccountWithId(accountId string) (*Account, *SetupKey) {
 
 	log.Debugf("creating new account")
 
-	setupKeyId := strings.ToUpper(uuid.New().String())
 	setupKeys := make(map[string]*SetupKey)
-	setupKey := &SetupKey{Key: setupKeyId}
-	setupKeys[setupKeyId] = setupKey
+	setupKey := GenerateDefaultSetupKey()
+	setupKeys[setupKey.Key] = setupKey
 	network := &Network{
 		Id:  uuid.New().String(),
 		Net: net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
 		Dns: ""}
 	peers := make(map[string]*Peer)
 
-	log.Debugf("created new account %s with setup key %s", accountId, setupKeyId)
+	log.Debugf("created new account %s with setup key %s", accountId, setupKey.Key)
 
 	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers}, setupKey
 }
