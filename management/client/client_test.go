@@ -19,6 +19,8 @@ import (
 var tested *Client
 var serverAddr string
 
+const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+
 func Test_Start(t *testing.T) {
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
@@ -105,7 +107,7 @@ func TestClient_LoginRegistered(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	resp, err := tested.Register(*key, "a2c8e62b-38f5-4553-b31e-dd66c696cebb")
+	resp, err := tested.Register(*key, ValidKey)
 	if err != nil {
 		t.Error(err)
 	}
@@ -121,7 +123,7 @@ func TestClient_Sync(t *testing.T) {
 		t.Error(err)
 	}
 
-	_, err = tested.Register(*serverKey, "a2c8e62b-38f5-4553-b31e-dd66c696cebb")
+	_, err = tested.Register(*serverKey, ValidKey)
 	if err != nil {
 		t.Error(err)
 	}
@@ -135,7 +137,7 @@ func TestClient_Sync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = remoteClient.Register(*serverKey, "a2c8e62b-38f5-4553-b31e-dd66c696cebb")
+	_, err = remoteClient.Register(*serverKey, ValidKey)
 	if err != nil {
 		t.Fatal(err)
 	}
