@@ -80,6 +80,9 @@ func TestAccountManager_GetOrCreateAccount(t *testing.T) {
 		t.Errorf("expected to get existing account after creation, failed")
 	}
 
+	if account.Id != expectedId {
+		t.Fatalf("expected to create an account, got wrong account")
+	}
 }
 
 func TestAccountManager_AccountExists(t *testing.T) {
