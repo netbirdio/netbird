@@ -109,7 +109,7 @@ var _ = Describe("Client", func() {
 			})
 		})
 
-		Context("with a raw client and no ID header", func() {
+		Context("with a raw client and no Id header", func() {
 			It("should fail", func() {
 
 				client := createRawSignalClient(addr)
@@ -125,7 +125,7 @@ var _ = Describe("Client", func() {
 			})
 		})
 
-		Context("with a raw client and with an ID header", func() {
+		Context("with a raw client and with an Id header", func() {
 			It("should be successful", func() {
 
 				md := metadata.New(map[string]string{sigProto.HeaderId: "peer"})

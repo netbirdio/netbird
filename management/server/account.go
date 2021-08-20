@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 )
 
 type AccountManager struct {
@@ -75,6 +76,79 @@ func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error)
 	}
 
 	return res, nil
+}
+
+//AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
+func (manager *AccountManager) AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn time.Duration) (*SetupKey, error) {
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	account, err := manager.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	setupKey := GenerateSetupKey(keyName, keyType, expiresIn)
+	account.SetupKeys[setupKey.Key] = setupKey
+
+	err = manager.Store.SaveAccount(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed adding account key")
+	}
+
+	return setupKey, nil
+}
+
+//RevokeSetupKey marks SetupKey as revoked - becomes not valid anymore
+func (manager *AccountManager) RevokeSetupKey(accountId string, keyId string) (*SetupKey, error) {
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	account, err := manager.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	setupKey := getAccountSetupKeyById(account, keyId)
+	if setupKey == nil {
+		return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", keyId)
+	}
+
+	keyCopy := setupKey.Copy()
+	keyCopy.Revoked = true
+	account.SetupKeys[keyCopy.Key] = keyCopy
+	err = manager.Store.SaveAccount(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed adding account key")
+	}
+
+	return keyCopy, nil
+}
+
+//RenameSetupKey renames existing setup key of the specified account.
+func (manager *AccountManager) RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error) {
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	account, err := manager.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	setupKey := getAccountSetupKeyById(account, keyId)
+	if setupKey == nil {
+		return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", keyId)
+	}
+
+	keyCopy := setupKey.Copy()
+	keyCopy.Name = newName
+	account.SetupKeys[keyCopy.Key] = keyCopy
+	err = manager.Store.SaveAccount(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed adding account key")
+	}
+
+	return keyCopy, nil
 }
 
 //GetAccount returns an existing account or error (NotFound) if doesn't exist
@@ -177,13 +251,7 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", upperKey)
 		}
 
-		for _, key := range account.SetupKeys {
-			if upperKey == key.Key {
-				sk = key
-				break
-			}
-		}
-
+		sk = getAccountSetupKeyByKey(account, setupKey)
 		if sk == nil {
 			// shouldn't happen actually
 			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", upperKey)
@@ -241,4 +309,22 @@ func newAccountWithId(accountId string) (*Account, *SetupKey) {
 func newAccount() (*Account, *SetupKey) {
 	accountId := uuid.New().String()
 	return newAccountWithId(accountId)
+}
+
+func getAccountSetupKeyById(acc *Account, keyId string) *SetupKey {
+	for _, k := range acc.SetupKeys {
+		if keyId == k.Id {
+			return k
+		}
+	}
+	return nil
+}
+
+func getAccountSetupKeyByKey(acc *Account, key string) *SetupKey {
+	for _, k := range acc.SetupKeys {
+		if key == k.Key {
+			return k
+		}
+	}
+	return nil
 }

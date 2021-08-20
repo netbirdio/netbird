@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/google/uuid"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -16,7 +17,8 @@ func TestGenerateDefaultSetupKey(t *testing.T) {
 
 	key := GenerateDefaultSetupKey()
 
-	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt, expectedExpiresAt)
+	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
+		expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))))
 
 }
 
@@ -30,7 +32,7 @@ func TestGenerateSetupKey(t *testing.T) {
 
 	key := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour)
 
-	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt, expectedExpiresAt)
+	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt, expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))))
 
 }
 
@@ -68,7 +70,8 @@ func TestSetupKey_IsValid(t *testing.T) {
 	}
 }
 
-func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke bool, expectedType string, expectedUsedTimes int, expectedCreatedAt time.Time, expectedExpiresAt time.Time) {
+func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke bool, expectedType string,
+	expectedUsedTimes int, expectedCreatedAt time.Time, expectedExpiresAt time.Time, expectedID string) {
 	if key.Name != expectedName {
 		t.Errorf("expected setup key to have Name %v, got %v", expectedName, key.Name)
 	}
@@ -97,4 +100,17 @@ func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke 
 	if err != nil {
 		t.Errorf("expected key to be a valid UUID, got %v, %v", key.Key, err)
 	}
+
+	if key.Id != strconv.Itoa(int(Hash(key.Key))) {
+		t.Errorf("expected key Id t= %v, got %v", expectedID, key.Id)
+	}
+}
+
+func TestSetupKey_Copy(t *testing.T) {
+
+	key := GenerateSetupKey("key name", SetupKeyOneOff, time.Hour)
+	keyCopy := key.Copy()
+
+	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpiresAt, key.Id)
+
 }

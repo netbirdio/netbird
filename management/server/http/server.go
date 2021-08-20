@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"github.com/gorilla/mux"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
 	s "github.com/wiretrustee/wiretrustee/management/server"
@@ -54,20 +55,24 @@ func (s *Server) Start() error {
 	}
 
 	corsMiddleware := cors.AllowAll()
-	h := http.NewServeMux()
-	s.server.Handler = h
+
+	r := mux.NewRouter()
+	r.Use(jwtMiddleware.Handler, corsMiddleware.Handler)
 
 	peersHandler := handler.NewPeers(s.accountManager)
 	keysHandler := handler.NewSetupKeysHandler(s.accountManager)
-	h.Handle("/api/peers", corsMiddleware.Handler(jwtMiddleware.Handler(peersHandler)))
-	h.Handle("/api/setup-keys", corsMiddleware.Handler(jwtMiddleware.Handler(keysHandler)))
-	http.Handle("/", h)
+	r.HandleFunc("/api/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
+
+	r.HandleFunc("/api/setup-keys", keysHandler.GetKeys).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/setup-keys", keysHandler.CreateKey).Methods("PUT")
+	r.HandleFunc("/api/setup-keys/{id}", keysHandler.HandleKey).Methods("GET", "POST", "OPTIONS")
+	http.Handle("/", r)
 
 	if s.certManager != nil {
 		// if HTTPS is enabled we reuse the listener from the cert manager
 		listener := s.certManager.Listener()
 		log.Infof("http server listening on %s", listener.Addr())
-		if err = http.Serve(listener, s.certManager.HTTPHandler(h)); err != nil {
+		if err = http.Serve(listener, s.certManager.HTTPHandler(r)); err != nil {
 			log.Errorf("failed to serve https server: %v", err)
 			return err
 		}

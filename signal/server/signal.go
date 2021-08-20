@@ -88,7 +88,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 }
 
 // Handles initial Peer connection.
-// Each connection must provide an ID header.
+// Each connection must provide an Id header.
 // At this moment the connecting Peer will be registered in the peer.Registry
 func (s Server) connectPeer(stream proto.SignalExchange_ConnectStreamServer) (*peer.Peer, error) {
 	if meta, hasMeta := metadata.FromIncomingContext(stream.Context()); hasMeta {

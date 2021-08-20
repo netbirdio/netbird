@@ -28,7 +28,7 @@ func NewPeers(accountManager *server.AccountManager) *Peers {
 	}
 }
 
-func (h *Peers) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		accountId := extractAccountIdFromRequestContext(r)
