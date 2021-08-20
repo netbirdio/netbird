@@ -2,8 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net/http"
 	"time"
 )
@@ -15,11 +18,21 @@ type SetupKeys struct {
 
 // SetupKeyResponse is a response sent to the client
 type SetupKeyResponse struct {
+	Id      string
 	Key     string
 	Name    string
 	Expires time.Time
-	Type    string
+	Type    server.SetupKeyType
 	Valid   bool
+	Revoked bool
+}
+
+// SetupKeyRequest is a request sent by client. This object contains fields that can be modified
+type SetupKeyRequest struct {
+	Name      string
+	Type      server.SetupKeyType
+	ExpiresIn Duration
+	Revoked   bool
 }
 
 func NewSetupKeysHandler(accountManager *server.AccountManager) *SetupKeys {
@@ -28,7 +41,90 @@ func NewSetupKeysHandler(accountManager *server.AccountManager) *SetupKeys {
 	}
 }
 
-func (h *SetupKeys) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *SetupKeys) CreateKey(w http.ResponseWriter, r *http.Request) {
+	accountId := extractAccountIdFromRequestContext(r)
+	req := &SetupKeyRequest{}
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	setupKey, err := h.accountManager.AddSetupKey(accountId, req.Name, req.Type, req.ExpiresIn.Duration)
+	if err != nil {
+		errStatus, ok := status.FromError(err)
+		if ok && errStatus.Code() == codes.NotFound {
+			http.Error(w, "account not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "failed adding setup key", http.StatusInternalServerError)
+		return
+	}
+
+	writeSuccess(w, setupKey)
+}
+
+func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
+	accountId := extractAccountIdFromRequestContext(r)
+	vars := mux.Vars(r)
+	keyId := vars["id"]
+	if len(keyId) == 0 {
+		http.Error(w, "invalid key Id", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPost:
+		req := &SetupKeyRequest{}
+		err := json.NewDecoder(r.Body).Decode(&req)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		var key *server.SetupKey
+		if req.Revoked {
+			//handle only if being revoked, don't allow to enable key again for now
+			key, err = h.accountManager.RevokeSetupKey(accountId, keyId)
+			if err != nil {
+				http.Error(w, "failed revoking key", http.StatusInternalServerError)
+				return
+			}
+		}
+		if len(req.Name) != 0 {
+			key, err = h.accountManager.RenameSetupKey(accountId, keyId, req.Name)
+			if err != nil {
+				http.Error(w, "failed renaming key", http.StatusInternalServerError)
+				return
+			}
+		}
+
+		if key != nil {
+			writeSuccess(w, key)
+		}
+
+		return
+
+	case http.MethodGet:
+		account, err := h.accountManager.GetAccount(accountId)
+		if err != nil {
+			http.Error(w, "account doesn't exist", http.StatusInternalServerError)
+			return
+		}
+		for _, key := range account.SetupKeys {
+			if key.Id == keyId {
+				writeSuccess(w, key)
+				return
+			}
+		}
+		http.Error(w, "setup key not found", http.StatusNotFound)
+		return
+	default:
+		http.Error(w, "", http.StatusNotFound)
+	}
+}
+
+func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		accountId := extractAccountIdFromRequestContext(r)
@@ -44,13 +140,7 @@ func (h *SetupKeys) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		respBody := []*SetupKeyResponse{}
 		for _, key := range account.SetupKeys {
-			respBody = append(respBody, &SetupKeyResponse{
-				Key:     key.Key,
-				Name:    key.Name,
-				Expires: key.ExpiresAt,
-				Type:    string(key.Type),
-				Valid:   key.IsValid(),
-			})
+			respBody = append(respBody, toResponseBody(key))
 		}
 
 		err = json.NewEncoder(w).Encode(respBody)
@@ -61,5 +151,27 @@ func (h *SetupKeys) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		http.Error(w, "", http.StatusNotFound)
+	}
+}
+
+func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
+	w.WriteHeader(200)
+	w.Header().Set("Content-Type", "application/json")
+	err := json.NewEncoder(w).Encode(toResponseBody(key))
+	if err != nil {
+		http.Error(w, "failed handling request", http.StatusInternalServerError)
+		return
+	}
+}
+
+func toResponseBody(key *server.SetupKey) *SetupKeyResponse {
+	return &SetupKeyResponse{
+		Id:      key.Id,
+		Key:     key.Key,
+		Name:    key.Name,
+		Expires: key.ExpiresAt,
+		Type:    key.Type,
+		Valid:   key.IsValid(),
+		Revoked: key.Revoked,
 	}
 }

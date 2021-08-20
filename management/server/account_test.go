@@ -29,7 +29,7 @@ func TestAccountManager_AddAccount(t *testing.T) {
 	}
 
 	if account.Id != expectedId {
-		t.Errorf("expected account to have ID = %s, got %s", expectedId, account.Id)
+		t.Errorf("expected account to have Id = %s, got %s", expectedId, account.Id)
 	}
 
 	if len(account.Peers) != expectedPeersSize {
@@ -130,7 +130,7 @@ func TestAccountManager_GetAccount(t *testing.T) {
 	}
 
 	if account.Id != getAccount.Id {
-		t.Errorf("expected account.ID %s, got %s", account.Id, getAccount.Id)
+		t.Errorf("expected account.Id %s, got %s", account.Id, getAccount.Id)
 	}
 
 	for _, peer := range account.Peers {

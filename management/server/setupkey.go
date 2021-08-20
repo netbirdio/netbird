@@ -2,6 +2,8 @@ package server
 
 import (
 	"github.com/google/uuid"
+	"hash/fnv"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,6 +25,7 @@ type SetupKeyType string
 
 // SetupKey represents a pre-authorized key used to register machines (peers)
 type SetupKey struct {
+	Id        string
 	Key       string
 	Name      string
 	Type      SetupKeyType
@@ -34,6 +37,20 @@ type SetupKey struct {
 	UsedTimes int
 }
 
+//Copy copies SetupKey to a new object
+func (key *SetupKey) Copy() *SetupKey {
+	return &SetupKey{
+		Id:        key.Id,
+		Key:       key.Key,
+		Name:      key.Name,
+		Type:      key.Type,
+		CreatedAt: key.CreatedAt,
+		ExpiresAt: key.ExpiresAt,
+		Revoked:   key.Revoked,
+		UsedTimes: key.UsedTimes,
+	}
+}
+
 // IsValid is true if the key was not revoked, is not expired and used not more than it was supposed to
 func (key *SetupKey) IsValid() bool {
 	expired := time.Now().After(key.ExpiresAt)
@@ -43,9 +60,11 @@ func (key *SetupKey) IsValid() bool {
 
 // GenerateSetupKey generates a new setup key
 func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration) *SetupKey {
+	key := strings.ToUpper(uuid.New().String())
 	createdAt := time.Now()
 	return &SetupKey{
-		Key:       strings.ToUpper(uuid.New().String()),
+		Id:        strconv.Itoa(int(Hash(key))),
+		Key:       key,
 		Name:      name,
 		Type:      t,
 		CreatedAt: createdAt,
@@ -58,4 +77,13 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration) *Setu
 // GenerateDefaultSetupKey generates a default setup key
 func GenerateDefaultSetupKey() *SetupKey {
 	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration)
+}
+
+func Hash(s string) uint32 {
+	h := fnv.New32a()
+	_, err := h.Write([]byte(s))
+	if err != nil {
+		panic(err)
+	}
+	return h.Sum32()
 }
