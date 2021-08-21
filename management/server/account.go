@@ -25,15 +25,23 @@ type Account struct {
 	Peers     map[string]*Peer
 }
 
-// Peer represents a machine connected to the network.
-// The Peer is a Wireguard peer identified by a public key
+//Peer represents a machine connected to the network.
+//The Peer is a Wireguard peer identified by a public key
 type Peer struct {
-	// Wireguard public key
+	//Wireguard public key
 	Key string
-	// A setup key this peer was registered with
+	//A setup key this peer was registered with
 	SetupKey string
-	// IP address of the Peer
+	//IP address of the Peer
 	IP net.IP
+	//OS is peer's operating system
+	OS string
+	//Name is peer's name (machine name)
+	Name string
+	//LastSeen is the last time peer was connected to the management service
+	LastSeen time.Time
+	//Connected indicates whether peer is connected to the management service or not
+	Connected bool
 }
 
 // NewManager creates a new AccountManager with a provided Store
@@ -44,7 +52,7 @@ func NewManager(store Store) *AccountManager {
 	}
 }
 
-// GetPeer returns a peer from a Store
+//GetPeer returns a peer from a Store
 func (manager *AccountManager) GetPeer(peerKey string) (*Peer, error) {
 	manager.mux.Lock()
 	defer manager.mux.Unlock()
@@ -55,6 +63,33 @@ func (manager *AccountManager) GetPeer(peerKey string) (*Peer, error) {
 	}
 
 	return peer, nil
+}
+
+//DeletePeer removes peer from the account by it's IP
+func (manager *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, error) {
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	return manager.Store.DeletePeer(accountId, peerKey)
+}
+
+//GetPeerByIP returns peer by it's IP
+func (manager *AccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, error) {
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	account, err := manager.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	for _, peer := range account.Peers {
+		if peerIP == peer.IP.String() {
+			return peer, nil
+		}
+	}
+
+	return nil, status.Errorf(codes.NotFound, "peer with IP %s not found", peerIP)
 }
 
 // GetPeersForAPeer returns a list of peers available for a given peer (key)

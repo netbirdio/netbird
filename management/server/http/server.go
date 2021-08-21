@@ -62,6 +62,7 @@ func (s *Server) Start() error {
 	peersHandler := handler.NewPeers(s.accountManager)
 	keysHandler := handler.NewSetupKeysHandler(s.accountManager)
 	r.HandleFunc("/api/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/peers/{id}", peersHandler.HandlePeer).Methods("GET", "POST", "DELETE", "OPTIONS")
 
 	r.HandleFunc("/api/setup-keys", keysHandler.GetKeys).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/setup-keys", keysHandler.CreateKey).Methods("PUT")

@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"encoding/json"
+	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	"net/http"
@@ -19,13 +19,46 @@ type PeerResponse struct {
 	IP        string
 	Connected bool
 	LastSeen  time.Time
-	Os        string
+	OS        string
 }
 
 func NewPeers(accountManager *server.AccountManager) *Peers {
 	return &Peers{
 		accountManager: accountManager,
 	}
+}
+func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
+	accountId := extractAccountIdFromRequestContext(r)
+	vars := mux.Vars(r)
+	peerId := vars["id"] //effectively peer IP address
+	if len(peerId) == 0 {
+		http.Error(w, "invalid peer Id", http.StatusBadRequest)
+		return
+	}
+
+	peer, err := h.accountManager.GetPeerByIP(accountId, peerId)
+	if err != nil {
+		http.Error(w, "peer not found", http.StatusNotFound)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodDelete:
+		_, err = h.accountManager.DeletePeer(accountId, peer.Key)
+		if err != nil {
+			log.Errorf("failed deleteing peer %s, %v", peer.IP, err)
+			http.Redirect(w, r, "/", http.StatusInternalServerError)
+			return
+		}
+		return
+	case http.MethodGet:
+		writeJSONObject(w, toPeerResponse(peer))
+		return
+
+	default:
+		http.Error(w, "", http.StatusNotFound)
+	}
+
 }
 
 func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
@@ -39,27 +72,24 @@ func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
 			return
 		}
-		w.WriteHeader(200)
-		w.Header().Set("Content-Type", "application/json")
 
 		respBody := []*PeerResponse{}
 		for _, peer := range account.Peers {
-			respBody = append(respBody, &PeerResponse{
-				Name:      peer.Key,
-				IP:        peer.IP.String(),
-				LastSeen:  time.Now(),
-				Connected: false,
-				Os:        "Ubuntu 21.04 (Hirsute Hippo)",
-			})
+			respBody = append(respBody, toPeerResponse(peer))
 		}
-
-		err = json.NewEncoder(w).Encode(respBody)
-		if err != nil {
-			log.Errorf("failed encoding account peers %s: %v", accountId, err)
-			http.Redirect(w, r, "/", http.StatusInternalServerError)
-			return
-		}
+		writeJSONObject(w, respBody)
+		return
 	default:
 		http.Error(w, "", http.StatusNotFound)
+	}
+}
+
+func toPeerResponse(peer *server.Peer) *PeerResponse {
+	return &PeerResponse{
+		Name:      peer.Name,
+		IP:        peer.IP.String(),
+		Connected: peer.Connected,
+		LastSeen:  peer.LastSeen,
+		OS:        peer.OS,
 	}
 }
