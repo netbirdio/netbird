@@ -1,10 +1,11 @@
 package server
 
 type Store interface {
-	GetPeer(peerId string) (*Peer, error)
+	GetPeer(peerKey string) (*Peer, error)
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
+	SavePeer(accountId string, peer *Peer) error
 	GetAccount(accountId string) (*Account, error)
-	GetPeerAccount(peerId string) (*Account, error)
+	GetPeerAccount(peerKey string) (*Account, error)
 	GetAccountBySetupKey(setupKey string) (*Account, error)
 	SaveAccount(account *Account) error
 }
