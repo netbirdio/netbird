@@ -18,13 +18,15 @@ type SetupKeys struct {
 
 // SetupKeyResponse is a response sent to the client
 type SetupKeyResponse struct {
-	Id      string
-	Key     string
-	Name    string
-	Expires time.Time
-	Type    server.SetupKeyType
-	Valid   bool
-	Revoked bool
+	Id        string
+	Key       string
+	Name      string
+	Expires   time.Time
+	Type      server.SetupKeyType
+	Valid     bool
+	Revoked   bool
+	UsedTimes int
+	LastUsed  time.Time
 }
 
 // SetupKeyRequest is a request sent by client. This object contains fields that can be modified
@@ -47,6 +49,11 @@ func (h *SetupKeys) CreateKey(w http.ResponseWriter, r *http.Request) {
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if !(req.Type == server.SetupKeyReusable || req.Type == server.SetupKeyOneOff) {
+		http.Error(w, "unknown setup key type "+string(req.Type), http.StatusBadRequest)
 		return
 	}
 
@@ -166,12 +173,14 @@ func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
 
 func toResponseBody(key *server.SetupKey) *SetupKeyResponse {
 	return &SetupKeyResponse{
-		Id:      key.Id,
-		Key:     key.Key,
-		Name:    key.Name,
-		Expires: key.ExpiresAt,
-		Type:    key.Type,
-		Valid:   key.IsValid(),
-		Revoked: key.Revoked,
+		Id:        key.Id,
+		Key:       key.Key,
+		Name:      key.Name,
+		Expires:   key.ExpiresAt,
+		Type:      key.Type,
+		Valid:     key.IsValid(),
+		Revoked:   key.Revoked,
+		UsedTimes: key.UsedTimes,
+		LastUsed:  key.LastUsed,
 	}
 }
