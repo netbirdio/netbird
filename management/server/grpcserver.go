@@ -125,11 +125,27 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 }
 
-func (s *Server) registerPeer(peerKey wgtypes.Key, setupKey string) (*Peer, error) {
+func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
 	s.channelsMux.Lock()
 	defer s.channelsMux.Unlock()
 
-	peer, err := s.accountManager.AddPeer(setupKey, peerKey.String())
+	meta := req.GetMeta()
+	if meta == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "peer meta data was not provided")
+	}
+	peer, err := s.accountManager.AddPeer(req.GetSetupKey(), Peer{
+		Key:  peerKey.String(),
+		Name: meta.GetHostname(),
+		Meta: PeerSystemMeta{
+			Hostname:  meta.GetHostname(),
+			GoOS:      meta.GetGoOS(),
+			Kernel:    meta.GetKernel(),
+			Core:      meta.GetCore(),
+			Platform:  meta.GetPlatform(),
+			OS:        meta.GetOS(),
+			WtVersion: meta.GetWiretrusteeVersion(),
+		},
+	})
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
@@ -187,7 +203,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			}
 
 			//setup key is present -> try normal registration flow
-			peer, err = s.registerPeer(peerKey, loginReq.GetSetupKey())
+			peer, err = s.registerPeer(peerKey, loginReq)
 			if err != nil {
 				return nil, err
 			}

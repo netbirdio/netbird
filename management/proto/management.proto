@@ -47,6 +47,19 @@ message SyncResponse {
 message LoginRequest {
   // Pre-authorized setup key (can be empty)
   string setupKey = 1;
+  // Meta data of the peer (e.g. name, os_name, os_version,
+  PeerSystemMeta meta = 2;
+}
+
+// Peer machine meta data
+message PeerSystemMeta {
+  string hostname = 1;
+  string goOS = 2;
+  string kernel = 3;
+  string core = 4;
+  string platform = 5;
+  string OS = 6;
+  string wiretrusteeVersion = 7;
 }
 
 message LoginResponse {

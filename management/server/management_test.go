@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	sync2 "sync"
 	"time"
 
@@ -442,7 +443,16 @@ var _ = Describe("Management service", func() {
 
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
 
-	message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: ValidSetupKey})
+	meta := &mgmtProto.PeerSystemMeta{
+		Hostname:           key.PublicKey().String(),
+		GoOS:               runtime.GOOS,
+		OS:                 runtime.GOOS,
+		Core:               "core",
+		Platform:           "platform",
+		Kernel:             "kernel",
+		WiretrusteeVersion: "",
+	}
+	message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: ValidSetupKey, Meta: meta})
 	Expect(err).NotTo(HaveOccurred())
 
 	resp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
