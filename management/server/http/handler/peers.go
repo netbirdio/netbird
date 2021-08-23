@@ -33,6 +33,32 @@ func NewPeers(accountManager *server.AccountManager) *Peers {
 		accountManager: accountManager,
 	}
 }
+
+func (h *Peers) updatePeer(accountId string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
+	req := &PeerRequest{}
+	peerIp := peer.IP
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	peer, err = h.accountManager.RenamePeer(accountId, peer.Key, req.Name)
+	if err != nil {
+		log.Errorf("failed updating peer %s under account %s %v", peerIp, accountId, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+	writeJSONObject(w, toPeerResponse(peer))
+}
+func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
+	_, err := h.accountManager.DeletePeer(accountId, peer.Key)
+	if err != nil {
+		log.Errorf("failed deleteing peer %s, %v", peer.IP, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+}
+
 func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	accountId := extractAccountIdFromRequestContext(r)
 	vars := mux.Vars(r)
@@ -50,27 +76,10 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodDelete:
-		_, err = h.accountManager.DeletePeer(accountId, peer.Key)
-		if err != nil {
-			log.Errorf("failed deleteing peer %s, %v", peer.IP, err)
-			http.Redirect(w, r, "/", http.StatusInternalServerError)
-			return
-		}
+		h.deletePeer(accountId, peer, w, r)
 		return
-	case http.MethodPost:
-		req := &PeerRequest{}
-		err = json.NewDecoder(r.Body).Decode(&req)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		peer, err = h.accountManager.RenamePeer(accountId, peer.Key, req.Name)
-		if err != nil {
-			log.Errorf("failed updating peer %s, %v", peerId, err)
-			http.Redirect(w, r, "/", http.StatusInternalServerError)
-			return
-		}
-		writeJSONObject(w, toPeerResponse(peer))
+	case http.MethodPut:
+		h.updatePeer(accountId, peer, w, r)
 		return
 	case http.MethodGet:
 		writeJSONObject(w, toPeerResponse(peer))
