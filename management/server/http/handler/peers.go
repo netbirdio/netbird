@@ -119,8 +119,8 @@ func toPeerResponse(peer *server.Peer) *PeerResponse {
 	return &PeerResponse{
 		Name:      peer.Name,
 		IP:        peer.IP.String(),
-		Connected: peer.Connected,
-		LastSeen:  peer.LastSeen,
+		Connected: peer.Status.Connected,
+		LastSeen:  peer.Status.LastSeen,
 		OS:        fmt.Sprintf("%s %s", peer.Meta.GoOS, peer.Meta.Core),
 	}
 }

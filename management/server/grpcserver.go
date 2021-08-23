@@ -322,6 +322,11 @@ func (s *Server) openUpdatesChannel(peerKey string) chan *UpdateChannelMessage {
 	channel := make(chan *UpdateChannelMessage, 100)
 	s.peerChannels[peerKey] = channel
 
+	err := s.accountManager.MarkPeerConnected(peerKey, true)
+	if err != nil {
+		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
+	}
+
 	log.Debugf("opened updates channel for a peer %s", peerKey)
 	return channel
 }
@@ -333,6 +338,11 @@ func (s *Server) closeUpdatesChannel(peerKey string) {
 	if channel, ok := s.peerChannels[peerKey]; ok {
 		delete(s.peerChannels, peerKey)
 		close(channel)
+	}
+
+	err := s.accountManager.MarkPeerConnected(peerKey, false)
+	if err != nil {
+		log.Warnf("failed marking peer as disconnected %s %v", peerKey, err)
 	}
 
 	log.Debugf("closed updates channel of a peer %s", peerKey)
