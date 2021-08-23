@@ -83,6 +83,51 @@ func (s *FileStore) persist(file string) error {
 	return util.WriteJson(file, s)
 }
 
+// SavePeer saves updated peer
+func (s *FileStore) SavePeer(accountId string, peer *Peer) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.GetAccount(accountId)
+	if err != nil {
+		return err
+	}
+
+	account.Peers[peer.Key] = peer
+	err = s.persist(s.storeFile)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// DeletePeer deletes peer from the Store
+func (s *FileStore) DeletePeer(accountId string, peerKey string) (*Peer, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.GetAccount(accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	peer := account.Peers[peerKey]
+	if peer == nil {
+		return nil, status.Errorf(codes.NotFound, "peer not found")
+	}
+
+	delete(account.Peers, peerKey)
+	delete(s.PeerKeyId2AccountId, peerKey)
+
+	err = s.persist(s.storeFile)
+	if err != nil {
+		return nil, err
+	}
+
+	return peer, err
+}
+
 // GetPeer returns a peer from a Store
 func (s *FileStore) GetPeer(peerKey string) (*Peer, error) {
 	s.mux.Lock()

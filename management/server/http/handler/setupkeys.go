@@ -43,8 +43,52 @@ func NewSetupKeysHandler(accountManager *server.AccountManager) *SetupKeys {
 	}
 }
 
-func (h *SetupKeys) CreateKey(w http.ResponseWriter, r *http.Request) {
-	accountId := extractAccountIdFromRequestContext(r)
+func (h *SetupKeys) updateKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
+	req := &SetupKeyRequest{}
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	var key *server.SetupKey
+	if req.Revoked {
+		//handle only if being revoked, don't allow to enable key again for now
+		key, err = h.accountManager.RevokeSetupKey(accountId, keyId)
+		if err != nil {
+			http.Error(w, "failed revoking key", http.StatusInternalServerError)
+			return
+		}
+	}
+	if len(req.Name) != 0 {
+		key, err = h.accountManager.RenameSetupKey(accountId, keyId, req.Name)
+		if err != nil {
+			http.Error(w, "failed renaming key", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if key != nil {
+		writeSuccess(w, key)
+	}
+}
+
+func (h *SetupKeys) getKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
+	account, err := h.accountManager.GetAccount(accountId)
+	if err != nil {
+		http.Error(w, "account doesn't exist", http.StatusInternalServerError)
+		return
+	}
+	for _, key := range account.SetupKeys {
+		if key.Id == keyId {
+			writeSuccess(w, key)
+			return
+		}
+	}
+	http.Error(w, "setup key not found", http.StatusNotFound)
+}
+
+func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.Request) {
 	req := &SetupKeyRequest{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -81,50 +125,11 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.Method {
-	case http.MethodPost:
-		req := &SetupKeyRequest{}
-		err := json.NewDecoder(r.Body).Decode(&req)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		var key *server.SetupKey
-		if req.Revoked {
-			//handle only if being revoked, don't allow to enable key again for now
-			key, err = h.accountManager.RevokeSetupKey(accountId, keyId)
-			if err != nil {
-				http.Error(w, "failed revoking key", http.StatusInternalServerError)
-				return
-			}
-		}
-		if len(req.Name) != 0 {
-			key, err = h.accountManager.RenameSetupKey(accountId, keyId, req.Name)
-			if err != nil {
-				http.Error(w, "failed renaming key", http.StatusInternalServerError)
-				return
-			}
-		}
-
-		if key != nil {
-			writeSuccess(w, key)
-		}
-
+	case http.MethodPut:
+		h.updateKey(accountId, keyId, w, r)
 		return
-
 	case http.MethodGet:
-		account, err := h.accountManager.GetAccount(accountId)
-		if err != nil {
-			http.Error(w, "account doesn't exist", http.StatusInternalServerError)
-			return
-		}
-		for _, key := range account.SetupKeys {
-			if key.Id == keyId {
-				writeSuccess(w, key)
-				return
-			}
-		}
-		http.Error(w, "setup key not found", http.StatusNotFound)
+		h.getKey(accountId, keyId, w, r)
 		return
 	default:
 		http.Error(w, "", http.StatusNotFound)
@@ -132,9 +137,15 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
+
+	accountId := extractAccountIdFromRequestContext(r)
+
 	switch r.Method {
+	case http.MethodPost:
+		h.createKey(accountId, w, r)
+		return
 	case http.MethodGet:
-		accountId := extractAccountIdFromRequestContext(r)
+
 		//new user -> create a new account
 		account, err := h.accountManager.GetOrCreateAccount(accountId)
 		if err != nil {
