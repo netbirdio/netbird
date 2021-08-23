@@ -17,6 +17,17 @@ func extractAccountIdFromRequestContext(r *http.Request) string {
 	return claims["sub"].(string)
 }
 
+//writeJSONObject simply writes object to the HTTP reponse in JSON format
+func writeJSONObject(w http.ResponseWriter, obj interface{}) {
+	w.WriteHeader(200)
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	err := json.NewEncoder(w).Encode(obj)
+	if err != nil {
+		http.Error(w, "failed handling request", http.StatusInternalServerError)
+		return
+	}
+}
+
 //Duration is used strictly for JSON requests/responses due to duration marshalling issues
 type Duration struct {
 	time.Duration
