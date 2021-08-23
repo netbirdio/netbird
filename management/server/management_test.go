@@ -72,8 +72,7 @@ var _ = Describe("Management service", func() {
 		s.Stop()
 		err := conn.Close()
 		Expect(err).NotTo(HaveOccurred())
-		err = os.RemoveAll(dataDir)
-		Expect(err).NotTo(HaveOccurred())
+		os.RemoveAll(dataDir)
 	})
 
 	Context("when calling IsHealthy endpoint", func() {
