@@ -27,6 +27,7 @@ type Peer struct {
 	Connected bool
 }
 
+//Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	return &Peer{
 		Key:       p.Key,
@@ -162,9 +163,13 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 	nextIp, _ := AllocatePeerIP(network.Net, takenIps)
 
 	newPeer := &Peer{
-		Key:      peerKey,
-		SetupKey: sk.Key,
-		IP:       nextIp,
+		Key:       peerKey,
+		SetupKey:  sk.Key,
+		IP:        nextIp,
+		OS:        "todo",
+		Name:      "todo",
+		LastSeen:  time.Now(),
+		Connected: true,
 	}
 
 	account.Peers[newPeer.Key] = newPeer
