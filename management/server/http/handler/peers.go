@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
@@ -118,8 +119,8 @@ func toPeerResponse(peer *server.Peer) *PeerResponse {
 	return &PeerResponse{
 		Name:      peer.Name,
 		IP:        peer.IP.String(),
-		Connected: peer.Connected,
-		LastSeen:  peer.LastSeen,
-		OS:        peer.OS,
+		Connected: peer.Status.Connected,
+		LastSeen:  peer.Status.LastSeen,
+		OS:        fmt.Sprintf("%s %s", peer.Meta.GoOS, peer.Meta.Core),
 	}
 }
