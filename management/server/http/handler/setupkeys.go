@@ -125,9 +125,6 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.Method {
-	case http.MethodPost:
-		h.createKey(accountId, w, r)
-		return
 	case http.MethodPut:
 		h.updateKey(accountId, keyId, w, r)
 		return
@@ -140,9 +137,15 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
+
+	accountId := extractAccountIdFromRequestContext(r)
+
 	switch r.Method {
+	case http.MethodPost:
+		h.createKey(accountId, w, r)
+		return
 	case http.MethodGet:
-		accountId := extractAccountIdFromRequestContext(r)
+
 		//new user -> create a new account
 		account, err := h.accountManager.GetOrCreateAccount(accountId)
 		if err != nil {
