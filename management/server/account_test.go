@@ -177,7 +177,11 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedPeerIP := "100.64.0.1"
 
-	peer, err := manager.AddPeer(setupKey.Key, expectedPeerKey)
+	peer, err := manager.AddPeer(setupKey.Key, Peer{
+		Key:  expectedPeerKey,
+		Meta: PeerSystemMeta{},
+		Name: expectedPeerKey,
+	})
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return

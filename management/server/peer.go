@@ -8,6 +8,24 @@ import (
 	"time"
 )
 
+// PeerSystemMeta is a metadata of a Peer machine system
+type PeerSystemMeta struct {
+	Hostname  string
+	GoOS      string
+	Kernel    string
+	Core      string
+	Platform  string
+	OS        string
+	WtVersion string
+}
+
+type PeerStatus struct {
+	//LastSeen is the last time peer was connected to the management service
+	LastSeen time.Time
+	//Connected indicates whether peer is connected to the management service or not
+	Connected bool
+}
+
 //Peer represents a machine connected to the network.
 //The Peer is a Wireguard peer identified by a public key
 type Peer struct {
@@ -17,26 +35,22 @@ type Peer struct {
 	SetupKey string
 	//IP address of the Peer
 	IP net.IP
-	//OS is peer's operating system
-	OS string
+	//Meta is a Peer system meta data
+	Meta PeerSystemMeta
 	//Name is peer's name (machine name)
-	Name string
-	//LastSeen is the last time peer was connected to the management service
-	LastSeen time.Time
-	//Connected indicates whether peer is connected to the management service or not
-	Connected bool
+	Name   string
+	Status *PeerStatus
 }
 
 //Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	return &Peer{
-		Key:       p.Key,
-		SetupKey:  p.SetupKey,
-		IP:        p.IP,
-		OS:        p.OS,
-		Name:      p.Name,
-		LastSeen:  p.LastSeen,
-		Connected: p.Connected,
+		Key:      p.Key,
+		SetupKey: p.SetupKey,
+		IP:       p.IP,
+		Meta:     p.Meta,
+		Name:     p.Name,
+		Status:   p.Status,
 	}
 }
 
@@ -51,6 +65,31 @@ func (manager *AccountManager) GetPeer(peerKey string) (*Peer, error) {
 	}
 
 	return peer, nil
+}
+
+//MarkPeerConnected marks peer as connected (true) or disconnected (false)
+func (manager *AccountManager) MarkPeerConnected(peerKey string, connected bool) error {
+	manager.mux.Lock()
+	defer manager.mux.Unlock()
+
+	peer, err := manager.Store.GetPeer(peerKey)
+	if err != nil {
+		return err
+	}
+
+	account, err := manager.Store.GetPeerAccount(peerKey)
+	if err != nil {
+		return err
+	}
+
+	peerCopy := peer.Copy()
+	peerCopy.Status.LastSeen = time.Now()
+	peerCopy.Status.Connected = connected
+	err = manager.Store.SavePeer(account.Id, peerCopy)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 //RenamePeer changes peer's name
@@ -125,7 +164,8 @@ func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error)
 // will be returned, meaning the key is invalid
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // If the specified setupKey is empty then a new Account will be created //todo remove this part
-func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, error) {
+// The peer property is just a placeholder for the Peer properties to pass further
+func (manager *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
 	manager.mux.Lock()
 	defer manager.mux.Unlock()
 
@@ -163,13 +203,12 @@ func (manager *AccountManager) AddPeer(setupKey string, peerKey string) (*Peer, 
 	nextIp, _ := AllocatePeerIP(network.Net, takenIps)
 
 	newPeer := &Peer{
-		Key:       peerKey,
-		SetupKey:  sk.Key,
-		IP:        nextIp,
-		OS:        "todo",
-		Name:      "todo",
-		LastSeen:  time.Now(),
-		Connected: true,
+		Key:      peer.Key,
+		SetupKey: sk.Key,
+		IP:       nextIp,
+		Meta:     peer.Meta,
+		Name:     peer.Name,
+		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
 	}
 
 	account.Peers[newPeer.Key] = newPeer
