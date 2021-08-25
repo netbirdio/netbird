@@ -6,27 +6,28 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 
 ### Why using Wiretrustee?
 
-* The easiest way to create secure VPN.
 * Connect multiple devices to each other via a secure peer-to-peer Wireguard VPN tunnel. At home, the office, or anywhere else.
 * No need to open ports and expose public IPs on the device, routers etc.
+* Automatic network changes distribution (e.g. when new peer joins the network).  
 * Automatically reconnects in case of network failures or switches.
 * Automatic NAT traversal.
 * Relay server fallback in case of an unsuccessful peer-to-peer connection.
 * Private key never leaves your device.
 * Automatic IP address management.
-* Simple management dashboard.
+* Intuitive UI Dashboard.
 * Works on ARM devices (e.g. Raspberry Pi).
 
 ### Secure peer-to-peer VPN in minutes
 ![animation](media/peers.gif)
 
 ### A bit on Wiretrustee internals
+* Wiretrustee features a Management Service that offers peer IP management and network updates distribution (e.g. when new peer joins the network).
 * Wiretrustee uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between devices.
-* A connection session negotiation between peers is achieved with the Wiretrustee Signalling server [signal](signal/)
-* Contents of the messages sent between peers through the signaling server are encrypted with Wireguard keys, making it impossible to inspect them.
-  The routing of the messages on a Signalling server is based on public Wireguard keys. 
+* Peers negotiate connection through [Signal Service](signal/).
+* Signal Service uses public Wireguard keys to route messages between peers.
+  Contents of the messages sent between peers through the signaling server are encrypted with Wireguard keys, making it impossible to inspect them.
 * Occasionally, the NAT-traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT).
-  For that matter, there is support for a relay server fallback (TURN) and a secure Wireguard tunnel is established via TURN server.
+  When this occurs the system falls back to relay server (TURN), and a secure Wireguard tunnel is established via TURN server.
   [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Wiretrustee setups.
 
 ### Product Roadmap
