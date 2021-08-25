@@ -16,6 +16,7 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 * Automatic IP address management.
 * Intuitive UI Dashboard.
 * Works on ARM devices (e.g. Raspberry Pi).
+* Open-source (including Management Service)
 
 ### Secure peer-to-peer VPN in minutes
 ![animation](media/peers.gif)
