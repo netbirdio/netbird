@@ -3,3 +3,4 @@
 dist/
 .env
 conf.json
+http-cmds.sh

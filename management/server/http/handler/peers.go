@@ -58,6 +58,7 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
+	writeJSONObject(w, "")
 }
 
 func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
