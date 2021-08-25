@@ -8,6 +8,7 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 
 * Connect multiple devices to each other via a secure peer-to-peer Wireguard VPN tunnel. At home, the office, or anywhere else.
 * No need to open ports and expose public IPs on the device, routers etc.
+* Uses Kernel Wireguard module if available.
 * Automatic network changes distribution between peers (e.g. when a new peer joins the network others are notified).  
 * Automatically reconnects in case of network failures or switches.
 * Automatic NAT traversal.
