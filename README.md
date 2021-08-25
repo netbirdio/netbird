@@ -6,13 +6,19 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 
 ### Why using Wiretrustee?
 
+* The easiest way to create secure VPN.
 * Connect multiple devices to each other via a secure peer-to-peer Wireguard VPN tunnel. At home, the office, or anywhere else.
-* No need to open ports and expose public IPs on the device.
+* No need to open ports and expose public IPs on the device, routers etc.
 * Automatically reconnects in case of network failures or switches.
 * Automatic NAT traversal.
 * Relay server fallback in case of an unsuccessful peer-to-peer connection.
 * Private key never leaves your device.
+* Automatic IP address management.
+* Simple management dashboard.
 * Works on ARM devices (e.g. Raspberry Pi).
+
+### Secure peer-to-peer VPN in minutes
+![animation](media/peers.gif)
 
 ### A bit on Wiretrustee internals
 * Wiretrustee uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between devices.
@@ -22,10 +28,6 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 * Occasionally, the NAT-traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT).
   For that matter, there is support for a relay server fallback (TURN) and a secure Wireguard tunnel is established via TURN server.
   [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Wiretrustee setups.
-
-### What Wiretrustee is not doing:
-* Wireguard key management. In consequence, you need to generate peer keys and specify them on Wiretrustee initialization step. This feature is on the roadmap.
-* Peer address management. You have to specify a unique peer local address (e.g. 10.30.30.1/24) when configuring Wiretrustee. This feature is on the roadmap.
 
 ### Product Roadmap
 - [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/2)
@@ -88,50 +90,31 @@ cd C:\path\to\wiretrustee\bin
 ````
 
 ### Client Configuration
-1. Initialize Wiretrustee:
+1. Login to the Management Service. You need to have a `setup key` in hand (see ).
 
 For **Unix** systems:
 ```shell
-sudo wiretrustee init \
- --stunURLs stun:stun.wiretrustee.com:3468,stun:stun.l.google.com:19302 \
- --turnURLs <TURN User>:<TURN password>@turn:stun.wiretrustee.com:3468  \
- --signalAddr signal.wiretrustee.com:10000  \
- --wgLocalAddr 10.30.30.1/24  \
- --log-level info
+sudo wiretrustee login --setup-key <SETUP KEY>
 ```
 For  **Windows** systems:
 ```shell
-.\wiretrustee.exe init `
- --stunURLs stun:stun.wiretrustee.com:3468,stun:stun.l.google.com:19302 `
- --turnURLs <TURN User>:<TURN password>@turn:stun.wiretrustee.com:3468  `
- --signalAddr signal.wiretrustee.com:10000  `
- --wgLocalAddr 10.30.30.1/24  `
- --log-level info
+.\wiretrustee.exe login --setup-key <SETUP KEY>
  ```
- 
-It is important to mention that the ```wgLocalAddr``` parameter has to be unique across your network.
-E.g. if you have Peer A with ```wgLocalAddr=10.30.30.1/24``` then another Peer B can have ```wgLocalAddr=10.30.30.2/24```
 
-If for some reason, you already have a generated Wireguard key, you can specify it with the ```--wgKey``` parameter. 
-If not specified, then a new one will be generated, and its corresponding public key will be output to the log.
-A new config will be generated and stored under ```/etc/wiretrustee/config.json```
+Alternatively, if you are hosting your own Management Service provide `--management-url` property pointing to your Management Service:
+```shell
+sudo wiretrustee login --setup-key <SETUP KEY> --management-url https://localhost:33073
+```
 
-2. Add a peer to connect to.
-   
-For **Unix** systems:
-```shell
-sudo wiretrustee add-peer --allowedIPs 10.30.30.2/32 --key '<REMOTE PEER WIREUARD PUBLIC KEY>'
-```
-For  **Windows** systems:
-```shell
-.\wiretrustee.exe add-peer --allowedIPs 10.30.30.2/32 --key '<REMOTE PEER WIREUARD PUBLIC KEY>'
-```
-3. Restart Wiretrustee to reload changes
+You could also omit `--setup-key` property. In this case the tool will prompt it the key.
+
+2. Start Wiretrustee:
+
 For **MACOS** you will just start the service:
 ````shell
-sudo wiretrustee up --log-level info 
+sudo wiretrustee up
 # or
-sudo wiretrustee up --log-level info & # to run it in background
+sudo wiretrustee up & # to run it in background
 ````   
 For **Linux** systems:
 ```shell
@@ -143,6 +126,22 @@ For **Windows** systems:
 .\wiretrustee.exe service start
 ```
 > You may need to run Powershell as Administrator
+
+3. Check your IP:
+For **MACOS** you will just start the service:
+````shell
+sudo ipconfig getifaddr utun100
+````   
+For **Linux** systems:
+```shell
+ip addr show wt0
+```
+For **Windows** systems:
+```shell
+netsh interface ip show config name="wt0"
+```
+
+4. Repeat on other machines.  
 
 ### Running Management, Signal and Coturn
 Under infrastructure_files we have a docker-compose example to run both, Wiretrustee Management and Signal services, plus an instance of [Coturn](https://github.com/coturn/coturn), it also provides a turnserver.conf file as a simple example of Coturn configuration. 
