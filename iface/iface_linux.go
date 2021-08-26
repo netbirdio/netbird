@@ -30,8 +30,27 @@ func CreateWithKernel(iface string, address string) error {
 		attrs: &attrs,
 	}
 
+	// check if interface exists
+	l, err := netlink.LinkByName(WgInterfaceDefault)
+	if err != nil {
+		switch err.(type) {
+		case netlink.LinkNotFoundError:
+			break
+		default:
+			return err
+		}
+	}
+
+	// remove if interface exists
+	if l != nil {
+		err = netlink.LinkDel(&link)
+		if err != nil {
+			return err
+		}
+	}
+
 	log.Debugf("adding device: %s", iface)
-	err := netlink.LinkAdd(&link)
+	err = netlink.LinkAdd(&link)
 	if os.IsExist(err) {
 		log.Infof("interface %s already exists. Will reuse.", iface)
 	} else if err != nil {
