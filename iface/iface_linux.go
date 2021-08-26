@@ -71,6 +71,20 @@ func assignAddr(address, name string) error {
 		attrs: &attrs,
 	}
 
+	//delete existing addresses
+	list, err := netlink.AddrList(&link, 0)
+	if err != nil {
+		return err
+	}
+	if len(list) > 0 {
+		for _, a := range list {
+			err = netlink.AddrDel(&link, &a)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
 	log.Debugf("adding address %s to interface: %s", address, attrs.Name)
 	addr, _ := netlink.ParseAddr(address)
 	err = netlink.AddrAdd(&link, addr)
