@@ -4,8 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"github.com/cenkalti/backoff/v4"
-	"github.com/matishsiao/goInfo"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/client/system"
 	"github.com/wiretrustee/wiretrustee/encryption"
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -206,12 +206,12 @@ func (c *Client) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.L
 // Takes care of encrypting and decrypting messages.
 // This method will also collect system info and send it with the request (e.g. hostname, os, etc)
 func (c *Client) Register(serverKey wgtypes.Key, setupKey string) (*proto.LoginResponse, error) {
-	gi := goInfo.GetInfo()
+	gi := system.GetInfo()
 	meta := &proto.PeerSystemMeta{
 		Hostname:           gi.Hostname,
 		GoOS:               gi.GoOS,
 		OS:                 gi.OS,
-		Core:               gi.Core,
+		Core:               gi.OSVersion,
 		Platform:           gi.Platform,
 		Kernel:             gi.Kernel,
 		WiretrusteeVersion: "",
