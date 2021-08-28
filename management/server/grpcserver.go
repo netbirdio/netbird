@@ -19,9 +19,8 @@ type Server struct {
 	accountManager *AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	UpdateChannel          *PeersUpdateManager
-	config                 *Config
-	TurnCredentialsManager *TurnCredentials
+	UpdateChannel *PeersUpdateManager
+	config        *Config
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
