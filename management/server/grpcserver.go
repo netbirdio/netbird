@@ -19,8 +19,9 @@ type Server struct {
 	accountManager *AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	peersUpdateManager *PeersUpdateManager
-	config             *Config
+	peersUpdateManager     *PeersUpdateManager
+	config                 *Config
+	turnCredentialsManager TURNCredentialsManager
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
@@ -90,6 +91,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
 	}
 	// Todo start turn credentials goroutine
+	s.turnCredentialsManager.SetupRefresh(peerKey.String())
 	// keep a connection to the peer and send updates when available
 	for {
 		select {
@@ -118,7 +120,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 			// happens when connection drops, e.g. client disconnects
 			log.Debugf("stream of peer %s has been closed", peerKey.String())
 			s.peersUpdateManager.CloseChannel(peerKey.String())
-			err := s.accountManager.MarkPeerConnected(peerKey.String(), false)
+			s.turnCredentialsManager.CancelRefresh(peerKey.String())
+			err = s.accountManager.MarkPeerConnected(peerKey.String(), false)
 			if err != nil {
 				log.Warnf("failed marking peer as disconnected %s %v", peerKey, err)
 			}
@@ -215,7 +218,6 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			return nil, status.Error(codes.Internal, "internal server error")
 		}
 	}
-	// Todo fill up turn credentials
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
@@ -233,7 +235,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}, nil
 }
 
-func toResponseProto(configProto Protocol) proto.HostConfig_Protocol {
+func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	switch configProto {
 	case UDP:
 		return proto.HostConfig_UDP
@@ -257,7 +259,7 @@ func toWiretrusteeConfig(config *Config) *proto.WiretrusteeConfig {
 	for _, stun := range config.Stuns {
 		stuns = append(stuns, &proto.HostConfig{
 			Uri:      stun.URI,
-			Protocol: toResponseProto(stun.Proto),
+			Protocol: ToResponseProto(stun.Proto),
 		})
 	}
 	var turns []*proto.ProtectedHostConfig
@@ -265,7 +267,7 @@ func toWiretrusteeConfig(config *Config) *proto.WiretrusteeConfig {
 		turns = append(turns, &proto.ProtectedHostConfig{
 			HostConfig: &proto.HostConfig{
 				Uri:      turn.URI,
-				Protocol: toResponseProto(turn.Proto),
+				Protocol: ToResponseProto(turn.Proto),
 			},
 			User:     turn.Username,
 			Password: string(turn.Password),
@@ -277,7 +279,7 @@ func toWiretrusteeConfig(config *Config) *proto.WiretrusteeConfig {
 		Turns: turns,
 		Signal: &proto.HostConfig{
 			Uri:      config.Signal.URI,
-			Protocol: toResponseProto(config.Signal.Proto),
+			Protocol: ToResponseProto(config.Signal.Proto),
 		},
 	}
 }
@@ -329,6 +331,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 	// Todo fill up the turn credentials
+	creds := s.turnCredentialsManager.GenerateCredentials()
 	err = srv.Send(&proto.EncryptedMessage{
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
