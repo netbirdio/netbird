@@ -14,7 +14,7 @@ type PeersUpdateManager struct {
 	channelsMux  *sync.Mutex
 }
 
-func NewUpdateChannel() *PeersUpdateManager {
+func NewPeersUpdateManager() *PeersUpdateManager {
 	return &PeersUpdateManager{
 		peerChannels: make(map[string]chan *UpdateMessage),
 		channelsMux:  &sync.Mutex{},

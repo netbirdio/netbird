@@ -19,15 +19,15 @@ type Server struct {
 	accountManager *AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	UpdateChannel *PeersUpdateManager
-	config        *Config
+	peersUpdateManager *PeersUpdateManager
+	config             *Config
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
 const AllowedIPsFormat = "%s/32"
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager *AccountManager) (*Server, error) {
+func NewServer(config *Config, accountManager *AccountManager, peersUpdateManager *PeersUpdateManager) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -36,9 +36,9 @@ func NewServer(config *Config, accountManager *AccountManager) (*Server, error) 
 	return &Server{
 		wgKey: key,
 		// peerKey -> event channel
-		UpdateChannel:  NewUpdateChannel(),
-		accountManager: accountManager,
-		config:         config,
+		peersUpdateManager: peersUpdateManager,
+		accountManager:     accountManager,
+		config:             config,
 	}, nil
 }
 
@@ -84,7 +84,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	updates := s.UpdateChannel.CreateChannel(peerKey.String())
+	updates := s.peersUpdateManager.CreateChannel(peerKey.String())
 	err = s.accountManager.MarkPeerConnected(peerKey.String(), true)
 	if err != nil {
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
@@ -117,7 +117,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.Debugf("stream of peer %s has been closed", peerKey.String())
-			s.UpdateChannel.CloseChannel(peerKey.String())
+			s.peersUpdateManager.CloseChannel(peerKey.String())
 			err := s.accountManager.MarkPeerConnected(peerKey.String(), false)
 			if err != nil {
 				log.Warnf("failed marking peer as disconnected %s %v", peerKey, err)
@@ -166,7 +166,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 			}
 		}
 		update := toSyncResponse(s.config, peer, peersToSend)
-		err = s.UpdateChannel.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
+		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
 			return nil, err
