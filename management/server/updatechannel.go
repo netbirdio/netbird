@@ -14,6 +14,7 @@ type PeersUpdateManager struct {
 	channelsMux  *sync.Mutex
 }
 
+// NewPeersUpdateManager returns a new instance of PeersUpdateManager
 func NewPeersUpdateManager() *PeersUpdateManager {
 	return &PeersUpdateManager{
 		peerChannels: make(map[string]chan *UpdateMessage),
@@ -21,6 +22,7 @@ func NewPeersUpdateManager() *PeersUpdateManager {
 	}
 }
 
+// SendUpdate sends update message to the peer's channel
 func (p *PeersUpdateManager) SendUpdate(peer string, update *UpdateMessage) error {
 	p.channelsMux.Lock()
 	defer p.channelsMux.Unlock()
@@ -32,7 +34,7 @@ func (p *PeersUpdateManager) SendUpdate(peer string, update *UpdateMessage) erro
 	return nil
 }
 
-// openUpdatesChannel creates a go channel for a given peer used to deliver updates relevant to the peer.
+// CreateChannel creates a go channel for a given peer used to deliver updates relevant to the peer.
 func (p *PeersUpdateManager) CreateChannel(peerKey string) chan *UpdateMessage {
 	p.channelsMux.Lock()
 	defer p.channelsMux.Unlock()
@@ -49,7 +51,7 @@ func (p *PeersUpdateManager) CreateChannel(peerKey string) chan *UpdateMessage {
 	return channel
 }
 
-// closeUpdatesChannel closes updates channel of a given peer
+// CloseChannel closes updates channel of a given peer
 func (p *PeersUpdateManager) CloseChannel(peerKey string) {
 	p.channelsMux.Lock()
 	defer p.channelsMux.Unlock()
