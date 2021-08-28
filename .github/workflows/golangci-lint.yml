@@ -10,8 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-        with:
-          fetch-depth: 0
-
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v2
+        with:
+          args: --issues-exit-code=0
+
