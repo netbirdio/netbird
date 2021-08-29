@@ -7,22 +7,24 @@ import (
 
 var peersUpdater *PeersUpdateManager
 
-const peer = "peer-representation"
-
 func TestCreateChannel(t *testing.T) {
+	peer := "test-create"
 	peersUpdater = NewPeersUpdateManager()
+	defer peersUpdater.CloseChannel(peer)
 
-	channel := peersUpdater.CreateChannel(peer)
+	_ = peersUpdater.CreateChannel(peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
-	}
-	if peersUpdater.peerChannels[peer] != channel {
-		t.Error("Channel wasn't created.")
 	}
 }
 
 func TestSendUpdate(t *testing.T) {
+	peer := "test-sendupdate"
 	update := &UpdateMessage{Update: &proto.SyncResponse{}}
+	_ = peersUpdater.CreateChannel(peer)
+	if _, ok := peersUpdater.peerChannels[peer]; !ok {
+		t.Error("Error creating the channel")
+	}
 	err := peersUpdater.SendUpdate(peer, update)
 	if err != nil {
 		t.Error("Error sending update: ", err)
@@ -35,6 +37,11 @@ func TestSendUpdate(t *testing.T) {
 }
 
 func TestCloseChannel(t *testing.T) {
+	peer := "test-close"
+	_ = peersUpdater.CreateChannel(peer)
+	if _, ok := peersUpdater.peerChannels[peer]; !ok {
+		t.Error("Error creating the channel")
+	}
 	peersUpdater.CloseChannel(peer)
 	if _, ok := peersUpdater.peerChannels[peer]; ok {
 		t.Error("Error closing the channel")
