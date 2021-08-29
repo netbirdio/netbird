@@ -12,7 +12,7 @@ import (
 
 func GetInfo() *Info {
 	out := _getInfo()
-	for strings.Contains(info, "broken pipe") {
+	for strings.Contains(out, "broken pipe") {
 		out = _getInfo()
 		time.Sleep(500 * time.Millisecond)
 	}
