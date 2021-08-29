@@ -12,6 +12,5 @@ jobs:
       - uses: actions/checkout@v2
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v2
-        with:
-          args: --issues-exit-code=0
+
 
