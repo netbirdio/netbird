@@ -14,17 +14,16 @@ import (
 const (
 	key        = "0PMI6OkB5JmB+Jj/iWWHekuQRx+bipZirWCWKFXexHc="
 	peerPubKey = "Ok0mC0qlJyXEPKh2UFIpsI2jG0L7LRpC3sLAusSJ5CQ="
-	wgIP       = "10.99.99.1/24"
 )
 
 func init() {
-	level, _ := log.ParseLevel("Info")
-	log.SetLevel(level)
+	log.SetLevel(log.DebugLevel)
 }
 
 //
 func Test_CreateInterface(t *testing.T) {
 	ifaceName := "utun999"
+	wgIP := "10.99.99.1/24"
 	err := Create(ifaceName, wgIP)
 	if err != nil {
 		t.Fatal(err)
@@ -46,13 +45,16 @@ func Test_CreateInterface(t *testing.T) {
 		}
 	}()
 
-	_, err = wg.Device(ifaceName)
+	d, err := wg.Device(ifaceName)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// todo move the WgPort constant to the client
+	WgPort = d.ListenPort
 }
 func Test_ConfigureInterface(t *testing.T) {
 	ifaceName := "utun1000"
+	wgIP := "10.99.99.10/24"
 	err := Create(ifaceName, wgIP)
 	if err != nil {
 		t.Fatal(err)
@@ -91,6 +93,7 @@ func Test_ConfigureInterface(t *testing.T) {
 
 func Test_UpdatePeer(t *testing.T) {
 	ifaceName := "utun1001"
+	wgIP := "10.99.99.20/24"
 	err := Create(ifaceName, wgIP)
 	if err != nil {
 		t.Fatal(err)
@@ -142,6 +145,7 @@ func Test_UpdatePeer(t *testing.T) {
 
 func Test_UpdatePeerEndpoint(t *testing.T) {
 	ifaceName := "utun1002"
+	wgIP := "10.99.99.30/24"
 	err := Create(ifaceName, wgIP)
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +186,7 @@ func Test_UpdatePeerEndpoint(t *testing.T) {
 
 func Test_RemovePeer(t *testing.T) {
 	ifaceName := "utun1003"
+	wgIP := "10.99.99.40/24"
 	err := Create(ifaceName, wgIP)
 	if err != nil {
 		t.Fatal(err)
@@ -214,11 +219,28 @@ func Test_RemovePeer(t *testing.T) {
 }
 func Test_Close(t *testing.T) {
 	ifaceName := "utun1004"
+	wgIP := "10.99.99.50/24"
 	err := Create(ifaceName, wgIP)
 	if err != nil {
 		t.Fatal(err)
 	}
+	wg, err := wgctrl.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
 
+	d, err := wg.Device(ifaceName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// todo move the WgPort constant to the client
+	WgPort = d.ListenPort
 	err = Close()
 	if err != nil {
 		t.Fatal(err)

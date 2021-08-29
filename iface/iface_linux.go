@@ -31,7 +31,7 @@ func CreateWithKernel(iface string, address string) error {
 	}
 
 	// check if interface exists
-	l, err := netlink.LinkByName(WgInterfaceDefault)
+	l, err := netlink.LinkByName(iface)
 	if err != nil {
 		switch err.(type) {
 		case netlink.LinkNotFoundError:
@@ -148,6 +148,7 @@ func Close() error {
 			return err
 		}
 		for _, wgDev := range devList {
+			// todo check after move the WgPort constant to the client
 			if wgDev.ListenPort == WgPort {
 				iface = wgDev.Name
 				break
