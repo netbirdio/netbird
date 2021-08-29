@@ -43,6 +43,7 @@ var (
 		Short: "start Wiretrustee Management Server",
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
+			InitLog(logLevel)
 
 			config, err := loadConfig()
 			if err != nil {
@@ -77,8 +78,8 @@ var (
 
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 			grpcServer := grpc.NewServer(opts...)
-
-			server, err := server.NewServer(config, accountManager)
+			peersUpdateManager := server.NewPeersUpdateManager()
+			server, err := server.NewServer(config, accountManager, peersUpdateManager)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
 			}

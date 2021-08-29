@@ -13,10 +13,13 @@ import (
 
 const (
 	defaultMTU = 1280
-	WgPort     = 51820
 )
 
-var tunIface tun.Device
+var (
+	tunIface tun.Device
+	// todo check after move the WgPort constant to the client
+	WgPort = 51820
+)
 
 // CreateWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
 func CreateWithUserspace(iface string, address string) error {

@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
@@ -20,31 +19,26 @@ type Server struct {
 	accountManager *AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	peerChannels map[string]chan *UpdateChannelMessage
-	channelsMux  *sync.Mutex
-	config       *Config
+	peersUpdateManager *PeersUpdateManager
+	config             *Config
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
 const AllowedIPsFormat = "%s/32"
 
-type UpdateChannelMessage struct {
-	Update *proto.SyncResponse
-}
-
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager *AccountManager) (*Server, error) {
+func NewServer(config *Config, accountManager *AccountManager, peersUpdateManager *PeersUpdateManager) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
 	}
+
 	return &Server{
 		wgKey: key,
 		// peerKey -> event channel
-		peerChannels:   make(map[string]chan *UpdateChannelMessage),
-		channelsMux:    &sync.Mutex{},
-		accountManager: accountManager,
-		config:         config,
+		peersUpdateManager: peersUpdateManager,
+		accountManager:     accountManager,
+		config:             config,
 	}, nil
 }
 
@@ -90,8 +84,12 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		return err
 	}
 
-	updates := s.openUpdatesChannel(peerKey.String())
-
+	updates := s.peersUpdateManager.CreateChannel(peerKey.String())
+	err = s.accountManager.MarkPeerConnected(peerKey.String(), true)
+	if err != nil {
+		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
+	}
+	// Todo start turn credentials goroutine
 	// keep a connection to the peer and send updates when available
 	for {
 		select {
@@ -119,15 +117,18 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.Debugf("stream of peer %s has been closed", peerKey.String())
-			s.closeUpdatesChannel(peerKey.String())
+			s.peersUpdateManager.CloseChannel(peerKey.String())
+			err := s.accountManager.MarkPeerConnected(peerKey.String(), false)
+			if err != nil {
+				log.Warnf("failed marking peer as disconnected %s %v", peerKey, err)
+			}
+			// todo stop turn goroutine
 			return srv.Context().Err()
 		}
 	}
 }
 
 func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
-	s.channelsMux.Lock()
-	defer s.channelsMux.Unlock()
 
 	meta := req.GetMeta()
 	if meta == nil {
@@ -157,16 +158,18 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 
 	// notify other peers of our registration
 	for _, remotePeer := range peers {
-		if channel, ok := s.peerChannels[remotePeer.Key]; ok {
-			// exclude notified peer and add ourselves
-			peersToSend := []*Peer{peer}
-			for _, p := range peers {
-				if remotePeer.Key != p.Key {
-					peersToSend = append(peersToSend, p)
-				}
+		// exclude notified peer and add ourselves
+		peersToSend := []*Peer{peer}
+		for _, p := range peers {
+			if remotePeer.Key != p.Key {
+				peersToSend = append(peersToSend, p)
 			}
-			update := toSyncResponse(s.config, peer, peersToSend)
-			channel <- &UpdateChannelMessage{Update: update}
+		}
+		update := toSyncResponse(s.config, peer, peersToSend)
+		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
+		if err != nil {
+			// todo rethink if we should keep this return
+			return nil, err
 		}
 	}
 
@@ -212,6 +215,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			return nil, status.Error(codes.Internal, "internal server error")
 		}
 	}
+	// Todo fill up turn credentials
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
@@ -310,44 +314,6 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 	return &proto.Empty{}, nil
 }
 
-// openUpdatesChannel creates a go channel for a given peer used to deliver updates relevant to the peer.
-func (s *Server) openUpdatesChannel(peerKey string) chan *UpdateChannelMessage {
-	s.channelsMux.Lock()
-	defer s.channelsMux.Unlock()
-	if channel, ok := s.peerChannels[peerKey]; ok {
-		delete(s.peerChannels, peerKey)
-		close(channel)
-	}
-	//mbragin: todo shouldn't it be more? or configurable?
-	channel := make(chan *UpdateChannelMessage, 100)
-	s.peerChannels[peerKey] = channel
-
-	err := s.accountManager.MarkPeerConnected(peerKey, true)
-	if err != nil {
-		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
-	}
-
-	log.Debugf("opened updates channel for a peer %s", peerKey)
-	return channel
-}
-
-// closeUpdatesChannel closes updates channel of a given peer
-func (s *Server) closeUpdatesChannel(peerKey string) {
-	s.channelsMux.Lock()
-	defer s.channelsMux.Unlock()
-	if channel, ok := s.peerChannels[peerKey]; ok {
-		delete(s.peerChannels, peerKey)
-		close(channel)
-	}
-
-	err := s.accountManager.MarkPeerConnected(peerKey, false)
-	if err != nil {
-		log.Warnf("failed marking peer as disconnected %s %v", peerKey, err)
-	}
-
-	log.Debugf("closed updates channel of a peer %s", peerKey)
-}
-
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
 
@@ -362,7 +328,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}
-
+	// Todo fill up the turn credentials
 	err = srv.Send(&proto.EncryptedMessage{
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
