@@ -50,6 +50,7 @@ func (key *SetupKey) Copy() *SetupKey {
 		ExpiresAt: key.ExpiresAt,
 		Revoked:   key.Revoked,
 		UsedTimes: key.UsedTimes,
+		LastUsed:  key.LastUsed,
 	}
 }
 
@@ -63,9 +64,22 @@ func (key *SetupKey) IncrementUsage() *SetupKey {
 
 // IsValid is true if the key was not revoked, is not expired and used not more than it was supposed to
 func (key *SetupKey) IsValid() bool {
-	expired := time.Now().After(key.ExpiresAt)
-	overUsed := key.Type == SetupKeyOneOff && key.UsedTimes >= 1
-	return !key.Revoked && !expired && !overUsed
+	return !key.IsRevoked() && !key.IsExpired() && !key.IsOverUsed()
+}
+
+// IsRevoked if key was revoked
+func (key *SetupKey) IsRevoked() bool {
+	return key.Revoked
+}
+
+// IsExpired if key was expired
+func (key *SetupKey) IsExpired() bool {
+	return time.Now().After(key.ExpiresAt)
+}
+
+// IsOverUsed if key was used too many times
+func (key *SetupKey) IsOverUsed() bool {
+	return key.Type == SetupKeyOneOff && key.UsedTimes >= 1
 }
 
 // GenerateSetupKey generates a new setup key

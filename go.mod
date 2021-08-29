@@ -9,7 +9,6 @@ require (
 	github.com/google/uuid v1.2.0
 	github.com/gorilla/mux v1.8.0
 	github.com/kardianos/service v1.2.0
-	github.com/matishsiao/goInfo v0.0.0-20200404012835-b5f882ee2288
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.13.0
 	github.com/pion/ice/v2 v2.1.7
