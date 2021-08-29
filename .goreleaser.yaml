@@ -103,7 +103,7 @@ dockers:
     use: buildx
     dockerfile: management/Dockerfile
     build_flag_templates:
-      - "--platform=linux/arm64"
+      - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.created={{.Date}}"
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
@@ -133,7 +133,7 @@ dockers:
     use: buildx
     dockerfile: management/Dockerfile.debug
     build_flag_templates:
-      - "--platform=linux/arm64"
+      - "--platform=linux/amd64"
       - "--label=org.opencontainers.image.created={{.Date}}"
       - "--label=org.opencontainers.image.title={{.ProjectName}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
