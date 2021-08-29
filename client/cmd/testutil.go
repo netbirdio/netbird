@@ -38,7 +38,8 @@ func startManagement(config *mgmt.Config, t *testing.T) (*grpc.Server, net.Liste
 	}
 
 	accountManager := mgmt.NewManager(store)
-	mgmtServer, err := mgmt.NewServer(config, accountManager)
+	peersUpdateManager := mgmt.NewPeersUpdateManager()
+	mgmtServer, err := mgmt.NewServer(config, accountManager, peersUpdateManager)
 	if err != nil {
 		t.Fatal(err)
 	}

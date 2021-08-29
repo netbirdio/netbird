@@ -12,33 +12,61 @@ import (
 
 // keep darwin compability
 const (
-	ifaceName  = "utun999"
 	key        = "0PMI6OkB5JmB+Jj/iWWHekuQRx+bipZirWCWKFXexHc="
 	peerPubKey = "Ok0mC0qlJyXEPKh2UFIpsI2jG0L7LRpC3sLAusSJ5CQ="
 )
 
+func init() {
+	log.SetLevel(log.DebugLevel)
+}
+
+//
 func Test_CreateInterface(t *testing.T) {
-	level, _ := log.ParseLevel("Debug")
-	log.SetLevel(level)
+	ifaceName := "utun999"
 	wgIP := "10.99.99.1/24"
 	err := Create(ifaceName, wgIP)
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		err = Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
 	wg, err := wgctrl.New()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer wg.Close()
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
 
-	_, err = wg.Device(ifaceName)
+	d, err := wg.Device(ifaceName)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// todo move the WgPort constant to the client
+	WgPort = d.ListenPort
 }
-
 func Test_ConfigureInterface(t *testing.T) {
-	err := Configure(ifaceName, key)
+	ifaceName := "utun1000"
+	wgIP := "10.99.99.10/24"
+	err := Create(ifaceName, wgIP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		err = Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+
+	err = Configure(ifaceName, key)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +75,12 @@ func Test_ConfigureInterface(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer wg.Close()
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
 
 	wgDevice, err := wg.Device(ifaceName)
 	if err != nil {
@@ -59,14 +92,30 @@ func Test_ConfigureInterface(t *testing.T) {
 }
 
 func Test_UpdatePeer(t *testing.T) {
-	keepAlive := 15 * time.Second
-	allowedIP := "10.99.99.2/32"
-	endpoint := "127.0.0.1:9900"
-	err := UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint)
+	ifaceName := "utun1001"
+	wgIP := "10.99.99.20/24"
+	err := Create(ifaceName, wgIP)
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer, err := getPeer()
+	defer func() {
+		err = Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	err = Configure(ifaceName, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keepAlive := 15 * time.Second
+	allowedIP := "10.99.99.2/32"
+	endpoint := "127.0.0.1:9900"
+	err = UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer, err := getPeer(ifaceName, t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,13 +144,37 @@ func Test_UpdatePeer(t *testing.T) {
 }
 
 func Test_UpdatePeerEndpoint(t *testing.T) {
-	newEndpoint := "127.0.0.1:9999"
-	err := UpdatePeerEndpoint(ifaceName, peerPubKey, newEndpoint)
+	ifaceName := "utun1002"
+	wgIP := "10.99.99.30/24"
+	err := Create(ifaceName, wgIP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		err = Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	err = Configure(ifaceName, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keepAlive := 15 * time.Second
+	allowedIP := "10.99.99.2/32"
+	endpoint := "127.0.0.1:9900"
+	err = UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	peer, err := getPeer()
+	newEndpoint := "127.0.0.1:9999"
+	err = UpdatePeerEndpoint(ifaceName, peerPubKey, newEndpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	peer, err := getPeer(ifaceName, t)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,28 +185,79 @@ func Test_UpdatePeerEndpoint(t *testing.T) {
 }
 
 func Test_RemovePeer(t *testing.T) {
-	err := RemovePeer(ifaceName, peerPubKey)
+	ifaceName := "utun1003"
+	wgIP := "10.99.99.40/24"
+	err := Create(ifaceName, wgIP)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = getPeer()
+	defer func() {
+		err = Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	err = Configure(ifaceName, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keepAlive := 15 * time.Second
+	allowedIP := "10.99.99.2/32"
+	endpoint := "127.0.0.1:9900"
+	err = UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = RemovePeer(ifaceName, peerPubKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = getPeer(ifaceName, t)
 	if err.Error() != "peer not found" {
 		t.Fatal(err)
 	}
 }
 func Test_Close(t *testing.T) {
-	err := Close()
+	ifaceName := "utun1004"
+	wgIP := "10.99.99.50/24"
+	err := Create(ifaceName, wgIP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wg, err := wgctrl.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+
+	d, err := wg.Device(ifaceName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// todo move the WgPort constant to the client
+	WgPort = d.ListenPort
+	err = Close()
 	if err != nil {
 		t.Fatal(err)
 	}
 }
-func getPeer() (wgtypes.Peer, error) {
+func getPeer(ifaceName string, t *testing.T) (wgtypes.Peer, error) {
 	emptyPeer := wgtypes.Peer{}
 	wg, err := wgctrl.New()
 	if err != nil {
 		return emptyPeer, err
 	}
-	defer wg.Close()
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
 
 	wgDevice, err := wg.Device(ifaceName)
 	if err != nil {

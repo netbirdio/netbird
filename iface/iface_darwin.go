@@ -3,6 +3,7 @@ package iface
 import (
 	log "github.com/sirupsen/logrus"
 	"net"
+	"os"
 	"os/exec"
 	"strings"
 )
@@ -40,5 +41,23 @@ func addRoute(iface string, ipNet *net.IPNet) error {
 
 // Closes the tunnel interface
 func Close() error {
-	return CloseWithUserspace()
+	name, err := tunIface.Name()
+	if err != nil {
+		return err
+	}
+
+	sockPath := "/var/run/wireguard/" + name + ".sock"
+
+	err = CloseWithUserspace()
+	if err != nil {
+		return err
+	}
+
+	if _, err := os.Stat(sockPath); err == nil {
+		err = os.Remove(sockPath)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
