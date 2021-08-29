@@ -173,20 +173,20 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		}
 
 		isControlling := conn.Config.WgKey.PublicKey().String() > conn.Config.RemoteWgKey.String()
-		remoteConn, err := conn.openConnectionToRemote(isControlling, remoteAuth)
+		var remoteConn *ice.Conn
+		remoteConn, err = conn.openConnectionToRemote(isControlling, remoteAuth)
 		if err != nil {
 			log.Errorf("failed establishing connection with the remote peer %s %s", conn.Config.RemoteWgKey.String(), err)
 			return err
 		}
 
-		pair, err := conn.agent.GetSelectedCandidatePair()
+		var pair *ice.CandidatePair
+		pair, err = conn.agent.GetSelectedCandidatePair()
 		if err != nil {
 			return err
 		}
-		remoteIP := net.ParseIP(pair.Remote.Address())
-		myIp := net.ParseIP(pair.Remote.Address())
 		// in case the remote peer is in the local network or one of the peers has public static IP -> no need for a Wireguard proxy, direct communication is possible.
-		if (pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost) && (isPublicIP(remoteIP) || isPublicIP(myIp)) {
+		if !useProxy(pair) {
 			log.Debugf("it is possible to establish a direct connection (without proxy) to peer %s - my addr: %s, remote addr: %s", conn.Config.RemoteWgKey.String(), pair.Local.Address(), pair.Remote.Address())
 			err = conn.wgProxy.StartLocal(fmt.Sprintf("%s:%d", pair.Remote.Address(), iface.WgPort))
 			if err != nil {
@@ -206,7 +206,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		conn.Status = StatusDisconnected
 		return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
 	case <-time.After(timeout):
-		err := conn.Close()
+		err = conn.Close()
 		if err != nil {
 			log.Warnf("error while closing connection to peer %s -> %s", conn.Config.RemoteWgKey.String(), err.Error())
 		}
@@ -230,6 +230,27 @@ func isPublicIP(ip net.IP) bool {
 			return false
 		}
 	}
+	return true
+}
+
+//useProxy determines whether a direct connection (without a go proxy) is possible
+//There are 2 cases: one of the peers has a public IP or both peers are in teh same private network.
+//Please note, that this check happens when peers were already able to ping each other with ICE layer.
+func useProxy(pair *ice.CandidatePair) bool {
+	remoteIP := net.ParseIP(pair.Remote.Address())
+	myIp := net.ParseIP(pair.Local.Address())
+	if pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost {
+		if isPublicIP(remoteIP) || isPublicIP(myIp) {
+			//one of the hosts has a public IP
+			return false
+		}
+
+		if !isPublicIP(remoteIP) && !isPublicIP(myIp) {
+			//both hosts are in the same private network
+			return false
+		}
+	}
+
 	return true
 }
 

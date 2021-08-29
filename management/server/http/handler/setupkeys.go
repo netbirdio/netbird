@@ -27,6 +27,7 @@ type SetupKeyResponse struct {
 	Revoked   bool
 	UsedTimes int
 	LastUsed  time.Time
+	State     string
 }
 
 // SetupKeyRequest is a request sent by client. This object contains fields that can be modified
@@ -183,6 +184,16 @@ func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
 }
 
 func toResponseBody(key *server.SetupKey) *SetupKeyResponse {
+	var state string
+	if key.IsExpired() {
+		state = "expired"
+	} else if key.IsRevoked() {
+		state = "revoked"
+	} else if key.IsOverUsed() {
+		state = "overused"
+	} else {
+		state = "valid"
+	}
 	return &SetupKeyResponse{
 		Id:        key.Id,
 		Key:       key.Key,
@@ -193,5 +204,6 @@ func toResponseBody(key *server.SetupKey) *SetupKeyResponse {
 		Revoked:   key.Revoked,
 		UsedTimes: key.UsedTimes,
 		LastUsed:  key.LastUsed,
+		State:     state,
 	}
 }
