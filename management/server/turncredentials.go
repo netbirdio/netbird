@@ -1,6 +1,10 @@
 package server
 
 import (
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"sync"
@@ -92,8 +96,22 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerKey string) {
 }
 
 func (m *TimeBasedAuthSecretsManager) generateCredentials() TurnCredentials {
+	mac := hmac.New(sha1.New, m.config.Secret)
+
+	timeAuth := time.Now().Add(m.config.CredentialsTTL).Unix()
+
+	username := fmt.Sprint(timeAuth)
+
+	_, err := mac.Write([]byte(username))
+	if err != nil {
+		log.Errorln("Generating turn password failed with error: ", err)
+	}
+
+	bytePassword := mac.Sum(nil)
+	password := base64.StdEncoding.EncodeToString(bytePassword)
+
 	return TurnCredentials{
-		Username: "",
-		Password: "",
+		Username: username,
+		Password: password,
 	}
 }
