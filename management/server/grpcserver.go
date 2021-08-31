@@ -331,7 +331,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 		return status.Errorf(codes.Internal, "error handling request")
 	}
 	// Todo fill up the turn credentials
-	creds := s.turnCredentialsManager.GenerateCredentials()
+	//creds := s.turnCredentialsManager.GenerateCredentials()
 	err = srv.Send(&proto.EncryptedMessage{
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
