@@ -91,6 +91,29 @@ loop:
 
 }
 
+func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
+	ttl := time.Hour
+	secret := []byte("some_secret")
+	peersManager := NewPeersUpdateManager()
+	peer := "some_peer"
+
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &TurnConfig{
+		CredentialsTTL: ttl,
+		Secret:         secret,
+		TurnHosts:      []*Host{TurnTestHost},
+	})
+
+	tested.SetupRefresh(peer)
+	if _, ok := tested.cancelMap[peer]; !ok {
+		t.Errorf("expecting peer to be present in a cancel map, got not present")
+	}
+
+	tested.CancelRefresh(peer)
+	if _, ok := tested.cancelMap[peer]; ok {
+		t.Errorf("expecting peer to be not present in a cancel map, got present")
+	}
+}
+
 func validateMAC(username string, actualMAC string, key []byte, t *testing.T) {
 	mac := hmac.New(sha1.New, key)
 
