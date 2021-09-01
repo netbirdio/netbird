@@ -41,7 +41,7 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
-	ttl := util.Duration{Duration: time.Second}
+	ttl := util.Duration{Duration: 2 * time.Second}
 	secret := []byte("some_secret")
 	peersManager := NewPeersUpdateManager()
 	peer := "some_peer"
@@ -62,7 +62,7 @@ func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	var updates []*UpdateMessage
 
 loop:
-	for timeout := time.After(3 * time.Second); ; {
+	for timeout := time.After(5 * time.Second); ; {
 
 		select {
 		case update := <-updateChannel:
@@ -83,9 +83,6 @@ loop:
 	firstUpdate := updates[0].Update.GetWiretrusteeConfig().Turns[0]
 	secondUpdate := updates[1].Update.GetWiretrusteeConfig().Turns[0]
 
-	if firstUpdate.User == secondUpdate.User {
-		t.Errorf("expecting first credential update username %v to be diffeerent from second, got equal", firstUpdate.User)
-	}
 	if firstUpdate.Password == secondUpdate.Password {
 		t.Errorf("expecting first credential update password %v to be diffeerent from second, got equal", firstUpdate.Password)
 	}

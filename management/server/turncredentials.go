@@ -13,7 +13,7 @@ import (
 
 //TURNCredentialsManager used to manage TURN credentials
 type TURNCredentialsManager interface {
-	GenerateCredentials() TurnCredentials
+	GenerateCredentials() TURNCredentials
 	SetupRefresh(peerKey string)
 	CancelRefresh(peerKey string)
 }
@@ -26,7 +26,7 @@ type TimeBasedAuthSecretsManager struct {
 	cancelMap     map[string]chan struct{}
 }
 
-type TurnCredentials struct {
+type TURNCredentials struct {
 	Username string
 	Password string
 }
@@ -41,7 +41,7 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, config *T
 }
 
 //GenerateCredentials generates new time-based secret credentials - basically username is a unix timestamp and password is a HMAC hash of a timestamp with a preshared TURN secret
-func (m *TimeBasedAuthSecretsManager) GenerateCredentials() TurnCredentials {
+func (m *TimeBasedAuthSecretsManager) GenerateCredentials() TURNCredentials {
 	mac := hmac.New(sha1.New, m.config.Secret)
 
 	timeAuth := time.Now().Add(m.config.CredentialsTTL.Duration).Unix()
@@ -56,7 +56,7 @@ func (m *TimeBasedAuthSecretsManager) GenerateCredentials() TurnCredentials {
 	bytePassword := mac.Sum(nil)
 	password := base64.StdEncoding.EncodeToString(bytePassword)
 
-	return TurnCredentials{
+	return TURNCredentials{
 		Username: username,
 		Password: password,
 	}

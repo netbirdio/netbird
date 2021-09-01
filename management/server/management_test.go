@@ -119,19 +119,18 @@ var _ = Describe("Management service", func() {
 					Uri:      "stun:stun.wiretrustee.com:3468",
 					Protocol: mgmtProto.HostConfig_UDP,
 				}
-				expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
-					HostConfig: &mgmtProto.HostConfig{
-						Uri:      "turn:stun.wiretrustee.com:3468",
-						Protocol: mgmtProto.HostConfig_UDP,
-					},
-					User:     "some_user",
-					Password: "some_password",
+				expectedTRUNHost := &mgmtProto.HostConfig{
+					Uri:      "turn:stun.wiretrustee.com:3468",
+					Protocol: mgmtProto.HostConfig_UDP,
 				}
 
 				Expect(resp.WiretrusteeConfig.Signal).To(BeEquivalentTo(expectedSignalConfig))
 				Expect(resp.WiretrusteeConfig.Stuns).To(ConsistOf(expectedStunsConfig))
-				Expect(resp.WiretrusteeConfig.Turns).To(ConsistOf(expectedTurnsConfig))
-
+				// TURN validation is special because credentials are dynamically generated
+				Expect(resp.WiretrusteeConfig.Turns).To(HaveLen(1))
+				actualTURN := resp.WiretrusteeConfig.Turns[0]
+				Expect(len(actualTURN.User) > 0).To(BeTrue())
+				Expect(actualTURN.HostConfig).To(BeEquivalentTo(expectedTRUNHost))
 			})
 		})
 
@@ -368,7 +367,10 @@ var _ = Describe("Management service", func() {
 							resp := &mgmtProto.SyncResponse{}
 							err = pb.Unmarshal(decryptedBytes, resp)
 							Expect(err).NotTo(HaveOccurred())
-							wg.Done()
+							if len(resp.GetRemotePeers()) > 0 {
+								//only consider peer updates
+								wg.Done()
+							}
 						}
 					}()
 				}
@@ -388,7 +390,6 @@ var _ = Describe("Management service", func() {
 					err := syncClient.CloseSend()
 					Expect(err).NotTo(HaveOccurred())
 				}
-
 			})
 		})
 	})
