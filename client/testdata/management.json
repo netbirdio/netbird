@@ -17,7 +17,8 @@
             }
         ],
         "CredentialsTTL": "1h",
-        "Secret": "c29tZV9wYXNzd29yZA=="
+        "Secret": "c29tZV9wYXNzd29yZA==",
+        "TimeBasedCredentials": true
     },
     "Signal": {
         "Proto": "http",

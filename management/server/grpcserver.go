@@ -335,8 +335,15 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 		return err
 	}
 
-	turnCredentials := s.turnCredentialsManager.GenerateCredentials()
-	plainResp := toSyncResponse(s.config, peer, peers, &turnCredentials)
+	// make secret time based TURN credentials optional
+	var turnCredentials *TURNCredentials
+	if s.config.TURNConfig.TimeBasedCredentials {
+		creds := s.turnCredentialsManager.GenerateCredentials()
+		turnCredentials = &creds
+	} else {
+		turnCredentials = nil
+	}
+	plainResp := toSyncResponse(s.config, peer, peers, turnCredentials)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

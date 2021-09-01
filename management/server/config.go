@@ -27,9 +27,10 @@ type Config struct {
 
 // TURNConfig is a config of the TURNCredentialsManager
 type TURNConfig struct {
-	CredentialsTTL util.Duration
-	Secret         []byte
-	Turns          []*Host
+	TimeBasedCredentials bool
+	CredentialsTTL       util.Duration
+	Secret               []byte
+	Turns                []*Host
 }
 
 // HttpServerConfig is a config of the HTTP Management service server
