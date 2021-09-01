@@ -7,14 +7,18 @@
             "Password": null
         }
     ],
-    "Turns": [
-        {
-            "Proto": "udp",
-            "URI": "turn:stun.wiretrustee.com:3468",
-            "Username": "some_user",
-            "Password": "c29tZV9wYXNzd29yZA=="
-        }
-    ],
+    "TURNConfig": {
+        "Turns": [
+            {
+                "Proto": "udp",
+                "URI": "turn:stun.wiretrustee.com:3468",
+                "Username": "some_user",
+                "Password": "c29tZV9wYXNzd29yZA=="
+            }
+        ],
+        "CredentialsTTL": "1h",
+        "Secret": "c29tZV9wYXNzd29yZA=="
+    },
     "Signal": {
         "Proto": "http",
         "URI": "signal.wiretrustee.com:10000",

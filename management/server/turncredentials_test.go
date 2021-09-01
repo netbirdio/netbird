@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
+	"github.com/wiretrustee/wiretrustee/util"
 	"testing"
 	"time"
 )
@@ -16,14 +17,14 @@ var TurnTestHost = &Host{
 }
 
 func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
-	ttl := time.Hour
+	ttl := util.Duration{Duration: time.Hour}
 	secret := []byte("some_secret")
 	peersManager := NewPeersUpdateManager()
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TurnConfig{
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL: ttl,
 		Secret:         secret,
-		TurnHosts:      []*Host{TurnTestHost},
+		Turns:          []*Host{TurnTestHost},
 	})
 
 	credentials := tested.GenerateCredentials()
@@ -40,16 +41,16 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
-	ttl := time.Second
+	ttl := util.Duration{Duration: time.Second}
 	secret := []byte("some_secret")
 	peersManager := NewPeersUpdateManager()
 	peer := "some_peer"
 	updateChannel := peersManager.CreateChannel(peer)
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TurnConfig{
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL: ttl,
 		Secret:         secret,
-		TurnHosts:      []*Host{TurnTestHost},
+		Turns:          []*Host{TurnTestHost},
 	})
 
 	tested.SetupRefresh(peer)
@@ -92,15 +93,15 @@ loop:
 }
 
 func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
-	ttl := time.Hour
+	ttl := util.Duration{Duration: time.Hour}
 	secret := []byte("some_secret")
 	peersManager := NewPeersUpdateManager()
 	peer := "some_peer"
 
-	tested := NewTimeBasedAuthSecretsManager(peersManager, &TurnConfig{
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
 		CredentialsTTL: ttl,
 		Secret:         secret,
-		TurnHosts:      []*Host{TurnTestHost},
+		Turns:          []*Host{TurnTestHost},
 	})
 
 	tested.SetupRefresh(peer)

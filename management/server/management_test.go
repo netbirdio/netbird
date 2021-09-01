@@ -486,13 +486,15 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
+
 	store, err := server.NewStore(config.Datadir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	accountManager := server.NewManager(store)
 	peersUpdateManager := server.NewPeersUpdateManager()
-	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager)
+	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {

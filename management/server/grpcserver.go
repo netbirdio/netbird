@@ -28,7 +28,7 @@ type Server struct {
 const AllowedIPsFormat = "%s/32"
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager *AccountManager, peersUpdateManager *PeersUpdateManager) (*Server, error) {
+func NewServer(config *Config, accountManager *AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -37,14 +37,10 @@ func NewServer(config *Config, accountManager *AccountManager, peersUpdateManage
 	return &Server{
 		wgKey: key,
 		// peerKey -> event channel
-		peersUpdateManager: peersUpdateManager,
-		accountManager:     accountManager,
-		config:             config,
-		turnCredentialsManager: NewTimeBasedAuthSecretsManager(peersUpdateManager, &TurnConfig{
-			CredentialsTTL: time.Hour,
-			Secret:         []byte("some_secret"),
-			TurnHosts:      config.Turns,
-		}),
+		peersUpdateManager:     peersUpdateManager,
+		accountManager:         accountManager,
+		config:                 config,
+		turnCredentialsManager: turnCredentialsManager,
 	}, nil
 }
 
@@ -268,7 +264,7 @@ func toWiretrusteeConfig(config *Config) *proto.WiretrusteeConfig {
 		})
 	}
 	var turns []*proto.ProtectedHostConfig
-	for _, turn := range config.Turns {
+	for _, turn := range config.TURNConfig.Turns {
 		turns = append(turns, &proto.ProtectedHostConfig{
 			HostConfig: &proto.HostConfig{
 				Uri:      turn.URI,

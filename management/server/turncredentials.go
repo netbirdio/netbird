@@ -18,16 +18,10 @@ type TURNCredentialsManager interface {
 	CancelRefresh(peerKey string)
 }
 
-type TurnConfig struct {
-	CredentialsTTL time.Duration
-	Secret         []byte
-	TurnHosts      []*Host
-}
-
 //TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
 type TimeBasedAuthSecretsManager struct {
 	mux           sync.Mutex
-	config        *TurnConfig
+	config        *TURNConfig
 	updateManager *PeersUpdateManager
 	cancelMap     map[string]chan struct{}
 }
@@ -37,7 +31,7 @@ type TurnCredentials struct {
 	Password string
 }
 
-func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, config *TurnConfig) *TimeBasedAuthSecretsManager {
+func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, config *TURNConfig) *TimeBasedAuthSecretsManager {
 	return &TimeBasedAuthSecretsManager{
 		mux:           sync.Mutex{},
 		config:        config,
@@ -50,7 +44,7 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, config *T
 func (m *TimeBasedAuthSecretsManager) GenerateCredentials() TurnCredentials {
 	mac := hmac.New(sha1.New, m.config.Secret)
 
-	timeAuth := time.Now().Add(m.config.CredentialsTTL).Unix()
+	timeAuth := time.Now().Add(m.config.CredentialsTTL.Duration).Unix()
 
 	username := fmt.Sprint(timeAuth)
 
@@ -98,11 +92,11 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerKey string) {
 				return
 			default:
 				//we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
-				time.Sleep(m.config.CredentialsTTL / 4 * 3)
+				time.Sleep(m.config.CredentialsTTL.Duration / 4 * 3)
 
 				c := m.GenerateCredentials()
 				var turns []*proto.ProtectedHostConfig
-				for _, host := range m.config.TurnHosts {
+				for _, host := range m.config.Turns {
 					turns = append(turns, &proto.ProtectedHostConfig{
 						HostConfig: &proto.HostConfig{
 							Uri:      host.URI,
