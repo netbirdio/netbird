@@ -39,6 +39,48 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 
 }
 
+func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
+	ttl := time.Second
+	secret := []byte("some_secret")
+	peersManager := NewPeersUpdateManager()
+	peer := "some_peer"
+	updateChannel := peersManager.CreateChannel(peer)
+
+	tested := NewTimeBasedAuthSecretsManager(peersManager, &TurnConfig{
+		CredentialsTTL: ttl,
+		Secret:         secret,
+		TurnHosts:      []*Host{TurnTestHost},
+	})
+
+	tested.SetupRefresh(peer)
+
+	if _, ok := tested.cancelMap[peer]; !ok {
+		t.Errorf("expecting peer to be present in a cancel map, got not present")
+	}
+
+	var updates []*UpdateMessage
+
+loop:
+	for timeout := time.After(3 * time.Second); ; {
+
+		select {
+		case update := <-updateChannel:
+			updates = append(updates, update)
+		case <-timeout:
+			break loop
+		}
+
+		if len(updates) >= 2 {
+			break loop
+		}
+	}
+
+	if len(updates) < 2 {
+		t.Errorf("expecting 2 peer credentials updates, got %v", len(updates))
+	}
+
+}
+
 func validateMAC(username string, actualMAC string, key []byte, t *testing.T) {
 	mac := hmac.New(sha1.New, key)
 
