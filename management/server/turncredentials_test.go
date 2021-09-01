@@ -79,6 +79,16 @@ loop:
 		t.Errorf("expecting 2 peer credentials updates, got %v", len(updates))
 	}
 
+	firstUpdate := updates[0].Update.GetWiretrusteeConfig().Turns[0]
+	secondUpdate := updates[1].Update.GetWiretrusteeConfig().Turns[0]
+
+	if firstUpdate.User == secondUpdate.User {
+		t.Errorf("expecting first credential update username %v to be diffeerent from second, got equal", firstUpdate.User)
+	}
+	if firstUpdate.Password == secondUpdate.Password {
+		t.Errorf("expecting first credential update password %v to be diffeerent from second, got equal", firstUpdate.Password)
+	}
+
 }
 
 func validateMAC(username string, actualMAC string, key []byte, t *testing.T) {
