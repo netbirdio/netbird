@@ -40,6 +40,11 @@ func NewServer(config *Config, accountManager *AccountManager, peersUpdateManage
 		peersUpdateManager: peersUpdateManager,
 		accountManager:     accountManager,
 		config:             config,
+		turnCredentialsManager: NewTimeBasedAuthSecretsManager(peersUpdateManager, &TurnConfig{
+			CredentialsTTL: time.Hour,
+			Secret:         []byte("some_secret"),
+			TurnHosts:      config.Turns,
+		}),
 	}, nil
 }
 

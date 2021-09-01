@@ -97,6 +97,9 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerKey string) {
 			case <-cancel:
 				return
 			default:
+				//we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
+				time.Sleep(m.config.CredentialsTTL / 4 * 3)
+
 				c := m.GenerateCredentials()
 				var turns []*proto.ProtectedHostConfig
 				for _, host := range m.config.TurnHosts {
@@ -120,8 +123,6 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerKey string) {
 					log.Errorf("error while sending TURN update to peer %s %v", peerKey, err)
 					// todo maybe continue trying?
 				}
-				//we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
-				time.Sleep(m.config.CredentialsTTL / 4 * 3)
 			}
 		}
 	}()
