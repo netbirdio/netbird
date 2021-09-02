@@ -200,6 +200,10 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			}
 		}
 
+		if pair.Remote.Type() == ice.CandidateTypeRelay || pair.Local.Type() == ice.CandidateTypeRelay {
+			log.Infof("using relay with peer %s", conn.Config.RemoteWgKey)
+		}
+
 		conn.Status = StatusConnected
 		log.Infof("opened connection to peer %s", conn.Config.RemoteWgKey.String())
 	case <-conn.closeCond.C:

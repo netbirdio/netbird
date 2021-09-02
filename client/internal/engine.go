@@ -18,7 +18,7 @@ import (
 
 // PeerConnectionTimeout is a timeout of an initial connection attempt to a remote peer.
 // E.g. this peer will wait PeerConnectionTimeout for the remote peer to respond, if not successful then it will retry the connection attempt.
-const PeerConnectionTimeout = 60 * time.Second
+const PeerConnectionTimeout = 40 * time.Second
 
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
@@ -293,38 +293,39 @@ func (e *Engine) receiveManagementEvents() {
 }
 
 func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
-	var newSTUNs []*ice.URL
-	if len(stuns) != 0 {
-		log.Debugf("got STUNs update from Management Service, updating")
-		for _, stun := range stuns {
-			url, err := ice.ParseURL(stun.Uri)
-			if err != nil {
-				return err
-			}
-			newSTUNs = append(newSTUNs, url)
-		}
-		e.STUNs = newSTUNs
+	if len(stuns) == 0 {
+		return nil
 	}
+	var newSTUNs []*ice.URL
+	log.Debugf("got STUNs update from Management Service, updating")
+	for _, stun := range stuns {
+		url, err := ice.ParseURL(stun.Uri)
+		if err != nil {
+			return err
+		}
+		newSTUNs = append(newSTUNs, url)
+	}
+	e.STUNs = newSTUNs
 
 	return nil
 }
 
 func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
-
-	var newTURNs []*ice.URL
-	if len(turns) != 0 {
-		log.Debugf("got TURNs update from Management Service, updating")
-		for _, turn := range turns {
-			url, err := ice.ParseURL(turn.HostConfig.Uri)
-			if err != nil {
-				return err
-			}
-			url.Username = turn.User
-			url.Password = turn.Password
-			newTURNs = append(newTURNs, url)
-		}
-		e.TURNs = newTURNs
+	if len(turns) == 0 {
+		return nil
 	}
+	var newTURNs []*ice.URL
+	log.Debugf("got TURNs update from Management Service, updating")
+	for _, turn := range turns {
+		url, err := ice.ParseURL(turn.HostConfig.Uri)
+		if err != nil {
+			return err
+		}
+		url.Username = turn.User
+		url.Password = turn.Password
+		newTURNs = append(newTURNs, url)
+	}
+	e.TURNs = newTURNs
 
 	return nil
 }
