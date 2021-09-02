@@ -79,7 +79,8 @@ var (
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 			grpcServer := grpc.NewServer(opts...)
 			peersUpdateManager := server.NewPeersUpdateManager()
-			server, err := server.NewServer(config, accountManager, peersUpdateManager)
+			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+			server, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
 			if err != nil {
 				log.Fatalf("failed creating new server: %v", err)
 			}

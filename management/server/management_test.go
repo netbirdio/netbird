@@ -119,19 +119,18 @@ var _ = Describe("Management service", func() {
 					Uri:      "stun:stun.wiretrustee.com:3468",
 					Protocol: mgmtProto.HostConfig_UDP,
 				}
-				expectedTurnsConfig := &mgmtProto.ProtectedHostConfig{
-					HostConfig: &mgmtProto.HostConfig{
-						Uri:      "turn:stun.wiretrustee.com:3468",
-						Protocol: mgmtProto.HostConfig_UDP,
-					},
-					User:     "some_user",
-					Password: "some_password",
+				expectedTRUNHost := &mgmtProto.HostConfig{
+					Uri:      "turn:stun.wiretrustee.com:3468",
+					Protocol: mgmtProto.HostConfig_UDP,
 				}
 
 				Expect(resp.WiretrusteeConfig.Signal).To(BeEquivalentTo(expectedSignalConfig))
 				Expect(resp.WiretrusteeConfig.Stuns).To(ConsistOf(expectedStunsConfig))
-				Expect(resp.WiretrusteeConfig.Turns).To(ConsistOf(expectedTurnsConfig))
-
+				// TURN validation is special because credentials are dynamically generated
+				Expect(resp.WiretrusteeConfig.Turns).To(HaveLen(1))
+				actualTURN := resp.WiretrusteeConfig.Turns[0]
+				Expect(len(actualTURN.User) > 0).To(BeTrue())
+				Expect(actualTURN.HostConfig).To(BeEquivalentTo(expectedTRUNHost))
 			})
 		})
 
@@ -368,7 +367,10 @@ var _ = Describe("Management service", func() {
 							resp := &mgmtProto.SyncResponse{}
 							err = pb.Unmarshal(decryptedBytes, resp)
 							Expect(err).NotTo(HaveOccurred())
-							wg.Done()
+							if len(resp.GetRemotePeers()) > 0 {
+								//only consider peer updates
+								wg.Done()
+							}
 						}
 					}()
 				}
@@ -388,7 +390,6 @@ var _ = Describe("Management service", func() {
 					err := syncClient.CloseSend()
 					Expect(err).NotTo(HaveOccurred())
 				}
-
 			})
 		})
 	})
@@ -486,13 +487,15 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
+
 	store, err := server.NewStore(config.Datadir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	accountManager := server.NewManager(store)
 	peersUpdateManager := server.NewPeersUpdateManager()
-	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager)
+	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
+	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {

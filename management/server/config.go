@@ -1,5 +1,9 @@
 package server
 
+import (
+	"github.com/wiretrustee/wiretrustee/util"
+)
+
 type Protocol string
 
 const (
@@ -12,13 +16,21 @@ const (
 
 // Config of the Management service
 type Config struct {
-	Stuns  []*Host
-	Turns  []*Host
-	Signal *Host
+	Stuns      []*Host
+	TURNConfig *TURNConfig
+	Signal     *Host
 
 	Datadir string
 
 	HttpConfig *HttpServerConfig
+}
+
+// TURNConfig is a config of the TURNCredentialsManager
+type TURNConfig struct {
+	TimeBasedCredentials bool
+	CredentialsTTL       util.Duration
+	Secret               []byte
+	Turns                []*Host
 }
 
 // HttpServerConfig is a config of the HTTP Management service server
