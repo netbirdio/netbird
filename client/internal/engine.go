@@ -22,9 +22,7 @@ const PeerConnectionTimeout = 60 * time.Second
 
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
-	// StunsTurns is a list of STUN and TURN servers used by ICE
-	StunsTurns []*ice.URL
-	WgIface    string
+	WgIface string
 	// WgAddr is a Wireguard local address (Wiretrustee Network IP)
 	WgAddr string
 	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
@@ -51,6 +49,11 @@ type Engine struct {
 
 	// wgPort is a Wireguard local listen port
 	wgPort int
+
+	// STUNs is a list of STUN servers used by ICE
+	STUNs []*ice.URL
+	// TURNs is a list of STUN servers used by ICE
+	TURNs []*ice.URL
 }
 
 // Peer is an instance of the Connection Peer
@@ -187,7 +190,7 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 		WgAllowedIPs:   peer.WgAllowedIps,
 		WgKey:          myKey,
 		RemoteWgKey:    remoteKey,
-		StunTurnURLS:   e.config.StunsTurns,
+		StunTurnURLS:   append(e.STUNs, e.TURNs...),
 		iFaceBlackList: e.config.IFaceBlackList,
 	}
 
@@ -261,50 +264,107 @@ func (e *Engine) receiveManagementEvents() {
 	log.Debugf("connecting to Management Service updates stream")
 
 	e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
-		// todo handle changes of global settings (in update.GetWiretrusteeConfig())
-		// todo handle changes of peer settings (in update.GetPeerConfig())
-
 		e.syncMsgMux.Lock()
 		defer e.syncMsgMux.Unlock()
 
-		remotePeers := update.GetRemotePeers()
-		if len(remotePeers) != 0 {
-
-			remotePeerMap := make(map[string]struct{})
-			for _, peer := range remotePeers {
-				remotePeerMap[peer.GetWgPubKey()] = struct{}{}
-			}
-
-			//remove peers that are no longer available for us
-			toRemove := []string{}
-			for p := range e.conns {
-				if _, ok := remotePeerMap[p]; !ok {
-					toRemove = append(toRemove, p)
-				}
-			}
-			err := e.removePeerConnections(toRemove)
+		if update.GetWiretrusteeConfig() != nil {
+			err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
 			if err != nil {
 				return err
 			}
 
-			// add new peers
-			for _, peer := range remotePeers {
-				peerKey := peer.GetWgPubKey()
-				peerIPs := peer.GetAllowedIps()
-				if _, ok := e.conns[peerKey]; !ok {
-					go e.initializePeer(Peer{
-						WgPubKey:     peerKey,
-						WgAllowedIps: strings.Join(peerIPs, ","),
-					})
-				}
-
+			err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
+			if err != nil {
+				return err
 			}
+
+			//todo update signal
+		}
+
+		err := e.updatePeers(update.GetRemotePeers())
+		if err != nil {
+			return err
 		}
 
 		return nil
 	})
 
 	log.Infof("connected to Management Service updates stream")
+}
+
+func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
+	var newSTUNs []*ice.URL
+	if len(stuns) != 0 {
+		log.Debugf("got STUNs update from Management Service, updating")
+		for _, stun := range stuns {
+			url, err := ice.ParseURL(stun.Uri)
+			if err != nil {
+				return err
+			}
+			newSTUNs = append(newSTUNs, url)
+		}
+		e.STUNs = newSTUNs
+	}
+
+	return nil
+}
+
+func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
+
+	var newTURNs []*ice.URL
+	if len(turns) != 0 {
+		log.Debugf("got TURNs update from Management Service, updating")
+		for _, turn := range turns {
+			url, err := ice.ParseURL(turn.HostConfig.Uri)
+			if err != nil {
+				return err
+			}
+			url.Username = turn.User
+			url.Password = turn.Password
+			newTURNs = append(newTURNs, url)
+		}
+		e.TURNs = newTURNs
+	}
+
+	return nil
+}
+
+func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
+	if len(remotePeers) == 0 {
+		return nil
+	}
+
+	log.Debugf("got peers update from Management Service, updating")
+	remotePeerMap := make(map[string]struct{})
+	for _, peer := range remotePeers {
+		remotePeerMap[peer.GetWgPubKey()] = struct{}{}
+	}
+
+	//remove peers that are no longer available for us
+	toRemove := []string{}
+	for p := range e.conns {
+		if _, ok := remotePeerMap[p]; !ok {
+			toRemove = append(toRemove, p)
+		}
+	}
+	err := e.removePeerConnections(toRemove)
+	if err != nil {
+		return err
+	}
+
+	// add new peers
+	for _, peer := range remotePeers {
+		peerKey := peer.GetWgPubKey()
+		peerIPs := peer.GetAllowedIps()
+		if _, ok := e.conns[peerKey]; !ok {
+			go e.initializePeer(Peer{
+				WgPubKey:     peerKey,
+				WgAllowedIps: strings.Join(peerIPs, ","),
+			})
+		}
+
+	}
+	return nil
 }
 
 // receiveSignalEvents connects to the Signal Service event stream to negotiate connection with remote peers
