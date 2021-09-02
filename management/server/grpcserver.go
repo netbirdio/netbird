@@ -19,15 +19,16 @@ type Server struct {
 	accountManager *AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
-	peersUpdateManager *PeersUpdateManager
-	config             *Config
+	peersUpdateManager     *PeersUpdateManager
+	config                 *Config
+	turnCredentialsManager TURNCredentialsManager
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
 const AllowedIPsFormat = "%s/32"
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager *AccountManager, peersUpdateManager *PeersUpdateManager) (*Server, error) {
+func NewServer(config *Config, accountManager *AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -36,9 +37,10 @@ func NewServer(config *Config, accountManager *AccountManager, peersUpdateManage
 	return &Server{
 		wgKey: key,
 		// peerKey -> event channel
-		peersUpdateManager: peersUpdateManager,
-		accountManager:     accountManager,
-		config:             config,
+		peersUpdateManager:     peersUpdateManager,
+		accountManager:         accountManager,
+		config:                 config,
+		turnCredentialsManager: turnCredentialsManager,
 	}, nil
 }
 
@@ -89,7 +91,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if err != nil {
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
 	}
-	// Todo start turn credentials goroutine
+
+	s.turnCredentialsManager.SetupRefresh(peerKey.String())
 	// keep a connection to the peer and send updates when available
 	for {
 		select {
@@ -118,7 +121,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 			// happens when connection drops, e.g. client disconnects
 			log.Debugf("stream of peer %s has been closed", peerKey.String())
 			s.peersUpdateManager.CloseChannel(peerKey.String())
-			err := s.accountManager.MarkPeerConnected(peerKey.String(), false)
+			s.turnCredentialsManager.CancelRefresh(peerKey.String())
+			err = s.accountManager.MarkPeerConnected(peerKey.String(), false)
 			if err != nil {
 				log.Warnf("failed marking peer as disconnected %s %v", peerKey, err)
 			}
@@ -165,7 +169,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 				peersToSend = append(peersToSend, p)
 			}
 		}
-		update := toSyncResponse(s.config, peer, peersToSend)
+		update := toSyncResponse(s.config, peer, peersToSend, nil)
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
@@ -215,11 +219,10 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			return nil, status.Error(codes.Internal, "internal server error")
 		}
 	}
-	// Todo fill up turn credentials
 
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
-		WiretrusteeConfig: toWiretrusteeConfig(s.config),
+		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
 		PeerConfig:        toPeerConfig(peer),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
@@ -233,7 +236,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	}, nil
 }
 
-func toResponseProto(configProto Protocol) proto.HostConfig_Protocol {
+func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	switch configProto {
 	case UDP:
 		return proto.HostConfig_UDP
@@ -251,24 +254,33 @@ func toResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	}
 }
 
-func toWiretrusteeConfig(config *Config) *proto.WiretrusteeConfig {
+func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *proto.WiretrusteeConfig {
 
 	var stuns []*proto.HostConfig
 	for _, stun := range config.Stuns {
 		stuns = append(stuns, &proto.HostConfig{
 			Uri:      stun.URI,
-			Protocol: toResponseProto(stun.Proto),
+			Protocol: ToResponseProto(stun.Proto),
 		})
 	}
 	var turns []*proto.ProtectedHostConfig
-	for _, turn := range config.Turns {
+	for _, turn := range config.TURNConfig.Turns {
+		var username string
+		var password string
+		if turnCredentials != nil {
+			username = turnCredentials.Username
+			password = turnCredentials.Password
+		} else {
+			username = turn.Username
+			password = string(turn.Password)
+		}
 		turns = append(turns, &proto.ProtectedHostConfig{
 			HostConfig: &proto.HostConfig{
 				Uri:      turn.URI,
-				Protocol: toResponseProto(turn.Proto),
+				Protocol: ToResponseProto(turn.Proto),
 			},
-			User:     turn.Username,
-			Password: string(turn.Password),
+			User:     username,
+			Password: password,
 		})
 	}
 
@@ -277,7 +289,7 @@ func toWiretrusteeConfig(config *Config) *proto.WiretrusteeConfig {
 		Turns: turns,
 		Signal: &proto.HostConfig{
 			Uri:      config.Signal.URI,
-			Protocol: toResponseProto(config.Signal.Proto),
+			Protocol: ToResponseProto(config.Signal.Proto),
 		},
 	}
 }
@@ -288,9 +300,9 @@ func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	}
 }
 
-func toSyncResponse(config *Config, peer *Peer, peers []*Peer) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials) *proto.SyncResponse {
 
-	wtConfig := toWiretrusteeConfig(config)
+	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
 	pConfig := toPeerConfig(peer)
 
@@ -322,13 +334,22 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 		log.Warnf("error getting a list of peers for a peer %s", peer.Key)
 		return err
 	}
-	plainResp := toSyncResponse(s.config, peer, peers)
+
+	// make secret time based TURN credentials optional
+	var turnCredentials *TURNCredentials
+	if s.config.TURNConfig.TimeBasedCredentials {
+		creds := s.turnCredentialsManager.GenerateCredentials()
+		turnCredentials = &creds
+	} else {
+		turnCredentials = nil
+	}
+	plainResp := toSyncResponse(s.config, peer, peers, turnCredentials)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
 		return status.Errorf(codes.Internal, "error handling request")
 	}
-	// Todo fill up the turn credentials
+
 	err = srv.Send(&proto.EncryptedMessage{
 		WgPubKey: s.wgKey.PublicKey().String(),
 		Body:     encryptedResp,
