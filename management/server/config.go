@@ -29,7 +29,7 @@ type Config struct {
 type TURNConfig struct {
 	TimeBasedCredentials bool
 	CredentialsTTL       util.Duration
-	Secret               []byte
+	Secret               string
 	Turns                []*Host
 }
 
@@ -51,5 +51,5 @@ type Host struct {
 	// URI e.g. turns://stun.wiretrustee.com:4430 or signal.wiretrustee.com:10000
 	URI      string
 	Username string
-	Password []byte
+	Password string
 }
