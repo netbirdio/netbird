@@ -8,6 +8,8 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 
 Please don't use the hosted demonstration version for production purposes. 
 
+[UI Dashboard Repo](https://github.com/wiretrustee/wiretrustee-dashboard)
+
 ### Why using Wiretrustee?
 
 * Connect multiple devices to each other via a secure peer-to-peer Wireguard VPN tunnel. At home, the office, or anywhere else.
