@@ -13,7 +13,7 @@
                 "Proto": "udp",
                 "URI": "turn:stun.wiretrustee.com:3468",
                 "Username": "some_user",
-                "Password": "c29tZV9wYXNzd29yZA=="
+                "Password": "some_password"
             }
         ],
         "CredentialsTTL": "1h",

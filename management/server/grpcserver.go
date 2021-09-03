@@ -92,7 +92,9 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
 	}
 
-	s.turnCredentialsManager.SetupRefresh(peerKey.String())
+	if s.config.TURNConfig.TimeBasedCredentials {
+		s.turnCredentialsManager.SetupRefresh(peerKey.String())
+	}
 	// keep a connection to the peer and send updates when available
 	for {
 		select {

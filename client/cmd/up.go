@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/client/internal"
@@ -115,42 +114,12 @@ func createEngineConfig(key wgtypes.Key, config *internal.Config, wtConfig *mgmP
 		iFaceBlackList[config.IFaceBlackList[i]] = struct{}{}
 	}
 
-	stunTurns, err := toStunTurnURLs(wtConfig)
-	if err != nil {
-		return nil, status.Errorf(codes.FailedPrecondition, "failed parsing STUN and TURN URLs received from Management Service : %s", err)
-	}
-
 	return &internal.EngineConfig{
-		StunsTurns:     stunTurns,
 		WgIface:        config.WgIface,
 		WgAddr:         peerConfig.Address,
 		IFaceBlackList: iFaceBlackList,
 		WgPrivateKey:   key,
 	}, nil
-}
-
-// toStunTurnURLs converts Wiretrustee STUN and TURN configs to ice.URL array
-func toStunTurnURLs(wtConfig *mgmProto.WiretrusteeConfig) ([]*ice.URL, error) {
-
-	var stunsTurns []*ice.URL
-	for _, stun := range wtConfig.Stuns {
-		url, err := ice.ParseURL(stun.Uri)
-		if err != nil {
-			return nil, err
-		}
-		stunsTurns = append(stunsTurns, url)
-	}
-	for _, turn := range wtConfig.Turns {
-		url, err := ice.ParseURL(turn.HostConfig.Uri)
-		if err != nil {
-			return nil, err
-		}
-		url.Username = turn.User
-		url.Password = turn.Password
-		stunsTurns = append(stunsTurns, url)
-	}
-
-	return stunsTurns, nil
 }
 
 // connectToSignal creates Signal Service client and established a connection

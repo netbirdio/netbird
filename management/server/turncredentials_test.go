@@ -13,12 +13,12 @@ var TurnTestHost = &Host{
 	Proto:    UDP,
 	URI:      "turn:turn.wiretrustee.com:77777",
 	Username: "username",
-	Password: nil,
+	Password: "",
 }
 
 func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
-	secret := []byte("some_secret")
+	secret := "some_secret"
 	peersManager := NewPeersUpdateManager()
 
 	tested := NewTimeBasedAuthSecretsManager(peersManager, &TURNConfig{
@@ -36,13 +36,13 @@ func TestTimeBasedAuthSecretsManager_GenerateCredentials(t *testing.T) {
 		t.Errorf("expected generated TURN password not to be empty, got empty")
 	}
 
-	validateMAC(credentials.Username, credentials.Password, secret, t)
+	validateMAC(credentials.Username, credentials.Password, []byte(secret), t)
 
 }
 
 func TestTimeBasedAuthSecretsManager_SetupRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: 2 * time.Second}
-	secret := []byte("some_secret")
+	secret := "some_secret"
 	peersManager := NewPeersUpdateManager()
 	peer := "some_peer"
 	updateChannel := peersManager.CreateChannel(peer)
@@ -91,7 +91,7 @@ loop:
 
 func TestTimeBasedAuthSecretsManager_CancelRefresh(t *testing.T) {
 	ttl := util.Duration{Duration: time.Hour}
-	secret := []byte("some_secret")
+	secret := "some_secret"
 	peersManager := NewPeersUpdateManager()
 	peer := "some_peer"
 

@@ -42,7 +42,7 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, config *T
 
 //GenerateCredentials generates new time-based secret credentials - basically username is a unix timestamp and password is a HMAC hash of a timestamp with a preshared TURN secret
 func (m *TimeBasedAuthSecretsManager) GenerateCredentials() TURNCredentials {
-	mac := hmac.New(sha1.New, m.config.Secret)
+	mac := hmac.New(sha1.New, []byte(m.config.Secret))
 
 	timeAuth := time.Now().Add(m.config.CredentialsTTL.Duration).Unix()
 
