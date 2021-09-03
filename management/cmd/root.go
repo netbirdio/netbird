@@ -38,7 +38,7 @@ func init() {
 
 	stopCh = make(chan int)
 
-	defaultConfigPath = "/etc/wiretrustee/config.json"
+	defaultConfigPath = "/etc/wiretrustee/management.json"
 	if runtime.GOOS == "windows" {
 		defaultConfigPath = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "config.json"
 	}
