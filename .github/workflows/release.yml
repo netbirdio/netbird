@@ -54,29 +54,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       -
-        name: Download EnvVarUpdate function
-        uses: carlosperate/download-file-action@v1.0.3
-        with:
-          file-url: https://nsis.sourceforge.io/mediawiki/images/a/ad/EnvVarUpdate.7z
-          file-name: EnvVarUpdate.7z
-          location: ${{ github.workspace }}
+        name: Install makensis
+        run: sudo apt update && sudo apt install -y nsis nsis-pluginapi
+      -
+        name: Download EnvVar Plugin
+        run: curl -L -o EnVar_plugin.zip https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip
 
       -
         name: Extract EnVar plugin
-        run: |
-          7z x -o"${{ github.workspace }}/client" "${{ github.workspace }}/EnvVarUpdate.7z"
-          ls -l
-
-      -
-        name: Install makensis
-        run: sudo apt update && sudo apt install -y nsis nsis-pluginapi
-
+        run: sudo 7z x -o"/usr/share/nsis/" EnVar_plugin.zip
       -
         name: Generate Windows installer
-        run:  makensis -V4 installer.nsis
+        run:  makensis -V4 client/installer.nsis
         env:
           APPVER: 0.0.0.10
-        working-directory: client
 
       -
         name: Upload windows installer to release page

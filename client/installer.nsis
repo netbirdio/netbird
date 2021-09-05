@@ -8,7 +8,6 @@
 !define MAIN_APP_EXE "Wiretrustee"
 !define ICON "ui\\wiretrustee.ico"
 !define BANNER "ui\\banner.bmp"
-!include "..\\EnvVarUpdate.nsh"
 !define LICENSE_DATA "..\\LICENSE"
 
 !define INSTALL_DIR "$PROGRAMFILES64\${APP_NAME}"
@@ -17,7 +16,7 @@
 !define REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${MAIN_APP_EXE}"
 !define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 !define REG_START_MENU "Start Menu Folder"
-
+Unicode True
 var SM_Folder
 
 ######################################################################
@@ -39,6 +38,8 @@ BrandingText "${APP_NAME}"
 InstallDirRegKey "${REG_ROOT}" "${REG_APP_PATH}" ""
 InstallDir "${INSTALL_DIR}"
 LicenseData "${LICENSE_DATA}"
+ShowInstDetails Show
+
 ######################################################################
 
 !define MUI_ICON "${ICON}"
@@ -83,7 +84,7 @@ LicenseData "${LICENSE_DATA}"
 
 Section -MainProgram
 	${INSTALL_TYPE}
-
+  EnVar::SetHKLM
 	SetOverwrite ifnewer
 	SetOutPath "$INSTDIR"
 	File /r "..\\dist\\wiretrustee_windows_amd64\\"
@@ -128,7 +129,12 @@ WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 !ifdef WEB_SITE
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "URLInfoAbout" "${WEB_SITE}"
 !endif
-${EnvVarUpdate} $0 "PATH" "A" "HKLM" "$INSTDIR"
+
+EnVar::AddValueEx "path" "$INSTDIR"
+
+Exec '"$INSTDIR\${MAIN_APP_EXE}" service install'
+# sleep a bit for visibility
+Sleep 3000
 SectionEnd
 
 ######################################################################
@@ -136,6 +142,9 @@ SectionEnd
 Section Uninstall
 ${INSTALL_TYPE}
 
+Exec '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
+# wait the service uninstall take unblock the executable
+Sleep 3000
 RmDir /r "$INSTDIR"
 
 !ifdef REG_START_MENU
@@ -163,5 +172,5 @@ RmDir "$SMPROGRAMS\${APP_NAME}"
 
 DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
 DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
-${un.EnvVarUpdate} $0 "PATH" "R" "HKLM" "$INSTDIR"
+EnVar::DeleteValue "path" "$INSTDIR"
 SectionEnd
