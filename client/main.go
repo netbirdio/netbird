@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/client/cmd"
 )
 import (
@@ -17,6 +18,7 @@ func run(setupKey string) {
 	// Don't block UI thread
 	// TODO add error checking
 	go func() {
+		cobra.MousetrapHelpText = ""
 		fmt.Printf("Go run called!")
 		os.Args = []string{"this.exe", "login", "--config=config.json", "--setup-key=" + setupKey}
 		if err := cmd.Execute(); err != nil {
