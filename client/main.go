@@ -40,6 +40,13 @@ func run(setupKey string) {
 // no space before export!
 //export getPeers
 func getPeers(cnt *int) **C.char {
+	if cmd.Engine == nil {
+		// Not initialized yet
+		//TODO add mutex for cmd.Engine
+		*cnt = 0
+		return nil
+	}
+
 	peers := cmd.Engine.GetPeers()
 	fmt.Println("Number of peers ", len(peers))
 
