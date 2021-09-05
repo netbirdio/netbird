@@ -2,6 +2,10 @@ package internal
 
 import (
 	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/cenkalti/backoff/v4"
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
@@ -11,9 +15,6 @@ import (
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"strings"
-	"sync"
-	"time"
 )
 
 // PeerConnectionTimeout is a timeout of an initial connection attempt to a remote peer.
@@ -53,7 +54,8 @@ type Engine struct {
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*ice.URL
 	// TURNs is a list of STUN servers used by ICE
-	TURNs []*ice.URL
+	TURNs          []*ice.URL
+	managementOnly bool
 }
 
 // Peer is an instance of the Connection Peer
@@ -63,14 +65,15 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig) *Engine {
+func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig, managementOnly bool) *Engine {
 	return &Engine{
-		signal:     signalClient,
-		mgmClient:  mgmClient,
-		conns:      map[string]*Connection{},
-		peerMux:    &sync.Mutex{},
-		syncMsgMux: &sync.Mutex{},
-		config:     config,
+		signal:         signalClient,
+		mgmClient:      mgmClient,
+		conns:          map[string]*Connection{},
+		peerMux:        &sync.Mutex{},
+		syncMsgMux:     &sync.Mutex{},
+		config:         config,
+		managementOnly: managementOnly,
 	}
 }
 
@@ -83,26 +86,29 @@ func (e *Engine) Start() error {
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
 
-	err := iface.Create(wgIface, wgAddr)
-	if err != nil {
-		log.Errorf("failed creating interface %s: [%s]", wgIface, err.Error())
-		return err
+	if !e.managementOnly {
+		err := iface.Create(wgIface, wgAddr)
+		if err != nil {
+			log.Errorf("failed creating interface %s: [%s]", wgIface, err.Error())
+			return err
+		}
+
+		err = iface.Configure(wgIface, myPrivateKey.String())
+		if err != nil {
+			log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIface, err.Error())
+			return err
+		}
+
+		port, err := iface.GetListenPort(wgIface)
+		if err != nil {
+			log.Errorf("failed getting Wireguard listen port [%s]: %s", wgIface, err.Error())
+			return err
+		}
+		e.wgPort = *port
+
+		e.receiveSignalEvents()
 	}
 
-	err = iface.Configure(wgIface, myPrivateKey.String())
-	if err != nil {
-		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIface, err.Error())
-		return err
-	}
-
-	port, err := iface.GetListenPort(wgIface)
-	if err != nil {
-		log.Errorf("failed getting Wireguard listen port [%s]: %s", wgIface, err.Error())
-		return err
-	}
-	e.wgPort = *port
-
-	e.receiveSignalEvents()
 	e.receiveManagementEvents()
 
 	return nil
@@ -141,6 +147,18 @@ func (e *Engine) initializePeer(peer Peer) {
 		// should actually never happen
 		panic(err)
 	}
+}
+
+func (e *Engine) GetPeers() []string {
+	e.peerMux.Lock()
+	defer e.peerMux.Unlock()
+
+	var res []string
+	for key, _ := range e.conns {
+		res = append(res, key)
+	}
+
+	return res
 }
 
 func (e *Engine) removePeerConnections(peers []string) error {

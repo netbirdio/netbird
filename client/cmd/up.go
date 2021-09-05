@@ -17,6 +17,7 @@ import (
 
 var (
 	managementOnly bool
+	Engine         *internal.Engine
 	upCmd          = &cobra.Command{
 		Use:   "up",
 		Short: "start wiretrustee",
@@ -53,31 +54,28 @@ var (
 				return err
 			}
 
-			var signalClient *signal.Client
-			if !managementOnly {
-				// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
-				signalClient, err := connectToSignal(ctx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
-				if err != nil {
-					log.Error(err)
-					//os.Exit(ExitSetupFailed)
-					return err
-				}
+			// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
+			signalClient, err := connectToSignal(ctx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
+			if err != nil {
+				log.Error(err)
+				//os.Exit(ExitSetupFailed)
+				return err
+			}
 
-				engineConfig, err := createEngineConfig(myPrivateKey, config, loginResp.GetWiretrusteeConfig(), loginResp.GetPeerConfig())
-				if err != nil {
-					log.Error(err)
-					//os.Exit(ExitSetupFailed)
-					return err
-				}
+			engineConfig, err := createEngineConfig(myPrivateKey, config, loginResp.GetWiretrusteeConfig(), loginResp.GetPeerConfig())
+			if err != nil {
+				log.Error(err)
+				//os.Exit(ExitSetupFailed)
+				return err
+			}
 
-				// create start the Wiretrustee Engine that will connect to the Signal and Management streams and manage connections to remote peers.
-				engine := internal.NewEngine(signalClient, mgmClient, engineConfig)
-				err = engine.Start()
-				if err != nil {
-					log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
-					//os.Exit(ExitSetupFailed)
-					return err
-				}
+			// create start the Wiretrustee Engine that will connect to the Signal and Management streams and manage connections to remote peers.
+			Engine = internal.NewEngine(signalClient, mgmClient, engineConfig, managementOnly)
+			err = Engine.Start()
+			if err != nil {
+				log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			SetupCloseHandler()
@@ -90,21 +88,19 @@ var (
 				return err
 			}
 
-			if !managementOnly {
-				err = signalClient.Close()
-				if err != nil {
-					log.Errorf("failed closing Signal Service client %v", err)
-					//os.Exit(ExitSetupFailed)
-					return err
-				}
+			err = signalClient.Close()
+			if err != nil {
+				log.Errorf("failed closing Signal Service client %v", err)
+				//os.Exit(ExitSetupFailed)
+				return err
+			}
 
-				log.Debugf("removing Wiretrustee interface %s", config.WgIface)
-				err = iface.Close()
-				if err != nil {
-					log.Errorf("failed closing Wiretrustee interface %s %v", config.WgIface, err)
-					//os.Exit(ExitSetupFailed)
-					return err
-				}
+			log.Debugf("removing Wiretrustee interface %s", config.WgIface)
+			err = iface.Close()
+			if err != nil {
+				log.Errorf("failed closing Wiretrustee interface %s %v", config.WgIface, err)
+				//os.Exit(ExitSetupFailed)
+				return err
 			}
 
 			return nil

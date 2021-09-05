@@ -7,27 +7,55 @@ import (
 
 	"github.com/wiretrustee/wiretrustee/client/cmd"
 )
+import (
+	"unsafe"
+)
 
 // no space before export!
 //export run
 func run(setupKey string) {
-	fmt.Printf("Go run called!")
-	os.Args = []string{"this.exe", "login", "--config=config.json", "--setup-key=" + setupKey}
-	if err := cmd.Execute(); err != nil {
-		fmt.Printf("Login failed %s", err)
-		return
-		// os.Exit(1)
+	// Don't block UI thread
+	// TODO add error checking
+	go func() {
+		fmt.Printf("Go run called!")
+		os.Args = []string{"this.exe", "login", "--config=config.json", "--setup-key=" + setupKey}
+		if err := cmd.Execute(); err != nil {
+			fmt.Println("Login failed ", err)
+			return
+			// os.Exit(1)
+		}
+
+		fmt.Printf("Go Login succeeded!")
+		os.Args = []string{"this.exe", "up", "--config=config.json", "--management-only=true"}
+		if err := cmd.Execute(); err != nil {
+			fmt.Println("Up failed ", err)
+			return
+			// os.Exit(1)
+		}
+
+		fmt.Println("Go Finished!")
+	}()
+}
+
+// no space before export!
+//export getPeers
+func getPeers(cnt *int) **C.char {
+	peers := cmd.Engine.GetPeers()
+	fmt.Println("Number of peers ", len(peers))
+
+	count := len(peers)
+	c_count := C.int(count)
+
+	cArray := C.malloc(C.size_t(c_count) * C.size_t(unsafe.Sizeof(uintptr(0))))
+
+	// convert the C array to a Go Array so we can index it
+	a := (*[1<<30 - 1]*C.char)(cArray)
+	for index, value := range peers {
+		a[index] = C.CString(value)
 	}
 
-	fmt.Printf("Go Login succeeded!")
-	os.Args = []string{"this.exe", "up", "--config=config.json", "--management-only=true"}
-	if err := cmd.Execute(); err != nil {
-		fmt.Printf("Up failed %s", err)
-		return
-		// os.Exit(1)
-	}
-
-	fmt.Printf("Go Finished!")
+	*cnt = count
+	return (**C.char)(unsafe.Pointer(cArray))
 }
 
 func main() {
