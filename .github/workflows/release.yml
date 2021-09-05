@@ -73,9 +73,10 @@ jobs:
 
       -
         name: Generate Windows installer
-        run:  makensis -V4 client/installer.nsis
+        run:  makensis -V4 installer.nsis
         env:
           APPVER: 0.0.0.10
+        working-directory: client
 
       -
         name: Upload windows installer to release page
