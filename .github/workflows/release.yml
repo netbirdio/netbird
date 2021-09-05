@@ -74,5 +74,5 @@ jobs:
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: wiretrustee-installer.exe
-          asset_name: wiretrustee_installer_${{ github.ref }}_windows_amd64.exe
+          asset_name: wiretrustee_installer_${{ steps.get_version.outputs.version-without-v }}_windows_amd64.exe
           tag: ${{ github.ref }}
