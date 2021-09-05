@@ -49,7 +49,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v2
         with:
           version: latest
-          args: release --rm-dist --skip-publish
+          args: release --rm-dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -74,6 +74,6 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: windows-installer.exe
+          file: wiretrustee-installer.exe
           asset_name: wiretrustee_installer_${{ github.ref }}_windows_amd64.exe
           tag: ${{ github.ref }}
