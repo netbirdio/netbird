@@ -8,7 +8,7 @@
 !define MAIN_APP_EXE "Wiretrustee"
 !define ICON "ui\\wiretrustee.ico"
 !define BANNER "ui\\banner.bmp"
-!include "EnvVarUpdate.nsh"
+!include "..\\EnvVarUpdate.nsh"
 !define LICENSE_DATA "..\\LICENSE"
 
 !define INSTALL_DIR "$PROGRAMFILES64\${APP_NAME}"

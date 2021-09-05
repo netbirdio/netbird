@@ -63,7 +63,9 @@ jobs:
 
       -
         name: Extract EnVar plugin
-        run: 7z x -o"${{ github.workspace }}/client" "${{ github.workspace }}/EnvVarUpdate.7z"
+        run: |
+          7z x -o"${{ github.workspace }}/client" "${{ github.workspace }}/EnvVarUpdate.7z"
+          ls -l
 
       -
         name: Install makensis
