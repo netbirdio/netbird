@@ -65,120 +65,120 @@ nfpms:
 
     scripts:
       postinstall: "release_files/post_install.sh"
-#dockers:
-#  - image_templates:
-#      - wiretrustee/signal:{{ .Version }}-amd64
-#    ids:
-#      - wiretrustee-signal
-#    goarch: amd64
-#    use: buildx
-#    dockerfile: signal/Dockerfile
-#    build_flag_templates:
-#      - "--platform=linux/amd64"
-#      - "--label=org.opencontainers.image.created={{.Date}}"
-#      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=maintainer=wiretrustee@wiretrustee.com"
-#  - image_templates:
-#      - wiretrustee/signal:{{ .Version }}-arm64v8
-#    ids:
-#      - wiretrustee-signal
-#    goarch: arm64
-#    use: buildx
-#    dockerfile: signal/Dockerfile
-#    build_flag_templates:
-#      - "--platform=linux/arm64"
-#      - "--label=org.opencontainers.image.created={{.Date}}"
-#      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=maintainer=wiretrustee@wiretrustee.com"
-#  - image_templates:
-#      - wiretrustee/management:{{ .Version }}-amd64
-#    ids:
-#      - wiretrustee-mgmt
-#    goarch: amd64
-#    use: buildx
-#    dockerfile: management/Dockerfile
-#    build_flag_templates:
-#      - "--platform=linux/amd64"
-#      - "--label=org.opencontainers.image.created={{.Date}}"
-#      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=maintainer=wiretrustee@wiretrustee.com"
-#  - image_templates:
-#      - wiretrustee/management:{{ .Version }}-arm64v8
-#    ids:
-#      - wiretrustee-mgmt
-#    goarch: arm64
-#    use: buildx
-#    dockerfile: management/Dockerfile
-#    build_flag_templates:
-#      - "--platform=linux/arm64"
-#      - "--label=org.opencontainers.image.created={{.Date}}"
-#      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=maintainer=wiretrustee@wiretrustee.com"
-#  - image_templates:
-#      - wiretrustee/management:{{ .Version }}-debug-amd64
-#    ids:
-#      - wiretrustee-mgmt
-#    goarch: amd64
-#    use: buildx
-#    dockerfile: management/Dockerfile.debug
-#    build_flag_templates:
-#      - "--platform=linux/amd64"
-#      - "--label=org.opencontainers.image.created={{.Date}}"
-#      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=maintainer=wiretrustee@wiretrustee.com"
-#  - image_templates:
-#      - wiretrustee/management:{{ .Version }}-debug-arm64v8
-#    ids:
-#      - wiretrustee-mgmt
-#    goarch: arm64
-#    use: buildx
-#    dockerfile: management/Dockerfile.debug
-#    build_flag_templates:
-#      - "--platform=linux/arm64"
-#      - "--label=org.opencontainers.image.created={{.Date}}"
-#      - "--label=org.opencontainers.image.title={{.ProjectName}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-#      - "--label=org.opencontainers.image.version={{.Version}}"
-#      - "--label=maintainer=wiretrustee@wiretrustee.com"
-#
-#docker_manifests:
-#  - name_template: wiretrustee/signal:{{ .Version }}
-#    image_templates:
-#      - wiretrustee/signal:{{ .Version }}-arm64v8
-#      - wiretrustee/signal:{{ .Version }}-amd64
-#
-#  - name_template: wiretrustee/signal:latest
-#    image_templates:
-#      - wiretrustee/signal:{{ .Version }}-arm64v8
-#      - wiretrustee/signal:{{ .Version }}-amd64
-#
-#  - name_template: wiretrustee/management:{{ .Version }}
-#    image_templates:
-#      - wiretrustee/management:{{ .Version }}-arm64v8
-#      - wiretrustee/management:{{ .Version }}-amd64
-#
-#  - name_template: wiretrustee/management:latest
-#    image_templates:
-#      - wiretrustee/management:{{ .Version }}-arm64v8
-#      - wiretrustee/management:{{ .Version }}-amd64
-#
-#  - name_template: wiretrustee/management:debug-latest
-#    image_templates:
-#      - wiretrustee/management:{{ .Version }}-debug-arm64v8
-#      - wiretrustee/management:{{ .Version }}-debug-amd64
+dockers:
+  - image_templates:
+      - wiretrustee/signal:{{ .Version }}-amd64
+    ids:
+      - wiretrustee-signal
+    goarch: amd64
+    use: buildx
+    dockerfile: signal/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - wiretrustee/signal:{{ .Version }}-arm64v8
+    ids:
+      - wiretrustee-signal
+    goarch: arm64
+    use: buildx
+    dockerfile: signal/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - wiretrustee/management:{{ .Version }}-amd64
+    ids:
+      - wiretrustee-mgmt
+    goarch: amd64
+    use: buildx
+    dockerfile: management/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - wiretrustee/management:{{ .Version }}-arm64v8
+    ids:
+      - wiretrustee-mgmt
+    goarch: arm64
+    use: buildx
+    dockerfile: management/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - wiretrustee/management:{{ .Version }}-debug-amd64
+    ids:
+      - wiretrustee-mgmt
+    goarch: amd64
+    use: buildx
+    dockerfile: management/Dockerfile.debug
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - wiretrustee/management:{{ .Version }}-debug-arm64v8
+    ids:
+      - wiretrustee-mgmt
+    goarch: arm64
+    use: buildx
+    dockerfile: management/Dockerfile.debug
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+
+docker_manifests:
+  - name_template: wiretrustee/signal:{{ .Version }}
+    image_templates:
+      - wiretrustee/signal:{{ .Version }}-arm64v8
+      - wiretrustee/signal:{{ .Version }}-amd64
+
+  - name_template: wiretrustee/signal:latest
+    image_templates:
+      - wiretrustee/signal:{{ .Version }}-arm64v8
+      - wiretrustee/signal:{{ .Version }}-amd64
+
+  - name_template: wiretrustee/management:{{ .Version }}
+    image_templates:
+      - wiretrustee/management:{{ .Version }}-arm64v8
+      - wiretrustee/management:{{ .Version }}-amd64
+
+  - name_template: wiretrustee/management:latest
+    image_templates:
+      - wiretrustee/management:{{ .Version }}-arm64v8
+      - wiretrustee/management:{{ .Version }}-amd64
+
+  - name_template: wiretrustee/management:debug-latest
+    image_templates:
+      - wiretrustee/management:{{ .Version }}-debug-arm64v8
+      - wiretrustee/management:{{ .Version }}-debug-amd64
