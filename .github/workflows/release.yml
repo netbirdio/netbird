@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - add-windows-installer
 
 jobs:
   release:
@@ -54,12 +52,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       -
+        id: get_version
+        uses: battila7/get-version-action@v2
+      -
         name: Install makensis
         run: sudo apt update && sudo apt install -y nsis nsis-pluginapi
       -
         name: Download EnvVar Plugin
         run: curl -L -o EnVar_plugin.zip https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip
-
       -
         name: Extract EnVar plugin
         run: sudo 7z x -o"/usr/share/nsis/" EnVar_plugin.zip
@@ -67,8 +67,7 @@ jobs:
         name: Generate Windows installer
         run:  makensis -V4 client/installer.nsis
         env:
-          APPVER: 0.0.0.10
-
+          APPVER: ${{ steps.get_version.outputs.version-without-v }}.${{ github.run_id }}
       -
         name: Upload windows installer to release page
         uses: svenstaro/upload-release-action@v2
