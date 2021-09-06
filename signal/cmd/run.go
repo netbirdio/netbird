@@ -39,6 +39,7 @@ var (
 		Short: "start Wiretrustee Signal Server daemon",
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
+			InitLog(logLevel, logFile)
 
 			var opts []grpc.ServerOption
 			if signalLetsencryptDomain != "" {

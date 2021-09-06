@@ -43,7 +43,7 @@ var (
 		Short: "start Wiretrustee Management Server",
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
-			InitLog(logLevel)
+			InitLog(logLevel, logFile)
 
 			config, err := loadConfig()
 			if err != nil {

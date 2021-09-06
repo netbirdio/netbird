@@ -23,7 +23,7 @@ var (
 		Use:   "login",
 		Short: "login to the Wiretrustee Management Service (first run)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			InitLog(logLevel)
+			InitLog(logLevel, logFile)
 
 			config, err := internal.GetConfig(managementURL, configPath)
 			if err != nil {

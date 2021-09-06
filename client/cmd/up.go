@@ -19,7 +19,7 @@ var (
 		Use:   "up",
 		Short: "start wiretrustee",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			InitLog(logLevel)
+			InitLog(logLevel, logFile)
 
 			config, err := internal.ReadConfig(managementURL, configPath)
 			if err != nil {

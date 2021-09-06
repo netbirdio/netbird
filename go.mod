@@ -23,4 +23,5 @@ require (
 	golang.zx2c4.com/wireguard/windows v0.4.5
 	google.golang.org/grpc v1.32.0
 	google.golang.org/protobuf v1.26.0
+	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
