@@ -50,3 +50,28 @@ jobs:
           args: release --rm-dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      -
+        id: get_version
+        uses: battila7/get-version-action@v2
+      -
+        name: Install makensis
+        run: sudo apt update && sudo apt install -y nsis nsis-pluginapi
+      -
+        name: Download EnvVar Plugin
+        run: curl -L -o EnVar_plugin.zip https://nsis.sourceforge.io/mediawiki/images/7/7f/EnVar_plugin.zip
+      -
+        name: Extract EnVar plugin
+        run: sudo 7z x -o"/usr/share/nsis/" EnVar_plugin.zip
+      -
+        name: Generate Windows installer
+        run:  makensis -V4 client/installer.nsis
+        env:
+          APPVER: ${{ steps.get_version.outputs.major }}.${{ steps.get_version.outputs.minor }}.${{ steps.get_version.outputs.patch }}.${{ github.run_id }}
+      -
+        name: Upload windows installer to release page
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: wiretrustee-installer.exe
+          asset_name: wiretrustee_installer_${{ steps.get_version.outputs.version-without-v }}_windows_amd64.exe
+          tag: ${{ github.ref }}
