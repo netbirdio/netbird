@@ -182,3 +182,19 @@ docker_manifests:
     image_templates:
       - wiretrustee/management:{{ .Version }}-debug-arm64v8
       - wiretrustee/management:{{ .Version }}-debug-amd64
+
+brews:
+  -
+    tap:
+      owner: wiretrustee
+      name: homebrew-client
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: Wiretrustee
+      email: wiretrustee@wiretrustee.com
+    description: Wiretrustee project.
+    download_strategy: CurlDownloadStrategy
+    homepage: https://wiretrustee.com/
+    license: "BSD3"
+    test: |
+      system "#{bin}/{{ .ProjectName	}} -h"
