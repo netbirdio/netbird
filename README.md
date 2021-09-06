@@ -64,6 +64,13 @@ wget https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wir
 sudo rpm -i wiretrustee_<VERSION>_linux_amd64.rpm
 ```
 #### MACOS
+**Brew install**
+1. Download and install Brew at https://brew.sh/
+2. Install the client
+```shell
+brew install wiretrustee/client/wiretrustee
+```
+**Download binary**
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
 2. Download the latest release (**Switch VERSION to the latest**):
 ```shell
