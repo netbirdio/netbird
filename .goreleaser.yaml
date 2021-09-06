@@ -187,7 +187,7 @@ brews:
   -
     tap:
       owner: wiretrustee
-      name: homebrew-wiretrustee
+      name: homebrew-client
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     commit_author:
       name: Wiretrustee
