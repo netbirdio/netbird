@@ -1,5 +1,20 @@
 version: "3"
 services:
+  #UI dashboard
+  dashboard:
+    image: wiretrustee/dashboard:main
+    restart: unless-stopped
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      - AUTH0_DOMAIN: <YOUR AUTH0 DOMAIN>
+      - AUTH0_CLIENT_ID: <YOUR AUTH0 CLIENT ID>
+      - AUTH0_AUDIENCE: <YOUR AUTH0 AUDIENCE>
+      - WIRETRUSTEE_MGMT_API_ENDPOINT: <YOUR WIRETRUSTEE MANAGEMENT API ENDPOINT>
+#      - NGINX_SSL_PORT: 443
+#      - LETSENCRYPT_DOMAIN: <YOUR DOMAIN>
+#      - LETSENCRYPT_EMAIL: <YOUR EMAIL>
   # Signal
   signal:
     image: wiretrustee/signal:latest
