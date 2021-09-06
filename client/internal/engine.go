@@ -71,6 +71,8 @@ func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *Engin
 		peerMux:    &sync.Mutex{},
 		syncMsgMux: &sync.Mutex{},
 		config:     config,
+		STUNs:      []*ice.URL{},
+		TURNs:      []*ice.URL{},
 	}
 }
 
