@@ -70,7 +70,7 @@ sudo rpm -i wiretrustee_<VERSION>_linux_amd64.rpm
 ```shell
 brew install wiretrustee/client/wiretrustee
 ```
-**Download binary**
+**Installation from binary**
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
 2. Download the latest release (**Switch VERSION to the latest**):
 ```shell
