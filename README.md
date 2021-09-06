@@ -82,21 +82,11 @@ export PATH=$PATH:/usr/local/bin
 
 #### Windows
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
-2. Download the latest Windows release ```wiretrustee_<VERSION>_windows_amd64.tar.gz``` (**Switch VERSION to the latest**):
-3. Decompress and move to a more fixed path in your system
-4. Open Powershell
-5. For Windows systems, we can use the service command to configure Wiretrustee as a service by running the following commands in Powershell:
-````shell
-cd C:\path\to\wiretrustee\bin
-.\wiretrustee.exe service --help
-.\wiretrustee.exe service install # This will prompt for administrator permissions in order to install a new service
-````
-> You may need to run Powershell as Administrator
-6. After installing you can follow the [Client Configuration](#Client-Configuration) steps.
-7. To uninstall the service simple run the command above with the uninstall flag:
-````shell
-.\wiretrustee.exe service uninstall
-````
+2. Download the latest Windows release installer ```wiretrustee_installer_<VERSION>_windows_amd64.exe``` (**Switch VERSION to the latest**):
+3. Proceed with installation steps
+4. This will install the client in the C:\\Program Files\\Wiretrustee and add the client service
+5. After installing you can follow the [Client Configuration](#Client-Configuration) steps.
+> To uninstall the client and service, you can use Add/Remove programs
 
 ### Client Configuration
 1. Login to the Management Service. You need to have a `setup key` in hand (see ).
