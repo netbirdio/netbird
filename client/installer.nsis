@@ -1,0 +1,118 @@
+!define APP_NAME "Wiretrustee"
+!define COMP_NAME "Wiretrustee"
+!define WEB_SITE "wiretrustee.com"
+!define VERSION $%APPVER%
+!define COPYRIGHT "Wiretrustee Authors, 2021"
+!define DESCRIPTION "A WireGuard®-based mesh network that connects your devices into a single private network"
+!define INSTALLER_NAME "wiretrustee-installer.exe"
+!define MAIN_APP_EXE "Wiretrustee"
+!define ICON "ui\\wiretrustee.ico"
+!define BANNER "ui\\banner.bmp"
+!define LICENSE_DATA "..\\LICENSE"
+
+!define INSTALL_DIR "$PROGRAMFILES64\${APP_NAME}"
+!define INSTALL_TYPE "SetShellVarContext all"
+!define REG_ROOT "HKLM"
+!define REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${MAIN_APP_EXE}"
+!define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
+Unicode True
+
+######################################################################
+
+VIProductVersion  "${VERSION}"
+VIAddVersionKey "ProductName"  "${APP_NAME}"
+VIAddVersionKey "CompanyName"  "${COMP_NAME}"
+VIAddVersionKey "LegalCopyright"  "${COPYRIGHT}"
+VIAddVersionKey "FileDescription"  "${DESCRIPTION}"
+VIAddVersionKey "FileVersion"  "${VERSION}"
+
+######################################################################
+
+SetCompressor /SOLID Lzma
+Name "${APP_NAME}"
+Caption "${APP_NAME}"
+OutFile "..\\${INSTALLER_NAME}"
+BrandingText "${APP_NAME}"
+InstallDirRegKey "${REG_ROOT}" "${REG_APP_PATH}" ""
+InstallDir "${INSTALL_DIR}"
+LicenseData "${LICENSE_DATA}"
+ShowInstDetails Show
+
+######################################################################
+
+!define MUI_ICON "${ICON}"
+!define MUI_UNICON "${ICON}"
+!define MUI_WELCOMEFINISHPAGE_BITMAP "${BANNER}"
+!define MUI_UNWELCOMEFINISHPAGE_BITMAP "${BANNER}"
+
+######################################################################
+
+!include "MUI2.nsh"
+
+!define MUI_ABORTWARNING
+!define MUI_UNABORTWARNING
+
+!insertmacro MUI_PAGE_WELCOME
+
+!insertmacro MUI_PAGE_LICENSE "${LICENSE_DATA}"
+
+!insertmacro MUI_PAGE_DIRECTORY
+
+!insertmacro MUI_PAGE_INSTFILES
+
+!insertmacro MUI_PAGE_FINISH
+
+!insertmacro MUI_UNPAGE_CONFIRM
+
+!insertmacro MUI_UNPAGE_INSTFILES
+
+!insertmacro MUI_UNPAGE_FINISH
+
+!insertmacro MUI_LANGUAGE "English"
+
+######################################################################
+
+Section -MainProgram
+	${INSTALL_TYPE}
+	SetOverwrite ifnewer
+	SetOutPath "$INSTDIR"
+	File /r "..\\dist\\wiretrustee_windows_amd64\\"
+
+SectionEnd
+
+######################################################################
+
+Section -Icons_Reg
+SetOutPath "$INSTDIR"
+WriteUninstaller "$INSTDIR\wiretrustee_uninstall.exe"
+
+WriteRegStr ${REG_ROOT} "${REG_APP_PATH}" "" "$INSTDIR\${MAIN_APP_EXE}"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayName" "${APP_NAME}"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\wiretrustee_uninstall.exe"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${MAIN_APP_EXE}"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
+
+EnVar::SetHKLM
+EnVar::AddValueEx "path" "$INSTDIR"
+
+Exec '"$INSTDIR\${MAIN_APP_EXE}" service install'
+# sleep a bit for visibility
+Sleep 1000
+SectionEnd
+
+######################################################################
+
+Section Uninstall
+${INSTALL_TYPE}
+
+Exec '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
+# wait the service uninstall take unblock the executable
+Sleep 3000
+RmDir /r "$INSTDIR"
+
+DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
+DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
+EnVar::SetHKLM
+EnVar::DeleteValue "path" "$INSTDIR"
+SectionEnd
