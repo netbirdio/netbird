@@ -118,6 +118,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 			if err != nil {
 				return status.Errorf(codes.Internal, "failed sending update message")
 			}
+			log.Debugf("sent an update to peer %s", peerKey.String())
 		// condition when client <-> server connection has been terminated
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
@@ -274,7 +275,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 			password = turnCredentials.Password
 		} else {
 			username = turn.Username
-			password = string(turn.Password)
+			password = turn.Password
 		}
 		turns = append(turns, &proto.ProtectedHostConfig{
 			HostConfig: &proto.HostConfig{
@@ -302,13 +303,9 @@ func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	}
 }
 
-func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials) *proto.SyncResponse {
+func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 
-	wtConfig := toWiretrusteeConfig(config, turnCredentials)
-
-	pConfig := toPeerConfig(peer)
-
-	remotePeers := make([]*proto.RemotePeerConfig, 0, len(peers))
+	remotePeers := []*proto.RemotePeerConfig{}
 	for _, rPeer := range peers {
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
@@ -316,10 +313,23 @@ func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *
 		})
 	}
 
+	return remotePeers
+
+}
+
+func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials) *proto.SyncResponse {
+
+	wtConfig := toWiretrusteeConfig(config, turnCredentials)
+
+	pConfig := toPeerConfig(peer)
+
+	remotePeers := toRemotePeerConfig(peers)
+
 	return &proto.SyncResponse{
-		WiretrusteeConfig: wtConfig,
-		PeerConfig:        pConfig,
-		RemotePeers:       remotePeers,
+		WiretrusteeConfig:  wtConfig,
+		PeerConfig:         pConfig,
+		RemotePeers:        remotePeers,
+		RemotePeersIsEmpty: len(remotePeers) == 0,
 	}
 }
 

@@ -492,8 +492,8 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
-	accountManager := server.NewManager(store)
 	peersUpdateManager := server.NewPeersUpdateManager()
+	accountManager := server.NewManager(store, peersUpdateManager)
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
 	Expect(err).NotTo(HaveOccurred())

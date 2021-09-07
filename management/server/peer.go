@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/wiretrustee/wiretrustee/management/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net"
@@ -55,11 +56,11 @@ func (p *Peer) Copy() *Peer {
 }
 
 //GetPeer returns a peer from a Store
-func (manager *AccountManager) GetPeer(peerKey string) (*Peer, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) GetPeer(peerKey string) (*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	peer, err := manager.Store.GetPeer(peerKey)
+	peer, err := am.Store.GetPeer(peerKey)
 	if err != nil {
 		return nil, err
 	}
@@ -68,16 +69,16 @@ func (manager *AccountManager) GetPeer(peerKey string) (*Peer, error) {
 }
 
 //MarkPeerConnected marks peer as connected (true) or disconnected (false)
-func (manager *AccountManager) MarkPeerConnected(peerKey string, connected bool) error {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) MarkPeerConnected(peerKey string, connected bool) error {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	peer, err := manager.Store.GetPeer(peerKey)
+	peer, err := am.Store.GetPeer(peerKey)
 	if err != nil {
 		return err
 	}
 
-	account, err := manager.Store.GetPeerAccount(peerKey)
+	account, err := am.Store.GetPeerAccount(peerKey)
 	if err != nil {
 		return err
 	}
@@ -85,7 +86,7 @@ func (manager *AccountManager) MarkPeerConnected(peerKey string, connected bool)
 	peerCopy := peer.Copy()
 	peerCopy.Status.LastSeen = time.Now()
 	peerCopy.Status.Connected = connected
-	err = manager.Store.SavePeer(account.Id, peerCopy)
+	err = am.Store.SavePeer(account.Id, peerCopy)
 	if err != nil {
 		return err
 	}
@@ -93,18 +94,18 @@ func (manager *AccountManager) MarkPeerConnected(peerKey string, connected bool)
 }
 
 //RenamePeer changes peer's name
-func (manager *AccountManager) RenamePeer(accountId string, peerKey string, newName string) (*Peer, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) RenamePeer(accountId string, peerKey string, newName string) (*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	peer, err := manager.Store.GetPeer(peerKey)
+	peer, err := am.Store.GetPeer(peerKey)
 	if err != nil {
 		return nil, err
 	}
 
 	peerCopy := peer.Copy()
 	peerCopy.Name = newName
-	err = manager.Store.SavePeer(accountId, peerCopy)
+	err = am.Store.SavePeer(accountId, peerCopy)
 	if err != nil {
 		return nil, err
 	}
@@ -113,18 +114,60 @@ func (manager *AccountManager) RenamePeer(accountId string, peerKey string, newN
 }
 
 //DeletePeer removes peer from the account by it's IP
-func (manager *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
-	return manager.Store.DeletePeer(accountId, peerKey)
+func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	peer, err := am.Store.DeletePeer(accountId, peerKey)
+	if err != nil {
+		return nil, err
+	}
+
+	err = am.peersUpdateManager.SendUpdate(peerKey,
+		&UpdateMessage{
+			Update: &proto.SyncResponse{
+				RemotePeers:        []*proto.RemotePeerConfig{},
+				RemotePeersIsEmpty: true,
+			}})
+	if err != nil {
+		return nil, err
+	}
+
+	//notify other peers of the change
+	peers, err := am.Store.GetAccountPeers(accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, p := range peers {
+		peersToSend := []*Peer{}
+		for _, remote := range peers {
+			if p.Key != remote.Key {
+				peersToSend = append(peersToSend, remote)
+			}
+		}
+		update := toRemotePeerConfig(peersToSend)
+		err = am.peersUpdateManager.SendUpdate(p.Key,
+			&UpdateMessage{
+				Update: &proto.SyncResponse{
+					RemotePeers:        update,
+					RemotePeersIsEmpty: len(update) == 0,
+				}})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	am.peersUpdateManager.CloseChannel(peerKey)
+	return peer, nil
 }
 
 //GetPeerByIP returns peer by it's IP
-func (manager *AccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	account, err := manager.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -140,11 +183,11 @@ func (manager *AccountManager) GetPeerByIP(accountId string, peerIP string) (*Pe
 
 // GetPeersForAPeer returns a list of peers available for a given peer (key)
 // Effectively all the peers of the original peer's account except for the peer itself
-func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	account, err := manager.Store.GetPeerAccount(peerKey)
+	account, err := am.Store.GetPeerAccount(peerKey)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
 	}
@@ -165,9 +208,9 @@ func (manager *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error)
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // If the specified setupKey is empty then a new Account will be created //todo remove this part
 // The peer property is just a placeholder for the Peer properties to pass further
-func (manager *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
 	upperKey := strings.ToUpper(setupKey)
 
@@ -178,7 +221,7 @@ func (manager *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error
 		// Empty setup key, create a new account for it.
 		account, sk = newAccount()
 	} else {
-		account, err = manager.Store.GetAccountBySetupKey(upperKey)
+		account, err = am.Store.GetAccountBySetupKey(upperKey)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", upperKey)
 		}
@@ -213,7 +256,7 @@ func (manager *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error
 
 	account.Peers[newPeer.Key] = newPeer
 	account.SetupKeys[sk.Key] = sk.IncrementUsage()
-	err = manager.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")
 	}

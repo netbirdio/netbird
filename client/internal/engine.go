@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	ice "github.com/pion/ice/v2"
@@ -54,6 +55,8 @@ type Engine struct {
 	STUNs []*ice.URL
 	// TURNs is a list of STUN servers used by ICE
 	TURNs []*ice.URL
+
+	cancel context.CancelFunc
 }
 
 // Peer is an instance of the Connection Peer
@@ -63,7 +66,7 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig) *Engine {
+func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig, cancel context.CancelFunc) *Engine {
 	return &Engine{
 		signal:     signalClient,
 		mgmClient:  mgmClient,
@@ -73,7 +76,19 @@ func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *Engin
 		config:     config,
 		STUNs:      []*ice.URL{},
 		TURNs:      []*ice.URL{},
+		cancel:     cancel,
 	}
+}
+
+func (e *Engine) Stop() error {
+	log.Debugf("removing Wiretrustee interface %s", e.config.WgIface)
+	err := iface.Close()
+	if err != nil {
+		log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIface, err)
+		return err
+	}
+
+	return nil
 }
 
 // Start creates a new Wireguard tunnel interface and listens to events from Signal and Management services
@@ -262,36 +277,42 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
+	go func() {
+		err := e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
+			e.syncMsgMux.Lock()
+			defer e.syncMsgMux.Unlock()
 
-	log.Debugf("connecting to Management Service updates stream")
+			if update.GetWiretrusteeConfig() != nil {
+				err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
+				if err != nil {
+					return err
+				}
 
-	e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
-		e.syncMsgMux.Lock()
-		defer e.syncMsgMux.Unlock()
+				err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
+				if err != nil {
+					return err
+				}
 
-		if update.GetWiretrusteeConfig() != nil {
-			err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
-			if err != nil {
-				return err
+				//todo update signal
 			}
 
-			err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
-			if err != nil {
-				return err
+			if update.GetRemotePeers() != nil || update.GetRemotePeersIsEmpty() {
+				// empty arrays are serialized by protobuf to null, but for our case empty array is a valid state.
+				err := e.updatePeers(update.GetRemotePeers())
+				if err != nil {
+					return err
+				}
 			}
 
-			//todo update signal
-		}
-
-		err := e.updatePeers(update.GetRemotePeers())
+			return nil
+		})
 		if err != nil {
-			return err
+			e.cancel()
+			return
 		}
-
-		return nil
-	})
-
-	log.Infof("connected to Management Service updates stream")
+		log.Infof("connected to Management Service updates stream")
+	}()
+	log.Debugf("connecting to Management Service updates stream")
 }
 
 func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
@@ -333,10 +354,6 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
-	if len(remotePeers) == 0 {
-		return nil
-	}
-
 	log.Debugf("got peers update from Management Service, updating")
 	remotePeerMap := make(map[string]struct{})
 	for _, peer := range remotePeers {

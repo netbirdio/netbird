@@ -64,7 +64,8 @@ var (
 			if err != nil {
 				log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 			}
-			accountManager := server.NewManager(store)
+			peersUpdateManager := server.NewPeersUpdateManager()
+			accountManager := server.NewManager(store, peersUpdateManager)
 
 			var opts []grpc.ServerOption
 
@@ -81,7 +82,6 @@ var (
 
 			opts = append(opts, grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 			grpcServer := grpc.NewServer(opts...)
-			peersUpdateManager := server.NewPeersUpdateManager()
 			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 			server, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
 			if err != nil {
