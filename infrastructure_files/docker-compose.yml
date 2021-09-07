@@ -6,6 +6,7 @@ services:
     restart: unless-stopped
     volumes:
       - wiretrustee-mgmt:/var/lib/wiretrustee
+      - /varl/log/wiretrustee/signal.log:/var/log/wiretrustee/signal.log
     ports:
       - 10000:10000
 #     # port and command for Let's Encrypt validation
@@ -18,6 +19,7 @@ services:
     volumes:
       - wiretrustee-mgmt:/var/lib/wiretrustee
       - ./config.json:/etc/wiretrustee/management.json
+      - /varl/log/wiretrustee/management.log:/var/log/wiretrustee/management.log
     ports:
       - 33073:33073
 #     # port and command for Let's Encrypt validation
