@@ -9,6 +9,7 @@ import (
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
+	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,12 +20,15 @@ var (
 		Use:   "up",
 		Short: "start wiretrustee",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			InitLog(logLevel)
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+				return err
+			}
 
 			config, err := internal.ReadConfig(managementURL, configPath)
 			if err != nil {
 				log.Errorf("failed reading config %s %v", configPath, err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
@@ -32,7 +36,6 @@ var (
 			myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 			if err != nil {
 				log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
@@ -47,7 +50,6 @@ var (
 			mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 			if err != nil {
 				log.Warn(err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
@@ -55,14 +57,12 @@ var (
 			signalClient, err := connectToSignal(ctx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
 			if err != nil {
 				log.Error(err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
 			engineConfig, err := createEngineConfig(myPrivateKey, config, loginResp.GetWiretrusteeConfig(), loginResp.GetPeerConfig())
 			if err != nil {
 				log.Error(err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
@@ -71,7 +71,6 @@ var (
 			err = engine.Start()
 			if err != nil {
 				log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
@@ -81,13 +80,11 @@ var (
 			err = mgmClient.Close()
 			if err != nil {
 				log.Errorf("failed closing Management Service client %v", err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 			err = signalClient.Close()
 			if err != nil {
 				log.Errorf("failed closing Signal Service client %v", err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
@@ -95,7 +92,6 @@ var (
 			err = iface.Close()
 			if err != nil {
 				log.Errorf("failed closing Wiretrustee interface %s %v", config.WgIface, err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 

@@ -8,6 +8,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/encryption"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"github.com/wiretrustee/wiretrustee/signal/server"
+	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -39,6 +40,10 @@ var (
 		Short: "start Wiretrustee Signal Server daemon",
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Fatalf("failed initializing log %v", err)
+			}
 
 			var opts []grpc.ServerOption
 			if signalLetsencryptDomain != "" {
