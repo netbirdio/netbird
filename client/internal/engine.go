@@ -262,36 +262,41 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
+	go func() {
+		err := e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
+			e.syncMsgMux.Lock()
+			defer e.syncMsgMux.Unlock()
 
-	log.Debugf("connecting to Management Service updates stream")
+			if update.GetWiretrusteeConfig() != nil {
+				err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
+				if err != nil {
+					return err
+				}
 
-	e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
-		e.syncMsgMux.Lock()
-		defer e.syncMsgMux.Unlock()
+				err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
+				if err != nil {
+					return err
+				}
 
-		if update.GetWiretrusteeConfig() != nil {
-			err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
-			if err != nil {
-				return err
+				//todo update signal
 			}
 
-			err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
-			if err != nil {
-				return err
+			if update.GetRemotePeers() != nil || update.GetRemotePeersIsEmpty() {
+				// empty arrays are serialized by protobuf to null, but for our case empty array is a valid state.
+				err := e.updatePeers(update.GetRemotePeers())
+				if err != nil {
+					return err
+				}
 			}
 
-			//todo update signal
-		}
-
-		err := e.updatePeers(update.GetRemotePeers())
+			return nil
+		})
 		if err != nil {
-			return err
+			return
 		}
-
-		return nil
-	})
-
-	log.Infof("connected to Management Service updates stream")
+		log.Infof("connected to Management Service updates stream")
+	}()
+	log.Debugf("connecting to Management Service updates stream")
 }
 
 func (e *Engine) updateSTUNs(stuns []*mgmProto.HostConfig) error {
@@ -333,10 +338,6 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
-	if len(remotePeers) == 0 {
-		return nil
-	}
-
 	log.Debugf("got peers update from Management Service, updating")
 	remotePeerMap := make(map[string]struct{})
 	for _, peer := range remotePeers {

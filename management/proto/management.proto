@@ -42,6 +42,8 @@ message SyncResponse {
   PeerConfig peerConfig = 2;
 
   repeated RemotePeerConfig remotePeers = 3;
+  // Indicates whether remotePeers array is empty or not to bypass protobuf null and empty array equality.
+  bool remotePeersIsEmpty = 4;
 }
 
 message LoginRequest {

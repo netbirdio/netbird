@@ -131,7 +131,7 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 	}
 
 	for _, p := range peers {
-		var peersToSend []*Peer
+		peersToSend := []*Peer{}
 		for _, remote := range peers {
 			if p.Key != remote.Key {
 				peersToSend = append(peersToSend, remote)
@@ -141,7 +141,8 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 		err = am.peersUpdateManager.SendUpdate(p.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
-					RemotePeers: update,
+					RemotePeers:        update,
+					RemotePeersIsEmpty: len(update) == 0,
 				}})
 		if err != nil {
 			return nil, err

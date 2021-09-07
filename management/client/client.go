@@ -65,53 +65,52 @@ func (c *Client) Close() error {
 }
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
-// Non blocking request (executed in go routine). The result will be sent via msgHandler callback function
-func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) {
+// Blocking request (executed in go routine). The result will be sent via msgHandler callback function
+func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 
-	go func() {
+	var backOff = &backoff.ExponentialBackOff{
+		InitialInterval:     800 * time.Millisecond,
+		RandomizationFactor: backoff.DefaultRandomizationFactor,
+		Multiplier:          backoff.DefaultMultiplier,
+		MaxInterval:         15 * time.Second,
+		MaxElapsedTime:      1 * time.Hour, //stop after 1h trying
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}
 
-		var backOff = &backoff.ExponentialBackOff{
-			InitialInterval:     800 * time.Millisecond,
-			RandomizationFactor: backoff.DefaultRandomizationFactor,
-			Multiplier:          backoff.DefaultMultiplier,
-			MaxInterval:         3 * time.Second,
-			MaxElapsedTime:      time.Duration(0), //never stop retrying
-			Stop:                backoff.Stop,
-			Clock:               backoff.SystemClock,
-		}
+	operation := func() error {
 
-		operation := func() error {
-
-			// todo we already have it since we did the Login, maybe cache it locally?
-			serverPubKey, err := c.GetServerPublicKey()
-			if err != nil {
-				log.Errorf("failed getting Management Service public key: %s", err)
-				return err
-			}
-
-			stream, err := c.connectToStream(*serverPubKey)
-			if err != nil {
-				log.Errorf("failed to open Management Service stream: %s", err)
-				return err
-			}
-
-			log.Infof("connected to the Management Service Stream")
-
-			// blocking until error
-			err = c.receiveEvents(stream, *serverPubKey, msgHandler)
-			if err != nil {
-				return err
-			}
-			backOff.Reset()
-			return nil
-		}
-
-		err := backoff.Retry(operation, backOff)
+		// todo we already have it since we did the Login, maybe cache it locally?
+		serverPubKey, err := c.GetServerPublicKey()
 		if err != nil {
-			log.Errorf("failed communicating with Management Service %s ", err)
-			return
+			log.Errorf("failed getting Management Service public key: %s", err)
+			return err
 		}
-	}()
+
+		stream, err := c.connectToStream(*serverPubKey)
+		if err != nil {
+			log.Errorf("failed to open Management Service stream: %s", err)
+			return err
+		}
+
+		log.Infof("connected to the Management Service Stream")
+
+		// blocking until error
+		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
+		if err != nil {
+			return err
+		}
+		backOff.Reset()
+		return nil
+	}
+
+	err := backoff.Retry(operation, backOff)
+	if err != nil {
+		log.Errorf("failed communicating with Management Service %s ", err)
+		return err
+	}
+
+	return nil
 }
 
 func (c *Client) connectToStream(serverPubKey wgtypes.Key) (proto.ManagementService_SyncClient, error) {
@@ -138,7 +137,7 @@ func (c *Client) receiveEvents(stream proto.ManagementService_SyncClient, server
 			return err
 		}
 		if err != nil {
-			log.Errorf("disconnected from Management Service syn stream: %v", err)
+			log.Errorf("disconnected from Management Service sync stream: %v", err)
 			return err
 		}
 
