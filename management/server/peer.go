@@ -174,6 +174,8 @@ func (am *AccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, e
 // GetPeersForAPeer returns a list of peers available for a given peer (key)
 // Effectively all the peers of the original peer's account except for the peer itself
 func (am *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
 	account, err := am.Store.GetPeerAccount(peerKey)
 	if err != nil {

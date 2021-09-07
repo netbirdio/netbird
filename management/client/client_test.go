@@ -167,6 +167,9 @@ func TestClient_Sync(t *testing.T) {
 		if len(resp.GetRemotePeers()) != 1 {
 			t.Errorf("expecting RemotePeers size %d got %d", 1, len(resp.GetRemotePeers()))
 		}
+		if resp.GetRemotePeersIsEmpty() == true {
+			t.Error("expecting RemotePeers property to be false, got true")
+		}
 		if resp.GetRemotePeers()[0].GetWgPubKey() != remoteKey.PublicKey().String() {
 			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), resp.GetRemotePeers()[0].GetWgPubKey())
 		}
