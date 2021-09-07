@@ -190,6 +190,22 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 
 	return account, nil
 }
+func (s *FileStore) GetAccountPeers(accountId string) ([]*Peer, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.GetAccount(accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	var peers []*Peer
+	for _, peer := range account.Peers {
+		peers = append(peers, peer)
+	}
+
+	return peers, nil
+}
 
 func (s *FileStore) GetAccount(accountId string) (*Account, error) {
 

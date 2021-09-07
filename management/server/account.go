@@ -13,7 +13,8 @@ import (
 type AccountManager struct {
 	Store Store
 	// mutex to synchronise account operations (e.g. generating Peer IP address inside the Network)
-	mux sync.Mutex
+	mux                sync.Mutex
+	peersUpdateManager *PeersUpdateManager
 }
 
 // Account represents a unique account of the system
@@ -25,19 +26,20 @@ type Account struct {
 }
 
 // NewManager creates a new AccountManager with a provided Store
-func NewManager(store Store) *AccountManager {
+func NewManager(store Store, peersUpdateManager *PeersUpdateManager) *AccountManager {
 	return &AccountManager{
-		Store: store,
-		mux:   sync.Mutex{},
+		Store:              store,
+		mux:                sync.Mutex{},
+		peersUpdateManager: peersUpdateManager,
 	}
 }
 
 //AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
-func (manager *AccountManager) AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn time.Duration) (*SetupKey, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn time.Duration) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	account, err := manager.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -45,7 +47,7 @@ func (manager *AccountManager) AddSetupKey(accountId string, keyName string, key
 	setupKey := GenerateSetupKey(keyName, keyType, expiresIn)
 	account.SetupKeys[setupKey.Key] = setupKey
 
-	err = manager.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding account key")
 	}
@@ -54,11 +56,11 @@ func (manager *AccountManager) AddSetupKey(accountId string, keyName string, key
 }
 
 //RevokeSetupKey marks SetupKey as revoked - becomes not valid anymore
-func (manager *AccountManager) RevokeSetupKey(accountId string, keyId string) (*SetupKey, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) RevokeSetupKey(accountId string, keyId string) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	account, err := manager.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -71,7 +73,7 @@ func (manager *AccountManager) RevokeSetupKey(accountId string, keyId string) (*
 	keyCopy := setupKey.Copy()
 	keyCopy.Revoked = true
 	account.SetupKeys[keyCopy.Key] = keyCopy
-	err = manager.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding account key")
 	}
@@ -80,11 +82,11 @@ func (manager *AccountManager) RevokeSetupKey(accountId string, keyId string) (*
 }
 
 //RenameSetupKey renames existing setup key of the specified account.
-func (manager *AccountManager) RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	account, err := manager.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -97,7 +99,7 @@ func (manager *AccountManager) RenameSetupKey(accountId string, keyId string, ne
 	keyCopy := setupKey.Copy()
 	keyCopy.Name = newName
 	account.SetupKeys[keyCopy.Key] = keyCopy
-	err = manager.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding account key")
 	}
@@ -106,11 +108,11 @@ func (manager *AccountManager) RenameSetupKey(accountId string, keyId string, ne
 }
 
 //GetAccount returns an existing account or error (NotFound) if doesn't exist
-func (manager *AccountManager) GetAccount(accountId string) (*Account, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	account, err := manager.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -119,21 +121,21 @@ func (manager *AccountManager) GetAccount(accountId string) (*Account, error) {
 }
 
 // GetOrCreateAccount returns an existing account or creates a new one if doesn't exist
-func (manager *AccountManager) GetOrCreateAccount(accountId string) (*Account, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) GetOrCreateAccount(accountId string) (*Account, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	_, err := manager.Store.GetAccount(accountId)
+	_, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			return manager.createAccount(accountId)
+			return am.createAccount(accountId)
 		} else {
 			// other error
 			return nil, err
 		}
 	}
 
-	account, err := manager.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed retrieving account")
 	}
@@ -142,12 +144,12 @@ func (manager *AccountManager) GetOrCreateAccount(accountId string) (*Account, e
 }
 
 //AccountExists checks whether account exists (returns true) or not (returns false)
-func (manager *AccountManager) AccountExists(accountId string) (*bool, error) {
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+func (am *AccountManager) AccountExists(accountId string) (*bool, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
 	var res bool
-	_, err := manager.Store.GetAccount(accountId)
+	_, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			res = false
@@ -162,19 +164,19 @@ func (manager *AccountManager) AccountExists(accountId string) (*bool, error) {
 }
 
 // AddAccount generates a new Account with a provided accountId and saves to the Store
-func (manager *AccountManager) AddAccount(accountId string) (*Account, error) {
+func (am *AccountManager) AddAccount(accountId string) (*Account, error) {
 
-	manager.mux.Lock()
-	defer manager.mux.Unlock()
+	am.mux.Lock()
+	defer am.mux.Unlock()
 
-	return manager.createAccount(accountId)
+	return am.createAccount(accountId)
 
 }
 
-func (manager *AccountManager) createAccount(accountId string) (*Account, error) {
+func (am *AccountManager) createAccount(accountId string) (*Account, error) {
 	account, _ := newAccountWithId(accountId)
 
-	err := manager.Store.SaveAccount(account)
+	err := am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed creating account")
 	}

@@ -302,11 +302,7 @@ func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	}
 }
 
-func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials) *proto.SyncResponse {
-
-	wtConfig := toWiretrusteeConfig(config, turnCredentials)
-
-	pConfig := toPeerConfig(peer)
+func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 
 	remotePeers := make([]*proto.RemotePeerConfig, 0, len(peers))
 	for _, rPeer := range peers {
@@ -315,6 +311,18 @@ func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *
 			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)}, //todo /32
 		})
 	}
+
+	return remotePeers
+
+}
+
+func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials) *proto.SyncResponse {
+
+	wtConfig := toWiretrusteeConfig(config, turnCredentials)
+
+	pConfig := toPeerConfig(peer)
+
+	remotePeers := toRemotePeerConfig(peers)
 
 	return &proto.SyncResponse{
 		WiretrusteeConfig: wtConfig,
