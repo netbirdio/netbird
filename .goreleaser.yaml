@@ -45,7 +45,6 @@ builds:
 archives:
   - builds:
       - wiretrustee
-    format: zip
 nfpms:
   - maintainer: Wiretrustee <wiretrustee@wiretrustee.com>
     description: Wiretrustee project.
