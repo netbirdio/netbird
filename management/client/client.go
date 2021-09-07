@@ -10,8 +10,10 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 	"io"
 	"time"
 )
@@ -73,7 +75,7 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
 		MaxInterval:         15 * time.Second,
-		MaxElapsedTime:      1 * time.Hour, //stop after 1h trying
+		MaxElapsedTime:      24 * time.Hour, //stop after 24h trying
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}
@@ -98,6 +100,10 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
+			if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.PermissionDenied {
+				// this error is not recoverable, unless
+				return backoff.Permanent(err)
+			}
 			return err
 		}
 		backOff.Reset()

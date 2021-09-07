@@ -5,7 +5,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/client/internal"
-	"github.com/wiretrustee/wiretrustee/iface"
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
@@ -38,8 +37,8 @@ var (
 				log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
 				return err
 			}
-
-			ctx := context.Background()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
 			mgmTlsEnabled := false
 			if config.ManagementURL.Scheme == "https" {
@@ -67,7 +66,7 @@ var (
 			}
 
 			// create start the Wiretrustee Engine that will connect to the Signal and Management streams and manage connections to remote peers.
-			engine := internal.NewEngine(signalClient, mgmClient, engineConfig)
+			engine := internal.NewEngine(signalClient, mgmClient, engineConfig, cancel)
 			err = engine.Start()
 			if err != nil {
 				log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
@@ -75,7 +74,12 @@ var (
 			}
 
 			SetupCloseHandler()
-			<-stopCh
+
+			select {
+			case <-stopCh:
+			case <-ctx.Done():
+			}
+
 			log.Infof("receive signal to stop running")
 			err = mgmClient.Close()
 			if err != nil {
@@ -88,10 +92,9 @@ var (
 				return err
 			}
 
-			log.Debugf("removing Wiretrustee interface %s", config.WgIface)
-			err = iface.Close()
+			err = engine.Stop()
 			if err != nil {
-				log.Errorf("failed closing Wiretrustee interface %s %v", config.WgIface, err)
+				log.Errorf("failed stopping engine %v", err)
 				return err
 			}
 

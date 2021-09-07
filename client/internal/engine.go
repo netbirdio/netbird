@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	ice "github.com/pion/ice/v2"
@@ -54,6 +55,8 @@ type Engine struct {
 	STUNs []*ice.URL
 	// TURNs is a list of STUN servers used by ICE
 	TURNs []*ice.URL
+
+	cancel context.CancelFunc
 }
 
 // Peer is an instance of the Connection Peer
@@ -63,7 +66,7 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig) *Engine {
+func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig, cancel context.CancelFunc) *Engine {
 	return &Engine{
 		signal:     signalClient,
 		mgmClient:  mgmClient,
@@ -73,7 +76,19 @@ func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *Engin
 		config:     config,
 		STUNs:      []*ice.URL{},
 		TURNs:      []*ice.URL{},
+		cancel:     cancel,
 	}
+}
+
+func (e *Engine) Stop() error {
+	log.Debugf("removing Wiretrustee interface %s", e.config.WgIface)
+	err := iface.Close()
+	if err != nil {
+		log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIface, err)
+		return err
+	}
+
+	return nil
 }
 
 // Start creates a new Wireguard tunnel interface and listens to events from Signal and Management services
@@ -292,6 +307,7 @@ func (e *Engine) receiveManagementEvents() {
 			return nil
 		})
 		if err != nil {
+			e.cancel()
 			return
 		}
 		log.Infof("connected to Management Service updates stream")
