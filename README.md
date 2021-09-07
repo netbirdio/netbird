@@ -150,6 +150,9 @@ netsh interface ip show config name="wt0"
 4. Repeat on other machines.  
 
 ### Running Management, Signal and Coturn
+Wiretrustee uses [Auth0](https://auth0.com) for user authentication and authorization, therefore you will need to create a free account 
+and configure AUTH0 variables in the compose file (dashboard and management).
+
 Under infrastructure_files we have a docker-compose example to run both, Wiretrustee Management and Signal services, plus an instance of [Coturn](https://github.com/coturn/coturn), it also provides a turnserver.conf file as a simple example of Coturn configuration. 
 You can edit the turnserver.conf file and change its Realm setting (defaults to wiretrustee.com) to your own domain and user setting (defaults to username1:password1) to **proper credentials**.
 
