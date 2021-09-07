@@ -10,10 +10,8 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/status"
 	"io"
 	"time"
 )
@@ -105,9 +103,9 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
-			if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.PermissionDenied {
+			/*if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.PermissionDenied {
 				//todo handle differently??
-			}
+			}*/
 			return err
 		}
 		backOff.Reset()
