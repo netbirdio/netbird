@@ -18,6 +18,7 @@ Flags:
 Global Flags:
       --config string      Wiretrustee config file location to write new config to (default "/etc/wiretrustee/config.json")
       --log-level string    (default "info")
+      --log-file string    sets Wiretrustee log path. If console is specified the the log will be output to stdout (default "/var/log/wiretrustee/management.log")
 ```
 ## Run Management service (Docker)
 

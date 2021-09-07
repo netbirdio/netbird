@@ -18,6 +18,7 @@ Flags:
 
 Global Flags:
       --log-level string    (default "info")
+      --log-file string    sets Wiretrustee log path. If console is specified the the log will be output to stdout (default "/var/log/wiretrustee/management.log")
 ```
 ## Running the Signal service (Docker)
 
