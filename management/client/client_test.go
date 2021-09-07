@@ -60,8 +60,8 @@ func startManagement(config *mgmt.Config, t *testing.T) (*grpc.Server, net.Liste
 		t.Fatal(err)
 	}
 
-	accountManager := mgmt.NewManager(store)
 	peersUpdateManager := mgmt.NewPeersUpdateManager()
+	accountManager := mgmt.NewManager(store, peersUpdateManager)
 	turnManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 	mgmtServer, err := mgmt.NewServer(config, accountManager, peersUpdateManager, turnManager)
 	if err != nil {
@@ -146,10 +146,15 @@ func TestClient_Sync(t *testing.T) {
 
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
-	tested.Sync(func(msg *mgmtProto.SyncResponse) error {
-		ch <- msg
-		return nil
-	})
+	go func() {
+		err = tested.Sync(func(msg *mgmtProto.SyncResponse) error {
+			ch <- msg
+			return nil
+		})
+		if err != nil {
+			return
+		}
+	}()
 
 	select {
 	case resp := <-ch:
@@ -161,6 +166,9 @@ func TestClient_Sync(t *testing.T) {
 		}
 		if len(resp.GetRemotePeers()) != 1 {
 			t.Errorf("expecting RemotePeers size %d got %d", 1, len(resp.GetRemotePeers()))
+		}
+		if resp.GetRemotePeersIsEmpty() == true {
+			t.Error("expecting RemotePeers property to be false, got true")
 		}
 		if resp.GetRemotePeers()[0].GetWgPubKey() != remoteKey.PublicKey().String() {
 			t.Errorf("expecting RemotePeer public key %s got %s", remoteKey.PublicKey().String(), resp.GetRemotePeers()[0].GetWgPubKey())

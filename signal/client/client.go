@@ -75,6 +75,19 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	}, nil
 }
 
+//defaultBackoff is a basic backoff mechanism for general issues
+func defaultBackoff() backoff.BackOff {
+	return &backoff.ExponentialBackOff{
+		InitialInterval:     800 * time.Millisecond,
+		RandomizationFactor: backoff.DefaultRandomizationFactor,
+		Multiplier:          backoff.DefaultMultiplier,
+		MaxInterval:         30 * time.Second,
+		MaxElapsedTime:      24 * 3 * time.Hour, //stop after 3 days trying
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}
+}
+
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.
 // The messages will be handled by msgHandler function provided.
 // This function runs a goroutine underneath and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
@@ -83,15 +96,7 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
 	c.connWg.Add(1)
 	go func() {
 
-		var backOff = &backoff.ExponentialBackOff{
-			InitialInterval:     backoff.DefaultInitialInterval,
-			RandomizationFactor: backoff.DefaultRandomizationFactor,
-			Multiplier:          backoff.DefaultMultiplier,
-			MaxInterval:         3 * time.Second,
-			MaxElapsedTime:      time.Duration(0), //never stop
-			Stop:                backoff.Stop,
-			Clock:               backoff.SystemClock,
-		}
+		var backOff = defaultBackoff()
 
 		operation := func() error {
 			err := c.connect(c.key.PublicKey().String(), msgHandler)
