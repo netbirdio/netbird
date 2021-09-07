@@ -122,7 +122,16 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 	if err != nil {
 		return nil, err
 	}
-	am.peersUpdateManager.CloseChannel(peerKey)
+
+	err = am.peersUpdateManager.SendUpdate(peerKey,
+		&UpdateMessage{
+			Update: &proto.SyncResponse{
+				RemotePeers:        []*proto.RemotePeerConfig{},
+				RemotePeersIsEmpty: true,
+			}})
+	if err != nil {
+		return nil, err
+	}
 
 	//notify other peers of the change
 	peers, err := am.Store.GetAccountPeers(accountId)
@@ -149,6 +158,7 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 		}
 	}
 
+	am.peersUpdateManager.CloseChannel(peerKey)
 	return peer, nil
 }
 

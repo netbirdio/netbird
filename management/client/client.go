@@ -10,8 +10,10 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 	"io"
 	"time"
 )
@@ -64,11 +66,9 @@ func (c *Client) Close() error {
 	return c.conn.Close()
 }
 
-// Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
-// Blocking request (executed in go routine). The result will be sent via msgHandler callback function
-func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
-
-	var backOff = &backoff.ExponentialBackOff{
+//defaultBackoff is a basic backoff mechanism for general issues
+func defaultBackoff() backoff.BackOff {
+	return &backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
@@ -77,6 +77,13 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}
+}
+
+// Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
+// Blocking request. The result will be sent via msgHandler callback function
+func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
+
+	var backOff = defaultBackoff()
 
 	operation := func() error {
 
@@ -98,6 +105,9 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
+			if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.PermissionDenied {
+				//todo handle differently??
+			}
 			return err
 		}
 		backOff.Reset()
@@ -106,7 +116,7 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 
 	err := backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Errorf("failed communicating with Management Service %s ", err)
+		log.Errorf("exiting Management Service connection retry loop due to unrecoverable error %s ", err)
 		return err
 	}
 
