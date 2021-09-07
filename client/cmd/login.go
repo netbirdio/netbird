@@ -10,6 +10,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/client/internal"
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
+	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -23,7 +24,11 @@ var (
 		Use:   "login",
 		Short: "login to the Wiretrustee Management Service (first run)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			InitLog(logLevel, logFile)
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+				return err
+			}
 
 			config, err := internal.GetConfig(managementURL, configPath)
 			if err != nil {

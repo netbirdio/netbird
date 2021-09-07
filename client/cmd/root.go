@@ -2,17 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/client/internal"
-	"gopkg.in/natefinch/lumberjack.v2"
-	"io"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
-	"time"
-
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
 )
 
 const (
@@ -57,7 +51,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&managementURL, "management-url", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.ManagementURLDefault().String()))
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "sets Wiretrustee log level")
-	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Wiretrustee log path")
+	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Wiretrustee log path. If console is specified the the log will be output to stdout")
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(loginCmd)
@@ -75,32 +69,4 @@ func SetupCloseHandler() {
 			stopCh <- 0
 		}
 	}()
-}
-
-// InitLog parses and sets log-level input
-func InitLog(logLevel string, logPath string) {
-	level, err := log.ParseLevel(logLevel)
-	if err != nil {
-		log.Errorf("Failed parsing log-level %s: %s", logLevel, err)
-		os.Exit(ExitSetupFailed)
-	}
-
-	if logPath != "" {
-		lumberjackLogger := &lumberjack.Logger{
-			// Log file absolute path, os agnostic
-			Filename:   filepath.ToSlash(logPath),
-			MaxSize:    5, // MB
-			MaxBackups: 10,
-			MaxAge:     30, // days
-			Compress:   true,
-		}
-		log.SetOutput(io.Writer(lumberjackLogger))
-	}
-
-	logFormatter := new(log.TextFormatter)
-	logFormatter.TimestampFormat = time.RFC3339 // or RFC3339
-	logFormatter.FullTimestamp = true
-
-	log.SetFormatter(logFormatter)
-	log.SetLevel(level)
 }
