@@ -146,13 +146,15 @@ func TestClient_Sync(t *testing.T) {
 
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
-	err = tested.Sync(func(msg *mgmtProto.SyncResponse) error {
-		ch <- msg
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	go func() {
+		err = tested.Sync(func(msg *mgmtProto.SyncResponse) error {
+			ch <- msg
+			return nil
+		})
+		if err != nil {
+			return
+		}
+	}()
 
 	select {
 	case resp := <-ch:
