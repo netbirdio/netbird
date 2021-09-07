@@ -190,17 +190,19 @@ func newAccountWithId(accountId string) (*Account, *SetupKey) {
 	log.Debugf("creating new account")
 
 	setupKeys := make(map[string]*SetupKey)
-	setupKey := GenerateDefaultSetupKey()
-	setupKeys[setupKey.Key] = setupKey
+	defaultKey := GenerateDefaultSetupKey()
+	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration)
+	setupKeys[defaultKey.Key] = defaultKey
+	setupKeys[oneOffKey.Key] = oneOffKey
 	network := &Network{
 		Id:  uuid.New().String(),
 		Net: net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
 		Dns: ""}
 	peers := make(map[string]*Peer)
 
-	log.Debugf("created new account %s with setup key %s", accountId, setupKey.Key)
+	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
-	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers}, setupKey
+	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers}, defaultKey
 }
 
 // newAccount creates a new Account with a default SetupKey (doesn't store in a Store)
