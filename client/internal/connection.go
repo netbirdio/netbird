@@ -189,14 +189,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		// in case the remote peer is in the local network or one of the peers has public static IP -> no need for a Wireguard proxy, direct communication is possible.
 		if !useProxy(pair) {
 			log.Debugf("it is possible to establish a direct connection (without proxy) to peer %s - my addr: %s, remote addr: %s", conn.Config.RemoteWgKey.String(), pair.Local, pair.Remote)
-			var endpoint string
-			if isPublicIP(net.ParseIP(pair.Local.Address())) {
-				//skip endpoint because we are public - it will be discovered by Wireguard automatically
-				endpoint = ""
-			} else {
-				endpoint = fmt.Sprintf("%s:%d", pair.Remote.Address(), iface.WgPort)
-			}
-			err = conn.wgProxy.StartLocal(endpoint)
+			err = conn.wgProxy.StartLocal(fmt.Sprintf("%s:%d", pair.Remote.Address(), iface.WgPort))
 			if err != nil {
 				return err
 			}
@@ -254,22 +247,20 @@ func useProxy(pair *ice.CandidatePair) bool {
 	myIp := net.ParseIP(pair.Local.Address())
 	remoteIsPublic := isPublicIP(remoteIP)
 	myIsPublic := isPublicIP(myIp)
-	if pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost {
-		if remoteIsPublic || myIsPublic {
-			//one of the hosts has a public IP
-			return false
-		}
 
+	//one of the hosts has a public IP
+	if remoteIsPublic && pair.Remote.Type() == ice.CandidateTypeHost {
+		return false
+	}
+	if myIsPublic && pair.Local.Type() == ice.CandidateTypeHost {
+		return false
+	}
+
+	if pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost {
 		if !remoteIsPublic && !myIsPublic {
 			//both hosts are in the same private network
 			return false
 		}
-	}
-
-	if (pair.Local.Type() == ice.CandidateTypeHost && myIsPublic) && pair.Remote.Type() == ice.CandidateTypePeerReflexive {
-		// same as the case when either host is public but adds additional case when remote is peer reflexive
-		// remote is peer reflexive and we are public -> no proxy needed
-		return false
 	}
 
 	return true
