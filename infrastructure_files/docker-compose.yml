@@ -20,8 +20,8 @@ services:
     image: wiretrustee/signal:latest
     restart: unless-stopped
     volumes:
-      - wiretrustee-mgmt:/var/lib/wiretrustee
-      - /varl/log/wiretrustee/signal.log:/var/log/wiretrustee/signal.log
+      - wiretrustee-signal:/var/lib/wiretrustee
+#      - /var/log/wiretrustee/signal.log:/var/log/wiretrustee/signal.log
     ports:
       - 10000:10000
 #     # port and command for Let's Encrypt validation
