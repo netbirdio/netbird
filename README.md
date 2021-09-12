@@ -4,9 +4,9 @@ A WireGuard®-based mesh network that connects your devices into a single privat
 
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/wiretrustee/wiretrustee/releases).
 
-**Hosted demo version:** [https://beta.wiretrustee.com/](https://beta.wiretrustee.com/peers)
+Hosted demo version: [https://beta.wiretrustee.com/](https://beta.wiretrustee.com/peers). The number of peers is limited to 15.
 
-Please don't use the hosted demonstration version for production purposes. 
+Please don't use the hosted demonstration version for production purposes. We appreciate your usage of the demonstration version and will love to hear your feedback, please reach out via Issue or Slack.
 
 [UI Dashboard Repo](https://github.com/wiretrustee/wiretrustee-dashboard)
 
