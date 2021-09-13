@@ -155,7 +155,11 @@ netsh interface ip show config name="wt0"
 ### Running Dashboard, Management, Signal and Coturn
 Wiretrustee uses [Auth0](https://auth0.com) for user authentication and authorization, therefore you will need to create a free account 
 and configure Auth0 variables in the compose file (dashboard) and in the management config file.
-- check [How to run](https://github.com/wiretrustee/wiretrustee-dashboard#how-to-run) for obtaining Auth0 environment variables for UI Dashboard
+We chose Auth0 to "outsource" the user management part of our platform because we believe that implementing a proper user auth is not a trivial task and requires significant amount of time to make it right. We focused on connectivity instead.
+It is worth mentioning that dependency to Auth0 is the only one that cannot be self-hosted.
+
+Configuring Wiretrustee Auth0 integration:
+- check [How to run](https://github.com/wiretrustee/wiretrustee-dashboard#how-to-run) to obtain Auth0 environment variables for UI Dashboard
 - set these variables in the [environment section of the docker-compose file](https://github.com/wiretrustee/wiretrustee/blob/main/infrastructure_files/docker-compose.yml)
 - check [Auth0 Golang API Guide](https://auth0.com/docs/quickstart/backend/golang) to obtain ```AuthIssuer```, ```AuthAudience```, and ```AuthKeysLocation```
 - set these properties in the [management config files](https://github.com/wiretrustee/wiretrustee/blob/main/infrastructure_files/management.json#L33)
