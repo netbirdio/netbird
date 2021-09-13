@@ -152,14 +152,16 @@ netsh interface ip show config name="wt0"
 
 4. Repeat on other machines.  
 
-### Running Management, Signal and Coturn
+### Running Dashboard, Management, Signal and Coturn
 Wiretrustee uses [Auth0](https://auth0.com) for user authentication and authorization, therefore you will need to create a free account 
-and configure AUTH0 variables in the compose file (dashboard and management).
-Check this guide out up until "Configure allowed origins" [Auth0 React example](https://auth0.com/docs/quickstart/spa/react/01-login).
-You will need these properties for UI Dashboard and management config.
+and configure Auth0 variables in the compose file (dashboard) and in the management config file.
+- check [How to run](https://github.com/wiretrustee/wiretrustee-dashboard#how-to-run) for obtaining Auth0 environment variables for UI Dashboard
+- set these variables in the [environment section of the docker-compose file](https://github.com/wiretrustee/wiretrustee/blob/main/infrastructure_files/docker-compose.yml)
+- check [Auth0 Golang API Guide](https://auth0.com/docs/quickstart/backend/golang) to obtain ```AuthIssuer```, ```AuthAudience```, and ```AuthKeysLocation```
+- set these properties in the [management config files](https://github.com/wiretrustee/wiretrustee/blob/main/infrastructure_files/management.json#L33)
 
 
-Under infrastructure_files we have a docker-compose example to run both, Wiretrustee Management and Signal services, plus an instance of [Coturn](https://github.com/coturn/coturn), it also provides a turnserver.conf file as a simple example of Coturn configuration. 
+Under infrastructure_files we have a docker-compose example to run Dashboard, Wiretrustee Management and Signal services, plus an instance of [Coturn](https://github.com/coturn/coturn), it also provides a turnserver.conf file as a simple example of Coturn configuration. 
 You can edit the turnserver.conf file and change its Realm setting (defaults to wiretrustee.com) to your own domain and user setting (defaults to username1:password1) to **proper credentials**.
 
 The example is set to use the official images from Wiretrustee and Coturn, you can find our documentation to run the signal server in docker in [Running the Signal service](#running-the-signal-service), the management in [Management](./management/README.md), and the Coturn official documentation [here](https://hub.docker.com/r/coturn/coturn).
