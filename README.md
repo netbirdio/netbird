@@ -9,7 +9,7 @@ Hosted demo version:
 
 The number of peers is limited to 15.
 
-Please don't use the hosted demonstration version for production purposes. We appreciate your usage of the demonstration version and will love to hear your feedback, please reach out via Issue or [Slack](https://join.slack.com/t/wiretrustee/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A).
+Please don't use the hosted demonstration version for production purposes. We appreciate your usage of the demonstration version and will love to hear your feedback, please reach out via Issue or [Slack](https://wiretrustee.slack.com/).
 
 [UI Dashboard Repo](https://github.com/wiretrustee/wiretrustee-dashboard)
 
