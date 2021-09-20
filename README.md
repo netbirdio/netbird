@@ -45,6 +45,10 @@ Please don't use the hosted demonstration version for production purposes. We ap
 - [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/2)
 - [Public Roadmap Progress Tracking](https://github.com/wiretrustee/wiretrustee/projects/1)
 
+### Getting started
+
+See [GETTING-STARTED.md](GETTING-STARTED.md) for managed and self-hosting guides. 
+
 ### Client Installation
 #### Linux
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases)   
