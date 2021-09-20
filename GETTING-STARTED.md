@@ -51,6 +51,7 @@ Both machines are running Linux (Raspbian and Ubuntu respectively), but you coul
     ```ping 100.64.0.1```
 7. Done! You now have a secure peer-to-peer VPN configured.
 
-###Self-hosting
+
+### Self-hosting
 
 TODO
