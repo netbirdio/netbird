@@ -29,18 +29,18 @@ Both machines are running Linux (Raspbian and Ubuntu respectively), but you coul
    
     Click ```Add peer``` to add a new machine.
     
-    <img src="./media/empty-peers.png" alt="empty-peers" width="350"/>
+    <img src="./media/empty-peers.png" alt="empty-peers" width="600"/>
     
 3.  Choose a setup key which will be used to associate your new machine with your account (in our case it is ```Default key```).
 
     Choose your machine operating system (in our case it is ```Linux```) and proceed with the installation steps on the machine.
 
-    <img src="./media/add-peer.png" alt="add-peer" width="350"/>    
+    <img src="./media/add-peer.png" alt="add-peer" width="600"/>    
 
 4. Repeat #3 for the 2nd machine.
 5. Return to ```Peers``` and you should notice 2 new machines with status ```Connected```
    
-    <img src="./media/peers.png" alt="peers" width="350"/>
+    <img src="./media/peers.png" alt="peers" width="600"/>
 
 6. To test the connection you could try pinging devices:
    
