@@ -1,13 +1,13 @@
 ## Getting started with Wiretrustee
 
 There are 2 ways of getting started with Wiretrustee:
-- use managed version at [https://beta.wiretrustee.com/](https://beta.wiretrustee.com/peers)
+- use managed version
 - self-hosting
 
 We recommend starting with the managed version hosted at [https://beta.wiretrustee.com/](https://beta.wiretrustee.com/peers) - the quickest way to get familiar with the system.
 It will take less than 5 minutes to set up secure peer-to-peer VPN.
 
-If you don't want to use managed version, proceed to Self-hosting section below.
+If you don't want to use the managed version, proceed to [Self-hosting section](#self-hosting) .
 
 ### Managed version
 Step-by-step video guide on YouTube:
