@@ -10,11 +10,11 @@ It literally takes less than 5 minutes to provision a secure peer-to-peer VPN wi
 ### High-level overview
 In a nutshell Wiretrustee is an open source platform consisting of systems collection responsible for handling peer-to-peer connections, tunneling and network management (IP, keys, ACLs, etc).
 
-<div style="text-align:center">
+<p align="center">
     <img src="media/high-level-dia.png" alt="high-level-dia" width="781"/>
-</div>
+</p>
 
-Wiretrustee uses open-source technologies like [WireGuard®](https://www.wireguard.com/), [Pion ICE (WebRTC)](https://github.com/pion/ice) and [Coturn](https://github.com/coturn/coturn)
+Wiretrustee uses open-source technologies like [WireGuard®](https://www.wireguard.com/), [Pion ICE (WebRTC)](https://github.com/pion/ice), [Coturn](https://github.com/coturn/coturn),
 and [software](https://github.com/wiretrustee/wiretrustee) developed by Wiretrustee authors to make it all work together.
 
 To learn more about Wiretrustee architecture please refer to the [architecture section](../docs/architecture.md).
