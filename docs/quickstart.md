@@ -1,15 +1,4 @@
-## Getting started with Wiretrustee
-
-There are 2 ways of getting started with Wiretrustee:
-- use managed version
-- self-hosting
-
-We recommend starting with the managed version hosted at [https://beta.wiretrustee.com/](https://beta.wiretrustee.com/peers) - the quickest way to get familiar with the system.
-It will take less than 5 minutes to set up secure peer-to-peer VPN.
-
-If you don't want to use the managed version, proceed to [Self-hosting section](#self-hosting).
-
-### Managed version
+### Quickstart guide (Cloud Managed version)
 Step-by-step video guide on YouTube:
 
 [![IMAGE ALT TEXT](https://img.youtube.com/vi/j0EPaK5Rapw/0.jpg)](https://youtu.be/j0EPaK5Rapw "Wiretrustee - secure private network in less than 5 minutes")
@@ -50,8 +39,3 @@ Both machines are running Linux (Raspbian and Ubuntu respectively), but you coul
     On Peer B:
     ```ping 100.64.0.1```
 7. Done! You now have a secure peer-to-peer VPN configured.
-
-
-### Self-hosting
-
-TODO
