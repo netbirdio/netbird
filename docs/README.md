@@ -7,19 +7,22 @@ You can also use Wiretrustee for your personal projects and create home VPN.
 
 It literally takes less than 5 minutes to provision a secure peer-to-peer VPN with Wiretrustee. 
 
-In a nutshell Wiretrustee is an open source platform consisting of 3 core systems to handle peer-to-peer connections, tunneling and network management (IP, keys, ACLs, etc).
+### High-level overview
+In a nutshell Wiretrustee is an open source platform consisting of systems collection responsible for handling peer-to-peer connections, tunneling and network management (IP, keys, ACLs, etc).
 
-Wiretrustee uses open-source technologies like [WireGuard®](https://www.wireguard.com/), [Pion ICE (WebRTC)](https://github.com/pion/ice) and [Coturn](https://github.com/coturn/coturn) 
+<div style="text-align:center">
+    <img src="media/high-level-dia.png" alt="high-level-dia" width="781"/>
+</div>
+
+Wiretrustee uses open-source technologies like [WireGuard®](https://www.wireguard.com/), [Pion ICE (WebRTC)](https://github.com/pion/ice) and [Coturn](https://github.com/coturn/coturn)
 and [software](https://github.com/wiretrustee/wiretrustee) developed by Wiretrustee authors to make it all work together.
-
-<img src="media/high-level-dia.png" alt="high-level-dia" width="781"/>
 
 To learn more about Wiretrustee architecture please refer to the [architecture section](../docs/architecture.md).
 
-## Getting Started
+### Getting Started
 
 There are 2 ways of getting started with Wiretrustee:
-- use managed version
+- use Cloud Managed version
 - self-hosting
 
 We recommend starting with the cloud managed version hosted at [beta.wiretrustee.com](https://beta.wiretrustee.com) - the quickest way to get familiar with the system.
