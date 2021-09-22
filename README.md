@@ -29,7 +29,7 @@ Please don't use the hosted demonstration version for production purposes. We ap
 * Open-source (including Management Service)
 
 ### Secure peer-to-peer VPN in minutes
-![animation](media/peers.gif)
+![animation](docs/media/peers.gif)
 
 ### A bit on Wiretrustee internals
 * Wiretrustee features a Management Service that offers peer IP management and network updates distribution (e.g. when new peer joins the network).
@@ -44,6 +44,10 @@ Please don't use the hosted demonstration version for production purposes. We ap
 ### Product Roadmap
 - [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/2)
 - [Public Roadmap Progress Tracking](https://github.com/wiretrustee/wiretrustee/projects/1)
+
+### Getting started
+
+See [Docs](docs/intro.md) for managed and self-hosting guides. 
 
 ### Client Installation
 #### Linux
