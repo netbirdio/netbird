@@ -47,7 +47,7 @@ Please don't use the hosted demonstration version for production purposes. We ap
 
 ### Getting started
 
-See [Docs](docs/intro.md) for managed and self-hosting guides. 
+See [Docs](docs/README.md) for managed and self-hosting guides. 
 
 ### Client Installation
 #### Linux
