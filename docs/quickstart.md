@@ -1,7 +1,7 @@
 ## Quickstart guide (Cloud Managed version)
 Step-by-step video guide on YouTube:
 
-[![IMAGE ALT TEXT](https://img.youtube.com/vi/j0EPaK5Rapw/0.jpg)](https://youtu.be/j0EPaK5Rapw "Wiretrustee - secure private network in less than 5 minutes")
+[![IMAGE ALT TEXT](https://img.youtube.com/vi/cWTsGUJAUaU/3.jpg)](https://youtu.be/cWTsGUJAUaU "Wiretrustee - secure private network in less than 5 minutes")
 
 This guide describes how to create secure VPN and connect 2 machines peer-to-peer.
 
