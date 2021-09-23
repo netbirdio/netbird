@@ -28,10 +28,10 @@
     },
     "Datadir": "",
     "HttpConfig": {
-        "LetsEncryptDomain": "<PASTE YOUR LET'S ENCRYPT DOMAIN HERE>",
+        "LetsEncryptDomain": "",
         "Address": "0.0.0.0:33071",
-        "AuthIssuer": "<PASTE YOUR AUTH0 ISSUER HERE>,",
-        "AuthAudience": "<PASTE YOUR AUTH0 AUDIENCE HERE>",
-        "AuthKeysLocation": "<PASTE YOUR AUTH0 PUBLIC JWT KEYS LOCATION HERE>"
+        "AuthIssuer": "<YOUR AUTH0 ISSUER>",
+        "AuthAudience": "<YOUR AUTH0 AUDIENCE>",
+        "AuthKeysLocation": "<YOUR AUTH0 PUBLIC JWT KEYS>"
     }
 }
