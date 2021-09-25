@@ -14,7 +14,8 @@ Flags:
   -h, --help                        help for management
       --letsencrypt-domain string   a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS
       --port int                    server port to listen on (default 33073)
-
+      --cert-file string            Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect
+      --cert-key string             Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect
 Global Flags:
       --config string      Wiretrustee config file location to write new config to (default "/etc/wiretrustee/config.json")
       --log-level string    (default "info")

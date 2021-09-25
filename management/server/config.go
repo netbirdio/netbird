@@ -36,7 +36,11 @@ type TURNConfig struct {
 // HttpServerConfig is a config of the HTTP Management service server
 type HttpServerConfig struct {
 	LetsEncryptDomain string
-	Address           string
+	//CertFile is the location of the certificate
+	CertFile string
+	//CertKey is the location of the certificate private key
+	CertKey string
+	Address string
 	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
 	AuthAudience string
 	// AuthIssuer identifies principal that issued the JWT.
