@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"crypto/tls"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
@@ -17,10 +18,11 @@ type Server struct {
 	server         *http.Server
 	config         *s.HttpServerConfig
 	certManager    *autocert.Manager
+	tlsConfig      *tls.Config
 	accountManager *s.AccountManager
 }
 
-// NewHttpsServer creates a new HTTPs server (with HTTPS support)
+// NewHttpsServer creates a new HTTPs server (with HTTPS support) and a certManager that is responsible for generating and renewing Let's Encrypt certificate
 // The listening address will be :443 no matter what was specified in s.HttpServerConfig.Address
 func NewHttpsServer(config *s.HttpServerConfig, certManager *autocert.Manager, accountManager *s.AccountManager) *Server {
 	server := &http.Server{
@@ -30,6 +32,18 @@ func NewHttpsServer(config *s.HttpServerConfig, certManager *autocert.Manager, a
 		IdleTimeout:  time.Second * 60,
 	}
 	return &Server{server: server, config: config, certManager: certManager, accountManager: accountManager}
+}
+
+// NewHttpsServerWithTLSConfig creates a new HTTPs server with a provided tls.Config.
+// Usually used when you already have a certificate
+func NewHttpsServerWithTLSConfig(config *s.HttpServerConfig, tlsConfig *tls.Config, accountManager *s.AccountManager) *Server {
+	server := &http.Server{
+		Addr:         config.Address,
+		WriteTimeout: time.Second * 15,
+		ReadTimeout:  time.Second * 15,
+		IdleTimeout:  time.Second * 60,
+	}
+	return &Server{server: server, config: config, tlsConfig: tlsConfig, accountManager: accountManager}
 }
 
 // NewHttpServer creates a new HTTP server (without HTTPS)
@@ -71,13 +85,26 @@ func (s *Server) Start() error {
 	if s.certManager != nil {
 		// if HTTPS is enabled we reuse the listener from the cert manager
 		listener := s.certManager.Listener()
-		log.Infof("http server listening on %s", listener.Addr())
+		log.Infof("HTTPs server listening on %s with Let's Encrypt autocert configured", listener.Addr())
 		if err = http.Serve(listener, s.certManager.HTTPHandler(r)); err != nil {
 			log.Errorf("failed to serve https server: %v", err)
 			return err
 		}
+	} else if s.tlsConfig != nil {
+		listener, err := tls.Listen("tcp", s.config.Address, s.tlsConfig)
+		if err != nil {
+			log.Errorf("failed to serve https server: %v", err)
+			return err
+		}
+		log.Infof("HTTPs server listening on %s", listener.Addr())
+
+		if err = http.Serve(listener, r); err != nil {
+			log.Errorf("failed to serve https server: %v", err)
+			return err
+		}
+
 	} else {
-		log.Infof("http server listening on %s", s.server.Addr)
+		log.Infof("HTTP server listening on %s", s.server.Addr)
 		if err = s.server.ListenAndServe(); err != nil {
 			log.Errorf("failed to serve http server: %v", err)
 			return err
