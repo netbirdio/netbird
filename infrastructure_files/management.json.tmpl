@@ -1,0 +1,39 @@
+{
+    "Stuns": [
+        {
+            "Proto": "udp",
+            "URI": "stun:$WIRETRUSTEE_DOMAIN:3468",
+            "Username": "",
+            "Password": null
+        }
+    ],
+    "TURNConfig": {
+        "Turns": [
+            {
+                "Proto": "udp",
+                "URI": "turn:$WIRETRUSTEE_DOMAIN:3468",
+                "Username": "",
+                "Password": null
+            }
+        ],
+        "CredentialsTTL": "12h",
+        "Secret": "secret",
+        "TimeBasedCredentials": false
+    },
+    "Signal": {
+        "Proto": "http",
+        "URI": "$WIRETRUSTEE_DOMAIN:10000",
+        "Username": "",
+        "Password": null
+    },
+    "Datadir": "",
+    "HttpConfig": {
+        "LetsEncryptDomain": "",
+        "CertFile":"/etc/letsencrypt/live/$WIRETRUSTEE_DOMAIN/fullchain.pem",
+        "CertKey":"/etc/letsencrypt/live/$WIRETRUSTEE_DOMAIN/privkey.pem",
+        "Address": "0.0.0.0:33071",
+        "AuthIssuer": "https://$WIRETRUSTEE_AUTH0_DOMAIN/",
+        "AuthAudience": "$WIRETRUSTEE_AUTH0_AUDIENCE",
+        "AuthKeysLocation": "https://$WIRETRUSTEE_AUTH0_DOMAIN/.well-known/jwks.json"
+    }
+}
