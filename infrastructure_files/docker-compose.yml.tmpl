@@ -1,0 +1,62 @@
+version: "3"
+services:
+  #UI dashboard
+  dashboard:
+    image: wiretrustee/dashboard:main
+    restart: unless-stopped
+    ports:
+      - 80:80
+      - 443:443
+    environment:
+      - AUTH0_DOMAIN=$WIRETRUSTEE_AUTH0_DOMAIN
+      - AUTH0_CLIENT_ID=$WIRETRUSTEE_AUTH0_CLIENT_ID
+      - AUTH0_AUDIENCE=$WIRETRUSTEE_AUTH0_AUDIENCE
+      - WIRETRUSTEE_MGMT_API_ENDPOINT=https://$WIRETRUSTEE_DOMAIN:33071
+      - NGINX_SSL_PORT=443
+      - LETSENCRYPT_DOMAIN=$WIRETRUSTEE_DOMAIN
+      - LETSENCRYPT_EMAIL=$WIRETRUSTEE_LETSENCRYPT_EMAIL
+    volumes:
+      - /var/lib/wiretrustee/dashboard/letsencrypt:/etc/letsencrypt/
+  # Signal
+  signal:
+    image: wiretrustee/signal:latest
+    restart: unless-stopped
+    volumes:
+      - wiretrustee-signal:/var/lib/wiretrustee
+    #      - /var/log/wiretrustee/signal.log:/var/log/wiretrustee/signal.log
+    ports:
+      - 10000:10000
+  #     # port and command for Let's Encrypt validation
+  #      - 443:443
+  #    command: ["--letsencrypt-domain", "$WIRETRUSTEE_DOMAIN", "--log-file", "console"]
+  # Management
+  management:
+    #  image: wiretrustee/management:latest
+    image: wiretrustee/management:v0.1.0-beta.2-SNAPSHOT-39d450b-amd64
+    restart: unless-stopped
+    depends_on:
+      - dashboard
+    volumes:
+      - wiretrustee-mgmt:/var/lib/wiretrustee
+      - /var/lib/wiretrustee/dashboard/letsencrypt:/etc/letsencrypt:ro
+      - ./management.json:/etc/wiretrustee/management.json
+    #      - /var/log/wiretrustee/management.log:/var/log/wiretrustee/management.log
+    ports:
+      - 33073:33073 #gRPC port
+      - 33071:33071 #HTTP port
+  #     # port and command for Let's Encrypt validation
+  #      - 443:443
+  #    command: ["--letsencrypt-domain", "$WIRETRUSTEE_DOMAIN", "--log-file", "console"]
+  # Coturn
+  coturn:
+    image: coturn/coturn
+    restart: unless-stopped
+    domainname: <YOUR DOMAIN>
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+    #      - ./privkey.pem:/etc/coturn/private/privkey.pem:ro
+    #      - ./cert.pem:/etc/coturn/certs/cert.pem:ro
+    network_mode: host
+volumes:
+  wiretrustee-mgmt:
+  wiretrustee-signal:
