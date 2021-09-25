@@ -36,9 +36,9 @@ For this tutorial we will be using domain ```test.wiretrustee.com``` which point
    ```
 3. Prepare configuration files.
    
-   To simplify the setup we have prepared a script to substitute required properties in the [docker-compose.yml.tmpl](https://github.com/wiretrustee/wiretrustee/blob/main/infrastructure_files/docker-compose.yml.tmpl) and [management.json.tmpl](https://github.com/wiretrustee/wiretrustee/blob/main/infrastructure_files/management.json.tmpl) files.
+   To simplify the setup we have prepared a script to substitute required properties in the [docker-compose.yml.tmpl](../infrastructure_files/docker-compose.yml.tmpl) and [management.json.tmpl](../infrastructure_files/management.json.tmpl) files.
    
-   The [setup.env](https://github.com/wiretrustee/wiretrustee/blob/main/infrastructure_files/setup.env) file contains the following properties that have to be filled:
+   The [setup.env](../infrastructure_files/setup.env) file contains the following properties that have to be filled:
    
    ```bash
    # e.g. app.mydomain.com
