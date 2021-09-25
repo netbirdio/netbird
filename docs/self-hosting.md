@@ -10,12 +10,13 @@ We focused on connectivity instead.
 
 If you would like to learn more about the architecture please refer to the [Wiretrustee Architecture section](architecture.md).
 
-### Requirement
+### Requirements
 
 - Virtual machine offered by any cloud provider (e.g., AWS, DigitalOcean, Hetzner, Google Cloud, Azure ...). 
-- Ubuntu 20.04 or later.
+- Any Linux OS.
 - Docker Compose installed (see [Install Docker Compose](https://docs.docker.com/compose/install/)).
 - Domain name pointing to the public IP address of your server.
+- Open ports ```443, 33071, 33073, 3468``` (Dashboard, Management HTTP API, Management gRpc API, Coturn STUN/TURN respectively)   on your server.
 - Maybe a cup of coffee or tea :)
 
 ### Step-by-step guide
@@ -55,21 +56,21 @@ For this tutorial we will be using domain ```test.wiretrustee.com``` which point
    
    Please follow the steps to get the values.
 
-2. Configure ```WIRETRUSTEE_AUTH0_DOMAIN``` ```WIRETRUSTEE_AUTH0_CLIENT_ID``` ```WIRETRUSTEE_AUTH0_AUDIENCE``` properties.          
+4. Configure ```WIRETRUSTEE_AUTH0_DOMAIN``` ```WIRETRUSTEE_AUTH0_CLIENT_ID``` ```WIRETRUSTEE_AUTH0_AUDIENCE``` properties.          
    
    * To obtain these, please use [Auth0 React SDK Guide](https://auth0.com/docs/quickstart/spa/react/01-login#configure-auth0) up until "Install the Auth0 React SDK".
    
       :grey_exclamation: Use ```https://YOUR DOMAIN``` as ````Allowed Callback URLs````, ```Allowed Logout URLs```, ```Allowed Web Origins``` and ```Allowed Origins (CORS)```
    * set the variables in the ```setup.env```
-3. Configure ```WIRETRUSTEE_AUTH0_AUDIENCE``` property. 
+5. Configure ```WIRETRUSTEE_AUTH0_AUDIENCE``` property. 
    
    * Check [Auth0 Golang API Guide](https://auth0.com/docs/quickstart/backend/golang) to obtain AuthAudience.
    * set the property in the ```setup.env``` file.
-4. Configure ```WIRETRUSTEE_LETSENCRYPT_EMAIL``` property.
+6. Configure ```WIRETRUSTEE_LETSENCRYPT_EMAIL``` property.
    
    This can be any email address. [Let's Encrypt](https://letsencrypt.org/) will create an account while creating a new domain.    
 
-5. Make sure all the properties set in the ```setup.env``` file and run: 
+7. Make sure all the properties set in the ```setup.env``` file and run: 
    
     ```bash
     ./configure.sh
@@ -77,12 +78,12 @@ For this tutorial we will be using domain ```test.wiretrustee.com``` which point
    
    This will export all the properties as environment variables and generate ```docker-compose.yml``` and ```management.json``` files substituting required variables.
 
-6. Run docker compose:
+8. Run docker compose:
 
    ```bash
    docker-compose up -d
    ```
-5. Optionally check the logs by running: 
+9. Optionally check the logs by running: 
         
     ```bash
     docker-compose logs signal
@@ -90,4 +91,7 @@ For this tutorial we will be using domain ```test.wiretrustee.com``` which point
     docker-compose logs coturn
     docker-compose logs dashboard
     ```
+
+
+### Step-by-step guide
     

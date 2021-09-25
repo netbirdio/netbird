@@ -38,7 +38,7 @@ services:
       - dashboard
     volumes:
       - wiretrustee-mgmt:/var/lib/wiretrustee
-      - /var/lib/wiretrustee/dashboard/letsencrypt:/etc/letsencrypt
+      - /var/lib/wiretrustee/dashboard/letsencrypt:/etc/letsencrypt:ro
       - ./management.json:/etc/wiretrustee/management.json
     #      - /var/log/wiretrustee/management.log:/var/log/wiretrustee/management.log
     ports:
