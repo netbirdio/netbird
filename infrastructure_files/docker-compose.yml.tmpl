@@ -31,8 +31,7 @@ services:
   #    command: ["--letsencrypt-domain", "$WIRETRUSTEE_DOMAIN", "--log-file", "console"]
   # Management
   management:
-    #  image: wiretrustee/management:latest
-    image: wiretrustee/management:v0.1.0-beta.2-SNAPSHOT-39d450b-amd64
+    image: wiretrustee/management:latest
     restart: unless-stopped
     depends_on:
       - dashboard
