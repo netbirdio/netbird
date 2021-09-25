@@ -90,8 +90,3 @@ For this tutorial we will be using domain ```test.wiretrustee.com``` which point
     docker-compose logs management
     docker-compose logs coturn
     docker-compose logs dashboard
-    ```
-
-
-### Step-by-step guide
-    
