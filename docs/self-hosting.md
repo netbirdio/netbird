@@ -16,7 +16,7 @@ If you would like to learn more about the architecture please refer to the [Wire
 - Any Linux OS.
 - Docker Compose installed (see [Install Docker Compose](https://docs.docker.com/compose/install/)).
 - Domain name pointing to the public IP address of your server.
-- Open ports ```443, 33071, 33073, 3478``` (Dashboard, Management HTTP API, Management gRpc API, Coturn STUN/TURN respectively) on your server.
+- Open ports ```443, 33071, 33073, 10000, 3478``` (Dashboard, Management HTTP API, Management gRpc API, Signal gRpc, Coturn STUN/TURN respectively) on your server.
 - Maybe a cup of coffee or tea :)
 
 ### Step-by-step guide
@@ -68,7 +68,7 @@ For this tutorial we will be using domain ```test.wiretrustee.com``` which point
    * set the property in the ```setup.env``` file.
 6. Configure ```WIRETRUSTEE_LETSENCRYPT_EMAIL``` property.
    
-   This can be any email address. [Let's Encrypt](https://letsencrypt.org/) will create an account while creating a new domain.    
+   This can be any email address. [Let's Encrypt](https://letsencrypt.org/) will create an account while generating a new certificate.    
 
 7. Make sure all the properties set in the ```setup.env``` file and run: 
    

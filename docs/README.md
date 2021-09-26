@@ -24,7 +24,7 @@ There are 2 ways of getting started with Wiretrustee:
 - use Cloud Managed version
 - self-hosting
 
-We recommend starting with the cloud managed version hosted at [beta.wiretrustee.com](https://beta.wiretrustee.com) - the quickest way to get familiar with the system.
+We recommend starting with the cloud managed version hosted at [app.wiretrustee.com](https://app.wiretrustee.com) - the quickest way to get familiar with the system.
 See [Quickstart Guide](../docs/quickstart.md) for instructions.
 
 If you don't want to use the managed version, check out our [Self-hosting Guide](../docs/self-hosting.md).
