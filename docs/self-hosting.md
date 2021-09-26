@@ -10,6 +10,10 @@ We focused on connectivity instead.
 
 If you would like to learn more about the architecture please refer to the [Wiretrustee Architecture section](architecture.md).
 
+### Step-by-step video guide on YouTube:
+
+[![IMAGE ALT TEXT](https://img.youtube.com/vi/Ofpgx5WhT0k/0.jpg)](https://youtu.be/Ofpgx5WhT0k "Wiretrustee Self-Hosting Guide")
+
 ### Requirements
 
 - Virtual machine offered by any cloud provider (e.g., AWS, DigitalOcean, Hetzner, Google Cloud, Azure ...). 
