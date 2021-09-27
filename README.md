@@ -13,6 +13,8 @@ Please don't use the hosted demonstration version for production purposes. We ap
 
 [UI Dashboard Repo](https://github.com/wiretrustee/wiretrustee-dashboard)
 
+https://github.com/wiretrustee/wiretrustee/blob/main/docs/README.md
+
 ### Why using Wiretrustee?
 
 * Connect multiple devices to each other via a secure peer-to-peer Wireguard VPN tunnel. At home, the office, or anywhere else.
@@ -27,6 +29,11 @@ Please don't use the hosted demonstration version for production purposes. We ap
 * Intuitive UI Dashboard.
 * Works on ARM devices (e.g. Raspberry Pi).
 * Open-source (including Management Service)
+
+### Getting started
+
+See [Docs](docs/README.md) for managed and self-hosting guides. 
+
 
 ### Secure peer-to-peer VPN in minutes
 ![animation](docs/media/peers.gif)
@@ -44,10 +51,6 @@ Please don't use the hosted demonstration version for production purposes. We ap
 ### Product Roadmap
 - [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/2)
 - [Public Roadmap Progress Tracking](https://github.com/wiretrustee/wiretrustee/projects/1)
-
-### Getting started
-
-See [Docs](docs/README.md) for managed and self-hosting guides. 
 
 ### Client Installation
 #### Linux
