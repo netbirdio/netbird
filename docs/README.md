@@ -1,10 +1,12 @@
 ## Introduction
 
-Wiretrustee is a WireGuard®-based platform that connects your devices securely into a peer-to-peer private network.
+Wiretrustee is an open-source VPN platform built on top of [Wireguard](https://www.wireguard.com/) making it easy to create secure private networks for your organization or home.
 
-It simplifies VPN creation and management for your organization without the hassle of opening ports, complex firewall rules, and so forth.
+It requires zero configuration effort leaving behind the hassle of opening ports, complex firewall rules, vpn gateways, and so forth.
 
-It literally takes less than 5 minutes to provision a secure peer-to-peer VPN with Wiretrustee. 
+There is no centralized VPN server with Wiretrustee - your computers, devices, machines, and servers connect to each other directly over a fast encrypted tunnel.
+
+It literally takes less than 5 minutes to provision a secure peer-to-peer VPN with Wiretrustee. Check our [Quickstart Guide Video](https://www.youtube.com/watch?v=cWTsGUJAUaU) to see the setup in action.
 
 ### High-level overview
 In essence, Wiretrustee is an open source platform consisting of a collection of systems, responsible for handling peer-to-peer connections, tunneling and network management (IP, keys, ACLs, etc).
