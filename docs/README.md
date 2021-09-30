@@ -2,7 +2,8 @@
 
 * [About Wiretrustee](#about-wiretrustee)
 * [Why not just Wireguard?](#why-not-just-wireguard)
-* [High-level technology overview](#high-level-overview)
+* [Wiretrustee vs. Traditional VPN](#why-not-just-wireguard)
+* [High-level technology overview](#wiretrustee-vs-traditional-vpn)
 * [Getting started](#getting-started)
 
 ### About Wiretrustee
@@ -31,16 +32,16 @@ The generated public keys have to be pre-shared on the machines.
 This works similarly to SSH with its authorised_keys file.
 
 Lastly, the connectivity between the machines has to be ensured. 
-To make machines reach one another, you are required to set a WireGuard endpoint property which indicates the IP address and port of the remote machine to connect. 
+To make machines reach one another, you are required to set a WireGuard endpoint property which indicates the IP address and port of the remote machine to connect to. 
 On many occasions, machines are hidden behind firewalls and NAT devices, 
 meaning that you may need to configure a port forwarding or open holes in your firewall to ensure the machines are reachable.
 
 The undertakings mentioned above might not be complicated if you have just a few machines, but the complexity grows as the number of machines increases.
 
 Wiretrustee simplifies the setup by automatically generating private and public keys, assigning unique private IP addresses, and takes care of sharing public keys between the machines. 
-It is worth mentioning that a private key never leaves the machine. 
+It is worth mentioning that the private key never leaves the machine. 
 So only the machine that owns the key can decrypt traffic addressed to it. 
-The same applies also to the relayed traffic mentioned earlier.
+The same applies also to the relayed traffic mentioned below.
 
 Additionally, Wiretrustee ensures connectivity by leveraging advanced [NAT traversal techniques](https://en.wikipedia.org/wiki/NAT_traversal) 
 and removing the necessity of port forwarding, opening holes in the firewall, and having a public static IP address.  
@@ -50,6 +51,21 @@ Wiretrustee also monitors the connection health and restarts broken connections.
 There are a few more things that we are working on to make secure private networks simple. A few examples are ACLs, MFA and activity monitoring.
 
 Check out the WireGuard [Quick Start](https://www.wireguard.com/quickstart/) guide to learn more about configuring "plain" WireGuard without Wiretrustee.
+
+### Wiretrustee vs. Traditional VPN
+
+In the traditional VPN model, everything converges on a centralized, protected network where all the clients are connecting to a central VPN server.
+
+An increasing amount of connections can easily overload the VPN server.
+Even a short downtime of a server can cause expensive system disruptions and a remote team's inability to work.
+
+Centralized VPNs imply all the traffic going through the central server causing network delays and increased traffic usage.
+
+Such systems require an experienced team to set up and maintain.
+Configuring firewalls, setting up NATs, SSO integration, and managing access control lists can be a nightmare.
+
+Traditional centralized VPNs are often compared to a [castle-and-moat](https://en.wikipedia.org/wiki/Moat) model 
+in which once accessed user is trusted and can access critical infrastructure and resources without any restrictions.
 
 ### High-level technology overview
 In essence, Wiretrustee is an open source platform consisting of a collection of systems, responsible for handling peer-to-peer connections, tunneling and network management (IP, keys, ACLs, etc).
