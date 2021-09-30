@@ -17,37 +17,41 @@ It literally takes less than 5 minutes to provision a secure peer-to-peer VPN wi
 
 ### Why not just Wireguard?
 
-WireGuard is a modern, and extremely fast VPN tunnel utilizing state-of-the-art [cryptography](https://www.wireguard.com/protocol/) and Wiretrustee uses Wireguard to establish a secure tunnel between machines.
+WireGuard is a modern and extremely fast VPN tunnel utilizing state-of-the-art [cryptography](https://www.wireguard.com/protocol/) 
+and Wiretrustee uses Wireguard to establish a secure tunnel between machines.
 
-Built with the simplicity in mind Wireguard ensures that traffic between two machines is encrypted and flowing, however it requires a few things to be done beforehand.
+Built with simplicity in mind, Wireguard ensures that traffic between two machines is encrypted and flowing, however, it requires a few things to be done beforehand.
 
-First, in order to connect, the machines have to be configured.
-On each machine you need to generate private and public keys and prepare a WireGuard configuration file. 
-Configuration also includes a private IP address that should be unique per machine.
+First, in order to connect, the machines have to be configured. 
+On each machine, you need to generate private and public keys and prepare a WireGuard configuration file. 
+The configuration also includes a private IP address that should be unique per machine.
 
-Second, to accept the incoming traffic the machines have to trust each other. 
-The generated public keys have to be pre-shared on the machines. It works similar to SSH with it's authorised_keys file. 
+Secondly, to accept the incoming traffic, the machines have to trust each other.
+The generated public keys have to be pre-shared on the machines. 
+This works similarly to SSH with its authorised_keys file.
 
-Third, the connectivity between the machines has to be ensured.
-For machines to reach each other a WireGuard endpoint property has to be set which indicates the IP address and port of the remote machine to connect to.
-Quite often machines are hidden behind firewalls and NAT devices meaning that you may need to configure port forwarding or open holes in your firewall to ensure the machines are reachable.
- 
-All the things above might not be a problem when you have just a few machines, but the complexity grows when the number of machines increases.
+Lastly, the connectivity between the machines has to be ensured. 
+To make machines reach one another, you are required to set a WireGuard endpoint property which indicates the IP address and port of the remote machine to connect. 
+On many occasions, machines are hidden behind firewalls and NAT devices, 
+meaning that you may need to configure a port forwarding or open holes in your firewall to ensure the machines are reachable.
 
-Wiretrustee simplifies the setup by automatically generating private and public keys, assigning unique private IP addresses,
-and takes care of sharing public keys between the machines.
-It is worth mentioning that private key never leaves the machine - only this machine can decrypt traffic that is address to it.
+The undertakings mentioned above might not be complicated if you have just a few machines, but the complexity grows as the number of machines increases.
+
+Wiretrustee simplifies the setup by automatically generating private and public keys, assigning unique private IP addresses, and takes care of sharing public keys between the machines. 
+It is worth mentioning that a private key never leaves the machine. 
+So only the machine that owns the key can decrypt traffic addressed to it. 
+The same applies also to the relayed traffic mentioned earlier.
 
 Additionally, Wiretrustee ensures connectivity by leveraging advanced [NAT traversal techniques](https://en.wikipedia.org/wiki/NAT_traversal) 
-and removing the necessity of opening holes in the firewall, port forwarding, and having a public static IP address.  
-In cases when a direct peer-to-peer connection isn't possible the connection the traffic is relayed securely between peers.
+and removing the necessity of port forwarding, opening holes in the firewall, and having a public static IP address.  
+In cases when a direct peer-to-peer connection isn't possible all traffic is relayed securely between peers.
 Wiretrustee also monitors the connection health and restarts broken connections.
 
 There are a few more things that we are working on to make secure private networks simple. A few examples are ACLs, MFA and activity monitoring.
 
 Check out the WireGuard [Quick Start](https://www.wireguard.com/quickstart/) guide to learn more about configuring "plain" WireGuard without Wiretrustee.
 
-### High-level overview
+### High-level technology overview
 In essence, Wiretrustee is an open source platform consisting of a collection of systems, responsible for handling peer-to-peer connections, tunneling and network management (IP, keys, ACLs, etc).
 
 <p align="center">
