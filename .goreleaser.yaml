@@ -233,7 +233,7 @@ uploads:
     ids:
     - deb
     mode: archive
-    target: https://wiretrustee.jfrog.io/artifactory/testing/deb/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}/
+    target: https://wiretrustee.jfrog.io/artifactory/testing/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}/
     username: dev@wiretrustee.com
 
 release:
