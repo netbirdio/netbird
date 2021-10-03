@@ -43,7 +43,7 @@ It is worth mentioning that the private key never leaves the machine.
 So only the machine that owns the key can decrypt traffic addressed to it. 
 The same applies also to the relayed traffic mentioned below.
 
-Additionally, Wiretrustee ensures connectivity by leveraging advanced [NAT traversal techniques](https://en.wikipedia.org/wiki/NAT_traversal) 
+Furthermore, Wiretrustee ensures connectivity by leveraging advanced [NAT traversal techniques](https://en.wikipedia.org/wiki/NAT_traversal) 
 and removing the necessity of port forwarding, opening holes in the firewall, and having a public static IP address.  
 In cases when a direct peer-to-peer connection isn't possible all traffic is relayed securely between peers.
 Wiretrustee also monitors the connection health and restarts broken connections.
@@ -57,7 +57,7 @@ Check out the WireGuard [Quick Start](https://www.wireguard.com/quickstart/) gui
 In the traditional VPN model, everything converges on a centralized, protected network where all the clients are connecting to a central VPN server.
 
 An increasing amount of connections can easily overload the VPN server.
-Even a short downtime of a server can cause expensive system disruptions and a remote team's inability to work.
+Even a short downtime of a server can cause expensive system disruptions, and a remote team's inability to work.
 
 Centralized VPNs imply all the traffic going through the central server causing network delays and increased traffic usage.
 
@@ -65,7 +65,20 @@ Such systems require an experienced team to set up and maintain.
 Configuring firewalls, setting up NATs, SSO integration, and managing access control lists can be a nightmare.
 
 Traditional centralized VPNs are often compared to a [castle-and-moat](https://en.wikipedia.org/wiki/Moat) model 
-in which once accessed user is trusted and can access critical infrastructure and resources without any restrictions.
+in which once accessed, user is trusted and can access critical infrastructure and resources without any restrictions.
+
+Wiretrustee decentralizes networks using direct point-to-point connections, as opposed to traditional models.
+Consequently, network performance is increased since traffic flows directly between the machines bypassing VPN servers or gateways.
+To achieve this, Wiretrustee client applications employ signalling servers to find other machines and negotiate connections.
+These are similar to the signaling servers used in [WebRTC](https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Signaling_and_video_calling#the_signaling_server)  
+
+Thanks to [NAT traversal techniques](https://en.wikipedia.org/wiki/NAT_traversal), 
+outlined in the [Why not just Wireguard?](#why-not-just-wireguard) section above,
+Wiretrustee installation doesn't require complex network and firewall configuration. 
+It just works, minimising the maintenance effort.
+
+Finally, each machine or device in the Wiretrustee network verifies incoming connections accepting only the trusted ones.
+This is ensured by Wireguard's [Crypto Routing concept](https://www.wireguard.com/#cryptokey-routing).
 
 ### High-level technology overview
 In essence, Wiretrustee is an open source platform consisting of a collection of systems, responsible for handling peer-to-peer connections, tunneling and network management (IP, keys, ACLs, etc).
