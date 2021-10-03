@@ -233,7 +233,7 @@ uploads:
     ids:
     - deb
     mode: archive
-    target: https://wiretrustee.jfrog.io/artifactory/testing/{{ .ArtifactName }}.{{ .LinuxPackage }}
+    target: https://wiretrustee.jfrog.io/artifactory/testing/{{ .ArtifactName }}
     username: dev@wiretrustee.com
 
 release:
