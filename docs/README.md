@@ -2,8 +2,8 @@
 
 * [About Wiretrustee](#about-wiretrustee)
 * [Why not just Wireguard?](#why-not-just-wireguard)
-* [Wiretrustee vs. Traditional VPN](#why-not-just-wireguard)
-* [High-level technology overview](#wiretrustee-vs-traditional-vpn)
+* [Wiretrustee vs. Traditional VPN](#wiretrustee-vs-traditional-vpn)
+* [High-level technology overview](#high-level-technology-overview)
 * [Getting started](#getting-started)
 
 ### About Wiretrustee

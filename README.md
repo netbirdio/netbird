@@ -1,5 +1,7 @@
 # Wiretrustee
 
+#### See [Documentation](docs/README.md) for more information about Wiretrustee.
+
 A WireGuard®-based mesh network that connects your devices into a single private network.
 
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/wiretrustee/wiretrustee/releases).
@@ -29,11 +31,6 @@ https://github.com/wiretrustee/wiretrustee/blob/main/docs/README.md
 * Intuitive UI Dashboard.
 * Works on ARM devices (e.g. Raspberry Pi).
 * Open-source (including Management Service)
-
-### Getting started
-
-See [Docs](docs/README.md) for managed and self-hosting guides. 
-
 
 ### Secure peer-to-peer VPN in minutes
 ![animation](docs/media/peers.gif)
