@@ -7,13 +7,13 @@ builds:
 
     goos:
       - linux
-      - darwin
-      - windows
+#      - darwin
+#      - windows
     goarch:
-      - arm
-      - amd64
+#      - arm
+#      - amd64
       - arm64
-      - mips
+#      - mips
     gomips:
       - hardfloat
       - softfloat
@@ -76,24 +76,24 @@ nfpms:
     scripts:
       postinstall: "release_files/post_install.sh"
 
-  - maintainer: Wiretrustee <dev@wiretrustee.com>
-    description: Wiretrustee client.
-    homepage: https://wiretrustee.com/
-    id: rpm
-    builds:
-      - wiretrustee
-    formats:
-      - rpm
-    contents:
-      - src: release_files/wiretrustee.service
-        dst: /lib/systemd/system/wiretrustee.service
-
-      - src: release_files/wiretrustee.json
-        dst: /etc/wiretrustee/wiretrustee.json
-        type: "config|noreplace"
-
-    scripts:
-      postinstall: "release_files/post_install.sh"
+#  - maintainer: Wiretrustee <dev@wiretrustee.com>
+#    description: Wiretrustee client.
+#    homepage: https://wiretrustee.com/
+#    id: rpm
+#    builds:
+#      - wiretrustee
+#    formats:
+#      - rpm
+#    contents:
+#      - src: release_files/wiretrustee.service
+#        dst: /lib/systemd/system/wiretrustee.service
+#
+#      - src: release_files/wiretrustee.json
+#        dst: /etc/wiretrustee/wiretrustee.json
+#        type: "config|noreplace"
+#
+#    scripts:
+#      postinstall: "release_files/post_install.sh"
 #dockers:
 #  - image_templates:
 #      - wiretrustee/signal:{{ .Version }}-amd64
@@ -233,7 +233,7 @@ uploads:
     ids:
     - deb
     mode: archive
-    target: https://wiretrustee.jfrog.io/artifactory/testing/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}/
+    target: https://wiretrustee.jfrog.io/artifactory/testing/{{ .ArtifactName }}.{{ .LinuxPackage }}
     username: dev@wiretrustee.com
 
 release:
