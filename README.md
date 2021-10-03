@@ -51,108 +51,120 @@ https://github.com/wiretrustee/wiretrustee/blob/main/docs/README.md
 
 ### Client Installation
 #### Linux
-1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases)   
-2. Download the latest release (**Switch VERSION to the latest**):
 
-**Debian packages**
-```shell
-wget https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wiretrustee_<VERSION>_linux_amd64.deb
-```
-3. Install the package
-```shell
-sudo dpkg -i wiretrustee_<VERSION>_linux_amd64.deb
-```
-**Fedora/Centos packages**
-```shell
-wget https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wiretrustee_<VERSION>_linux_amd64.rpm
-```
-3. Install the package
-```shell
-sudo rpm -i wiretrustee_<VERSION>_linux_amd64.rpm
-```
+**APT/Debian**
+1. Add the repository:
+    ```shell
+    sudo apt-get update
+    sudo apt-get install ca-certificates curl gnupg -y
+    curl -L https://pkgs.wiretrustee.com/debian/public.key | sudo apt-key add -
+    echo 'deb https://pkgs.wiretrustee.com/debian stable main' | sudo tee /etc/apt/sources.list.d/wiretrustee.list
+    ```
+2. Install the package
+    ```shell
+    sudo apt-get update
+    sudo apt-get install wiretrustee
+    ```
+**RPM/Red hat**
+1. Add the repository:
+    ```shell
+    cat <<EOF | sudo tee /etc/yum.repos.d/wiretrustee.repo
+    [Wiretrustee]
+    name=Wiretrustee
+    baseurl=https://pkgs.wiretrustee.com/yum/
+    enabled=1
+    gpgcheck=0
+    gpgkey=https://pkgs.wiretrustee.com/yum/repodata/repomd.xml.key
+    repo_gpgcheck=1
+    EOF
+    ```
+2. Install the package
+    ```shell
+    sudo yum install wiretrustee
+    ```
 #### MACOS
 **Brew install**
 1. Download and install Brew at https://brew.sh/
 2. Install the client
-```shell
-brew install wiretrustee/client/wiretrustee
-```
+  ```shell
+  brew install wiretrustee/client/wiretrustee
+  ```
 **Installation from binary**
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
 2. Download the latest release (**Switch VERSION to the latest**):
-```shell
-curl -o ./wiretrustee_<VERSION>_darwin_amd64.tar.gz https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wiretrustee_<VERSION>_darwin_amd64.tar.gz
-```
+  ```shell
+  curl -o ./wiretrustee_<VERSION>_darwin_amd64.tar.gz https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wiretrustee_<VERSION>_darwin_amd64.tar.gz
+  ```
 3. Decompress
-```shell
-tar xcf ./wiretrustee_<VERSION>_darwin_amd64.tar.gz
-sudo mv wiretrusee /usr/local/bin/wiretrustee
-chmod +x /usr/local/bin/wiretrustee
-```
+  ```shell
+  tar xcf ./wiretrustee_<VERSION>_darwin_amd64.tar.gz
+  sudo mv wiretrusee /usr/local/bin/wiretrustee
+  chmod +x /usr/local/bin/wiretrustee
+  ```
 After that you may need to add /usr/local/bin in your MAC's PATH environment variable:
-````shell
-export PATH=$PATH:/usr/local/bin
-````
+  ````shell
+  export PATH=$PATH:/usr/local/bin
+  ````
 
 #### Windows
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
 2. Download the latest Windows release installer ```wiretrustee_installer_<VERSION>_windows_amd64.exe``` (**Switch VERSION to the latest**):
 3. Proceed with installation steps
 4. This will install the client in the C:\\Program Files\\Wiretrustee and add the client service
-5. After installing you can follow the [Client Configuration](#Client-Configuration) steps.
+5. After installing, you can follow the [Client Configuration](#Client-Configuration) steps.
 > To uninstall the client and service, you can use Add/Remove programs
 
 ### Client Configuration
 1. Login to the Management Service. You need to have a `setup key` in hand (see ).
 
 For **Unix** systems:
-```shell
-sudo wiretrustee login --setup-key <SETUP KEY>
-```
+  ```shell
+  sudo wiretrustee login --setup-key <SETUP KEY>
+  ```
 For  **Windows** systems:
-```shell
-.\wiretrustee.exe login --setup-key <SETUP KEY>
- ```
+  ```shell
+  .\wiretrustee.exe login --setup-key <SETUP KEY>
+   ```
 
 Alternatively, if you are hosting your own Management Service provide `--management-url` property pointing to your Management Service:
-```shell
-sudo wiretrustee login --setup-key <SETUP KEY> --management-url https://localhost:33073
-```
+  ```shell
+  sudo wiretrustee login --setup-key <SETUP KEY> --management-url https://localhost:33073
+  ```
 
 You could also omit `--setup-key` property. In this case the tool will prompt it the key.
 
 2. Start Wiretrustee:
 
 For **MACOS** you will just start the service:
-````shell
-sudo wiretrustee up
-# or
-sudo wiretrustee up & # to run it in background
-````   
+  ````shell
+  sudo wiretrustee up
+  # or
+  sudo wiretrustee up & # to run it in background
+  ````   
 For **Linux** systems:
-```shell
-sudo systemctl restart wiretrustee.service
-sudo systemctl status wiretrustee.service 
-```
+  ```shell
+  sudo systemctl restart wiretrustee.service
+  sudo systemctl status wiretrustee.service 
+  ```
 For **Windows** systems:
-```shell
-.\wiretrustee.exe service start
-```
+  ```shell
+  .\wiretrustee.exe service start
+  ```
 > You may need to run Powershell as Administrator
 
 3. Check your IP:
-For **MACOS** you will just start the service:
-````shell
-sudo ipconfig getifaddr utun100
-````   
+  For **MACOS** you will just start the service:
+  ````shell
+  sudo ipconfig getifaddr utun100
+  ````   
 For **Linux** systems:
-```shell
-ip addr show wt0
-```
+  ```shell
+  ip addr show wt0
+  ```
 For **Windows** systems:
-```shell
-netsh interface ip show config name="wt0"
-```
+  ```shell
+  netsh interface ip show config name="wt0"
+  ```
 
 4. Repeat on other machines.  
 
