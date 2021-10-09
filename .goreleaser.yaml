@@ -234,14 +234,14 @@ uploads:
     ids:
     - deb
     mode: archive
-    target: https://pkgs.wiretrustee.com/test-debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    target: http://192.168.64.1:8080/test-debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
     method: PUT
   - name: rpm
     ids:
       - rpm
     mode: archive
-    target: https://pkgs.wiretrustee.com/test-rpm/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    target: http://192.168.64.1:8080/test-rpm/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
     method: PUT
 release:
