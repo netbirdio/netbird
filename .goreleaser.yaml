@@ -237,7 +237,7 @@ uploads:
     target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
     method: PUT
-  - name: rpm
+  - name: yum
     ids:
       - rpm
     mode: archive
