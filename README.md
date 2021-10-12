@@ -1,6 +1,7 @@
 # Wiretrustee
 
 ### See [Documentation](docs/README.md) for more information about Wiretrustee.
+### Join our [Slack channel](https://join.slack.com/t/wiretrustee/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A).
 <br>
 A WireGuard®-based mesh network that connects your devices into a single private network.
 
