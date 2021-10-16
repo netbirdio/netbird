@@ -136,7 +136,9 @@ func runClient() error {
 		return err
 	}
 
-	engineConfig, err := createEngineConfig(myPrivateKey, config, loginResp.GetWiretrusteeConfig(), loginResp.GetPeerConfig())
+	peerConfig := loginResp.GetPeerConfig()
+
+	engineConfig, err := createEngineConfig(myPrivateKey, config, loginResp.GetWiretrusteeConfig(), peerConfig)
 	if err != nil {
 		log.Error(err)
 		return err
@@ -150,6 +152,8 @@ func runClient() error {
 		return err
 	}
 
+	log.Print("Wiretrustee engine started, my IP is: ", peerConfig.Address)
+
 	SetupCloseHandler()
 
 	select {
@@ -157,7 +161,7 @@ func runClient() error {
 	case <-ctx.Done():
 	}
 
-	log.Infof("receive signal to stop running")
+	log.Infof("received signal to stop running")
 	err = mgmClient.Close()
 	if err != nil {
 		log.Errorf("failed closing Management Service client %v", err)
