@@ -9,7 +9,7 @@ var (
 	installCmd = &cobra.Command{
 		Use:   "install",
 		Short: "installs wiretrustee service",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 
 			svcConfig := newSVCConfig()
 
@@ -30,15 +30,16 @@ var (
 			s, err := newSVC(&program{}, svcConfig)
 			if err != nil {
 				cmd.PrintErrln(err)
-				return
+				return err
 			}
 
 			err = s.Install()
 			if err != nil {
 				cmd.PrintErrln(err)
-				return
+				return err
 			}
 			cmd.Printf("Wiretrustee service has been installed")
+			return nil
 		},
 	}
 )

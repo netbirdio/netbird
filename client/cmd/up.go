@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/client/internal"
@@ -24,6 +25,7 @@ var (
 				log.Errorf("failed initializing log %v", err)
 				return err
 			}
+
 			err = loginCmd.RunE(cmd, args)
 			if err != nil {
 				return err
@@ -31,13 +33,29 @@ var (
 			if logFile == "console" {
 				return runClient()
 			}
-			return startCmd.RunE(cmd, args)
+
+			s, err := newSVC(&program{}, newSVCConfig())
+			if err != nil {
+				cmd.PrintErrln(err)
+				return err
+			}
+
+			svcStatus, err := s.Status()
+			if err != nil {
+				log.Errorf("failed retrieving service status: %v", err)
+				return err
+			}
+			if svcStatus == service.StatusUnknown {
+				err := installCmd.RunE(cmd, args)
+				if err != nil {
+					return err
+				}
+			}
+
+			return s.Restart()
 		},
 	}
 )
-
-func init() {
-}
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
 func createEngineConfig(key wgtypes.Key, config *internal.Config, peerConfig *mgmProto.PeerConfig) (*internal.EngineConfig, error) {
