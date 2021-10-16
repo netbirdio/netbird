@@ -34,8 +34,8 @@ There is no centralized VPN server with Wiretrustee - your computers, devices, m
 
 ### Secure peer-to-peer VPN in minutes
 <p float="left" align="middle">
-  <img src="docs/media/peerA.gif" width="450"/> 
-  <img src="docs/media/peerB.gif" width="450"/>
+  <img src="docs/media/peerA.gif" width="400"/> 
+  <img src="docs/media/peerB.gif" width="400"/>
 </p>
 
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/wiretrustee/wiretrustee/releases).
