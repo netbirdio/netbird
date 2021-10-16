@@ -40,7 +40,7 @@ func init() {
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *internal.Config, wtConfig *mgmProto.WiretrusteeConfig, peerConfig *mgmProto.PeerConfig) (*internal.EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *internal.Config, peerConfig *mgmProto.PeerConfig) (*internal.EngineConfig, error) {
 	iFaceBlackList := make(map[string]struct{})
 	for i := 0; i < len(config.IFaceBlackList); i += 2 {
 		iFaceBlackList[config.IFaceBlackList[i]] = struct{}{}
@@ -138,7 +138,7 @@ func runClient() error {
 
 	peerConfig := loginResp.GetPeerConfig()
 
-	engineConfig, err := createEngineConfig(myPrivateKey, config, loginResp.GetWiretrusteeConfig(), peerConfig)
+	engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig)
 	if err != nil {
 		log.Error(err)
 		return err
