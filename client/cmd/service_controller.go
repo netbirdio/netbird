@@ -10,7 +10,7 @@ func (p *program) Start(s service.Service) error {
 	// Start should not block. Do the actual work async.
 	log.Info("starting service") //nolint
 	go func() {
-		err := upCmd.RunE(p.cmd, p.args)
+		err := runClient()
 		if err != nil {
 			return
 		}
@@ -54,19 +54,20 @@ var (
 	startCmd = &cobra.Command{
 		Use:   "start",
 		Short: "starts wiretrustee service",
-		Run: func(cmd *cobra.Command, args []string) {
+		RunE: func(cmd *cobra.Command, args []string) error {
 
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
 				cmd.PrintErrln(err)
-				return
+				return err
 			}
 			err = s.Start()
 			if err != nil {
 				cmd.PrintErrln(err)
-				return
+				return err
 			}
 			cmd.Printf("Wiretrustee service has been started")
+			return nil
 		},
 	}
 )
