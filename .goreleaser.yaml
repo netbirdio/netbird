@@ -13,13 +13,18 @@ builds:
       - arm
       - amd64
       - arm64
+      - mips
+    gomips:
+      - hardfloat
+      - softfloat
     ignore:
-      - goos: darwin
-        goarch: arm64
       - goos: windows
         goarch: arm64
       - goos: windows
         goarch: arm
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: '{{ .CommitTimestamp }}'
     tags:
       - load_wintun_from_rsrc
 
@@ -32,6 +37,9 @@ builds:
     goarch:
       - amd64
       - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: '{{ .CommitTimestamp }}'
 
   - id: wiretrustee-signal
     dir: signal
@@ -42,17 +50,40 @@ builds:
     goarch:
       - amd64
       - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: '{{ .CommitTimestamp }}'
 archives:
   - builds:
       - wiretrustee
 nfpms:
-  - maintainer: Wiretrustee <wiretrustee@wiretrustee.com>
-    description: Wiretrustee project.
+  - maintainer: Wiretrustee <dev@wiretrustee.com>
+    description: Wiretrustee client.
     homepage: https://wiretrustee.com/
+    id: deb
     builds:
       - wiretrustee
     formats:
       - deb
+    contents:
+      - src: release_files/wiretrustee.service
+        dst: /lib/systemd/system/wiretrustee.service
+
+      - src: release_files/wiretrustee.json
+        dst: /etc/wiretrustee/wiretrustee.json
+        type: "config|noreplace"
+
+    scripts:
+      postinstall: "release_files/post_install.sh"
+    replacements:
+      arm6: armf
+  - maintainer: Wiretrustee <dev@wiretrustee.com>
+    description: Wiretrustee client.
+    homepage: https://wiretrustee.com/
+    id: rpm
+    builds:
+      - wiretrustee
+    formats:
       - rpm
     contents:
       - src: release_files/wiretrustee.service
@@ -197,3 +228,19 @@ brews:
     license: "BSD3"
     test: |
       system "#{bin}/{{ .ProjectName	}} -h"
+
+uploads:
+  - name: debian
+    ids:
+    - deb
+    mode: archive
+    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    username: dev@wiretrustee.com
+    method: PUT
+  - name: yum
+    ids:
+      - rpm
+    mode: archive
+    target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    username: dev@wiretrustee.com
+    method: PUT
