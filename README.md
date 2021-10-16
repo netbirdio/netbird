@@ -34,7 +34,8 @@ https://github.com/wiretrustee/wiretrustee/blob/main/docs/README.md
 * Open-source (including Management Service)
 
 ### Secure peer-to-peer VPN in minutes
-![animation](docs/media/peers.gif)
+![animation](docs/media/peerA.gif)
+![animation](docs/media/peerB.gif)
 
 ### A bit on Wiretrustee internals
 * Wiretrustee features a Management Service that offers peer IP management and network updates distribution (e.g. when new peer joins the network).
