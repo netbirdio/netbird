@@ -1,22 +1,50 @@
-# Wiretrustee
+<div align="center">
 
-### See [Documentation](docs/README.md) for more information about Wiretrustee.
-### Join our [Slack channel](https://join.slack.com/t/wiretrustee/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A).
+<p align="center">
+  <img width="250" src="docs/media/logo-full.png"/>
+</p>
+
+  <p>
+    <img src="https://img.shields.io/badge/license-BSD--3-blue" />
+    <img src="https://img.shields.io/docker/pulls/wiretrustee/management" />
+    <img src="https://badgen.net/badge/Open%20Source%3F/Yes%21/blue?icon=github" />
+  </p>
+</div>
+
+<p align="center">
+<strong>
+  Start using Wiretrustee at <a href="https://app.wiretrustee.com/">app.wiretrustee.com</a>
+  <br/>
+  See <a href="docs/README.md">Documentation</a>
+  <br/>
+   Join our <a href="https://join.slack.com/t/wiretrustee/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A">Slack channel</a>
+  <br/>
+ 
+</strong>
+</p>
+</div>
+
 <br>
-A WireGuard®-based mesh network that connects your devices into a single private network.
+
+**Wiretrustee is an open-source VPN platform built on top of WireGuard® making it easy to create secure private networks for your organization or home.**
+
+It requires zero configuration effort leaving behind the hassle of opening ports, complex firewall rules, vpn gateways, and so forth.
+
+There is no centralized VPN server with Wiretrustee - your computers, devices, machines, and servers connect to each other directly over a fast encrypted tunnel.
+
+### Secure peer-to-peer VPN in minutes
+<p float="left" align="middle">
+  <img src="docs/media/peerA.gif" width="450"/> 
+  <img src="docs/media/peerB.gif" width="450"/>
+</p>
 
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/wiretrustee/wiretrustee/releases).
 
 Hosted demo version: 
 [https://app.wiretrustee.com/](https://app.wiretrustee.com/peers). 
 
-The number of peers is limited to 15.
-
-Please don't use the hosted demonstration version for production purposes. We appreciate your usage of the demonstration version and will love to hear your feedback, please reach out via Issue or [Slack](https://join.slack.com/t/wiretrustee/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A).
-
 [UI Dashboard Repo](https://github.com/wiretrustee/wiretrustee-dashboard)
 
-https://github.com/wiretrustee/wiretrustee/blob/main/docs/README.md
 
 ### Why using Wiretrustee?
 
@@ -33,8 +61,6 @@ https://github.com/wiretrustee/wiretrustee/blob/main/docs/README.md
 * Works on ARM devices (e.g. Raspberry Pi).
 * Open-source (including Management Service)
 
-### Secure peer-to-peer VPN in minutes
-![animation](docs/media/peers.gif)
 
 ### A bit on Wiretrustee internals
 * Wiretrustee features a Management Service that offers peer IP management and network updates distribution (e.g. when new peer joins the network).
