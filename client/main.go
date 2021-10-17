@@ -5,11 +5,11 @@ import (
 	"os"
 )
 
-var Version = "development"
+var version = "development"
 
 func main() {
 
-	cmd.Version = Version
+	cmd.Version = version
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
