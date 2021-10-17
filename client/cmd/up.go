@@ -40,7 +40,7 @@ var (
 				return err
 			}
 
-			_, err = s.Status()
+			srvStatus, err := s.Status()
 			if err != nil {
 				if err == service.ErrNotInstalled {
 					log.Infof("%s. Installing it now", err.Error())
@@ -52,8 +52,10 @@ var (
 					log.Warnf("failed retrieving service status: %v", err)
 				}
 			}
-
-			return s.Restart()
+			if srvStatus == service.StatusRunning {
+				stopCmd.Run(cmd, args)
+			}
+			return startCmd.RunE(cmd, args)
 		},
 	}
 )

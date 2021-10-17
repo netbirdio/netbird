@@ -65,7 +65,7 @@ var (
 				cmd.PrintErrln(err)
 				return err
 			}
-			cmd.Printf("Wiretrustee service has been started")
+			cmd.Println("Wiretrustee service has been started")
 			return nil
 		},
 	}
@@ -87,7 +87,7 @@ var (
 				cmd.PrintErrln(err)
 				return
 			}
-			cmd.Printf("Wiretrustee service has been stopped")
+			cmd.Println("Wiretrustee service has been stopped")
 		},
 	}
 )
@@ -108,7 +108,7 @@ var (
 				cmd.PrintErrln(err)
 				return
 			}
-			cmd.Printf("Wiretrustee service has been restarted")
+			cmd.Println("Wiretrustee service has been restarted")
 		},
 	}
 )
