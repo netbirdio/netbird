@@ -22,8 +22,7 @@ var (
 	defaultLogFile    string
 	logFile           string
 	managementURL     string
-
-	rootCmd = &cobra.Command{
+	rootCmd           = &cobra.Command{
 		Use:   "wiretrustee",
 		Short: "",
 		Long:  "",
@@ -56,6 +55,7 @@ func init() {
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(loginCmd)
+	rootCmd.AddCommand(versionCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
 }
