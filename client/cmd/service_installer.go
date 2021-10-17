@@ -38,7 +38,7 @@ var (
 				cmd.PrintErrln(err)
 				return err
 			}
-			cmd.Printf("Wiretrustee service has been installed")
+			cmd.Println("Wiretrustee service has been installed")
 			return nil
 		},
 	}
@@ -61,7 +61,7 @@ var (
 				cmd.PrintErrln(err)
 				return
 			}
-			cmd.Printf("Wiretrustee has been uninstalled")
+			cmd.Println("Wiretrustee has been uninstalled")
 		},
 	}
 )
