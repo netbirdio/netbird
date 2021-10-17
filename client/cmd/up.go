@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/client/internal"
@@ -40,15 +39,16 @@ var (
 				return err
 			}
 
-			svcStatus, err := s.Status()
+			_, err = s.Status()
 			if err != nil {
-				log.Errorf("failed retrieving service status: %v", err)
-				return err
-			}
-			if svcStatus == service.StatusUnknown {
-				err := installCmd.RunE(cmd, args)
-				if err != nil {
-					return err
+				if err.Error() == "the service is not installed" {
+					log.Infof("%s. Installing it now", err.Error())
+					err := installCmd.RunE(cmd, args)
+					if err != nil {
+						return err
+					}
+				} else {
+					log.Warnf("failed retrieving service status: %v", err)
 				}
 			}
 
