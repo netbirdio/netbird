@@ -65,10 +65,6 @@ nfpms:
       - wiretrustee
     formats:
       - deb
-    contents:
-      - src: release_files/wiretrustee.json
-        dst: /etc/wiretrustee/wiretrustee.json
-        type: "config|noreplace"
 
     scripts:
       postinstall: "release_files/post_install.sh"
@@ -84,10 +80,6 @@ nfpms:
       - wiretrustee
     formats:
       - rpm
-    contents:
-      - src: release_files/wiretrustee.json
-        dst: /etc/wiretrustee/wiretrustee.json
-        type: "config|noreplace"
 
     scripts:
       postinstall: "release_files/post_install.sh"
