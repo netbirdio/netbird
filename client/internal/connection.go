@@ -166,7 +166,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 	select {
 	case remoteAuth := <-conn.remoteAuthChannel:
 
-		log.Infof("got a connection confirmation from peer %s", conn.Config.RemoteWgKey.String())
+		log.Debugf("got a connection confirmation from peer %s", conn.Config.RemoteWgKey.String())
 
 		err = conn.agent.GatherCandidates()
 		if err != nil {
@@ -186,8 +186,11 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		if err != nil {
 			return err
 		}
+
+		useProxy := useProxy(pair)
+
 		// in case the remote peer is in the local network or one of the peers has public static IP -> no need for a Wireguard proxy, direct communication is possible.
-		if !useProxy(pair) {
+		if !useProxy {
 			log.Debugf("it is possible to establish a direct connection (without proxy) to peer %s - my addr: %s, remote addr: %s", conn.Config.RemoteWgKey.String(), pair.Local, pair.Remote)
 			err = conn.wgProxy.StartLocal(fmt.Sprintf("%s:%d", pair.Remote.Address(), iface.WgPort))
 			if err != nil {
@@ -195,19 +198,17 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			}
 
 		} else {
-			log.Infof("establishing secure tunnel to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
+			log.Debugf("establishing secure tunnel to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
 			err = conn.wgProxy.Start(remoteConn)
 			if err != nil {
 				return err
 			}
 		}
 
-		if pair.Remote.Type() == ice.CandidateTypeRelay || pair.Local.Type() == ice.CandidateTypeRelay {
-			log.Infof("using relay with peer %s", conn.Config.RemoteWgKey)
-		}
+		relayed := pair.Remote.Type() == ice.CandidateTypeRelay || pair.Local.Type() == ice.CandidateTypeRelay
 
 		conn.Status = StatusConnected
-		log.Infof("opened connection to peer %s", conn.Config.RemoteWgKey.String())
+		log.Infof("opened connection to peer %s [localProxy=%v, relayed=%v]", conn.Config.RemoteWgKey.String(), useProxy, relayed)
 	case <-conn.closeCond.C:
 		conn.Status = StatusDisconnected
 		return fmt.Errorf("connection to peer %s has been closed", conn.Config.RemoteWgKey.String())
@@ -271,7 +272,7 @@ func (conn *Connection) Close() error {
 	var err error
 	conn.closeCond.Do(func() {
 
-		log.Warnf("closing connection to peer %s", conn.Config.RemoteWgKey.String())
+		log.Debugf("closing connection to peer %s", conn.Config.RemoteWgKey.String())
 
 		if a := conn.agent; a != nil {
 			e := a.Close()

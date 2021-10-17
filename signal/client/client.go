@@ -76,8 +76,8 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 }
 
 //defaultBackoff is a basic backoff mechanism for general issues
-func defaultBackoff() backoff.BackOff {
-	return &backoff.ExponentialBackOff{
+func defaultBackoff(ctx context.Context) backoff.BackOff {
+	return backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
@@ -85,7 +85,8 @@ func defaultBackoff() backoff.BackOff {
 		MaxElapsedTime:      24 * 3 * time.Hour, //stop after 3 days trying
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
-	}
+	}, ctx)
+
 }
 
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.
@@ -96,12 +97,13 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
 	c.connWg.Add(1)
 	go func() {
 
-		var backOff = defaultBackoff()
+		var backOff = defaultBackoff(c.ctx)
 
 		operation := func() error {
+
 			err := c.connect(c.key.PublicKey().String(), msgHandler)
 			if err != nil {
-				log.Warnf("disconnected from the Signal Exchange due to an error %s. Retrying ... ", err)
+				log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 				c.connWg.Add(1)
 				return err
 			}
@@ -112,7 +114,7 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
 
 		err := backoff.Retry(operation, backOff)
 		if err != nil {
-			log.Errorf("error while communicating with the Signal Exchange %s ", err)
+			log.Errorf("exiting Signal Service connection retry loop due to unrecoverable error: %s", err)
 			return
 		}
 	}()

@@ -65,8 +65,8 @@ func (c *Client) Close() error {
 }
 
 //defaultBackoff is a basic backoff mechanism for general issues
-func defaultBackoff() backoff.BackOff {
-	return &backoff.ExponentialBackOff{
+func defaultBackoff(ctx context.Context) backoff.BackOff {
+	return backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
@@ -74,14 +74,14 @@ func defaultBackoff() backoff.BackOff {
 		MaxElapsedTime:      24 * 3 * time.Hour, //stop after 3 days trying
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
-	}
+	}, ctx)
 }
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 
-	var backOff = defaultBackoff()
+	var backOff = defaultBackoff(c.ctx)
 
 	operation := func() error {
 
@@ -114,7 +114,7 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 
 	err := backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Errorf("exiting Management Service connection retry loop due to unrecoverable error %s ", err)
+		log.Warnf("exiting Management Service connection retry loop due to unrecoverable error: %s", err)
 		return err
 	}
 
@@ -145,7 +145,7 @@ func (c *Client) receiveEvents(stream proto.ManagementService_SyncClient, server
 			return err
 		}
 		if err != nil {
-			log.Errorf("disconnected from Management Service sync stream: %v", err)
+			log.Warnf("disconnected from Management Service sync stream: %v", err)
 			return err
 		}
 
@@ -159,7 +159,7 @@ func (c *Client) receiveEvents(stream proto.ManagementService_SyncClient, server
 
 		err = msgHandler(decryptedResp)
 		if err != nil {
-			log.Errorf("failed handling an update message received from Management Service %v", err.Error())
+			log.Errorf("failed handling an update message received from Management Service: %v", err.Error())
 			return err
 		}
 	}

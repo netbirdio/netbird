@@ -9,7 +9,6 @@ import (
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
-	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -20,13 +19,8 @@ var (
 		Use:   "up",
 		Short: "install, login and start wiretrustee client",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			err := util.InitLog(logLevel, logFile)
-			if err != nil {
-				log.Errorf("failed initializing log %v", err)
-				return err
-			}
 
-			err = loginCmd.RunE(cmd, args)
+			err := loginCmd.RunE(cmd, args)
 			if err != nil {
 				return err
 			}
@@ -117,7 +111,7 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 		}
 	}
 
-	log.Infof("peer logged in to Management Service %s", managementAddr)
+	log.Debugf("peer logged in to Management Service %s", managementAddr)
 
 	return client, loginResp, nil
 }
@@ -166,7 +160,7 @@ func runClient() error {
 	}
 
 	// create start the Wiretrustee Engine that will connect to the Signal and Management streams and manage connections to remote peers.
-	engine := internal.NewEngine(signalClient, mgmClient, engineConfig, cancel)
+	engine := internal.NewEngine(signalClient, mgmClient, engineConfig, cancel, ctx)
 	err = engine.Start()
 	if err != nil {
 		log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
@@ -175,14 +169,11 @@ func runClient() error {
 
 	log.Print("Wiretrustee engine started, my IP is: ", peerConfig.Address)
 
-	SetupCloseHandler()
-
 	select {
 	case <-stopCh:
 	case <-ctx.Done():
 	}
 
-	log.Info("shutting down Wiretrustee client")
 	err = mgmClient.Close()
 	if err != nil {
 		log.Errorf("failed closing Management Service client %v", err)
@@ -199,6 +190,9 @@ func runClient() error {
 		log.Errorf("failed stopping engine %v", err)
 		return err
 	}
+
+	log.Info("stopped Wiretrustee client")
+	cleanupCh <- struct{}{}
 
 	return nil
 }
