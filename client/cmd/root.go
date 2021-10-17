@@ -2,11 +2,13 @@ package cmd
 
 import (
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/client/internal"
 	"os"
 	"os/signal"
 	"runtime"
+	"syscall"
 )
 
 const (
@@ -63,10 +65,10 @@ func init() {
 // SetupCloseHandler handles SIGTERM signal and exits with success
 func SetupCloseHandler() {
 	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt)
+	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		for range c {
-			fmt.Println("\r- Ctrl+C pressed in Terminal")
+			log.Info("shutdown signal received")
 			stopCh <- 0
 		}
 	}()

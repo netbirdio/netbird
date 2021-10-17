@@ -20,7 +20,6 @@ func (p *program) Start(s service.Service) error {
 }
 
 func (p *program) Stop(s service.Service) error {
-	stopCh <- 1
 	return nil
 }
 

@@ -180,7 +180,7 @@ func runClient() error {
 	case <-ctx.Done():
 	}
 
-	log.Infof("received signal to stop running")
+	log.Info("shutting down Wiretrustee client")
 	err = mgmClient.Close()
 	if err != nil {
 		log.Errorf("failed closing Management Service client %v", err)
