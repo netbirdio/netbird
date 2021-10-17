@@ -5,6 +5,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/util"
+	"time"
 )
 
 func (p *program) Start(s service.Service) error {
@@ -15,12 +16,18 @@ func (p *program) Start(s service.Service) error {
 		if err != nil {
 			return
 		}
-
 	}()
 	return nil
 }
 
 func (p *program) Stop(s service.Service) error {
+
+	select {
+	case <-cleanupCh:
+	case <-time.After(time.Second * 10):
+		log.Warnf("failed waiting for service cleanup, terminating")
+	}
+	log.Info("stopped Wiretrustee service") //nolint
 	return nil
 }
 
@@ -29,11 +36,15 @@ var (
 		Use:   "run",
 		Short: "runs wiretrustee as service",
 		Run: func(cmd *cobra.Command, args []string) {
+
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				log.Errorf("failed initializing log %v", err)
 				return
 			}
+
+			SetupCloseHandler()
+
 			prg := &program{
 				cmd:  cmd,
 				args: args,
