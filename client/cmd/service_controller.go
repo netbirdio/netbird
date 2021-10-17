@@ -4,6 +4,7 @@ import (
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/wiretrustee/wiretrustee/util"
 )
 
 func (p *program) Start(s service.Service) error {
@@ -28,7 +29,11 @@ var (
 		Use:   "run",
 		Short: "runs wiretrustee as service",
 		Run: func(cmd *cobra.Command, args []string) {
-
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+				return
+			}
 			prg := &program{
 				cmd:  cmd,
 				args: args,
@@ -54,7 +59,11 @@ var (
 		Use:   "start",
 		Short: "starts wiretrustee service",
 		RunE: func(cmd *cobra.Command, args []string) error {
-
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+				return err
+			}
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
 				cmd.PrintErrln(err)
@@ -76,7 +85,10 @@ var (
 		Use:   "stop",
 		Short: "stops wiretrustee service",
 		Run: func(cmd *cobra.Command, args []string) {
-
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+			}
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
 				cmd.PrintErrln(err)
@@ -97,7 +109,10 @@ var (
 		Use:   "restart",
 		Short: "restarts wiretrustee service",
 		Run: func(cmd *cobra.Command, args []string) {
-
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+			}
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
 				cmd.PrintErrln(err)
