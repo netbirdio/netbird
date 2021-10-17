@@ -4,13 +4,14 @@ import (
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/wiretrustee/wiretrustee/util"
 )
 
 func (p *program) Start(s service.Service) error {
 	// Start should not block. Do the actual work async.
 	log.Info("starting service") //nolint
 	go func() {
-		err := upCmd.RunE(p.cmd, p.args)
+		err := runClient()
 		if err != nil {
 			return
 		}
@@ -20,7 +21,6 @@ func (p *program) Start(s service.Service) error {
 }
 
 func (p *program) Stop(s service.Service) error {
-	stopCh <- 1
 	return nil
 }
 
@@ -29,7 +29,11 @@ var (
 		Use:   "run",
 		Short: "runs wiretrustee as service",
 		Run: func(cmd *cobra.Command, args []string) {
-
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+				return
+			}
 			prg := &program{
 				cmd:  cmd,
 				args: args,
@@ -54,19 +58,24 @@ var (
 	startCmd = &cobra.Command{
 		Use:   "start",
 		Short: "starts wiretrustee service",
-		Run: func(cmd *cobra.Command, args []string) {
-
+		RunE: func(cmd *cobra.Command, args []string) error {
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+				return err
+			}
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
 				cmd.PrintErrln(err)
-				return
+				return err
 			}
 			err = s.Start()
 			if err != nil {
 				cmd.PrintErrln(err)
-				return
+				return err
 			}
-			cmd.Printf("Wiretrustee service has been started")
+			cmd.Println("Wiretrustee service has been started")
+			return nil
 		},
 	}
 )
@@ -76,7 +85,10 @@ var (
 		Use:   "stop",
 		Short: "stops wiretrustee service",
 		Run: func(cmd *cobra.Command, args []string) {
-
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+			}
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
 				cmd.PrintErrln(err)
@@ -87,7 +99,7 @@ var (
 				cmd.PrintErrln(err)
 				return
 			}
-			cmd.Printf("Wiretrustee service has been stopped")
+			cmd.Println("Wiretrustee service has been stopped")
 		},
 	}
 )
@@ -97,7 +109,10 @@ var (
 		Use:   "restart",
 		Short: "restarts wiretrustee service",
 		Run: func(cmd *cobra.Command, args []string) {
-
+			err := util.InitLog(logLevel, logFile)
+			if err != nil {
+				log.Errorf("failed initializing log %v", err)
+			}
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {
 				cmd.PrintErrln(err)
@@ -108,7 +123,7 @@ var (
 				cmd.PrintErrln(err)
 				return
 			}
-			cmd.Printf("Wiretrustee service has been restarted")
+			cmd.Println("Wiretrustee service has been restarted")
 		},
 	}
 )

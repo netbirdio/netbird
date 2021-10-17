@@ -1,13 +1,10 @@
 package cmd
 
 import (
-	"errors"
-	"fmt"
 	"github.com/wiretrustee/wiretrustee/iface"
 	mgmt "github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
 	"net/url"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -37,24 +34,6 @@ func TestUp_Start(t *testing.T) {
 
 }
 
-func TestUp_ShouldFail_On_NoConfig(t *testing.T) {
-
-	tempDir := t.TempDir()
-	confPath := tempDir + "/config.json"
-	mgmtURL := fmt.Sprintf("http://%s", mgmAddr)
-	rootCmd.SetArgs([]string{
-		"up",
-		"--config",
-		confPath,
-		"--management-url",
-		mgmtURL,
-	})
-	err := rootCmd.Execute()
-	if err == nil || !errors.Is(err, os.ErrNotExist) {
-		t.Errorf("expecting login command to fail on absence of config")
-	}
-}
-
 func TestUp(t *testing.T) {
 
 	defer iface.Close()
@@ -65,24 +44,17 @@ func TestUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	rootCmd.SetArgs([]string{
-		"login",
+		"up",
 		"--config",
 		confPath,
 		"--setup-key",
 		"A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
 		"--management-url",
 		mgmtURL.String(),
-	})
-	err = rootCmd.Execute()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rootCmd.SetArgs([]string{
-		"up",
-		"--config",
-		confPath,
+		"--log-file",
+		"console",
 	})
 	go func() {
 		err = rootCmd.Execute()
