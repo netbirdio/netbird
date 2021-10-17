@@ -22,7 +22,6 @@
  
 </strong>
 </p>
-</div>
 
 <br>
 
@@ -146,40 +145,22 @@ After that you may need to add /usr/local/bin in your MAC's PATH environment var
 
 For **Unix** systems:
   ```shell
-  sudo wiretrustee login --setup-key <SETUP KEY>
+  sudo wiretrustee up --setup-key <SETUP KEY>
   ```
-For  **Windows** systems:
+For  **Windows** systems, start powershell as administrator and:
   ```shell
-  .\wiretrustee.exe login --setup-key <SETUP KEY>
+  wiretrustee up --setup-key <SETUP KEY>
    ```
 
 Alternatively, if you are hosting your own Management Service provide `--management-url` property pointing to your Management Service:
   ```shell
-  sudo wiretrustee login --setup-key <SETUP KEY> --management-url https://localhost:33073
+  sudo wiretrustee up --setup-key <SETUP KEY> --management-url https://localhost:33073
   ```
 
-You could also omit `--setup-key` property. In this case the tool will prompt it the key.
+> You could also omit `--setup-key` property. In this case the tool will prompt it the key.
 
-2. Start Wiretrustee:
 
-For **MACOS** you will just start the service:
-  ````shell
-  sudo wiretrustee up
-  # or
-  sudo wiretrustee up & # to run it in background
-  ````   
-For **Linux** systems:
-  ```shell
-  sudo systemctl restart wiretrustee.service
-  sudo systemctl status wiretrustee.service 
-  ```
-For **Windows** systems:
-  ```shell
-  .\wiretrustee.exe service start
-  ```
-> You may need to run Powershell as Administrator
-
-3. Check your IP:
+2. Check your IP:
   For **MACOS** you will just start the service:
   ````shell
   sudo ipconfig getifaddr utun100
@@ -193,7 +174,7 @@ For **Windows** systems:
   netsh interface ip show config name="wt0"
   ```
 
-4. Repeat on other machines.  
+3. Repeat on other machines.  
 
 ### Running Dashboard, Management, Signal and Coturn
 Wiretrustee uses [Auth0](https://auth0.com) for user authentication and authorization, therefore you will need to create a free account 

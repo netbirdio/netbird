@@ -17,7 +17,7 @@ import (
 var (
 	upCmd = &cobra.Command{
 		Use:   "up",
-		Short: "start wiretrustee",
+		Short: "install, login and start wiretrustee client",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
