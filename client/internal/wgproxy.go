@@ -87,7 +87,7 @@ func (p *WgProxy) proxyToRemotePeer(remoteConn *ice.Conn) {
 	for {
 		select {
 		case <-p.close:
-			log.Infof("stopped proxying from remote peer %s due to closed connection", p.remoteKey)
+			log.Debugf("stopped proxying from remote peer %s due to closed connection", p.remoteKey)
 			return
 		default:
 			n, err := p.wgConn.Read(buf)
@@ -113,7 +113,7 @@ func (p *WgProxy) proxyToLocalWireguard(remoteConn *ice.Conn) {
 	for {
 		select {
 		case <-p.close:
-			log.Infof("stopped proxying from remote peer %s due to closed connection", p.remoteKey)
+			log.Debugf("stopped proxying from remote peer %s due to closed connection", p.remoteKey)
 			return
 		default:
 			n, err := remoteConn.Read(buf)

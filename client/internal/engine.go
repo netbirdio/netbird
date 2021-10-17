@@ -57,6 +57,8 @@ type Engine struct {
 	TURNs []*ice.URL
 
 	cancel context.CancelFunc
+
+	ctx context.Context
 }
 
 // Peer is an instance of the Connection Peer
@@ -66,7 +68,7 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig, cancel context.CancelFunc) *Engine {
+func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
 	return &Engine{
 		signal:     signalClient,
 		mgmClient:  mgmClient,
@@ -77,16 +79,24 @@ func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *Engin
 		STUNs:      []*ice.URL{},
 		TURNs:      []*ice.URL{},
 		cancel:     cancel,
+		ctx:        ctx,
 	}
 }
 
 func (e *Engine) Stop() error {
+	err := e.removeAllPeerConnections()
+	if err != nil {
+		return err
+	}
+
 	log.Debugf("removing Wiretrustee interface %s", e.config.WgIface)
-	err := iface.Close()
+	err = iface.Close()
 	if err != nil {
 		log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIface, err)
 		return err
 	}
+
+	log.Infof("stopped Wiretrustee Engine")
 
 	return nil
 }
@@ -127,7 +137,7 @@ func (e *Engine) Start() error {
 
 // initializePeer peer agent attempt to open connection
 func (e *Engine) initializePeer(peer Peer) {
-	var backOff = &backoff.ExponentialBackOff{
+	var backOff = backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     backoff.DefaultInitialInterval,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
@@ -135,13 +145,14 @@ func (e *Engine) initializePeer(peer Peer) {
 		MaxElapsedTime:      time.Duration(0), //never stop
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
-	}
+	}, e.ctx)
+
 	operation := func() error {
 		_, err := e.openPeerConnection(e.wgPort, e.config.WgPrivateKey, peer)
 		e.peerMux.Lock()
 		defer e.peerMux.Unlock()
 		if _, ok := e.conns[peer.WgPubKey]; !ok {
-			log.Infof("removing connection attempt with Peer: %v, not retrying", peer.WgPubKey)
+			log.Debugf("removed connection attempt to peer: %v, not retrying", peer.WgPubKey)
 			return nil
 		}
 
@@ -172,6 +183,19 @@ func (e *Engine) removePeerConnections(peers []string) error {
 	return nil
 }
 
+func (e *Engine) removeAllPeerConnections() error {
+	log.Debugf("removing all peer connections")
+	e.peerMux.Lock()
+	defer e.peerMux.Unlock()
+	for peer := range e.conns {
+		err := e.removePeerConnection(peer)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // removePeerConnection closes existing peer connection and removes peer
 func (e *Engine) removePeerConnection(peerKey string) error {
 	conn, exists := e.conns[peerKey]
@@ -179,6 +203,7 @@ func (e *Engine) removePeerConnection(peerKey string) error {
 		delete(e.conns, peerKey)
 		return conn.Close()
 	}
+	log.Infof("removed connection to peer %s", peerKey)
 	return nil
 }
 
@@ -310,7 +335,7 @@ func (e *Engine) receiveManagementEvents() {
 			e.cancel()
 			return
 		}
-		log.Infof("connected to Management Service updates stream")
+		log.Debugf("stopped receiving updates from Management Service")
 	}()
 	log.Debugf("connecting to Management Service updates stream")
 }

@@ -31,7 +31,8 @@ var (
 	}
 
 	// Execution control channel for stopCh signal
-	stopCh chan int
+	stopCh    chan int
+	cleanupCh chan struct{}
 )
 
 // Execute executes the root command.
@@ -41,6 +42,7 @@ func Execute() error {
 func init() {
 
 	stopCh = make(chan int)
+	cleanupCh = make(chan struct{})
 
 	defaultConfigPath = "/etc/wiretrustee/config.json"
 	defaultLogFile = "/var/log/wiretrustee/client.log"
