@@ -66,17 +66,16 @@ nfpms:
     formats:
       - deb
     contents:
-      - src: release_files/wiretrustee.service
-        dst: /lib/systemd/system/wiretrustee.service
-
       - src: release_files/wiretrustee.json
         dst: /etc/wiretrustee/wiretrustee.json
         type: "config|noreplace"
 
     scripts:
       postinstall: "release_files/post_install.sh"
+      preremove: "release_files/pre_remove.sh"
     replacements:
       arm6: armf
+
   - maintainer: Wiretrustee <dev@wiretrustee.com>
     description: Wiretrustee client.
     homepage: https://wiretrustee.com/
@@ -86,15 +85,13 @@ nfpms:
     formats:
       - rpm
     contents:
-      - src: release_files/wiretrustee.service
-        dst: /lib/systemd/system/wiretrustee.service
-
       - src: release_files/wiretrustee.json
         dst: /etc/wiretrustee/wiretrustee.json
         type: "config|noreplace"
 
     scripts:
       postinstall: "release_files/post_install.sh"
+      preremove: "release_files/pre_remove.sh"
 dockers:
   - image_templates:
       - wiretrustee/signal:{{ .Version }}-amd64

@@ -12,30 +12,25 @@ fi
 cleanInstall() {
     printf "\033[32m Post Install of an clean install\033[0m\n"
     # Step 3 (clean install), enable the service in the proper way for this platform
-    if [ "${use_systemctl}" = "True" ]; then
-        printf "\033[32m Reload the service unit from disk\033[0m\n"
-        systemctl daemon-reload ||:
-        printf "\033[32m Unmask the service\033[0m\n"
-        systemctl unmask wiretrustee ||:
-        printf "\033[32m Set the preset flag for the service unit\033[0m\n"
-        systemctl preset wiretrustee ||:
-        printf "\033[32m Set the enabled flag for the service unit\033[0m\n"
-        systemctl enable wiretrustee ||:
-        systemctl restart wiretrustee ||:
-    fi
+    /usr/local/bin/wiretrustee service install
 }
 
 upgrade() {
     printf "\033[32m Post Install of an upgrade\033[0m\n"
     if [ "${use_systemctl}" = "True" ]; then
-        printf "\033[32m Reload the service unit from disk\033[0m\n"
-        systemctl daemon-reload ||:
-        printf "\033[32m Restarting the service\033[0m\n"
-        systemctl restart wiretrustee ||:
+      printf "\033[32m Stopping the service\033[0m\n"
+      systemctl stop wiretrustee
     fi
+    if [ -e /lib/systemd/system/wiretrustee.service ]; then
+      rm -f /lib/systemd/system/wiretrustee.service
+      systemctl daemon-reload
+    fi
+    # will trow an error untill everyone upgrade
+    /usr/local/bin/wiretrustee service uninstall
+    /usr/local/bin/wiretrustee service install
 }
 
-# Step 2, check if this is a clean install or an upgrade
+# Check if this is a clean install or an upgrade
 action="$1"
 if  [ "$1" = "configure" ] && [ -z "$2" ]; then
   # Alpine linux does not pass args, and deb passes $1=configure
