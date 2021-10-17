@@ -152,6 +152,5 @@ func promptPeerSetupKey() (string, error) {
 	return "", s.Err()
 }
 
-func init() {
-	loginCmd.PersistentFlags().StringVar(&setupKey, "setup-key", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
-}
+//func init() {
+//}
