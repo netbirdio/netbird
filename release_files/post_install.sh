@@ -25,7 +25,7 @@ upgrade() {
       rm -f /lib/systemd/system/wiretrustee.service
       systemctl daemon-reload
     fi
-    # will trow an error untill everyone upgrade
+    # will trow an error until everyone upgrade
     /usr/local/bin/wiretrustee service uninstall
     /usr/local/bin/wiretrustee service install
 }
