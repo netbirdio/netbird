@@ -45,7 +45,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		}))
 
 	if err != nil {
-		log.Errorf("failed creating connection to Management Srvice %v", err)
+		log.Errorf("failed creating connection to Management Service %v", err)
 		return nil, err
 	}
 
