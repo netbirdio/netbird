@@ -12,7 +12,7 @@ printf "\033[32m Pre uninstall\033[0m\n"
 
 if [ "${use_systemctl}" = "True" ]; then
   printf "\033[32m Stopping the service\033[0m\n"
-  systemctl stop wiretrustee
+  systemctl stop wiretrustee || true
 
   if [ -e /lib/systemd/system/wiretrustee.service ]; then
     rm -f /lib/systemd/system/wiretrustee.service
@@ -21,7 +21,7 @@ if [ "${use_systemctl}" = "True" ]; then
 
 fi
 printf "\033[32m Uninstalling the service\033[0m\n"
-/usr/local/bin/wiretrustee service uninstall
+/usr/local/bin/wiretrustee service uninstall || true
 
 
 if [ "${use_systemctl}" = "True" ]; then
