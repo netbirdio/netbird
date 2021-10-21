@@ -45,7 +45,7 @@ The same applies also to the relayed traffic mentioned below.
 
 Furthermore, Wiretrustee ensures connectivity by leveraging advanced [NAT traversal techniques](https://en.wikipedia.org/wiki/NAT_traversal)
 and removing the necessity of port forwarding, opening holes in the firewall, and having a public static IP address.  
-In cases when a direct peer-to-peer connection isn't possible all traffic is relayed securely between peers.
+In cases when a direct peer-to-peer connection isn't possible, all traffic is relayed securely between peers.
 Wiretrustee also monitors the connection health and restarts broken connections.
 
 There are a few more things that we are working on to make secure private networks simple. A few examples are ACLs, MFA and activity monitoring.
