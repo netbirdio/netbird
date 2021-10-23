@@ -69,8 +69,6 @@ nfpms:
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
-    replacements:
-      arm6: armf
 
   - maintainer: Wiretrustee <dev@wiretrustee.com>
     description: Wiretrustee client.
@@ -223,7 +221,7 @@ uploads:
     ids:
     - deb
     mode: archive
-    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
+    target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ .Arch }}
     username: dev@wiretrustee.com
     method: PUT
   - name: yum
