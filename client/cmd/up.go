@@ -191,8 +191,12 @@ func runClient() error {
 		return err
 	}
 
-	log.Info("stopped Wiretrustee client")
-	cleanupCh <- struct{}{}
+	go func() {
+		cleanupCh <- struct{}{}
+	}()
 
-	return nil
+	log.Info("stopped Wiretrustee client")
+
+	return ctx.Err()
+
 }
