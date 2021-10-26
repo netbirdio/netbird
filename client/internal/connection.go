@@ -128,6 +128,8 @@ func (conn *Connection) Open(timeout time.Duration) error {
 	a, err := ice.NewAgent(&ice.AgentConfig{
 		// MulticastDNSMode: ice.MulticastDNSModeQueryAndGather,
 		NetworkTypes:   []ice.NetworkType{ice.NetworkTypeUDP4},
+		PortMin:        57830,
+		PortMax:        57830,
 		Urls:           conn.Config.StunTurnURLS,
 		CandidateTypes: []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
 		InterfaceFilter: func(s string) bool {
@@ -160,7 +162,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 	}
 
 	conn.Status = StatusConnecting
-	log.Infof("trying to connect to peer %s", conn.Config.RemoteWgKey.String())
+	log.Debugf("trying to connect to peer %s", conn.Config.RemoteWgKey.String())
 
 	// wait until credentials have been sent from the remote peer (will arrive via a signal server)
 	select {
