@@ -158,7 +158,7 @@ func (e *Engine) initializePeer(peer Peer) {
 
 		if err != nil {
 			log.Warnln(err)
-			log.Warnln("retrying connection because of error: ", err.Error())
+			log.Debugf("retrying connection because of error: %s", err.Error())
 			return err
 		}
 		return nil
