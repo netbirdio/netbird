@@ -128,8 +128,6 @@ func (conn *Connection) Open(timeout time.Duration) error {
 	a, err := ice.NewAgent(&ice.AgentConfig{
 		// MulticastDNSMode: ice.MulticastDNSModeQueryAndGather,
 		NetworkTypes:   []ice.NetworkType{ice.NetworkTypeUDP4},
-		PortMin:        57830,
-		PortMax:        57830,
 		Urls:           conn.Config.StunTurnURLS,
 		CandidateTypes: []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
 		InterfaceFilter: func(s string) bool {
