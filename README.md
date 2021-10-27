@@ -31,6 +31,16 @@ It requires zero configuration effort leaving behind the hassle of opening ports
 
 There is no centralized VPN server with Wiretrustee - your computers, devices, machines, and servers connect to each other directly over a fast encrypted tunnel.
 
+**Wiretrustee automates Wireguard-based networks, offering a management layer with:**
+* Centralized Peer IP management with a neat UI dashboard.
+* Automatic Peer discovery and configuration.
+* UDP hole punching to establish peer-to-peer connections behind NAT, firewall, and without a public static IP.
+* Connection relay fallback in case a peer-to-peer connection is not possible.
+* Multitenancy (coming soon).
+* Client application SSO with MFA (coming soon).
+* Access Controls (coming soon).
+* Activity Monitoring (coming soon).
+
 ### Secure peer-to-peer VPN in minutes
 <p float="left" align="middle">
   <img src="docs/media/peerA.gif" width="400"/> 
@@ -43,22 +53,6 @@ Hosted demo version:
 [https://app.wiretrustee.com/](https://app.wiretrustee.com/peers). 
 
 [UI Dashboard Repo](https://github.com/wiretrustee/wiretrustee-dashboard)
-
-
-### Why using Wiretrustee?
-
-* Connect multiple devices to each other via a secure peer-to-peer Wireguard VPN tunnel. At home, the office, or anywhere else.
-* No need to open ports and expose public IPs on the device, routers etc.
-* Uses Kernel Wireguard module if available.
-* Automatic network change detection. When a new peer joins the network others are notified and keys are exchanged automatically.  
-* Automatically reconnects in case of network failures or switches.
-* Automatic NAT traversal.
-* Relay server fallback in case of an unsuccessful peer-to-peer connection.
-* Private key never leaves your device.
-* Automatic IP address management.
-* Intuitive UI Dashboard.
-* Works on ARM devices (e.g. Raspberry Pi).
-* Open-source (including Management Service)
 
 
 ### A bit on Wiretrustee internals
