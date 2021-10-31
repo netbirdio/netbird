@@ -3,11 +3,11 @@ package server
 import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net"
 	"sync"
-	"time"
 )
 
 type AccountManager struct {
@@ -35,16 +35,21 @@ func NewManager(store Store, peersUpdateManager *PeersUpdateManager) *AccountMan
 }
 
 //AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
-func (am *AccountManager) AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn time.Duration) (*SetupKey, error) {
+func (am *AccountManager) AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn *util.Duration) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
+
+	keyDuration := DefaultSetupKeyDuration
+	if expiresIn != nil {
+		keyDuration = expiresIn.Duration
+	}
 
 	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	setupKey := GenerateSetupKey(keyName, keyType, expiresIn)
+	setupKey := GenerateSetupKey(keyName, keyType, keyDuration)
 	account.SetupKeys[setupKey.Key] = setupKey
 
 	err = am.Store.SaveAccount(account)
