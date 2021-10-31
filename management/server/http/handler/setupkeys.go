@@ -5,6 +5,7 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
+	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
@@ -34,7 +35,7 @@ type SetupKeyResponse struct {
 type SetupKeyRequest struct {
 	Name      string
 	Type      server.SetupKeyType
-	ExpiresIn Duration
+	ExpiresIn *util.Duration
 	Revoked   bool
 }
 
@@ -102,7 +103,7 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 		return
 	}
 
-	setupKey, err := h.accountManager.AddSetupKey(accountId, req.Name, req.Type, req.ExpiresIn.Duration)
+	setupKey, err := h.accountManager.AddSetupKey(accountId, req.Name, req.Type, req.ExpiresIn)
 	if err != nil {
 		errStatus, ok := status.FromError(err)
 		if ok && errStatus.Code() == codes.NotFound {
