@@ -48,7 +48,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	sigCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	sigCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	conn, err := grpc.DialContext(
 		sigCtx,
@@ -56,8 +56,8 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		transportOption,
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    3 * time.Second,
-			Timeout: 2 * time.Second,
+			Time:    15 * time.Second,
+			Timeout: 10 * time.Second,
 		}))
 
 	if err != nil {
