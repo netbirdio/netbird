@@ -81,7 +81,7 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         30 * time.Second,
+		MaxInterval:         time.Hour,
 		MaxElapsedTime:      24 * 3 * time.Hour, //stop after 3 days trying
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
@@ -101,7 +101,7 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
 
 		operation := func() error {
 
-			err := c.connect(c.key.PublicKey().String(), msgHandler)
+			stream, err := c.connect(c.key.PublicKey().String())
 			if err != nil {
 				log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 				c.connWg.Add(1)
@@ -109,6 +109,11 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
 			}
 
 			backOff.Reset()
+			err = c.receive(stream, msgHandler)
+			if err != nil {
+				return err
+			}
+
 			return nil
 		}
 
@@ -120,7 +125,7 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
 	}()
 }
 
-func (c *Client) connect(key string, msgHandler func(msg *proto.Message) error) error {
+func (c *Client) connect(key string) (proto.SignalExchange_ConnectStreamClient, error) {
 	c.stream = nil
 
 	// add key fingerprint to the request header to be identified on the server side
@@ -131,23 +136,23 @@ func (c *Client) connect(key string, msgHandler func(msg *proto.Message) error) 
 
 	c.stream = stream
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// blocks
 	header, err := c.stream.Header()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	registered := header.Get(proto.HeaderRegistered)
 	if len(registered) == 0 {
-		return fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
+		return nil, fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
 	}
 	//connection established we are good to use the stream
 	c.connWg.Done()
 
 	log.Infof("connected to the Signal Exchange Stream")
 
-	return c.receive(stream, msgHandler)
+	return stream, nil
 }
 
 // WaitConnected waits until the client is connected to the message stream
