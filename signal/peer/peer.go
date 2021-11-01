@@ -22,6 +22,7 @@ func NewWebsocketChannel(conn *websocket.Conn) *WebsocketChannel {
 }
 
 func (c *WebsocketChannel) Send(msg *proto.EncryptedMessage) error {
+	//todo
 	return nil
 }
 

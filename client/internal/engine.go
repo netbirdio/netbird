@@ -35,7 +35,7 @@ type EngineConfig struct {
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
 type Engine struct {
 	// signal is a Signal Service client
-	signal *signal.Client
+	signal signal.Client
 	// mgmClient is a Management Service client
 	mgmClient *mgm.Client
 	// conns is a collection of remote peer connections indexed by local public key of the remote peers
@@ -68,7 +68,7 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
+func NewEngine(signalClient signal.Client, mgmClient *mgm.Client, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
 	return &Engine{
 		signal:     signalClient,
 		mgmClient:  mgmClient,
@@ -258,7 +258,7 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	return conn, nil
 }
 
-func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client) error {
+func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client) error {
 	err := s.Send(&sProto.Message{
 		Key:       myKey.PublicKey().String(),
 		RemoteKey: remoteKey.String(),
@@ -276,7 +276,7 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 	return nil
 }
 
-func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client, isAnswer bool) error {
+func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
 
 	var t sProto.Body_Type
 	if isAnswer {
