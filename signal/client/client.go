@@ -81,8 +81,8 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         time.Hour,
-		MaxElapsedTime:      24 * 3 * time.Hour, //stop after 3 days trying
+		MaxInterval:         15 * time.Minute,
+		MaxElapsedTime:      time.Hour, //stop after an hour of trying, the error will be propagated to the general retry of the client
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -108,9 +108,9 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
 				return err
 			}
 
-			backOff.Reset()
 			err = c.receive(stream, msgHandler)
 			if err != nil {
+				backOff.Reset()
 				return err
 			}
 

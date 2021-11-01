@@ -70,8 +70,8 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         time.Hour,
-		MaxElapsedTime:      24 * 3 * time.Hour, //stop after 3 days trying
+		MaxInterval:         15 * time.Minute,
+		MaxElapsedTime:      time.Hour, //stop after an hour of trying, the error will be propagated to the general retry of the client
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -97,15 +97,13 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 			log.Errorf("failed to open Management Service stream: %s", err)
 			return err
 		}
-		backOff.Reset()
+
 		log.Infof("connected to the Management Service Stream")
 
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
-			/*if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.PermissionDenied {
-				//todo handle differently??
-			}*/
+			backOff.Reset()
 			return err
 		}
 
