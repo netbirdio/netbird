@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"github.com/cenkalti/backoff/v4"
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -11,31 +10,12 @@ import (
 
 func (p *program) Start(s service.Service) error {
 
-	var backOff = &backoff.ExponentialBackOff{
-		InitialInterval:     time.Second,
-		RandomizationFactor: backoff.DefaultRandomizationFactor,
-		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         30 * time.Second,
-		MaxElapsedTime:      24 * 3 * time.Hour, //stop after 3 days trying
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}
-
 	// Start should not block. Do the actual work async.
 	log.Info("starting service") //nolint
 	go func() {
-		operation := func() error {
-			err := runClient()
-			if err != nil {
-				log.Warnf("retrying Wiretrustee client app due to error: %v", err)
-				return err
-			}
-			return nil
-		}
-
-		err := backoff.Retry(operation, backOff)
+		err := runClient()
 		if err != nil {
-			log.Errorf("exiting client retry loop due to unrecoverable error: %s", err)
+			log.Errorf("stopped Wiretrustee client app due to error: %v", err)
 			return
 		}
 	}()

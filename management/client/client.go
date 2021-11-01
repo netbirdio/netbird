@@ -32,7 +32,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	mgmCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	mgmCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	conn, err := grpc.DialContext(
 		mgmCtx,
@@ -40,8 +40,8 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		transportOption,
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:    3 * time.Second,
-			Timeout: 2 * time.Second,
+			Time:    15 * time.Second,
+			Timeout: 10 * time.Second,
 		}))
 
 	if err != nil {
@@ -70,8 +70,8 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         30 * time.Second,
-		MaxElapsedTime:      24 * 3 * time.Hour, //stop after 3 days trying
+		MaxInterval:         15 * time.Minute,
+		MaxElapsedTime:      time.Hour, //stop after an hour of trying, the error will be propagated to the general retry of the client
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -103,12 +103,10 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
-			/*if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.PermissionDenied {
-				//todo handle differently??
-			}*/
+			backOff.Reset()
 			return err
 		}
-		backOff.Reset()
+
 		return nil
 	}
 
