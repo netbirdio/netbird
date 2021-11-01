@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"github.com/cenkalti/backoff/v4"
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -12,6 +13,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"time"
 )
 
 var (
@@ -117,86 +119,107 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 }
 
 func runClient() error {
-	config, err := internal.ReadConfig(managementURL, configPath)
+	var backOff = &backoff.ExponentialBackOff{
+		InitialInterval:     time.Second,
+		RandomizationFactor: backoff.DefaultRandomizationFactor,
+		Multiplier:          backoff.DefaultMultiplier,
+		MaxInterval:         time.Hour,
+		MaxElapsedTime:      24 * 3 * time.Hour,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	}
+
+	operation := func() error {
+
+		config, err := internal.ReadConfig(managementURL, configPath)
+		if err != nil {
+			log.Errorf("failed reading config %s %v", configPath, err)
+			return err
+		}
+
+		//validate our peer's Wireguard PRIVATE key
+		myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
+		if err != nil {
+			log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
+			return err
+		}
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		mgmTlsEnabled := false
+		if config.ManagementURL.Scheme == "https" {
+			mgmTlsEnabled = true
+		}
+
+		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
+		mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+		if err != nil {
+			log.Warn(err)
+			return err
+		}
+
+		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
+		signalClient, err := connectToSignal(ctx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+
+		peerConfig := loginResp.GetPeerConfig()
+
+		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+
+		// create start the Wiretrustee Engine that will connect to the Signal and Management streams and manage connections to remote peers.
+		engine := internal.NewEngine(signalClient, mgmClient, engineConfig, cancel, ctx)
+		err = engine.Start()
+		if err != nil {
+			log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
+			return err
+		}
+
+		log.Print("Wiretrustee engine started, my IP is: ", peerConfig.Address)
+
+		select {
+		case <-stopCh:
+		case <-ctx.Done():
+		}
+
+		backOff.Reset()
+
+		err = mgmClient.Close()
+		if err != nil {
+			log.Errorf("failed closing Management Service client %v", err)
+			return err
+		}
+		err = signalClient.Close()
+		if err != nil {
+			log.Errorf("failed closing Signal Service client %v", err)
+			return err
+		}
+
+		err = engine.Stop()
+		if err != nil {
+			log.Errorf("failed stopping engine %v", err)
+			return err
+		}
+
+		go func() {
+			cleanupCh <- struct{}{}
+		}()
+
+		log.Info("stopped Wiretrustee client")
+
+		return ctx.Err()
+	}
+
+	err := backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Errorf("failed reading config %s %v", configPath, err)
+		log.Errorf("exiting client retry loop due to unrecoverable error: %s", err)
 		return err
 	}
-
-	//validate our peer's Wireguard PRIVATE key
-	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
-	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-		return err
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	mgmTlsEnabled := false
-	if config.ManagementURL.Scheme == "https" {
-		mgmTlsEnabled = true
-	}
-
-	// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
-	mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
-	if err != nil {
-		log.Warn(err)
-		return err
-	}
-
-	// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
-	signalClient, err := connectToSignal(ctx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	peerConfig := loginResp.GetPeerConfig()
-
-	engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig)
-	if err != nil {
-		log.Error(err)
-		return err
-	}
-
-	// create start the Wiretrustee Engine that will connect to the Signal and Management streams and manage connections to remote peers.
-	engine := internal.NewEngine(signalClient, mgmClient, engineConfig, cancel, ctx)
-	err = engine.Start()
-	if err != nil {
-		log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
-		return err
-	}
-
-	log.Print("Wiretrustee engine started, my IP is: ", peerConfig.Address)
-
-	select {
-	case <-stopCh:
-	case <-ctx.Done():
-	}
-
-	err = mgmClient.Close()
-	if err != nil {
-		log.Errorf("failed closing Management Service client %v", err)
-		return err
-	}
-	err = signalClient.Close()
-	if err != nil {
-		log.Errorf("failed closing Signal Service client %v", err)
-		return err
-	}
-
-	err = engine.Stop()
-	if err != nil {
-		log.Errorf("failed stopping engine %v", err)
-		return err
-	}
-
-	go func() {
-		cleanupCh <- struct{}{}
-	}()
-
-	log.Info("stopped Wiretrustee client")
-
-	return ctx.Err()
-
+	return nil
 }
