@@ -1,22 +1,41 @@
 package peer
 
 import (
+	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"sync"
 )
+
+//Channel abstracts transport that Peer is using to communicate with teh Signal server.
+//There are 2 types channels so far: gRPC- and websocket-based.
+type Channel interface {
+	Send(msg *proto.EncryptedMessage) error
+}
+
+type WebsocketChannel struct {
+	conn *websocket.Conn
+}
+
+func NewWebsocketChannel(conn *websocket.Conn) *WebsocketChannel {
+	return &WebsocketChannel{conn: conn}
+}
+
+func (c *WebsocketChannel) Send(msg *proto.EncryptedMessage) error {
+	return nil
+}
 
 // Peer representation of a connected Peer
 type Peer struct {
 	// a unique id of the Peer (e.g. sha256 fingerprint of the Wireguard public key)
 	Id string
 
-	//a gRpc connection stream to the Peer
-	Stream proto.SignalExchange_ConnectStreamServer
+	//a connection stream to the Peer (gRPC or websocket)
+	Stream Channel
 }
 
-// NewPeer creates a new instance of a connected Peer
-func NewPeer(id string, stream proto.SignalExchange_ConnectStreamServer) *Peer {
+// NewPeer creates a new instance of a Peer connected with gRPC
+func NewPeer(id string, stream Channel) *Peer {
 	return &Peer{
 		Id:     id,
 		Stream: stream,

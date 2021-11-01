@@ -1,20 +1,21 @@
 package cmd
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/encryption"
+	"github.com/wiretrustee/wiretrustee/signal/peer"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"github.com/wiretrustee/wiretrustee/signal/server"
+	"github.com/wiretrustee/wiretrustee/signal/server/http"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"net"
-	"net/http"
-	"os"
 	"time"
 )
 
@@ -45,25 +46,20 @@ var (
 				log.Fatalf("failed initializing log %v", err)
 			}
 
+			registry := peer.NewRegistry()
+
 			var opts []grpc.ServerOption
+			var httpServer *http.Server
 			if signalLetsencryptDomain != "" {
-				if _, err := os.Stat(signalSSLDir); os.IsNotExist(err) {
-					err = os.MkdirAll(signalSSLDir, os.ModeDir)
-					if err != nil {
-						log.Fatalf("failed creating datadir: %s: %v", signalSSLDir, err)
-					}
-				}
+
+				//automatically generate a new certificate with Let's Encrypt
 				certManager := encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 
-				listener := certManager.Listener()
-				log.Infof("http server listening on %s", listener.Addr())
-				go func() {
-					if err := http.Serve(listener, certManager.HTTPHandler(nil)); err != nil {
-						log.Errorf("failed to serve https server: %v", err)
-					}
-				}()
+				httpServer = http.NewHttpsServer("0.0.0.0:443", certManager, registry)
+			} else {
+				httpServer = http.NewHttpServer("0.0.0.0:80", registry)
 			}
 
 			opts = append(opts, signalKaep, signalKasp)
@@ -78,15 +74,34 @@ var (
 				log.Fatalf("failed to listen: %v", err)
 			}
 
-			proto.RegisterSignalExchangeServer(grpcServer, server.NewServer())
-			log.Printf("started server: localhost:%v", signalPort)
-			if err := grpcServer.Serve(lis); err != nil {
-				log.Fatalf("failed to serve: %v", err)
-			}
+			proto.RegisterSignalExchangeServer(grpcServer, server.NewServer(registry))
+			log.Printf("gRPC server listening on 0.0.0.0:%v", signalPort)
+
+			go func() {
+				if err := grpcServer.Serve(lis); err != nil {
+					log.Fatalf("failed to serve: %v", err)
+				}
+			}()
+
+			go func() {
+				err = httpServer.Start()
+				if err != nil {
+					log.Fatalf("failed to serve http server: %v", err)
+				}
+			}()
 
 			SetupCloseHandler()
 			<-stopCh
-			log.Println("Receive signal to stop running the Signal server")
+			log.Println("received signal to stop running the Signal server")
+
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err = httpServer.Stop(ctx)
+			if err != nil {
+				log.Fatalf("failed stopping the http server %v", err)
+			}
+
+			grpcServer.Stop()
 		},
 	}
 )

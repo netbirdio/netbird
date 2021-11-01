@@ -19,9 +19,9 @@ type Server struct {
 }
 
 // NewServer creates a new Signal server
-func NewServer() *Server {
+func NewServer(registry *peer.Registry) *Server {
 	return &Server{
-		registry: peer.NewRegistry(),
+		registry: registry,
 	}
 }
 
