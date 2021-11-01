@@ -3,6 +3,7 @@ package cmd
 import (
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	mgmt "github.com/wiretrustee/wiretrustee/management/server"
+	"github.com/wiretrustee/wiretrustee/signal/peer"
 	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	sig "github.com/wiretrustee/wiretrustee/signal/server"
 	"google.golang.org/grpc"
@@ -16,7 +17,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	sigProto.RegisterSignalExchangeServer(s, sig.NewServer())
+	sigProto.RegisterSignalExchangeServer(s, sig.NewServer(peer.NewRegistry()))
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			panic(err)
