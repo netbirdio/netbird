@@ -1,6 +1,7 @@
 package peer
 
 import (
+	pb "github.com/golang/protobuf/proto"
 	"github.com/gorilla/websocket"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
@@ -22,8 +23,11 @@ func NewWebsocketChannel(conn *websocket.Conn) *WebsocketChannel {
 }
 
 func (c *WebsocketChannel) Send(msg *proto.EncryptedMessage) error {
-	//todo
-	return nil
+	b, err := pb.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	return c.conn.WriteMessage(websocket.BinaryMessage, b)
 }
 
 // Peer representation of a connected Peer

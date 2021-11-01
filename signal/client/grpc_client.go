@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/encryption"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -58,7 +57,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		}))
 
 	if err != nil {
-		log.Errorf("failed to connect to the signalling server %v", err)
+		log.Errorf("failed to connect to the Signal gRPC server %v", err)
 		return nil, err
 	}
 
@@ -175,50 +174,10 @@ func (c *GrpcClient) SendToStream(msg *proto.EncryptedMessage) error {
 	return nil
 }
 
-// decryptMessage decrypts the body of the msg using Wireguard private key and Remote peer's public key
-func (c *GrpcClient) decryptMessage(msg *proto.EncryptedMessage) (*proto.Message, error) {
-	remoteKey, err := wgtypes.ParseKey(msg.GetKey())
-	if err != nil {
-		return nil, err
-	}
-
-	body := &proto.Body{}
-	err = encryption.DecryptMessage(remoteKey, c.key, msg.GetBody(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	return &proto.Message{
-		Key:       msg.Key,
-		RemoteKey: msg.RemoteKey,
-		Body:      body,
-	}, nil
-}
-
-// encryptMessage encrypts the body of the msg using Wireguard private key and Remote peer's public key
-func (c *GrpcClient) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage, error) {
-
-	remoteKey, err := wgtypes.ParseKey(msg.RemoteKey)
-	if err != nil {
-		return nil, err
-	}
-
-	encryptedBody, err := encryption.EncryptMessage(remoteKey, c.key, msg.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return &proto.EncryptedMessage{
-		Key:       msg.GetKey(),
-		RemoteKey: msg.GetRemoteKey(),
-		Body:      encryptedBody,
-	}, nil
-}
-
 // Send sends a message to the remote Peer through the Signal Exchange.
 func (c *GrpcClient) Send(msg *proto.Message) error {
 
-	encryptedMessage, err := c.encryptMessage(msg)
+	encryptedMessage, err := encryptMessage(msg, c.key)
 	if err != nil {
 		return err
 	}
@@ -251,7 +210,7 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 		}
 		log.Debugf("received a new message from Peer [fingerprint: %s]", msg.Key)
 
-		decryptedMessage, err := c.decryptMessage(msg)
+		decryptedMessage, err := decryptMessage(msg, c.key)
 		if err != nil {
 			log.Errorf("failed decrypting message of Peer [key: %s] error: [%s]", msg.Key, err.Error())
 		}

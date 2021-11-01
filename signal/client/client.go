@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"github.com/wiretrustee/wiretrustee/encryption"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"strings"
@@ -15,6 +16,46 @@ type Client interface {
 	Send(msg *proto.Message) error
 	SendToStream(msg *proto.EncryptedMessage) error
 	WaitConnected()
+}
+
+// decryptMessage decrypts the body of the msg using Wireguard private key and Remote peer's public key
+func decryptMessage(msg *proto.EncryptedMessage, wgPrivateKey wgtypes.Key) (*proto.Message, error) {
+	remoteKey, err := wgtypes.ParseKey(msg.GetKey())
+	if err != nil {
+		return nil, err
+	}
+
+	body := &proto.Body{}
+	err = encryption.DecryptMessage(remoteKey, wgPrivateKey, msg.GetBody(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.Message{
+		Key:       msg.Key,
+		RemoteKey: msg.RemoteKey,
+		Body:      body,
+	}, nil
+}
+
+// encryptMessage encrypts the body of the msg using Wireguard private key and Remote peer's public key
+func encryptMessage(msg *proto.Message, wgPrivateKey wgtypes.Key) (*proto.EncryptedMessage, error) {
+
+	remoteKey, err := wgtypes.ParseKey(msg.RemoteKey)
+	if err != nil {
+		return nil, err
+	}
+
+	encryptedBody, err := encryption.EncryptMessage(remoteKey, wgPrivateKey, msg.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.EncryptedMessage{
+		Key:       msg.GetKey(),
+		RemoteKey: msg.GetRemoteKey(),
+		Body:      encryptedBody,
+	}, nil
 }
 
 // UnMarshalCredential parses the credentials from the message and returns a Credential instance
