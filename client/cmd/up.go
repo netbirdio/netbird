@@ -123,8 +123,8 @@ func runClient() error {
 		InitialInterval:     time.Second,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         time.Hour,
-		MaxElapsedTime:      24 * 3 * time.Hour,
+		MaxInterval:         10 * time.Second,
+		MaxElapsedTime:      24 * 3 * time.Hour, //stop the client after 3 days trying (must be a huge problem, e.g permission denied)
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}
