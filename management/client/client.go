@@ -71,7 +71,7 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
 		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      30 * time.Minute, //stop after an 30 min of trying, the error will be propagated to the general retry of the client
+		MaxElapsedTime:      30 * time.Minute, //stop after 30 min of trying, the error will be propagated to the general retry of the client
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
