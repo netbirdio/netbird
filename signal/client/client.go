@@ -92,7 +92,7 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.
 // The messages will be handled by msgHandler function provided.
 // This function is blocking and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
-// The key is the identifier of our Peer (could be Wireguard public key)
+// The connection retry logic will try to reconnect for 30 min and if wasn't successful will propagate the error to the function caller.
 func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 	c.connWg.Add(1)
 
@@ -100,6 +100,8 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 
 	operation := func() error {
 
+		// connect to Signal identifying ourselves with a public Wireguard key
+		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
 		stream, err := c.connect(c.key.PublicKey().String())
 		if err != nil {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
