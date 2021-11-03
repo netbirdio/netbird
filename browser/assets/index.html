@@ -1,0 +1,35 @@
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <script src="wasm_exec.js"></script>
+    <script>
+        const go = new Go();
+        WebAssembly.instantiateStreaming(fetch("tun.wasm"), go.importObject).then((result) => {
+            go.run(result.instance);
+        });
+    </script>
+</head>
+<body>
+<form>
+    <input type=button value="Generate Public Key" onclick='generateWireguardKey()'>
+    </p>
+    <label for="wgPrivateKey">Wireguard private key:</label>
+    <input id="wgPrivateKey" type=input size="50" value="">
+    </p>
+    <label for="publicKey">Wireguard Public Key:</label>
+    <input id="publicKey" type=input size="50" value="">
+    <p/>
+    <label for="wgIp">Wireguard private IP:</label>
+    <input id="wgIp" type=input size="50" value="10.0.0.2/24">
+    <p/>
+    <label for="peerKey">Wireguard Peer Public key:</label>
+    <input id="peerKey" type=input size="50" value="aaWf6mtEgamDgCmSCt2/6Y7aV8j6p6a0nw2GOUbBKwY=">
+    <p/>
+    <label for="peerAllowedIPs">Wireguard Peer AllowedIPs:</label>
+    <input id="peerAllowedIPs" type=input size="50" value="Paste other peer AllowedIPs">
+    <p/>
+    <!--<input type=button value="wgPrivateKey" onclick='wgPrivateKey(prompt("Wireguard Private Key", ""))'>-->
+    <input type=button value="start" onclick='connect()'>
+</form>
+</body>
+</html>

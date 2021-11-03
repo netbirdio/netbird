@@ -138,6 +138,8 @@ func (s *Server) serveWs(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				log.Errorf("error while forwarding message from peer [%s] to peer [%s]", p.Id, msg.RemoteKey)
 				//todo respond to the sender?
+			} else {
+				log.Debugf("forwarded message from peer %s to peer %s", msg.Key, msg.RemoteKey)
 			}
 		} else {
 			log.Warnf("message from peer [%s] can't be forwarded to peer [%s] because destination peer is not connected", p.Id, msg.RemoteKey)

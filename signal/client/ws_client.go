@@ -47,7 +47,9 @@ func (c *WebsocketClient) Receive(msgHandler func(msg *proto.Message) error) {
 		_, byteMsg, err := c.conn.Read(c.ctx)
 		if err != nil {
 			log.Errorf("failed reading message from Signal Websocket %v", err)
-			continue
+			time.Sleep(2 * time.Second)
+			//todo propagate to the upper layer and retry
+			return
 		}
 
 		encryptedMsg := &proto.EncryptedMessage{}
