@@ -91,38 +91,38 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.
 // The messages will be handled by msgHandler function provided.
-// This function runs a goroutine underneath and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
+// This function is blocking and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
 // The key is the identifier of our Peer (could be Wireguard public key)
-func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
+func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 	c.connWg.Add(1)
-	go func() {
 
-		var backOff = defaultBackoff(c.ctx)
+	var backOff = defaultBackoff(c.ctx)
 
-		operation := func() error {
+	operation := func() error {
 
-			stream, err := c.connect(c.key.PublicKey().String())
-			if err != nil {
-				log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
-				c.connWg.Add(1)
-				return err
-			}
-
-			err = c.receive(stream, msgHandler)
-			if err != nil {
-				backOff.Reset()
-				return err
-			}
-
-			return nil
-		}
-
-		err := backoff.Retry(operation, backOff)
+		stream, err := c.connect(c.key.PublicKey().String())
 		if err != nil {
-			log.Errorf("exiting Signal Service connection retry loop due to unrecoverable error: %s", err)
-			return
+			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
+			c.connWg.Add(1)
+			return err
 		}
-	}()
+
+		err = c.receive(stream, msgHandler)
+		if err != nil {
+			backOff.Reset()
+			return err
+		}
+
+		return nil
+	}
+
+	err := backoff.Retry(operation, backOff)
+	if err != nil {
+		log.Errorf("exiting Signal Service connection retry loop due to unrecoverable error: %s", err)
+		return err
+	}
+
+	return nil
 }
 
 func (c *Client) connect(key string) (proto.SignalExchange_ConnectStreamClient, error) {

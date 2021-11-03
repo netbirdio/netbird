@@ -414,68 +414,75 @@ func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
 
 // receiveSignalEvents connects to the Signal Service event stream to negotiate connection with remote peers
 func (e *Engine) receiveSignalEvents() {
-	// connect to a stream of messages coming from the signal server
-	e.signal.Receive(func(msg *sProto.Message) error {
 
-		e.syncMsgMux.Lock()
-		defer e.syncMsgMux.Unlock()
+	go func() {
+		// connect to a stream of messages coming from the signal server
+		err := e.signal.Receive(func(msg *sProto.Message) error {
 
-		conn := e.conns[msg.Key]
-		if conn == nil {
-			return fmt.Errorf("wrongly addressed message %s", msg.Key)
-		}
+			e.syncMsgMux.Lock()
+			defer e.syncMsgMux.Unlock()
 
-		if conn.Config.RemoteWgKey.String() != msg.Key {
-			return fmt.Errorf("unknown peer %s", msg.Key)
-		}
-
-		switch msg.GetBody().Type {
-		case sProto.Body_OFFER:
-			remoteCred, err := signal.UnMarshalCredential(msg)
-			if err != nil {
-				return err
+			conn := e.conns[msg.Key]
+			if conn == nil {
+				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
-			err = conn.OnOffer(IceCredentials{
-				uFrag: remoteCred.UFrag,
-				pwd:   remoteCred.Pwd,
-			})
 
-			if err != nil {
-				return err
+			if conn.Config.RemoteWgKey.String() != msg.Key {
+				return fmt.Errorf("unknown peer %s", msg.Key)
+			}
+
+			switch msg.GetBody().Type {
+			case sProto.Body_OFFER:
+				remoteCred, err := signal.UnMarshalCredential(msg)
+				if err != nil {
+					return err
+				}
+				err = conn.OnOffer(IceCredentials{
+					uFrag: remoteCred.UFrag,
+					pwd:   remoteCred.Pwd,
+				})
+
+				if err != nil {
+					return err
+				}
+
+				return nil
+			case sProto.Body_ANSWER:
+				remoteCred, err := signal.UnMarshalCredential(msg)
+				if err != nil {
+					return err
+				}
+				err = conn.OnAnswer(IceCredentials{
+					uFrag: remoteCred.UFrag,
+					pwd:   remoteCred.Pwd,
+				})
+
+				if err != nil {
+					return err
+				}
+
+			case sProto.Body_CANDIDATE:
+
+				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
+				if err != nil {
+					log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
+					return err
+				}
+
+				err = conn.OnRemoteCandidate(candidate)
+				if err != nil {
+					log.Errorf("error handling CANDIATE from %s", msg.Key)
+					return err
+				}
 			}
 
 			return nil
-		case sProto.Body_ANSWER:
-			remoteCred, err := signal.UnMarshalCredential(msg)
-			if err != nil {
-				return err
-			}
-			err = conn.OnAnswer(IceCredentials{
-				uFrag: remoteCred.UFrag,
-				pwd:   remoteCred.Pwd,
-			})
-
-			if err != nil {
-				return err
-			}
-
-		case sProto.Body_CANDIDATE:
-
-			candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
-			if err != nil {
-				log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
-				return err
-			}
-
-			err = conn.OnRemoteCandidate(candidate)
-			if err != nil {
-				log.Errorf("error handling CANDIATE from %s", msg.Key)
-				return err
-			}
+		})
+		if err != nil {
+			e.cancel()
+			return
 		}
-
-		return nil
-	})
+	}()
 
 	e.signal.WaitConnected()
 }
