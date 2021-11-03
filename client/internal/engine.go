@@ -332,6 +332,8 @@ func (e *Engine) receiveManagementEvents() {
 			return nil
 		})
 		if err != nil {
+			// happens if management is unavailable for a long time.
+			// We want to cancel the operation of the whole client
 			e.cancel()
 			return
 		}
@@ -479,6 +481,8 @@ func (e *Engine) receiveSignalEvents() {
 			return nil
 		})
 		if err != nil {
+			// happens if signal is unavailable for a long time.
+			// We want to cancel the operation of the whole client
 			e.cancel()
 			return
 		}
