@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
-	ice "github.com/pion/ice/v2"
+	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
@@ -142,7 +142,7 @@ func (e *Engine) initializePeer(peer Peer) {
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
 		MaxInterval:         5 * time.Second,
-		MaxElapsedTime:      time.Duration(0), //never stop
+		MaxElapsedTime:      0, //never stop
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, e.ctx)
@@ -157,8 +157,7 @@ func (e *Engine) initializePeer(peer Peer) {
 		}
 
 		if err != nil {
-			log.Warnln(err)
-			log.Debugf("retrying connection because of error: %s", err.Error())
+			log.Infof("retrying connection because of error: %s", err.Error())
 			return err
 		}
 		return nil
