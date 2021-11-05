@@ -73,15 +73,15 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
 		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      12 * time.Hour, //stop after 30 min of trying, the error will be propagated to the general retry of the client
+		MaxElapsedTime:      12 * time.Hour, //stop after 12 hours of trying, the error will be propagated to the general retry of the client
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
 }
 
-// ok indicates whether the client is okay and ready to be used
+// ready indicates whether the client is okay and ready to be used
 // for now it just checks whether gRPC connection to the service is ready
-func (c *Client) ok() bool {
+func (c *Client) ready() bool {
 	return c.conn.GetState() == connectivity.Ready
 }
 
@@ -95,7 +95,7 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 
 		log.Debugf("management connection state %v", c.conn.GetState())
 
-		if !c.ok() {
+		if !c.ready() {
 			return fmt.Errorf("no connection to management")
 		}
 
@@ -153,7 +153,7 @@ func (c *Client) receiveEvents(stream proto.ManagementService_SyncClient, server
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {
-			log.Errorf("Management stream has been closed b yserver: %s", err)
+			log.Errorf("Management stream has been closed by server: %s", err)
 			return err
 		}
 		if err != nil {
@@ -179,7 +179,7 @@ func (c *Client) receiveEvents(stream proto.ManagementService_SyncClient, server
 
 // GetServerPublicKey returns server Wireguard public key (used later for encrypting messages sent to the server)
 func (c *Client) GetServerPublicKey() (*wgtypes.Key, error) {
-	if !c.ok() {
+	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management")
 	}
 
@@ -199,7 +199,7 @@ func (c *Client) GetServerPublicKey() (*wgtypes.Key, error) {
 }
 
 func (c *Client) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
-	if !c.ok() {
+	if !c.ready() {
 		return nil, fmt.Errorf("no connection to management")
 	}
 	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)

@@ -78,7 +78,7 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
 		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      12 * time.Hour, //stop after 30 min of trying, the error will be propagated to the general retry of the client
+		MaxElapsedTime:      12 * time.Hour, //stop after 12 hours of trying, the error will be propagated to the general retry of the client
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -96,7 +96,7 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 	operation := func() error {
 
 		log.Debugf("signal connection state %v", c.signalConn.GetState())
-		if !c.ok() {
+		if !c.ready() {
 			return fmt.Errorf("no connection to signal")
 		}
 
@@ -155,9 +155,9 @@ func (c *Client) connect(key string) (proto.SignalExchange_ConnectStreamClient, 
 	return stream, nil
 }
 
-// ok indicates whether the client is okay and ready to be used
+// ready indicates whether the client is okay and ready to be used
 // for now it just checks whether gRPC connection to the service is ready
-func (c *Client) ok() bool {
+func (c *Client) ready() bool {
 	return c.signalConn.GetState() == connectivity.Ready
 }
 
@@ -170,7 +170,7 @@ func (c *Client) WaitConnected() {
 // The Client.Receive method must be called before sending messages to establish initial connection to the Signal Exchange
 // Client.connWg can be used to wait
 func (c *Client) SendToStream(msg *proto.EncryptedMessage) error {
-	if !c.ok() {
+	if !c.ready() {
 		return fmt.Errorf("no connection to signal")
 	}
 	if c.stream == nil {
@@ -229,7 +229,7 @@ func (c *Client) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage, er
 // Send sends a message to the remote Peer through the Signal Exchange.
 func (c *Client) Send(msg *proto.Message) error {
 
-	if !c.ok() {
+	if !c.ready() {
 		return fmt.Errorf("no connection to signal")
 	}
 
