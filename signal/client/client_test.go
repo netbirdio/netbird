@@ -67,6 +67,14 @@ var _ = Describe("Client", func() {
 				go func() {
 					err := clientB.Receive(func(msg *sigProto.Message) error {
 						receivedOnB = msg.GetBody().GetPayload()
+						err := clientB.Send(&sigProto.Message{
+							Key:       keyB.PublicKey().String(),
+							RemoteKey: keyA.PublicKey().String(),
+							Body:      &sigProto.Body{Payload: "pong"},
+						})
+						if err != nil {
+							Fail("failed sending a message to PeerA")
+						}
 						msgReceived.Done()
 						return nil
 					})
@@ -77,17 +85,8 @@ var _ = Describe("Client", func() {
 
 				clientB.WaitConnected()
 
-				err := clientB.Send(&sigProto.Message{
-					Key:       keyB.PublicKey().String(),
-					RemoteKey: keyA.PublicKey().String(),
-					Body:      &sigProto.Body{Payload: "pong"},
-				})
-				if err != nil {
-					Fail("failed sending a message to PeerA")
-				}
-
 				// PeerA initiates ping-pong
-				err = clientA.Send(&sigProto.Message{
+				err := clientA.Send(&sigProto.Message{
 					Key:       keyA.PublicKey().String(),
 					RemoteKey: keyB.PublicKey().String(),
 					Body:      &sigProto.Body{Payload: "ping"},
