@@ -67,6 +67,7 @@ var _ = Describe("Client", func() {
 				go func() {
 					err := clientB.Receive(func(msg *sigProto.Message) error {
 						receivedOnB = msg.GetBody().GetPayload()
+						msgReceived.Done()
 						return nil
 					})
 					if err != nil {
@@ -84,7 +85,6 @@ var _ = Describe("Client", func() {
 				if err != nil {
 					Fail("failed sending a message to PeerA")
 				}
-				msgReceived.Done()
 
 				// PeerA initiates ping-pong
 				err = clientA.Send(&sigProto.Message{

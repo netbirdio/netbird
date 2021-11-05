@@ -163,7 +163,7 @@ func (c *Client) ok() bool {
 
 // WaitConnected waits until the client is connected to the message stream
 func (c *Client) WaitConnected() {
-	//c.connWg.Wait()
+	//todo think of something here to ensure that this code above: stream, err := c.connect(c.key.PublicKey().String()) was executed, e.g. channel
 }
 
 // SendToStream sends a message to the remote Peer through the Signal Exchange using established stream connection to the Signal Server
