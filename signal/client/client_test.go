@@ -36,7 +36,7 @@ var _ = Describe("Client", func() {
 	})
 
 	Describe("Exchanging messages", func() {
-		Context("between connected peers", func() {
+		Context("between streamConnected peers", func() {
 			It("should be successful", func() {
 
 				var msgReceived sync.WaitGroup
@@ -58,7 +58,7 @@ var _ = Describe("Client", func() {
 						return
 					}
 				}()
-				clientA.WaitConnected()
+				clientA.WaitStreamConnected()
 
 				// connect PeerB to Signal
 				keyB, _ := wgtypes.GenerateKey()
@@ -83,7 +83,7 @@ var _ = Describe("Client", func() {
 					}
 				}()
 
-				clientB.WaitConnected()
+				clientB.WaitStreamConnected()
 
 				// PeerA initiates ping-pong
 				err := clientA.Send(&sigProto.Message{
@@ -120,7 +120,7 @@ var _ = Describe("Client", func() {
 						return
 					}
 				}()
-				client.WaitConnected()
+				client.WaitStreamConnected()
 				Expect(client).NotTo(BeNil())
 			})
 		})

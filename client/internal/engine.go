@@ -487,5 +487,5 @@ func (e *Engine) receiveSignalEvents() {
 		}
 	}()
 
-	e.signal.WaitConnected()
+	e.signal.WaitStreamConnected()
 }
