@@ -149,8 +149,8 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 }
 func (c *Client) notifyStreamDisconnected() {
 	c.mux.Lock()
+	defer c.mux.Unlock()
 	c.status = streamDisconnected
-	c.mux.Unlock()
 }
 
 func (c *Client) notifyStreamConnected() {
