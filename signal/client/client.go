@@ -18,6 +18,7 @@ import (
 	"google.golang.org/grpc/status"
 	"io"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,11 +26,14 @@ import (
 
 // Client Wraps the Signal Exchange Service gRpc client
 type Client struct {
-	key        wgtypes.Key
-	realClient proto.SignalExchangeClient
-	signalConn *grpc.ClientConn
-	ctx        context.Context
-	stream     proto.SignalExchange_ConnectStreamClient
+	key         wgtypes.Key
+	realClient  proto.SignalExchangeClient
+	signalConn  *grpc.ClientConn
+	ctx         context.Context
+	stream      proto.SignalExchange_ConnectStreamClient
+	connectedCh chan struct{}
+	mux         sync.Mutex
+	connected   bool
 }
 
 // Close Closes underlying connections to the Signal Exchange
@@ -68,6 +72,8 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		ctx:        ctx,
 		signalConn: conn,
 		key:        key,
+		mux:        sync.Mutex{},
+		connected:  false,
 	}, nil
 }
 
@@ -94,6 +100,9 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 	var backOff = defaultBackoff(c.ctx)
 
 	operation := func() error {
+		c.mux.Lock()
+		c.connected = false
+		c.mux.Unlock()
 
 		log.Debugf("signal connection state %v", c.signalConn.GetState())
 		if !c.ready() {
@@ -107,6 +116,8 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 			return err
 		}
+
+		c.notifyConnected()
 
 		log.Infof("connected to the Signal Service stream")
 
@@ -127,6 +138,26 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 	}
 
 	return nil
+}
+
+func (c *Client) notifyConnected() {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	c.connected = true
+	if c.connectedCh != nil {
+		// There are other goroutines waiting on this channel.
+		close(c.connectedCh)
+		c.connectedCh = nil
+	}
+}
+
+func (c *Client) getConnectedChan() <-chan struct{} {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	if c.connectedCh == nil {
+		c.connectedCh = make(chan struct{})
+	}
+	return c.connectedCh
 }
 
 func (c *Client) connect(key string) (proto.SignalExchange_ConnectStreamClient, error) {
@@ -163,11 +194,16 @@ func (c *Client) ready() bool {
 
 // WaitConnected waits until the client is connected to the message stream
 func (c *Client) WaitConnected() {
-	for c.stream == nil {
+
+	if c.connected {
+		return
 	}
 
-	//todo think of something here to ensure that this code above: stream, err := c.connect(c.key.PublicKey().String()) was executed, e.g. channel
-
+	ch := c.getConnectedChan()
+	select {
+	case <-c.ctx.Done():
+	case <-ch:
+	}
 }
 
 // SendToStream sends a message to the remote Peer through the Signal Exchange using established stream connection to the Signal Server
