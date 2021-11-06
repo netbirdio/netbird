@@ -36,7 +36,7 @@ var _ = Describe("Client", func() {
 	})
 
 	Describe("Exchanging messages", func() {
-		Context("between connected peers", func() {
+		Context("between streamConnected peers", func() {
 			It("should be successful", func() {
 
 				var msgReceived sync.WaitGroup
@@ -48,30 +48,42 @@ var _ = Describe("Client", func() {
 				// connect PeerA to Signal
 				keyA, _ := wgtypes.GenerateKey()
 				clientA := createSignalClient(addr, keyA)
-				clientA.Receive(func(msg *sigProto.Message) error {
-					receivedOnA = msg.GetBody().GetPayload()
-					msgReceived.Done()
-					return nil
-				})
-				clientA.WaitConnected()
+				go func() {
+					err := clientA.Receive(func(msg *sigProto.Message) error {
+						receivedOnA = msg.GetBody().GetPayload()
+						msgReceived.Done()
+						return nil
+					})
+					if err != nil {
+						return
+					}
+				}()
+				clientA.WaitStreamConnected()
 
 				// connect PeerB to Signal
 				keyB, _ := wgtypes.GenerateKey()
 				clientB := createSignalClient(addr, keyB)
-				clientB.Receive(func(msg *sigProto.Message) error {
-					receivedOnB = msg.GetBody().GetPayload()
-					err := clientB.Send(&sigProto.Message{
-						Key:       keyB.PublicKey().String(),
-						RemoteKey: keyA.PublicKey().String(),
-						Body:      &sigProto.Body{Payload: "pong"},
+
+				go func() {
+					err := clientB.Receive(func(msg *sigProto.Message) error {
+						receivedOnB = msg.GetBody().GetPayload()
+						err := clientB.Send(&sigProto.Message{
+							Key:       keyB.PublicKey().String(),
+							RemoteKey: keyA.PublicKey().String(),
+							Body:      &sigProto.Body{Payload: "pong"},
+						})
+						if err != nil {
+							Fail("failed sending a message to PeerA")
+						}
+						msgReceived.Done()
+						return nil
 					})
 					if err != nil {
-						Fail("failed sending a message to PeerA")
+						return
 					}
-					msgReceived.Done()
-					return nil
-				})
-				clientB.WaitConnected()
+				}()
+
+				clientB.WaitStreamConnected()
 
 				// PeerA initiates ping-pong
 				err := clientA.Send(&sigProto.Message{
@@ -100,11 +112,15 @@ var _ = Describe("Client", func() {
 
 				key, _ := wgtypes.GenerateKey()
 				client := createSignalClient(addr, key)
-				client.Receive(func(msg *sigProto.Message) error {
-					return nil
-				})
-				client.WaitConnected()
-
+				go func() {
+					err := client.Receive(func(msg *sigProto.Message) error {
+						return nil
+					})
+					if err != nil {
+						return
+					}
+				}()
+				client.WaitStreamConnected()
 				Expect(client).NotTo(BeNil())
 			})
 		})
