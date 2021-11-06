@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/client/system"
@@ -10,6 +11,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"io"
@@ -71,10 +73,16 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
 		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      30 * time.Minute, //stop after an 30 min of trying, the error will be propagated to the general retry of the client
+		MaxElapsedTime:      12 * time.Hour, //stop after 12 hours of trying, the error will be propagated to the general retry of the client
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
+}
+
+// ready indicates whether the client is okay and ready to be used
+// for now it just checks whether gRPC connection to the service is ready
+func (c *Client) ready() bool {
+	return c.conn.GetState() == connectivity.Ready
 }
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
@@ -84,6 +92,12 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 	var backOff = defaultBackoff(c.ctx)
 
 	operation := func() error {
+
+		log.Debugf("management connection state %v", c.conn.GetState())
+
+		if !c.ready() {
+			return fmt.Errorf("no connection to management")
+		}
 
 		// todo we already have it since we did the Login, maybe cache it locally?
 		serverPubKey, err := c.GetServerPublicKey()
@@ -98,7 +112,7 @@ func (c *Client) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
 			return err
 		}
 
-		log.Infof("connected to the Management Service Stream")
+		log.Infof("connected to the Management Service stream")
 
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
@@ -139,7 +153,7 @@ func (c *Client) receiveEvents(stream proto.ManagementService_SyncClient, server
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {
-			log.Errorf("managment stream was closed: %s", err)
+			log.Errorf("Management stream has been closed by server: %s", err)
 			return err
 		}
 		if err != nil {
@@ -165,6 +179,10 @@ func (c *Client) receiveEvents(stream proto.ManagementService_SyncClient, server
 
 // GetServerPublicKey returns server Wireguard public key (used later for encrypting messages sent to the server)
 func (c *Client) GetServerPublicKey() (*wgtypes.Key, error) {
+	if !c.ready() {
+		return nil, fmt.Errorf("no connection to management")
+	}
+
 	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second) //todo make a general setting
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
@@ -181,6 +199,9 @@ func (c *Client) GetServerPublicKey() (*wgtypes.Key, error) {
 }
 
 func (c *Client) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
+	if !c.ready() {
+		return nil, fmt.Errorf("no connection to management")
+	}
 	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)
 	if err != nil {
 		log.Errorf("failed to encrypt message: %s", err)

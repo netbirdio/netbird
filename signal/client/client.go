@@ -11,6 +11,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
@@ -23,6 +24,12 @@ import (
 
 // A set of tools to exchange connection details (Wireguard endpoints) with the remote peer.
 
+// Status is the status of the client
+type Status string
+
+const streamConnected Status = "streamConnected"
+const streamDisconnected Status = "streamDisconnected"
+
 // Client Wraps the Signal Exchange Service gRpc client
 type Client struct {
 	key        wgtypes.Key
@@ -30,8 +37,11 @@ type Client struct {
 	signalConn *grpc.ClientConn
 	ctx        context.Context
 	stream     proto.SignalExchange_ConnectStreamClient
-	//waiting group to notify once stream is connected
-	connWg *sync.WaitGroup //todo use a channel instead??
+	// connectedCh used to notify goroutines waiting for the connection to the Signal stream
+	connectedCh chan struct{}
+	mux         sync.Mutex
+	// streamConnected indicates whether this client is streamConnected to the Signal stream
+	status Status
 }
 
 // Close Closes underlying connections to the Signal Exchange
@@ -65,13 +75,13 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		return nil, err
 	}
 
-	var wg sync.WaitGroup
 	return &Client{
 		realClient: proto.NewSignalExchangeClient(conn),
 		ctx:        ctx,
 		signalConn: conn,
 		key:        key,
-		connWg:     &wg,
+		mux:        sync.Mutex{},
+		status:     streamDisconnected,
 	}, nil
 }
 
@@ -82,7 +92,7 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
 		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      30 * time.Minute, //stop after an 30 min of trying, the error will be propagated to the general retry of the client
+		MaxElapsedTime:      12 * time.Hour, //stop after 12 hours of trying, the error will be propagated to the general retry of the client
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -91,38 +101,76 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.
 // The messages will be handled by msgHandler function provided.
-// This function runs a goroutine underneath and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
-// The key is the identifier of our Peer (could be Wireguard public key)
-func (c *Client) Receive(msgHandler func(msg *proto.Message) error) {
-	c.connWg.Add(1)
-	go func() {
+// This function is blocking and reconnects to the Signal Exchange if errors occur (e.g. Exchange restart)
+// The connection retry logic will try to reconnect for 30 min and if wasn't successful will propagate the error to the function caller.
+func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 
-		var backOff = defaultBackoff(c.ctx)
+	var backOff = defaultBackoff(c.ctx)
 
-		operation := func() error {
+	operation := func() error {
 
-			stream, err := c.connect(c.key.PublicKey().String())
-			if err != nil {
-				log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
-				c.connWg.Add(1)
-				return err
-			}
+		c.notifyStreamDisconnected()
 
-			err = c.receive(stream, msgHandler)
-			if err != nil {
-				backOff.Reset()
-				return err
-			}
-
-			return nil
+		log.Debugf("signal connection state %v", c.signalConn.GetState())
+		if !c.ready() {
+			return fmt.Errorf("no connection to signal")
 		}
 
-		err := backoff.Retry(operation, backOff)
+		// connect to Signal stream identifying ourselves with a public Wireguard key
+		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
+		stream, err := c.connect(c.key.PublicKey().String())
 		if err != nil {
-			log.Errorf("exiting Signal Service connection retry loop due to unrecoverable error: %s", err)
-			return
+			log.Warnf("streamDisconnected from the Signal Exchange due to an error: %v", err)
+			return err
 		}
-	}()
+
+		c.notifyStreamConnected()
+
+		log.Infof("streamConnected to the Signal Service stream")
+
+		// start receiving messages from the Signal stream (from other peers through signal)
+		err = c.receive(stream, msgHandler)
+		if err != nil {
+			log.Warnf("streamDisconnected from the Signal Exchange due to an error: %v", err)
+			backOff.Reset()
+			return err
+		}
+
+		return nil
+	}
+
+	err := backoff.Retry(operation, backOff)
+	if err != nil {
+		log.Errorf("exiting Signal Service connection retry loop due to unrecoverable error: %s", err)
+		return err
+	}
+
+	return nil
+}
+func (c *Client) notifyStreamDisconnected() {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	c.status = streamDisconnected
+}
+
+func (c *Client) notifyStreamConnected() {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	c.status = streamConnected
+	if c.connectedCh != nil {
+		// there are goroutines waiting on this channel -> release them
+		close(c.connectedCh)
+		c.connectedCh = nil
+	}
+}
+
+func (c *Client) getStreamStatusChan() <-chan struct{} {
+	c.mux.Lock()
+	defer c.mux.Unlock()
+	if c.connectedCh == nil {
+		c.connectedCh = make(chan struct{})
+	}
+	return c.connectedCh
 }
 
 func (c *Client) connect(key string) (proto.SignalExchange_ConnectStreamClient, error) {
@@ -147,24 +195,37 @@ func (c *Client) connect(key string) (proto.SignalExchange_ConnectStreamClient, 
 	if len(registered) == 0 {
 		return nil, fmt.Errorf("didn't receive a registration header from the Signal server whille connecting to the streams")
 	}
-	//connection established we are good to use the stream
-	c.connWg.Done()
-
-	log.Infof("connected to the Signal Exchange Stream")
 
 	return stream, nil
 }
 
-// WaitConnected waits until the client is connected to the message stream
-func (c *Client) WaitConnected() {
-	c.connWg.Wait()
+// ready indicates whether the client is okay and ready to be used
+// for now it just checks whether gRPC connection to the service is in state Ready
+func (c *Client) ready() bool {
+	return c.signalConn.GetState() == connectivity.Ready
+}
+
+// WaitStreamConnected waits until the client is connected to the Signal stream
+func (c *Client) WaitStreamConnected() {
+
+	if c.status == streamConnected {
+		return
+	}
+
+	ch := c.getStreamStatusChan()
+	select {
+	case <-c.ctx.Done():
+	case <-ch:
+	}
 }
 
 // SendToStream sends a message to the remote Peer through the Signal Exchange using established stream connection to the Signal Server
 // The Client.Receive method must be called before sending messages to establish initial connection to the Signal Exchange
 // Client.connWg can be used to wait
 func (c *Client) SendToStream(msg *proto.EncryptedMessage) error {
-
+	if !c.ready() {
+		return fmt.Errorf("no connection to signal")
+	}
 	if c.stream == nil {
 		return fmt.Errorf("connection to the Signal Exchnage has not been established yet. Please call Client.Receive before sending messages")
 	}
@@ -221,13 +282,17 @@ func (c *Client) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage, er
 // Send sends a message to the remote Peer through the Signal Exchange.
 func (c *Client) Send(msg *proto.Message) error {
 
+	if !c.ready() {
+		return fmt.Errorf("no connection to signal")
+	}
+
 	encryptedMessage, err := c.encryptMessage(msg)
 	if err != nil {
 		return err
 	}
 	_, err = c.realClient.Send(context.TODO(), encryptedMessage)
 	if err != nil {
-		log.Errorf("error while sending message to peer [%s] [error: %v]", msg.RemoteKey, err)
+		//log.Errorf("error while sending message to peer [%s] [error: %v]", msg.RemoteKey, err)
 		return err
 	}
 
@@ -244,10 +309,10 @@ func (c *Client) receive(stream proto.SignalExchange_ConnectStreamClient,
 			log.Warnf("stream canceled (usually indicates shutdown)")
 			return err
 		} else if s.Code() == codes.Unavailable {
-			log.Warnf("server has been stopped")
+			log.Warnf("Signal Service is unavailable")
 			return err
 		} else if err == io.EOF {
-			log.Warnf("stream closed by server")
+			log.Warnf("Signal Service stream closed by server")
 			return err
 		} else if err != nil {
 			return err
