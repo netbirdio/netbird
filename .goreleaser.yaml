@@ -120,6 +120,7 @@ dockers:
     ids:
       - wiretrustee-signal
     goarch: arm
+    goarm: 6
     use: buildx
     dockerfile: signal/Dockerfile
     build_flag_templates:
@@ -165,6 +166,7 @@ dockers:
     ids:
       - wiretrustee-mgmt
     goarch: arm
+    goarm: 6
     use: buildx
     dockerfile: management/Dockerfile
     build_flag_templates:
@@ -211,6 +213,7 @@ dockers:
     ids:
       - wiretrustee-mgmt
     goarch: arm
+    goarm: 6
     use: buildx
     dockerfile: management/Dockerfile.debug
     build_flag_templates:
