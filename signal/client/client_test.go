@@ -5,6 +5,7 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/signal/peer"
 	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"github.com/wiretrustee/wiretrustee/signal/server"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -159,7 +160,7 @@ var _ = Describe("Client", func() {
 
 })
 
-func createSignalClient(addr string, key wgtypes.Key) *Client {
+func createSignalClient(addr string, key wgtypes.Key) Client {
 	var sigTLSEnabled = false
 	client, err := NewClient(context.Background(), addr, key, sigTLSEnabled)
 	if err != nil {
@@ -189,7 +190,7 @@ func startSignal() (*grpc.Server, net.Listener) {
 		panic(err)
 	}
 	s := grpc.NewServer()
-	sigProto.RegisterSignalExchangeServer(s, server.NewServer())
+	sigProto.RegisterSignalExchangeServer(s, server.NewServer(peer.NewRegistry()))
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			log.Fatalf("failed to serve: %v", err)

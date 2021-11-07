@@ -117,10 +117,10 @@ func (s *Server) serveWs(w http.ResponseWriter, r *http.Request) {
 
 	conn.SetReadLimit(1024 * 1024 * 3)
 	for {
-		t, byteMsg, err := conn.ReadMessage()
+		_, byteMsg, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err, t)
+				log.Errorf("error: %v", err)
 			}
 			break
 		}

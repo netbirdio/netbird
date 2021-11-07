@@ -42,14 +42,14 @@ func (c *WebsocketClient) Close() error {
 	return c.conn.Close(websocket.StatusNormalClosure, "close")
 }
 
-func (c *WebsocketClient) Receive(msgHandler func(msg *proto.Message) error) {
+func (c *WebsocketClient) Receive(msgHandler func(msg *proto.Message) error) error {
 	for {
 		_, byteMsg, err := c.conn.Read(c.ctx)
 		if err != nil {
 			log.Errorf("failed reading message from Signal Websocket %v", err)
 			time.Sleep(2 * time.Second)
 			//todo propagate to the upper layer and retry
-			return
+			return err
 		}
 
 		encryptedMsg := &proto.EncryptedMessage{}
@@ -97,6 +97,6 @@ func (c *WebsocketClient) Send(msg *proto.Message) error {
 
 }
 
-func (c *WebsocketClient) WaitConnected() {
+func (c *WebsocketClient) WaitStreamConnected() {
 
 }

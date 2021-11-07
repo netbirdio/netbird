@@ -10,12 +10,17 @@ import (
 
 // A set of tools to exchange connection details (Wireguard endpoints) with the remote peer.
 
+// Client is an interface describing Signal client
 type Client interface {
-	Receive(msgHandler func(msg *proto.Message) error)
+	// Receive handles incoming messages from the Signal service
+	Receive(msgHandler func(msg *proto.Message) error) error
 	Close() error
+	// Send sends a message to the Signal service (just one time rpc call, not stream)
 	Send(msg *proto.Message) error
+	// SendToStream sends a message to the Signal service through a connected stream
 	SendToStream(msg *proto.EncryptedMessage) error
-	WaitConnected()
+	// WaitStreamConnected blocks until client is connected to the Signal stream
+	WaitStreamConnected()
 }
 
 // decryptMessage decrypts the body of the msg using Wireguard private key and Remote peer's public key
