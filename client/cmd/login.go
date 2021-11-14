@@ -18,12 +18,12 @@ import (
 )
 
 var (
-	setupKey string
-
 	loginCmd = &cobra.Command{
 		Use:   "login",
 		Short: "login to the Wiretrustee Management Service (first run)",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			SetFlagsFromEnvVars()
+
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				log.Errorf("failed initializing log %v", err)

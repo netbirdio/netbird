@@ -10,6 +10,7 @@ var (
 		Use:   "install",
 		Short: "installs wiretrustee service",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			SetFlagsFromEnvVars()
 
 			svcConfig := newSVCConfig()
 
@@ -49,6 +50,7 @@ var (
 		Use:   "uninstall",
 		Short: "uninstalls wiretrustee service from system",
 		Run: func(cmd *cobra.Command, args []string) {
+			SetFlagsFromEnvVars()
 
 			s, err := newSVC(&program{}, newSVCConfig())
 			if err != nil {

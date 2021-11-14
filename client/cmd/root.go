@@ -4,10 +4,12 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/wiretrustee/wiretrustee/client/internal"
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 )
 
@@ -24,6 +26,7 @@ var (
 	defaultLogFile    string
 	logFile           string
 	managementURL     string
+	setupKey          string
 	rootCmd           = &cobra.Command{
 		Use:   "wiretrustee",
 		Short: "",
@@ -74,4 +77,23 @@ func SetupCloseHandler() {
 			stopCh <- 0
 		}
 	}()
+}
+
+func SetFlagsFromEnvVars() {
+	flags := rootCmd.PersistentFlags()
+	flags.VisitAll(func(f *pflag.Flag) {
+
+		envVar := FlagNameToEnvVar(f.Name)
+
+		if value, present := os.LookupEnv(envVar); present {
+			flags.Set(f.Name, value)
+		}
+	})
+}
+
+func FlagNameToEnvVar(f string) string {
+	prefix := "WT_"
+	parsed := strings.ReplaceAll(f, "-", "_")
+	upper := strings.ToUpper(parsed)
+	return prefix + upper
 }
