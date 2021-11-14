@@ -86,6 +86,52 @@ nfpms:
       preremove: "release_files/pre_remove.sh"
 dockers:
   - image_templates:
+      - wiretrustee/wiretrustee:{{ .Version }}-amd64
+    ids:
+      - wiretrustee
+    goarch: amd64
+    use: buildx
+    dockerfile: client/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - wiretrustee/wiretrustee:{{ .Version }}-arm64v8
+      ids:
+        - wiretrustee
+      goarch: arm64
+      use: buildx
+      dockerfile: client/Dockerfile
+      build_flag_templates:
+        - "--platform=linux/arm64"
+        - "--label=org.opencontainers.image.created={{.Date}}"
+        - "--label=org.opencontainers.image.title={{.ProjectName}}"
+        - "--label=org.opencontainers.image.version={{.Version}}"
+        - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+        - "--label=org.opencontainers.image.version={{.Version}}"
+        - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
+      - wiretrustee/wiretrustee:{{ .Version }}-arm
+    ids:
+      - wiretrustee
+    goarch: arm
+    goarm: 6
+    use: buildx
+    dockerfile: client/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
+  - image_templates:
       - wiretrustee/signal:{{ .Version }}-amd64
     ids:
       - wiretrustee-signal
@@ -225,6 +271,18 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=wiretrustee@wiretrustee.com"
 docker_manifests:
+  - name_template: wiretrustee/wiretrustee:{{ .Version }}
+    image_templates:
+      - wiretrustee/wiretrustee:{{ .Version }}-arm64v8
+      - wiretrustee/wiretrustee:{{ .Version }}-arm
+      - wiretrustee/wiretrustee:{{ .Version }}-amd64
+
+  - name_template: wiretrustee/wiretrustee:latest
+    image_templates:
+      - wiretrustee/wiretrustee:{{ .Version }}-arm64v8
+      - wiretrustee/wiretrustee:{{ .Version }}-arm
+      - wiretrustee/wiretrustee:{{ .Version }}-amd64
+
   - name_template: wiretrustee/signal:{{ .Version }}
     image_templates:
       - wiretrustee/signal:{{ .Version }}-arm64v8
