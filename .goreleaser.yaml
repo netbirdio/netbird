@@ -102,19 +102,19 @@ dockers:
       - "--label=maintainer=wiretrustee@wiretrustee.com"
   - image_templates:
       - wiretrustee/wiretrustee:{{ .Version }}-arm64v8
-      ids:
-        - wiretrustee
-      goarch: arm64
-      use: buildx
-      dockerfile: client/Dockerfile
-      build_flag_templates:
-        - "--platform=linux/arm64"
-        - "--label=org.opencontainers.image.created={{.Date}}"
-        - "--label=org.opencontainers.image.title={{.ProjectName}}"
-        - "--label=org.opencontainers.image.version={{.Version}}"
-        - "--label=org.opencontainers.image.revision={{.FullCommit}}"
-        - "--label=org.opencontainers.image.version={{.Version}}"
-        - "--label=maintainer=wiretrustee@wiretrustee.com"
+    ids:
+      - wiretrustee
+    goarch: arm64
+    use: buildx
+    dockerfile: client/Dockerfile
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.created={{.Date}}"
+      - "--label=org.opencontainers.image.title={{.ProjectName}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=org.opencontainers.image.revision={{.FullCommit}}"
+      - "--label=org.opencontainers.image.version={{.Version}}"
+      - "--label=maintainer=wiretrustee@wiretrustee.com"
   - image_templates:
       - wiretrustee/wiretrustee:{{ .Version }}-arm
     ids:
