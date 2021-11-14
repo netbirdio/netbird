@@ -13,12 +13,6 @@ import (
 	"syscall"
 )
 
-const (
-	// ExitSetupFailed defines exit code
-	ExitSetupFailed   = 1
-	DefaultConfigPath = ""
-)
-
 var (
 	configPath        string
 	defaultConfigPath string
@@ -79,6 +73,7 @@ func SetupCloseHandler() {
 	}()
 }
 
+// SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_
 func SetFlagsFromEnvVars() {
 	flags := rootCmd.PersistentFlags()
 	flags.VisitAll(func(f *pflag.Flag) {
@@ -86,11 +81,16 @@ func SetFlagsFromEnvVars() {
 		envVar := FlagNameToEnvVar(f.Name)
 
 		if value, present := os.LookupEnv(envVar); present {
-			flags.Set(f.Name, value)
+			err := flags.Set(f.Name, value)
+			if err != nil {
+				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, envVar, err)
+			}
 		}
 	})
 }
 
+// FlagNameToEnvVar converts flag name to environment var name adding a prefix,
+// replacing dashes and making all uppercase (e.g. setup-keys is converted to WT_SETUP_KEYS)
 func FlagNameToEnvVar(f string) string {
 	prefix := "WT_"
 	parsed := strings.ReplaceAll(f, "-", "_")
