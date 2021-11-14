@@ -106,6 +106,7 @@ SectionEnd
 Section Uninstall
 ${INSTALL_TYPE}
 
+Exec '"$INSTDIR\${MAIN_APP_EXE}" service stop'
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
 # wait the service uninstall take unblock the executable
 Sleep 3000
