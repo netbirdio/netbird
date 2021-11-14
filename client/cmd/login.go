@@ -151,6 +151,3 @@ func promptPeerSetupKey() (string, error) {
 
 	return "", s.Err()
 }
-
-//func init() {
-//}

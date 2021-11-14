@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func (p *program) Start(s service.Service) error {
+func (p *program) Start(service.Service) error {
 
 	// Start should not block. Do the actual work async.
 	log.Info("starting service") //nolint
@@ -22,7 +22,7 @@ func (p *program) Start(s service.Service) error {
 	return nil
 }
 
-func (p *program) Stop(s service.Service) error {
+func (p *program) Stop(service.Service) error {
 	go func() {
 		stopCh <- 1
 	}()
@@ -150,6 +150,3 @@ var (
 		},
 	}
 )
-
-func init() {
-}
