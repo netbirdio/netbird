@@ -13,12 +13,13 @@ require (
 	github.com/onsi/ginkgo v1.16.4
 	github.com/onsi/gomega v1.13.0
 	github.com/pion/ice/v2 v2.1.13
+	github.com/pion/webrtc/v3 v3.1.7
 	github.com/rs/cors v1.8.0
 	github.com/sirupsen/logrus v1.7.0
 	github.com/spf13/cobra v1.1.3
 	github.com/vishvananda/netlink v1.1.0
 	golang.org/x/crypto v0.0.0-20210921155107-089bfa567519
-	golang.org/x/sys v0.0.0-20211020174200-9d6173849985
+	golang.org/x/sys v0.0.0-20211025201205-69cdffdb9359
 	golang.zx2c4.com/wireguard v0.0.0-20211026125340-e42c6c4bc2d0
 	golang.zx2c4.com/wireguard/tun/netstack v0.0.0-20211026125340-e42c6c4bc2d0
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20210803171230-4253848d036c
