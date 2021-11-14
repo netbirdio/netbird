@@ -147,7 +147,7 @@ For  **Windows** systems, start powershell as administrator and:
    ```
 For **Docker**, you can run with the following command:
 ```shell
-docker run --network host --privileged --rm -d -e WT_SETUP_KEY=<SETUP KEY> -v /etc/wiretrustee:/etc/wiretrustee wiretrustee/wiretrustee:<TAG>
+docker run --network host --privileged --rm -d -e WT_SETUP_KEY=<SETUP KEY> -v wiretrustee-client:/etc/wiretrustee wiretrustee/wiretrustee:<TAG>
 ```
 > TAG > 0.3.0 version
 
