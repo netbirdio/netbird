@@ -27,8 +27,8 @@ import (
 // Status is the status of the client
 type Status string
 
-const streamConnected Status = "streamConnected"
-const streamDisconnected Status = "streamDisconnected"
+const StreamConnected Status = "Connected"
+const StreamDisconnected Status = "Disconnected"
 
 // Client Wraps the Signal Exchange Service gRpc client
 type Client struct {
@@ -40,8 +40,12 @@ type Client struct {
 	// connectedCh used to notify goroutines waiting for the connection to the Signal stream
 	connectedCh chan struct{}
 	mux         sync.Mutex
-	// streamConnected indicates whether this client is streamConnected to the Signal stream
+	// StreamConnected indicates whether this client is StreamConnected to the Signal stream
 	status Status
+}
+
+func (c *Client) GetStatus() Status {
+	return c.status
 }
 
 // Close Closes underlying connections to the Signal Exchange
@@ -81,7 +85,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		signalConn: conn,
 		key:        key,
 		mux:        sync.Mutex{},
-		status:     streamDisconnected,
+		status:     StreamDisconnected,
 	}, nil
 }
 
@@ -120,18 +124,18 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
 		stream, err := c.connect(c.key.PublicKey().String())
 		if err != nil {
-			log.Warnf("streamDisconnected from the Signal Exchange due to an error: %v", err)
+			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 			return err
 		}
 
 		c.notifyStreamConnected()
 
-		log.Infof("streamConnected to the Signal Service stream")
+		log.Infof("connected to the Signal Service stream")
 
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream, msgHandler)
 		if err != nil {
-			log.Warnf("streamDisconnected from the Signal Exchange due to an error: %v", err)
+			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 			backOff.Reset()
 			return err
 		}
@@ -150,13 +154,13 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 func (c *Client) notifyStreamDisconnected() {
 	c.mux.Lock()
 	defer c.mux.Unlock()
-	c.status = streamDisconnected
+	c.status = StreamDisconnected
 }
 
 func (c *Client) notifyStreamConnected() {
 	c.mux.Lock()
 	defer c.mux.Unlock()
-	c.status = streamConnected
+	c.status = StreamConnected
 	if c.connectedCh != nil {
 		// there are goroutines waiting on this channel -> release them
 		close(c.connectedCh)
@@ -208,7 +212,7 @@ func (c *Client) ready() bool {
 // WaitStreamConnected waits until the client is connected to the Signal stream
 func (c *Client) WaitStreamConnected() {
 
-	if c.status == streamConnected {
+	if c.status == StreamConnected {
 		return
 	}
 

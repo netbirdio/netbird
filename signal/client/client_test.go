@@ -36,7 +36,7 @@ var _ = Describe("Client", func() {
 	})
 
 	Describe("Exchanging messages", func() {
-		Context("between streamConnected peers", func() {
+		Context("between connected peers", func() {
 			It("should be successful", func() {
 
 				var msgReceived sync.WaitGroup
