@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func (p *program) Start(s service.Service) error {
+func (p *program) Start(service.Service) error {
 
 	// Start should not block. Do the actual work async.
 	log.Info("starting service") //nolint
@@ -22,7 +22,7 @@ func (p *program) Start(s service.Service) error {
 	return nil
 }
 
-func (p *program) Stop(s service.Service) error {
+func (p *program) Stop(service.Service) error {
 	go func() {
 		stopCh <- 1
 	}()
@@ -41,6 +41,7 @@ var (
 		Use:   "run",
 		Short: "runs wiretrustee as service",
 		Run: func(cmd *cobra.Command, args []string) {
+			SetFlagsFromEnvVars()
 
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
@@ -75,6 +76,8 @@ var (
 		Use:   "start",
 		Short: "starts wiretrustee service",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			SetFlagsFromEnvVars()
+
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				log.Errorf("failed initializing log %v", err)
@@ -101,6 +104,8 @@ var (
 		Use:   "stop",
 		Short: "stops wiretrustee service",
 		Run: func(cmd *cobra.Command, args []string) {
+			SetFlagsFromEnvVars()
+
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				log.Errorf("failed initializing log %v", err)
@@ -125,6 +130,8 @@ var (
 		Use:   "restart",
 		Short: "restarts wiretrustee service",
 		Run: func(cmd *cobra.Command, args []string) {
+			SetFlagsFromEnvVars()
+
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				log.Errorf("failed initializing log %v", err)
@@ -143,6 +150,3 @@ var (
 		},
 	}
 )
-
-func init() {
-}

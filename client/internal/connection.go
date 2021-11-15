@@ -138,11 +138,17 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			return !ok
 		},
 	})
-	conn.agent = a
-
 	if err != nil {
 		return err
 	}
+
+	conn.agent = a
+	defer func() {
+		err := conn.agent.Close()
+		if err != nil {
+			return
+		}
+	}()
 
 	err = conn.listenOnLocalCandidates()
 	if err != nil {

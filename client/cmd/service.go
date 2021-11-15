@@ -34,6 +34,3 @@ var (
 		Short: "manages wiretrustee service",
 	}
 )
-
-func init() {
-}

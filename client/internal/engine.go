@@ -148,6 +148,11 @@ func (e *Engine) initializePeer(peer Peer) {
 	}, e.ctx)
 
 	operation := func() error {
+
+		if e.signal.GetStatus() != signal.StreamConnected {
+			return fmt.Errorf("not opening connection to peer because Signal is unavailable")
+		}
+
 		_, err := e.openPeerConnection(e.wgPort, e.config.WgPrivateKey, peer)
 		e.peerMux.Lock()
 		defer e.peerMux.Unlock()
@@ -157,7 +162,7 @@ func (e *Engine) initializePeer(peer Peer) {
 		}
 
 		if err != nil {
-			log.Infof("retrying connection because of error: %s", err.Error())
+			log.Debugf("retrying connection because of error: %s", err.Error())
 			return err
 		}
 		return nil

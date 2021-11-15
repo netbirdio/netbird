@@ -10,6 +10,12 @@ import (
 
 // A set of tools to exchange connection details (Wireguard endpoints) with the remote peer.
 
+// Status is the status of the client
+type Status string
+
+const StreamConnected Status = "Connected"
+const StreamDisconnected Status = "Disconnected"
+
 // Client is an interface describing Signal client
 type Client interface {
 	// Receive handles incoming messages from the Signal service
@@ -21,6 +27,7 @@ type Client interface {
 	SendToStream(msg *proto.EncryptedMessage) error
 	// WaitStreamConnected blocks until client is connected to the Signal stream
 	WaitStreamConnected()
+	GetStatus() Status
 }
 
 // decryptMessage decrypts the body of the msg using Wireguard private key and Remote peer's public key

@@ -4,17 +4,13 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/wiretrustee/wiretrustee/client/internal"
 	"os"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
-)
-
-const (
-	// ExitSetupFailed defines exit code
-	ExitSetupFailed   = 1
-	DefaultConfigPath = ""
 )
 
 var (
@@ -24,6 +20,7 @@ var (
 	defaultLogFile    string
 	logFile           string
 	managementURL     string
+	setupKey          string
 	rootCmd           = &cobra.Command{
 		Use:   "wiretrustee",
 		Short: "",
@@ -74,4 +71,29 @@ func SetupCloseHandler() {
 			stopCh <- 0
 		}
 	}()
+}
+
+// SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_
+func SetFlagsFromEnvVars() {
+	flags := rootCmd.PersistentFlags()
+	flags.VisitAll(func(f *pflag.Flag) {
+
+		envVar := FlagNameToEnvVar(f.Name)
+
+		if value, present := os.LookupEnv(envVar); present {
+			err := flags.Set(f.Name, value)
+			if err != nil {
+				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, envVar, err)
+			}
+		}
+	})
+}
+
+// FlagNameToEnvVar converts flag name to environment var name adding a prefix,
+// replacing dashes and making all uppercase (e.g. setup-keys is converted to WT_SETUP_KEYS)
+func FlagNameToEnvVar(f string) string {
+	prefix := "WT_"
+	parsed := strings.ReplaceAll(f, "-", "_")
+	upper := strings.ToUpper(parsed)
+	return prefix + upper
 }
