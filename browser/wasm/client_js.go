@@ -32,7 +32,7 @@ func main() {
 	defer cancel()
 
 	connectToSignal := func(key wgtypes.Key, remoteKey wgtypes.Key) {
-		signalClient, err := client.NewWebsocketClient(ctx, "ws://localhost:80/signal", key)
+		signalClient, err := client.NewWebsocketClient(ctx, "ws://apitest.wiretrustee.com:80/signal", key)
 		if err != nil {
 			return
 		}
@@ -68,7 +68,9 @@ func main() {
 				DialContext: tnet.DialContext,
 			},
 		}
-		resp, err := client.Get("http://localhost:9090/")
+		req, _ := http.NewRequest("GET", "http://apitest.wiretrustee.com:9090/", nil)
+		req.Header.Set("js.fetch:mode", "no-cors")
+		resp, err := client.Do(req)
 		if err != nil {
 			log.Panic(err)
 		}
