@@ -22,12 +22,6 @@ import (
 
 // A set of tools to exchange connection details (Wireguard endpoints) with the remote peer.
 
-// Status is the status of the client
-type Status string
-
-const streamConnected Status = "streamConnected"
-const streamDisconnected Status = "streamDisconnected"
-
 // GrpcClient Wraps the Signal Exchange Service gRpc client
 type GrpcClient struct {
 	key        wgtypes.Key
@@ -40,6 +34,10 @@ type GrpcClient struct {
 	mux         sync.Mutex
 	// streamConnected indicates whether this GrpcClient is streamConnected to the Signal stream
 	status Status
+}
+
+func (c *GrpcClient) GetStatus() Status {
+	return c.status
 }
 
 // Close Closes underlying connections to the Signal Exchange
@@ -79,7 +77,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		signalConn: conn,
 		key:        key,
 		mux:        sync.Mutex{},
-		status:     streamDisconnected,
+		status:     StreamDisconnected,
 	}, nil
 }
 
@@ -148,13 +146,13 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 func (c *GrpcClient) notifyStreamDisconnected() {
 	c.mux.Lock()
 	defer c.mux.Unlock()
-	c.status = streamDisconnected
+	c.status = StreamDisconnected
 }
 
 func (c *GrpcClient) notifyStreamConnected() {
 	c.mux.Lock()
 	defer c.mux.Unlock()
-	c.status = streamConnected
+	c.status = StreamConnected
 	if c.connectedCh != nil {
 		// there are goroutines waiting on this channel -> release them
 		close(c.connectedCh)
@@ -206,7 +204,7 @@ func (c *GrpcClient) ready() bool {
 // WaitStreamConnected waits until the client is connected to the Signal stream
 func (c *GrpcClient) WaitStreamConnected() {
 
-	if c.status == streamConnected {
+	if c.status == StreamConnected {
 		return
 	}
 

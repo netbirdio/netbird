@@ -8,14 +8,21 @@ import (
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"nhooyr.io/websocket"
+	"sync"
 	"time"
 )
 
 //WebsocketClient is a Signal server websocket client (alternative to the original gRPC Client)
 type WebsocketClient struct {
-	key  wgtypes.Key
-	ctx  context.Context
-	conn *websocket.Conn
+	key    wgtypes.Key
+	ctx    context.Context
+	conn   *websocket.Conn
+	status Status
+	mu     sync.Mutex
+}
+
+func (c *WebsocketClient) GetStatus() Status {
+	return c.status
 }
 
 func NewWebsocketClient(ctx context.Context, endpoint string, wgPrivateKey wgtypes.Key) (*WebsocketClient, error) {
@@ -32,13 +39,18 @@ func NewWebsocketClient(ctx context.Context, endpoint string, wgPrivateKey wgtyp
 	}
 
 	return &WebsocketClient{
-		key:  wgPrivateKey,
-		ctx:  ctx,
-		conn: conn,
+		key:    wgPrivateKey,
+		ctx:    ctx,
+		conn:   conn,
+		status: StreamConnected,
+		mu:     sync.Mutex{},
 	}, nil
 }
 
 func (c *WebsocketClient) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.status = StreamDisconnected
 	return c.conn.Close(websocket.StatusNormalClosure, "close")
 }
 
