@@ -6,19 +6,23 @@ import (
 	"fmt"
 	"github.com/wiretrustee/wiretrustee/browser/conn"
 	"github.com/wiretrustee/wiretrustee/signal/client"
-	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
-	"net"
-	"time"
-
-	/*	"context"
-		"github.com/wiretrustee/wiretrustee/signal/client"
-		"github.com/wiretrustee/wiretrustee/signal/proto"*/
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"log"
+	"net"
 	"syscall/js"
-	/*	"time"*/)
+	"time"
+)
+
+func handleError(err error) {
+	fmt.Printf("Unexpected error. Check console.")
+	panic(err)
+}
+
+func getElementByID(id string) js.Value {
+	return js.Global().Get("document").Call("getElementById", id)
+}
 
 func main() {
 
@@ -31,23 +35,17 @@ func main() {
 			return
 		}
 
-		log.Printf("connected to signal")
-
-		go func() {
-			signalClient.Receive(func(msg *proto.Message) error {
-				log.Printf("received a message from %v -> %v", msg.RemoteKey, msg.Body.Payload)
-				return nil
-			})
-		}()
-
 		time.Sleep(5 * time.Second)
+
+		log.Printf("connected to signal")
 
 		tun, _, err := netstack.CreateNetTUN(
 			[]net.IP{net.ParseIP("10.100.0.2")},
 			[]net.IP{net.ParseIP("8.8.8.8")},
 			1420)
 
-		dev := device.NewDevice(tun, &conn.WebRTCBind{}, device.NewLogger(device.LogLevelVerbose, ""))
+		b := conn.NewWebRTCBind("chann-1", signalClient, key.PublicKey().String(), remoteKey.String())
+		dev := device.NewDevice(tun, b, device.NewLogger(device.LogLevelVerbose, ""))
 
 		err = dev.IpcSet(fmt.Sprintf("private_key=%s\npublic_key=%s\npersistent_keepalive_interval=5\nendpoint=65.108.52.126:50000\nallowed_ip=0.0.0.0/0",
 			hex.EncodeToString(key[:]),
@@ -65,42 +63,7 @@ func main() {
 
 		log.Printf("device started")
 
-		/*stunURL, err := ice.ParseURL("stun:stun.wiretrustee.com:5555")
-		if err != nil {
-			log.Panic(err)
-		}
-
-		agent, err := ice.NewAgent(&ice.AgentConfig{
-			Urls:           []*ice.URL{stunURL},
-			CandidateTypes: []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
-		})
-
-		fmt.Println(agent)
-
-		err = agent.OnCandidate(func(candidate ice.Candidate) {
-			fmt.Printf("gathered candidate %s", cancel)
-		})
-		if err != nil {
-			return
-		}
-
-		fmt.Println("started gathering candidates")*/
-
 		select {}
-
-		/*log.Printf("sending msg to signal")
-
-		err = signalClient.Send(&proto.Message{
-			Key:       key.PublicKey().String(),
-			RemoteKey: remoteKey.String(),
-			Body: &proto.Body{
-				Type:    0,
-				Payload: "hello",
-			},
-		})
-		if err != nil {
-			return
-		}*/
 	}
 
 	js.Global().Set("generateWireguardKey", js.FuncOf(func(this js.Value, args []js.Value) interface{} {
