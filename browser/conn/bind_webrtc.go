@@ -16,6 +16,7 @@ import (
 
 func (*WebRTCBind) makeReceive(dcConn net.Conn) conn.ReceiveFunc {
 	return func(buff []byte) (int, conn.Endpoint, error) {
+		log.Printf("receiving from endpoint %s", dcConn.RemoteAddr().String())
 		n, err := dcConn.Read(buff)
 		if err != nil {
 			return 0, nil, err
@@ -260,132 +261,6 @@ func (bind *WebRTCBind) Open(port uint16) (fns []conn.ReceiveFunc, actualPort ui
 
 }
 
-/*func (bind *WebRTCBind) Open(port uint16) (fns []conn.ReceiveFunc, actualPort uint16, err error) {
-
-	log.Printf("OPEN 1------")
-
-	controlling := bind.key > bind.remoteKey
-
-	bind.mu.Lock()
-	defer bind.mu.Unlock()
-
-	config := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-		},
-	}
-	pc, err := webrtc.NewPeerConnection(config)
-	if err != nil {
-		return nil, 0, err
-	}
-	bind.pc = pc
-
-	log.Printf("OPEN 2------")
-
-	log.Printf("OPEN 3------")
-
-	var sdp webrtc.SessionDescription
-	var dc *webrtc.DataChannel
-	if controlling {
-		// Create offer
-		sdp, err = pc.CreateOffer(nil)
-		if err != nil {
-			return nil, 0, err
-		}
-		if err := pc.SetLocalDescription(sdp); err != nil {
-			return nil, 0, err
-		}
-
-		dc, err = pc.CreateDataChannel(bind.id, nil)
-		if err != nil {
-			return nil, 0, err
-		}
-	} else {
-		dcConn, err := WrapDataChannel(dc)
-		if err != nil {
-			dc.Close()
-			return nil, 0, err
-		}
-	}
-
-	go bind.signal.Receive(func(msg *proto.Message) error {
-		log.Printf("received a message from %v -> %v", msg.RemoteKey, msg.Body.Payload)
-		switch msg.GetBody().Type {
-		case proto.Body_OFFER:
-
-			log.Printf("received offer %s", msg.GetBody().GetPayload())
-
-			err = setRemoteDescription(pc, msg.GetBody().GetPayload())
-			if err != nil {
-				log.Printf("%v", err)
-				return err
-			}
-
-			sdp, err := pc.CreateAnswer(nil)
-			if err != nil {
-				log.Printf("%v", err)
-				return err
-			}
-			if err := pc.SetLocalDescription(sdp); err != nil {
-				log.Printf("%v", err)
-				return err
-			}
-			break
-		case proto.Body_ANSWER:
-
-			log.Printf("received answer %s", msg.GetBody().GetPayload())
-
-			err = setRemoteDescription(pc, msg.GetBody().GetPayload())
-			if err != nil {
-				log.Printf("%v", err)
-				return err
-			}
-			break
-		case proto.Body_CANDIDATE:
-			log.Printf("received candidate %s", msg.GetBody().GetPayload())
-		}
-		return nil
-	})
-
-	// Add handlers for setting up the connection.
-	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
-		fmt.Println(fmt.Sprint(state))
-	})
-	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		if candidate != nil {
-			if controlling {
-				bind.signal.Send(&proto.Message{
-					Key:       bind.key,
-					RemoteKey: bind.remoteKey,
-					Body: &proto.Body{
-						Type:    proto.Body_OFFER,
-						Payload: Encode(pc.LocalDescription()),
-					},
-				})
-			}
-		}
-	})
-
-	log.Printf("OPEN 4------")
-
-	// blocks until channel is open
-	dcConn, err := WrapDataChannel(dc)
-	if err != nil {
-		dc.Close()
-		return nil, 0, err
-	}
-
-	bind.conn = dcConn
-
-	fns = append(fns, bind.makeReceive(bind.conn))
-
-	log.Printf("OPEN 5------")
-
-	return fns, 38676, nil
-}*/
-
 func setRemoteDescription(pc *webrtc.PeerConnection, payload string) error {
 	descr, err := Decode(payload)
 	if err != nil {
@@ -436,27 +311,32 @@ func (bind *WebRTCBind) Send(b []byte, ep conn.Endpoint) error {
 }
 
 func (*WebRTCBind) ParseEndpoint(s string) (conn.Endpoint, error) {
-	return nil, nil
+	log.Printf("peer endpoint %s", s)
+	return &WebRTCEndpoint{}, nil
 }
 
 // WebRTCEndpoint is an implementation of Wireguard's Endpoint interface backed by WebRTC
 type WebRTCEndpoint DataChannelAddr
 
-func (*WebRTCEndpoint) ClearSrc() {
+func (e *WebRTCEndpoint) ClearSrc() {
 
 }
-func (*WebRTCEndpoint) SrcToString() string {
+func (e *WebRTCEndpoint) SrcToString() string {
 	return ""
 }
-func (*WebRTCEndpoint) DstToString() string {
-	return ""
+func (e *WebRTCEndpoint) DstToString() string {
+	return (*DataChannelAddr)(e).String()
 }
-func (*WebRTCEndpoint) DstToBytes() []byte {
-	return nil
+func (e *WebRTCEndpoint) DstToBytes() []byte {
+	port := 31234
+	out := net.IP{127, 0, 0, 1}
+	out = append(out, byte(port&0xff))
+	out = append(out, byte((port>>8)&0xff))
+	return out
 }
-func (*WebRTCEndpoint) DstIP() net.IP {
-	return nil
+func (e *WebRTCEndpoint) DstIP() net.IP {
+	return net.IP{127, 0, 0, 1}
 }
-func (*WebRTCEndpoint) SrcIP() net.IP {
+func (e *WebRTCEndpoint) SrcIP() net.IP {
 	return nil
 }
