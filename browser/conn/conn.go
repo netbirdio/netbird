@@ -86,7 +86,6 @@ func (dc *DataChannelConn) Read(b []byte) (n int, err error) {
 
 func (dc *DataChannelConn) Write(b []byte) (n int, err error) {
 	err = dc.dc.Send(b)
-	log.Printf("writing to channel %s %v", dc.dc.Label(), dc.dc)
 	if err != nil {
 		return 0, err
 	}
@@ -168,7 +167,6 @@ func (cr ContextReadCloser) SetReadDeadline(t time.Time) error {
 }
 
 func (cr ContextReadCloser) Read(p []byte) (n int, err error) {
-	log.Printf("reading bytes ro buf of len %d", len(p))
 	done := make(chan struct{})
 	go func() {
 		n, err = cr.ReadCloser.Read(p)

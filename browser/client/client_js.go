@@ -9,8 +9,10 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"syscall/js"
 	"time"
 )
@@ -37,7 +39,7 @@ func main() {
 
 		time.Sleep(5 * time.Second)
 
-		tun, _, err := netstack.CreateNetTUN(
+		tun, tnet, err := netstack.CreateNetTUN(
 			[]net.IP{net.ParseIP("10.100.0.1")},
 			[]net.IP{net.ParseIP("8.8.8.8")},
 			1420)
@@ -45,7 +47,7 @@ func main() {
 		b := conn.NewWebRTCBind("chann-1", signalClient, key.PublicKey().String(), remoteKey.String())
 		dev := device.NewDevice(tun, b, device.NewLogger(device.LogLevelVerbose, ""))
 
-		err = dev.IpcSet(fmt.Sprintf("private_key=%s\npublic_key=%s\npersistent_keepalive_interval=10\nendpoint=webrtc://datachannel\nallowed_ip=0.0.0.0/0",
+		err = dev.IpcSet(fmt.Sprintf("private_key=%s\npublic_key=%s\npersistent_keepalive_interval=25\nendpoint=webrtc://datachannel\nallowed_ip=0.0.0.0/0",
 			hex.EncodeToString(key[:]),
 			hex.EncodeToString(remoteKey[:]),
 		))
@@ -61,7 +63,7 @@ func main() {
 
 		log.Printf("device started")
 
-		/*client := http.Client{
+		client := http.Client{
 			Transport: &http.Transport{
 				DialContext: tnet.DialContext,
 			},
@@ -78,7 +80,7 @@ func main() {
 			log.Panic(err)
 		}
 		log.Printf(string(body))
-		log.Printf(resp.Status)*/
+		log.Printf(resp.Status)
 
 		select {}
 	}

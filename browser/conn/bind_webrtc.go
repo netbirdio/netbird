@@ -18,7 +18,6 @@ const initDataChannelName = "wiretrustee-init"
 
 func (*WebRTCBind) makeReceive(dcConn net.Conn) conn.ReceiveFunc {
 	return func(buff []byte) (int, conn.Endpoint, error) {
-		log.Printf("receiving from endpoint %s", dcConn.RemoteAddr().String())
 		n, err := dcConn.Read(buff)
 		if err != nil {
 			return 0, nil, err
@@ -179,7 +178,7 @@ func (bind *WebRTCBind) Open(port uint16) (fns []conn.ReceiveFunc, actualPort ui
 		go bind.signal.Receive(func(msg *proto.Message) error {
 			log.Printf("received a message from %v -> %v", msg.RemoteKey, msg.Body.Payload)
 			if msg.GetBody().Type == proto.Body_ANSWER {
-				log.Printf("received answer %s", msg.GetBody().GetPayload())
+				log.Printf("received answer")
 				err := setRemoteDescription(bind.pc, msg.GetBody().GetPayload())
 				if err != nil {
 					log.Printf("%v", err)
@@ -195,7 +194,7 @@ func (bind *WebRTCBind) Open(port uint16) (fns []conn.ReceiveFunc, actualPort ui
 		go bind.signal.Receive(func(msg *proto.Message) error {
 			log.Printf("received a message from %v -> %v", msg.RemoteKey, msg.Body.Payload)
 			if msg.GetBody().Type == proto.Body_OFFER {
-				log.Printf("received offer %s", msg.GetBody().GetPayload())
+				log.Printf("received offer")
 
 				err = setRemoteDescription(bind.pc, msg.GetBody().GetPayload())
 				if err != nil {
