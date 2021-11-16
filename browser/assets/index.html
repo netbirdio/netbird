@@ -4,7 +4,7 @@
     <script src="wasm_exec.js"></script>
     <script>
         const go = new Go();
-        WebAssembly.instantiateStreaming(fetch("tun.wasm"), go.importObject).then((result) => {
+        WebAssembly.instantiateStreaming(fetch("client.wasm"), go.importObject).then((result) => {
             go.run(result.instance);
         });
     </script>
@@ -14,16 +14,16 @@
     <input type=button value="Generate Public Key" onclick='generateWireguardKey()'>
     </p>
     <label for="wgPrivateKey">Wireguard private key:</label>
-    <input id="wgPrivateKey" type=input size="50" value="">
+    <input id="wgPrivateKey" type=input size="50" value="qJi7zSrgdokeoXE27fbca2hvMlgg1NQIW6KbrTJhhmc=">
     </p>
     <label for="publicKey">Wireguard Public Key:</label>
-    <input id="publicKey" type=input size="50" value="">
+    <input id="publicKey" type=input size="50" value="6M9O7PRhKMEOiboBp9cX6rNrLBevtHX7H0O2FMXUkFI=">
     <p/>
     <label for="wgIp">Wireguard private IP:</label>
     <input id="wgIp" type=input size="50" value="10.0.0.2/24">
     <p/>
     <label for="peerKey">Wireguard Peer Public key:</label>
-    <input id="peerKey" type=input size="50" value="aaWf6mtEgamDgCmSCt2/6Y7aV8j6p6a0nw2GOUbBKwY=">
+    <input id="peerKey" type=input size="50" value="RFuT84MDhIvmgQndwMkxQPjG195poq713EMJZv1XPEw=">
     <p/>
     <label for="peerAllowedIPs">Wireguard Peer AllowedIPs:</label>
     <input id="peerAllowedIPs" type=input size="50" value="Paste other peer AllowedIPs">
