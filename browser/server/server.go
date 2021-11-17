@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"flag"
@@ -24,6 +25,7 @@ func main() {
 	keyFlag := flag.String("key", "", "a Wireguard private key")
 	remoteKeyFlag := flag.String("remote-key", "", "a Wireguard remote peer public key")
 	signalEndpoint := flag.String("signal-endpoint", "ws://apitest.wiretrustee.com:80/signal", "a Signal service Websocket endpoint")
+	cl := flag.Bool("client", false, "indicates whether the program is a client")
 
 	flag.Parse()
 
@@ -43,9 +45,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
-	time.Sleep(5 * time.Second)
-
 	signal, err := client.NewWebsocketClient(ctx, *signalEndpoint, key)
+
+	time.Sleep(5 * time.Second)
 
 	tun, tnet, err := netstack.CreateNetTUN(
 		[]net.IP{net.ParseIP("10.100.0.2")},
@@ -54,7 +56,7 @@ func main() {
 
 	b := conn.NewWebRTCBind("chann-1", signal, key.PublicKey().String(), remoteKey.String())
 	dev := device.NewDevice(tun, b, device.NewLogger(device.LogLevelVerbose, ""))
-	err = dev.IpcSet(fmt.Sprintf("private_key=%s\npublic_key=%s\npersistent_keepalive_interval=10\nendpoint=webrtc://datachannel\nallowed_ip=0.0.0.0/0",
+	err = dev.IpcSet(fmt.Sprintf("private_key=%s\npublic_key=%s\npersistent_keepalive_interval=100\nendpoint=webrtc://datachannel\nallowed_ip=0.0.0.0/0",
 		hex.EncodeToString(key[:]),
 		hex.EncodeToString(remoteKey[:]),
 	))
@@ -65,17 +67,41 @@ func main() {
 		panic(err)
 	}
 
-	listener, err := tnet.ListenTCP(&net.TCPAddr{Port: 80})
-	if err != nil {
-		log.Panicln(err)
+	client := http.Client{
+		Transport: &http.Transport{
+			DialContext: tnet.DialContext,
+		},
 	}
-	http.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
-		log.Printf("> %s - %s - %s", request.RemoteAddr, request.URL.String(), request.UserAgent())
-		io.WriteString(writer, "Hello from userspace TCP!")
-	})
-	err = http.Serve(listener, nil)
-	if err != nil {
-		log.Panicln(err)
+	time.Sleep(2 * time.Second)
+
+	if *cl {
+
+		req, _ := http.NewRequest("POST", "https://httpbin.org/ip", bytes.NewBufferString("ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"))
+		//req.Header.Set("js.fetch:mode", "no-cors")
+		resp, err := client.Do(req)
+		if err != nil {
+			log.Panic(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			log.Panic(err)
+		}
+		log.Printf(string(body))
+		log.Printf(resp.Status)
+
+	} else {
+		listener, err := tnet.ListenTCP(&net.TCPAddr{Port: 80})
+		if err != nil {
+			log.Panicln(err)
+		}
+		http.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
+			log.Printf("> %s - %s - %s", request.RemoteAddr, request.URL.String(), request.UserAgent())
+			io.WriteString(writer, "Hello from userspace TCP!")
+		})
+		err = http.Serve(listener, nil)
+		if err != nil {
+			log.Panicln(err)
+		}
 	}
 
 	select {}
