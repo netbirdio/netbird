@@ -146,7 +146,7 @@ func GetListenPort(iface string) (*int, error) {
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
 // Endpoint is optional
-func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.Duration, endpoint string) error {
+func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.Duration, endpoint string, preSharedKey *wgtypes.Key) error {
 
 	log.Debugf("updating interface %s peer %s: endpoint %s ", iface, peerKey, endpoint)
 
@@ -165,6 +165,7 @@ func UpdatePeer(iface string, peerKey string, allowedIps string, keepAlive time.
 		ReplaceAllowedIPs:           true,
 		AllowedIPs:                  []net.IPNet{*ipNet},
 		PersistentKeepaliveInterval: &keepAlive,
+		PresharedKey:                preSharedKey,
 	}
 
 	config := wgtypes.Config{

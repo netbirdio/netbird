@@ -30,6 +30,8 @@ type EngineConfig struct {
 	WgPrivateKey wgtypes.Key
 	// IFaceBlackList is a list of network interfaces to ignore when discovering connection candidates (ICE related)
 	IFaceBlackList map[string]struct{}
+
+	PreSharedKey *wgtypes.Key
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -238,6 +240,7 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 		RemoteWgKey:    remoteKey,
 		StunTurnURLS:   append(e.STUNs, e.TURNs...),
 		iFaceBlackList: e.config.IFaceBlackList,
+		PreSharedKey:   e.config.PreSharedKey,
 	}
 
 	signalOffer := func(uFrag string, pwd string) error {

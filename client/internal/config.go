@@ -28,13 +28,14 @@ func init() {
 type Config struct {
 	// Wireguard private key of local peer
 	PrivateKey     string
+	PreSharedKey   string
 	ManagementURL  *url.URL
 	WgIface        string
 	IFaceBlackList []string
 }
 
 //createNewConfig creates a new config generating a new Wireguard key and saving to file
-func createNewConfig(managementURL string, configPath string) (*Config, error) {
+func createNewConfig(managementURL string, configPath string, preSharedKey string) (*Config, error) {
 	wgKey := generateKey()
 	config := &Config{PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
 	if managementURL != "" {
@@ -45,6 +46,10 @@ func createNewConfig(managementURL string, configPath string) (*Config, error) {
 		config.ManagementURL = URL
 	} else {
 		config.ManagementURL = managementURLDefault
+	}
+
+	if preSharedKey != "" {
+		config.PreSharedKey = preSharedKey
 	}
 
 	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "tun0"}
@@ -93,11 +98,11 @@ func ReadConfig(managementURL string, configPath string) (*Config, error) {
 }
 
 // GetConfig reads existing config or generates a new one
-func GetConfig(managementURL string, configPath string) (*Config, error) {
+func GetConfig(managementURL string, configPath string, preSharedKey string) (*Config, error) {
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		log.Infof("generating new config %s", configPath)
-		return createNewConfig(managementURL, configPath)
+		return createNewConfig(managementURL, configPath, preSharedKey)
 	} else {
 		return ReadConfig(managementURL, configPath)
 	}
