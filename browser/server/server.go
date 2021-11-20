@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"flag"
@@ -20,12 +19,15 @@ import (
 
 //my private key qJi7zSrgdokeoXE27fbca2hvMlgg1NQIW6KbrTJhhmc=
 //remote private key KLuBc6tM/NRV1071bfPiNUxZmMhGBCXfxoDg+A+J7ns=
+//./server --key KLuBc6tM/NRV1071bfPiNUxZmMhGBCXfxoDg+A+J7ns= --remote-key 6M9O7PRhKMEOiboBp9cX6rNrLBevtHX7H0O2FMXUkFI= --signal-endpoint ws://0.0.0.0:80/signal --ip 100.0.2.1 --remote-ip 100.0.2.2
 func main() {
 
 	keyFlag := flag.String("key", "", "a Wireguard private key")
 	remoteKeyFlag := flag.String("remote-key", "", "a Wireguard remote peer public key")
 	signalEndpoint := flag.String("signal-endpoint", "ws://apitest.wiretrustee.com:80/signal", "a Signal service Websocket endpoint")
 	cl := flag.Bool("client", false, "indicates whether the program is a client")
+	ip := flag.String("ip", "", "Wireguard IP")
+	remoteIP := flag.String("remote-ip", "", "Wireguard IP")
 
 	flag.Parse()
 
@@ -50,15 +52,20 @@ func main() {
 	time.Sleep(5 * time.Second)
 
 	tun, tnet, err := netstack.CreateNetTUN(
-		[]net.IP{net.ParseIP("10.100.0.2")},
+		[]net.IP{net.ParseIP(*ip)},
 		[]net.IP{net.ParseIP("8.8.8.8")},
 		1420)
 
 	b := conn.NewWebRTCBind("chann-1", signal, key.PublicKey().String(), remoteKey.String())
 	dev := device.NewDevice(tun, b, device.NewLogger(device.LogLevelVerbose, ""))
-	err = dev.IpcSet(fmt.Sprintf("private_key=%s\npublic_key=%s\npersistent_keepalive_interval=100\nendpoint=webrtc://datachannel\nallowed_ip=0.0.0.0/0",
+	allowedIPs := *remoteIP + "/32"
+	if *cl {
+		allowedIPs = "0.0.0.0/0"
+	}
+	err = dev.IpcSet(fmt.Sprintf("private_key=%s\npublic_key=%s\npersistent_keepalive_interval=100\nendpoint=webrtc://datachannel\nallowed_ip=%s",
 		hex.EncodeToString(key[:]),
 		hex.EncodeToString(remoteKey[:]),
+		allowedIPs,
 	))
 
 	dev.Up()
@@ -76,7 +83,8 @@ func main() {
 
 	if *cl {
 
-		req, _ := http.NewRequest("POST", "https://httpbin.org/ip", bytes.NewBufferString("ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"))
+		req, _ := http.NewRequest("GET", "http://"+*remoteIP, nil)
+
 		//req.Header.Set("js.fetch:mode", "no-cors")
 		resp, err := client.Do(req)
 		if err != nil {
@@ -95,8 +103,14 @@ func main() {
 			log.Panicln(err)
 		}
 		http.HandleFunc("/", func(writer http.ResponseWriter, request *http.Request) {
+			writer.Header().Set("Access-Control-Allow-Origin", "*")
+			writer.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			if (*request).Method == "OPTIONS" {
+				return
+			}
+
 			log.Printf("> %s - %s - %s", request.RemoteAddr, request.URL.String(), request.UserAgent())
-			io.WriteString(writer, "Hello from userspace TCP!")
+			io.WriteString(writer, "HELOOOOOOOOOOOOOOOOOOOO")
 		})
 		err = http.Serve(listener, nil)
 		if err != nil {

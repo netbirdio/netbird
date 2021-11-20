@@ -85,6 +85,7 @@ func (dc *DataChannelConn) Read(b []byte) (n int, err error) {
 }
 
 func (dc *DataChannelConn) Write(b []byte) (n int, err error) {
+	log.Printf("writing buffer of size %d", len(b))
 	err = dc.dc.Send(b)
 	if err != nil {
 		return 0, err
