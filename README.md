@@ -29,10 +29,9 @@
 
 It requires zero configuration effort leaving behind the hassle of opening ports, complex firewall rules, vpn gateways, and so forth.
 
-There is no centralized VPN server with Wiretrustee - your computers, devices, machines, and servers connect to each other directly over a fast encrypted tunnel.
-
 **Wiretrustee automates Wireguard-based networks, offering a management layer with:**
-* Centralized Peer IP management with a neat UI dashboard.
+* Centralized Peer IP management with a UI dashboard.
+* Encrypted peer-to-peet connections without a centralized VPN gateway.
 * Automatic Peer discovery and configuration.
 * UDP hole punching to establish peer-to-peer connections behind NAT, firewall, and without a public static IP.
 * Connection relay fallback in case a peer-to-peer connection is not possible.
@@ -40,6 +39,7 @@ There is no centralized VPN server with Wiretrustee - your computers, devices, m
 * Client application SSO with MFA (coming soon).
 * Access Controls (coming soon).
 * Activity Monitoring (coming soon).
+* Private DNS (coming baoon)
 
 ### Secure peer-to-peer VPN in minutes
 <p float="left" align="middle">
