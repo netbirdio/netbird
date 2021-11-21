@@ -111,7 +111,7 @@ func Test_UpdatePeer(t *testing.T) {
 	keepAlive := 15 * time.Second
 	allowedIP := "10.99.99.2/32"
 	endpoint := "127.0.0.1:9900"
-	err = UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint)
+	err = UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +163,7 @@ func Test_UpdatePeerEndpoint(t *testing.T) {
 	keepAlive := 15 * time.Second
 	allowedIP := "10.99.99.2/32"
 	endpoint := "127.0.0.1:9900"
-	err = UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint)
+	err = UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func Test_RemovePeer(t *testing.T) {
 	keepAlive := 15 * time.Second
 	allowedIP := "10.99.99.2/32"
 	endpoint := "127.0.0.1:9900"
-	err = UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint)
+	err = UpdatePeer(ifaceName, peerPubKey, allowedIP, keepAlive, endpoint, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

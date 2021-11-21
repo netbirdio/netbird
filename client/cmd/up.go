@@ -63,12 +63,22 @@ func createEngineConfig(key wgtypes.Key, config *internal.Config, peerConfig *mg
 		iFaceBlackList[config.IFaceBlackList[i]] = struct{}{}
 	}
 
-	return &internal.EngineConfig{
+	engineConf := &internal.EngineConfig{
 		WgIface:        config.WgIface,
 		WgAddr:         peerConfig.Address,
 		IFaceBlackList: iFaceBlackList,
 		WgPrivateKey:   key,
-	}, nil
+	}
+
+	if config.PreSharedKey != "" {
+		preSharedKey, err := wgtypes.ParseKey(config.PreSharedKey)
+		if err != nil {
+			return nil, err
+		}
+		engineConf.PreSharedKey = &preSharedKey
+	}
+
+	return engineConf, nil
 }
 
 // connectToSignal creates Signal Service client and established a connection
