@@ -4,27 +4,30 @@ import (
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 )
 
 // WgProxy an instance of an instance of the Connection Wireguard Proxy
 type WgProxy struct {
-	iface      string
-	remoteKey  string
-	allowedIps string
-	wgAddr     string
-	close      chan struct{}
-	wgConn     net.Conn
+	iface        string
+	remoteKey    string
+	allowedIps   string
+	wgAddr       string
+	close        chan struct{}
+	wgConn       net.Conn
+	preSharedKey *wgtypes.Key
 }
 
 // NewWgProxy creates a new Connection Wireguard Proxy
-func NewWgProxy(iface string, remoteKey string, allowedIps string, wgAddr string) *WgProxy {
+func NewWgProxy(iface string, remoteKey string, allowedIps string, wgAddr string, preSharedKey *wgtypes.Key) *WgProxy {
 	return &WgProxy{
-		iface:      iface,
-		remoteKey:  remoteKey,
-		allowedIps: allowedIps,
-		wgAddr:     wgAddr,
-		close:      make(chan struct{}),
+		iface:        iface,
+		remoteKey:    remoteKey,
+		allowedIps:   allowedIps,
+		wgAddr:       wgAddr,
+		close:        make(chan struct{}),
+		preSharedKey: preSharedKey,
 	}
 }
 
@@ -48,7 +51,7 @@ func (p *WgProxy) Close() error {
 
 // StartLocal configure the interface with a peer using a direct IP:Port endpoint to the remote host
 func (p *WgProxy) StartLocal(host string) error {
-	err := iface.UpdatePeer(p.iface, p.remoteKey, p.allowedIps, DefaultWgKeepAlive, host)
+	err := iface.UpdatePeer(p.iface, p.remoteKey, p.allowedIps, DefaultWgKeepAlive, host, p.preSharedKey)
 	if err != nil {
 		log.Errorf("error while configuring Wireguard peer [%s] %s", p.remoteKey, err.Error())
 		return err
@@ -67,7 +70,7 @@ func (p *WgProxy) Start(remoteConn *ice.Conn) error {
 	p.wgConn = wgConn
 	// add local proxy connection as a Wireguard peer
 	err = iface.UpdatePeer(p.iface, p.remoteKey, p.allowedIps, DefaultWgKeepAlive,
-		wgConn.LocalAddr().String())
+		wgConn.LocalAddr().String(), p.preSharedKey)
 	if err != nil {
 		log.Errorf("error while configuring Wireguard peer [%s] %s", p.remoteKey, err.Error())
 		return err
@@ -92,13 +95,11 @@ func (p *WgProxy) proxyToRemotePeer(remoteConn *ice.Conn) {
 		default:
 			n, err := p.wgConn.Read(buf)
 			if err != nil {
-				//log.Warnln("failed reading from peer: ", err.Error())
 				continue
 			}
 
 			_, err = remoteConn.Write(buf[:n])
 			if err != nil {
-				//log.Warnln("failed writing to remote peer: ", err.Error())
 				continue
 			}
 		}
@@ -118,13 +119,11 @@ func (p *WgProxy) proxyToLocalWireguard(remoteConn *ice.Conn) {
 		default:
 			n, err := remoteConn.Read(buf)
 			if err != nil {
-				//log.Errorf("failed reading from remote connection %s", err)
 				continue
 			}
 
 			_, err = p.wgConn.Write(buf[:n])
 			if err != nil {
-				//log.Errorf("failed writing to local Wireguard instance %s", err)
 				continue
 			}
 		}

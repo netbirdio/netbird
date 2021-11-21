@@ -60,6 +60,8 @@ type ConnConfig struct {
 	// Remote Wireguard public key
 	RemoteWgKey wgtypes.Key
 
+	PreSharedKey *wgtypes.Key
+
 	StunTurnURLS []*ice.URL
 
 	iFaceBlackList map[string]struct{}
@@ -115,7 +117,7 @@ func NewConnection(config ConnConfig,
 		closeCond:         NewCond(),
 		connected:         NewCond(),
 		agent:             nil,
-		wgProxy:           NewWgProxy(config.WgIface, config.RemoteWgKey.String(), config.WgAllowedIPs, config.WgListenAddr),
+		wgProxy:           NewWgProxy(config.WgIface, config.RemoteWgKey.String(), config.WgAllowedIPs, config.WgListenAddr, config.PreSharedKey),
 		Status:            StatusDisconnected,
 	}
 }

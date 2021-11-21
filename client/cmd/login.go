@@ -30,10 +30,9 @@ var (
 				return err
 			}
 
-			config, err := internal.GetConfig(managementURL, configPath)
+			config, err := internal.GetConfig(managementURL, configPath, preSharedKey)
 			if err != nil {
 				log.Errorf("failed getting config %s %v", configPath, err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
@@ -41,7 +40,6 @@ var (
 			myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 			if err != nil {
 				log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
@@ -56,7 +54,6 @@ var (
 			mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 			if err != nil {
 				log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 			log.Debugf("connected to anagement Service %s", config.ManagementURL.String())
@@ -64,21 +61,18 @@ var (
 			serverKey, err := mgmClient.GetServerPublicKey()
 			if err != nil {
 				log.Errorf("failed while getting Management Service public key: %v", err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
 			_, err = loginPeer(*serverKey, mgmClient, setupKey)
 			if err != nil {
 				log.Errorf("failed logging-in peer on Management Service : %v", err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
 			err = mgmClient.Close()
 			if err != nil {
 				log.Errorf("failed closing Management Service client: %v", err)
-				//os.Exit(ExitSetupFailed)
 				return err
 			}
 
