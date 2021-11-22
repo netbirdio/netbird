@@ -15,7 +15,7 @@
 <strong>
   Start using Wiretrustee at <a href="https://app.wiretrustee.com/">app.wiretrustee.com</a>
   <br/>
-  See <a href="docs/README.md">Documentation</a>
+  See <a href="https://docs.wiretrustee.com">Documentation</a>
   <br/>
    Join our <a href="https://join.slack.com/t/wiretrustee/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A">Slack channel</a>
   <br/>
