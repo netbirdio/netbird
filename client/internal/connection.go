@@ -5,7 +5,6 @@ import (
 	"fmt"
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/iface"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 	"sync"
@@ -99,6 +98,8 @@ type Connection struct {
 	remoteAuthCond sync.Once
 
 	Status Status
+
+	localConn net.PacketConn
 }
 
 // NewConnection Creates a new connection and sets handling functions for signal protocol
@@ -106,6 +107,7 @@ func NewConnection(config ConnConfig,
 	signalCandidate func(candidate ice.Candidate) error,
 	signalOffer func(uFrag string, pwd string) error,
 	signalAnswer func(uFrag string, pwd string) error,
+	conn net.PacketConn,
 ) *Connection {
 
 	return &Connection{
@@ -119,6 +121,7 @@ func NewConnection(config ConnConfig,
 		agent:             nil,
 		wgProxy:           NewWgProxy(config.WgIface, config.RemoteWgKey.String(), config.WgAllowedIPs, config.WgListenAddr, config.PreSharedKey),
 		Status:            StatusDisconnected,
+		localConn:         conn,
 	}
 }
 
@@ -128,10 +131,10 @@ func (conn *Connection) Open(timeout time.Duration) error {
 
 	// create an ice.Agent that will be responsible for negotiating and establishing actual peer-to-peer connection
 	a, err := ice.NewAgent(&ice.AgentConfig{
-		// MulticastDNSMode: ice.MulticastDNSModeQueryAndGather,
-		NetworkTypes:   []ice.NetworkType{ice.NetworkTypeUDP4},
-		Urls:           conn.Config.StunTurnURLS,
-		CandidateTypes: []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
+		MulticastDNSMode: ice.MulticastDNSModeDisabled,
+		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
+		//Urls:           conn.Config.StunTurnURLS,
+		CandidateTypes: []ice.CandidateType{ice.CandidateTypeHost},
 		InterfaceFilter: func(s string) bool {
 			if conn.Config.iFaceBlackList == nil {
 				return true
@@ -139,7 +142,9 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			_, ok := conn.Config.iFaceBlackList[s]
 			return !ok
 		},
+		UDPMux: ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: conn.localConn}),
 	})
+
 	if err != nil {
 		return err
 	}
@@ -198,7 +203,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 		useProxy := useProxy(pair)
 
 		// in case the remote peer is in the local network or one of the peers has public static IP -> no need for a Wireguard proxy, direct communication is possible.
-		if !useProxy {
+		/*if !useProxy {
 			log.Debugf("it is possible to establish a direct connection (without proxy) to peer %s - my addr: %s, remote addr: %s", conn.Config.RemoteWgKey.String(), pair.Local, pair.Remote)
 			err = conn.wgProxy.StartLocal(fmt.Sprintf("%s:%d", pair.Remote.Address(), iface.WgPort))
 			if err != nil {
@@ -211,6 +216,12 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			if err != nil {
 				return err
 			}
+		}*/
+
+		log.Debugf("establishing secure tunnel to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
+		err = conn.wgProxy.Start(remoteConn)
+		if err != nil {
+			return err
 		}
 
 		relayed := pair.Remote.Type() == ice.CandidateTypeRelay || pair.Local.Type() == ice.CandidateTypeRelay
@@ -331,6 +342,10 @@ func (conn *Connection) OnOffer(remoteAuth IceCredentials) error {
 
 // OnRemoteCandidate Handles remote candidate provided by the peer.
 func (conn *Connection) OnRemoteCandidate(candidate ice.Candidate) error {
+
+	if candidate.Type() != ice.CandidateTypeHost {
+		return nil
+	}
 
 	log.Debugf("onRemoteCandidate from peer %s -> %s", conn.Config.RemoteWgKey.String(), candidate.String())
 

@@ -12,10 +12,45 @@ import (
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"net"
 	"strings"
 	"sync"
 	"time"
 )
+
+// sharedUDPConn wraps a net.UDPConn and allows us to intercept ReadFrom calls
+// when we get a packet that doesn't appear to be WebRTC we drop that value
+type sharedUDPConn struct {
+	*net.UDPConn
+}
+
+// Matching rules come from
+// https://tools.ietf.org/html/rfc7983
+func isWebRTC(p []byte, n int) bool {
+	if len(p) == 0 {
+		return true
+	} else if p[0] <= 3 { // STUN
+		return true
+	} else if p[0] >= 20 && p[0] <= 63 { // DTLS
+		return true
+	} else if p[0] >= 64 && p[0] <= 79 { // TURN
+		return true
+	} else if p[0] >= 128 && p[0] <= 191 { // RTP and RTCP
+		return true
+	}
+
+	return false
+}
+
+func (s *sharedUDPConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+	if n, addr, err = s.UDPConn.ReadFrom(p); err == nil {
+		if !isWebRTC(p, n) {
+			return s.UDPConn.ReadFrom(p)
+		}
+	}
+
+	return
+}
 
 // PeerConnectionTimeout is a timeout of an initial connection attempt to a remote peer.
 // E.g. this peer will wait PeerConnectionTimeout for the remote peer to respond, if not successful then it will retry the connection attempt.
@@ -61,6 +96,8 @@ type Engine struct {
 	cancel context.CancelFunc
 
 	ctx context.Context
+
+	conn *sharedUDPConn
 }
 
 // Peer is an instance of the Connection Peer
@@ -131,6 +168,20 @@ func (e *Engine) Start() error {
 	}
 	e.wgPort = *port
 
+	addr := net.UDPAddr{
+		IP:   net.IPv4zero,
+		Port: 38888,
+	}
+
+	localConn, err := net.ListenUDP("udp4", &addr)
+	if err != nil {
+		return err
+	}
+
+	e.conn = &sharedUDPConn{
+		UDPConn: localConn,
+	}
+
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
 
@@ -139,6 +190,7 @@ func (e *Engine) Start() error {
 
 // initializePeer peer agent attempt to open connection
 func (e *Engine) initializePeer(peer Peer) {
+
 	var backOff = backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     backoff.DefaultInitialInterval,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
@@ -253,7 +305,7 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	signalCandidate := func(candidate ice.Candidate) error {
 		return signalCandidate(candidate, myKey, remoteKey, e.signal)
 	}
-	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
+	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer, e.conn)
 	e.conns[remoteKey.String()] = conn
 	e.peerMux.Unlock()
 
