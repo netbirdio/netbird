@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
@@ -62,22 +63,24 @@ func (p *WgProxy) StartLocal(host string) error {
 // Start starts a new proxy using the ICE connection
 func (p *WgProxy) Start(remoteConn *ice.Conn) error {
 
-	/*wgConn, err := net.Dial("udp", p.wgAddr)
+	wgConn, err := net.Dial("udp", p.wgAddr)
 	if err != nil {
 		log.Fatalf("failed dialing to local Wireguard port %s", err)
 		return err
 	}
-	p.wgConn = wgConn*/
+	p.wgConn = wgConn
 	// add local proxy connection as a Wireguard peer
-	err := iface.UpdatePeer(p.iface, p.remoteKey, p.allowedIps, DefaultWgKeepAlive,
-		remoteConn.RemoteAddr().String(), p.preSharedKey)
+	fmt.Printf("local conn %s", wgConn.LocalAddr().String())
+	fmt.Printf("remote conn %s", wgConn.RemoteAddr().String())
+	err = iface.UpdatePeer(p.iface, p.remoteKey, p.allowedIps, DefaultWgKeepAlive,
+		wgConn.LocalAddr().String(), p.preSharedKey)
 	if err != nil {
 		log.Errorf("error while configuring Wireguard peer [%s] %s", p.remoteKey, err.Error())
 		return err
 	}
 
-	/*go func() { p.proxyToRemotePeer(remoteConn) }()
-	go func() { p.proxyToLocalWireguard(remoteConn) }()*/
+	go func() { p.proxyToRemotePeer(remoteConn) }()
+	go func() { p.proxyToLocalWireguard(remoteConn) }()
 
 	return err
 }

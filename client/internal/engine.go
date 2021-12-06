@@ -18,40 +18,6 @@ import (
 	"time"
 )
 
-// sharedUDPConn wraps a net.UDPConn and allows us to intercept ReadFrom calls
-// when we get a packet that doesn't appear to be WebRTC we drop that value
-type sharedUDPConn struct {
-	*net.UDPConn
-}
-
-// Matching rules come from
-// https://tools.ietf.org/html/rfc7983
-func isWebRTC(p []byte, n int) bool {
-	if len(p) == 0 {
-		return true
-	} else if p[0] <= 3 { // STUN
-		return true
-	} else if p[0] >= 20 && p[0] <= 63 { // DTLS
-		return true
-	} else if p[0] >= 64 && p[0] <= 79 { // TURN
-		return true
-	} else if p[0] >= 128 && p[0] <= 191 { // RTP and RTCP
-		return true
-	}
-
-	return false
-}
-
-func (s *sharedUDPConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
-	if n, addr, err = s.UDPConn.ReadFrom(p); err == nil {
-		if !isWebRTC(p, n) {
-			return s.UDPConn.ReadFrom(p)
-		}
-	}
-
-	return
-}
-
 // PeerConnectionTimeout is a timeout of an initial connection attempt to a remote peer.
 // E.g. this peer will wait PeerConnectionTimeout for the remote peer to respond, if not successful then it will retry the connection attempt.
 const PeerConnectionTimeout = 40 * time.Second
@@ -97,7 +63,7 @@ type Engine struct {
 
 	ctx context.Context
 
-	conn *sharedUDPConn
+	conn *SharedUDPConn
 }
 
 // Peer is an instance of the Connection Peer
@@ -170,17 +136,10 @@ func (e *Engine) Start() error {
 
 	addr := net.UDPAddr{
 		IP:   net.IPv4zero,
-		Port: 38888,
+		Port: 51820,
 	}
 
-	localConn, err := net.ListenUDP("udp4", &addr)
-	if err != nil {
-		return err
-	}
-
-	e.conn = &sharedUDPConn{
-		UDPConn: localConn,
-	}
+	e.conn, err = NewSharedConn(addr)
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
