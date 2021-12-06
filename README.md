@@ -27,7 +27,7 @@
 
 **Wiretrustee is an open-source VPN platform built on top of WireGuard® making it easy to create secure private networks for your organization or home.**
 
-It requires zero configuration effort leaving behind the hassle of opening ports, complex firewall rules, vpn gateways, and so forth.
+It requires zero configuration effort leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
 **Wiretrustee automates Wireguard-based networks, offering a management layer with:**
 * Centralized Peer IP management with a UI dashboard.
@@ -56,14 +56,17 @@ Hosted demo version:
 
 
 ### A bit on Wiretrustee internals
-* Wiretrustee features a Management Service that offers peer IP management and network updates distribution (e.g. when new peer joins the network).
+* Wiretrustee features a Management Service that offers peer IP management and network updates distribution (e.g. when a new peer joins the network).
 * Wiretrustee uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between devices.
 * Peers negotiate connection through [Signal Service](signal/).
 * Signal Service uses public Wireguard keys to route messages between peers.
   Contents of the messages sent between peers through the signaling server are encrypted with Wireguard keys, making it impossible to inspect them.
-* Occasionally, the NAT-traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT).
-  When this occurs the system falls back to relay server (TURN), and a secure Wireguard tunnel is established via TURN server.
-  [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Wiretrustee setups.
+* Occasionally, the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT). When this occurs the system falls back to the relay server (TURN), and a secure Wireguard tunnel is established via the TURN server. [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Wiretrustee setups.
+
+<p float="left" align="middle">
+  <img src="https://docs.wiretrustee.com/img/architecture/high-level-dia.png" width="700"/>
+</p>
+
 
 ### Product Roadmap
 - [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/2)
