@@ -9,6 +9,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/signal/server"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"net"
@@ -170,7 +171,8 @@ func createSignalClient(addr string, key wgtypes.Key) *Client {
 
 func createRawSignalClient(addr string) sigProto.SignalExchangeClient {
 	ctx := context.Background()
-	conn, err := grpc.DialContext(ctx, addr, grpc.WithInsecure(),
+	conn, err := grpc.DialContext(ctx, addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:    3 * time.Second,
