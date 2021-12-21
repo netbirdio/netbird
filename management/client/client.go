@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"io"
 	"time"
@@ -28,7 +29,7 @@ type Client struct {
 // NewClient creates a new client to Management service
 func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*Client, error) {
 
-	transportOption := grpc.WithInsecure()
+	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 
 	if tlsEnabled {
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
