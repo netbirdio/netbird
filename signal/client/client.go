@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -56,7 +57,7 @@ func (c *Client) Close() error {
 // NewClient creates a new Signal client
 func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled bool) (*Client, error) {
 
-	transportOption := grpc.WithInsecure()
+	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 
 	if tlsEnabled {
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
