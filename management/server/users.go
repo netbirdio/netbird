@@ -15,14 +15,14 @@ type UserRole string
 
 // User represents a user of the system
 type User struct {
-	ID   string
+	Id   string
 	Role UserRole
 }
 
 // NewUser creates a new user
 func NewUser(id string, role UserRole) *User {
 	return &User{
-		ID:   id,
+		Id:   id,
 		Role: role,
 	}
 }
@@ -30,7 +30,7 @@ func NewUser(id string, role UserRole) *User {
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
 	return &User{
-		ID:   id,
+		Id:   id,
 		Role: UserRoleAdmin,
 	}
 }

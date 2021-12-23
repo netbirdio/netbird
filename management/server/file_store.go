@@ -76,7 +76,7 @@ func restore(file string) (*FileStore, error) {
 			store.PeerKeyId2AccountId[peer.Key] = accountId
 		}
 		for _, user := range account.Users {
-			store.UserId2AccountId[user.ID] = accountId
+			store.UserId2AccountId[user.Id] = accountId
 		}
 	}
 

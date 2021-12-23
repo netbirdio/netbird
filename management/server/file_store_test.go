@@ -95,6 +95,10 @@ func TestRestore(t *testing.T) {
 		t.Errorf("failed to restore a FileStore file - missing Account User edafee4e-63fb-11ec-90d6-0242ac120003")
 	}
 
+	if account != nil && account.Users["f4f6d672-63fb-11ec-90d6-0242ac120003"] == nil {
+		t.Errorf("failed to restore a FileStore file - missing Account User f4f6d672-63fb-11ec-90d6-0242ac120003")
+	}
+
 	if account != nil && account.Network == nil {
 		t.Errorf("failed to restore a FileStore file - missing Account Network")
 	}

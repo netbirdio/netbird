@@ -8,6 +8,30 @@ import (
 	"testing"
 )
 
+func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	userId := "test_user"
+
+	account, err := manager.GetOrCreateAccountByUser(userId)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	account, err = manager.GetOrCreateAccount(account.Id)
+	if err != nil {
+		t.Errorf("expected to get existing account after creation, failed")
+	}
+
+	if account.Users[userId] == nil {
+		t.Fatalf("expected to create an account for a user %s but no user was found after creation udner the account %s", userId, account.Id)
+	}
+}
+
 func TestAccountManager_AddAccount(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
