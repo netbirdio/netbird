@@ -174,6 +174,10 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.PeerKeyId2AccountId[peer.Key] = account.Id
 	}
 
+	for _, user := range account.Users {
+		s.UserId2AccountId[user.Id] = account.Id
+	}
+
 	err := s.persist(s.storeFile)
 	if err != nil {
 		return err

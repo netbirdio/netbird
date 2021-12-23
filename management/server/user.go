@@ -57,3 +57,11 @@ func (am *AccountManager) GetOrCreateAccountByUser(userId string) (*Account, err
 
 	return account, nil
 }
+
+// GetAccountByUser returns an existing account for a given user id, NotFound if account couldn't be found
+func (am *AccountManager) GetAccountByUser(userId string) (*Account, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	return am.Store.GetUserAccount(userId)
+}

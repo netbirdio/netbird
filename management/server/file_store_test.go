@@ -29,6 +29,42 @@ func TestNewStore(t *testing.T) {
 
 }
 
+func TestSaveAccount(t *testing.T) {
+	store := newStore(t)
+
+	account, _ := newAccount()
+	account.Users["testuser"] = NewAdminUser("testuser")
+	setupKey := GenerateDefaultSetupKey()
+	account.SetupKeys[setupKey.Key] = setupKey
+	account.Peers["testpeer"] = &Peer{
+		Key:      "peerkey",
+		SetupKey: "peerkeysetupkey",
+		IP:       net.IP{127, 0, 0, 1},
+		Meta:     PeerSystemMeta{},
+		Name:     "peer name",
+		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
+	}
+
+	// SaveAccount should trigger persist
+	err := store.SaveAccount(account)
+	if err != nil {
+		return
+	}
+
+	if store.PeerKeyId2AccountId["peerkey"] == "" {
+		t.Errorf("expecting PeerKeyId2AccountId index updated after SaveAccount()")
+	}
+
+	if store.UserId2AccountId["testuser"] == "" {
+		t.Errorf("expecting UserId2AccountId index updated after SaveAccount()")
+	}
+
+	if store.SetupKeyId2AccountId[setupKey.Key] == "" {
+		t.Errorf("expecting SetupKeyId2AccountId index updated after SaveAccount()")
+	}
+
+}
+
 func TestStore(t *testing.T) {
 	store := newStore(t)
 

@@ -16,18 +16,17 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	}
 
 	userId := "test_user"
-
 	account, err := manager.GetOrCreateAccountByUser(userId)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	account, err = manager.GetOrCreateAccount(account.Id)
+	account, err = manager.GetAccountByUser(userId)
 	if err != nil {
-		t.Errorf("expected to get existing account after creation, failed")
+		t.Errorf("expected to get existing account after creation, no account was found for a user %s", userId)
 	}
 
-	if account.Users[userId] == nil {
+	if account != nil && account.Users[userId] == nil {
 		t.Fatalf("expected to create an account for a user %s but no user was found after creation udner the account %s", userId, account.Id)
 	}
 }
