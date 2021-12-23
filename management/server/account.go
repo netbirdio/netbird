@@ -23,6 +23,7 @@ type Account struct {
 	SetupKeys map[string]*SetupKey
 	Network   *Network
 	Peers     map[string]*Peer
+	Users     map[string]*User
 }
 
 // NewManager creates a new AccountManager with a provided Store
@@ -130,7 +131,7 @@ func (am *AccountManager) GetOrCreateAccount(accountId string) (*Account, error)
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	_, err := am.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			return am.createAccount(accountId)
@@ -138,11 +139,6 @@ func (am *AccountManager) GetOrCreateAccount(accountId string) (*Account, error)
 			// other error
 			return nil, err
 		}
-	}
-
-	account, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed retrieving account")
 	}
 
 	return account, nil

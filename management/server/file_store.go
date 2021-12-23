@@ -20,6 +20,7 @@ type FileStore struct {
 	Accounts             map[string]*Account
 	SetupKeyId2AccountId map[string]string `json:"-"`
 	PeerKeyId2AccountId  map[string]string `json:"-"`
+	UserId2AccountId     map[string]string `json:"-"`
 
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
@@ -45,6 +46,7 @@ func restore(file string) (*FileStore, error) {
 			mux:                  sync.Mutex{},
 			SetupKeyId2AccountId: make(map[string]string),
 			PeerKeyId2AccountId:  make(map[string]string),
+			UserId2AccountId:     make(map[string]string),
 			storeFile:            file,
 		}
 
@@ -65,12 +67,16 @@ func restore(file string) (*FileStore, error) {
 	store.storeFile = file
 	store.SetupKeyId2AccountId = make(map[string]string)
 	store.PeerKeyId2AccountId = make(map[string]string)
+	store.UserId2AccountId = make(map[string]string)
 	for accountId, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyId2AccountId[strings.ToUpper(setupKeyId)] = accountId
 		}
 		for _, peer := range account.Peers {
 			store.PeerKeyId2AccountId[peer.Key] = accountId
+		}
+		for _, user := range account.Users {
+			store.UserId2AccountId[user.ID] = accountId
 		}
 	}
 
@@ -215,6 +221,18 @@ func (s *FileStore) GetAccount(accountId string) (*Account, error) {
 	}
 
 	return account, nil
+}
+
+func (s *FileStore) GetUserAccount(userId string) (*Account, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountId, accountIdFound := s.UserId2AccountId[userId]
+	if !accountIdFound {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	return s.GetAccount(accountId)
 }
 
 func (s *FileStore) GetPeerAccount(peerKey string) (*Account, error) {

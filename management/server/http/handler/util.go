@@ -17,6 +17,15 @@ func extractAccountIdFromRequestContext(r *http.Request) string {
 	return claims["sub"].(string)
 }
 
+// extractAccountIdFromRequestContext extracts accountId from the request context previously filled by the JWT token (after auth)
+func extractUserIdFromRequestContext(r *http.Request) string {
+	token := r.Context().Value("user").(*jwt.Token)
+	claims := token.Claims.(jwt.MapClaims)
+
+	//actually a user id but for now we have a 1 to 1 mapping.
+	return claims["sub"].(string)
+}
+
 //writeJSONObject simply writes object to the HTTP reponse in JSON format
 func writeJSONObject(w http.ResponseWriter, obj interface{}) {
 	w.WriteHeader(200)
