@@ -200,10 +200,11 @@ func newAccountWithId(accountId string) (*Account, *SetupKey) {
 		Net: net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
 		Dns: ""}
 	peers := make(map[string]*Peer)
+	users := make(map[string]*User)
 
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
-	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers}, defaultKey
+	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers, Users: users}, defaultKey
 }
 
 // newAccount creates a new Account with a default SetupKey (doesn't store in a Store)
