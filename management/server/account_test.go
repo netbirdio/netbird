@@ -20,6 +20,9 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if account == nil {
+		t.Fatalf("expected to create an account for a user %s", userId)
+	}
 
 	account, err = manager.GetAccountByUser(userId)
 	if err != nil {
