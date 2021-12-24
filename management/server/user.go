@@ -19,6 +19,13 @@ type User struct {
 	Role UserRole
 }
 
+func (u *User) Copy() *User {
+	return &User{
+		Id:   u.Id,
+		Role: u.Role,
+	}
+}
+
 // NewUser creates a new user
 func NewUser(id string, role UserRole) *User {
 	return &User{

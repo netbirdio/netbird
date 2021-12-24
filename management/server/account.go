@@ -29,6 +29,32 @@ type Account struct {
 	Users     map[string]*User
 }
 
+func (a *Account) Copy() *Account {
+	peers := map[string]*Peer{}
+	for id, peer := range a.Peers {
+		peers[id] = peer.Copy()
+	}
+
+	users := map[string]*User{}
+	for id, user := range a.Users {
+		users[id] = user.Copy()
+	}
+
+	setupKeys := map[string]*SetupKey{}
+	for id, key := range a.SetupKeys {
+		setupKeys[id] = key.Copy()
+	}
+
+	return &Account{
+		Id:        a.Id,
+		CreatedBy: a.CreatedBy,
+		SetupKeys: setupKeys,
+		Network:   a.Network.Copy(),
+		Peers:     peers,
+		Users:     users,
+	}
+}
+
 // NewManager creates a new AccountManager with a provided Store
 func NewManager(store Store, peersUpdateManager *PeersUpdateManager) *AccountManager {
 	return &AccountManager{
