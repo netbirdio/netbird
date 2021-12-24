@@ -51,6 +51,10 @@ func TestSaveAccount(t *testing.T) {
 		return
 	}
 
+	if store.Accounts[account.Id] == nil {
+		t.Errorf("expecting Account to be stored after SaveAccount()")
+	}
+
 	if store.PeerKeyId2AccountId["peerkey"] == "" {
 		t.Errorf("expecting PeerKeyId2AccountId index updated after SaveAccount()")
 	}
@@ -97,6 +101,10 @@ func TestStore(t *testing.T) {
 
 	if restoredAccount != nil && restoredAccount.Peers["testpeer"] == nil {
 		t.Errorf("failed to restore a FileStore file - missing Peer testpeer")
+	}
+
+	if restoredAccount != nil && restoredAccount.CreatedBy != "testuser" {
+		t.Errorf("failed to restore a FileStore file - missing Account CreatedBy")
 	}
 
 	if restoredAccount != nil && restoredAccount.Users["testuser"] == nil {
