@@ -32,7 +32,7 @@ func TestNewStore(t *testing.T) {
 func TestSaveAccount(t *testing.T) {
 	store := newStore(t)
 
-	account, _ := newAccount()
+	account, _ := newAccount("testuser")
 	account.Users["testuser"] = NewAdminUser("testuser")
 	setupKey := GenerateDefaultSetupKey()
 	account.SetupKeys[setupKey.Key] = setupKey
@@ -68,7 +68,7 @@ func TestSaveAccount(t *testing.T) {
 func TestStore(t *testing.T) {
 	store := newStore(t)
 
-	account, _ := newAccount()
+	account, _ := newAccount("testuser")
 	account.Users["testuser"] = NewAdminUser("testuser")
 	account.Peers["testpeer"] = &Peer{
 		Key:      "peerkey",
