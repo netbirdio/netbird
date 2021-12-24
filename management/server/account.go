@@ -19,7 +19,9 @@ type AccountManager struct {
 
 // Account represents a unique account of the system
 type Account struct {
-	Id        string
+	Id string
+	// User.Id it was created by
+	CreatedBy string
 	SetupKeys map[string]*SetupKey
 	Network   *Network
 	Peers     map[string]*Peer
@@ -126,24 +128,6 @@ func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
 	return account, nil
 }
 
-// GetOrCreateAccount returns an existing account or creates a new one if doesn't exist
-func (am *AccountManager) GetOrCreateAccount(accountId string) (*Account, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	account, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			return am.createAccount(accountId)
-		} else {
-			// other error
-			return nil, err
-		}
-	}
-
-	return account, nil
-}
-
 //AccountExists checks whether account exists (returns true) or not (returns false)
 func (am *AccountManager) AccountExists(accountId string) (*bool, error) {
 	am.mux.Lock()
@@ -164,18 +148,18 @@ func (am *AccountManager) AccountExists(accountId string) (*bool, error) {
 	return &res, nil
 }
 
-// AddAccount generates a new Account with a provided accountId and saves to the Store
-func (am *AccountManager) AddAccount(accountId string) (*Account, error) {
+// AddAccount generates a new Account with a provided accountId and userId, saves to the Store
+func (am *AccountManager) AddAccount(accountId string, userId string) (*Account, error) {
 
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	return am.createAccount(accountId)
+	return am.createAccount(accountId, userId)
 
 }
 
-func (am *AccountManager) createAccount(accountId string) (*Account, error) {
-	account, _ := newAccountWithId(accountId)
+func (am *AccountManager) createAccount(accountId string, userId string) (*Account, error) {
+	account, _ := newAccountWithId(accountId, userId)
 
 	err := am.Store.SaveAccount(account)
 	if err != nil {
@@ -186,7 +170,7 @@ func (am *AccountManager) createAccount(accountId string) (*Account, error) {
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(accountId string) (*Account, *SetupKey) {
+func newAccountWithId(accountId string, userId string) (*Account, *SetupKey) {
 
 	log.Debugf("creating new account")
 
@@ -204,13 +188,13 @@ func newAccountWithId(accountId string) (*Account, *SetupKey) {
 
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
-	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers, Users: users}, defaultKey
+	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers, Users: users, CreatedBy: userId}, defaultKey
 }
 
-// newAccount creates a new Account with a default SetupKey (doesn't store in a Store)
-func newAccount() (*Account, *SetupKey) {
+// newAccount creates a new Account with a default SetupKey and a provided User.Id of a user who issued account creation (doesn't store in a Store)
+func newAccount(userId string) (*Account, *SetupKey) {
 	accountId := uuid.New().String()
-	return newAccountWithId(accountId)
+	return newAccountWithId(accountId, userId)
 }
 
 func getAccountSetupKeyById(acc *Account, keyId string) *SetupKey {

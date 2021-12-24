@@ -43,7 +43,7 @@ func (am *AccountManager) GetOrCreateAccountByUser(userId string) (*Account, err
 	account, err := am.Store.GetUserAccount(userId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			account, _ = newAccount()
+			account, _ = newAccount(userId)
 			account.Users[userId] = NewAdminUser(userId)
 			err = am.Store.SaveAccount(account)
 			if err != nil {

@@ -42,6 +42,7 @@ func TestAccountManager_AddAccount(t *testing.T) {
 	}
 
 	expectedId := "test_account"
+	userId := "account_creator"
 	expectedPeersSize := 0
 	expectedSetupKeysSize := 2
 	expectedNetwork := net.IPNet{
@@ -49,7 +50,7 @@ func TestAccountManager_AddAccount(t *testing.T) {
 		Mask: net.IPMask{255, 192, 0, 0},
 	}
 
-	account, err := manager.AddAccount(expectedId)
+	account, err := manager.AddAccount(expectedId, userId)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +93,7 @@ func TestAccountManager_GetOrCreateAccount(t *testing.T) {
 		t.Fatal("expecting empty account")
 	}
 
-	account, err = manager.GetOrCreateAccount(expectedId)
+	account, err = manager.GetAccount(expectedId)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,9 +102,9 @@ func TestAccountManager_GetOrCreateAccount(t *testing.T) {
 		t.Fatalf("expected to create an account, got wrong account")
 	}
 
-	account, err = manager.GetOrCreateAccount(expectedId)
+	account, err = manager.GetAccount(expectedId)
 	if err != nil {
-		t.Errorf("expected to get existing account after creation, failed")
+		t.Fatal(err)
 	}
 
 	if account.Id != expectedId {
@@ -119,7 +120,8 @@ func TestAccountManager_AccountExists(t *testing.T) {
 	}
 
 	expectedId := "test_account"
-	_, err = manager.AddAccount(expectedId)
+	userId := "account_creator"
+	_, err = manager.AddAccount(expectedId, userId)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +145,8 @@ func TestAccountManager_GetAccount(t *testing.T) {
 	}
 
 	expectedId := "test_account"
-	account, err := manager.AddAccount(expectedId)
+	userId := "account_creator"
+	account, err := manager.AddAccount(expectedId, userId)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +183,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account")
+	account, err := manager.AddAccount("test_account", "account_creator")
 	if err != nil {
 		t.Fatal(err)
 	}
