@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// Previously Account.Id was an Auth0 user id
-// Conversion moved user id to Account.CreatedBy and generated a new Account.Id using xid
-// It also adds a User with id = old Account.Id with a role Admin
 func TestConvertAccounts(t *testing.T) {
 
 	storeDir := t.TempDir()
@@ -65,7 +62,7 @@ func TestConvertAccounts(t *testing.T) {
 			return
 		}
 
-		for peerId, _ := range account.Peers {
+		for peerId := range account.Peers {
 			convertedPeer := convertedAccount.Peers[peerId]
 			if convertedPeer == nil {
 				t.Errorf("expecting Account Peer of StoreV1 to be found in StoreV2")
