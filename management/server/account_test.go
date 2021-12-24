@@ -2,8 +2,6 @@ package server
 
 import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net"
 	"testing"
 )
@@ -69,46 +67,6 @@ func TestAccountManager_AddAccount(t *testing.T) {
 
 	if account.Network.Net.String() != expectedNetwork.String() {
 		t.Errorf("expected account to have Network = %v, got %v", expectedNetwork.String(), account.Network.Net.String())
-	}
-}
-
-func TestAccountManager_GetOrCreateAccount(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	expectedId := "test_account"
-
-	//make sure account doesn't exist
-	account, err := manager.GetAccount(expectedId)
-	if err != nil {
-		errStatus, ok := status.FromError(err)
-		if !(ok && errStatus.Code() == codes.NotFound) {
-			t.Fatal(err)
-		}
-	}
-	if account != nil {
-		t.Fatal("expecting empty account")
-	}
-
-	account, err = manager.GetAccount(expectedId)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if account.Id != expectedId {
-		t.Fatalf("expected to create an account, got wrong account")
-	}
-
-	account, err = manager.GetAccount(expectedId)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if account.Id != expectedId {
-		t.Fatalf("expected to create an account, got wrong account")
 	}
 }
 
