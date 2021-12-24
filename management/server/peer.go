@@ -206,7 +206,6 @@ func (am *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
 // Each Account has a list of pre-authorised SetupKey and if no Account has a given key err wit ha code codes.Unauthenticated
 // will be returned, meaning the key is invalid
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
-// If the specified setupKey is empty then a new Account will be created //todo remove this part
 // The peer property is just a placeholder for the Peer properties to pass further
 func (am *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
 	am.mux.Lock()
@@ -218,8 +217,8 @@ func (am *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
 	var err error
 	var sk *SetupKey
 	if len(upperKey) == 0 {
-		// Empty setup key, create a new account for it.
-		account, sk = newAccount()
+		// Empty setup key, fail
+		return nil, status.Errorf(codes.InvalidArgument, "empty setupKey %s", setupKey)
 	} else {
 		account, err = am.Store.GetAccountBySetupKey(upperKey)
 		if err != nil {

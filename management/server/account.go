@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/google/uuid"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
@@ -193,7 +194,7 @@ func newAccountWithId(accountId string, userId string) (*Account, *SetupKey) {
 
 // newAccount creates a new Account with a default SetupKey and a provided User.Id of a user who issued account creation (doesn't store in a Store)
 func newAccount(userId string) (*Account, *SetupKey) {
-	accountId := uuid.New().String()
+	accountId := xid.New().String()
 	return newAccountWithId(accountId, userId)
 }
 
