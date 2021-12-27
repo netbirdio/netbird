@@ -17,6 +17,14 @@ type Network struct {
 	Dns string
 }
 
+func (n *Network) Copy() *Network {
+	return &Network{
+		Id:  n.Id,
+		Net: n.Net,
+		Dns: n.Dns,
+	}
+}
+
 // AllocatePeerIP pics an available IP from an net.IPNet.
 // This method considers already taken IPs and reuses IPs if there are gaps in takenIps
 // E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.5] then the result would be 100.30.0.2

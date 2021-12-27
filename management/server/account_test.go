@@ -2,11 +2,35 @@ package server
 
 import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net"
 	"testing"
 )
+
+func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	userId := "test_user"
+	account, err := manager.GetOrCreateAccountByUser(userId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account == nil {
+		t.Fatalf("expected to create an account for a user %s", userId)
+	}
+
+	account, err = manager.GetAccountByUser(userId)
+	if err != nil {
+		t.Errorf("expected to get existing account after creation, no account was found for a user %s", userId)
+	}
+
+	if account != nil && account.Users[userId] == nil {
+		t.Fatalf("expected to create an account for a user %s but no user was found after creation udner the account %s", userId, account.Id)
+	}
+}
 
 func TestAccountManager_AddAccount(t *testing.T) {
 	manager, err := createManager(t)
@@ -16,6 +40,7 @@ func TestAccountManager_AddAccount(t *testing.T) {
 	}
 
 	expectedId := "test_account"
+	userId := "account_creator"
 	expectedPeersSize := 0
 	expectedSetupKeysSize := 2
 	expectedNetwork := net.IPNet{
@@ -23,7 +48,7 @@ func TestAccountManager_AddAccount(t *testing.T) {
 		Mask: net.IPMask{255, 192, 0, 0},
 	}
 
-	account, err := manager.AddAccount(expectedId)
+	account, err := manager.AddAccount(expectedId, userId)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,46 +70,6 @@ func TestAccountManager_AddAccount(t *testing.T) {
 	}
 }
 
-func TestAccountManager_GetOrCreateAccount(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	expectedId := "test_account"
-
-	//make sure account doesn't exist
-	account, err := manager.GetAccount(expectedId)
-	if err != nil {
-		errStatus, ok := status.FromError(err)
-		if !(ok && errStatus.Code() == codes.NotFound) {
-			t.Fatal(err)
-		}
-	}
-	if account != nil {
-		t.Fatal("expecting empty account")
-	}
-
-	account, err = manager.GetOrCreateAccount(expectedId)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if account.Id != expectedId {
-		t.Fatalf("expected to create an account, got wrong account")
-	}
-
-	account, err = manager.GetOrCreateAccount(expectedId)
-	if err != nil {
-		t.Errorf("expected to get existing account after creation, failed")
-	}
-
-	if account.Id != expectedId {
-		t.Fatalf("expected to create an account, got wrong account")
-	}
-}
-
 func TestAccountManager_AccountExists(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -93,7 +78,8 @@ func TestAccountManager_AccountExists(t *testing.T) {
 	}
 
 	expectedId := "test_account"
-	_, err = manager.AddAccount(expectedId)
+	userId := "account_creator"
+	_, err = manager.AddAccount(expectedId, userId)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +103,8 @@ func TestAccountManager_GetAccount(t *testing.T) {
 	}
 
 	expectedId := "test_account"
-	account, err := manager.AddAccount(expectedId)
+	userId := "account_creator"
+	account, err := manager.AddAccount(expectedId, userId)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +141,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account")
+	account, err := manager.AddAccount("test_account", "account_creator")
 	if err != nil {
 		t.Fatal(err)
 	}

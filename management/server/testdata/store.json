@@ -22,7 +22,17 @@
                 },
                 "Dns": null
             },
-            "Peers": {}
+            "Peers": {},
+            "Users": {
+                "edafee4e-63fb-11ec-90d6-0242ac120003": {
+                    "Id": "edafee4e-63fb-11ec-90d6-0242ac120003",
+                    "Role": "admin"
+                },
+                "f4f6d672-63fb-11ec-90d6-0242ac120003": {
+                    "Id": "f4f6d672-63fb-11ec-90d6-0242ac120003",
+                    "Role": "user"
+                }
+            }
         }
     }
 }

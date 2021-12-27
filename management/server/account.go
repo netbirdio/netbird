@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/google/uuid"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
@@ -19,10 +20,39 @@ type AccountManager struct {
 
 // Account represents a unique account of the system
 type Account struct {
-	Id        string
+	Id string
+	// User.Id it was created by
+	CreatedBy string
 	SetupKeys map[string]*SetupKey
 	Network   *Network
 	Peers     map[string]*Peer
+	Users     map[string]*User
+}
+
+func (a *Account) Copy() *Account {
+	peers := map[string]*Peer{}
+	for id, peer := range a.Peers {
+		peers[id] = peer.Copy()
+	}
+
+	users := map[string]*User{}
+	for id, user := range a.Users {
+		users[id] = user.Copy()
+	}
+
+	setupKeys := map[string]*SetupKey{}
+	for id, key := range a.SetupKeys {
+		setupKeys[id] = key.Copy()
+	}
+
+	return &Account{
+		Id:        a.Id,
+		CreatedBy: a.CreatedBy,
+		SetupKeys: setupKeys,
+		Network:   a.Network.Copy(),
+		Peers:     peers,
+		Users:     users,
+	}
 }
 
 // NewManager creates a new AccountManager with a provided Store
@@ -125,29 +155,6 @@ func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
 	return account, nil
 }
 
-// GetOrCreateAccount returns an existing account or creates a new one if doesn't exist
-func (am *AccountManager) GetOrCreateAccount(accountId string) (*Account, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	_, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			return am.createAccount(accountId)
-		} else {
-			// other error
-			return nil, err
-		}
-	}
-
-	account, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed retrieving account")
-	}
-
-	return account, nil
-}
-
 //AccountExists checks whether account exists (returns true) or not (returns false)
 func (am *AccountManager) AccountExists(accountId string) (*bool, error) {
 	am.mux.Lock()
@@ -168,18 +175,18 @@ func (am *AccountManager) AccountExists(accountId string) (*bool, error) {
 	return &res, nil
 }
 
-// AddAccount generates a new Account with a provided accountId and saves to the Store
-func (am *AccountManager) AddAccount(accountId string) (*Account, error) {
+// AddAccount generates a new Account with a provided accountId and userId, saves to the Store
+func (am *AccountManager) AddAccount(accountId string, userId string) (*Account, error) {
 
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	return am.createAccount(accountId)
+	return am.createAccount(accountId, userId)
 
 }
 
-func (am *AccountManager) createAccount(accountId string) (*Account, error) {
-	account, _ := newAccountWithId(accountId)
+func (am *AccountManager) createAccount(accountId string, userId string) (*Account, error) {
+	account, _ := newAccountWithId(accountId, userId)
 
 	err := am.Store.SaveAccount(account)
 	if err != nil {
@@ -190,7 +197,7 @@ func (am *AccountManager) createAccount(accountId string) (*Account, error) {
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(accountId string) (*Account, *SetupKey) {
+func newAccountWithId(accountId string, userId string) (*Account, *SetupKey) {
 
 	log.Debugf("creating new account")
 
@@ -204,16 +211,17 @@ func newAccountWithId(accountId string) (*Account, *SetupKey) {
 		Net: net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
 		Dns: ""}
 	peers := make(map[string]*Peer)
+	users := make(map[string]*User)
 
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
-	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers}, defaultKey
+	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers, Users: users, CreatedBy: userId}, defaultKey
 }
 
-// newAccount creates a new Account with a default SetupKey (doesn't store in a Store)
-func newAccount() (*Account, *SetupKey) {
-	accountId := uuid.New().String()
-	return newAccountWithId(accountId)
+// newAccount creates a new Account with a default SetupKey and a provided User.Id of a user who issued account creation (doesn't store in a Store)
+func newAccount(userId string) (*Account, *SetupKey) {
+	accountId := xid.New().String()
+	return newAccountWithId(accountId, userId)
 }
 
 func getAccountSetupKeyById(acc *Account, keyId string) *SetupKey {

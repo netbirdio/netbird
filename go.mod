@@ -27,6 +27,8 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
+require github.com/rs/xid v1.3.0
+
 require (
 	github.com/BurntSushi/toml v0.4.1 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect

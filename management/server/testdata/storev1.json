@@ -1,0 +1,154 @@
+{
+  "Accounts": {
+    "auth0|61bf82ddeab084006aa1bccd": {
+      "Id": "auth0|61bf82ddeab084006aa1bccd",
+      "SetupKeys": {
+        "1B2B50B0-B3E8-4B0C-A426-525EDB8481BD": {
+          "Id": "831727121",
+          "Key": "1B2B50B0-B3E8-4B0C-A426-525EDB8481BD",
+          "Name": "One-off key",
+          "Type": "one-off",
+          "CreatedAt": "2021-12-24T16:09:45.926075752+01:00",
+          "ExpiresAt": "2022-01-23T16:09:45.926075752+01:00",
+          "Revoked": false,
+          "UsedTimes": 1,
+          "LastUsed": "2021-12-24T16:12:45.763424077+01:00"
+        },
+        "EB51E9EB-A11F-4F6E-8E49-C982891B405A": {
+          "Id": "1769568301",
+          "Key": "EB51E9EB-A11F-4F6E-8E49-C982891B405A",
+          "Name": "Default key",
+          "Type": "reusable",
+          "CreatedAt": "2021-12-24T16:09:45.926073628+01:00",
+          "ExpiresAt": "2022-01-23T16:09:45.926073628+01:00",
+          "Revoked": false,
+          "UsedTimes": 1,
+          "LastUsed": "2021-12-24T16:13:06.236748538+01:00"
+        }
+      },
+      "Network": {
+        "Id": "a443c07a-5765-4a78-97fc-390d9c1d0e49",
+        "Net": {
+          "IP": "100.64.0.0",
+          "Mask": "/8AAAA=="
+        },
+        "Dns": ""
+      },
+      "Peers": {
+        "oMNaI8qWi0CyclSuwGR++SurxJyM3pQEiPEHwX8IREo=": {
+          "Key": "oMNaI8qWi0CyclSuwGR++SurxJyM3pQEiPEHwX8IREo=",
+          "SetupKey": "EB51E9EB-A11F-4F6E-8E49-C982891B405A",
+          "IP": "100.64.0.2",
+          "Meta": {
+            "Hostname": "braginini",
+            "GoOS": "linux",
+            "Kernel": "Linux",
+            "Core": "21.04",
+            "Platform": "x86_64",
+            "OS": "Ubuntu",
+            "WtVersion": ""
+          },
+          "Name": "braginini",
+          "Status": {
+            "LastSeen": "2021-12-24T16:13:11.244342541+01:00",
+            "Connected": false
+          }
+        },
+        "xlx9/9D8+ibnRiIIB8nHGMxGOzxV17r8ShPHgi4aYSM=": {
+          "Key": "xlx9/9D8+ibnRiIIB8nHGMxGOzxV17r8ShPHgi4aYSM=",
+          "SetupKey": "1B2B50B0-B3E8-4B0C-A426-525EDB8481BD",
+          "IP": "100.64.0.1",
+          "Meta": {
+            "Hostname": "braginini",
+            "GoOS": "linux",
+            "Kernel": "Linux",
+            "Core": "21.04",
+            "Platform": "x86_64",
+            "OS": "Ubuntu",
+            "WtVersion": ""
+          },
+          "Name": "braginini",
+          "Status": {
+            "LastSeen": "2021-12-24T16:12:49.089339333+01:00",
+            "Connected": false
+          }
+        }
+      }
+    },
+    "google-oauth2|103201118415301331038": {
+      "Id": "google-oauth2|103201118415301331038",
+      "SetupKeys": {
+        "5AFB60DB-61F2-4251-8E11-494847EE88E9": {
+          "Id": "2485964613",
+          "Key": "5AFB60DB-61F2-4251-8E11-494847EE88E9",
+          "Name": "Default key",
+          "Type": "reusable",
+          "CreatedAt": "2021-12-24T16:10:02.238476+01:00",
+          "ExpiresAt": "2022-01-23T16:10:02.238476+01:00",
+          "Revoked": false,
+          "UsedTimes": 1,
+          "LastUsed": "2021-12-24T16:12:05.994307717+01:00"
+        },
+        "A72E4DC2-00DE-4542-8A24-62945438104E": {
+          "Id": "3504804807",
+          "Key": "A72E4DC2-00DE-4542-8A24-62945438104E",
+          "Name": "One-off key",
+          "Type": "one-off",
+          "CreatedAt": "2021-12-24T16:10:02.238478209+01:00",
+          "ExpiresAt": "2022-01-23T16:10:02.238478209+01:00",
+          "Revoked": false,
+          "UsedTimes": 1,
+          "LastUsed": "2021-12-24T16:11:27.015741738+01:00"
+        }
+      },
+      "Network": {
+        "Id": "b6d0b152-364e-40c1-a8a1-fa7bcac2267f",
+        "Net": {
+          "IP": "100.64.0.0",
+          "Mask": "/8AAAA=="
+        },
+        "Dns": ""
+      },
+      "Peers": {
+        "6kjbmVq1hmucVzvBXo5OucY5OYv+jSsB1jUTLq291Dw=": {
+          "Key": "6kjbmVq1hmucVzvBXo5OucY5OYv+jSsB1jUTLq291Dw=",
+          "SetupKey": "5AFB60DB-61F2-4251-8E11-494847EE88E9",
+          "IP": "100.64.0.2",
+          "Meta": {
+            "Hostname": "braginini",
+            "GoOS": "linux",
+            "Kernel": "Linux",
+            "Core": "21.04",
+            "Platform": "x86_64",
+            "OS": "Ubuntu",
+            "WtVersion": ""
+          },
+          "Name": "braginini",
+          "Status": {
+            "LastSeen": "2021-12-24T16:12:05.994305438+01:00",
+            "Connected": false
+          }
+        },
+        "Ok+5QMdt/UjoktNOvicGYj+IX2g98p+0N2PJ3vJ45RI=": {
+          "Key": "Ok+5QMdt/UjoktNOvicGYj+IX2g98p+0N2PJ3vJ45RI=",
+          "SetupKey": "A72E4DC2-00DE-4542-8A24-62945438104E",
+          "IP": "100.64.0.1",
+          "Meta": {
+            "Hostname": "braginini",
+            "GoOS": "linux",
+            "Kernel": "Linux",
+            "Core": "21.04",
+            "Platform": "x86_64",
+            "OS": "Ubuntu",
+            "WtVersion": ""
+          },
+          "Name": "braginini",
+          "Status": {
+            "LastSeen": "2021-12-24T16:11:27.015739803+01:00",
+            "Connected": false
+          }
+        }
+      }
+    }
+  }
+}

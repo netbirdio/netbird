@@ -62,7 +62,13 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 }
 
 func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
-	accountId := extractAccountIdFromRequestContext(r)
+	userId := extractUserIdFromRequestContext(r)
+	account, err := h.accountManager.GetOrCreateAccountByUser(userId)
+	if err != nil {
+		log.Errorf("failed getting account of a user %s: %v", userId, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
 	vars := mux.Vars(r)
 	peerId := vars["id"] //effectively peer IP address
 	if len(peerId) == 0 {
@@ -70,7 +76,7 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peer, err := h.accountManager.GetPeerByIP(accountId, peerId)
+	peer, err := h.accountManager.GetPeerByIP(account.Id, peerId)
 	if err != nil {
 		http.Error(w, "peer not found", http.StatusNotFound)
 		return
@@ -78,10 +84,10 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodDelete:
-		h.deletePeer(accountId, peer, w, r)
+		h.deletePeer(account.Id, peer, w, r)
 		return
 	case http.MethodPut:
-		h.updatePeer(accountId, peer, w, r)
+		h.updatePeer(account.Id, peer, w, r)
 		return
 	case http.MethodGet:
 		writeJSONObject(w, toPeerResponse(peer))
@@ -96,11 +102,11 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		accountId := extractAccountIdFromRequestContext(r)
+		userId := extractUserIdFromRequestContext(r)
 		//new user -> create a new account
-		account, err := h.accountManager.GetOrCreateAccount(accountId)
+		account, err := h.accountManager.GetOrCreateAccountByUser(userId)
 		if err != nil {
-			log.Errorf("failed getting user account %s: %v", accountId, err)
+			log.Errorf("failed getting account of a user %s: %v", userId, err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
 			return
 		}
