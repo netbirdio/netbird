@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// extractAccountIdFromRequestContext extracts accountId from the request context previously filled by the JWT token (after auth)
-func extractAccountIdFromRequestContext(r *http.Request) string {
+// extractUserIdFromRequestContext extracts accountId from the request context previously filled by the JWT token (after auth)
+func extractUserIdFromRequestContext(r *http.Request) string {
 	token := r.Context().Value("user").(*jwt.Token)
 	claims := token.Claims.(jwt.MapClaims)
 

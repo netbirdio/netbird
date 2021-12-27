@@ -118,7 +118,14 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 }
 
 func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
-	accountId := extractAccountIdFromRequestContext(r)
+	userId := extractUserIdFromRequestContext(r)
+	account, err := h.accountManager.GetOrCreateAccountByUser(userId)
+	if err != nil {
+		log.Errorf("failed getting account of a user %s: %v", userId, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
 	vars := mux.Vars(r)
 	keyId := vars["id"]
 	if len(keyId) == 0 {
@@ -128,10 +135,10 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPut:
-		h.updateKey(accountId, keyId, w, r)
+		h.updateKey(account.Id, keyId, w, r)
 		return
 	case http.MethodGet:
-		h.getKey(accountId, keyId, w, r)
+		h.getKey(account.Id, keyId, w, r)
 		return
 	default:
 		http.Error(w, "", http.StatusNotFound)
@@ -140,21 +147,20 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 
 func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 
-	accountId := extractAccountIdFromRequestContext(r)
+	userId := extractUserIdFromRequestContext(r)
+	//new user -> create a new account
+	account, err := h.accountManager.GetOrCreateAccountByUser(userId)
+	if err != nil {
+		log.Errorf("failed getting account of a user %s: %v", userId, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodPost:
-		h.createKey(accountId, w, r)
+		h.createKey(account.Id, w, r)
 		return
 	case http.MethodGet:
-
-		//new user -> create a new account
-		account, err := h.accountManager.GetOrCreateAccount(accountId)
-		if err != nil {
-			log.Errorf("failed getting user account %s: %v", accountId, err)
-			http.Redirect(w, r, "/", http.StatusInternalServerError)
-			return
-		}
 		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
 
@@ -165,7 +171,7 @@ func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 
 		err = json.NewEncoder(w).Encode(respBody)
 		if err != nil {
-			log.Errorf("failed encoding account peers %s: %v", accountId, err)
+			log.Errorf("failed encoding account peers %s: %v", account.Id, err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
 			return
 		}
