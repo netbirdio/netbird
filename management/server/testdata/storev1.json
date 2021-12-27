@@ -1,7 +1,7 @@
 {
   "Accounts": {
-    "71kf83ddeab084006aa1bffd": {
-      "Id": "71kf83ddeab084006aa1bffd",
+    "auth0|61bf82ddeab084006aa1bccd": {
+      "Id": "auth0|61bf82ddeab084006aa1bccd",
       "SetupKeys": {
         "1B2B50B0-B3E8-4B0C-A426-525EDB8481BD": {
           "Id": "831727121",
@@ -40,7 +40,7 @@
           "SetupKey": "EB51E9EB-A11F-4F6E-8E49-C982891B405A",
           "IP": "100.64.0.2",
           "Meta": {
-            "Hostname": "test_peer",
+            "Hostname": "braginini",
             "GoOS": "linux",
             "Kernel": "Linux",
             "Core": "21.04",
@@ -48,7 +48,7 @@
             "OS": "Ubuntu",
             "WtVersion": ""
           },
-          "Name": "test_peer",
+          "Name": "braginini",
           "Status": {
             "LastSeen": "2021-12-24T16:13:11.244342541+01:00",
             "Connected": false
@@ -59,7 +59,7 @@
           "SetupKey": "1B2B50B0-B3E8-4B0C-A426-525EDB8481BD",
           "IP": "100.64.0.1",
           "Meta": {
-            "Hostname": "test_peer",
+            "Hostname": "braginini",
             "GoOS": "linux",
             "Kernel": "Linux",
             "Core": "21.04",
@@ -67,7 +67,7 @@
             "OS": "Ubuntu",
             "WtVersion": ""
           },
-          "Name": "test_peer",
+          "Name": "braginini",
           "Status": {
             "LastSeen": "2021-12-24T16:12:49.089339333+01:00",
             "Connected": false
@@ -75,8 +75,8 @@
         }
       }
     },
-    "183201118015301331038": {
-      "Id": "183201118015301331038",
+    "google-oauth2|103201118415301331038": {
+      "Id": "google-oauth2|103201118415301331038",
       "SetupKeys": {
         "5AFB60DB-61F2-4251-8E11-494847EE88E9": {
           "Id": "2485964613",
@@ -115,7 +115,7 @@
           "SetupKey": "5AFB60DB-61F2-4251-8E11-494847EE88E9",
           "IP": "100.64.0.2",
           "Meta": {
-            "Hostname": "test_peer",
+            "Hostname": "braginini",
             "GoOS": "linux",
             "Kernel": "Linux",
             "Core": "21.04",
@@ -123,7 +123,7 @@
             "OS": "Ubuntu",
             "WtVersion": ""
           },
-          "Name": "test_peer",
+          "Name": "braginini",
           "Status": {
             "LastSeen": "2021-12-24T16:12:05.994305438+01:00",
             "Connected": false
@@ -134,7 +134,7 @@
           "SetupKey": "A72E4DC2-00DE-4542-8A24-62945438104E",
           "IP": "100.64.0.1",
           "Meta": {
-            "Hostname": "test_peer",
+            "Hostname": "braginini",
             "GoOS": "linux",
             "Kernel": "Linux",
             "Core": "21.04",
@@ -142,7 +142,7 @@
             "OS": "Ubuntu",
             "WtVersion": ""
           },
-          "Name": "test_peer",
+          "Name": "braginini",
           "Status": {
             "LastSeen": "2021-12-24T16:11:27.015739803+01:00",
             "Connected": false

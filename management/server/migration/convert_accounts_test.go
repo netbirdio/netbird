@@ -1,6 +1,7 @@
-package server
+package main
 
 import (
+	"github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
 	"path/filepath"
 	"testing"
@@ -10,22 +11,22 @@ func TestConvertAccounts(t *testing.T) {
 
 	storeDir := t.TempDir()
 
-	err := util.CopyFileContents("testdata/storev1.json", filepath.Join(storeDir, "store.json"))
+	err := util.CopyFileContents("../testdata/storev1.json", filepath.Join(storeDir, "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	store, err := NewStore(storeDir)
+	store, err := server.NewStore(storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	convertedStore, err := NewStore(filepath.Join(storeDir, "converted"))
+	convertedStore, err := server.NewStore(filepath.Join(storeDir, "converted"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = convert(store, convertedStore)
+	err = Convert(store, convertedStore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +58,7 @@ func TestConvertAccounts(t *testing.T) {
 			t.Errorf("expecting to find a user in converted Account.Users")
 			return
 		}
-		if user.Role != UserRoleAdmin {
+		if user.Role != server.UserRoleAdmin {
 			t.Errorf("expecting to find a user in converted Account.Users with a role Admin")
 			return
 		}
