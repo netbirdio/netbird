@@ -36,10 +36,7 @@ func NewUser(id string, role UserRole) *User {
 
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
-	return &User{
-		Id:   id,
-		Role: UserRoleAdmin,
-	}
+	return NewUser(id, UserRoleAdmin)
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
