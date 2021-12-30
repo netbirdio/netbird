@@ -27,7 +27,10 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
-require github.com/rs/xid v1.3.0
+require (
+	github.com/pion/stun v0.3.5
+	github.com/rs/xid v1.3.0
+)
 
 require (
 	github.com/BurntSushi/toml v0.4.1 // indirect
@@ -43,7 +46,6 @@ require (
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.5 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/stun v0.3.5 // indirect
 	github.com/pion/transport v0.13.0 // indirect
 	github.com/pion/turn/v2 v2.0.6 // indirect
 	github.com/pion/udp v0.1.1 // indirect

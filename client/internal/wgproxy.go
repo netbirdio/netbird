@@ -59,8 +59,21 @@ func (p *WgProxy) StartLocal(host string) error {
 	return nil
 }
 
-// Start starts a new proxy using the ICE connection
 func (p *WgProxy) Start(remoteConn *ice.Conn) error {
+
+	// add local proxy connection as a Wireguard peer
+	err := iface.UpdatePeer(p.iface, p.remoteKey, p.allowedIps, DefaultWgKeepAlive,
+		remoteConn.RemoteAddr().String(), p.preSharedKey)
+	if err != nil {
+		log.Errorf("error while configuring Wireguard peer [%s] %s", p.remoteKey, err.Error())
+		return err
+	}
+
+	return err
+}
+
+// Start starts a new proxy using the ICE connection
+/*func (p *WgProxy) Start(remoteConn *ice.Conn) error {
 
 	wgConn, err := net.Dial("udp", p.wgAddr)
 	if err != nil {
@@ -80,7 +93,7 @@ func (p *WgProxy) Start(remoteConn *ice.Conn) error {
 	go func() { p.proxyToLocalWireguard(remoteConn) }()
 
 	return err
-}
+}*/
 
 // proxyToRemotePeer proxies everything from Wireguard to the remote peer
 // blocks

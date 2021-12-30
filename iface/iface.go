@@ -30,7 +30,7 @@ func CreateWithUserspace(iface string, address string) error {
 	}
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelVerbose, "[wiretrustee] "))
 	err = tunDevice.Up()
 	if err != nil {
 		return err

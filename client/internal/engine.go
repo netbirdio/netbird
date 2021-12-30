@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pion/ice/v2"
+	"github.com/pion/stun"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
@@ -104,13 +105,44 @@ func (e *Engine) Stop() error {
 
 	log.Infof("stopped Wiretrustee Engine")
 
+	e.UdpMux.Close()
+	e.UdpMuxSrflx.Close()
+
 	return nil
+}
+
+type sharedUDPConn struct {
+	net.PacketConn
+}
+
+/*func (s *sharedUDPConn) LocalAddr() net.Addr  {
+	return &net.UDPAddr{Port: 7777}
+}*/
+
+func (s *sharedUDPConn) ReadFrom(p []byte) (n int, addr net.Addr, err error) {
+	if n, addr, err = s.PacketConn.ReadFrom(p); err == nil {
+		if !stun.IsMessage(p) {
+			//todo forward to wireguard
+			fmt.Printf("Dropped packet that doesn't appear to be STUN: %s from %s \n", p[:n], addr.String())
+			_, err := s.WriteTo(p, &net.UDPAddr{IP: net.IP{127, 0, 0, 1}, Port: 51820})
+			if err != nil {
+				return 0, nil, err
+			}
+			return s.ReadFrom(p)
+		}
+	}
+
+	return
 }
 
 // Start creates a new Wireguard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
 func (e *Engine) Start() error {
+
+	wgIface := e.config.WgIface
+	wgAddr := e.config.WgAddr
+	myPrivateKey := e.config.WgPrivateKey
 
 	muxConn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 55050})
 	if err != nil {
@@ -121,12 +153,8 @@ func (e *Engine) Start() error {
 	if err != nil {
 		return err
 	}
-	e.UdpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConn})
-	e.UdpMuxSrflx = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConnSrflx})
-
-	wgIface := e.config.WgIface
-	wgAddr := e.config.WgAddr
-	myPrivateKey := e.config.WgPrivateKey
+	e.UdpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: &sharedUDPConn{PacketConn: muxConn}})
+	e.UdpMuxSrflx = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: &sharedUDPConn{PacketConn: muxConnSrflx}})
 
 	err = iface.Create(wgIface, wgAddr)
 	if err != nil {
