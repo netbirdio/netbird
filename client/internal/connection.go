@@ -5,7 +5,6 @@ import (
 	"fmt"
 	ice "github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/iface"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 	"sync"
@@ -65,6 +64,9 @@ type ConnConfig struct {
 	StunTurnURLS []*ice.URL
 
 	iFaceBlackList map[string]struct{}
+
+	UdpMux      ice.UDPMux
+	UdpMuxSrflx ice.UDPMux
 }
 
 // IceCredentials ICE protocol credentials struct
@@ -128,10 +130,12 @@ func (conn *Connection) Open(timeout time.Duration) error {
 
 	// create an ice.Agent that will be responsible for negotiating and establishing actual peer-to-peer connection
 	a, err := ice.NewAgent(&ice.AgentConfig{
-		// MulticastDNSMode: ice.MulticastDNSModeQueryAndGather,
-		NetworkTypes:   []ice.NetworkType{ice.NetworkTypeUDP4},
-		Urls:           conn.Config.StunTurnURLS,
-		CandidateTypes: []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
+		MulticastDNSMode: ice.MulticastDNSModeDisabled,
+		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
+		Urls:             conn.Config.StunTurnURLS,
+		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive},
+		UDPMux:           conn.Config.UdpMux,
+		UDPMuxSrflx:      conn.Config.UdpMuxSrflx,
 		InterfaceFilter: func(s string) bool {
 			if conn.Config.iFaceBlackList == nil {
 				return true
@@ -195,7 +199,7 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			return err
 		}
 
-		useProxy := useProxy(pair)
+		/*useProxy := useProxy(pair)
 
 		// in case the remote peer is in the local network or one of the peers has public static IP -> no need for a Wireguard proxy, direct communication is possible.
 		if !useProxy {
@@ -204,13 +208,18 @@ func (conn *Connection) Open(timeout time.Duration) error {
 			if err != nil {
 				return err
 			}
-
 		} else {
 			log.Debugf("establishing secure tunnel to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
 			err = conn.wgProxy.Start(remoteConn)
 			if err != nil {
 				return err
 			}
+		}*/
+
+		log.Debugf("establishing secure tunnel to peer %s via selected candidate pair %s", conn.Config.RemoteWgKey.String(), pair)
+		err = conn.wgProxy.Start(remoteConn)
+		if err != nil {
+			return err
 		}
 
 		relayed := pair.Remote.Type() == ice.CandidateTypeRelay || pair.Local.Type() == ice.CandidateTypeRelay

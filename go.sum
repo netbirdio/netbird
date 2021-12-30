@@ -357,6 +357,8 @@ github.com/pascaldekloe/goe v0.1.0/go.mod h1:lzWF7FIEvWOWxwDKqyGYQf6ZUaNfKdP144T
 github.com/pelletier/go-toml v1.9.4/go.mod h1:u1nR/EPcESfeI/szUZKdtJ0xRNbUoANCkoOuaOx1Y+c=
 github.com/pion/dtls/v2 v2.0.12 h1:QMSvNht7FM/XDXij3Ic90SCbl5yL7kppeI4ghfF4in8=
 github.com/pion/dtls/v2 v2.0.12/go.mod h1:5Pe3QJI0Ajsx+uCfxREeewGFlKYBzLrXe9ku7Y0oRXM=
+github.com/pion/dtls/v2 v2.0.13 h1:toLgXzq42/MEmfgkXDfzdnwLHMi4tfycaQPGkv9tzRE=
+github.com/pion/dtls/v2 v2.0.13/go.mod h1:OaE7eTM+ppaUhJ99OTO4aHl9uY6vPrT1gPY27uNTxRY=
 github.com/pion/ice/v2 v2.1.17 h1:z7aBWgs85AEeRgtj0bHnCrShzaGnZ/RS4pMoRmbYxtY=
 github.com/pion/ice/v2 v2.1.17/go.mod h1:M0MJ/tBR3IyDcaJv49hAiHEzaVBqWCV/MuWqIffBsrw=
 github.com/pion/logging v0.2.2 h1:M9+AIj/+pxNsDfAT64+MAVgJO0rsyLnoJKCqf//DoeY=
@@ -371,8 +373,12 @@ github.com/pion/transport v0.10.1/go.mod h1:PBis1stIILMiis0PewDw91WJeLJkyIMcEk+D
 github.com/pion/transport v0.12.2/go.mod h1:N3+vZQD9HlDP5GWkZ85LohxNsDcNgofQmyL6ojX5d8Q=
 github.com/pion/transport v0.12.3 h1:vdBfvfU/0Wq8kd2yhUMSDB/x+O4Z9MYVl2fJ5BT4JZw=
 github.com/pion/transport v0.12.3/go.mod h1:OViWW9SP2peE/HbwBvARicmAVnesphkNkCVZIWJ6q9A=
+github.com/pion/transport v0.13.0 h1:KWTA5ZrQogizzYwPEciGtHPLwpAjE91FgXnyu+Hv2uY=
+github.com/pion/transport v0.13.0/go.mod h1:yxm9uXpK9bpBBWkITk13cLo1y5/ur5VQpG22ny6EP7g=
 github.com/pion/turn/v2 v2.0.5 h1:iwMHqDfPEDEOFzwWKT56eFmh6DYC6o/+xnLAEzgISbA=
 github.com/pion/turn/v2 v2.0.5/go.mod h1:APg43CFyt/14Uy7heYUOGWdkem/Wu4PhCO/bjyrTqMw=
+github.com/pion/turn/v2 v2.0.6 h1:AsXjSPR6Im15DMTB39NlfdTY9BQfieANPBjdg/aVNwY=
+github.com/pion/turn/v2 v2.0.6/go.mod h1:+y7xl719J8bAEVpSXBXvTxStjJv3hbz9YFflvkpcGPw=
 github.com/pion/udp v0.1.1 h1:8UAPvyqmsxK8oOjloDk4wUt63TzFe9WEJkg5lChlj7o=
 github.com/pion/udp v0.1.1/go.mod h1:6AFo+CMdKQm7UiA0eUPA8/eVCTx8jBIITLZHc9DWX5M=
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=

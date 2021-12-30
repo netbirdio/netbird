@@ -12,6 +12,7 @@ import (
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,9 @@ type Engine struct {
 	cancel context.CancelFunc
 
 	ctx context.Context
+
+	UdpMux      ice.UDPMux
+	UdpMuxSrflx ice.UDPMux
 }
 
 // Peer is an instance of the Connection Peer
@@ -108,11 +112,23 @@ func (e *Engine) Stop() error {
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
 func (e *Engine) Start() error {
 
+	muxConn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 55050})
+	if err != nil {
+		return err
+	}
+
+	muxConnSrflx, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 55051})
+	if err != nil {
+		return err
+	}
+	e.UdpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConn})
+	e.UdpMuxSrflx = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConnSrflx})
+
 	wgIface := e.config.WgIface
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
 
-	err := iface.Create(wgIface, wgAddr)
+	err = iface.Create(wgIface, wgAddr)
 	if err != nil {
 		log.Errorf("failed creating interface %s: [%s]", wgIface, err.Error())
 		return err
@@ -241,6 +257,8 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 		StunTurnURLS:   append(e.STUNs, e.TURNs...),
 		iFaceBlackList: e.config.IFaceBlackList,
 		PreSharedKey:   e.config.PreSharedKey,
+		UdpMuxSrflx:    e.UdpMuxSrflx,
+		UdpMux:         e.UdpMux,
 	}
 
 	signalOffer := func(uFrag string, pwd string) error {
