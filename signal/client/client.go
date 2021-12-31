@@ -207,7 +207,7 @@ func (c *Client) connect(key string) (proto.SignalExchange_ConnectStreamClient, 
 // ready indicates whether the client is okay and ready to be used
 // for now it just checks whether gRPC connection to the service is in state Ready
 func (c *Client) ready() bool {
-	return c.signalConn.GetState() == connectivity.Ready
+	return c.signalConn.GetState() == connectivity.Ready || c.signalConn.GetState() == connectivity.Idle
 }
 
 // WaitStreamConnected waits until the client is connected to the Signal stream
