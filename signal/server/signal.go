@@ -48,6 +48,7 @@ func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.
 
 // ConnectStream connects to the exchange stream
 func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) error {
+
 	p, err := s.connectPeer(stream)
 	if err != nil {
 		return err
