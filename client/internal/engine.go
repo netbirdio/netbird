@@ -167,6 +167,7 @@ func (e *Engine) initializePeer(peer Peer) {
 		e.peerMux.Lock()
 		defer e.peerMux.Unlock()
 		if _, ok := e.peerMap[peer.WgPubKey]; !ok {
+			delete(e.conns, peer.WgPubKey)
 			log.Debugf("peer was removed: %v, stop connecting", peer.WgPubKey)
 			return nil
 		}
@@ -179,6 +180,8 @@ func (e *Engine) initializePeer(peer Peer) {
 	}
 
 	go func() {
+		timeout := rand.Intn(2000)
+		time.Sleep(time.Duration(timeout) * time.Millisecond)
 		err := backoff.Retry(operation, backOff)
 		if err != nil {
 			// should actually never happen
@@ -263,8 +266,9 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	signalCandidate := func(candidate ice.Candidate) error {
 		return signalCandidate(candidate, myKey, remoteKey, e.signal)
 	}
-	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
+
 	e.peerMux.Lock()
+	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
 	e.conns[remoteKey.String()] = conn
 	e.peerMux.Unlock()
 
@@ -445,13 +449,20 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn := e.conns[msg.Key]
-			if conn == nil {
+			e.peerMux.Lock()
+			defer e.peerMux.Unlock()
+
+			if _, ok := e.peerMap[msg.Key]; !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
 
-			if conn.Config.RemoteWgKey.String() != msg.Key {
+			conn := e.conns[msg.Key]
+			if conn == nil {
 				return fmt.Errorf("unknown peer %s", msg.Key)
+			}
+
+			if conn.Status == StatusConnected {
+				log.Warnf("connection status is %s while received a message from other peer", conn.Status)
 			}
 
 			switch msg.GetBody().Type {
