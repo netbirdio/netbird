@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
@@ -95,6 +96,8 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	if s.config.TURNConfig.TimeBasedCredentials {
 		s.turnCredentialsManager.SetupRefresh(peerKey.String())
 	}
+
+	s.schedulePeerUpdates(srv.Context(), peerKey.String(), peer)
 	// keep a connection to the peer and send updates when available
 	for {
 		select {
@@ -135,6 +138,36 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 }
 
+func (s *Server) schedulePeerUpdates(context context.Context, peerKey string, peer *Peer) {
+	//todo: introduce the following logic:
+	// add a ModificationId to the Account entity (ModificationId increments by 1 if there was a change to the account network map)
+	// periodically fetch changes of the Account providing ModificationId
+	// if ModificationId is < then the one of the Account, then send changes
+	// Client has to handle modification id as well
+	go func() {
+		for {
+			select {
+			case <-context.Done():
+				log.Debugf("peer update cancelled %s", peerKey)
+				return
+			default:
+				maxSleep := 6
+				minSleep := 3
+				sleep := rand.Intn(maxSleep-minSleep) + minSleep
+				time.Sleep(time.Duration(sleep) * time.Second)
+
+				peers, err := s.accountManager.GetPeersForAPeer(peerKey)
+				if err != nil {
+					continue
+				}
+
+				update := toSyncResponse(s.config, peer, peers, nil)
+				err = s.peersUpdateManager.SendUpdate(peerKey, &UpdateMessage{Update: update})
+			}
+		}
+	}()
+}
+
 func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
 
 	meta := req.GetMeta()
@@ -158,12 +191,13 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
 
-	peers, err := s.accountManager.GetPeersForAPeer(peer.Key)
+	// notify other peers of our registration - uncomment if you want to bring back peer update logic
+	/*peers, err := s.accountManager.GetPeersForAPeer(peer.Key)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "internal server error")
 	}
 
-	// notify other peers of our registration
+
 	for _, remotePeer := range peers {
 		// exclude notified peer and add ourselves
 		peersToSend := []*Peer{peer}
@@ -178,7 +212,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 			// todo rethink if we should keep this return
 			return nil, err
 		}
-	}
+	}*/
 
 	return peer, nil
 }

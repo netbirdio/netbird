@@ -321,9 +321,9 @@ var _ = Describe("Management service", func() {
 		})
 	})
 
-	Context("when there are 50 peers registered under one account", func() {
+	Context("when there are 30 peers registered under one account", func() {
 		Context("when there are 10 more peers registered under the same account", func() {
-			Specify("all of the 50 peers will get updates of 10 newly registered peers", func() {
+			Specify("all of the 20 peers will have 29 peer to connect to (total 30-1 itself)", func() {
 
 				initialPeers := 20
 				additionalPeers := 10
@@ -336,7 +336,7 @@ var _ = Describe("Management service", func() {
 				}
 
 				wg := sync2.WaitGroup{}
-				wg.Add(initialPeers + initialPeers*additionalPeers)
+				wg.Add(initialPeers)
 
 				var clients []mgmtProto.ManagementService_SyncClient
 				for _, peer := range peers {
@@ -368,9 +368,10 @@ var _ = Describe("Management service", func() {
 							resp := &mgmtProto.SyncResponse{}
 							err = pb.Unmarshal(decryptedBytes, resp)
 							Expect(err).NotTo(HaveOccurred())
-							if len(resp.GetRemotePeers()) > 0 {
+							if len(resp.GetRemotePeers()) == 29 {
 								//only consider peer updates
 								wg.Done()
+								return
 							}
 						}
 					}()

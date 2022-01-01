@@ -1,7 +1,6 @@
 package server
 
 import (
-	"github.com/wiretrustee/wiretrustee/management/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net"
@@ -123,7 +122,7 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 		return nil, err
 	}
 
-	err = am.peersUpdateManager.SendUpdate(peerKey,
+	/*err = am.peersUpdateManager.SendUpdate(peerKey,
 		&UpdateMessage{
 			Update: &proto.SyncResponse{
 				RemotePeers:        []*proto.RemotePeerConfig{},
@@ -131,7 +130,7 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 			}})
 	if err != nil {
 		return nil, err
-	}
+	}*/
 
 	//notify other peers of the change
 	peers, err := am.Store.GetAccountPeers(accountId)
@@ -146,7 +145,7 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 				peersToSend = append(peersToSend, remote)
 			}
 		}
-		update := toRemotePeerConfig(peersToSend)
+		/*update := toRemotePeerConfig(peersToSend)
 		err = am.peersUpdateManager.SendUpdate(p.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
@@ -155,7 +154,7 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 				}})
 		if err != nil {
 			return nil, err
-		}
+		}*/
 	}
 
 	am.peersUpdateManager.CloseChannel(peerKey)
