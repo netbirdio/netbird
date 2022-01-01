@@ -11,7 +11,6 @@ import (
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
 func Create(iface string, address string) error {
-	return CreateWithUserspace(iface, address)
 	if WireguardModExists() {
 		log.Debug("using kernel Wireguard module")
 		return CreateWithKernel(iface, address)
