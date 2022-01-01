@@ -186,6 +186,7 @@ func runClient() error {
 		// create start the Wiretrustee Engine that will connect to the Signal and Management streams and manage connections to remote peers.
 		engine := internal.NewEngine(signalClient, mgmClient, engineConfig, cancel, ctx)
 		err = engine.Start()
+		defer engine.Stop()
 		if err != nil {
 			log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
 			return err

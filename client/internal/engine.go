@@ -67,8 +67,10 @@ type Engine struct {
 
 	ctx context.Context
 
-	UdpMux      ice.UDPMux
-	UdpMuxSrflx ice.UDPMux
+	UdpMux          ice.UDPMux
+	UdpMuxSrflx     ice.UDPMux
+	UdpMuxConn      *net.UDPConn
+	UdpMuxConnSrflx *net.UDPConn
 }
 
 // Peer is an instance of the Connection Peer
@@ -109,13 +111,30 @@ func (e *Engine) Stop() error {
 
 	log.Infof("stopped Wiretrustee Engine")
 
-	err = e.UdpMux.Close()
-	if err != nil {
-		return err
+	if e.UdpMux != nil {
+		err = e.UdpMux.Close()
+		if err != nil {
+			return err
+		}
 	}
-	err = e.UdpMuxSrflx.Close()
-	if err != nil {
-		return err
+	if e.UdpMuxSrflx != nil {
+		err = e.UdpMuxSrflx.Close()
+		if err != nil {
+			return err
+		}
+	}
+	if e.UdpMuxConn != nil {
+		err = e.UdpMuxConn.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	if e.UdpMuxConnSrflx != nil {
+		err = e.UdpMuxConnSrflx.Close()
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -130,19 +149,7 @@ func (e *Engine) Start() error {
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
 
-	muxConn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 55050})
-	if err != nil {
-		return err
-	}
-
-	muxConnSrflx, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 55051})
-	if err != nil {
-		return err
-	}
-	e.UdpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConn})
-	e.UdpMuxSrflx = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConnSrflx})
-
-	err = iface.Create(wgIface, wgAddr)
+	err := iface.Create(wgIface, wgAddr)
 	if err != nil {
 		log.Errorf("failed creating interface %s: [%s]", wgIface, err.Error())
 		return err
@@ -160,6 +167,18 @@ func (e *Engine) Start() error {
 		return err
 	}
 	e.wgPort = *port
+
+	e.UdpMuxConn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: 55050})
+	if err != nil {
+		return err
+	}
+	e.UdpMuxConnSrflx, err = net.ListenUDP("udp4", &net.UDPAddr{Port: 55051})
+	if err != nil {
+		return err
+	}
+
+	e.UdpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: e.UdpMuxConn})
+	e.UdpMuxSrflx = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: e.UdpMuxConnSrflx})
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
