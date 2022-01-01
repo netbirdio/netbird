@@ -163,6 +163,9 @@ func (s *Server) schedulePeerUpdates(context context.Context, peerKey string, pe
 
 				update := toSyncResponse(s.config, peer, peers, nil)
 				err = s.peersUpdateManager.SendUpdate(peerKey, &UpdateMessage{Update: update})
+				if err != nil {
+					continue
+				}
 			}
 		}
 	}()
