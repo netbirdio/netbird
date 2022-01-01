@@ -55,7 +55,7 @@ func (registry *Registry) Register(peer *Peer) {
 	// can be that peer already exists but it is fine (e.g. reconnect)
 	// todo investigate what happens to the old peer (especially Peer.Stream) when we override it
 	registry.Peers.Store(peer.Id, peer)
-	log.Printf("registered peer [%s]", peer.Id)
+	log.Debugf("peer registered [%s]", peer.Id)
 
 }
 
@@ -63,7 +63,7 @@ func (registry *Registry) Register(peer *Peer) {
 func (registry *Registry) Deregister(peer *Peer) {
 	_, loaded := registry.Peers.LoadAndDelete(peer.Id)
 	if loaded {
-		log.Printf("deregistered peer [%s]", peer.Id)
+		log.Debugf("peer deregistered [%s]", peer.Id)
 	} else {
 		log.Warnf("attempted to remove non-existent peer [%s]", peer.Id)
 	}

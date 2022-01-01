@@ -83,7 +83,7 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // ready indicates whether the client is okay and ready to be used
 // for now it just checks whether gRPC connection to the service is ready
 func (c *Client) ready() bool {
-	return c.conn.GetState() == connectivity.Ready
+	return c.conn.GetState() == connectivity.Ready || c.conn.GetState() == connectivity.Idle
 }
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
