@@ -109,8 +109,14 @@ func (e *Engine) Stop() error {
 
 	log.Infof("stopped Wiretrustee Engine")
 
-	e.UdpMux.Close()
-	e.UdpMuxSrflx.Close()
+	err = e.UdpMux.Close()
+	if err != nil {
+		return err
+	}
+	err = e.UdpMuxSrflx.Close()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -133,8 +139,8 @@ func (e *Engine) Start() error {
 	if err != nil {
 		return err
 	}
-	e.UdpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: &sharedUDPConn{PacketConn: muxConn}})
-	e.UdpMuxSrflx = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: &sharedUDPConn{PacketConn: muxConnSrflx}})
+	e.UdpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConn})
+	e.UdpMuxSrflx = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConnSrflx})
 
 	err = iface.Create(wgIface, wgAddr)
 	if err != nil {
