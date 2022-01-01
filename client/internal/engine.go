@@ -12,14 +12,16 @@ import (
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"math/rand"
 	"strings"
 	"sync"
 	"time"
 )
 
-// PeerConnectionTimeout is a timeout of an initial connection attempt to a remote peer.
-// E.g. this peer will wait PeerConnectionTimeout for the remote peer to respond, if not successful then it will retry the connection attempt.
-const PeerConnectionTimeout = 40 * time.Second
+// PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
+// E.g. this peer will wait PeerConnectionTimeoutMax for the remote peer to respond, if not successful then it will retry the connection attempt.
+const PeerConnectionTimeoutMax = 45 //sec
+const PeerConnectionTimeoutMin = 30 //sec
 
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
@@ -267,7 +269,8 @@ func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*
 	e.peerMux.Unlock()
 
 	// blocks until the connection is open (or timeout)
-	err := conn.Open(PeerConnectionTimeout)
+	timeout := rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin) + PeerConnectionTimeoutMin
+	err := conn.Open(time.Duration(timeout) * time.Second)
 	if err != nil {
 		return nil, err
 	}
