@@ -5,21 +5,21 @@ import (
 	"net"
 )
 
-type Proxy struct {
+type WireguardProxy struct {
 	conn   net.Conn
 	remote string
 }
 
-func NewProxy(conn net.Conn, remote string) *Proxy {
-	return &Proxy{conn: conn, remote: remote}
+func NewWireguardProxy(remote string) *WireguardProxy {
+	return &WireguardProxy{remote: remote}
 }
 
-func (p *Proxy) Stop() {
+func (p *WireguardProxy) Stop() {
 
 }
 
-func (p *Proxy) Start() {
-
+func (p *WireguardProxy) Start(remoteConn net.Conn) {
+	p.conn = remoteConn
 	go func() {
 		buf := make([]byte, 1500)
 		for {

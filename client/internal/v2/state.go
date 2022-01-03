@@ -87,7 +87,7 @@ func (engine *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) erro
 		//peerIPs := p.GetAllowedIps()
 		if _, ok := engine.state.peerMap[peerKey]; !ok {
 			key, _ := wgtypes.ParseKey(peerKey)
-			conn, err := peer.New(peer.Config{RemoteKey: key.PublicKey().String(), LocalKey: engine.config.WgPrivateKey.PublicKey().String()})
+			conn, err := peer.NewConn(peer.ConnConfig{RemoteKey: key.PublicKey().String(), LocalKey: engine.config.WgPrivateKey.PublicKey().String()})
 			if err != nil {
 				return err
 			}

@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// Config is a peer Connection configuration
-type Config struct {
+// ConnConfig is a peer Connection configuration
+type ConnConfig struct {
 
 	// RemoteKey is a public key of a remote peer
 	RemoteKey string
@@ -33,7 +33,7 @@ type IceCredentials struct {
 }
 
 type Conn struct {
-	config Config
+	config ConnConfig
 	mu     sync.Mutex
 
 	// signalCandidate is a handler function to signal remote peer about local connection candidate
@@ -47,9 +47,13 @@ type Conn struct {
 
 	agent  *ice.Agent
 	status ConnStatus
+
+	proxy *WireguardProxy
 }
 
-func New(config Config) (*Conn, error) {
+// NewConn creates a new not opened Conn to the remote peer.
+// To establish a connection run Conn.Open
+func NewConn(config ConnConfig, proxy *WireguardProxy) (*Conn, error) {
 	agent, err := ice.NewAgent(&ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
@@ -68,6 +72,7 @@ func New(config Config) (*Conn, error) {
 		agent:   agent,
 		status:  StatusDisconnected,
 		closeCh: make(chan struct{}),
+		proxy:   proxy,
 	}
 
 	err = p.agent.OnCandidate(p.onICECandidate)
@@ -108,8 +113,8 @@ func interfaceFilter(blackList []string) func(string) bool {
 	}
 }
 
-// Open opens connection to the remote peer
-// blocks until connection has been closed or connection timeout
+// Open opens connection to the remote peer starting ICE candidate gathering process.
+// Blocks until connection has been closed or connection timeout.
 // ConnStatus will be set accordingly
 func (p *Conn) Open() error {
 
@@ -154,9 +159,7 @@ func (p *Conn) Open() error {
 		p.mu.Lock()
 		log.Debugf("connected to the remote peer %s - laddr %s, raddr %s",
 			p.config.RemoteKey, remoteConn.LocalAddr(), remoteConn.RemoteAddr())
-
-		proxy := NewProxy(remoteConn, p.config.RemoteKey)
-		proxy.Start()
+		p.proxy.Start(remoteConn)
 		p.status = StatusConnected
 		p.mu.Unlock()
 	case <-time.After(p.config.Timeout):
@@ -164,6 +167,8 @@ func (p *Conn) Open() error {
 	}
 
 	<-p.closeCh
+	p.proxy.Stop()
+	p.agent.Close() //nolint
 	//todo close agent?
 	return NewConnectionClosedError(p.config.RemoteKey)
 }

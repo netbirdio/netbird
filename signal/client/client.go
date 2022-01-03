@@ -45,6 +45,10 @@ type Client struct {
 	status Status
 }
 
+func (c *Client) StreamConnected() bool {
+	return c.status == StreamConnected
+}
+
 func (c *Client) GetStatus() Status {
 	return c.status
 }
