@@ -78,7 +78,6 @@ func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *Engin
 	return &Engine{
 		signal:     signalClient,
 		mgmClient:  mgmClient,
-		conns:      map[string]*Connection{},
 		peerMap:    map[string]*peer.Conn{},
 		peerMux:    &sync.Mutex{},
 		syncMsgMux: &sync.Mutex{},
@@ -113,6 +112,8 @@ func (e *Engine) Stop() error {
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
 func (e *Engine) Start() error {
 
+	log.Infof("key -> %s", e.config.WgPrivateKey.PublicKey().String())
+
 	wgIface := e.config.WgIface
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
@@ -141,54 +142,6 @@ func (e *Engine) Start() error {
 
 	return nil
 }
-
-// initializePeer peer agent attempt to open connection
-/*func (e *Engine) initializePeer(peer Peer) {
-
-	e.peerMap[peer.WgPubKey] = struct{}{}
-
-	var backOff = backoff.WithContext(&backoff.ExponentialBackOff{
-		InitialInterval:     backoff.DefaultInitialInterval,
-		RandomizationFactor: backoff.DefaultRandomizationFactor,
-		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         5 * time.Second,
-		MaxElapsedTime:      0, //never stop
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}, e.ctx)
-
-	operation := func() error {
-
-		if e.signal.GetStatus() != signal.StreamConnected {
-			return fmt.Errorf("not opening connection to peer because Signal is unavailable")
-		}
-
-		_, err := e.openPeerConnection(e.wgPort, e.config.WgPrivateKey, peer)
-		e.peerMux.Lock()
-		defer e.peerMux.Unlock()
-		if _, ok := e.peerMap[peer.WgPubKey]; !ok {
-			delete(e.conns, peer.WgPubKey)
-			log.Debugf("peer was removed: %v, stop connecting", peer.WgPubKey)
-			return nil
-		}
-
-		if err != nil {
-			log.Debugf("retrying connection because of error: %s", err.Error())
-			return err
-		}
-		return nil
-	}
-
-	go func() {
-		timeout := rand.Intn(2000)
-		time.Sleep(time.Duration(timeout) * time.Millisecond)
-		err := backoff.Retry(operation, backOff)
-		if err != nil {
-			// should actually never happen
-			panic(err)
-		}
-	}()
-}*/
 
 func (e *Engine) removePeers(peers []string) error {
 	for _, p := range peers {
@@ -434,18 +387,14 @@ func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
 
 			go func() {
 				for {
-					e.syncMsgMux.Lock()
-					if _, ok := e.peerMap[peerKey]; !ok {
+					if e.peerRemoved(peerKey) {
 						log.Errorf("-------------giving up peer retries %s, %v", peerKey)
-						e.syncMsgMux.Unlock()
 						return
 					}
-					e.syncMsgMux.Unlock()
 
 					err := conn.Open()
 					if err != nil {
 						log.Errorf("-------------peeeeeeeeeeeeeeeeeeeeeeeeer connection failed %s, %v", peerKey, err)
-						continue
 					}
 					time.Sleep(2 * time.Second)
 				}
@@ -454,6 +403,13 @@ func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
 
 	}
 	return nil
+}
+
+func (e Engine) peerRemoved(peerKey string) bool {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	_, ok := e.peerMap[peerKey]
+	return !ok
 }
 
 func (e Engine) addPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
@@ -472,7 +428,7 @@ func (e Engine) addPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error
 		LocalKey:           e.config.WgPrivateKey.PublicKey().String(),
 		StunTurn:           stunTurn,
 		InterfaceBlackList: interfaceBlacklist,
-		Timeout:            25 * time.Second,
+		Timeout:            10 * time.Second,
 	}
 
 	proxy := peer.NewWireguardProxy(pubKey)
@@ -488,11 +444,11 @@ func (e Engine) addPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error
 	}
 
 	signalOffer := func(uFrag string, pwd string) error {
-		return signalAuth(uFrag, pwd, e.config.WgPrivateKey.PublicKey(), wgPubKey, e.signal, false)
+		return signalAuth(uFrag, pwd, e.config.WgPrivateKey, wgPubKey, e.signal, false)
 	}
 
 	signalCandidate := func(candidate ice.Candidate) error {
-		return signalCandidate(candidate, e.config.WgPrivateKey.PublicKey(), wgPubKey, e.signal)
+		return signalCandidate(candidate, e.config.WgPrivateKey, wgPubKey, e.signal)
 	}
 
 	peerConn.SetSignalCandidate(signalCandidate)
@@ -514,17 +470,13 @@ func (e *Engine) receiveSignalEvents() {
 			e.peerMux.Lock()
 			defer e.peerMux.Unlock()
 
-			if _, ok := e.peerMap[msg.Key]; !ok {
+			conn, ok := e.peerMap[msg.Key]
+			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
 
-			conn := e.conns[msg.Key]
-			if conn == nil {
-				return fmt.Errorf("unknown peer %s", msg.Key)
-			}
-
-			if conn.Status == StatusConnected {
-				log.Warnf("connection status is %s while received a message from other peer", conn.Status)
+			if conn.Status() == peer.StatusConnected {
+				log.Warnf("connection status is %s while received a message from the remote peer %s", conn.Status().String(), msg.Key)
 			}
 
 			switch msg.GetBody().Type {
@@ -533,9 +485,9 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
-				err = conn.OnOffer(IceCredentials{
-					uFrag: remoteCred.UFrag,
-					pwd:   remoteCred.Pwd,
+				conn.OnRemoteOffer(peer.IceCredentials{
+					UFrag: remoteCred.UFrag,
+					Pwd:   remoteCred.Pwd,
 				})
 
 				if err != nil {
@@ -543,19 +495,19 @@ func (e *Engine) receiveSignalEvents() {
 				}
 
 				return nil
-			case sProto.Body_ANSWER:
-				remoteCred, err := signal.UnMarshalCredential(msg)
-				if err != nil {
-					return err
-				}
-				err = conn.OnAnswer(IceCredentials{
-					uFrag: remoteCred.UFrag,
-					pwd:   remoteCred.Pwd,
-				})
+			/*case sProto.Body_ANSWER:
+			remoteCred, err := signal.UnMarshalCredential(msg)
+			if err != nil {
+				return err
+			}
+			err = conn.OnAnswer(IceCredentials{
+				uFrag: remoteCred.UFrag,
+				pwd:   remoteCred.Pwd,
+			})
 
-				if err != nil {
-					return err
-				}
+			if err != nil {
+				return err
+			}*/
 
 			case sProto.Body_CANDIDATE:
 

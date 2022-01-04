@@ -3,6 +3,7 @@ package peer
 import (
 	log "github.com/sirupsen/logrus"
 	"net"
+	"time"
 )
 
 type WireguardProxy struct {
@@ -23,13 +24,13 @@ func (p *WireguardProxy) Start(remoteConn net.Conn) {
 	go func() {
 		buf := make([]byte, 1500)
 		for {
-			_, err := p.conn.Read(buf)
+			n, err := p.conn.Read(buf)
 			log.Infof("sent ping")
 			if err != nil {
 				log.Errorf("error while reading remote %s proxy %v", p.remote, err)
 				return
 			}
-			log.Infof("received %s from %s", string(buf), p.remote)
+			log.Infof("received %s from %s", string(buf[:n]), p.remote)
 		}
 	}()
 
@@ -41,6 +42,7 @@ func (p *WireguardProxy) Start(remoteConn net.Conn) {
 				log.Errorf("error while writing to remote %s proxy %v", p.remote, err)
 				return
 			}
+			time.Sleep(5 * time.Second)
 		}
 
 	}()

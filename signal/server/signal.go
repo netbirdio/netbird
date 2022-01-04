@@ -29,7 +29,7 @@ func NewServer() *Server {
 func (s *Server) Send(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 
 	if !s.registry.IsPeerRegistered(msg.Key) {
-		return nil, fmt.Errorf("unknown peer %s", msg.Key)
+		return nil, fmt.Errorf("peer %s is not registered", msg.Key)
 	}
 
 	if dstPeer, found := s.registry.Get(msg.RemoteKey); found {
