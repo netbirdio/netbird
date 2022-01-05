@@ -478,10 +478,6 @@ func (e *Engine) receiveSignalEvents() {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
 
-			if conn.Status() == peer.StatusConnected {
-				log.Warnf("connection status is %s while received a message from the remote peer %s", conn.Status().String(), msg.Key)
-			}
-
 			switch msg.GetBody().Type {
 			case sProto.Body_OFFER:
 				remoteCred, err := signal.UnMarshalCredential(msg)

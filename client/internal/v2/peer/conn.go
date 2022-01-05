@@ -57,12 +57,13 @@ type Conn struct {
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(config ConnConfig) (*Conn, error) {
+	failedTimeout := 6 * time.Second
 	agent, err := ice.NewAgent(&ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
 		Urls:             config.StunTurn,
 		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
-		FailedTimeout:    &config.Timeout,
+		FailedTimeout:    &failedTimeout,
 		InterfaceFilter:  interfaceFilter(config.InterfaceBlackList),
 	})
 	if err != nil {
@@ -133,8 +134,7 @@ func (p *Conn) reCreateAgent() error {
 // Blocks until connection has been closed or connection timeout.
 // ConnStatus will be set accordingly
 func (p *Conn) Open() error {
-
-	log.Debugf("try to connect to peer %s", p.config.Key)
+	log.Debugf("trying to connect to peer %s", p.config.Key)
 
 	err := p.reCreateAgent()
 	if err != nil {
@@ -160,15 +160,23 @@ func (p *Conn) Open() error {
 		return NewConnectionClosedError(p.config.Key)
 	}
 
+	log.Debugf("received connection confirmation from peer %s", p.config.Key)
+	p.mu.Lock()
+	p.status = StatusConnecting
+	p.mu.Unlock()
+
 	//at this point we received offer/answer and we are ready to gather candidates
 	err = p.agent.GatherCandidates()
 	if err != nil {
 		return err
 	}
 
-	// will block until connection succeeded
-	// but it won't release if ICE Agent went into Disconnected or Failed state, so we have to notifyDisconnected it with the provided context
 	p.ctx, p.notifyDisconnected = context.WithCancel(context.Background())
+	defer p.notifyDisconnected()
+
+	// will block until connection succeeded
+	// but it won't release if ICE Agent went into Disconnected or Failed state,
+	// so we have to cancel it with the provided context once agent detected a broken connection
 	isControlling := p.config.LocalKey > p.config.Key
 	var remoteConn *ice.Conn
 	if isControlling {
@@ -180,22 +188,25 @@ func (p *Conn) Open() error {
 		return err
 	}
 
-	// the connection has been established successfully
+	// the connection has been established successfully so we are ready to start the proxy
 	p.proxy = NewWireguardProxy(p.config.Key, p.ctx)
 	p.proxy.Start(remoteConn)
 
-	// wait until connection ctx or has been closed externally or
+	p.mu.Lock()
+	p.status = StatusConnected
+	p.mu.Unlock()
+
+	log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", p.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
+
+	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
 	case <-p.closeCh:
 		//closed externally
-		p.notifyDisconnected()
 		return NewConnectionClosedError(p.config.Key)
 	case <-p.ctx.Done():
-		//ctx from the remote peer
-		p.notifyDisconnected()
+		//disconnected from the remote peer
 		return NewConnectionClosedError(p.config.Key)
 	}
-
 }
 
 // SetSignalOffer sets a handler function to be triggered by Conn when a new connection offer has to be signalled to the remote peer
@@ -324,6 +335,7 @@ func (p *Conn) OnRemoteAnswer(remoteAuth IceCredentials) {
 	if p.status != StatusDisconnected {
 		return
 	}
+
 	p.remoteOffersCh <- remoteAuth
 }
 
