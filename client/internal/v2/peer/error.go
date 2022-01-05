@@ -12,7 +12,7 @@ type ConnectionTimeoutError struct {
 }
 
 func (e *ConnectionTimeoutError) Error() string {
-	return fmt.Sprintf("connection to peer %s timeout out after %d", e.peer, e.timeout)
+	return fmt.Sprintf("connection to peer %s timed out after %s", e.peer, e.timeout.String())
 }
 
 // NewConnectionTimeoutError creates a new ConnectionTimeoutError error
@@ -34,6 +34,22 @@ func (e *ConnectionClosedError) Error() string {
 
 // NewConnectionClosedError creates a new ConnectionClosedError error
 func NewConnectionClosedError(peer string) error {
+	return &ConnectionClosedError{
+		peer: peer,
+	}
+}
+
+// ConnectionDisconnectedError is an error indicating that a peer Conn has ctx from the remote
+type ConnectionDisconnectedError struct {
+	peer string
+}
+
+func (e *ConnectionDisconnectedError) Error() string {
+	return fmt.Sprintf("ctx from peer %s", e.peer)
+}
+
+// NewConnectionDisconnectedError creates a new ConnectionDisconnectedError error
+func NewConnectionDisconnectedError(peer string) error {
 	return &ConnectionClosedError{
 		peer: peer,
 	}

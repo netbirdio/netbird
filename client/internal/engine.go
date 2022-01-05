@@ -394,7 +394,7 @@ func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
 
 					err := conn.Open()
 					if err != nil {
-						log.Errorf("-------------peeeeeeeeeeeeeeeeeeeeeeeeer connection failed %s, %v", peerKey, err)
+						log.Debugf("connection to peer %s failed %v", peerKey, err)
 					}
 					time.Sleep(2 * time.Second)
 				}
@@ -424,7 +424,7 @@ func (e Engine) addPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error
 	}
 
 	config := peer.ConnConfig{
-		RemoteKey:          pubKey,
+		Key:                pubKey,
 		LocalKey:           e.config.WgPrivateKey.PublicKey().String(),
 		StunTurn:           stunTurn,
 		InterfaceBlackList: interfaceBlacklist,
