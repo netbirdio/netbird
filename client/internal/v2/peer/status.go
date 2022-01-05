@@ -6,6 +6,8 @@ type ConnStatus int
 
 func (s ConnStatus) String() string {
 	switch s {
+	case StatusConnecting:
+		return "StatusConnecting"
 	case StatusConnected:
 		return "StatusConnected"
 	case StatusDisconnected:
@@ -18,5 +20,6 @@ func (s ConnStatus) String() string {
 
 const (
 	StatusConnected = iota
+	StatusConnecting
 	StatusDisconnected
 )

@@ -114,7 +114,7 @@ func (e *Engine) Start() error {
 
 	log.Infof("key -> %s", e.config.WgPrivateKey.PublicKey().String())
 
-	wgIface := e.config.WgIface
+	/*wgIface := e.config.WgIface
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
 
@@ -135,7 +135,7 @@ func (e *Engine) Start() error {
 		log.Errorf("failed getting Wireguard listen port [%s]: %s", wgIface, err.Error())
 		return err
 	}
-	e.wgPort = *port
+	e.wgPort = *port*/
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -431,9 +431,7 @@ func (e Engine) addPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error
 		Timeout:            10 * time.Second,
 	}
 
-	proxy := peer.NewWireguardProxy(pubKey)
-
-	peerConn, err := peer.NewConn(config, proxy)
+	peerConn, err := peer.NewConn(config)
 	if err != nil {
 		return nil, err
 	}
@@ -451,8 +449,13 @@ func (e Engine) addPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error
 		return signalCandidate(candidate, e.config.WgPrivateKey, wgPubKey, e.signal)
 	}
 
+	signalAnswer := func(uFrag string, pwd string) error {
+		return signalAuth(uFrag, pwd, e.config.WgPrivateKey, wgPubKey, e.signal, true)
+	}
+
 	peerConn.SetSignalCandidate(signalCandidate)
 	peerConn.SetSignalOffer(signalOffer)
+	peerConn.SetSignalAnswer(signalAnswer)
 
 	return peerConn, nil
 }
@@ -490,24 +493,16 @@ func (e *Engine) receiveSignalEvents() {
 					Pwd:   remoteCred.Pwd,
 				})
 
+				return nil
+			case sProto.Body_ANSWER:
+				remoteCred, err := signal.UnMarshalCredential(msg)
 				if err != nil {
 					return err
 				}
-
-				return nil
-			/*case sProto.Body_ANSWER:
-			remoteCred, err := signal.UnMarshalCredential(msg)
-			if err != nil {
-				return err
-			}
-			err = conn.OnAnswer(IceCredentials{
-				uFrag: remoteCred.UFrag,
-				pwd:   remoteCred.Pwd,
-			})
-
-			if err != nil {
-				return err
-			}*/
+				conn.OnRemoteAnswer(peer.IceCredentials{
+					UFrag: remoteCred.UFrag,
+					Pwd:   remoteCred.Pwd,
+				})
 
 			case sProto.Body_CANDIDATE:
 
