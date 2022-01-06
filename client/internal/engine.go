@@ -348,20 +348,27 @@ func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
 
 func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
 	for {
+
+		// randomize starting time a bit
+		min := 500
+		max := 1500
+		time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
+
 		// of peer has been removed -> give up
 		if e.peerExists(peerKey) {
 			log.Infof("peer %s doesn't exist anymore, won't retry connection", peerKey)
 			return
 		}
 
+		if !e.signal.Ready() {
+			log.Infof("signal client isn't ready, skipping connection attempt %s", peerKey)
+			continue
+		}
+
 		err := conn.Open()
 		if err != nil {
 			log.Debugf("connection to peer %s failed: %v", peerKey, err)
 		}
-
-		min := 500
-		max := 1500
-		time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
 	}
 }
 

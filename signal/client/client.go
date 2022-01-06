@@ -121,7 +121,7 @@ func (c *Client) Receive(msgHandler func(msg *proto.Message) error) error {
 		c.notifyStreamDisconnected()
 
 		log.Debugf("signal connection state %v", c.signalConn.GetState())
-		if !c.ready() {
+		if !c.Ready() {
 			return fmt.Errorf("no connection to signal")
 		}
 
@@ -208,9 +208,9 @@ func (c *Client) connect(key string) (proto.SignalExchange_ConnectStreamClient, 
 	return stream, nil
 }
 
-// ready indicates whether the client is okay and ready to be used
+// Ready indicates whether the client is okay and Ready to be used
 // for now it just checks whether gRPC connection to the service is in state Ready
-func (c *Client) ready() bool {
+func (c *Client) Ready() bool {
 	return c.signalConn.GetState() == connectivity.Ready || c.signalConn.GetState() == connectivity.Idle
 }
 
@@ -232,7 +232,7 @@ func (c *Client) WaitStreamConnected() {
 // The Client.Receive method must be called before sending messages to establish initial connection to the Signal Exchange
 // Client.connWg can be used to wait
 func (c *Client) SendToStream(msg *proto.EncryptedMessage) error {
-	if !c.ready() {
+	if !c.Ready() {
 		return fmt.Errorf("no connection to signal")
 	}
 	if c.stream == nil {
@@ -291,7 +291,7 @@ func (c *Client) encryptMessage(msg *proto.Message) (*proto.EncryptedMessage, er
 // Send sends a message to the remote Peer through the Signal Exchange.
 func (c *Client) Send(msg *proto.Message) error {
 
-	if !c.ready() {
+	if !c.Ready() {
 		return fmt.Errorf("no connection to signal")
 	}
 
