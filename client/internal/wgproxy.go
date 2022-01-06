@@ -6,7 +6,10 @@ import (
 	"github.com/wiretrustee/wiretrustee/iface"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
+	"time"
 )
+
+const DefaultWgKeepAlive = 25 * time.Second
 
 // WgProxy an instance of an instance of the Connection Wireguard Proxy
 type WgProxy struct {

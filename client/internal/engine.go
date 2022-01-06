@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/client/internal/v2/peer"
+	"github.com/wiretrustee/wiretrustee/client/internal/peer"
 	"github.com/wiretrustee/wiretrustee/iface"
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
@@ -42,10 +42,8 @@ type Engine struct {
 	signal *signal.Client
 	// mgmClient is a Management Service client
 	mgmClient *mgm.Client
-	// conns is a collection of remote peer connections indexed by local public key of the remote peers
-	conns map[string]*Connection
-	// peerMap is a map that holds all the peers that are known to this peer
-	peerMap map[string]*peer.Conn
+	// peerConns is a map that holds all the peers that are known to this peer
+	peerConns map[string]*peer.Conn
 
 	// peerMux is used to sync peer operations (e.g. open connection, peer removal)
 	peerMux *sync.Mutex
@@ -78,7 +76,7 @@ func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *Engin
 	return &Engine{
 		signal:     signalClient,
 		mgmClient:  mgmClient,
-		peerMap:    map[string]*peer.Conn{},
+		peerConns:  map[string]*peer.Conn{},
 		peerMux:    &sync.Mutex{},
 		syncMsgMux: &sync.Mutex{},
 		config:     config,
@@ -158,7 +156,7 @@ func (e *Engine) removeAllPeerConnections() error {
 	log.Debugf("removing all peer connections")
 	e.peerMux.Lock()
 	defer e.peerMux.Unlock()
-	for p := range e.conns {
+	for p := range e.peerConns {
 		err := e.removePeer(p)
 		if err != nil {
 			return err
@@ -169,66 +167,25 @@ func (e *Engine) removeAllPeerConnections() error {
 
 // removePeer closes an existing peer connection and removes a peer
 func (e *Engine) removePeer(peerKey string) error {
-	conn, exists := e.peerMap[peerKey]
+	conn, exists := e.peerConns[peerKey]
 	if exists {
-		delete(e.conns, peerKey)
+		delete(e.peerConns, peerKey)
 		return conn.Close()
 	}
 	return nil
 }
 
 // GetPeerConnectionStatus returns a connection Status or nil if peer connection wasn't found
-func (e *Engine) GetPeerConnectionStatus(peerKey string) *Status {
+func (e *Engine) GetPeerConnectionStatus(peerKey string) peer.ConnStatus {
 	e.peerMux.Lock()
 	defer e.peerMux.Unlock()
 
-	conn, exists := e.conns[peerKey]
+	conn, exists := e.peerConns[peerKey]
 	if exists && conn != nil {
-		return &conn.Status
+		return conn.Status()
 	}
 
-	return nil
-}
-
-// openPeerConnection opens a new remote peer connection
-func (e *Engine) openPeerConnection(wgPort int, myKey wgtypes.Key, peer Peer) (*Connection, error) {
-
-	remoteKey, _ := wgtypes.ParseKey(peer.WgPubKey)
-	connConfig := &ConnConfig{
-		WgListenAddr:   fmt.Sprintf("127.0.0.1:%d", wgPort),
-		WgPeerIP:       e.config.WgAddr,
-		WgIface:        e.config.WgIface,
-		WgAllowedIPs:   peer.WgAllowedIps,
-		WgKey:          myKey,
-		RemoteWgKey:    remoteKey,
-		StunTurnURLS:   append(e.STUNs, e.TURNs...),
-		iFaceBlackList: e.config.IFaceBlackList,
-		PreSharedKey:   e.config.PreSharedKey,
-	}
-
-	signalOffer := func(uFrag string, pwd string) error {
-		return signalAuth(uFrag, pwd, myKey, remoteKey, e.signal, false)
-	}
-
-	signalAnswer := func(uFrag string, pwd string) error {
-		return signalAuth(uFrag, pwd, myKey, remoteKey, e.signal, true)
-	}
-	signalCandidate := func(candidate ice.Candidate) error {
-		return signalCandidate(candidate, myKey, remoteKey, e.signal)
-	}
-
-	e.peerMux.Lock()
-	conn := NewConnection(*connConfig, signalCandidate, signalOffer, signalAnswer)
-	e.conns[remoteKey.String()] = conn
-	e.peerMux.Unlock()
-
-	// blocks until the connection is open (or timeout)
-	timeout := rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin) + PeerConnectionTimeoutMin
-	err := conn.Open(time.Duration(timeout) * time.Second)
-	if err != nil {
-		return nil, err
-	}
-	return conn, nil
+	return -1
 }
 
 func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client) error {
@@ -364,7 +321,7 @@ func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
 
 	//remove peers that are no longer available for us
 	toRemove := []string{}
-	for p := range e.conns {
+	for p := range e.peerConns {
 		if _, ok := remotePeerMap[p]; !ok {
 			toRemove = append(toRemove, p)
 		}
@@ -378,37 +335,43 @@ func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
 	for _, p := range remotePeers {
 		peerKey := p.GetWgPubKey()
 		peerIPs := p.GetAllowedIps()
-		if _, ok := e.peerMap[peerKey]; !ok {
+		if _, ok := e.peerConns[peerKey]; !ok {
 			conn, err := e.addPeerConn(peerKey, strings.Join(peerIPs, ","))
 			if err != nil {
 				return err
 			}
-			e.peerMap[peerKey] = conn
+			e.peerConns[peerKey] = conn
 
-			go func() {
-				for {
-					if e.peerRemoved(peerKey) {
-						log.Errorf("-------------giving up peer retries %s, %v", peerKey)
-						return
-					}
-
-					err := conn.Open()
-					if err != nil {
-						log.Debugf("connection to peer %s failed %v", peerKey, err)
-					}
-					time.Sleep(2 * time.Second)
-				}
-			}()
+			go e.connWorker(conn, peerKey)
 		}
 
 	}
 	return nil
 }
 
-func (e Engine) peerRemoved(peerKey string) bool {
+func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
+	for {
+		// of peer has been removed -> give up
+		if e.peerExists(peerKey) {
+			log.Infof("peer %s doesn't exist anymore, won't retry connection", peerKey)
+			return
+		}
+
+		err := conn.Open()
+		if err != nil {
+			log.Debugf("connection to peer %s failed: %v", peerKey, err)
+		}
+
+		min := 500
+		max := 1500
+		time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
+	}
+}
+
+func (e Engine) peerExists(peerKey string) bool {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
-	_, ok := e.peerMap[peerKey]
+	_, ok := e.peerConns[peerKey]
 	return !ok
 }
 
@@ -473,7 +436,7 @@ func (e *Engine) receiveSignalEvents() {
 			e.peerMux.Lock()
 			defer e.peerMux.Unlock()
 
-			conn, ok := e.peerMap[msg.Key]
+			conn, ok := e.peerConns[msg.Key]
 			if !ok {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}

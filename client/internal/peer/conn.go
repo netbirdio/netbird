@@ -51,7 +51,7 @@ type Conn struct {
 	agent  *ice.Agent
 	status ConnStatus
 
-	proxy *WireguardProxy
+	proxy *DummyProxy
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -98,31 +98,31 @@ func interfaceFilter(blackList []string) func(string) bool {
 	}
 }
 
-func (p *Conn) reCreateAgent() error {
+func (conn *Conn) reCreateAgent() error {
 	var err error
-	p.agent, err = ice.NewAgent(&ice.AgentConfig{
+	conn.agent, err = ice.NewAgent(&ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
-		Urls:             p.config.StunTurn,
+		Urls:             conn.config.StunTurn,
 		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
-		FailedTimeout:    &p.config.Timeout,
-		InterfaceFilter:  interfaceFilter(p.config.InterfaceBlackList),
+		FailedTimeout:    &conn.config.Timeout,
+		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
 	})
 	if err != nil {
 		return err
 	}
 
-	err = p.agent.OnCandidate(p.onICECandidate)
+	err = conn.agent.OnCandidate(conn.onICECandidate)
 	if err != nil {
 		return err
 	}
 
-	err = p.agent.OnConnectionStateChange(p.onICEConnectionStateChange)
+	err = conn.agent.OnConnectionStateChange(conn.onICEConnectionStateChange)
 	if err != nil {
 		return err
 	}
 
-	err = p.agent.OnSelectedCandidatePairChange(p.onICESelectedCandidatePair)
+	err = conn.agent.OnSelectedCandidatePairChange(conn.onICESelectedCandidatePair)
 	if err != nil {
 		return err
 	}
@@ -133,137 +133,137 @@ func (p *Conn) reCreateAgent() error {
 // Open opens connection to the remote peer starting ICE candidate gathering process.
 // Blocks until connection has been closed or connection timeout.
 // ConnStatus will be set accordingly
-func (p *Conn) Open() error {
-	log.Debugf("trying to connect to peer %s", p.config.Key)
+func (conn *Conn) Open() error {
+	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
-	err := p.reCreateAgent()
+	err := conn.reCreateAgent()
 	if err != nil {
 		return err
 	}
-	defer p.agent.Close()
+	defer conn.agent.Close()
 
-	err = p.sendOffer()
+	err = conn.sendOffer()
 	if err != nil {
 		return err
 	}
 
-	log.Debugf("connection offer sent to peer %s, waiting for the confirmation", p.config.Key)
+	log.Debugf("connection offer sent to peer %s, waiting for the confirmation", conn.config.Key)
 
 	// only continue once we got a connection confirmation from the remote peer or time out
 	var remoteOffer IceCredentials
 	select {
-	case remoteOffer = <-p.remoteOffersCh:
-	case <-time.After(p.config.Timeout):
-		return NewConnectionTimeoutError(p.config.Key, p.config.Timeout)
-	case <-p.closeCh:
+	case remoteOffer = <-conn.remoteOffersCh:
+	case <-time.After(conn.config.Timeout):
+		return NewConnectionTimeoutError(conn.config.Key, conn.config.Timeout)
+	case <-conn.closeCh:
 		// closed externally
-		return NewConnectionClosedError(p.config.Key)
+		return NewConnectionClosedError(conn.config.Key)
 	}
 
-	log.Debugf("received connection confirmation from peer %s", p.config.Key)
-	p.mu.Lock()
-	p.status = StatusConnecting
-	p.mu.Unlock()
+	log.Debugf("received connection confirmation from peer %s", conn.config.Key)
+	conn.mu.Lock()
+	conn.status = StatusConnecting
+	conn.mu.Unlock()
 
 	//at this point we received offer/answer and we are ready to gather candidates
-	err = p.agent.GatherCandidates()
+	err = conn.agent.GatherCandidates()
 	if err != nil {
 		return err
 	}
 
-	p.ctx, p.notifyDisconnected = context.WithCancel(context.Background())
-	defer p.notifyDisconnected()
+	conn.ctx, conn.notifyDisconnected = context.WithCancel(context.Background())
+	defer conn.notifyDisconnected()
 
 	// will block until connection succeeded
 	// but it won't release if ICE Agent went into Disconnected or Failed state,
 	// so we have to cancel it with the provided context once agent detected a broken connection
-	isControlling := p.config.LocalKey > p.config.Key
+	isControlling := conn.config.LocalKey > conn.config.Key
 	var remoteConn *ice.Conn
 	if isControlling {
-		remoteConn, err = p.agent.Dial(p.ctx, remoteOffer.UFrag, remoteOffer.Pwd)
+		remoteConn, err = conn.agent.Dial(conn.ctx, remoteOffer.UFrag, remoteOffer.Pwd)
 	} else {
-		remoteConn, err = p.agent.Accept(p.ctx, remoteOffer.UFrag, remoteOffer.Pwd)
+		remoteConn, err = conn.agent.Accept(conn.ctx, remoteOffer.UFrag, remoteOffer.Pwd)
 	}
 	if err != nil {
 		return err
 	}
 
 	// the connection has been established successfully so we are ready to start the proxy
-	p.proxy = NewWireguardProxy(p.config.Key, p.ctx)
-	p.proxy.Start(remoteConn)
+	conn.proxy = NewDummyProxy(conn.config.Key, conn.ctx)
+	conn.proxy.Start(remoteConn)
 
-	p.mu.Lock()
-	p.status = StatusConnected
-	p.mu.Unlock()
+	conn.mu.Lock()
+	conn.status = StatusConnected
+	conn.mu.Unlock()
 
-	log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", p.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
+	log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", conn.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
-	case <-p.closeCh:
+	case <-conn.closeCh:
 		//closed externally
-		return NewConnectionClosedError(p.config.Key)
-	case <-p.ctx.Done():
+		return NewConnectionClosedError(conn.config.Key)
+	case <-conn.ctx.Done():
 		//disconnected from the remote peer
-		return NewConnectionClosedError(p.config.Key)
+		return NewConnectionClosedError(conn.config.Key)
 	}
 }
 
 // SetSignalOffer sets a handler function to be triggered by Conn when a new connection offer has to be signalled to the remote peer
-func (p *Conn) SetSignalOffer(handler func(uFrag string, pwd string) error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.signalOffer = handler
+func (conn *Conn) SetSignalOffer(handler func(uFrag string, pwd string) error) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.signalOffer = handler
 }
 
 // SetSignalAnswer sets a handler function to be triggered by Conn when a new connection answer has to be signalled to the remote peer
-func (p *Conn) SetSignalAnswer(handler func(uFrag string, pwd string) error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.signalAnswer = handler
+func (conn *Conn) SetSignalAnswer(handler func(uFrag string, pwd string) error) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.signalAnswer = handler
 }
 
 // SetSignalCandidate sets a handler function to be triggered by Conn when a new ICE local connection candidate has to be signalled to the remote peer
-func (p *Conn) SetSignalCandidate(handler func(candidate ice.Candidate) error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.signalCandidate = handler
+func (conn *Conn) SetSignalCandidate(handler func(candidate ice.Candidate) error) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.signalCandidate = handler
 }
 
 // onICECandidate is a callback attached to an ICE Agent to receive new local connection candidates
 // and then signals them to the remote peer
-func (p *Conn) onICECandidate(candidate ice.Candidate) {
+func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 	if candidate != nil {
 		//log.Debugf("discovered local candidate %s", candidate.String())
 		go func() {
-			err := p.signalCandidate(candidate)
+			err := conn.signalCandidate(candidate)
 			if err != nil {
-				log.Errorf("failed signaling candidate to the remote peer %s %s", p.config.Key, err)
+				log.Errorf("failed signaling candidate to the remote peer %s %s", conn.config.Key, err)
 			}
 		}()
 	}
 }
 
-func (p *Conn) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
+func (conn *Conn) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
 	log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s]", c1.String(), c2.String())
 }
 
 // onICEConnectionStateChange registers callback of an ICE Agent to track connection state
-func (p *Conn) onICEConnectionStateChange(state ice.ConnectionState) {
+func (conn *Conn) onICEConnectionStateChange(state ice.ConnectionState) {
 	log.Debugf("ICE ConnectionState has changed to %s", state.String())
 	if state == ice.ConnectionStateFailed || state == ice.ConnectionStateDisconnected {
-		p.notifyDisconnected()
+		conn.notifyDisconnected()
 	}
 }
 
-func (p *Conn) sendAnswer() error {
-	localUFrag, localPwd, err := p.agent.GetLocalUserCredentials()
+func (conn *Conn) sendAnswer() error {
+	localUFrag, localPwd, err := conn.agent.GetLocalUserCredentials()
 	if err != nil {
 		return err
 	}
 
 	log.Debugf("Answer with my auth %s:%s", localUFrag, localPwd)
-	err = p.signalAnswer(localUFrag, localPwd)
+	err = conn.signalAnswer(localUFrag, localPwd)
 	if err != nil {
 		return err
 	}
@@ -272,17 +272,17 @@ func (p *Conn) sendAnswer() error {
 }
 
 // sendOffer prepares local user credentials and signals them to the remote peer
-func (p *Conn) sendOffer() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (conn *Conn) sendOffer() error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
 
-	p.status = StatusDisconnected
+	conn.status = StatusDisconnected
 
-	localUFrag, localPwd, err := p.agent.GetLocalUserCredentials()
+	localUFrag, localPwd, err := conn.agent.GetLocalUserCredentials()
 	if err != nil {
 		return err
 	}
-	err = p.signalOffer(localUFrag, localPwd)
+	err = conn.signalOffer(localUFrag, localPwd)
 	if err != nil {
 		return err
 	}
@@ -290,35 +290,35 @@ func (p *Conn) sendOffer() error {
 }
 
 // Close closes this peer Conn issuing a close event to the Conn closeCh
-func (p *Conn) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.closeCh <- struct{}{}
+func (conn *Conn) Close() error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.closeCh <- struct{}{}
 	return nil
 }
 
-// ConnStatus returns current status of the Conn
-func (p *Conn) Status() ConnStatus {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.status
+// Status returns current status of the Conn
+func (conn *Conn) Status() ConnStatus {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	return conn.status
 }
 
 // OnRemoteOffer handles an offer from the remote peer
 // can block until Conn restarts
-func (p *Conn) OnRemoteOffer(remoteAuth IceCredentials) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
 
-	log.Debugf("OnRemoteOffer from peer %s on status %s", p.config.Key, p.status.String())
+	log.Debugf("OnRemoteOffer from peer %s on status %s", conn.config.Key, conn.status.String())
 
-	if p.status != StatusDisconnected {
+	if conn.status != StatusDisconnected {
 		return
 	}
 
-	p.remoteOffersCh <- remoteAuth
+	conn.remoteOffersCh <- remoteAuth
 
-	err := p.sendAnswer()
+	err := conn.sendAnswer()
 	if err != nil {
 		return
 	}
@@ -326,27 +326,27 @@ func (p *Conn) OnRemoteOffer(remoteAuth IceCredentials) {
 
 // OnRemoteAnswer handles an offer from the remote peer
 // can block until Conn restarts
-func (p *Conn) OnRemoteAnswer(remoteAuth IceCredentials) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (conn *Conn) OnRemoteAnswer(remoteAuth IceCredentials) {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
 
-	log.Debugf("OnRemoteAnswer from peer %s on status %s", p.config.Key, p.status.String())
+	log.Debugf("OnRemoteAnswer from peer %s on status %s", conn.config.Key, conn.status.String())
 
-	if p.status != StatusDisconnected {
+	if conn.status != StatusDisconnected {
 		return
 	}
 
-	p.remoteOffersCh <- remoteAuth
+	conn.remoteOffersCh <- remoteAuth
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.
-func (p *Conn) OnRemoteCandidate(candidate ice.Candidate) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
 
-	//log.Debugf("OnRemoteCandidate from peer %s -> %s", p.config.Key, candidate.String())
+	log.Debugf("OnRemoteCandidate from peer %s -> %s", conn.config.Key, candidate.String())
 
-	err := p.agent.AddRemoteCandidate(candidate)
+	err := conn.agent.AddRemoteCandidate(candidate)
 	if err != nil {
 		return err
 	}

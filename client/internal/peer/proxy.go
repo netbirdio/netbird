@@ -7,17 +7,18 @@ import (
 	"time"
 )
 
-type WireguardProxy struct {
+// DummyProxy just sends pings to the remote peer and reads responses
+type DummyProxy struct {
 	conn   net.Conn
 	remote string
 	ctx    context.Context
 }
 
-func NewWireguardProxy(remote string, ctx context.Context) *WireguardProxy {
-	return &WireguardProxy{remote: remote, ctx: ctx}
+func NewDummyProxy(remote string, ctx context.Context) *DummyProxy {
+	return &DummyProxy{remote: remote, ctx: ctx}
 }
 
-func (p *WireguardProxy) Start(remoteConn net.Conn) {
+func (p *DummyProxy) Start(remoteConn net.Conn) {
 	p.conn = remoteConn
 	go func() {
 		buf := make([]byte, 1500)
@@ -44,7 +45,7 @@ func (p *WireguardProxy) Start(remoteConn net.Conn) {
 				return
 			default:
 				_, err := p.conn.Write([]byte("hello"))
-				log.Infof("sent ping")
+				log.Infof("sent ping to %s", p.remote)
 				if err != nil {
 					log.Errorf("error while writing to remote %s proxy %v", p.remote, err)
 					return
