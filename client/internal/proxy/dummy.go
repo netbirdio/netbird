@@ -1,4 +1,4 @@
-package peer
+package proxy
 
 import (
 	"context"
@@ -12,13 +12,21 @@ type DummyProxy struct {
 	conn   net.Conn
 	remote string
 	ctx    context.Context
+	cancel context.CancelFunc
 }
 
-func NewDummyProxy(remote string, ctx context.Context) *DummyProxy {
-	return &DummyProxy{remote: remote, ctx: ctx}
+func NewDummyProxy(remote string) *DummyProxy {
+	p := &DummyProxy{remote: remote}
+	p.ctx, p.cancel = context.WithCancel(context.Background())
+	return p
 }
 
-func (p *DummyProxy) Start(remoteConn net.Conn) {
+func (p *DummyProxy) Close() error {
+	p.cancel()
+	return nil
+}
+
+func (p *DummyProxy) Start(remoteConn net.Conn) error {
 	p.conn = remoteConn
 	go func() {
 		buf := make([]byte, 1500)
@@ -56,4 +64,5 @@ func (p *DummyProxy) Start(remoteConn net.Conn) {
 
 	}()
 
+	return nil
 }

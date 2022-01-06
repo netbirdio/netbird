@@ -4,6 +4,8 @@ import (
 	"context"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/client/internal/proxy"
+	"net"
 	"sync"
 	"time"
 )
@@ -51,29 +53,15 @@ type Conn struct {
 	agent  *ice.Agent
 	status ConnStatus
 
-	proxy *DummyProxy
+	proxy proxy.Proxy
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(config ConnConfig) (*Conn, error) {
-	failedTimeout := 6 * time.Second
-	agent, err := ice.NewAgent(&ice.AgentConfig{
-		MulticastDNSMode: ice.MulticastDNSModeDisabled,
-		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
-		Urls:             config.StunTurn,
-		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
-		FailedTimeout:    &failedTimeout,
-		InterfaceFilter:  interfaceFilter(config.InterfaceBlackList),
-	})
-	if err != nil {
-		return nil, err
-	}
-
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
-		agent:          agent,
 		status:         StatusDisconnected,
 		closeCh:        make(chan struct{}),
 		remoteOffersCh: make(chan IceCredentials),
@@ -99,13 +87,17 @@ func interfaceFilter(blackList []string) func(string) bool {
 }
 
 func (conn *Conn) reCreateAgent() error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	failedTimeout := 6 * time.Second
 	var err error
 	conn.agent, err = ice.NewAgent(&ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
 		Urls:             conn.config.StunTurn,
 		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
-		FailedTimeout:    &conn.config.Timeout,
+		FailedTimeout:    &failedTimeout,
 		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
 	})
 	if err != nil {
@@ -136,11 +128,18 @@ func (conn *Conn) reCreateAgent() error {
 func (conn *Conn) Open() error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
+	defer func() {
+		err := conn.cleanup()
+		if err != nil {
+			log.Errorf("error while cleaning up peer connection %s: %v", conn.config.Key, err)
+			return
+		}
+	}()
+
 	err := conn.reCreateAgent()
 	if err != nil {
 		return err
 	}
-	defer conn.agent.Close()
 
 	err = conn.sendOffer()
 	if err != nil {
@@ -161,18 +160,18 @@ func (conn *Conn) Open() error {
 	}
 
 	log.Debugf("received connection confirmation from peer %s", conn.config.Key)
-	conn.mu.Lock()
-	conn.status = StatusConnecting
-	conn.mu.Unlock()
 
 	//at this point we received offer/answer and we are ready to gather candidates
+	conn.mu.Lock()
+	conn.status = StatusConnecting
+	conn.ctx, conn.notifyDisconnected = context.WithCancel(context.Background())
+	defer conn.notifyDisconnected()
+	conn.mu.Unlock()
+
 	err = conn.agent.GatherCandidates()
 	if err != nil {
 		return err
 	}
-
-	conn.ctx, conn.notifyDisconnected = context.WithCancel(context.Background())
-	defer conn.notifyDisconnected()
 
 	// will block until connection succeeded
 	// but it won't release if ICE Agent went into Disconnected or Failed state,
@@ -189,12 +188,10 @@ func (conn *Conn) Open() error {
 	}
 
 	// the connection has been established successfully so we are ready to start the proxy
-	conn.proxy = NewDummyProxy(conn.config.Key, conn.ctx)
-	conn.proxy.Start(remoteConn)
-
-	conn.mu.Lock()
-	conn.status = StatusConnected
-	conn.mu.Unlock()
+	err = conn.startProxy(remoteConn)
+	if err != nil {
+		return err
+	}
 
 	log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", conn.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
 
@@ -207,6 +204,44 @@ func (conn *Conn) Open() error {
 		//disconnected from the remote peer
 		return NewConnectionClosedError(conn.config.Key)
 	}
+}
+
+// startProxy starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
+func (conn *Conn) startProxy(remoteConn net.Conn) error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+	conn.proxy = proxy.NewWireguardProxy(conn.config.Key)
+	err := conn.proxy.Start(remoteConn)
+	if err != nil {
+		return err
+	}
+	conn.status = StatusConnected
+
+	return nil
+}
+
+// cleanup closes all open resources and sets status to StatusDisconnected
+func (conn *Conn) cleanup() error {
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	if conn.agent != nil {
+		err := conn.agent.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	if conn.proxy != nil {
+		err := conn.proxy.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	conn.status = StatusDisconnected
+
+	return nil
 }
 
 // SetSignalOffer sets a handler function to be triggered by Conn when a new connection offer has to be signalled to the remote peer
@@ -275,8 +310,6 @@ func (conn *Conn) sendAnswer() error {
 func (conn *Conn) sendOffer() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-
-	conn.status = StatusDisconnected
 
 	localUFrag, localPwd, err := conn.agent.GetLocalUserCredentials()
 	if err != nil {
