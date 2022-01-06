@@ -4,35 +4,30 @@ import (
 	"context"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/iface"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 )
 
 // WireguardProxy proxies
 type WireguardProxy struct {
-	remote string
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	wgAddr       string
-	wgInterface  string
-	allowedIps   string
-	preSharedKey *wgtypes.Key
+	config Config
 
 	remoteConn net.Conn
 	localConn  net.Conn
 }
 
-func NewWireguardProxy(remote string) *WireguardProxy {
-	p := &WireguardProxy{remote: remote}
+func NewWireguardProxy(config Config) *WireguardProxy {
+	p := &WireguardProxy{config: config}
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	return p
 }
 
 func (p *WireguardProxy) updateEndpoint() error {
 	// add local proxy connection as a Wireguard peer
-	err := iface.UpdatePeer(p.wgInterface, p.remote, p.allowedIps, DefaultWgKeepAlive,
-		p.localConn.LocalAddr().String(), p.preSharedKey)
+	err := iface.UpdatePeer(p.config.WgInterface, p.config.RemoteKey, p.config.AllowedIps, DefaultWgKeepAlive,
+		p.localConn.LocalAddr().String(), p.config.PreSharedKey)
 	if err != nil {
 		return err
 	}
@@ -44,7 +39,7 @@ func (p *WireguardProxy) Start(remoteConn net.Conn) error {
 	p.remoteConn = remoteConn
 
 	var err error
-	p.localConn, err = net.Dial("udp", p.wgAddr)
+	p.localConn, err = net.Dial("udp", p.config.WgListenAddr)
 	if err != nil {
 		log.Errorf("failed dialing to local Wireguard port %s", err)
 		return err
@@ -52,7 +47,7 @@ func (p *WireguardProxy) Start(remoteConn net.Conn) error {
 
 	err = p.updateEndpoint()
 	if err != nil {
-		log.Errorf("error while updating Wireguard peer endpoint [%s] %v", p.remote, err)
+		log.Errorf("error while updating Wireguard peer endpoint [%s] %v", p.config.RemoteKey, err)
 		return err
 	}
 
@@ -67,7 +62,7 @@ func (p *WireguardProxy) Close() error {
 	return nil
 }
 
-// proxyToRemote proxies everything from Wireguard to the remote peer
+// proxyToRemote proxies everything from Wireguard to the RemoteKey peer
 // blocks
 func (p *WireguardProxy) proxyToRemote() {
 
@@ -75,7 +70,7 @@ func (p *WireguardProxy) proxyToRemote() {
 	for {
 		select {
 		case <-p.ctx.Done():
-			log.Debugf("stopped proxying from remote peer %s due to closed connection", p.remote)
+			log.Debugf("stopped proxying from RemoteKey peer %s due to closed connection", p.config.RemoteKey)
 			return
 		default:
 			n, err := p.localConn.Read(buf)
@@ -91,7 +86,7 @@ func (p *WireguardProxy) proxyToRemote() {
 	}
 }
 
-// proxyToLocal proxies everything from the remote peer to local Wireguard
+// proxyToLocal proxies everything from the RemoteKey peer to local Wireguard
 // blocks
 func (p *WireguardProxy) proxyToLocal() {
 
@@ -99,7 +94,7 @@ func (p *WireguardProxy) proxyToLocal() {
 	for {
 		select {
 		case <-p.ctx.Done():
-			log.Debugf("stopped proxying from remote peer %s due to closed connection", p.remoteConn)
+			log.Debugf("stopped proxying from RemoteKey peer %s due to closed connection", p.remoteConn)
 			return
 		default:
 			n, err := p.remoteConn.Read(buf)

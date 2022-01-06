@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// DummyProxy just sends pings to the remote peer and reads responses
+// DummyProxy just sends pings to the RemoteKey peer and reads responses
 type DummyProxy struct {
 	conn   net.Conn
 	remote string
@@ -37,7 +37,7 @@ func (p *DummyProxy) Start(remoteConn net.Conn) error {
 			default:
 				n, err := p.conn.Read(buf)
 				if err != nil {
-					log.Errorf("error while reading remote %s proxy %v", p.remote, err)
+					log.Errorf("error while reading RemoteKey %s proxy %v", p.remote, err)
 					return
 				}
 				log.Infof("received %s from %s", string(buf[:n]), p.remote)
@@ -55,7 +55,7 @@ func (p *DummyProxy) Start(remoteConn net.Conn) error {
 				_, err := p.conn.Write([]byte("hello"))
 				log.Infof("sent ping to %s", p.remote)
 				if err != nil {
-					log.Errorf("error while writing to remote %s proxy %v", p.remote, err)
+					log.Errorf("error while writing to RemoteKey %s proxy %v", p.remote, err)
 					return
 				}
 				time.Sleep(5 * time.Second)

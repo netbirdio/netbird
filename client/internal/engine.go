@@ -6,6 +6,7 @@ import (
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/client/internal/peer"
+	"github.com/wiretrustee/wiretrustee/client/internal/proxy"
 	"github.com/wiretrustee/wiretrustee/iface"
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
@@ -382,12 +383,21 @@ func (e Engine) addPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error
 		interfaceBlacklist = append(interfaceBlacklist, k)
 	}
 
+	proxyConfig := proxy.Config{
+		RemoteKey:    pubKey,
+		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.wgPort),
+		WgInterface:  e.config.WgIface,
+		AllowedIps:   allowedIPs,
+		PreSharedKey: e.config.PreSharedKey,
+	}
+
 	config := peer.ConnConfig{
 		Key:                pubKey,
 		LocalKey:           e.config.WgPrivateKey.PublicKey().String(),
 		StunTurn:           stunTurn,
 		InterfaceBlackList: interfaceBlacklist,
 		Timeout:            35 * time.Second,
+		ProxyConfig:        proxyConfig,
 	}
 
 	peerConn, err := peer.NewConn(config)

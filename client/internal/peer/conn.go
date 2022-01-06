@@ -26,6 +26,8 @@ type ConnConfig struct {
 	InterfaceBlackList []string
 
 	Timeout time.Duration
+
+	ProxyConfig proxy.Config
 }
 
 // IceCredentials ICE protocol credentials struct
@@ -210,7 +212,8 @@ func (conn *Conn) Open() error {
 func (conn *Conn) startProxy(remoteConn net.Conn) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-	conn.proxy = proxy.NewWireguardProxy(conn.config.Key)
+
+	conn.proxy = proxy.NewWireguardProxy(conn.config.ProxyConfig)
 	err := conn.proxy.Start(remoteConn)
 	if err != nil {
 		return err
