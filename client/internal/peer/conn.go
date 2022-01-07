@@ -288,7 +288,7 @@ func (conn *Conn) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate)
 
 // onICEConnectionStateChange registers callback of an ICE Agent to track connection state
 func (conn *Conn) onICEConnectionStateChange(state ice.ConnectionState) {
-	log.Debugf("ICE ConnectionState has changed to %s", state.String())
+	log.Debugf("peer %s ICE ConnectionState has changed to %s", conn.config.Key, state.String())
 	if state == ice.ConnectionStateFailed || state == ice.ConnectionStateDisconnected {
 		conn.notifyDisconnected()
 	}

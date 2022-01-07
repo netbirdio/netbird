@@ -131,8 +131,8 @@ func (w *wgLink) Type() string {
 	return "wireguard"
 }
 
-// Closes the tunnel interface
-func Close() error {
+// Close closes the tunnel interface
+func Close(port int) error {
 
 	if tunIface != nil {
 		return CloseWithUserspace()
@@ -149,13 +149,13 @@ func Close() error {
 		}
 		for _, wgDev := range devList {
 			// todo check after move the WgPort constant to the client
-			if wgDev.ListenPort == WgPort {
+			if wgDev.ListenPort == port {
 				iface = wgDev.Name
 				break
 			}
 		}
 		if iface == "" {
-			return fmt.Errorf("Wireguard Interface not found")
+			return fmt.Errorf("wireguard Interface not found")
 		}
 		attrs := netlink.NewLinkAttrs()
 		attrs.Name = iface

@@ -24,8 +24,11 @@ import (
 const PeerConnectionTimeoutMax = 45 //sec
 const PeerConnectionTimeoutMin = 30 //sec
 
+const WgPort = 51820
+
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
+	WgPort  int
 	WgIface string
 	// WgAddr is a Wireguard local address (Wiretrustee Network IP)
 	WgAddr string
@@ -50,10 +53,6 @@ type Engine struct {
 	syncMsgMux *sync.Mutex
 
 	config *EngineConfig
-
-	// wgPort is a Wireguard local listen port
-	wgPort int
-
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*ice.URL
 	// TURNs is a list of STUN servers used by ICE
@@ -95,7 +94,7 @@ func (e *Engine) Stop() error {
 	}
 
 	log.Debugf("removing Wiretrustee interface %s", e.config.WgIface)
-	err = iface.Close()
+	err = iface.Close(e.config.WgPort)
 	if err != nil {
 		log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIface, err)
 		return err
@@ -113,8 +112,6 @@ func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	log.Infof("key -> %s", e.config.WgPrivateKey.PublicKey().String())
-
 	wgIface := e.config.WgIface
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
@@ -125,18 +122,11 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	err = iface.Configure(wgIface, myPrivateKey.String())
+	err = iface.Configure(wgIface, myPrivateKey.String(), e.config.WgPort)
 	if err != nil {
 		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIface, err.Error())
 		return err
 	}
-
-	port, err := iface.GetListenPort(wgIface)
-	if err != nil {
-		log.Errorf("failed getting Wireguard listen port [%s]: %s", wgIface, err.Error())
-		return err
-	}
-	e.wgPort = *port
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -333,7 +323,7 @@ func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
 		peerKey := p.GetWgPubKey()
 		peerIPs := p.GetAllowedIps()
 		if _, ok := e.peerConns[peerKey]; !ok {
-			conn, err := e.addPeerConn(peerKey, strings.Join(peerIPs, ","))
+			conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
 			if err != nil {
 				return err
 			}
@@ -355,7 +345,7 @@ func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
 		time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
 
 		// of peer has been removed -> give up
-		if e.peerExists(peerKey) {
+		if !e.peerExists(peerKey) {
 			log.Infof("peer %s doesn't exist anymore, won't retry connection", peerKey)
 			return
 		}
@@ -376,10 +366,10 @@ func (e Engine) peerExists(peerKey string) bool {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	_, ok := e.peerConns[peerKey]
-	return !ok
+	return ok
 }
 
-func (e Engine) addPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
+func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
 
 	var stunTurn []*ice.URL
 	stunTurn = append(stunTurn, e.STUNs...)
@@ -392,7 +382,7 @@ func (e Engine) addPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error
 
 	proxyConfig := proxy.Config{
 		RemoteKey:    pubKey,
-		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.wgPort),
+		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.config.WgPort),
 		WgInterface:  e.config.WgIface,
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
