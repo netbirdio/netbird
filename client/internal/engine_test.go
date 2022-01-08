@@ -13,7 +13,6 @@ import (
 	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
-	"math/rand"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -66,12 +65,13 @@ func TestEngine_Stress(t *testing.T) {
 
 	mu := sync.Mutex{}
 	engines := []*Engine{}
-	for i := 0; i < 20; i++ {
+	numPeers := 10
+	wg := sync.WaitGroup{}
+	wg.Add(numPeers)
+	// create and start peers
+	for i := 0; i < numPeers; i++ {
 		j := i
 		go func() {
-			min := 500
-			max := 2000
-			time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
 			engine, err := createEngine(ctx, setupKey, j)
 			if err != nil {
 				t.Fatal(err)
@@ -80,18 +80,27 @@ func TestEngine_Stress(t *testing.T) {
 			defer mu.Unlock()
 			engine.Start()
 			engines = append(engines, engine)
+			wg.Done()
 		}()
-
 	}
 
-	/*for {
+	// wait until all have been created and started
+	wg.Wait()
+
+	// check whether all the peer have expected peers connected
+	expectedConnected := numPeers * (numPeers - 1)
+	for {
+		time.Sleep(500 * time.Millisecond)
+		totalConnected := 0
 		for _, engine := range engines {
-			time.Sleep(5 * time.Second)
-
-			log.Printf("%s connected peers=%d",engine.config.WgPrivateKey.PublicKey().String(), len(engine.GetConnectedPeers()))
+			totalConnected = totalConnected + len(engine.GetConnectedPeers())
 		}
-	}*/
+		if totalConnected == expectedConnected {
+			break
+		}
+	}
 
+	cancel()
 	<-ctx.Done()
 
 }

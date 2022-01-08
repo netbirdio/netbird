@@ -21,8 +21,8 @@ import (
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
 // E.g. this peer will wait PeerConnectionTimeoutMax for the remote peer to respond, if not successful then it will retry the connection attempt.
-const PeerConnectionTimeoutMax = 45 //sec
-const PeerConnectionTimeoutMin = 30 //sec
+const PeerConnectionTimeoutMax = 45000 //mss
+const PeerConnectionTimeoutMin = 30000 //ms
 
 const WgPort = 51820
 
@@ -356,7 +356,7 @@ func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
 
 		// randomize starting time a bit
 		min := 500
-		max := 1500
+		max := 2000
 		time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
 
 		// of peer has been removed -> give up
@@ -403,12 +403,14 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
+	// randomize connection timeout
+	timeout := time.Duration(rand.Intn((PeerConnectionTimeoutMax-PeerConnectionTimeoutMax)+PeerConnectionTimeoutMin)) * time.Millisecond
 	config := peer.ConnConfig{
 		Key:                pubKey,
 		LocalKey:           e.config.WgPrivateKey.PublicKey().String(),
 		StunTurn:           stunTurn,
 		InterfaceBlackList: interfaceBlacklist,
-		Timeout:            35 * time.Second,
+		Timeout:            timeout,
 		ProxyConfig:        proxyConfig,
 	}
 
