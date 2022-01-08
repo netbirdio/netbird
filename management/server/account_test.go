@@ -89,12 +89,12 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 
 	accountId := account.Id
 
-	account, err = manager.GetAccountByUserOrAccountId("", accountId)
+	_, err = manager.GetAccountByUserOrAccountId("", accountId)
 	if err != nil {
 		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", accountId)
 	}
 
-	account, err = manager.GetAccountByUserOrAccountId("", "")
+	_, err = manager.GetAccountByUserOrAccountId("", "")
 	if err == nil {
 		t.Errorf("expected an error when user and account IDs are empty")
 	}
