@@ -46,6 +46,9 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
+      - name: Unlimit open files
+        run: ulimit -Sn 65536
+
       - name: run build client
         run: GOOS=${{ matrix.os }} go build .
         working-directory: client
