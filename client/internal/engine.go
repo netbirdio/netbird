@@ -109,6 +109,9 @@ func (e *Engine) Stop() error {
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
 func (e *Engine) Start() error {
+	/*go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()*/
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
@@ -359,7 +362,7 @@ func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
 		max := 2000
 		time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
 
-		// of peer has been removed -> give up
+		// if peer has been removed -> give up
 		if !e.peerExists(peerKey) {
 			log.Infof("peer %s doesn't exist anymore, won't retry connection", peerKey)
 			return

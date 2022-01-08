@@ -215,7 +215,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	conn.proxy = proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	conn.proxy = proxy.NewDummyProxy(conn.config.Key)
 	err := conn.proxy.Start(remoteConn)
 	if err != nil {
 		return err
@@ -358,13 +358,13 @@ func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) {
 
 	select {
 	case conn.remoteOffersCh <- remoteAuth:
+		err := conn.sendAnswer()
+		if err != nil {
+			return
+		}
 	default:
+		log.Debugf("OnRemoteOffer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
 		//connection might not be ready yet to receive so we ignore the message
-	}
-
-	//todo should we send answer here?
-	err := conn.sendAnswer()
-	if err != nil {
 		return
 	}
 }
@@ -380,6 +380,7 @@ func (conn *Conn) OnRemoteAnswer(remoteAuth IceCredentials) {
 	case conn.remoteOffersCh <- remoteAuth:
 	default:
 		//connection might not be ready yet to receive so we ignore the message
+		log.Debugf("OnRemoteAnswer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
 	}
 }
 

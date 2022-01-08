@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -51,6 +52,10 @@ func TestEngine_Stress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		os.Remove(filepath.Join(dir, "store.json")) //nolint
+	}()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -81,7 +86,7 @@ func TestEngine_Stress(t *testing.T) {
 
 	mu := sync.Mutex{}
 	engines := []*Engine{}
-	numPeers := 20
+	numPeers := 25
 	wg := sync.WaitGroup{}
 	wg.Add(numPeers)
 	// create and start peers
@@ -106,7 +111,7 @@ func TestEngine_Stress(t *testing.T) {
 	// check whether all the peer have expected peers connected
 	expectedConnected := numPeers * (numPeers - 1)
 	for {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(time.Second)
 		totalConnected := 0
 		for _, engine := range engines {
 			totalConnected = totalConnected + len(engine.GetConnectedPeers())
@@ -114,6 +119,7 @@ func TestEngine_Stress(t *testing.T) {
 		if totalConnected == expectedConnected {
 			break
 		}
+		log.Infof("total connected=%d", totalConnected)
 	}
 }
 
