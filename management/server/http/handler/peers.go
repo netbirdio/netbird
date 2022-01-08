@@ -13,6 +13,7 @@ import (
 //Peers is a handler that returns peers of the account
 type Peers struct {
 	accountManager *server.AccountManager
+	authAudience   string
 }
 
 //PeerResponse is a response sent to the client
@@ -29,9 +30,10 @@ type PeerRequest struct {
 	Name string
 }
 
-func NewPeers(accountManager *server.AccountManager) *Peers {
+func NewPeers(accountManager *server.AccountManager, authAudience string) *Peers {
 	return &Peers{
 		accountManager: accountManager,
+		authAudience:   authAudience,
 	}
 }
 
@@ -62,8 +64,9 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 }
 
 func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
-	userId := extractUserIdFromRequestContext(r)
-	account, err := h.accountManager.GetOrCreateAccountByUser(userId)
+	userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
+	//new user -> create a new account
+	account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
 	if err != nil {
 		log.Errorf("failed getting account of a user %s: %v", userId, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -102,9 +105,9 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		userId := extractUserIdFromRequestContext(r)
+		userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
 		//new user -> create a new account
-		account, err := h.accountManager.GetOrCreateAccountByUser(userId)
+		account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
 		if err != nil {
 			log.Errorf("failed getting account of a user %s: %v", userId, err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)

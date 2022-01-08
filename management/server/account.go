@@ -155,6 +155,42 @@ func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
 	return account, nil
 }
 
+//GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
+// user id doesn't have an account associated with it, one account is created
+func (am *AccountManager) GetAccountByUserOrAccountId(userId, accountId string) (*Account, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+	switch {
+
+	case accountId != "":
+		account, err := am.Store.GetAccount(accountId)
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "account not found using account id: %s", accountId)
+		}
+
+		return account, nil
+
+	case userId != "":
+		account, err := am.Store.GetUserAccount(userId)
+		if err != nil {
+			if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+				account, _ = newAccount(userId)
+				account.Users[userId] = NewAdminUser(userId)
+				err = am.Store.SaveAccount(account)
+				if err != nil {
+					return nil, status.Errorf(codes.Internal, "failed creating account")
+				}
+			} else {
+				// other error
+				return nil, err
+			}
+		}
+		return account, nil
+	}
+
+	return nil, status.Errorf(codes.NotFound, "no valid user or account Id provided")
+}
+
 //AccountExists checks whether account exists (returns true) or not (returns false)
 func (am *AccountManager) AccountExists(accountId string) (*bool, error) {
 	am.mux.Lock()
