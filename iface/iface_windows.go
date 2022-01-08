@@ -41,6 +41,6 @@ func getUAPI(iface string) (net.Listener, error) {
 }
 
 // Closes the tunnel interface
-func Close() error {
+func Close(port int) error {
 	return CloseWithUserspace()
 }

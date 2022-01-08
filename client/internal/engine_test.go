@@ -13,6 +13,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -22,13 +23,27 @@ import (
 	"time"
 )
 
+var (
+	kaep = keepalive.EnforcementPolicy{
+		MinTime:             15 * time.Second,
+		PermitWithoutStream: true,
+	}
+
+	kasp = keepalive.ServerParameters{
+		MaxConnectionIdle:     15 * time.Second,
+		MaxConnectionAgeGrace: 5 * time.Second,
+		Time:                  5 * time.Second,
+		Timeout:               2 * time.Second,
+	}
+)
+
 func TestEngine_Stress(t *testing.T) {
 
 	go func() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 
-	log.SetLevel(log.DebugLevel)
+	//log.SetLevel(log.DebugLevel)
 
 	dir := t.TempDir()
 
@@ -65,7 +80,7 @@ func TestEngine_Stress(t *testing.T) {
 
 	mu := sync.Mutex{}
 	engines := []*Engine{}
-	numPeers := 10
+	numPeers := 20
 	wg := sync.WaitGroup{}
 	wg.Add(numPeers)
 	// create and start peers
@@ -101,9 +116,6 @@ func TestEngine_Stress(t *testing.T) {
 	}
 	cancel()
 	<-ctx.Done()
-	for _, engine := range engines {
-		engine.Stop()
-	}
 }
 
 func createEngine(ctx context.Context, setupKey string, i int) (*Engine, error) {
@@ -143,7 +155,7 @@ func createEngine(ctx context.Context, setupKey string, i int) (*Engine, error) 
 }
 
 func startSignal(port int) (*grpc.Server, error) {
-	s := grpc.NewServer()
+	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
@@ -162,11 +174,12 @@ func startSignal(port int) (*grpc.Server, error) {
 }
 
 func startManagement(port int, config *server.Config) (*grpc.Server, error) {
+
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
 		return nil, err
 	}
-	s := grpc.NewServer()
+	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	store, err := server.NewStore(config.Datadir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
