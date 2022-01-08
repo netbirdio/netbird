@@ -171,19 +171,9 @@ func (am *AccountManager) GetAccountByUserOrAccountId(userId, accountId string) 
 		return account, nil
 
 	case userId != "":
-		account, err := am.Store.GetUserAccount(userId)
+		account, err := am.GetOrCreateAccountByUser(userId)
 		if err != nil {
-			if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-				account, _ = newAccount(userId)
-				account.Users[userId] = NewAdminUser(userId)
-				err = am.Store.SaveAccount(account)
-				if err != nil {
-					return nil, status.Errorf(codes.Internal, "failed creating account")
-				}
-			} else {
-				// other error
-				return nil, err
-			}
+			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
 		}
 		return account, nil
 	}
