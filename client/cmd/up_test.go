@@ -36,7 +36,7 @@ func TestUp_Start(t *testing.T) {
 
 func TestUp(t *testing.T) {
 
-	defer iface.Close()
+	defer iface.Close(51820)
 
 	tempDir := t.TempDir()
 	confPath := tempDir + "/config.json"

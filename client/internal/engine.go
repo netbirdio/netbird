@@ -391,7 +391,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	stunTurn = append(stunTurn, e.TURNs...)
 
 	interfaceBlacklist := make([]string, 0, len(e.config.IFaceBlackList))
-	for k, _ := range e.config.IFaceBlackList {
+	for k := range e.config.IFaceBlackList {
 		interfaceBlacklist = append(interfaceBlacklist, k)
 	}
 
@@ -404,7 +404,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	}
 
 	// randomize connection timeout
-	timeout := time.Duration(rand.Intn((PeerConnectionTimeoutMax-PeerConnectionTimeoutMax)+PeerConnectionTimeoutMin)) * time.Millisecond
+	timeout := time.Duration(rand.Intn((PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin)) * time.Millisecond
 	config := peer.ConnConfig{
 		Key:                pubKey,
 		LocalKey:           e.config.WgPrivateKey.PublicKey().String(),

@@ -51,13 +51,13 @@ func TestEngine_Stress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	signalServer, err := startSignal(10000)
 	if err != nil {
 		t.Fatal(err)
+		return
 	}
 	defer signalServer.Stop()
 
@@ -73,6 +73,7 @@ func TestEngine_Stress(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+		return
 	}
 	defer mgmtServer.Stop()
 
@@ -87,13 +88,13 @@ func TestEngine_Stress(t *testing.T) {
 	for i := 0; i < numPeers; i++ {
 		j := i
 		go func() {
-			engine, err := createEngine(ctx, setupKey, j)
+			engine, err := createEngine(ctx, cancel, setupKey, j)
 			if err != nil {
-				t.Fatal(err)
+				return
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			engine.Start()
+			engine.Start() //nolint
 			engines = append(engines, engine)
 			wg.Done()
 		}()
@@ -114,12 +115,9 @@ func TestEngine_Stress(t *testing.T) {
 			break
 		}
 	}
-	cancel()
-	<-ctx.Done()
 }
 
-func createEngine(ctx context.Context, setupKey string, i int) (*Engine, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey string, i int) (*Engine, error) {
 
 	key, err := wgtypes.GenerateKey()
 	if err != nil {
