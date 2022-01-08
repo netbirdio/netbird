@@ -1,0 +1,37 @@
+{
+  "Stuns": [
+    {
+      "Proto": "udp",
+      "URI": "stun:stun.wiretrustee.com:3468",
+      "Username": "",
+      "Password": null
+    }
+  ],
+  "TURNConfig": {
+    "Turns": [
+      {
+        "Proto": "udp",
+        "URI": "turn:stun.wiretrustee.com:3468",
+        "Username": "some_user",
+        "Password": "c29tZV9wYXNzd29yZA=="
+      }
+    ],
+    "CredentialsTTL": "1h",
+    "Secret": "c29tZV9wYXNzd29yZA==",
+    "TimeBasedCredentials": true
+  },
+  "Signal": {
+    "Proto": "http",
+    "URI": "signal.wiretrustee.com:10000",
+    "Username": "",
+    "Password": null
+  },
+  "DataDir": "",
+  "HttpConfig": {
+    "LetsEncryptDomain": "<PASTE YOUR LET'S ENCRYPT DOMAIN HERE>",
+    "Address": "0.0.0.0:33071",
+    "AuthIssuer": "<PASTE YOUR AUTH0 ISSUER HERE>,",
+    "AuthAudience": "<PASTE YOUR AUTH0 AUDIENCE HERE>",
+    "AuthKeysLocation": "<PASTE YOUR AUTH0 PUBLIC JWT KEYS LOCATION HERE>"
+  }
+}
