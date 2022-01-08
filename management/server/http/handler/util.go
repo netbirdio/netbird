@@ -14,7 +14,7 @@ func extractUserAndAccountIdFromRequestContext(r *http.Request, authAudiance str
 	claims := token.Claims.(jwt.MapClaims)
 
 	userId = claims["sub"].(string)
-	accountId = claims[authAudiance].(string)
+	accountId = claims[authAudiance+"wt_account_id"].(string)
 	return userId, accountId
 }
 
