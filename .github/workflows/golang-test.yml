@@ -46,8 +46,28 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
-      - name: Unlimit open files
-        run: sudo ulimit -Sn 65536
+      - name: output limits curr user
+        run: ulimit -a
+      - name: output limits root user
+        run: sudo bash -c 'ulimit -a' || true
+      - name: cat limits.conf
+        run: cat /etc/security/limits.conf
+      - name: update limits.d
+        run: |
+          cat <<'EOF' | sudo tee -a /etc/security/limits.d/wt.conf
+          root soft     nproc          65535
+          root hard     nproc          65535
+          root soft     nofile         65535
+          root hard     nofile         65535
+          $(whoami) soft     nproc          65535
+          $(whoami) hard     nproc          65535
+          $(whoami) soft     nofile         65535
+          $(whoami) hard     nofile         65535
+          EOF
+      - name: output limits curr user after
+        run: ulimit -a
+      - name: output limits root user after
+        run: sudo bash -c 'ulimit -a' || true
 
       - name: run build client
         run: GOOS=${{ matrix.os }} go build .
