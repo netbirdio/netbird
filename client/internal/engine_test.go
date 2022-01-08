@@ -99,10 +99,11 @@ func TestEngine_Stress(t *testing.T) {
 			break
 		}
 	}
-
 	cancel()
 	<-ctx.Done()
-
+	for _, engine := range engines {
+		engine.Stop()
+	}
 }
 
 func createEngine(ctx context.Context, setupKey string, i int) (*Engine, error) {
