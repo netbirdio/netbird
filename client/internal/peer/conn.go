@@ -150,7 +150,9 @@ func (conn *Conn) Open() error {
 
 	log.Debugf("connection offer sent to peer %s, waiting for the confirmation", conn.config.Key)
 
-	// only continue once we got a connection confirmation from the remote peer or time out
+	// Only continue once we got a connection confirmation from the remote peer.
+	// The connection timeout could have happened before a confirmation received from the remote.
+	// The connection could have also been closed externally (e.g. when we received an update from the management that peer shouldn't be connected)
 	var remoteOffer IceCredentials
 	select {
 	case remoteOffer = <-conn.remoteOffersCh:
@@ -225,6 +227,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 
 // cleanup closes all open resources and sets status to StatusDisconnected
 func (conn *Conn) cleanup() error {
+	log.Debugf("trying to cleanup %s", conn.config.Key)
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -243,6 +246,8 @@ func (conn *Conn) cleanup() error {
 	}
 
 	conn.status = StatusDisconnected
+
+	log.Debugf("cleaned up connection to peer %s", conn.config.Key)
 
 	return nil
 }
@@ -295,12 +300,15 @@ func (conn *Conn) onICEConnectionStateChange(state ice.ConnectionState) {
 }
 
 func (conn *Conn) sendAnswer() error {
+	if conn.agent == nil {
+		return nil
+	}
 	localUFrag, localPwd, err := conn.agent.GetLocalUserCredentials()
 	if err != nil {
 		return err
 	}
 
-	log.Debugf("Answer with my auth %s:%s", localUFrag, localPwd)
+	log.Debugf("sending asnwer to %s", conn.config.Key)
 	err = conn.signalAnswer(localUFrag, localPwd)
 	if err != nil {
 		return err
@@ -348,12 +356,13 @@ func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) {
 
 	log.Debugf("OnRemoteOffer from peer %s on status %s", conn.config.Key, conn.status.String())
 
-	if conn.status != StatusDisconnected {
-		return
+	select {
+	case conn.remoteOffersCh <- remoteAuth:
+	default:
+		//connection might not be ready yet to receive so we ignore the message
 	}
 
-	conn.remoteOffersCh <- remoteAuth
-
+	//todo should we send answer here?
 	err := conn.sendAnswer()
 	if err != nil {
 		return
@@ -365,14 +374,13 @@ func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) {
 func (conn *Conn) OnRemoteAnswer(remoteAuth IceCredentials) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-
 	log.Debugf("OnRemoteAnswer from peer %s on status %s", conn.config.Key, conn.status.String())
 
-	if conn.status != StatusDisconnected {
-		return
+	select {
+	case conn.remoteOffersCh <- remoteAuth:
+	default:
+		//connection might not be ready yet to receive so we ignore the message
 	}
-
-	conn.remoteOffersCh <- remoteAuth
 }
 
 // OnRemoteCandidate Handles ICE connection Candidate provided by the remote peer.

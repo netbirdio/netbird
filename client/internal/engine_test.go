@@ -4,24 +4,32 @@ import (
 	"context"
 	"fmt"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/util"
-	"math/rand"
-	"path/filepath"
-	"time"
-
 	mgmt "github.com/wiretrustee/wiretrustee/management/client"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	"github.com/wiretrustee/wiretrustee/signal/proto"
 	signalServer "github.com/wiretrustee/wiretrustee/signal/server"
+	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
+	"math/rand"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
+	"path/filepath"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestEngine_Stress(t *testing.T) {
+
+	go func() {
+		log.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
+	log.SetLevel(log.DebugLevel)
 
 	dir := t.TempDir()
 
@@ -56,23 +64,35 @@ func TestEngine_Stress(t *testing.T) {
 
 	setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
-	for i := 0; i < 10; i++ {
-
+	mu := sync.Mutex{}
+	engines := []*Engine{}
+	for i := 0; i < 20; i++ {
+		j := i
 		go func() {
-
-			min := 300
-			max := 1000
+			min := 500
+			max := 2000
 			time.Sleep(time.Duration(rand.Intn(max-min)+min) * time.Millisecond)
-			engine, err := createEngine(ctx, setupKey, i)
+			engine, err := createEngine(ctx, setupKey, j)
 			if err != nil {
 				t.Fatal(err)
 			}
+			mu.Lock()
+			defer mu.Unlock()
 			engine.Start()
+			engines = append(engines, engine)
 		}()
 
 	}
 
-	select {}
+	/*for {
+		for _, engine := range engines {
+			time.Sleep(5 * time.Second)
+
+			log.Printf("%s connected peers=%d",engine.config.WgPrivateKey.PublicKey().String(), len(engine.GetConnectedPeers()))
+		}
+	}*/
+
+	<-ctx.Done()
 
 }
 

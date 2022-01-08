@@ -177,6 +177,21 @@ func (e *Engine) GetPeerConnectionStatus(peerKey string) peer.ConnStatus {
 	return -1
 }
 
+// GetConnectedPeers returns a connection Status or nil if peer connection wasn't found
+func (e *Engine) GetConnectedPeers() []string {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	peers := []string{}
+	for s, conn := range e.peerConns {
+		if conn.Status() == peer.StatusConnected {
+			peers = append(peers, s)
+		}
+	}
+
+	return peers
+}
+
 func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client) error {
 	err := s.Send(&sProto.Message{
 		Key:       myKey.PublicKey().String(),
@@ -436,8 +451,8 @@ func (e *Engine) receiveSignalEvents() {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
-			conn, ok := e.peerConns[msg.Key]
-			if !ok {
+			conn := e.peerConns[msg.Key]
+			if conn == nil {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
 
@@ -451,7 +466,6 @@ func (e *Engine) receiveSignalEvents() {
 					UFrag: remoteCred.UFrag,
 					Pwd:   remoteCred.Pwd,
 				})
-
 				return nil
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
@@ -462,7 +476,7 @@ func (e *Engine) receiveSignalEvents() {
 					UFrag: remoteCred.UFrag,
 					Pwd:   remoteCred.Pwd,
 				})
-
+				return nil
 			case sProto.Body_CANDIDATE:
 
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
