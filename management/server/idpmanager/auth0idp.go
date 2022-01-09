@@ -1,4 +1,4 @@
-package auth0idp
+package idpmanager
 
 import (
 	"encoding/json"
@@ -12,29 +12,21 @@ import (
 )
 
 type Auth0Manager struct {
-	clientCredentials ClientCredentials
+	clientCredentials Auth0ClientCredentials
 	jwtToken          JWTToken
 	mux               sync.Mutex
 }
 
-type ClientCredentials struct {
-	audiance     string
-	authIssuer   string
-	clientId     string
-	clientSecret string
-	grantType    string
-}
-
-type JWTToken struct {
-	AccessToken   string `json:"access_token"`
-	ExpiresIn     int    `json:"expires_in"`
-	expiresInTime time.Time
-	Scope         string `json:"scope"`
-	TokenType     string `json:"token_type"`
+type Auth0ClientCredentials struct {
+	Audiance     string
+	AuthIssuer   string
+	ClientId     string
+	ClientSecret string
+	GrantType    string
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
-func NewAuth0Manager(credentials ClientCredentials) *Auth0Manager {
+func NewAuth0Manager(credentials Auth0ClientCredentials) *Auth0Manager {
 	return &Auth0Manager{
 		clientCredentials: credentials,
 	}
@@ -50,14 +42,14 @@ func (am *Auth0Manager) getJWTToken() error {
 		return nil
 	}
 
-	url := am.clientCredentials.authIssuer + "/oauth/token"
+	url := am.clientCredentials.AuthIssuer + "/oauth/token"
 
 	payload := strings.NewReader(fmt.Sprintf(
 		"{\"grant_type\":\"%s\",\"client_id\":\"%s\",\"client_secret\":\"%s\",\"audience\":\"%s\"}",
-		am.clientCredentials.grantType,
-		am.clientCredentials.clientId,
-		am.clientCredentials.clientSecret,
-		am.clientCredentials.audiance,
+		am.clientCredentials.GrantType,
+		am.clientCredentials.ClientId,
+		am.clientCredentials.ClientSecret,
+		am.clientCredentials.Audiance,
 	))
 
 	req, err := http.NewRequest("POST", url, payload)
@@ -105,17 +97,17 @@ func (am *Auth0Manager) getJWTToken() error {
 	return nil
 }
 
-// UpdateUserMetadata updates user app metadata based on userId and metadata map
-func (am *Auth0Manager) UpdateUserMetadata(userId string, metadata map[string]string) error {
+// UpdateUserAppMetadata updates user app metadata based on userId and metadata map
+func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
 
 	err := am.getJWTToken()
 	if err != nil {
 		return err
 	}
 
-	url := am.clientCredentials.authIssuer + "/api/v2/users/" + userId
+	url := am.clientCredentials.AuthIssuer + "/api/v2/users/" + userId
 
-	data, err := json.Marshal(metadata)
+	data, err := json.Marshal(appMetadata)
 	if err != nil {
 		return err
 	}
@@ -138,7 +130,7 @@ func (am *Auth0Manager) UpdateUserMetadata(userId string, metadata map[string]st
 	defer res.Body.Close()
 
 	if res.StatusCode != 200 {
-		return fmt.Errorf("unable to update the metadata, statusCode %d", res.StatusCode)
+		return fmt.Errorf("unable to update the appMetadata, statusCode %d", res.StatusCode)
 	}
 
 	return nil
