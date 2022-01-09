@@ -33,6 +33,13 @@ type JWTToken struct {
 	TokenType     string `json:"token_type"`
 }
 
+// NewAuth0Manager creates a new instance of the Auth0Manager
+func NewAuth0Manager(credentials ClientCredentials) *Auth0Manager {
+	return &Auth0Manager{
+		clientCredentials: credentials,
+	}
+}
+
 // getJWTToken retrieves access token to use the Auth0 Management API
 func (am *Auth0Manager) getJWTToken() error {
 	am.mux.Lock()
