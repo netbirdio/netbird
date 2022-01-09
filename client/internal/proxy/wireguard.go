@@ -59,6 +59,16 @@ func (p *WireguardProxy) Start(remoteConn net.Conn) error {
 
 func (p *WireguardProxy) Close() error {
 	p.cancel()
+	if c := p.localConn; c != nil {
+		err := p.localConn.Close()
+		if err != nil {
+			return err
+		}
+	}
+	err := iface.RemovePeer(p.config.WgInterface, p.config.RemoteKey)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
