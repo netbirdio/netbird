@@ -35,12 +35,12 @@ func (p *DummyProxy) Start(remoteConn net.Conn) error {
 			case <-p.ctx.Done():
 				return
 			default:
-				n, err := p.conn.Read(buf)
+				_, err := p.conn.Read(buf)
 				if err != nil {
 					log.Errorf("error while reading RemoteKey %s proxy %v", p.remote, err)
 					return
 				}
-				log.Debugf("received %s from %s", string(buf[:n]), p.remote)
+				//log.Debugf("received %s from %s", string(buf[:n]), p.remote)
 			}
 
 		}
@@ -53,7 +53,7 @@ func (p *DummyProxy) Start(remoteConn net.Conn) error {
 				return
 			default:
 				_, err := p.conn.Write([]byte("hello"))
-				log.Debugf("sent ping to %s", p.remote)
+				//log.Debugf("sent ping to %s", p.remote)
 				if err != nil {
 					log.Errorf("error while writing to RemoteKey %s proxy %v", p.remote, err)
 					return

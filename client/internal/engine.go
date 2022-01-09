@@ -21,7 +21,7 @@ import (
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
 // E.g. this peer will wait PeerConnectionTimeoutMax for the remote peer to respond, if not successful then it will retry the connection attempt.
-const PeerConnectionTimeoutMax = 45000 //mss
+const PeerConnectionTimeoutMax = 45000 //ms
 const PeerConnectionTimeoutMin = 30000 //ms
 
 const WgPort = 51820
@@ -407,7 +407,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	}
 
 	// randomize connection timeout
-	timeout := time.Duration(rand.Intn((PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin)) * time.Millisecond
+	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
 		Key:                pubKey,
 		LocalKey:           e.config.WgPrivateKey.PublicKey().String(),
@@ -471,7 +471,6 @@ func (e *Engine) receiveSignalEvents() {
 					UFrag: remoteCred.UFrag,
 					Pwd:   remoteCred.Pwd,
 				})
-				return nil
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
 				if err != nil {
@@ -481,20 +480,13 @@ func (e *Engine) receiveSignalEvents() {
 					UFrag: remoteCred.UFrag,
 					Pwd:   remoteCred.Pwd,
 				})
-				return nil
 			case sProto.Body_CANDIDATE:
-
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
 				if err != nil {
 					log.Errorf("failed on parsing remote candidate %s -> %s", candidate, err)
 					return err
 				}
-
-				err = conn.OnRemoteCandidate(candidate)
-				if err != nil {
-					log.Errorf("error handling CANDIATE from %s", msg.Key)
-					return err
-				}
+				conn.OnRemoteCandidate(candidate)
 			}
 
 			return nil

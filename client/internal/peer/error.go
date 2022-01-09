@@ -45,12 +45,12 @@ type ConnectionDisconnectedError struct {
 }
 
 func (e *ConnectionDisconnectedError) Error() string {
-	return fmt.Sprintf("ctx from peer %s", e.peer)
+	return fmt.Sprintf("disconnected from peer %s", e.peer)
 }
 
 // NewConnectionDisconnectedError creates a new ConnectionDisconnectedError error
 func NewConnectionDisconnectedError(peer string) error {
-	return &ConnectionClosedError{
+	return &ConnectionDisconnectedError{
 		peer: peer,
 	}
 }
