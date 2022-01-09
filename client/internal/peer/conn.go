@@ -159,6 +159,7 @@ func (conn *Conn) Open() error {
 	var remoteCredentials IceCredentials
 	select {
 	case remoteCredentials = <-conn.remoteOffersCh:
+		// received confirmation from the remote peer -> ready to proceed
 		err = conn.sendAnswer()
 		if err != nil {
 			return err
@@ -210,10 +211,10 @@ func (conn *Conn) Open() error {
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
 	case <-conn.closeCh:
-		//closed externally
+		// closed externally
 		return NewConnectionClosedError(conn.config.Key)
 	case <-conn.ctx.Done():
-		//disconnected from the remote peer
+		// disconnected from the remote peer
 		return NewConnectionDisconnectedError(conn.config.Key)
 	}
 }
