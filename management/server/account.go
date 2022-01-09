@@ -160,17 +160,15 @@ func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
 func (am *AccountManager) GetAccountByUserOrAccountId(userId, accountId string) (*Account, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
-	switch {
 
-	case accountId != "":
+	if accountId != "" {
 		account, err := am.Store.GetAccount(accountId)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "account not found using account id: %s", accountId)
 		}
 
 		return account, nil
-
-	case userId != "":
+	} else if userId != "" {
 		account, err := am.GetOrCreateAccountByUser(userId)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
