@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"net"
-	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
@@ -38,11 +37,7 @@ var (
 	}
 )
 
-func TestEngine_Stress(t *testing.T) {
-
-	go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
+func TestEngine_MultiplePeers(t *testing.T) {
 
 	//log.SetLevel(log.DebugLevel)
 
@@ -86,7 +81,7 @@ func TestEngine_Stress(t *testing.T) {
 
 	mu := sync.Mutex{}
 	engines := []*Engine{}
-	numPeers := 25
+	numPeers := 10
 	wg := sync.WaitGroup{}
 	wg.Add(numPeers)
 	// create and start peers
