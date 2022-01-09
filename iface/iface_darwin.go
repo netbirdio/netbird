@@ -40,7 +40,7 @@ func addRoute(iface string, ipNet *net.IPNet) error {
 }
 
 // Closes the tunnel interface
-func Close(port int) error {
+func Close(iFace string) error {
 	name, err := tunIface.Name()
 	if err != nil {
 		return err
