@@ -158,8 +158,6 @@ func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
 //GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
 // user id doesn't have an account associated with it, one account is created
 func (am *AccountManager) GetAccountByUserOrAccountId(userId, accountId string) (*Account, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
 
 	if accountId != "" {
 		account, err := am.Store.GetAccount(accountId)
