@@ -30,7 +30,7 @@ func Test_CreateInterface(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(WgPort)
+		err = Close(ifaceName)
 		if err != nil {
 			t.Error(err)
 		}
@@ -54,7 +54,7 @@ func Test_ConfigureInterface(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(WgPort)
+		err = Close(ifaceName)
 		if err != nil {
 			t.Error(err)
 		}
@@ -93,7 +93,7 @@ func Test_UpdatePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(WgPort)
+		err = Close(ifaceName)
 		if err != nil {
 			t.Error(err)
 		}
@@ -145,7 +145,7 @@ func Test_UpdatePeerEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(WgPort)
+		err = Close(ifaceName)
 		if err != nil {
 			t.Error(err)
 		}
@@ -186,7 +186,7 @@ func Test_RemovePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(WgPort)
+		err = Close(ifaceName)
 		if err != nil {
 			t.Error(err)
 		}
@@ -229,7 +229,7 @@ func Test_Close(t *testing.T) {
 		}
 	}()
 
-	err = Close(WgPort)
+	err = Close(ifaceName)
 	if err != nil {
 		t.Fatal(err)
 	}

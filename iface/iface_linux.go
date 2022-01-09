@@ -1,10 +1,8 @@
 package iface
 
 import (
-	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
-	"golang.zx2c4.com/wireguard/wgctrl"
 	"os"
 )
 
@@ -132,33 +130,13 @@ func (w *wgLink) Type() string {
 }
 
 // Close closes the tunnel interface
-func Close(port int) error {
+func Close(iFace string) error {
 
 	if tunIface != nil {
 		return CloseWithUserspace()
 	} else {
-		var iface = ""
-		wg, err := wgctrl.New()
-		if err != nil {
-			return err
-		}
-		defer wg.Close()
-		devList, err := wg.Devices()
-		if err != nil {
-			return err
-		}
-		for _, wgDev := range devList {
-			// todo check after move the WgPort constant to the client
-			if wgDev.ListenPort == port {
-				iface = wgDev.Name
-				break
-			}
-		}
-		if iface == "" {
-			return fmt.Errorf("wireguard Interface not found")
-		}
 		attrs := netlink.NewLinkAttrs()
-		attrs.Name = iface
+		attrs.Name = iFace
 
 		link := wgLink{
 			attrs: &attrs,

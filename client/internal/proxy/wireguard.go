@@ -70,7 +70,7 @@ func (p *WireguardProxy) proxyToRemote() {
 	for {
 		select {
 		case <-p.ctx.Done():
-			log.Debugf("stopped proxying from RemoteKey peer %s due to closed connection", p.config.RemoteKey)
+			log.Debugf("stopped proxying to remote peer %s due to closed connection", p.config.RemoteKey)
 			return
 		default:
 			n, err := p.localConn.Read(buf)
@@ -94,7 +94,7 @@ func (p *WireguardProxy) proxyToLocal() {
 	for {
 		select {
 		case <-p.ctx.Done():
-			log.Debugf("stopped proxying from RemoteKey peer %s due to closed connection", p.remoteConn)
+			log.Debugf("stopped proxying from remote peer %s due to closed connection", p.config.RemoteKey)
 			return
 		default:
 			n, err := p.remoteConn.Read(buf)
