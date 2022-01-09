@@ -109,9 +109,6 @@ func (e *Engine) Stop() error {
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
 func (e *Engine) Start() error {
-	/*go func() {
-		log.Println(http.ListenAndServe("localhost:6060", nil))
-	}()*/
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
