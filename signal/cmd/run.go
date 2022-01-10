@@ -74,10 +74,6 @@ var (
 				log.Fatalf("failed to listen: %v", err)
 			}
 
-			if err != nil {
-				log.Fatalf("failed to listen: %v", err)
-			}
-
 			proto.RegisterSignalExchangeServer(grpcServer, server.NewServer())
 			log.Printf("started server: localhost:%v", signalPort)
 			if err := grpcServer.Serve(lis); err != nil {

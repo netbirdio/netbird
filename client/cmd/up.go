@@ -68,6 +68,7 @@ func createEngineConfig(key wgtypes.Key, config *internal.Config, peerConfig *mg
 		WgAddr:         peerConfig.Address,
 		IFaceBlackList: iFaceBlackList,
 		WgPrivateKey:   key,
+		WgPort:         internal.WgPort,
 	}
 
 	if config.PreSharedKey != "" {
