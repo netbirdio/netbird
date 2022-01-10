@@ -1,0 +1,44 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+name: Test Build On Platforms
+jobs:
+  test_build:
+    strategy:
+      matrix:
+        os: [ windows, linux, darwin ]
+        go-version: [1.17.x]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v1
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: run build client
+        run: GOOS=${{ matrix.os }} go build .
+        working-directory: client
+
+      - name: run build management
+        run: GOOS=${{ matrix.os }} go build .
+        working-directory: management
+
+      - name: run build signal
+        run: GOOS=${{ matrix.os }} go build .
+        working-directory: signal
