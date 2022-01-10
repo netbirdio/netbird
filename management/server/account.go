@@ -27,9 +27,6 @@ type Account struct {
 	Network   *Network
 	Peers     map[string]*Peer
 	Users     map[string]*User
-	// ModificationId is an incrementing ID that increments by 1 when any change to the account happened (e.g. new peer has been added).
-	// Used to synchronize state to the client apps.
-	ModificationId int64
 }
 
 // NewAccount creates a new Account with a generated ID and generated default setup keys
@@ -55,13 +52,12 @@ func (a *Account) Copy() *Account {
 	}
 
 	return &Account{
-		Id:             a.Id,
-		CreatedBy:      a.CreatedBy,
-		SetupKeys:      setupKeys,
-		Network:        a.Network.Copy(),
-		Peers:          peers,
-		Users:          users,
-		ModificationId: 0,
+		Id:        a.Id,
+		CreatedBy: a.CreatedBy,
+		SetupKeys: setupKeys,
+		Network:   a.Network.Copy(),
+		Peers:     peers,
+		Users:     users,
 	}
 }
 
