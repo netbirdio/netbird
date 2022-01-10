@@ -118,7 +118,18 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
+	account, err := am.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
 	peer, err := am.Store.DeletePeer(accountId, peerKey)
+	if err != nil {
+		return nil, err
+	}
+
+	account.Network.IncrementModification()
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
@@ -255,6 +266,8 @@ func (am *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
 
 	account.Peers[newPeer.Key] = newPeer
 	account.SetupKeys[sk.Key] = sk.IncrementUsage()
+	account.Network.IncrementModification()
+
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")

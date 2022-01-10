@@ -15,9 +15,19 @@ type Network struct {
 	Id  string
 	Net net.IPNet
 	Dns string
-	// ModificationId is an incrementing ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
+	// modificationId is an incrementing ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
 	// Used to synchronize state to the client apps.
-	ModificationId int64
+	modificationId uint64
+}
+
+// IncrementModification increments modificationId reflecting that the network has been changed
+func (n *Network) IncrementModification() {
+	n.modificationId = n.modificationId + 1
+}
+
+// ModificationId returns the latest modificationId of the network
+func (n *Network) ModificationId() uint64 {
+	return n.modificationId
 }
 
 func (n *Network) Copy() *Network {
@@ -25,7 +35,7 @@ func (n *Network) Copy() *Network {
 		Id:             n.Id,
 		Net:            n.Net,
 		Dns:            n.Dns,
-		ModificationId: n.ModificationId,
+		modificationId: n.modificationId,
 	}
 }
 
