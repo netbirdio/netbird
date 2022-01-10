@@ -17,8 +17,6 @@ const (
 
 var (
 	tunIface tun.Device
-	// todo check after move the WgPort constant to the client
-	WgPort = 51820
 )
 
 // CreateWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
@@ -103,7 +101,7 @@ func Exists(iface string) (*bool, error) {
 
 // Configure configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
-func Configure(iface string, privateKey string) error {
+func Configure(iface string, privateKey string, port int) error {
 
 	log.Debugf("configuring Wireguard interface %s", iface)
 
@@ -113,12 +111,11 @@ func Configure(iface string, privateKey string) error {
 		return err
 	}
 	fwmark := 0
-	p := WgPort
 	config := wgtypes.Config{
 		PrivateKey:   &key,
 		ReplacePeers: false,
 		FirewallMark: &fwmark,
-		ListenPort:   &p,
+		ListenPort:   &port,
 	}
 
 	return configureDevice(iface, config)
@@ -235,7 +232,7 @@ func RemovePeer(iface string, peerKey string) error {
 	return configureDevice(iface, config)
 }
 
-// Closes the User Space tunnel interface
+// CloseWithUserspace closes the User Space tunnel interface
 func CloseWithUserspace() error {
 	return tunIface.Close()
 }
