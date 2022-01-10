@@ -245,6 +245,7 @@ func (conn *Conn) cleanup() error {
 		if err != nil {
 			return err
 		}
+		conn.agent = nil
 	}
 
 	if conn.proxy != nil {
@@ -252,6 +253,12 @@ func (conn *Conn) cleanup() error {
 		if err != nil {
 			return err
 		}
+		conn.proxy = nil
+	}
+
+	if conn.notifyDisconnected != nil {
+		conn.notifyDisconnected()
+		conn.notifyDisconnected = nil
 	}
 
 	conn.status = StatusDisconnected
@@ -384,6 +391,10 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) {
 	go func() {
 		conn.mu.Lock()
 		defer conn.mu.Unlock()
+
+		if conn.agent == nil {
+			return
+		}
 
 		err := conn.agent.AddRemoteCandidate(candidate)
 		if err != nil {
