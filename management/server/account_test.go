@@ -146,6 +146,8 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	modificationId := account.Network.ModificationId() //should be 0
+
 	var setupKey *SetupKey
 	for _, key := range account.SetupKeys {
 		setupKey = key
@@ -153,6 +155,11 @@ func TestAccountManager_AddPeer(t *testing.T) {
 
 	if setupKey == nil {
 		t.Errorf("expecting account to have a default setup key")
+		return
+	}
+
+	if account.Network.modificationId != 0 {
+		t.Errorf("expecting account network to have an initial modificationid=0")
 		return
 	}
 
@@ -174,12 +181,22 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
+	account, err = manager.GetAccount(account.Id)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
 	if peer.Key != expectedPeerKey {
 		t.Errorf("expecting just added peer to have key = %s, got %s", expectedPeerKey, peer.Key)
 	}
 
 	if peer.Key != expectedPeerKey {
 		t.Errorf("expecting just added peer to have IP = %s, got %s", expectedPeerIP, peer.IP.String())
+	}
+
+	if account.Network.ModificationId() != 1 {
+		t.Errorf("expecting Network modificationId=%d to be incremented by 1 and be equal to %d when adding new peer to account", modificationId, account.Network.ModificationId())
 	}
 
 }
