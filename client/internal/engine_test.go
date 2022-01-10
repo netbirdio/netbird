@@ -15,9 +15,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"net"
-	_ "net/http/pprof"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -143,8 +143,15 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		return nil, err
 	}
 
+	var ifaceName string
+	if runtime.GOOS == "darwin" {
+		ifaceName = fmt.Sprintf("utun1%d", i)
+	} else {
+		ifaceName = fmt.Sprintf("wt%d", i)
+	}
+
 	conf := &EngineConfig{
-		WgIface:      fmt.Sprintf("wt%d", i),
+		WgIface:      ifaceName,
 		WgAddr:       resp.PeerConfig.Address,
 		WgPrivateKey: key,
 		WgPort:       33100 + i,
