@@ -348,7 +348,13 @@ func (conn *Conn) sendOffer() error {
 func (conn *Conn) Close() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
-	conn.closeCh <- struct{}{}
+	select {
+	case conn.closeCh <- struct{}{}:
+	default:
+		// probably could happen when peer has been added and removed right after not even starting to connect
+		// todo further investigate
+		log.Warnf("closing not started coonection %s", conn.config.Key)
+	}
 	return nil
 }
 
