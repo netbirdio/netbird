@@ -299,9 +299,11 @@ func (c *Client) Send(msg *proto.Message) error {
 	if err != nil {
 		return err
 	}
-	_, err = c.realClient.Send(context.TODO(), encryptedMessage)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err = c.realClient.Send(ctx, encryptedMessage)
 	if err != nil {
-		//log.Errorf("error while sending message to peer [%s] [error: %v]", msg.RemoteKey, err)
 		return err
 	}
 
