@@ -158,6 +158,7 @@ func (e *Engine) removeAllPeerConnections() error {
 
 // removePeer closes an existing peer connection and removes a peer
 func (e *Engine) removePeer(peerKey string) error {
+	log.Debugf("removing peer from engine %s", peerKey)
 	conn, exists := e.peerConns[peerKey]
 	if exists {
 		delete(e.peerConns, peerKey)

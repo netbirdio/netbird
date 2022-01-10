@@ -353,6 +353,16 @@ func (conn *Conn) Close() error {
 	default:
 		// probably could happen when peer has been added and removed right after not even starting to connect
 		// todo further investigate
+		// this really happens due to unordered messages coming from management
+		// more importantly it causes inconsistency -> 2 Conn objects for the same peer
+		// e.g. this flow:
+		// update from management has peers: [1,2,3,4]
+		// engine creates a Conn for peers:  [1,2,3,4] and schedules Open in ~1sec
+		// before conn.Open() another update from management arrives with peers: [1,2,3]
+		// engine removes peer 4 and calls conn.Close() which does nothing (this default clause)
+		// before conn.Open() another update from management arrives with peers: [1,2,3,4,5]
+		// engine adds a new Conn for 4 and 5
+		// therefore peer 4 has 2 Conn objects
 		log.Warnf("closing not started coonection %s", conn.config.Key)
 	}
 	return nil
