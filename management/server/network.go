@@ -3,7 +3,9 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/rs/xid"
 	"net"
+	"sync"
 )
 
 var (
@@ -18,10 +20,23 @@ type Network struct {
 	// modificationId is an incrementing ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
 	// Used to synchronize state to the client apps.
 	modificationId uint64
+
+	mu sync.Mutex `json:"-"`
+}
+
+// NewNetwork creates a new Network
+func NewNetwork() *Network {
+	return &Network{
+		Id:             xid.New().String(),
+		Net:            net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
+		Dns:            "",
+		modificationId: 0}
 }
 
 // IncrementModification increments modificationId reflecting that the network has been changed
 func (n *Network) IncrementModification() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
 	n.modificationId = n.modificationId + 1
 }
 

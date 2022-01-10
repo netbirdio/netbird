@@ -1,13 +1,11 @@
 package server
 
 import (
-	"github.com/google/uuid"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net"
 	"sync"
 )
 
@@ -212,10 +210,7 @@ func newAccountWithId(accountId string, userId string) *Account {
 	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration)
 	setupKeys[defaultKey.Key] = defaultKey
 	setupKeys[oneOffKey.Key] = oneOffKey
-	network := &Network{
-		Id:  uuid.New().String(),
-		Net: net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
-		Dns: ""}
+	network := NewNetwork()
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
 
