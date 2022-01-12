@@ -19,17 +19,15 @@ require (
 	github.com/vishvananda/netlink v1.1.0
 	golang.org/x/crypto v0.0.0-20211215153901-e495a2d5b3d3
 	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e
-	golang.zx2c4.com/wireguard v0.0.0-20210927201915-bb745b2ea326
-	golang.zx2c4.com/wireguard/windows v0.5.1
+	golang.zx2c4.com/wireguard v0.0.0-20210805125648-3957e9b9dd19
+	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20210803171230-4253848d036c
+	golang.zx2c4.com/wireguard/windows v0.4.5
 	google.golang.org/grpc v1.43.0
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
-require (
-	github.com/rs/xid v1.3.0
-	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20210930130920-f2e2c26c7937
-)
+require github.com/rs/xid v1.3.0
 
 require (
 	github.com/BurntSushi/toml v0.4.1 // indirect
