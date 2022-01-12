@@ -57,7 +57,7 @@ jobs:
         run: Expand-Archive -Path ${{ github.workspace }}\PSTools.zip  -DestinationPath ${{ github.workspace }}\PSTools
       - run: go mod tidy
       - name: Test build
-        run: go test -p 1 -tags=load_wgnt_from_rsrc ./iface
+        run: go test -p 1 -tags=load_wgnt_from_rsrc ./...
 
       - name: Test build with PSTools
         if: always()
