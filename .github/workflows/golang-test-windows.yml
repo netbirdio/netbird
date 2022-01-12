@@ -55,7 +55,7 @@ jobs:
 
       - name: Extract PSTools
         run: Expand-Archive -Path ${{ github.workspace }}\PSTools.zip  -DestinationPath ${{ github.workspace }}\PSTools
-
+      - run: go mod tidy
       - name: Test build with PSTools
         run: ${{ github.workspace }}\PSTools\PsExec64.exe -accepteula -s  -w ${{ github.workspace }} go test -p 1 -tags=load_wgnt_from_rsrc ./iface
 
