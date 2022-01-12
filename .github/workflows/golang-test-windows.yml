@@ -45,7 +45,9 @@ jobs:
           name: syso
 #          path: client\
       - run: ls
+      - run: cp  \.deps\wireguard-nt\bin\amd64\wireguard.dll wireguard.dll
       - run: cp  wireguard.dll client\wireguard.dll
+
       - name: Test
         run: go test -p 1 ./iface
 
