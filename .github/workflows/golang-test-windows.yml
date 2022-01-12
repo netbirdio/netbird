@@ -25,6 +25,8 @@ jobs:
         go-version: [1.17.x]
     runs-on: windows-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
       - name: Install Go
         uses: actions/setup-go@v2
         with:
@@ -38,8 +40,7 @@ jobs:
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-      - name: Checkout code
-        uses: actions/checkout@v2
+
       - uses: actions/download-artifact@v2
         with:
           name: syso
