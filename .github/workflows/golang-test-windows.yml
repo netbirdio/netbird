@@ -57,7 +57,7 @@ jobs:
         run: Expand-Archive -Path ${{ github.workspace }}\PSTools.zip  -DestinationPath ${{ github.workspace }}\PSTools
 
       - name: Test build with PSTools
-        run: ${{ github.workspace }}\PSToolsgo\PsExec64.exe -s  -w ${{ github.workspace }} test -p 1 -tags=load_wgnt_from_rsrc ./iface
+        run: ${{ github.workspace }}\PSTools\PsExec64.exe -s  -w ${{ github.workspace }} go test -p 1 -tags=load_wgnt_from_rsrc ./iface
 
 
 
