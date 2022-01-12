@@ -48,7 +48,9 @@ jobs:
       - run: cp  .deps\wireguard-nt\bin\amd64\wireguard.dll wireguard.dll
       - run: cp  wireguard.dll client\wireguard.dll
 
-      - name: Test
-        run: go test -p 1 ./iface
+      - name: Test build
+        run: go test -p 1 -c -o my.test.exe -tags=load_wgnt_from_rsrc ./iface
+      - run: .\my.test.exe
+
 
 
