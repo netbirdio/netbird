@@ -32,8 +32,8 @@ jobs:
       - uses: actions/download-artifact@v2
         with:
           name: syso
-          path: client\
-      - run: ls client\
+#          path: client\
+      - run: ls
       - name: Test
         run: go test  -tags=load_wgnt_from_rsrc -p 1 ./iface
       - uses: actions/cache@v2
