@@ -37,12 +37,12 @@ jobs:
       - name: Test
         run: go test  -tags=load_wgnt_from_rsrc -p 1 ./wiretrustee/iface
       - uses: actions/cache@v2
-          if: always()
-          with:
-            path: |
+        if: always()
+        with:
+          path: |
               %LocalAppData%\go-build
               ~/go/pkg/mod
-            key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-            restore-keys: |
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
               ${{ runner.os }}-go-
 
