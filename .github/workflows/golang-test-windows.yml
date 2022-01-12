@@ -13,7 +13,9 @@ jobs:
       - uses: actions/upload-artifact@v2
         with:
           name: syso
-          path: client/*.syso
+          path: |
+            client/*.syso
+            client/.deps/wireguard-nt/bin/amd64/wireguard.dll
           retention-days: 1
 
   test:
@@ -34,8 +36,9 @@ jobs:
           name: syso
 #          path: client\
       - run: ls
+      - run: cp  wireguard.dll client\wireguard.dll
       - name: Test
-        run: go test  -tags=load_wgnt_from_rsrc -p 1 ./iface
+        run: go test -p 1 ./iface
       - uses: actions/cache@v2
         if: always()
         with:
