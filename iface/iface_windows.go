@@ -5,8 +5,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/ipc"
-	//"golang.zx2c4.com/wireguard/ipc"
-	//"golang.zx2c4.com/wireguard/tun"
+	"time"
+
 	"golang.zx2c4.com/wireguard/windows/driver"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 	"net"
@@ -14,13 +14,17 @@ import (
 
 var (
 	WintunTunnelType          = "WireGuard"
-	WintunStaticRequestedGUID *windows.GUID
 	luid                      winipcfg.LUID
+	adapter                   *driver.Adapter
+	err                       error
+	WintunStaticRequestedGUID windows.GUID
 )
 
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
 func Create(iface string, address string) error {
-	adapter, err := driver.CreateAdapter(iface, WintunTunnelType, WintunStaticRequestedGUID)
+
+	WintunStaticRequestedGUID, _ = windows.GenerateGUID()
+	adapter, err = driver.CreateAdapter(iface, WintunTunnelType, &WintunStaticRequestedGUID)
 	if err != nil {
 		err = fmt.Errorf("error creating adapter: %w", err)
 		return err
@@ -35,14 +39,14 @@ func Create(iface string, address string) error {
 	if err != nil {
 		return err
 	}
-	return assignAddr(iface, address)
+	state, _ := luid.GUID()
+	log.Debugln("device guid: ", state.String())
+	time.Sleep(3 * time.Second)
+	return assignAddr(address, iface)
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func assignAddr(address string, ifaceName string) error {
-
-	//nativeTunDevice := tunIface.(*tun.NativeTun)
-	//luid := winipcfg.LUID(luid)
 
 	ip, ipnet, _ := net.ParseCIDR(address)
 
@@ -51,12 +55,12 @@ func assignAddr(address string, ifaceName string) error {
 	if err != nil {
 		return err
 	}
-
-	log.Debugf("adding Routes to interface: %s", ifaceName)
-	err = luid.SetRoutes([]*winipcfg.RouteData{{*ipnet, ipnet.IP, 0}})
-	if err != nil {
-		return err
-	}
+	//
+	//log.Debugf("adding Routes to interface: %s", ifaceName)
+	//err = luid.SetRoutes([]*winipcfg.RouteData{{*ipnet, ipnet.IP, 0}})
+	//if err != nil {
+	//	return err
+	//}
 	return nil
 }
 
@@ -67,5 +71,5 @@ func getUAPI(iface string) (net.Listener, error) {
 
 // Closes the tunnel interface
 func Close(iFace string) error {
-	return CloseWithUserspace()
+	return adapter.Close()
 }
