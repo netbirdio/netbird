@@ -29,4 +29,4 @@ resources_windows i686-w64-mingw32-windres x86 resources_windows_386.syso
 resources_windows aarch64-w64-mingw32-windres arm64 resources_windows_arm64.syso
 resources_windows x86_64-w64-mingw32-windres amd64 resources_windows_amd64.syso
 
-exit
+exit 0
