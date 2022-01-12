@@ -29,6 +29,15 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: ${{ matrix.go-version }}
+      - uses: actions/cache@v2
+        if: always()
+        with:
+          path: |
+            %LocalAppData%\go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
       - name: Checkout code
         uses: actions/checkout@v2
       - uses: actions/download-artifact@v2
@@ -39,13 +48,5 @@ jobs:
       - run: cp  wireguard.dll client\wireguard.dll
       - name: Test
         run: go test -p 1 ./iface
-      - uses: actions/cache@v2
-        if: always()
-        with:
-          path: |
-              %LocalAppData%\go-build
-              ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-              ${{ runner.os }}-go-
+
 
