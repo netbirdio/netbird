@@ -5,8 +5,10 @@ jobs:
   pre:
     runs-on: ubuntu-latest
     steps:
-      - run: cd client && bash -x wireguard_nt.sh
-#        working-directory: client
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - run: bash -x wireguard_nt.sh
+        working-directory: client
       - run: ls -l client/*syso
       - uses: actions/upload-artifact@v2
         with:
@@ -25,13 +27,11 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: ${{ matrix.go-version }}
-
+      - name: Checkout code
+        uses: actions/checkout@v2
       - uses: actions/download-artifact@v2
         with:
           name: syso
       - run: ls client/
-
-      - name: Checkout code
-        uses: actions/checkout@v2
       - name: Test
         run: go test  -tags load_wgnt_from_rsrc -p 1 ./...
