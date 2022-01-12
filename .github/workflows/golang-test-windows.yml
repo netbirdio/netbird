@@ -5,8 +5,8 @@ jobs:
   pre:
     runs-on: ubuntu-latest
     steps:
-      - run: bash -x wireguard_nt.sh
-        working-directory: client
+      - run: cd client && bash -x wireguard_nt.sh
+#        working-directory: client
       - run: ls -l client/*syso
       - uses: actions/upload-artifact@v2
         with:
