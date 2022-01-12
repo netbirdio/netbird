@@ -18,7 +18,7 @@ function resources_windows(){
   cmd=$1
   arch=$2
   out=$3
-  docker run -ti --rm -v $PWD:$PWD -w $PWD mstorsjo/llvm-mingw:latest $cmd -O coff -c 65001 -I .deps/wireguard-nt/bin/$arch -i resources.rc -o $out
+  docker run -i --rm -v $PWD:$PWD -w $PWD mstorsjo/llvm-mingw:latest $cmd -O coff -c 65001 -I .deps/wireguard-nt/bin/$arch -i resources.rc -o $out
 }
 
 download https://download.wireguard.com/wireguard-nt/wireguard-nt-0.10.1.zip 772c0b1463d8d2212716f43f06f4594d880dea4f735165bd68e388fc41b81605
