@@ -5,7 +5,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/ipc"
-
 	//"golang.zx2c4.com/wireguard/ipc"
 	//"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/windows/driver"
@@ -27,6 +26,11 @@ func Create(iface string, address string) error {
 		return err
 	}
 	luid = adapter.LUID()
+	err = adapter.SetLogging(driver.AdapterLogOn)
+	if err != nil {
+		err = fmt.Errorf("Error enabling adapter logging: %w", err)
+		return err
+	}
 	err = adapter.SetAdapterState(driver.AdapterStateUp)
 	if err != nil {
 		return err
