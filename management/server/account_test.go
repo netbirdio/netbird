@@ -200,6 +200,59 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	}
 
 }
+
+func TestAccountManager_DeletePeer(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	account, err := manager.AddAccount("test_account", "account_creator")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var setupKey *SetupKey
+	for _, key := range account.SetupKeys {
+		setupKey = key
+	}
+
+	key, err := wgtypes.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peerKey := key.PublicKey().String()
+
+	_, err = manager.AddPeer(setupKey.Key, Peer{
+		Key:  peerKey,
+		Meta: PeerSystemMeta{},
+		Name: peerKey,
+	})
+	if err != nil {
+		t.Errorf("expecting peer to be added, got failure %v", err)
+		return
+	}
+
+	_, err = manager.DeletePeer(account.Id, peerKey)
+	if err != nil {
+		return
+	}
+
+	account, err = manager.GetAccount(account.Id)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	if account.Network.ModificationId() != 2 {
+		t.Errorf("expecting Network modificationId=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.ModificationId())
+	}
+
+}
+
 func createManager(t *testing.T) (*AccountManager, error) {
 	store, err := createStore(t)
 	if err != nil {
