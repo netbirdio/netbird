@@ -48,7 +48,11 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		os.Remove(filepath.Join(dir, "store.json")) //nolint
+		err = os.Remove(filepath.Join(dir, "store.json")) //nolint
+		if err != nil {
+			t.Fatal(err)
+			return
+		}
 	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -102,8 +106,16 @@ func TestEngine_MultiplePeers(t *testing.T) {
 
 	// wait until all have been created and started
 	wg.Wait()
-
+	defer func() {
+		for _, peerEngine := range engines {
+			go func(peerEngine *Engine) {
+				peerEngine.Stop()
+			}(peerEngine)
+		}
+	}()
 	// check whether all the peer have expected peers connected
+	timeout := 30 * time.Second
+	stopCheck := time.Now().Add(timeout)
 	expectedConnected := numPeers * (numPeers - 1)
 	for {
 		time.Sleep(time.Second)
@@ -114,13 +126,16 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		if totalConnected == expectedConnected {
 			break
 		}
+		if stopCheck.Before(time.Now()) {
+			log.Errorf("waiting for expected connections timeout after %f", timeout.Seconds())
+		}
 		log.Infof("total connected=%d", totalConnected)
 	}
 }
 
 func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey string, i int) (*Engine, error) {
 
-	key, err := wgtypes.GenerateKey()
+	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +166,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	conf := &EngineConfig{
-		WgIface:      ifaceName,
+		WgIfaceName:  ifaceName,
 		WgAddr:       resp.PeerConfig.Address,
 		WgPrivateKey: key,
 		WgPort:       33100 + i,
