@@ -128,7 +128,7 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 		return nil, err
 	}
 
-	account.Network.IncrementLastChange()
+	account.Network.IncSerial()
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
@@ -266,7 +266,7 @@ func (am *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
 
 	account.Peers[newPeer.Key] = newPeer
 	account.SetupKeys[sk.Key] = sk.IncrementUsage()
-	account.Network.IncrementLastChange()
+	account.Network.IncSerial()
 
 	err = am.Store.SaveAccount(account)
 	if err != nil {
