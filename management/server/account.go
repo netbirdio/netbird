@@ -1,13 +1,11 @@
 package server
 
 import (
-	"github.com/google/uuid"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net"
 	"sync"
 )
 
@@ -27,6 +25,12 @@ type Account struct {
 	Network   *Network
 	Peers     map[string]*Peer
 	Users     map[string]*User
+}
+
+// NewAccount creates a new Account with a generated ID and generated default setup keys
+func NewAccount(userId string) *Account {
+	accountId := xid.New().String()
+	return newAccountWithId(accountId, userId)
 }
 
 func (a *Account) Copy() *Account {
@@ -186,7 +190,7 @@ func (am *AccountManager) AddAccount(accountId string, userId string) (*Account,
 }
 
 func (am *AccountManager) createAccount(accountId string, userId string) (*Account, error) {
-	account, _ := newAccountWithId(accountId, userId)
+	account := newAccountWithId(accountId, userId)
 
 	err := am.Store.SaveAccount(account)
 	if err != nil {
@@ -197,7 +201,7 @@ func (am *AccountManager) createAccount(accountId string, userId string) (*Accou
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(accountId string, userId string) (*Account, *SetupKey) {
+func newAccountWithId(accountId string, userId string) *Account {
 
 	log.Debugf("creating new account")
 
@@ -206,22 +210,13 @@ func newAccountWithId(accountId string, userId string) (*Account, *SetupKey) {
 	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration)
 	setupKeys[defaultKey.Key] = defaultKey
 	setupKeys[oneOffKey.Key] = oneOffKey
-	network := &Network{
-		Id:  uuid.New().String(),
-		Net: net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
-		Dns: ""}
+	network := NewNetwork()
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
 
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
-	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers, Users: users, CreatedBy: userId}, defaultKey
-}
-
-// newAccount creates a new Account with a default SetupKey and a provided User.Id of a user who issued account creation (doesn't store in a Store)
-func newAccount(userId string) (*Account, *SetupKey) {
-	accountId := xid.New().String()
-	return newAccountWithId(accountId, userId)
+	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers, Users: users, CreatedBy: userId}
 }
 
 func getAccountSetupKeyById(acc *Account, keyId string) *SetupKey {

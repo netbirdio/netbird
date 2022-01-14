@@ -3,7 +3,9 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/rs/xid"
 	"net"
+	"sync"
 )
 
 var (
@@ -15,13 +17,42 @@ type Network struct {
 	Id  string
 	Net net.IPNet
 	Dns string
+	// serial is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
+	// Used to synchronize state to the client apps.
+	serial uint64
+
+	mu sync.Mutex `json:"-"`
+}
+
+// NewNetwork creates a new Network initializing it with a serial=0
+func NewNetwork() *Network {
+	return &Network{
+		Id:     xid.New().String(),
+		Net:    net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
+		Dns:    "",
+		serial: 0}
+}
+
+// IncSerial increments serial by 1 reflecting that the network state has been changed
+func (n *Network) IncSerial() {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.serial = n.serial + 1
+}
+
+// Serial returns the Network.serial of the network (latest state id)
+func (n *Network) Serial() uint64 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.serial
 }
 
 func (n *Network) Copy() *Network {
 	return &Network{
-		Id:  n.Id,
-		Net: n.Net,
-		Dns: n.Dns,
+		Id:     n.Id,
+		Net:    n.Net,
+		Dns:    n.Dns,
+		serial: n.serial,
 	}
 }
 
