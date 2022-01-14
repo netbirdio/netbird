@@ -17,9 +17,9 @@ type Network struct {
 	Id  string
 	Net net.IPNet
 	Dns string
-	// modificationId is an incrementing ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
+	// lastChangeId is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
 	// Used to synchronize state to the client apps.
-	modificationId uint64
+	lastChangeId uint64
 
 	mu sync.Mutex `json:"-"`
 }
@@ -27,30 +27,30 @@ type Network struct {
 // NewNetwork creates a new Network
 func NewNetwork() *Network {
 	return &Network{
-		Id:             xid.New().String(),
-		Net:            net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
-		Dns:            "",
-		modificationId: 0}
+		Id:           xid.New().String(),
+		Net:          net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
+		Dns:          "",
+		lastChangeId: 0}
 }
 
-// IncrementModification increments modificationId reflecting that the network has been changed
-func (n *Network) IncrementModification() {
+// IncrementLastChange increments lastChangeId reflecting that the network has been changed
+func (n *Network) IncrementLastChange() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.modificationId = n.modificationId + 1
+	n.lastChangeId = n.lastChangeId + 1
 }
 
-// ModificationId returns the latest modificationId of the network
-func (n *Network) ModificationId() uint64 {
-	return n.modificationId
+// LastChangeId returns the latest lastChangeId of the network
+func (n *Network) LastChangeId() uint64 {
+	return n.lastChangeId
 }
 
 func (n *Network) Copy() *Network {
 	return &Network{
-		Id:             n.Id,
-		Net:            n.Net,
-		Dns:            n.Dns,
-		modificationId: n.modificationId,
+		Id:           n.Id,
+		Net:          n.Net,
+		Dns:          n.Dns,
+		lastChangeId: n.lastChangeId,
 	}
 }
 

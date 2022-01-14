@@ -146,7 +146,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	modificationId := account.Network.ModificationId() //should be 0
+	lastChangeId := account.Network.LastChangeId() //should be 0
 
 	var setupKey *SetupKey
 	for _, key := range account.SetupKeys {
@@ -158,8 +158,8 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	if account.Network.modificationId != 0 {
-		t.Errorf("expecting account network to have an initial modificationid=0")
+	if account.Network.lastChangeId != 0 {
+		t.Errorf("expecting account network to have an initial lastChangeId=0")
 		return
 	}
 
@@ -195,8 +195,8 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Errorf("expecting just added peer to have IP = %s, got %s", expectedPeerIP, peer.IP.String())
 	}
 
-	if account.Network.ModificationId() != 1 {
-		t.Errorf("expecting Network modificationId=%d to be incremented by 1 and be equal to %d when adding new peer to account", modificationId, account.Network.ModificationId())
+	if account.Network.LastChangeId() != 1 {
+		t.Errorf("expecting Network lastChangeId=%d to be incremented by 1 and be equal to %d when adding new peer to account", lastChangeId, account.Network.LastChangeId())
 	}
 
 }
@@ -247,8 +247,8 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	if account.Network.ModificationId() != 2 {
-		t.Errorf("expecting Network modificationId=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.ModificationId())
+	if account.Network.LastChangeId() != 2 {
+		t.Errorf("expecting Network lastChangeId=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.LastChangeId())
 	}
 
 }
