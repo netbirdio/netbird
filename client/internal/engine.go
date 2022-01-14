@@ -97,7 +97,7 @@ func (e *Engine) Stop() error {
 
 	log.Debugf("removing Wiretrustee interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
-		err = iface.Close(e.wgInterface)
+		err = e.wgInterface.Close()
 		if err != nil {
 			log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIfaceName, err)
 			return err

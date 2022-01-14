@@ -114,20 +114,25 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		}
 	}()
 	// check whether all the peer have expected peers connected
-	timeout := 30 * time.Second
-	stopCheck := time.Now().Add(timeout)
+
 	expectedConnected := numPeers * (numPeers - 1)
+	timeout := 30 * time.Second
+	timeoutChan := time.After(timeout)
 	for {
+		select {
+		case <-timeoutChan:
+			t.Fatalf("waiting for expected connections timeout after %s", timeout.String())
+			return
+		default:
+		}
 		time.Sleep(time.Second)
 		totalConnected := 0
 		for _, engine := range engines {
 			totalConnected = totalConnected + len(engine.GetConnectedPeers())
 		}
 		if totalConnected == expectedConnected {
+			log.Debugf("total connected=%d", totalConnected)
 			break
-		}
-		if stopCheck.Before(time.Now()) {
-			log.Errorf("waiting for expected connections timeout after %f", timeout.Seconds())
 		}
 		log.Infof("total connected=%d", totalConnected)
 	}
