@@ -2,6 +2,7 @@ package iface
 
 import (
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/tun"
 	"net"
 	"os"
 	"os/exec"
@@ -9,7 +10,7 @@ import (
 )
 
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
-func Create(iface string, address string) error {
+func Create(iface string, address string) (WGInterface,error) {
 	return CreateWithUserspace(iface, address)
 }
 
@@ -40,15 +41,16 @@ func addRoute(iface string, ipNet *net.IPNet) error {
 }
 
 // Closes the tunnel interface
-func Close(iFace string) error {
-	name, err := tunIface.Name()
+func Close(tunIface WGInterface) error {
+
+	name, err := tunIface.(tun.Device).Name()
 	if err != nil {
 		return err
 	}
 
 	sockPath := "/var/run/wireguard/" + name + ".sock"
 
-	err = CloseWithUserspace()
+	err = CloseWithUserspace(tunIface)
 	if err != nil {
 		return err
 	}

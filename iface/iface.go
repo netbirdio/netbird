@@ -15,34 +15,34 @@ const (
 	defaultMTU = 1280
 )
 
-var (
-	tunIface tun.Device
-)
+type WGInterface interface {
+	Close() error
+}
 
 // CreateWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
-func CreateWithUserspace(iface string, address string) error {
-	var err error
-	tunIface, err = tun.CreateTUN(iface, defaultMTU)
+func CreateWithUserspace(iface string, address string) (WGInterface, error) {
+	//var err error
+	tunIface, err := tun.CreateTUN(iface, defaultMTU)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	err = tunDevice.Up()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	uapi, err := getUAPI(iface)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	go func() {
 		for {
 			uapiConn, err := uapi.Accept()
 			if err != nil {
-				log.Debugln("uapi Accept failed with error: ", err)
+				log.Traceln("uapi Accept failed with error: ", err)
 				continue
 			}
 			go tunDevice.IpcHandle(uapiConn)
@@ -53,9 +53,9 @@ func CreateWithUserspace(iface string, address string) error {
 
 	err = assignAddr(address, iface)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return tunIface, nil
 }
 
 // configure peer for the wireguard device
@@ -233,6 +233,6 @@ func RemovePeer(iface string, peerKey string) error {
 }
 
 // CloseWithUserspace closes the User Space tunnel interface
-func CloseWithUserspace() error {
+func CloseWithUserspace(tunIface WGInterface) error {
 	return tunIface.Close()
 }

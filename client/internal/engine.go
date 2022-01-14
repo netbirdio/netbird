@@ -28,8 +28,8 @@ const WgPort = 51820
 
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
-	WgPort  int
-	WgIface string
+	WgPort      int
+	WgIfaceName string
 	// WgAddr is a Wireguard local address (Wiretrustee Network IP)
 	WgAddr string
 	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
@@ -61,6 +61,8 @@ type Engine struct {
 	cancel context.CancelFunc
 
 	ctx context.Context
+
+	wgInterface iface.WGInterface
 }
 
 // Peer is an instance of the Connection Peer
@@ -93,11 +95,13 @@ func (e *Engine) Stop() error {
 		return err
 	}
 
-	log.Debugf("removing Wiretrustee interface %s", e.config.WgIface)
-	err = iface.Close(e.config.WgIface)
-	if err != nil {
-		log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIface, err)
-		return err
+	log.Debugf("removing Wiretrustee interface %s", e.config.WgIfaceName)
+	if e.wgInterface != nil {
+		err = iface.Close(e.wgInterface)
+		if err != nil {
+			log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIfaceName, err)
+			return err
+		}
 	}
 
 	log.Infof("stopped Wiretrustee Engine")
@@ -112,19 +116,20 @@ func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	wgIface := e.config.WgIface
+	wgIfaceName := e.config.WgIfaceName
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
 
-	err := iface.Create(wgIface, wgAddr)
+	wgIface, err := iface.Create(wgIfaceName, wgAddr)
 	if err != nil {
-		log.Errorf("failed creating interface %s: [%s]", wgIface, err.Error())
+		log.Errorf("failed creating interface %s: [%s]", wgIfaceName, err.Error())
 		return err
 	}
+	e.wgInterface = wgIface
 
-	err = iface.Configure(wgIface, myPrivateKey.String(), e.config.WgPort)
+	err = iface.Configure(wgIfaceName, myPrivateKey.String(), e.config.WgPort)
 	if err != nil {
-		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIface, err.Error())
+		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
 		return err
 	}
 
@@ -399,7 +404,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	proxyConfig := proxy.Config{
 		RemoteKey:    pubKey,
 		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.config.WgPort),
-		WgInterface:  e.config.WgIface,
+		WgInterface:  e.config.WgIfaceName,
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
 	}
