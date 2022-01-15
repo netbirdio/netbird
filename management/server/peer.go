@@ -137,8 +137,15 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 	err = am.peersUpdateManager.SendUpdate(peerKey,
 		&UpdateMessage{
 			Update: &proto.SyncResponse{
+				// fill those field for backward compatibility
 				RemotePeers:        []*proto.RemotePeerConfig{},
 				RemotePeersIsEmpty: true,
+				// new field
+				NetworkMap: &proto.NetworkMap{
+					Serial:             account.Network.Serial(),
+					RemotePeers:        []*proto.RemotePeerConfig{},
+					RemotePeersIsEmpty: true,
+				},
 			}})
 	if err != nil {
 		return nil, err
@@ -161,8 +168,15 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 		err = am.peersUpdateManager.SendUpdate(p.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
+					// fill those field for backward compatibility
 					RemotePeers:        update,
 					RemotePeersIsEmpty: len(update) == 0,
+					// new field
+					NetworkMap: &proto.NetworkMap{
+						Serial:             account.Network.Serial(),
+						RemotePeers:        update,
+						RemotePeersIsEmpty: len(update) == 0,
+					},
 				}})
 		if err != nil {
 			return nil, err
