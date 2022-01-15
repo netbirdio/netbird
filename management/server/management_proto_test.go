@@ -165,23 +165,6 @@ func Test_SyncProtocol(t *testing.T) {
 		return
 	}
 
-	/*networkMap := syncResp.GetNetworkMap()
-	if networkMap == nil {
-		t.Fatal("expecting SyncResponse to have non-nil NetworkMap")
-	}
-
-	if len(networkMap.GetRemotePeers()) != 1 {
-		t.Fatal("expecting SyncResponse to have NetworkMap with 1 remote peer")
-	}
-
-	if networkMap.GetPeerConfig() == nil {
-		t.Fatal("expecting SyncResponse to have NetworkMap with a non-nil PeerConfig")
-	}
-
-	if networkMap.GetPeerConfig().GetAddress() != "100.64.0.1/24" {
-		t.Fatal("expecting SyncResponse to have NetworkMap with a PeerConfig having valid Address")
-	}*/
-
 	wiretrusteeConfig := syncResp.GetWiretrusteeConfig()
 	if wiretrusteeConfig == nil {
 		t.Fatal("expecting SyncResponse to have non-nil WiretrusteeConfig")
@@ -250,6 +233,24 @@ func Test_SyncProtocol(t *testing.T) {
 
 	if syncResp.GetPeerConfig() == nil {
 		t.Fatal("expecting SyncResponse to have non-nil PeerConfig for backward compatibility")
+	}
+
+	// new field - NetworkMap
+	networkMap := syncResp.GetNetworkMap()
+	if networkMap == nil {
+		t.Fatal("expecting SyncResponse to have non-nil NetworkMap")
+	}
+
+	if len(networkMap.GetRemotePeers()) != 1 {
+		t.Fatal("expecting SyncResponse to have NetworkMap with 1 remote peer")
+	}
+
+	if networkMap.GetPeerConfig() == nil {
+		t.Fatal("expecting SyncResponse to have NetworkMap with a non-nil PeerConfig")
+	}
+
+	if networkMap.GetPeerConfig().GetAddress() != "100.64.0.1/24" {
+		t.Fatal("expecting SyncResponse to have NetworkMap with a PeerConfig having valid Address")
 	}
 }
 
