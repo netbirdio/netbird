@@ -252,6 +252,10 @@ func Test_SyncProtocol(t *testing.T) {
 	if networkMap.GetPeerConfig().GetAddress() != "100.64.0.1/24" {
 		t.Fatal("expecting SyncResponse to have NetworkMap with a PeerConfig having valid Address")
 	}
+
+	if networkMap.GetSerial() <= 0 {
+		t.Fatalf("expecting SyncResponse to have NetworkMap with a positive Network Serial, actual %d", networkMap.GetSerial())
+	}
 }
 
 func loginPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServiceClient) (*mgmtProto.LoginResponse, error) {
