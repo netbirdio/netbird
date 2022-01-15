@@ -206,8 +206,32 @@ func (am *AccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, e
 	return nil, status.Errorf(codes.NotFound, "peer with IP %s not found", peerIP)
 }
 
+// GetNetworkMap returns Network map for a given peer
+func (am *AccountManager) GetNetworkMap(peerKey string) (*NetworkMap, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetPeerAccount(peerKey)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
+	}
+
+	var res []*Peer
+	for _, peer := range account.Peers {
+		if peer.Key != peerKey {
+			res = append(res, peer.Copy())
+		}
+	}
+
+	return &NetworkMap{
+		Peers:   res,
+		Network: account.Network.Copy(),
+	}, err
+}
+
 // GetPeersForAPeer returns a list of peers available for a given peer (key)
 // Effectively all the peers of the original peer's account except for the peer itself
+// Deprecated. Use GetNetworkMap instead
 func (am *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -232,7 +256,7 @@ func (am *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
 // will be returned, meaning the key is invalid
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
+func (am *AccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 

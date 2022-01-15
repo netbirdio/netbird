@@ -171,7 +171,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedPeerIP := "100.64.0.1"
 
-	peer, err := manager.AddPeer(setupKey.Key, Peer{
+	peer, err := manager.AddPeer(setupKey.Key, &Peer{
 		Key:  expectedPeerKey,
 		Meta: PeerSystemMeta{},
 		Name: expectedPeerKey,
@@ -226,7 +226,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 
 	peerKey := key.PublicKey().String()
 
-	_, err = manager.AddPeer(setupKey.Key, Peer{
+	_, err = manager.AddPeer(setupKey.Key, &Peer{
 		Key:  peerKey,
 		Meta: PeerSystemMeta{},
 		Name: peerKey,
