@@ -37,7 +37,7 @@ func Test_CreateInterface(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(iface)
+		err = iface.Close()
 		if err != nil {
 			t.Error(err)
 		}
@@ -53,6 +53,31 @@ func Test_CreateInterface(t *testing.T) {
 		}
 	}()
 }
+
+func Test_Close(t *testing.T) {
+	ifaceName := "utun1004"
+	wgIP := "10.99.99.50/24"
+	iface, err := Create(ifaceName, wgIP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wg, err := wgctrl.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+
+	err = iface.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func Test_ConfigureInterface(t *testing.T) {
 	ifaceName := "utun1000"
 	wgIP := "10.99.99.10/24"
@@ -61,7 +86,7 @@ func Test_ConfigureInterface(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(iface)
+		err = iface.Close()
 		if err != nil {
 			t.Error(err)
 		}
@@ -100,7 +125,7 @@ func Test_UpdatePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(iface)
+		err = iface.Close()
 		if err != nil {
 			t.Error(err)
 		}
@@ -152,7 +177,7 @@ func Test_UpdatePeerEndpoint(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(iface)
+		err = iface.Close()
 		if err != nil {
 			t.Error(err)
 		}
@@ -193,7 +218,7 @@ func Test_RemovePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(iface)
+		err = iface.Close()
 		if err != nil {
 			t.Error(err)
 		}
@@ -240,11 +265,11 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		err = Close(iface1)
+		err = iface1.Close()
 		if err != nil {
 			t.Error(err)
 		}
-		err = Close(iface2)
+		err = iface2.Close()
 		if err != nil {
 			t.Error(err)
 		}
@@ -288,29 +313,7 @@ func Test_ConnectPeers(t *testing.T) {
 
 }
 
-func Test_Close(t *testing.T) {
-	ifaceName := "utun1004"
-	wgIP := "10.99.99.50/24"
-	iface, err := Create(ifaceName, wgIP)
-	if err != nil {
-		t.Fatal(err)
-	}
-	wg, err := wgctrl.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		err = wg.Close()
-		if err != nil {
-			t.Error(err)
-		}
-	}()
 
-	err = Close(iface)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
 func getPeer(ifaceName, peerPubKey string, t *testing.T) (wgtypes.Peer, error) {
 	emptyPeer := wgtypes.Peer{}
 	wg, err := wgctrl.New()
