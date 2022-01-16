@@ -1,9 +1,5 @@
-on:
-  push:
-    branches:
-      - main
-  pull_request:
 name: Test Build On Platforms
+on: push
 jobs:
   test_build:
     strategy:
@@ -21,10 +17,10 @@ jobs:
           go-version: ${{ matrix.go-version }}
 
       - name: Cache Go modules
-        uses: actions/cache@v1
+        uses: actions/cache@v2
         with:
           path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: ${{ runner.os }}-go-test-${{ matrix.os }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
 
