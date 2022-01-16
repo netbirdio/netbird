@@ -1,9 +1,5 @@
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-name: Test Code
+name: Test Code Linux
+on: push
 jobs:
   test:
     strategy:
@@ -27,6 +23,15 @@ jobs:
           $(whoami) soft     nofile         65535
           $(whoami) hard     nofile         65535
           EOF
+
+      - name: Cache Go modules
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Test

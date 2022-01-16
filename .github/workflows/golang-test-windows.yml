@@ -1,6 +1,5 @@
-on:
-  push:
 name: Test Code Windows
+on: push
 jobs:
   pre:
     runs-on: ubuntu-latest
@@ -9,12 +8,11 @@ jobs:
         uses: actions/checkout@v2
       - run: bash -x wireguard_nt.sh
         working-directory: client
-      - run: ls -l client/*syso
+
       - uses: actions/upload-artifact@v2
         with:
           name: syso
           path: client/*.syso
-#            client/.deps/wireguard-nt/bin/amd64/wireguard.dll
           retention-days: 1
 
   test:
@@ -26,13 +24,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
+
       - name: Install Go
         uses: actions/setup-go@v2
         with:
           go-version: ${{ matrix.go-version }}
 
       - uses: actions/cache@v2
-        if: always()
         with:
           path: |
             %LocalAppData%\go-build
@@ -46,20 +44,5 @@ jobs:
           name: syso
           path: iface\
 
-      - name: Download EnVar plugin for NSIS
-        uses: carlosperate/download-file-action@v1.0.3
-        with:
-          file-url: https://download.sysinternals.com/files/PSTools.zip
-          file-name: PSTools.zip
-          location: ${{ github.workspace }}
-
-      - name: Extract PSTools
-        run: Expand-Archive -Path ${{ github.workspace }}\PSTools.zip  -DestinationPath ${{ github.workspace }}\PSTools
-      - run: go mod tidy
       - name: Test build
         run: go test -p 1 -tags=load_wgnt_from_rsrc ./...
-
-#      - name: Test build with PSTools
-#        if: always()
-#        run: ${{ github.workspace }}\PSTools\PsExec64.exe -accepteula -s  -w ${{ github.workspace }} go test -v -p 1 -tags=load_wgnt_from_rsrc ./iface
-
