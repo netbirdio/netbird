@@ -141,7 +141,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 	if meta == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "peer meta data was not provided")
 	}
-	peer, err := s.accountManager.AddPeer(req.GetSetupKey(), Peer{
+	peer, err := s.accountManager.AddPeer(req.GetSetupKey(), &Peer{
 		Key:  peerKey.String(),
 		Name: meta.GetHostname(),
 		Meta: PeerSystemMeta{
@@ -158,21 +158,22 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
 
-	peers, err := s.accountManager.GetPeersForAPeer(peer.Key)
+	//todo move to AccountManager the code below
+	networkMap, err := s.accountManager.GetNetworkMap(peer.Key)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "internal server error")
 	}
 
 	// notify other peers of our registration
-	for _, remotePeer := range peers {
+	for _, remotePeer := range networkMap.Peers {
 		// exclude notified peer and add ourselves
 		peersToSend := []*Peer{peer}
-		for _, p := range peers {
+		for _, p := range networkMap.Peers {
 			if remotePeer.Key != p.Key {
 				peersToSend = append(peersToSend, p)
 			}
 		}
-		update := toSyncResponse(s.config, peer, peersToSend, nil)
+		update := toSyncResponse(s.config, peer, peersToSend, nil, networkMap.Network.Serial())
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
@@ -317,7 +318,7 @@ func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 
 }
 
-func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials, serial uint64) *proto.SyncResponse {
 
 	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
@@ -330,6 +331,12 @@ func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *
 		PeerConfig:         pConfig,
 		RemotePeers:        remotePeers,
 		RemotePeersIsEmpty: len(remotePeers) == 0,
+		NetworkMap: &proto.NetworkMap{
+			Serial:             serial,
+			PeerConfig:         pConfig,
+			RemotePeers:        remotePeers,
+			RemotePeersIsEmpty: len(remotePeers) == 0,
+		},
 	}
 }
 
@@ -341,7 +348,7 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
 
-	peers, err := s.accountManager.GetPeersForAPeer(peer.Key)
+	networkMap, err := s.accountManager.GetNetworkMap(peer.Key)
 	if err != nil {
 		log.Warnf("error getting a list of peers for a peer %s", peer.Key)
 		return err
@@ -355,7 +362,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 	} else {
 		turnCredentials = nil
 	}
-	plainResp := toSyncResponse(s.config, peer, peers, turnCredentials)
+	plainResp := toSyncResponse(s.config, peer, networkMap.Peers, turnCredentials, networkMap.Network.Serial())
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
