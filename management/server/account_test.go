@@ -163,7 +163,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	key, err := wgtypes.GenerateKey()
+	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		t.Fatal(err)
 		return
