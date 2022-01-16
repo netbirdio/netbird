@@ -12,13 +12,20 @@ import (
 
 // keep darwin compability
 const (
-	key        = "0PMI6OkB5JmB+Jj/iWWHekuQRx+bipZirWCWKFXexHc="
-	peerPubKey = "Ok0mC0qlJyXEPKh2UFIpsI2jG0L7LRpC3sLAusSJ5CQ="
-	WgPort     = 51000
+	WgPort = 51000
+)
+
+var (
+	key        string
+	peerPubKey string
 )
 
 func init() {
 	log.SetLevel(log.DebugLevel)
+	privateKey, _ := wgtypes.GeneratePrivateKey()
+	key = privateKey.String()
+	peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
+	peerPubKey = peerPrivateKey.PublicKey().String()
 }
 
 //
@@ -215,12 +222,12 @@ func Test_RemovePeer(t *testing.T) {
 func Test_ConnectPeers(t *testing.T) {
 	peer1ifaceName := fmt.Sprintf("utun%d", 400)
 	peer1wgIP := "10.99.99.10/24"
-	peer1Key, _ := wgtypes.GenerateKey()
+	peer1Key, _ := wgtypes.GeneratePrivateKey()
 	peer1Port := 50001
 	peer1endpoint := fmt.Sprintf("127.0.0.1:%d", peer1Port)
 	peer2ifaceName := fmt.Sprintf("utun%d", 500)
 	peer2wgIP := "10.99.99.20/24"
-	peer2Key, _ := wgtypes.GenerateKey()
+	peer2Key, _ := wgtypes.GeneratePrivateKey()
 	peer2Port := 50002
 	peer2endpoint := fmt.Sprintf("127.0.0.1:%d", peer2Port)
 	//t.Log(peer1ifaceName)
@@ -261,15 +268,24 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(20 * time.Second)
-	peer, err := getPeer(peer1ifaceName, peer2Key.PublicKey().String(), t)
-	if err != nil {
-		t.Fatal(err)
+	timeout := 10 * time.Second
+	timeoutChannel := time.After(timeout)
+	for {
+		select {
+		case <-timeoutChannel:
+			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
+		default:
+		}
+		peer, gpErr := getPeer(peer1ifaceName, peer2Key.PublicKey().String(), t)
+		if gpErr != nil {
+			t.Fatal(gpErr)
+		}
+		if !peer.LastHandshakeTime.IsZero() {
+			t.Log("peers successfully handshake")
+			break
+		}
 	}
-	t.Log(peer)
-	if peer.LastHandshakeTime.IsZero() {
-		t.Fatal("Last handshake is zero")
-	}
+
 }
 
 func Test_Close(t *testing.T) {
