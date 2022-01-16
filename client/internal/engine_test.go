@@ -109,7 +109,11 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	defer func() {
 		for _, peerEngine := range engines {
 			go func(peerEngine *Engine) {
-				peerEngine.Stop()
+				errStop := peerEngine.Stop()
+				if errStop != nil {
+					log.Infoln("got error trying to close testing peers engine: ", errStop)
+				}
+
 			}(peerEngine)
 		}
 	}()
