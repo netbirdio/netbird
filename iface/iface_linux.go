@@ -1,14 +1,19 @@
 package iface
 
 import (
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"os"
 )
 
+type NativeLink struct {
+	Link *netlink.Link
+}
+
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
-func Create(iface string, address string) error {
+func Create(iface string, address string) (WGIface, error) {
 
 	if WireguardModExists() {
 		log.Debug("using kernel Wireguard module")
@@ -20,98 +25,105 @@ func Create(iface string, address string) error {
 
 // CreateWithKernel Creates a new Wireguard interface using kernel Wireguard module.
 // Works for Linux and offers much better network performance
-func CreateWithKernel(iface string, address string) error {
-	attrs := netlink.NewLinkAttrs()
-	attrs.Name = iface
+func CreateWithKernel(iface string, address string) (WGIface, error) {
 
-	link := wgLink{
-		attrs: &attrs,
+	wgAddress, err := parseAddress(address)
+	if err != nil {
+		return WGIface{}, err
 	}
 
+	wgIface := WGIface{
+		Name:    iface,
+		Address: wgAddress,
+		MTU:     defaultMTU,
+	}
+
+	link := newWGLink(wgIface.Name)
+
 	// check if interface exists
-	l, err := netlink.LinkByName(iface)
+	l, err := netlink.LinkByName(wgIface.Name)
 	if err != nil {
 		switch err.(type) {
 		case netlink.LinkNotFoundError:
 			break
 		default:
-			return err
+			return wgIface, err
 		}
 	}
 
 	// remove if interface exists
 	if l != nil {
-		err = netlink.LinkDel(&link)
+		err = netlink.LinkDel(link)
 		if err != nil {
-			return err
+			return wgIface, err
 		}
 	}
 
 	log.Debugf("adding device: %s", iface)
-	err = netlink.LinkAdd(&link)
+	err = netlink.LinkAdd(link)
 	if os.IsExist(err) {
 		log.Infof("interface %s already exists. Will reuse.", iface)
 	} else if err != nil {
-		return err
+		return wgIface, err
 	}
 
-	err = assignAddr(address, iface)
+	wgIface.Interface = link
+
+	err = wgIface.assignAddr()
 	if err != nil {
-		return err
+		return wgIface, err
 	}
 
 	// todo do a discovery
 	log.Debugf("setting MTU: %d interface: %s", defaultMTU, iface)
-	err = netlink.LinkSetMTU(&link, defaultMTU)
+	err = netlink.LinkSetMTU(link, wgIface.MTU)
 	if err != nil {
 		log.Errorf("error setting MTU on interface: %s", iface)
-		return err
+		return wgIface, err
 	}
 
 	log.Debugf("bringing up interface: %s", iface)
-	err = netlink.LinkSetUp(&link)
+	err = netlink.LinkSetUp(link)
 	if err != nil {
 		log.Errorf("error bringing up interface: %s", iface)
-		return err
+		return wgIface, err
 	}
 
-	return nil
+	return wgIface, nil
 }
 
 // assignAddr Adds IP address to the tunnel interface
-func assignAddr(address, name string) error {
-	var err error
-	attrs := netlink.NewLinkAttrs()
-	attrs.Name = name
+func (w *WGIface) assignAddr() error {
 
-	link := wgLink{
-		attrs: &attrs,
-	}
+	mask, _ := w.Address.Network.Mask.Size()
+	address := fmt.Sprintf("%s/%d", w.Address.IP.String(), mask)
+
+	link := newWGLink(w.Name)
 
 	//delete existing addresses
-	list, err := netlink.AddrList(&link, 0)
+	list, err := netlink.AddrList(link, 0)
 	if err != nil {
 		return err
 	}
 	if len(list) > 0 {
 		for _, a := range list {
-			err = netlink.AddrDel(&link, &a)
+			err = netlink.AddrDel(link, &a)
 			if err != nil {
 				return err
 			}
 		}
 	}
 
-	log.Debugf("adding address %s to interface: %s", address, attrs.Name)
+	log.Debugf("adding address %s to interface: %s", address, w.Name)
 	addr, _ := netlink.ParseAddr(address)
-	err = netlink.AddrAdd(&link, addr)
+	err = netlink.AddrAdd(link, addr)
 	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", attrs.Name, address)
+		log.Infof("interface %s already has the address: %s", w.Name, address)
 	} else if err != nil {
 		return err
 	}
 	// On linux, the link must be brought up
-	err = netlink.LinkSetUp(&link)
+	err = netlink.LinkSetUp(link)
 	return err
 }
 
@@ -119,28 +131,31 @@ type wgLink struct {
 	attrs *netlink.LinkAttrs
 }
 
+func newWGLink(name string) *wgLink {
+	attrs := netlink.NewLinkAttrs()
+	attrs.Name = name
+
+	return &wgLink{
+		attrs: &attrs,
+	}
+}
+
 // Attrs returns the Wireguard's default attributes
-func (w *wgLink) Attrs() *netlink.LinkAttrs {
-	return w.attrs
+func (l *wgLink) Attrs() *netlink.LinkAttrs {
+	return l.attrs
 }
 
 // Type returns the interface type
-func (w *wgLink) Type() string {
+func (l *wgLink) Type() string {
 	return "wireguard"
 }
 
+// Close deletes the link interface
+func (l *wgLink) Close() error {
+	return netlink.LinkDel(l)
+}
+
 // Close closes the tunnel interface
-func Close(iFace string) error {
-
-	if tunIface != nil {
-		return CloseWithUserspace()
-	} else {
-		attrs := netlink.NewLinkAttrs()
-		attrs.Name = iFace
-
-		link := wgLink{
-			attrs: &attrs,
-		}
-		return netlink.LinkDel(&link)
-	}
+func (w *WGIface) Close() error {
+	return w.Interface.Close()
 }
