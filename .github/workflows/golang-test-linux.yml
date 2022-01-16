@@ -34,5 +34,9 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v2
+
+      - name: Install modules
+        run: go mod tidy
+
       - name: Test
         run: GOBIN=$(which go) && sudo --preserve-env=GOROOT $GOBIN test ./...

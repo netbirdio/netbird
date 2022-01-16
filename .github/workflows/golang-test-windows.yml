@@ -44,5 +44,8 @@ jobs:
           name: syso
           path: iface\
 
+      - name: Install modules
+        run: go mod tidy
+
       - name: Test build
         run: go test -tags=load_wgnt_from_rsrc ./...

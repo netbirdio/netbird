@@ -18,9 +18,12 @@ jobs:
         uses: actions/cache@v2
         with:
           path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          key: macos-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-
+            macos-go-
+
+      - name: Install modules
+        run: go mod tidy
 
       - name: Test
         run: GOBIN=$(which go) && sudo --preserve-env=GOROOT $GOBIN test ./...
