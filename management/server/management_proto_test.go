@@ -41,7 +41,7 @@ func registerPeers(peersNum int, client mgmtProto.ManagementServiceClient) ([]*w
 
 	var peers = []*wgtypes.Key{}
 	for i := 0; i < peersNum; i++ {
-		key, err := wgtypes.GenerateKey()
+		key, err := wgtypes.GeneratePrivateKey()
 		if err != nil {
 			return nil, err
 		}
