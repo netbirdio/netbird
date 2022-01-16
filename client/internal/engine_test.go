@@ -120,7 +120,8 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	// check whether all the peer have expected peers connected
 
 	expectedConnected := numPeers * (numPeers - 1)
-	timeout := 30 * time.Second
+	// adjust according to timeouts
+	timeout := 50 * time.Second
 	timeoutChan := time.After(timeout)
 	for {
 		select {

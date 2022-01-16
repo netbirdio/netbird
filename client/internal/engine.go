@@ -21,6 +21,7 @@ import (
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
 // E.g. this peer will wait PeerConnectionTimeoutMax for the remote peer to respond, if not successful then it will retry the connection attempt.
+// Todo pass timeout at EnginConfig
 const PeerConnectionTimeoutMax = 45000 //ms
 const PeerConnectionTimeoutMin = 30000 //ms
 
