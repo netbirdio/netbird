@@ -226,7 +226,7 @@ func Test_ConnectPeers(t *testing.T) {
 	peer1ifaceName := fmt.Sprintf("utun%d", 400)
 	peer1wgIP := "10.99.99.100/24"
 	peer1Key, _ := wgtypes.GeneratePrivateKey()
-	peer1Port := 50001
+	peer1Port := WgPort + 4
 
 	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer1Port))
 	if err != nil {
@@ -236,7 +236,7 @@ func Test_ConnectPeers(t *testing.T) {
 	peer2ifaceName := fmt.Sprintf("utun%d", 500)
 	peer2wgIP := "10.99.99.200/24"
 	peer2Key, _ := wgtypes.GeneratePrivateKey()
-	peer2Port := 50002
+	peer2Port := WgPort + 5
 
 	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer2Port))
 	if err != nil {
