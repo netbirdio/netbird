@@ -224,7 +224,7 @@ func Test_RemovePeer(t *testing.T) {
 
 func Test_ConnectPeers(t *testing.T) {
 	peer1ifaceName := fmt.Sprintf("utun%d", 400)
-	peer1wgIP := "10.99.99.10/24"
+	peer1wgIP := "10.99.99.100/24"
 	peer1Key, _ := wgtypes.GeneratePrivateKey()
 	peer1Port := 50001
 
@@ -234,7 +234,7 @@ func Test_ConnectPeers(t *testing.T) {
 	}
 
 	peer2ifaceName := fmt.Sprintf("utun%d", 500)
-	peer2wgIP := "10.99.99.20/24"
+	peer2wgIP := "10.99.99.200/24"
 	peer2Key, _ := wgtypes.GeneratePrivateKey()
 	peer2Port := 50002
 
