@@ -59,7 +59,7 @@ jobs:
       - name: Test build
         run: go test -p 1 -tags=load_wgnt_from_rsrc ./...
 
-      - name: Test build with PSTools
-        if: always()
-        run: ${{ github.workspace }}\PSTools\PsExec64.exe -accepteula -s  -w ${{ github.workspace }} go test -v -p 1 -tags=load_wgnt_from_rsrc ./iface
+#      - name: Test build with PSTools
+#        if: always()
+#        run: ${{ github.workspace }}\PSTools\PsExec64.exe -accepteula -s  -w ${{ github.workspace }} go test -v -p 1 -tags=load_wgnt_from_rsrc ./iface
 
