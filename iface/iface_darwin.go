@@ -37,7 +37,6 @@ func (w *WGIface) Close() error {
 
 	err := w.Interface.Close()
 	if err != nil {
-		log.Printf("ok")
 		return err
 	}
 

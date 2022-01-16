@@ -62,7 +62,7 @@ type Engine struct {
 
 	ctx context.Context
 
-	wgInterface iface.WGInterface
+	wgInterface iface.WGIface
 }
 
 // Peer is an instance of the Connection Peer
@@ -96,7 +96,7 @@ func (e *Engine) Stop() error {
 	}
 
 	log.Debugf("removing Wiretrustee interface %s", e.config.WgIfaceName)
-	if e.wgInterface != nil {
+	if e.wgInterface.Interface != nil {
 		err = e.wgInterface.Close()
 		if err != nil {
 			log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIfaceName, err)

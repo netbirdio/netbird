@@ -36,20 +36,18 @@ type NetInterface interface {
 
 // CreateWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
 func CreateWithUserspace(iface string, address string) (WGIface, error) {
-	ip, network, err := net.ParseCIDR(address)
+	wgAddress, err := parseAddress(address)
 	if err != nil {
 		return WGIface{}, err
 	}
 
 	wgIface := WGIface{
-		Name: iface,
-		Address: WGAddress{
-			IP:      ip,
-			Network: network,
-		},
+		Name:    iface,
+		Address: wgAddress,
+		MTU:     defaultMTU,
 	}
-	//var err error
-	tunIface, err := tun.CreateTUN(iface, defaultMTU)
+
+	tunIface, err := tun.CreateTUN(iface, wgIface.MTU)
 	if err != nil {
 		return wgIface, err
 	}
@@ -85,6 +83,18 @@ func CreateWithUserspace(iface string, address string) (WGIface, error) {
 		return wgIface, err
 	}
 	return wgIface, nil
+}
+
+// parseAddress parse a string ("1.2.3.4/24") address to WG Address
+func parseAddress(address string) (WGAddress, error) {
+	ip, network, err := net.ParseCIDR(address)
+	if err != nil {
+		return WGAddress{}, err
+	}
+	return WGAddress{
+		IP:      ip,
+		Network: network,
+	}, nil
 }
 
 // configure peer for the wireguard device
