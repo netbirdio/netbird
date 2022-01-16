@@ -410,7 +410,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	proxyConfig := proxy.Config{
 		RemoteKey:    pubKey,
 		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.config.WgPort),
-		WgInterface:  e.config.WgIfaceName,
+		WgInterface:  e.wgInterface,
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
 	}
