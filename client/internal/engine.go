@@ -61,6 +61,9 @@ type Engine struct {
 	cancel context.CancelFunc
 
 	ctx context.Context
+
+	// networkSerial is the latest Serial (state ID) of the network sent by the Management service
+	networkSerial uint64
 }
 
 // Peer is an instance of the Connection Peer
@@ -72,15 +75,16 @@ type Peer struct {
 // NewEngine creates a new Connection Engine
 func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
 	return &Engine{
-		signal:     signalClient,
-		mgmClient:  mgmClient,
-		peerConns:  map[string]*peer.Conn{},
-		syncMsgMux: &sync.Mutex{},
-		config:     config,
-		STUNs:      []*ice.URL{},
-		TURNs:      []*ice.URL{},
-		cancel:     cancel,
-		ctx:        ctx,
+		signal:        signalClient,
+		mgmClient:     mgmClient,
+		peerConns:     map[string]*peer.Conn{},
+		syncMsgMux:    &sync.Mutex{},
+		config:        config,
+		STUNs:         []*ice.URL{},
+		TURNs:         []*ice.URL{},
+		cancel:        cancel,
+		ctx:           ctx,
+		networkSerial: 0,
 	}
 }
 
@@ -256,11 +260,17 @@ func (e *Engine) receiveManagementEvents() {
 				//todo update signal
 			}
 
-			if update.GetRemotePeers() != nil || update.GetRemotePeersIsEmpty() {
-				// empty arrays are serialized by protobuf to null, but for our case empty array is a valid state.
-				err := e.updatePeers(update.GetRemotePeers())
-				if err != nil {
-					return err
+			if update.GetNetworkMap() != nil {
+
+				serial := update.NetworkMap.GetSerial()
+				if e.networkSerial <= serial {
+					err := e.updateNetworkMap(update.GetNetworkMap())
+					if err != nil {
+						return err
+					}
+					e.networkSerial = serial
+				} else {
+
 				}
 			}
 
@@ -315,10 +325,20 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 	return nil
 }
 
-func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
-	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(remotePeers))
+func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
+	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
+
+	// cleanup request, most likely our peer has been deleted
+	if networkMap.GetRemotePeersIsEmpty() {
+		err := e.removeAllPeerConnections()
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
 	remotePeerMap := make(map[string]struct{})
-	for _, p := range remotePeers {
+	for _, p := range networkMap.GetRemotePeers() {
 		remotePeerMap[p.GetWgPubKey()] = struct{}{}
 	}
 
@@ -335,7 +355,7 @@ func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
 	}
 
 	// add new peers
-	for _, p := range remotePeers {
+	for _, p := range networkMap.GetRemotePeers() {
 		peerKey := p.GetWgPubKey()
 		peerIPs := p.GetAllowedIps()
 		if _, ok := e.peerConns[peerKey]; !ok {
