@@ -139,6 +139,7 @@ func (e *Engine) Start() error {
 	return nil
 }
 
+// removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service
 func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 
 	currentPeers := make([]string, 0, len(e.peerConns))
@@ -365,6 +366,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	return nil
 }
 
+// addNewPeers finds and adds peers that were not know before but arrived from the Management service with the update
 func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	for _, p := range peersUpdate {
 		peerKey := p.GetWgPubKey()
