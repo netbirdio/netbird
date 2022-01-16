@@ -262,6 +262,7 @@ func (e *Engine) receiveManagementEvents() {
 
 			if update.GetNetworkMap() != nil {
 
+				// only apply new changes and ignore old ones
 				serial := update.NetworkMap.GetSerial()
 				if e.networkSerial <= serial {
 					err := e.updateNetworkMap(update.GetNetworkMap())
@@ -270,7 +271,7 @@ func (e *Engine) receiveManagementEvents() {
 					}
 					e.networkSerial = serial
 				} else {
-
+					log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
 				}
 			}
 
