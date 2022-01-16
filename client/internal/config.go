@@ -110,7 +110,7 @@ func GetConfig(managementURL string, configPath string, preSharedKey string) (*C
 
 // generateKey generates a new Wireguard private key
 func generateKey() string {
-	key, err := wgtypes.GenerateKey()
+	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		panic(err)
 	}
