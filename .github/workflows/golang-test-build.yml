@@ -29,7 +29,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Install modules
-        run: go mod tidy
+        run: GOOS=${{ matrix.os }} go mod tidy
 
       - name: run build client
         run: GOOS=${{ matrix.os }} go build .
