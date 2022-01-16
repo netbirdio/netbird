@@ -13,41 +13,30 @@ type NativeLink struct {
 
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
-func Create(iface string, address string) (WGIface, error) {
+func (w *WGIface) Create() error {
 
 	if WireguardModExists() {
 		log.Debug("using kernel Wireguard module")
-		return CreateWithKernel(iface, address)
+		return w.CreateWithKernel()
 	} else {
-		return CreateWithUserspace(iface, address)
+		return w.CreateWithUserspace()
 	}
 }
 
 // CreateWithKernel Creates a new Wireguard interface using kernel Wireguard module.
 // Works for Linux and offers much better network performance
-func CreateWithKernel(iface string, address string) (WGIface, error) {
+func (w *WGIface) CreateWithKernel() error {
 
-	wgAddress, err := parseAddress(address)
-	if err != nil {
-		return WGIface{}, err
-	}
-
-	wgIface := WGIface{
-		Name:    iface,
-		Address: wgAddress,
-		MTU:     defaultMTU,
-	}
-
-	link := newWGLink(wgIface.Name)
+	link := newWGLink(w.Name)
 
 	// check if interface exists
-	l, err := netlink.LinkByName(wgIface.Name)
+	l, err := netlink.LinkByName(w.Name)
 	if err != nil {
 		switch err.(type) {
 		case netlink.LinkNotFoundError:
 			break
 		default:
-			return wgIface, err
+			return err
 		}
 	}
 
@@ -55,41 +44,41 @@ func CreateWithKernel(iface string, address string) (WGIface, error) {
 	if l != nil {
 		err = netlink.LinkDel(link)
 		if err != nil {
-			return wgIface, err
+			return err
 		}
 	}
 
-	log.Debugf("adding device: %s", iface)
+	log.Debugf("adding device: %s", w.Name)
 	err = netlink.LinkAdd(link)
 	if os.IsExist(err) {
-		log.Infof("interface %s already exists. Will reuse.", iface)
+		log.Infof("interface %s already exists. Will reuse.", w.Name)
 	} else if err != nil {
-		return wgIface, err
+		return err
 	}
 
-	wgIface.Interface = link
+	w.Interface = link
 
-	err = wgIface.assignAddr()
+	err = w.assignAddr()
 	if err != nil {
-		return wgIface, err
+		return err
 	}
 
 	// todo do a discovery
-	log.Debugf("setting MTU: %d interface: %s", defaultMTU, iface)
-	err = netlink.LinkSetMTU(link, wgIface.MTU)
+	log.Debugf("setting MTU: %d interface: %s", w.MTU, w.Name)
+	err = netlink.LinkSetMTU(link, w.MTU)
 	if err != nil {
-		log.Errorf("error setting MTU on interface: %s", iface)
-		return wgIface, err
+		log.Errorf("error setting MTU on interface: %s", w.Name)
+		return err
 	}
 
-	log.Debugf("bringing up interface: %s", iface)
+	log.Debugf("bringing up interface: %s", w.Name)
 	err = netlink.LinkSetUp(link)
 	if err != nil {
-		log.Errorf("error bringing up interface: %s", iface)
-		return wgIface, err
+		log.Errorf("error bringing up interface: %s", w.Name)
+		return err
 	}
 
-	return wgIface, nil
+	return nil
 }
 
 // assignAddr Adds IP address to the tunnel interface

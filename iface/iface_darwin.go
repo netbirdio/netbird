@@ -7,8 +7,8 @@ import (
 )
 
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
-func Create(iface string, address string) (WGIface, error) {
-	return CreateWithUserspace(iface, address)
+func (w *WGIface) Create() error {
+	return w.CreateWithUserspace()
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided

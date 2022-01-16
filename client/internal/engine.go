@@ -119,15 +119,21 @@ func (e *Engine) Start() error {
 	wgIfaceName := e.config.WgIfaceName
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
+	var err error
 
-	wgIface, err := iface.Create(wgIfaceName, wgAddr)
+	e.wgInterface, err = iface.NewWGIface(wgIfaceName, wgAddr, iface.DefaultMTU)
 	if err != nil {
-		log.Errorf("failed creating interface %s: [%s]", wgIfaceName, err.Error())
+		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIfaceName, err.Error())
 		return err
 	}
-	e.wgInterface = wgIface
 
-	err = iface.Configure(wgIfaceName, myPrivateKey.String(), e.config.WgPort)
+	err = e.wgInterface.Create()
+	if err != nil {
+		log.Errorf("failed creating tunnel interface %s: [%s]", wgIfaceName, err.Error())
+		return err
+	}
+
+	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
 	if err != nil {
 		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
 		return err
