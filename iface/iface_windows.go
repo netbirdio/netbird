@@ -45,8 +45,3 @@ func (w *WGIface) assignAddr(luid winipcfg.LUID) error {
 
 	return nil
 }
-
-// Closes the tunnel interface
-func (w *WGIface) Close() error {
-	return w.Interface.Close()
-}

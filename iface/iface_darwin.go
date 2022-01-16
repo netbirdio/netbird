@@ -2,7 +2,6 @@ package iface
 
 import (
 	log "github.com/sirupsen/logrus"
-	"os"
 	"os/exec"
 )
 
@@ -29,23 +28,5 @@ func (w *WGIface) assignAddr() error {
 		return err
 	}
 
-	return nil
-}
-
-// Closes the tunnel interface
-func (w *WGIface) Close() error {
-
-	err := w.Interface.Close()
-	if err != nil {
-		return err
-	}
-
-	sockPath := "/var/run/wireguard/" + w.Name + ".sock"
-	if _, statErr := os.Stat(sockPath); statErr == nil {
-		statErr = os.Remove(sockPath)
-		if statErr != nil {
-			return statErr
-		}
-	}
 	return nil
 }

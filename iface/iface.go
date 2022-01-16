@@ -3,6 +3,8 @@ package iface
 import (
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
+	"os"
+	"runtime"
 )
 
 const (
@@ -18,6 +20,7 @@ type WGIface struct {
 	Interface NetInterface
 }
 
+// WGAddress Wireguard parsed address
 type WGAddress struct {
 	IP      net.IP
 	Network *net.IPNet
@@ -81,7 +84,23 @@ func parseAddress(address string) (WGAddress, error) {
 	}, nil
 }
 
-// CloseWithUserspace closes the User Space tunnel interface
-func CloseWithUserspace(tunIface NetInterface) error {
-	return tunIface.Close()
+// Closes the tunnel interface
+func (w *WGIface) Close() error {
+
+	err := w.Interface.Close()
+	if err != nil {
+		return err
+	}
+
+	if runtime.GOOS == "darwin" {
+		sockPath := "/var/run/wireguard/" + w.Name + ".sock"
+		if _, statErr := os.Stat(sockPath); statErr == nil {
+			statErr = os.Remove(sockPath)
+			if statErr != nil {
+				return statErr
+			}
+		}
+	}
+
+	return nil
 }

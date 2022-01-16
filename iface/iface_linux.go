@@ -143,8 +143,3 @@ func (l *wgLink) Type() string {
 func (l *wgLink) Close() error {
 	return netlink.LinkDel(l)
 }
-
-// Close closes the tunnel interface
-func (w *WGIface) Close() error {
-	return w.Interface.Close()
-}
