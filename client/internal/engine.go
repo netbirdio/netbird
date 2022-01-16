@@ -12,6 +12,7 @@ import (
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
+	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"math/rand"
 	"strings"
@@ -92,7 +93,7 @@ func (e *Engine) Stop() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	err := e.removeAllPeerConnections()
+	err := e.removeAllPeers()
 	if err != nil {
 		return err
 	}
@@ -138,8 +139,21 @@ func (e *Engine) Start() error {
 	return nil
 }
 
-func (e *Engine) removePeers(peers []string) error {
-	for _, p := range peers {
+func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
+
+	currentPeers := make([]string, 0, len(e.peerConns))
+	for p, _ := range e.peerConns {
+		currentPeers = append(currentPeers, p)
+	}
+
+	newPeers := make([]string, 0, len(peersUpdate))
+	for _, p := range peersUpdate {
+		newPeers = append(newPeers, p.GetWgPubKey())
+	}
+
+	toRemove := util.SliceDiff(currentPeers, newPeers)
+
+	for _, p := range toRemove {
 		err := e.removePeer(p)
 		if err != nil {
 			return err
@@ -149,7 +163,7 @@ func (e *Engine) removePeers(peers []string) error {
 	return nil
 }
 
-func (e *Engine) removeAllPeerConnections() error {
+func (e *Engine) removeAllPeers() error {
 	log.Debugf("removing all peer connections")
 	for p := range e.peerConns {
 		err := e.removePeer(p)
@@ -331,32 +345,28 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	// cleanup request, most likely our peer has been deleted
 	if networkMap.GetRemotePeersIsEmpty() {
-		err := e.removeAllPeerConnections()
+		err := e.removeAllPeers()
 		if err != nil {
 			return err
 		}
 		return nil
 	}
 
-	remotePeerMap := make(map[string]struct{})
-	for _, p := range networkMap.GetRemotePeers() {
-		remotePeerMap[p.GetWgPubKey()] = struct{}{}
-	}
-
-	//remove peers that are no longer available for us
-	toRemove := []string{}
-	for p := range e.peerConns {
-		if _, ok := remotePeerMap[p]; !ok {
-			toRemove = append(toRemove, p)
-		}
-	}
-	err := e.removePeers(toRemove)
+	err := e.removePeers(networkMap.GetRemotePeers())
 	if err != nil {
 		return err
 	}
 
-	// add new peers
-	for _, p := range networkMap.GetRemotePeers() {
+	err = e.addNewPeers(networkMap.GetRemotePeers())
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
+	for _, p := range peersUpdate {
 		peerKey := p.GetWgPubKey()
 		peerIPs := p.GetAllowedIps()
 		if _, ok := e.peerConns[peerKey]; !ok {
@@ -371,6 +381,20 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	}
 	return nil
+}
+
+func findPeersToRemove(peerConns map[string]*peer.Conn, peersUpdate []*mgmProto.RemotePeerConfig) []string {
+	currentPeers := make([]string, 0, len(peerConns))
+	for p, _ := range peerConns {
+		currentPeers = append(currentPeers, p)
+	}
+
+	newPeers := make([]string, 0, len(peersUpdate))
+	for _, p := range peersUpdate {
+		newPeers = append(newPeers, p.GetWgPubKey())
+	}
+
+	return util.SliceDiff(currentPeers, newPeers)
 }
 
 func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
