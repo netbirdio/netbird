@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"net"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -80,6 +81,9 @@ func Test_SyncProtocol(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() {
+		os.Remove(filepath.Join(dir, "store.json")) //nolint
+	}()
 
 	mgmtServer, err := startManagement(33071, &Config{
 		Stuns: []*Host{{
