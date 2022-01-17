@@ -37,6 +37,33 @@ var (
 	}
 )
 
+func TestEngine_Serial(t *testing.T) {
+
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	engine := NewEngine(nil, nil, &EngineConfig{
+		WgIfaceName:  "utun100",
+		WgAddr:       "100.64.0.1/24",
+		WgPrivateKey: key,
+		WgPort:       33100,
+	}, cancel, ctx)
+
+	defer func() {
+		err := engine.Stop()
+		if err != nil {
+			return
+		}
+	}()
+
+}
+
 func TestEngine_MultiplePeers(t *testing.T) {
 
 	//log.SetLevel(log.DebugLevel)
@@ -58,23 +85,14 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	sport := 10010
-	signalServer, err := startSignal(sport)
+	sigServer, err := startSignal(sport)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
-	defer signalServer.Stop()
+	defer sigServer.Stop()
 	mport := 33081
-	mgmtServer, err := startManagement(mport, &server.Config{
-		Stuns:      []*server.Host{},
-		TURNConfig: &server.TURNConfig{},
-		Signal: &server.Host{
-			Proto: "http",
-			URI:   "localhost:10000",
-		},
-		Datadir:    dir,
-		HttpConfig: nil,
-	})
+	mgmtServer, err := startManagement(mport, dir)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -201,7 +219,18 @@ func startSignal(port int) (*grpc.Server, error) {
 	return s, nil
 }
 
-func startManagement(port int, config *server.Config) (*grpc.Server, error) {
+func startManagement(port int, dataDir string) (*grpc.Server, error) {
+
+	config := &server.Config{
+		Stuns:      []*server.Host{},
+		TURNConfig: &server.TURNConfig{},
+		Signal: &server.Host{
+			Proto: "http",
+			URI:   "localhost:10000",
+		},
+		Datadir:    dataDir,
+		HttpConfig: nil,
+	}
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {

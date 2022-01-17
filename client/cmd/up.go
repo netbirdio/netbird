@@ -83,7 +83,7 @@ func createEngineConfig(key wgtypes.Key, config *internal.Config, peerConfig *mg
 }
 
 // connectToSignal creates Signal Service client and established a connection
-func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, ourPrivateKey wgtypes.Key) (*signal.Client, error) {
+func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, ourPrivateKey wgtypes.Key) (*signal.GrpcClient, error) {
 	var sigTLSEnabled bool
 	if wtConfig.Signal.Protocol == mgmProto.HostConfig_HTTPS {
 		sigTLSEnabled = true
