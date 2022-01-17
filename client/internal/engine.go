@@ -143,7 +143,7 @@ func (e *Engine) Start() error {
 func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 
 	currentPeers := make([]string, 0, len(e.peerConns))
-	for p, _ := range e.peerConns {
+	for p := range e.peerConns {
 		currentPeers = append(currentPeers, p)
 	}
 
@@ -383,20 +383,6 @@ func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 
 	}
 	return nil
-}
-
-func findPeersToRemove(peerConns map[string]*peer.Conn, peersUpdate []*mgmProto.RemotePeerConfig) []string {
-	currentPeers := make([]string, 0, len(peerConns))
-	for p, _ := range peerConns {
-		currentPeers = append(currentPeers, p)
-	}
-
-	newPeers := make([]string, 0, len(peersUpdate))
-	for _, p := range peersUpdate {
-		newPeers = append(newPeers, p.GetWgPubKey())
-	}
-
-	return util.SliceDiff(currentPeers, newPeers)
 }
 
 func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
