@@ -47,7 +47,7 @@ type Engine struct {
 	// signal is a Signal Service client
 	signal signal.Client
 	// mgmClient is a Management Service client
-	mgmClient *mgm.Client
+	mgmClient *mgm.GrpcClient
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
 
@@ -77,7 +77,7 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signalClient signal.Client, mgmClient *mgm.Client, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
+func NewEngine(signalClient signal.Client, mgmClient *mgm.GrpcClient, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
 	return &Engine{
 		signal:        signalClient,
 		mgmClient:     mgmClient,
