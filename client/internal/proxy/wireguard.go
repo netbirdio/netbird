@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/iface"
 	"net"
 )
 
@@ -25,9 +24,13 @@ func NewWireguardProxy(config Config) *WireguardProxy {
 }
 
 func (p *WireguardProxy) updateEndpoint() error {
+	udpAddr, err := net.ResolveUDPAddr(p.localConn.LocalAddr().Network(), p.localConn.LocalAddr().String())
+	if err != nil {
+		return err
+	}
 	// add local proxy connection as a Wireguard peer
-	err := iface.UpdatePeer(p.config.WgInterface, p.config.RemoteKey, p.config.AllowedIps, DefaultWgKeepAlive,
-		p.localConn.LocalAddr().String(), p.config.PreSharedKey)
+	err = p.config.WgInterface.UpdatePeer(p.config.RemoteKey, p.config.AllowedIps, DefaultWgKeepAlive,
+		udpAddr, p.config.PreSharedKey)
 	if err != nil {
 		return err
 	}
@@ -65,7 +68,7 @@ func (p *WireguardProxy) Close() error {
 			return err
 		}
 	}
-	err := iface.RemovePeer(p.config.WgInterface, p.config.RemoteKey)
+	err := p.config.WgInterface.RemovePeer(p.config.RemoteKey)
 	if err != nil {
 		return err
 	}

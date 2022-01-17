@@ -93,6 +93,12 @@ var _ = Describe("Client", func() {
 				_, err = io.Copy(hashDst, dstFile)
 				Expect(err).NotTo(HaveOccurred())
 
+				err = srcFile.Close()
+				Expect(err).NotTo(HaveOccurred())
+
+				err = dstFile.Close()
+				Expect(err).NotTo(HaveOccurred())
+
 				Expect(hex.EncodeToString(hashSrc.Sum(nil)[:16])).To(BeEquivalentTo(hex.EncodeToString(hashDst.Sum(nil)[:16])))
 			})
 		})
