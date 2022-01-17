@@ -50,18 +50,13 @@ func TestEngine_Serial(t *testing.T) {
 
 	// feed updates to Engine via mocked Management client
 	updates := make(chan *mgmtProto.SyncResponse)
+	defer close(updates)
 	syncFunc := func(msgHandler func(msg *mgmtProto.SyncResponse) error) error {
-	loop:
-		for {
-			select {
-			case msg, ok := <-updates:
-				if !ok {
-					break loop
-				}
-				err := msgHandler(msg)
-				if err != nil {
-					t.Fatal(err)
-				}
+
+		for msg := range updates {
+			err := msgHandler(msg)
+			if err != nil {
+				t.Fatal(err)
 			}
 		}
 		return nil

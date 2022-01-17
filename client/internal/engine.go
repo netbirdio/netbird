@@ -213,7 +213,7 @@ func (e *Engine) GetPeers() []string {
 	defer e.syncMsgMux.Unlock()
 
 	peers := []string{}
-	for s, _ := range e.peerConns {
+	for s := range e.peerConns {
 		peers = append(peers, s)
 	}
 	return peers
