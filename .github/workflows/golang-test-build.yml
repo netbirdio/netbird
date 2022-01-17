@@ -22,7 +22,7 @@ jobs:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-test-${{ matrix.os }}-${{ hashFiles('**/go.sum') }}
           restore-keys: |
-            ${{ runner.os }}-go-
+            ${{ runner.os }}-go-test-${{ matrix.os }}
 
       - name: Install modules
         run: GOOS=${{ matrix.os }} go mod tidy
