@@ -84,8 +84,8 @@ func Test_SyncProtocol(t *testing.T) {
 	defer func() {
 		os.Remove(filepath.Join(dir, "store.json")) //nolint
 	}()
-
-	mgmtServer, err := startManagement(33071, &Config{
+	mport := 33091
+	mgmtServer, err := startManagement(mport, &Config{
 		Stuns: []*Host{{
 			Proto: "udp",
 			URI:   "stun:stun.wiretrustee.com:3468",
@@ -112,7 +112,7 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 	defer mgmtServer.Stop()
 
-	client, clientConn, err := createRawClient("localhost:33071")
+	client, clientConn, err := createRawClient(fmt.Sprintf("localhost:%d", mport))
 	if err != nil {
 		t.Fatal(err)
 		return
