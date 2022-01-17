@@ -21,6 +21,7 @@ import (
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
 // E.g. this peer will wait PeerConnectionTimeoutMax for the remote peer to respond, if not successful then it will retry the connection attempt.
+// Todo pass timeout at EnginConfig
 const PeerConnectionTimeoutMax = 45000 //ms
 const PeerConnectionTimeoutMin = 30000 //ms
 
@@ -28,8 +29,8 @@ const WgPort = 51820
 
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
-	WgPort  int
-	WgIface string
+	WgPort      int
+	WgIfaceName string
 	// WgAddr is a Wireguard local address (Wiretrustee Network IP)
 	WgAddr string
 	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
@@ -61,6 +62,8 @@ type Engine struct {
 	cancel context.CancelFunc
 
 	ctx context.Context
+
+	wgInterface iface.WGIface
 }
 
 // Peer is an instance of the Connection Peer
@@ -93,11 +96,13 @@ func (e *Engine) Stop() error {
 		return err
 	}
 
-	log.Debugf("removing Wiretrustee interface %s", e.config.WgIface)
-	err = iface.Close(e.config.WgIface)
-	if err != nil {
-		log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIface, err)
-		return err
+	log.Debugf("removing Wiretrustee interface %s", e.config.WgIfaceName)
+	if e.wgInterface.Interface != nil {
+		err = e.wgInterface.Close()
+		if err != nil {
+			log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIfaceName, err)
+			return err
+		}
 	}
 
 	log.Infof("stopped Wiretrustee Engine")
@@ -112,19 +117,26 @@ func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	wgIface := e.config.WgIface
+	wgIfaceName := e.config.WgIfaceName
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
+	var err error
 
-	err := iface.Create(wgIface, wgAddr)
+	e.wgInterface, err = iface.NewWGIface(wgIfaceName, wgAddr, iface.DefaultMTU)
 	if err != nil {
-		log.Errorf("failed creating interface %s: [%s]", wgIface, err.Error())
+		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIfaceName, err.Error())
 		return err
 	}
 
-	err = iface.Configure(wgIface, myPrivateKey.String(), e.config.WgPort)
+	err = e.wgInterface.Create()
 	if err != nil {
-		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIface, err.Error())
+		log.Errorf("failed creating tunnel interface %s: [%s]", wgIfaceName, err.Error())
+		return err
+	}
+
+	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
+	if err != nil {
+		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
 		return err
 	}
 
@@ -399,7 +411,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	proxyConfig := proxy.Config{
 		RemoteKey:    pubKey,
 		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.config.WgPort),
-		WgInterface:  e.config.WgIface,
+		WgInterface:  e.wgInterface,
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
 	}
