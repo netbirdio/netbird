@@ -48,8 +48,8 @@ func TestEngine_Serial(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// feed updates to Engine via mocked Management client
 	updates := make(chan *mgmtProto.SyncResponse)
-
 	syncFunc := func(msgHandler func(msg *mgmtProto.SyncResponse) error) error {
 	loop:
 		for {
