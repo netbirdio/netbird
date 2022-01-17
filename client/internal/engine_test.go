@@ -48,7 +48,26 @@ func TestEngine_Serial(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	engine := NewEngine(&SignalClientMock{}, nil, &EngineConfig{
+	updates := make(chan *mgmtProto.SyncResponse)
+
+	syncFunc := func(msgHandler func(msg *mgmtProto.SyncResponse) error) error {
+	loop:
+		for {
+			select {
+			case msg, ok := <-updates:
+				if !ok {
+					break loop
+				}
+				err := msgHandler(msg)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		return nil
+	}
+
+	engine := NewEngine(&signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, &EngineConfig{
 		WgIfaceName:  "utun100",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
@@ -62,6 +81,92 @@ func TestEngine_Serial(t *testing.T) {
 		}
 	}()
 
+	err = engine.Start()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peer1 := &mgmtProto.RemotePeerConfig{
+		WgPubKey:   "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		AllowedIps: []string{"100.64.0.10/24"},
+	}
+	// 1st update with just 1 peer and serial larger than the current serial of the engine => apply update
+	updates <- &mgmtProto.SyncResponse{
+		NetworkMap: &mgmtProto.NetworkMap{
+			Serial:             1,
+			PeerConfig:         nil,
+			RemotePeers:        []*mgmtProto.RemotePeerConfig{peer1},
+			RemotePeersIsEmpty: false,
+		},
+	}
+
+	timeout := time.After(time.Second * 2)
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timeout while waiting for test to finish")
+		default:
+		}
+
+		if len(engine.GetPeers()) == 1 && engine.networkSerial == 1 {
+			break
+		}
+	}
+
+	// 2nd update with just 2 peers and serial larger than the current serial of the engine => apply update
+	peer2 := &mgmtProto.RemotePeerConfig{
+		WgPubKey:   "LLHf3Ma6z6mdLbriAJbqhX9+nM/B71lgw2+91q3LlhU=",
+		AllowedIps: []string{"100.64.0.11/24"},
+	}
+	updates <- &mgmtProto.SyncResponse{
+		NetworkMap: &mgmtProto.NetworkMap{
+			Serial:             2,
+			PeerConfig:         nil,
+			RemotePeers:        []*mgmtProto.RemotePeerConfig{peer1, peer2},
+			RemotePeersIsEmpty: false,
+		},
+	}
+
+	timeout = time.After(time.Second * 2)
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timeout while waiting for test to finish")
+		default:
+		}
+
+		if len(engine.GetPeers()) == 2 && engine.networkSerial == 2 {
+			break
+		}
+	}
+
+	// 3rd update with just  3 peers and serial lower than the current serial of the engine => ignore update
+	peer3 := &mgmtProto.RemotePeerConfig{
+		WgPubKey:   "KKHf3Ma6z6mdLbriAJbqhX9+nM/B71lgw2+91q3LlhU=",
+		AllowedIps: []string{"100.64.0.12/24"},
+	}
+	updates <- &mgmtProto.SyncResponse{
+		NetworkMap: &mgmtProto.NetworkMap{
+			Serial:             1,
+			PeerConfig:         nil,
+			RemotePeers:        []*mgmtProto.RemotePeerConfig{peer1, peer2, peer3},
+			RemotePeersIsEmpty: false,
+		},
+	}
+
+	timeout = time.After(time.Second * 2)
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timeout while waiting for test to finish")
+		default:
+		}
+
+		if len(engine.GetPeers()) == 2 && engine.networkSerial == 2 {
+			break
+		}
+	}
 }
 
 func TestEngine_MultiplePeers(t *testing.T) {

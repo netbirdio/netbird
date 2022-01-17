@@ -47,7 +47,7 @@ type Engine struct {
 	// signal is a Signal Service client
 	signal signal.Client
 	// mgmClient is a Management Service client
-	mgmClient *mgm.GrpcClient
+	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
 
@@ -77,7 +77,7 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signalClient signal.Client, mgmClient *mgm.GrpcClient, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
+func NewEngine(signalClient signal.Client, mgmClient mgm.Client, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
 	return &Engine{
 		signal:        signalClient,
 		mgmClient:     mgmClient,
@@ -207,6 +207,15 @@ func (e *Engine) GetPeerConnectionStatus(peerKey string) peer.ConnStatus {
 	}
 
 	return -1
+}
+func (e *Engine) GetPeers() []string {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	peers := []string{}
+	for s, _ := range e.peerConns {
+		peers = append(peers, s)
+	}
+	return peers
 }
 
 // GetConnectedPeers returns a connection Status or nil if peer connection wasn't found
