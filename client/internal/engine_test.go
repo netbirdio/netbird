@@ -48,7 +48,7 @@ func TestEngine_Serial(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	engine := NewEngine(nil, nil, &EngineConfig{
+	engine := NewEngine(&SignalClientMock{}, nil, &EngineConfig{
 		WgIfaceName:  "utun100",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
