@@ -106,17 +106,6 @@ func TestEngine_MultiplePeers(t *testing.T) {
 
 	// wait until all have been created and started
 	wg.Wait()
-	defer func() {
-		for _, peerEngine := range engines {
-			go func(peerEngine *Engine) {
-				errStop := peerEngine.Stop()
-				if errStop != nil {
-					log.Infoln("got error trying to close testing peers engine: ", errStop)
-				}
-
-			}(peerEngine)
-		}
-	}()
 	// check whether all the peer have expected peers connected
 
 	expectedConnected := numPeers * (numPeers - 1)
@@ -140,6 +129,14 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			break
 		}
 		log.Infof("total connected=%d", totalConnected)
+	}
+
+	// cleanup test
+	for _, peerEngine := range engines {
+		errStop := peerEngine.Stop()
+		if errStop != nil {
+			log.Infoln("got error trying to close testing peers engine: ", errStop)
+		}
 	}
 }
 
