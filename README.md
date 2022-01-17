@@ -39,7 +39,7 @@ It requires zero configuration effort leaving behind the hassle of opening ports
 * Client application SSO with MFA (coming soon).
 * Access Controls (coming soon).
 * Activity Monitoring (coming soon).
-* Private DNS (coming baoon)
+* Private DNS (coming soon)
 
 ### Secure peer-to-peer VPN in minutes
 <p float="left" align="middle">
