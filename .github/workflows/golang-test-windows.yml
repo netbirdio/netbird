@@ -1,0 +1,51 @@
+name: Test Code Windows
+on: push
+jobs:
+  pre:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - run: bash -x wireguard_nt.sh
+        working-directory: client
+
+      - uses: actions/upload-artifact@v2
+        with:
+          name: syso
+          path: client/*.syso
+          retention-days: 1
+
+  test:
+    needs: pre
+    strategy:
+      matrix:
+        go-version: [1.17.x]
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - uses: actions/cache@v2
+        with:
+          path: |
+            %LocalAppData%\go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - uses: actions/download-artifact@v2
+        with:
+          name: syso
+          path: iface\
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: Test build
+        run: go test -tags=load_wgnt_from_rsrc ./...

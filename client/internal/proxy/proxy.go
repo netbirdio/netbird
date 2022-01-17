@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"github.com/wiretrustee/wiretrustee/iface"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"io"
 	"net"
@@ -12,7 +13,7 @@ const DefaultWgKeepAlive = 25 * time.Second
 type Config struct {
 	WgListenAddr string
 	RemoteKey    string
-	WgInterface  string
+	WgInterface  iface.WGIface
 	AllowedIps   string
 	PreSharedKey *wgtypes.Key
 }

@@ -60,7 +60,7 @@ func TestLogin(t *testing.T) {
 	}
 
 	if actualConf.WgIface != iface.WgInterfaceDefault {
-		t.Errorf("expected WgIface %s got %s", iface.WgInterfaceDefault, actualConf.WgIface)
+		t.Errorf("expected WgIfaceName %s got %s", iface.WgInterfaceDefault, actualConf.WgIface)
 	}
 
 	if len(actualConf.PrivateKey) == 0 {
