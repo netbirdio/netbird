@@ -57,15 +57,15 @@ func TestEngine_MultiplePeers(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	signalServer, err := startSignal(10000)
+	sport := 10010
+	signalServer, err := startSignal(sport)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 	defer signalServer.Stop()
-
-	mgmtServer, err := startManagement(33071, &server.Config{
+	mport := 33081
+	mgmtServer, err := startManagement(mport, &server.Config{
 		Stuns:      []*server.Host{},
 		TURNConfig: &server.TURNConfig{},
 		Signal: &server.Host{
@@ -92,7 +92,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	for i := 0; i < numPeers; i++ {
 		j := i
 		go func() {
-			engine, err := createEngine(ctx, cancel, setupKey, j)
+			engine, err := createEngine(ctx, cancel, setupKey, j, mport, sport)
 			if err != nil {
 				return
 			}
@@ -140,17 +140,17 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	}
 }
 
-func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey string, i int) (*Engine, error) {
+func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey string, i int, mport int, sport int) (*Engine, error) {
 
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
 	}
-	mgmtClient, err := mgmt.NewClient(ctx, "localhost:33071", key, false)
+	mgmtClient, err := mgmt.NewClient(ctx, fmt.Sprintf("localhost:%d", mport), key, false)
 	if err != nil {
 		return nil, err
 	}
-	signalClient, err := signal.NewClient(ctx, "localhost:10000", key, false)
+	signalClient, err := signal.NewClient(ctx, fmt.Sprintf("localhost:%d", sport), key, false)
 	if err != nil {
 		return nil, err
 	}
