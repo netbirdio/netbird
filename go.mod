@@ -21,13 +21,16 @@ require (
 	golang.org/x/sys v0.0.0-20211216021012-1d35b9e2eb4e
 	golang.zx2c4.com/wireguard v0.0.0-20210805125648-3957e9b9dd19
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20210803171230-4253848d036c
-	golang.zx2c4.com/wireguard/windows v0.4.5
+	//golang.zx2c4.com/wireguard/windows v0.4.5
 	google.golang.org/grpc v1.43.0
 	google.golang.org/protobuf v1.27.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
-require github.com/rs/xid v1.3.0
+require (
+	github.com/rs/xid v1.3.0
+	golang.zx2c4.com/wireguard/windows v0.5.3
+)
 
 require (
 	github.com/BurntSushi/toml v0.4.1 // indirect
@@ -49,7 +52,7 @@ require (
 	github.com/pion/udp v0.1.1 // indirect
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
 	golang.org/x/mod v0.5.1 // indirect
-	golang.org/x/net v0.0.0-20211208012354-db4efeb81f4b // indirect
+	golang.org/x/net v0.0.0-20211215060638-4ddde0e984e9 // indirect
 	golang.org/x/text v0.3.8-0.20211105212822-18b340fc7af2 // indirect
 	golang.org/x/tools v0.1.8 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
