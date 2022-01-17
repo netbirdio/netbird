@@ -211,6 +211,7 @@ func (e *Engine) GetPeerConnectionStatus(peerKey string) peer.ConnStatus {
 func (e *Engine) GetPeers() []string {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
+
 	peers := []string{}
 	for s, _ := range e.peerConns {
 		peers = append(peers, s)

@@ -167,6 +167,29 @@ func TestEngine_Serial(t *testing.T) {
 			break
 		}
 	}
+
+	// 4th update with no peers => apply update removing all peers
+	// 3rd update with just  3 peers and serial lower than the current serial of the engine => ignore update
+	updates <- &mgmtProto.SyncResponse{
+		NetworkMap: &mgmtProto.NetworkMap{
+			Serial:             4,
+			RemotePeersIsEmpty: true,
+		},
+	}
+
+	timeout = time.After(time.Second * 2)
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timeout while waiting for test to finish")
+		default:
+		}
+
+		if len(engine.GetPeers()) == 0 && engine.networkSerial == 4 {
+			break
+		}
+	}
+
 }
 
 func TestEngine_MultiplePeers(t *testing.T) {
