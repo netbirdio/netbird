@@ -1,0 +1,42 @@
+name: Test Code Linux
+on: push
+jobs:
+  test:
+    strategy:
+      matrix:
+        go-version: [1.17.x]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: update limits.d
+        run: |
+          cat <<'EOF' | sudo tee -a /etc/security/limits.d/wt.conf
+          root soft     nproc          65535
+          root hard     nproc          65535
+          root soft     nofile         65535
+          root hard     nofile         65535
+          $(whoami) soft     nproc          65535
+          $(whoami) hard     nproc          65535
+          $(whoami) soft     nofile         65535
+          $(whoami) hard     nofile         65535
+          EOF
+
+      - name: Cache Go modules
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: Test
+        run: GOBIN=$(which go) && sudo --preserve-env=GOROOT $GOBIN test ./...

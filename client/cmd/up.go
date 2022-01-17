@@ -64,10 +64,11 @@ func createEngineConfig(key wgtypes.Key, config *internal.Config, peerConfig *mg
 	}
 
 	engineConf := &internal.EngineConfig{
-		WgIface:        config.WgIface,
+		WgIfaceName:    config.WgIface,
 		WgAddr:         peerConfig.Address,
 		IFaceBlackList: iFaceBlackList,
 		WgPrivateKey:   key,
+		WgPort:         internal.WgPort,
 	}
 
 	if config.PreSharedKey != "" {

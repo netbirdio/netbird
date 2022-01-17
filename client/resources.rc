@@ -5,5 +5,5 @@
 #define STRINGIZE(x) #x
 #define EXPAND(x) STRINGIZE(x)
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST manifest.xml
-wintun.dll RCDATA wintun.dll
-
+7 ICON ui/wiretrustee.ico
+wireguard.dll RCDATA wireguard.dll

@@ -176,6 +176,8 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	serial := account.Network.Serial() //should be 0
+
 	var setupKey *SetupKey
 	for _, key := range account.SetupKeys {
 		setupKey = key
@@ -186,7 +188,12 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	key, err := wgtypes.GenerateKey()
+	if account.Network.serial != 0 {
+		t.Errorf("expecting account network to have an initial serial=0")
+		return
+	}
+
+	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -194,13 +201,19 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedPeerIP := "100.64.0.1"
 
-	peer, err := manager.AddPeer(setupKey.Key, Peer{
+	peer, err := manager.AddPeer(setupKey.Key, &Peer{
 		Key:  expectedPeerKey,
 		Meta: PeerSystemMeta{},
 		Name: expectedPeerKey,
 	})
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
+		return
+	}
+
+	account, err = manager.GetAccount(account.Id)
+	if err != nil {
+		t.Fatal(err)
 		return
 	}
 
@@ -212,7 +225,64 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Errorf("expecting just added peer to have IP = %s, got %s", expectedPeerIP, peer.IP.String())
 	}
 
+	if account.Network.Serial() != 1 {
+		t.Errorf("expecting Network serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.Serial())
+	}
+
 }
+
+func TestAccountManager_DeletePeer(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	account, err := manager.AddAccount("test_account", "account_creator")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var setupKey *SetupKey
+	for _, key := range account.SetupKeys {
+		setupKey = key
+	}
+
+	key, err := wgtypes.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peerKey := key.PublicKey().String()
+
+	_, err = manager.AddPeer(setupKey.Key, &Peer{
+		Key:  peerKey,
+		Meta: PeerSystemMeta{},
+		Name: peerKey,
+	})
+	if err != nil {
+		t.Errorf("expecting peer to be added, got failure %v", err)
+		return
+	}
+
+	_, err = manager.DeletePeer(account.Id, peerKey)
+	if err != nil {
+		return
+	}
+
+	account, err = manager.GetAccount(account.Id)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	if account.Network.Serial() != 2 {
+		t.Errorf("expecting Network serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.Serial())
+	}
+
+}
+
 func createManager(t *testing.T) (*AccountManager, error) {
 	store, err := createStore(t)
 	if err != nil {

@@ -26,7 +26,7 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
     tags:
-      - load_wintun_from_rsrc
+      - load_wgnt_from_rsrc
 
   - id: wiretrustee-mgmt
     dir: management

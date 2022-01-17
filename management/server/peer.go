@@ -118,7 +118,18 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
+	account, err := am.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
 	peer, err := am.Store.DeletePeer(accountId, peerKey)
+	if err != nil {
+		return nil, err
+	}
+
+	account.Network.IncSerial()
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
@@ -126,8 +137,15 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 	err = am.peersUpdateManager.SendUpdate(peerKey,
 		&UpdateMessage{
 			Update: &proto.SyncResponse{
+				// fill those field for backward compatibility
 				RemotePeers:        []*proto.RemotePeerConfig{},
 				RemotePeersIsEmpty: true,
+				// new field
+				NetworkMap: &proto.NetworkMap{
+					Serial:             account.Network.Serial(),
+					RemotePeers:        []*proto.RemotePeerConfig{},
+					RemotePeersIsEmpty: true,
+				},
 			}})
 	if err != nil {
 		return nil, err
@@ -150,8 +168,15 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 		err = am.peersUpdateManager.SendUpdate(p.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
+					// fill those field for backward compatibility
 					RemotePeers:        update,
 					RemotePeersIsEmpty: len(update) == 0,
+					// new field
+					NetworkMap: &proto.NetworkMap{
+						Serial:             account.Network.Serial(),
+						RemotePeers:        update,
+						RemotePeersIsEmpty: len(update) == 0,
+					},
 				}})
 		if err != nil {
 			return nil, err
@@ -181,9 +206,8 @@ func (am *AccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, e
 	return nil, status.Errorf(codes.NotFound, "peer with IP %s not found", peerIP)
 }
 
-// GetPeersForAPeer returns a list of peers available for a given peer (key)
-// Effectively all the peers of the original peer's account except for the peer itself
-func (am *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
+// GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
+func (am *AccountManager) GetNetworkMap(peerKey string) (*NetworkMap, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -194,12 +218,16 @@ func (am *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
 
 	var res []*Peer
 	for _, peer := range account.Peers {
+		// exclude original peer
 		if peer.Key != peerKey {
-			res = append(res, peer)
+			res = append(res, peer.Copy())
 		}
 	}
 
-	return res, nil
+	return &NetworkMap{
+		Peers:   res,
+		Network: account.Network.Copy(),
+	}, err
 }
 
 // AddPeer adds a new peer to the Store.
@@ -207,7 +235,7 @@ func (am *AccountManager) GetPeersForAPeer(peerKey string) ([]*Peer, error) {
 // will be returned, meaning the key is invalid
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
+func (am *AccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -255,6 +283,8 @@ func (am *AccountManager) AddPeer(setupKey string, peer Peer) (*Peer, error) {
 
 	account.Peers[newPeer.Key] = newPeer
 	account.SetupKeys[sk.Key] = sk.IncrementUsage()
+	account.Network.IncSerial()
+
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")

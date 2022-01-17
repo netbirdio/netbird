@@ -36,7 +36,7 @@ func TestUp_Start(t *testing.T) {
 
 func TestUp(t *testing.T) {
 
-	defer iface.Close()
+	//defer iface.Close("wt0")
 
 	tempDir := t.TempDir()
 	confPath := tempDir + "/config.json"
@@ -53,6 +53,8 @@ func TestUp(t *testing.T) {
 		"A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
 		"--management-url",
 		mgmtURL.String(),
+		"--log-level",
+		"debug",
 		"--log-file",
 		"console",
 	})
@@ -63,20 +65,23 @@ func TestUp(t *testing.T) {
 		}
 	}()
 
-	exists := false
-	for start := time.Now(); time.Since(start) < 15*time.Second; {
+	timeout := 15 * time.Second
+	timeoutChannel := time.After(timeout)
+	for {
+		select {
+		case <-timeoutChannel:
+			t.Fatalf("expected wireguard interface %s to be created before %s", iface.WgInterfaceDefault, timeout.String())
+		default:
+		}
 		e, err := iface.Exists(iface.WgInterfaceDefault)
 		if err != nil {
 			continue
 		}
+		if err != nil {
+			continue
+		}
 		if *e {
-			exists = true
 			break
 		}
-
-	}
-
-	if !exists {
-		t.Errorf("expected wireguard interface %s to be created", iface.WgInterfaceDefault)
 	}
 }

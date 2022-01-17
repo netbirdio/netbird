@@ -30,20 +30,29 @@ message EncryptedMessage {
 
   // encrypted message Body
   bytes body = 2;
+  // Version of the Wiretrustee Management Service protocol
+  int32 version = 3;
 }
 
 message SyncRequest {}
 
 // SyncResponse represents a state that should be applied to the local peer (e.g. Wiretrustee servers config as well as local peer and remote peers configs)
 message SyncResponse {
+
   // Global config
   WiretrusteeConfig wiretrusteeConfig = 1;
 
+  // Deprecated. Use NetworkMap.PeerConfig
   PeerConfig peerConfig = 2;
 
+  // Deprecated. Use NetworkMap.RemotePeerConfig
   repeated RemotePeerConfig remotePeers = 3;
+
   // Indicates whether remotePeers array is empty or not to bypass protobuf null and empty array equality.
+  // Deprecated. Use NetworkMap.remotePeersIsEmpty
   bool remotePeersIsEmpty = 4;
+
+  NetworkMap NetworkMap = 5;
 }
 
 message LoginRequest {
@@ -76,6 +85,8 @@ message ServerKeyResponse {
   string key = 1;
   // Key expiration timestamp after which the key should be fetched again by the client
   google.protobuf.Timestamp expiresAt = 2;
+  // Version of the Wiretrustee Management Service protocol
+  int32 version = 3;
 }
 
 message Empty {}
@@ -120,6 +131,24 @@ message PeerConfig {
   string  address = 1;
   // Wiretrustee DNS server (a Wireguard DNS config)
   string dns = 2;
+}
+
+// NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
+message NetworkMap {
+  // Serial is an ID of the network state to be used by clients to order updates.
+  // The larger the Serial the newer the configuration.
+  // E.g. the client app should keep track of this id locally and discard all the configurations with a lower value
+  uint64 Serial = 1;
+
+  // PeerConfig represents configuration of a peer
+  PeerConfig peerConfig = 2;
+
+  // RemotePeerConfig represents a list of remote peers that the receiver can connect to
+  repeated RemotePeerConfig remotePeers = 3;
+
+  // Indicates whether remotePeers array is empty or not to bypass protobuf null and empty array equality.
+  bool remotePeersIsEmpty = 4;
+
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
