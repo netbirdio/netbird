@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/management/server/idpmanager"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,6 +15,7 @@ type AccountManager struct {
 	// mutex to synchronise account operations (e.g. generating Peer IP address inside the Network)
 	mux                sync.Mutex
 	peersUpdateManager *PeersUpdateManager
+	idpManager         idpmanager.IDPManager
 }
 
 // Account represents a unique account of the system
@@ -60,11 +62,12 @@ func (a *Account) Copy() *Account {
 }
 
 // NewManager creates a new AccountManager with a provided Store
-func NewManager(store Store, peersUpdateManager *PeersUpdateManager) *AccountManager {
+func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idpmanager.IDPManager) *AccountManager {
 	return &AccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
 		peersUpdateManager: peersUpdateManager,
+		idpManager:         idpManager,
 	}
 }
 
@@ -164,16 +167,18 @@ func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
 func (am *AccountManager) GetAccountByUserOrAccountId(userId, accountId string) (*Account, error) {
 
 	if accountId != "" {
-		account, err := am.Store.GetAccount(accountId)
-		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "account not found using account id: %s", accountId)
-		}
-
-		return account, nil
+		return am.GetAccount(accountId)
 	} else if userId != "" {
 		account, err := am.GetOrCreateAccountByUser(userId)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
+		}
+		// update idp manager app metadata
+		if am.idpManager != nil {
+			err = am.idpManager.UpdateUserAppMetadata(userId, idpmanager.AppMetadata{WTAccountId: account.Id})
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "updating user's app metadata failed with: %v", err)
+			}
 		}
 		return account, nil
 	}
