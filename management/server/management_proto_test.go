@@ -313,7 +313,7 @@ func startManagement(port int, config *Config) (*grpc.Server, error) {
 		return nil, err
 	}
 	peersUpdateManager := NewPeersUpdateManager()
-	accountManager := NewManager(store, peersUpdateManager)
+	accountManager := NewManager(store, peersUpdateManager, nil)
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager)
 	if err != nil {

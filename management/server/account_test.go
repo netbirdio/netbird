@@ -288,7 +288,7 @@ func createManager(t *testing.T) (*AccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewManager(store, NewPeersUpdateManager()), nil
+	return NewManager(store, NewPeersUpdateManager(), nil), nil
 }
 
 func createStore(t *testing.T) (Store, error) {
