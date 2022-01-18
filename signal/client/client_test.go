@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-var _ = Describe("Client", func() {
+var _ = Describe("GrpcClient", func() {
 
 	var (
 		addr     string
@@ -160,7 +160,7 @@ var _ = Describe("Client", func() {
 
 })
 
-func createSignalClient(addr string, key wgtypes.Key) *Client {
+func createSignalClient(addr string, key wgtypes.Key) *GrpcClient {
 	var sigTLSEnabled = false
 	client, err := NewClient(context.Background(), addr, key, sigTLSEnabled)
 	if err != nil {

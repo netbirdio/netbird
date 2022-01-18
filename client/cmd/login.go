@@ -82,7 +82,7 @@ var (
 )
 
 // loginPeer attempts to login to Management Service. If peer wasn't registered, tries the registration flow.
-func loginPeer(serverPublicKey wgtypes.Key, client *mgm.Client, setupKey string) (*mgmProto.LoginResponse, error) {
+func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string) (*mgmProto.LoginResponse, error) {
 
 	loginResp, err := client.Login(serverPublicKey)
 	if err != nil {
@@ -101,7 +101,7 @@ func loginPeer(serverPublicKey wgtypes.Key, client *mgm.Client, setupKey string)
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
-func registerPeer(serverPublicKey wgtypes.Key, client *mgm.Client, setupKey string) (*mgmProto.LoginResponse, error) {
+func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string) (*mgmProto.LoginResponse, error) {
 
 	var err error
 	if setupKey == "" {

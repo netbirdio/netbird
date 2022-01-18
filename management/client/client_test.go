@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-var tested *Client
+var tested *GrpcClient
 var serverAddr string
 
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
