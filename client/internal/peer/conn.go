@@ -419,3 +419,7 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) {
 		}
 	}()
 }
+
+func (conn *Conn) GetKey() string {
+	return conn.config.Key
+}

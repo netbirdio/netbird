@@ -275,44 +275,42 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 	return nil
 }
 
+func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	if update.GetWiretrusteeConfig() != nil {
+		err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
+		if err != nil {
+			return err
+		}
+
+		err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
+		if err != nil {
+			return err
+		}
+
+		//todo update signal
+	}
+
+	if update.GetNetworkMap() != nil {
+		// only apply new changes and ignore old ones
+		err := e.updateNetworkMap(update.GetNetworkMap())
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
 	go func() {
 		err := e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
-			e.syncMsgMux.Lock()
-			defer e.syncMsgMux.Unlock()
-
-			if update.GetWiretrusteeConfig() != nil {
-				err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
-				if err != nil {
-					return err
-				}
-
-				err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
-				if err != nil {
-					return err
-				}
-
-				//todo update signal
-			}
-
-			if update.GetNetworkMap() != nil {
-
-				// only apply new changes and ignore old ones
-				serial := update.NetworkMap.GetSerial()
-				if e.networkSerial <= serial {
-					err := e.updateNetworkMap(update.GetNetworkMap())
-					if err != nil {
-						return err
-					}
-					e.networkSerial = serial
-				} else {
-					log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
-				}
-			}
-
-			return nil
+			return e.handleSync(update)
 		})
 		if err != nil {
 			// happens if management is unavailable for a long time.
@@ -364,6 +362,13 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
+
+	serial := networkMap.GetSerial()
+	if e.networkSerial > serial {
+		log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
+		return nil
+	}
+
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
 	// cleanup request, most likely our peer has been deleted
@@ -372,19 +377,19 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		if err != nil {
 			return err
 		}
-		return nil
+	} else {
+		err := e.removePeers(networkMap.GetRemotePeers())
+		if err != nil {
+			return err
+		}
+
+		err = e.addNewPeers(networkMap.GetRemotePeers())
+		if err != nil {
+			return err
+		}
 	}
 
-	err := e.removePeers(networkMap.GetRemotePeers())
-	if err != nil {
-		return err
-	}
-
-	err = e.addNewPeers(networkMap.GetRemotePeers())
-	if err != nil {
-		return err
-	}
-
+	e.networkSerial = serial
 	return nil
 }
 
