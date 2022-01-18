@@ -1,9 +1,18 @@
 package idpmanager
 
-import "time"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
 type IDPManager interface {
 	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
+}
+
+type ManagerConfig struct {
+	ManagerType            string
+	Auth0ClientCredentials Auth0ClientCredentials
 }
 
 type AppMetadata struct {
@@ -18,4 +27,15 @@ type JWTToken struct {
 	expiresInTime time.Time
 	Scope         string `json:"scope"`
 	TokenType     string `json:"token_type"`
+}
+
+func NewManager(config ManagerConfig) (IDPManager, error) {
+	switch strings.ToLower(config.ManagerType) {
+	case "none", "":
+		return nil, nil
+	case "auth0":
+		return NewAuth0Manager(config.Auth0ClientCredentials), nil
+	default:
+		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
+	}
 }
