@@ -143,7 +143,21 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		expectedSerial: 4,
 	}
 
-	for _, c := range []testCase{case1, case2, case3, case4} {
+	// 5th case - an update with all peers to be removed
+	case5 := testCase{
+		idx: 3,
+		networkMap: &mgmtProto.NetworkMap{
+			Serial:             5,
+			PeerConfig:         nil,
+			RemotePeers:        []*mgmtProto.RemotePeerConfig{},
+			RemotePeersIsEmpty: true,
+		},
+		expectedLen:    0,
+		expectedPeers:  nil,
+		expectedSerial: 5,
+	}
+
+	for _, c := range []testCase{case1, case2, case3, case4, case5} {
 		err = engine.updateNetworkMap(c.networkMap)
 		if err != nil {
 			t.Fatal(err)
