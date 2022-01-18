@@ -12,6 +12,7 @@ import (
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
+	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"math/rand"
 	"strings"
@@ -44,9 +45,9 @@ type EngineConfig struct {
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
 type Engine struct {
 	// signal is a Signal Service client
-	signal *signal.Client
+	signal signal.Client
 	// mgmClient is a Management Service client
-	mgmClient *mgm.Client
+	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
 
@@ -64,6 +65,9 @@ type Engine struct {
 	ctx context.Context
 
 	wgInterface iface.WGIface
+
+	// networkSerial is the latest Serial (state ID) of the network sent by the Management service
+	networkSerial uint64
 }
 
 // Peer is an instance of the Connection Peer
@@ -73,17 +77,18 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signalClient *signal.Client, mgmClient *mgm.Client, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
+func NewEngine(signalClient signal.Client, mgmClient mgm.Client, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
 	return &Engine{
-		signal:     signalClient,
-		mgmClient:  mgmClient,
-		peerConns:  map[string]*peer.Conn{},
-		syncMsgMux: &sync.Mutex{},
-		config:     config,
-		STUNs:      []*ice.URL{},
-		TURNs:      []*ice.URL{},
-		cancel:     cancel,
-		ctx:        ctx,
+		signal:        signalClient,
+		mgmClient:     mgmClient,
+		peerConns:     map[string]*peer.Conn{},
+		syncMsgMux:    &sync.Mutex{},
+		config:        config,
+		STUNs:         []*ice.URL{},
+		TURNs:         []*ice.URL{},
+		cancel:        cancel,
+		ctx:           ctx,
+		networkSerial: 0,
 	}
 }
 
@@ -91,7 +96,7 @@ func (e *Engine) Stop() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	err := e.removeAllPeerConnections()
+	err := e.removeAllPeers()
 	if err != nil {
 		return err
 	}
@@ -146,8 +151,22 @@ func (e *Engine) Start() error {
 	return nil
 }
 
-func (e *Engine) removePeers(peers []string) error {
-	for _, p := range peers {
+// removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service
+func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
+
+	currentPeers := make([]string, 0, len(e.peerConns))
+	for p := range e.peerConns {
+		currentPeers = append(currentPeers, p)
+	}
+
+	newPeers := make([]string, 0, len(peersUpdate))
+	for _, p := range peersUpdate {
+		newPeers = append(newPeers, p.GetWgPubKey())
+	}
+
+	toRemove := util.SliceDiff(currentPeers, newPeers)
+
+	for _, p := range toRemove {
 		err := e.removePeer(p)
 		if err != nil {
 			return err
@@ -157,7 +176,7 @@ func (e *Engine) removePeers(peers []string) error {
 	return nil
 }
 
-func (e *Engine) removeAllPeerConnections() error {
+func (e *Engine) removeAllPeers() error {
 	log.Debugf("removing all peer connections")
 	for p := range e.peerConns {
 		err := e.removePeer(p)
@@ -189,6 +208,16 @@ func (e *Engine) GetPeerConnectionStatus(peerKey string) peer.ConnStatus {
 
 	return -1
 }
+func (e *Engine) GetPeers() []string {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	peers := []string{}
+	for s := range e.peerConns {
+		peers = append(peers, s)
+	}
+	return peers
+}
 
 // GetConnectedPeers returns a connection Status or nil if peer connection wasn't found
 func (e *Engine) GetConnectedPeers() []string {
@@ -205,7 +234,7 @@ func (e *Engine) GetConnectedPeers() []string {
 	return peers
 }
 
-func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client) error {
+func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client) error {
 	err := s.Send(&sProto.Message{
 		Key:       myKey.PublicKey().String(),
 		RemoteKey: remoteKey.String(),
@@ -223,7 +252,7 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 	return nil
 }
 
-func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.Key, s *signal.Client, isAnswer bool) error {
+func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
 
 	var t sProto.Body_Type
 	if isAnswer {
@@ -246,37 +275,42 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 	return nil
 }
 
+func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	if update.GetWiretrusteeConfig() != nil {
+		err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
+		if err != nil {
+			return err
+		}
+
+		err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
+		if err != nil {
+			return err
+		}
+
+		//todo update signal
+	}
+
+	if update.GetNetworkMap() != nil {
+		// only apply new changes and ignore old ones
+		err := e.updateNetworkMap(update.GetNetworkMap())
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
 // E.g. when a new peer has been registered and we are allowed to connect to it.
 func (e *Engine) receiveManagementEvents() {
 	go func() {
 		err := e.mgmClient.Sync(func(update *mgmProto.SyncResponse) error {
-			e.syncMsgMux.Lock()
-			defer e.syncMsgMux.Unlock()
-
-			if update.GetWiretrusteeConfig() != nil {
-				err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
-				if err != nil {
-					return err
-				}
-
-				err = e.updateSTUNs(update.GetWiretrusteeConfig().GetStuns())
-				if err != nil {
-					return err
-				}
-
-				//todo update signal
-			}
-
-			if update.GetRemotePeers() != nil || update.GetRemotePeersIsEmpty() {
-				// empty arrays are serialized by protobuf to null, but for our case empty array is a valid state.
-				err := e.updatePeers(update.GetRemotePeers())
-				if err != nil {
-					return err
-				}
-			}
-
-			return nil
+			return e.handleSync(update)
 		})
 		if err != nil {
 			// happens if management is unavailable for a long time.
@@ -327,27 +361,41 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 	return nil
 }
 
-func (e *Engine) updatePeers(remotePeers []*mgmProto.RemotePeerConfig) error {
-	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(remotePeers))
-	remotePeerMap := make(map[string]struct{})
-	for _, p := range remotePeers {
-		remotePeerMap[p.GetWgPubKey()] = struct{}{}
+func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
+
+	serial := networkMap.GetSerial()
+	if e.networkSerial > serial {
+		log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
+		return nil
 	}
 
-	//remove peers that are no longer available for us
-	toRemove := []string{}
-	for p := range e.peerConns {
-		if _, ok := remotePeerMap[p]; !ok {
-			toRemove = append(toRemove, p)
+	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
+
+	// cleanup request, most likely our peer has been deleted
+	if networkMap.GetRemotePeersIsEmpty() {
+		err := e.removeAllPeers()
+		if err != nil {
+			return err
+		}
+	} else {
+		err := e.removePeers(networkMap.GetRemotePeers())
+		if err != nil {
+			return err
+		}
+
+		err = e.addNewPeers(networkMap.GetRemotePeers())
+		if err != nil {
+			return err
 		}
 	}
-	err := e.removePeers(toRemove)
-	if err != nil {
-		return err
-	}
 
-	// add new peers
-	for _, p := range remotePeers {
+	e.networkSerial = serial
+	return nil
+}
+
+// addNewPeers finds and adds peers that were not know before but arrived from the Management service with the update
+func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
+	for _, p := range peersUpdate {
 		peerKey := p.GetWgPubKey()
 		peerIPs := p.GetAllowedIps()
 		if _, ok := e.peerConns[peerKey]; !ok {
