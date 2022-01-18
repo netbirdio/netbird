@@ -18,7 +18,7 @@ type Auth0Manager struct {
 }
 
 type Auth0ClientCredentials struct {
-	Audiance     string
+	Audience     string
 	AuthIssuer   string
 	ClientId     string
 	ClientSecret string
@@ -49,7 +49,7 @@ func (am *Auth0Manager) getJWTToken() error {
 		am.clientCredentials.GrantType,
 		am.clientCredentials.ClientId,
 		am.clientCredentials.ClientSecret,
-		am.clientCredentials.Audiance,
+		am.clientCredentials.Audience,
 	))
 
 	req, err := http.NewRequest("POST", url, payload)
