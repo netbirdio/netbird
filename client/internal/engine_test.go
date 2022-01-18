@@ -57,8 +57,9 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	}, cancel, ctx)
 
 	type testCase struct {
-		idx            int
-		networkMap     *mgmtProto.NetworkMap
+		name       string
+		networkMap *mgmtProto.NetworkMap
+
 		expectedLen    int
 		expectedPeers  []string
 		expectedSerial uint64
@@ -79,9 +80,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		AllowedIps: []string{"100.64.0.12/24"},
 	}
 
-	// 1st case - new peer and network map has Serial grater than local => apply the update
 	case1 := testCase{
-		idx: 1,
+		name: "input with a new peer to add",
 		networkMap: &mgmtProto.NetworkMap{
 			Serial:     1,
 			PeerConfig: nil,
@@ -97,7 +97,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 
 	// 2nd case - one extra peer added and network map has Serial grater than local => apply the update
 	case2 := testCase{
-		idx: 2,
+		name: "input with an old peer and a new peer to add",
 		networkMap: &mgmtProto.NetworkMap{
 			Serial:     2,
 			PeerConfig: nil,
@@ -111,9 +111,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		expectedSerial: 2,
 	}
 
-	// 3rd case - an update with 3 peers and Serial lower than the current serial of the engine => ignore the update
 	case3 := testCase{
-		idx: 3,
+		name: "input with outdated (old) update to ignore",
 		networkMap: &mgmtProto.NetworkMap{
 			Serial:     0,
 			PeerConfig: nil,
@@ -127,9 +126,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		expectedSerial: 2,
 	}
 
-	// 4th case - an update with 2 peers (1 new and 1 old) => apply the update removing old peer and adding a new one
 	case4 := testCase{
-		idx: 3,
+		name: "input with one peer to remove and one new to add",
 		networkMap: &mgmtProto.NetworkMap{
 			Serial:     4,
 			PeerConfig: nil,
@@ -143,9 +141,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		expectedSerial: 4,
 	}
 
-	// 5th case - an update with all peers to be removed
 	case5 := testCase{
-		idx: 3,
+		name: "input with all peers to remove",
 		networkMap: &mgmtProto.NetworkMap{
 			Serial:             5,
 			PeerConfig:         nil,
@@ -158,25 +155,29 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	}
 
 	for _, c := range []testCase{case1, case2, case3, case4, case5} {
-		err = engine.updateNetworkMap(c.networkMap)
-		if err != nil {
-			t.Fatal(err)
-			return
-		}
 
-		if len(engine.peerConns) != c.expectedLen {
-			t.Errorf("case %d expecting Engine.peerConns to be of size %d, got %d", c.idx, c.expectedLen, len(engine.peerConns))
-		}
-
-		if engine.networkSerial != c.expectedSerial {
-			t.Errorf("case %d expecting Engine.networkSerial to be equal to %d, actual %d", c.idx, c.expectedSerial, engine.networkSerial)
-		}
-
-		for _, p := range c.expectedPeers {
-			if _, ok := engine.peerConns[p]; !ok {
-				t.Errorf("case %d expecting Engine.peerConns to contain peer %s", c.idx, p)
+		t.Run(c.name, func(t *testing.T) {
+			err = engine.updateNetworkMap(c.networkMap)
+			if err != nil {
+				t.Fatal(err)
+				return
 			}
-		}
+
+			if len(engine.peerConns) != c.expectedLen {
+				t.Errorf("expecting Engine.peerConns to be of size %d, got %d", c.expectedLen, len(engine.peerConns))
+			}
+
+			if engine.networkSerial != c.expectedSerial {
+				t.Errorf("expecting Engine.networkSerial to be equal to %d, actual %d", c.expectedSerial, engine.networkSerial)
+			}
+
+			for _, p := range c.expectedPeers {
+				if _, ok := engine.peerConns[p]; !ok {
+					t.Errorf("expecting Engine.peerConns to contain peer %s", p)
+				}
+			}
+		})
+
 	}
 
 }
