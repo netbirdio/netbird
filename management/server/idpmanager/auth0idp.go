@@ -45,28 +45,29 @@ func (am *Auth0Manager) jwtStillValid() bool {
 }
 
 func (am *Auth0Manager) getJWTRequest() (*http.Response, error) {
+	var res *http.Response
 	url := am.clientCredentials.AuthIssuer + "/oauth/token"
 
 	p, err := json.Marshal(am.clientCredentials)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
 	payload := strings.NewReader(string(p))
 
 	req, err := http.NewRequest("POST", url, payload)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
 
 	req.Header.Add("content-type", "application/json")
 
-	res, err := am.httpClient.Do(req)
+	res, err = am.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return res, err
 	}
 
 	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("unable to get token, statusCode %d", res.StatusCode)
+		return res, fmt.Errorf("unable to get token, statusCode %d", res.StatusCode)
 	}
 	return res, nil
 }
