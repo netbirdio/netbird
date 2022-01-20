@@ -27,7 +27,10 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
-require github.com/rs/xid v1.3.0
+require (
+	github.com/magiconair/properties v1.8.5
+	github.com/rs/xid v1.3.0
+)
 
 require (
 	github.com/BurntSushi/toml v0.4.1 // indirect
