@@ -35,5 +35,15 @@
         "AuthIssuer": "https://$WIRETRUSTEE_AUTH0_DOMAIN/",
         "AuthAudience": "$WIRETRUSTEE_AUTH0_AUDIENCE",
         "AuthKeysLocation": "https://$WIRETRUSTEE_AUTH0_DOMAIN/.well-known/jwks.json"
-    }
+    },
+    "IdpManagerConfig": {
+        "Manager": "none",
+        "Auth0ClientCredentials": {
+        "Audience": "<PASTE YOUR AUTH0 AUDIENCE HERE>",
+        "AuthIssuer": "<PASTE YOUR AUTH0 Auth Issuer HERE>",
+        "ClientId": "<PASTE YOUR AUTH0 Application Client ID HERE>",
+        "ClientSecret": "<PASTE YOUR AUTH0 Application Client Secret HERE>",
+         "GrantType": "client_credentials"
+         }
+     }
 }
