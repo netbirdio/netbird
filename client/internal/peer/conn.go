@@ -375,29 +375,33 @@ func (conn *Conn) Status() ConnStatus {
 	return conn.status
 }
 
-// OnRemoteOffer handles an offer from the remote peer
-// can block until Conn restarts
-func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) {
+// OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
+// doesn't block, discards the message if connection wasn't ready
+func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) bool {
 	log.Debugf("OnRemoteOffer from peer %s on status %s", conn.config.Key, conn.status.String())
 
 	select {
 	case conn.remoteOffersCh <- remoteAuth:
+		return true
 	default:
 		log.Debugf("OnRemoteOffer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
 		//connection might not be ready yet to receive so we ignore the message
+		return false
 	}
 }
 
-// OnRemoteAnswer handles an offer from the remote peer
-// can block until Conn restarts
-func (conn *Conn) OnRemoteAnswer(remoteAuth IceCredentials) {
+// OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
+// doesn't block, discards the message if connection wasn't ready
+func (conn *Conn) OnRemoteAnswer(remoteAuth IceCredentials) bool {
 	log.Debugf("OnRemoteAnswer from peer %s on status %s", conn.config.Key, conn.status.String())
 
 	select {
 	case conn.remoteAnswerCh <- remoteAuth:
+		return true
 	default:
 		//connection might not be ready yet to receive so we ignore the message
 		log.Debugf("OnRemoteAnswer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
+		return false
 	}
 }
 
