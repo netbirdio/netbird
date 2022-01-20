@@ -45,6 +45,7 @@ func (am *Auth0Manager) jwtStillValid() bool {
 	return !am.jwtToken.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(am.jwtToken.expiresInTime)
 }
 
+// getJWTRequest performs request to get jwt token
 func (am *Auth0Manager) getJWTRequest() (*http.Response, error) {
 	var res *http.Response
 	url := am.clientCredentials.AuthIssuer + "/oauth/token"
@@ -73,6 +74,7 @@ func (am *Auth0Manager) getJWTRequest() (*http.Response, error) {
 	return res, nil
 }
 
+// parseGetJWTResponse parses jwt raw response body and extracts token and expires in seconds
 func (am *Auth0Manager) parseGetJWTResponse(rawBody io.ReadCloser) (JWTToken, error) {
 	jwtToken := JWTToken{}
 	body, err := ioutil.ReadAll(rawBody)
@@ -113,17 +115,15 @@ func (am *Auth0Manager) getJWTToken() error {
 	}
 
 	res, err := am.getJWTRequest()
-
+	if err != nil {
+		return err
+	}
 	defer func() {
 		err = res.Body.Close()
 		if err != nil {
 			log.Errorf("error while closing get jwt token response body: %v", err)
 		}
 	}()
-
-	if err != nil {
-		return err
-	}
 
 	jwtToken, err := am.parseGetJWTResponse(res.Body)
 	if err != nil {
