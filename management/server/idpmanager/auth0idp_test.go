@@ -102,13 +102,12 @@ func TestAuth0_GetJWTToken(t *testing.T) {
 	}
 
 	type jwtParseResponseTest struct {
-		name                    string
-		inputBody               string
-		expectedFuncExitErrDiff error
-		expectedToken           string
-		expectedExpiresIn       int
-		assertErrFunc           func(t assert.TestingT, err error, msgAndArgs ...interface{}) bool
-		assertErrFuncMessage    string
+		name                 string
+		inputBody            string
+		expectedToken        string
+		expectedExpiresIn    int
+		assertErrFunc        func(t assert.TestingT, err error, msgAndArgs ...interface{}) bool
+		assertErrFuncMessage string
 	}
 
 	exp = 100
@@ -147,6 +146,7 @@ func TestAuth0_GetJWTToken(t *testing.T) {
 			assert.Equalf(t, testCase.expectedExpiresIn, jwtToken.ExpiresIn, "the two expire times should be the same")
 		})
 	}
+
 	type jwtStillValidTest struct {
 		name           string
 		inputTime      time.Time
@@ -165,6 +165,7 @@ func TestAuth0_GetJWTToken(t *testing.T) {
 		expectedResult: false,
 		message:        "should be false",
 	}
+
 	for _, testCase := range []jwtStillValidTest{jwtStillValidTestCase1, jwtStillValidTestCase2} {
 		t.Run(testCase.name, func(t *testing.T) {
 
