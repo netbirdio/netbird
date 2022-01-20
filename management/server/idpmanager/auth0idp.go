@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/golang-jwt/jwt"
+	log "github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -20,11 +21,11 @@ type Auth0Manager struct {
 }
 
 type Auth0ClientCredentials struct {
-	Audience     string
-	AuthIssuer   string
-	ClientId     string
-	ClientSecret string
-	GrantType    string
+	Audience     string `json:"audiance"`
+	AuthIssuer   string `json:"auth_issuer"`
+	ClientId     string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+	GrantType    string `json:"grant_type"`
 }
 
 type Auth0HTTPClient interface {
@@ -112,7 +113,14 @@ func (am *Auth0Manager) getJWTToken() error {
 	}
 
 	res, err := am.getJWTRequest()
-	defer res.Body.Close()
+
+	defer func() {
+		err = res.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing get jwt token response body: %v", err)
+		}
+	}()
+
 	if err != nil {
 		return err
 	}
@@ -145,10 +153,11 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 	payloadString := fmt.Sprintf("{\"app_metadata\": %s}", string(data))
 
 	payload := strings.NewReader(payloadString)
-	fmt.Println(payloadString)
 
-	req, _ := http.NewRequest("PATCH", url, payload)
-
+	req, err := http.NewRequest("PATCH", url, payload)
+	if err != nil {
+		return err
+	}
 	req.Header.Add("authorization", "Bearer "+am.jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
@@ -157,7 +166,12 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 		return err
 	}
 
-	defer res.Body.Close()
+	defer func() {
+		err = res.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing update user app metadata response body: %v", err)
+		}
+	}()
 
 	if res.StatusCode != 200 {
 		return fmt.Errorf("unable to update the appMetadata, statusCode %d", res.StatusCode)
