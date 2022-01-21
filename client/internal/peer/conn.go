@@ -54,7 +54,7 @@ type Conn struct {
 	ctx                context.Context
 	notifyDisconnected context.CancelFunc
 
-	agent  *ice.Agent
+	agent  ICEAgent
 	status ConnStatus
 
 	proxy proxy.Proxy
@@ -190,7 +190,7 @@ func (conn *Conn) Open() error {
 	// but it won't release if ICE Agent went into Disconnected or Failed state,
 	// so we have to cancel it with the provided context once agent detected a broken connection
 	isControlling := conn.config.LocalKey > conn.config.Key
-	var remoteConn *ice.Conn
+	var remoteConn net.Conn
 	if isControlling {
 		remoteConn, err = conn.agent.Dial(conn.ctx, remoteCredentials.UFrag, remoteCredentials.Pwd)
 	} else {

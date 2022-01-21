@@ -1,8 +1,8 @@
 package peer
 
 import (
-	"github.com/magiconair/properties/assert"
 	"github.com/pion/ice/v2"
+	"github.com/stretchr/testify/assert"
 	"github.com/wiretrustee/wiretrustee/client/internal/proxy"
 	"sync"
 	"testing"
@@ -20,9 +20,7 @@ var connConf = ConnConfig{
 
 func TestConn_GetKey(t *testing.T) {
 	conn, err := NewConn(connConf)
-	if err != nil {
-		return
-	}
+	assert.NoError(t, err)
 
 	got := conn.GetKey()
 
@@ -32,9 +30,7 @@ func TestConn_GetKey(t *testing.T) {
 func TestConn_OnRemoteOffer(t *testing.T) {
 
 	conn, err := NewConn(connConf)
-	if err != nil {
-		return
-	}
+	assert.NoError(t, err)
 
 	wg := sync.WaitGroup{}
 	wg.Add(2)
@@ -62,9 +58,7 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 func TestConn_OnRemoteAnswer(t *testing.T) {
 
 	conn, err := NewConn(connConf)
-	if err != nil {
-		return
-	}
+	assert.NoError(t, err)
 
 	wg := sync.WaitGroup{}
 	wg.Add(2)
@@ -91,9 +85,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 func TestConn_Status(t *testing.T) {
 
 	conn, err := NewConn(connConf)
-	if err != nil {
-		return
-	}
+	assert.NoError(t, err)
 
 	tables := []struct {
 		name   string
@@ -118,9 +110,7 @@ func TestConn_Status(t *testing.T) {
 func TestConn_Close(t *testing.T) {
 
 	conn, err := NewConn(connConf)
-	if err != nil {
-		return
-	}
+	assert.NoError(t, err)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -141,4 +131,17 @@ func TestConn_Close(t *testing.T) {
 	}()
 
 	wg.Wait()
+}
+
+func TestConn_reCreateAgent(t *testing.T) {
+
+	conn, err := NewConn(connConf)
+	assert.NoError(t, err)
+
+	assert.Nil(t, conn.agent)
+
+	err = conn.reCreateAgent()
+	assert.NoError(t, err)
+
+	assert.NotNil(t, conn.agent)
 }
