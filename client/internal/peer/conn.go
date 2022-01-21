@@ -350,6 +350,7 @@ func (conn *Conn) Close() error {
 	defer conn.mu.Unlock()
 	select {
 	case conn.closeCh <- struct{}{}:
+		return nil
 	default:
 		// probably could happen when peer has been added and removed right after not even starting to connect
 		// todo further investigate
@@ -364,8 +365,8 @@ func (conn *Conn) Close() error {
 		// engine adds a new Conn for 4 and 5
 		// therefore peer 4 has 2 Conn objects
 		log.Warnf("closing not started coonection %s", conn.config.Key)
+		return NewConnectionAlreadyClosed(conn.config.Key)
 	}
-	return nil
 }
 
 // Status returns current status of the Conn

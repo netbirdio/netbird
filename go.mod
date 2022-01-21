@@ -30,10 +30,12 @@ require (
 require (
 	github.com/magiconair/properties v1.8.5
 	github.com/rs/xid v1.3.0
+	github.com/stretchr/testify v1.7.0
 )
 
 require (
 	github.com/BurntSushi/toml v0.4.1 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.5.1 // indirect
 	github.com/google/go-cmp v0.5.6 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
@@ -50,6 +52,7 @@ require (
 	github.com/pion/transport v0.12.3 // indirect
 	github.com/pion/turn/v2 v2.0.5 // indirect
 	github.com/pion/udp v0.1.1 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
 	golang.org/x/mod v0.5.1 // indirect
 	golang.org/x/net v0.0.0-20211215060638-4ddde0e984e9 // indirect
@@ -61,5 +64,6 @@ require (
 	google.golang.org/genproto v0.0.0-20211208223120-3a66f561d7aa // indirect
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 	honnef.co/go/tools v0.2.2 // indirect
 )

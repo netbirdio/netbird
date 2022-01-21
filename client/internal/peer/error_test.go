@@ -20,3 +20,8 @@ func TestNewConnectionTimeoutErrorC(t *testing.T) {
 	err := NewConnectionTimeoutError("X", time.Second)
 	assert.Equal(t, &ConnectionTimeoutError{peer: "X", timeout: time.Second}, err)
 }
+
+func TestNewConnectionAlreadyClosed(t *testing.T) {
+	err := NewConnectionAlreadyClosed("X")
+	assert.Equal(t, &ConnectionAlreadyClosedError{peer: "X"}, err)
+}
