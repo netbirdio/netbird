@@ -66,7 +66,7 @@ func (c *Auth0Credentials) getJWTRequest() (*http.Response, error) {
 	var res *http.Response
 	url := c.clientConfig.AuthIssuer + "/oauth/token"
 
-	p, err := json.Marshal(c.clientConfig)
+	p, err := Marshal(c.clientConfig)
 	if err != nil {
 		return res, err
 	}
@@ -98,7 +98,7 @@ func (c *Auth0Credentials) parseGetJWTResponse(rawBody io.ReadCloser) (JWTToken,
 		return jwtToken, err
 	}
 
-	err = json.Unmarshal(body, &jwtToken)
+	err = Unmarshal(body, &jwtToken)
 	if err != nil {
 		return jwtToken, err
 	}
@@ -161,7 +161,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 
 	url := am.authIssuer + "/api/v2/users/" + userId
 
-	data, err := json.Marshal(appMetadata)
+	data, err := Marshal(appMetadata)
 	if err != nil {
 		return err
 	}
