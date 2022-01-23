@@ -264,9 +264,16 @@ func Test_UpdateUserAppMetadata(t *testing.T) {
 		resBody: fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
 		code:    200,
 	}
-	creds := Auth0ClientConfig{}
-	manager := NewDefaultAuth0Manager(creds)
-	manager.httpClient = &jwtReqClient
+	config := Auth0ClientConfig{}
+
+	creds := Auth0Credentials{
+		clientConfig: config,
+		httpClient:   &jwtReqClient,
+	}
+	manager := Auth0Manager{
+		httpClient:  &jwtReqClient,
+		credentials: &creds,
+	}
 
 	appMetadata := AppMetadata{WTAccountId: "ok"}
 	err := manager.UpdateUserAppMetadata("1", appMetadata)
