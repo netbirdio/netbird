@@ -1,4 +1,4 @@
-package idpmanager
+package idp
 
 import (
 	"encoding/json"
@@ -39,9 +39,18 @@ type Auth0Credentials struct {
 	mux          sync.Mutex
 }
 
-// NewDefaultAuth0Manager creates a new instance of the Auth0Manager
-func NewDefaultAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
-	httpClient := http.DefaultClient
+// NewAuth0Manager creates a new instance of the Auth0Manager
+func NewAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
+
+	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport.MaxIdleConns = 5
+	httpTransport.IdleConnTimeout = 30
+
+	httpClient := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: httpTransport,
+	}
+
 	helper := JsonParser{}
 
 	credentials := &Auth0Credentials{

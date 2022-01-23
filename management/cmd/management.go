@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/management/server/http"
-	"github.com/wiretrustee/wiretrustee/management/server/idpmanager"
+	"github.com/wiretrustee/wiretrustee/management/server/idp"
 	"github.com/wiretrustee/wiretrustee/util"
 	"net"
 	"os"
@@ -69,7 +69,7 @@ var (
 				log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 			}
 			peersUpdateManager := server.NewPeersUpdateManager()
-			idpManager, err := idpmanager.NewManager(*config.IdpManagerConfig)
+			idpManager, err := idp.NewManager(*config.IdpManagerConfig)
 			if err != nil {
 				log.Fatalln("failed retrieving a new idp manager with err: ", err)
 			}

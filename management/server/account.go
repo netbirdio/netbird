@@ -3,7 +3,7 @@ package server
 import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/management/server/idpmanager"
+	"github.com/wiretrustee/wiretrustee/management/server/idp"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -15,7 +15,7 @@ type AccountManager struct {
 	// mutex to synchronise account operations (e.g. generating Peer IP address inside the Network)
 	mux                sync.Mutex
 	peersUpdateManager *PeersUpdateManager
-	idpManager         idpmanager.IDPManager
+	idpManager         idp.Manager
 }
 
 // Account represents a unique account of the system
@@ -62,7 +62,7 @@ func (a *Account) Copy() *Account {
 }
 
 // NewManager creates a new AccountManager with a provided Store
-func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idpmanager.IDPManager) *AccountManager {
+func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) *AccountManager {
 	return &AccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
@@ -175,7 +175,7 @@ func (am *AccountManager) GetAccountByUserOrAccountId(userId, accountId string) 
 		}
 		// update idp manager app metadata
 		if am.idpManager != nil {
-			err = am.idpManager.UpdateUserAppMetadata(userId, idpmanager.AppMetadata{WTAccountId: account.Id})
+			err = am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: account.Id})
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "updating user's app metadata failed with: %v", err)
 			}

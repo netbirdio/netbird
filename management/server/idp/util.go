@@ -1,4 +1,4 @@
-package idpmanager
+package idp
 
 import "encoding/json"
 

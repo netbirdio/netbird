@@ -1,7 +1,7 @@
 package server
 
 import (
-	"github.com/wiretrustee/wiretrustee/management/server/idpmanager"
+	"github.com/wiretrustee/wiretrustee/management/server/idp"
 	"github.com/wiretrustee/wiretrustee/util"
 )
 
@@ -25,7 +25,7 @@ type Config struct {
 
 	HttpConfig *HttpServerConfig
 
-	IdpManagerConfig *idpmanager.ManagerConfig
+	IdpManagerConfig *idp.Config
 }
 
 // TURNConfig is a config of the TURNCredentialsManager

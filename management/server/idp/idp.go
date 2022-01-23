@@ -1,4 +1,4 @@
-package idpmanager
+package idp
 
 import (
 	"fmt"
@@ -7,15 +7,18 @@ import (
 	"time"
 )
 
-type IDPManager interface {
+// Manager idp manager interface
+type Manager interface {
 	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
 }
 
-type ManagerConfig struct {
+// Config an idp configuration struct to be loaded from management server's config file
+type Config struct {
 	ManagerType            string
 	Auth0ClientCredentials Auth0ClientConfig
 }
 
+// ManagerCredentials interface that authenticates using the credential of each type of idp
 type ManagerCredentials interface {
 	Authenticate() (JWTToken, error)
 }
@@ -25,17 +28,20 @@ type ManagerHTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
+// ManagerHelper helper
 type ManagerHelper interface {
 	Marshal(v interface{}) ([]byte, error)
 	Unmarshal(data []byte, v interface{}) error
 }
 
+// AppMetadata user app metadata to associate with a profile
 type AppMetadata struct {
 	// Wiretrustee account id to update in the IDP
 	// maps to wt_account_id when json.marshal
 	WTAccountId string `json:"wt_account_id"`
 }
 
+// JWTToken a JWT object that holds information of a token
 type JWTToken struct {
 	AccessToken   string `json:"access_token"`
 	ExpiresIn     int    `json:"expires_in"`
@@ -44,12 +50,13 @@ type JWTToken struct {
 	TokenType     string `json:"token_type"`
 }
 
-func NewManager(config ManagerConfig) (IDPManager, error) {
+// NewManager returns a new idp manager based on the configuration that it receives
+func NewManager(config Config) (Manager, error) {
 	switch strings.ToLower(config.ManagerType) {
 	case "none", "":
 		return nil, nil
 	case "auth0":
-		return NewDefaultAuth0Manager(config.Auth0ClientCredentials), nil
+		return NewAuth0Manager(config.Auth0ClientCredentials), nil
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
