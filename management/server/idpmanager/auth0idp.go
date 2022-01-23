@@ -13,14 +13,16 @@ import (
 	"time"
 )
 
+// Auth0Manager auth0 manager client instance
 type Auth0Manager struct {
-	clientCredentials Auth0ClientCredentials
-	jwtToken          JWTToken
-	mux               sync.Mutex
-	httpClient        Auth0HTTPClient
+	authIssuer string
+	//clientConfig Auth0ClientConfig
+	httpClient  Auth0HTTPClient
+	credentials ManagerCredentials
 }
 
-type Auth0ClientCredentials struct {
+// Auth0ClientConfig auth0 manager client configurations
+type Auth0ClientConfig struct {
 	Audience     string `json:"audiance"`
 	AuthIssuer   string `json:"auth_issuer"`
 	ClientId     string `json:"client_id"`
@@ -28,29 +30,43 @@ type Auth0ClientCredentials struct {
 	GrantType    string `json:"grant_type"`
 }
 
+// Auth0HTTPClient http client interface for API calls
 type Auth0HTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
 
-// NewAuth0Manager creates a new instance of the Auth0Manager
-func NewAuth0Manager(credentials Auth0ClientCredentials) *Auth0Manager {
+// Auth0Credentials auth0 authentication information
+type Auth0Credentials struct {
+	clientConfig Auth0ClientConfig
+	httpClient   Auth0HTTPClient
+	jwtToken     JWTToken
+	mux          sync.Mutex
+}
+
+// NewDefaultAuth0Manager creates a new instance of the Auth0Manager
+func NewDefaultAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
+	credentials := &Auth0Credentials{
+		clientConfig: config,
+		httpClient:   http.DefaultClient,
+	}
 	return &Auth0Manager{
-		clientCredentials: credentials,
-		httpClient:        http.DefaultClient,
+		authIssuer:  config.AuthIssuer,
+		credentials: credentials,
+		httpClient:  http.DefaultClient,
 	}
 }
 
 // jwtStillValid returns true if the token still valid and have enough time to be used and get a response from Auth0
-func (am *Auth0Manager) jwtStillValid() bool {
-	return !am.jwtToken.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(am.jwtToken.expiresInTime)
+func (c *Auth0Credentials) jwtStillValid() bool {
+	return !c.jwtToken.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(c.jwtToken.expiresInTime)
 }
 
 // getJWTRequest performs request to get jwt token
-func (am *Auth0Manager) getJWTRequest() (*http.Response, error) {
+func (c *Auth0Credentials) getJWTRequest() (*http.Response, error) {
 	var res *http.Response
-	url := am.clientCredentials.AuthIssuer + "/oauth/token"
+	url := c.clientConfig.AuthIssuer + "/oauth/token"
 
-	p, err := json.Marshal(am.clientCredentials)
+	p, err := json.Marshal(c.clientConfig)
 	if err != nil {
 		return res, err
 	}
@@ -63,7 +79,7 @@ func (am *Auth0Manager) getJWTRequest() (*http.Response, error) {
 
 	req.Header.Add("content-type", "application/json")
 
-	res, err = am.httpClient.Do(req)
+	res, err = c.httpClient.Do(req)
 	if err != nil {
 		return res, err
 	}
@@ -75,7 +91,7 @@ func (am *Auth0Manager) getJWTRequest() (*http.Response, error) {
 }
 
 // parseGetJWTResponse parses jwt raw response body and extracts token and expires in seconds
-func (am *Auth0Manager) parseGetJWTResponse(rawBody io.ReadCloser) (JWTToken, error) {
+func (c *Auth0Credentials) parseGetJWTResponse(rawBody io.ReadCloser) (JWTToken, error) {
 	jwtToken := JWTToken{}
 	body, err := ioutil.ReadAll(rawBody)
 	if err != nil {
@@ -104,19 +120,19 @@ func (am *Auth0Manager) parseGetJWTResponse(rawBody io.ReadCloser) (JWTToken, er
 	return jwtToken, nil
 }
 
-// getJWTToken retrieves access token to use the Auth0 Management API
-func (am *Auth0Manager) getJWTToken() error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+// Authenticate retrieves access token to use the Auth0 Management API
+func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
+	c.mux.Lock()
+	defer c.mux.Unlock()
 
 	// If jwtToken has an expires time and we have enough time to do a request return immediately
-	if am.jwtStillValid() {
-		return nil
+	if c.jwtStillValid() {
+		return c.jwtToken, nil
 	}
 
-	res, err := am.getJWTRequest()
+	res, err := c.getJWTRequest()
 	if err != nil {
-		return err
+		return c.jwtToken, err
 	}
 	defer func() {
 		err = res.Body.Close()
@@ -125,25 +141,25 @@ func (am *Auth0Manager) getJWTToken() error {
 		}
 	}()
 
-	jwtToken, err := am.parseGetJWTResponse(res.Body)
+	jwtToken, err := c.parseGetJWTResponse(res.Body)
 	if err != nil {
-		return err
+		return c.jwtToken, err
 	}
 
-	am.jwtToken = jwtToken
+	c.jwtToken = jwtToken
 
-	return nil
+	return c.jwtToken, nil
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userId and metadata map
 func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
 
-	err := am.getJWTToken()
+	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return err
 	}
 
-	url := am.clientCredentials.AuthIssuer + "/api/v2/users/" + userId
+	url := am.authIssuer + "/api/v2/users/" + userId
 
 	data, err := json.Marshal(appMetadata)
 	if err != nil {
@@ -158,7 +174,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 	if err != nil {
 		return err
 	}
-	req.Header.Add("authorization", "Bearer "+am.jwtToken.AccessToken)
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
 	res, err := am.httpClient.Do(req)

@@ -12,7 +12,11 @@ type IDPManager interface {
 
 type ManagerConfig struct {
 	ManagerType            string
-	Auth0ClientCredentials Auth0ClientCredentials
+	Auth0ClientCredentials Auth0ClientConfig
+}
+
+type ManagerCredentials interface {
+	Authenticate() (JWTToken, error)
 }
 
 type AppMetadata struct {
@@ -34,7 +38,7 @@ func NewManager(config ManagerConfig) (IDPManager, error) {
 	case "none", "":
 		return nil, nil
 	case "auth0":
-		return NewAuth0Manager(config.Auth0ClientCredentials), nil
+		return NewDefaultAuth0Manager(config.Auth0ClientCredentials), nil
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}

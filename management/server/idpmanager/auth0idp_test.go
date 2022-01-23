@@ -81,13 +81,14 @@ func TestAuth0_GetJWTToken(t *testing.T) {
 				resBody: testCase.inputResBody,
 				code:    testCase.inputCode,
 			}
-			creds := Auth0ClientCredentials{}
+			config := Auth0ClientConfig{}
 
-			manager := NewAuth0Manager(creds)
+			creds := Auth0Credentials{
+				clientConfig: config,
+				httpClient:   &jwtReqClient,
+			}
 
-			manager.httpClient = &jwtReqClient
-
-			res, err := manager.getJWTRequest()
+			res, err := creds.getJWTRequest()
 			if err != nil {
 				if testCase.expectedFuncExitErrDiff != nil {
 					assert.EqualError(t, err, testCase.expectedFuncExitErrDiff.Error(), "errors should be the same")
@@ -140,11 +141,13 @@ func TestAuth0_GetJWTToken(t *testing.T) {
 
 			rawBody := ioutil.NopCloser(strings.NewReader(testCase.inputResBody))
 
-			creds := Auth0ClientCredentials{}
+			config := Auth0ClientConfig{}
 
-			manager := NewAuth0Manager(creds)
+			creds := Auth0Credentials{
+				clientConfig: config,
+			}
 
-			jwtToken, err := manager.parseGetJWTResponse(rawBody)
+			jwtToken, err := creds.parseGetJWTResponse(rawBody)
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 
 			assert.Equalf(t, testCase.expectedToken, jwtToken.AccessToken, "two tokens should be the same")
@@ -174,12 +177,14 @@ func TestAuth0_GetJWTToken(t *testing.T) {
 	for _, testCase := range []jwtStillValidTest{jwtStillValidTestCase1, jwtStillValidTestCase2} {
 		t.Run(testCase.name, func(t *testing.T) {
 
-			creds := Auth0ClientCredentials{}
+			config := Auth0ClientConfig{}
 
-			manager := NewAuth0Manager(creds)
-			manager.jwtToken.expiresInTime = testCase.inputTime
+			creds := Auth0Credentials{
+				clientConfig: config,
+			}
+			creds.jwtToken.expiresInTime = testCase.inputTime
 
-			assert.Equalf(t, testCase.expectedResult, manager.jwtStillValid(), testCase.message)
+			assert.Equalf(t, testCase.expectedResult, creds.jwtStillValid(), testCase.message)
 		})
 	}
 
@@ -226,15 +231,16 @@ func TestAuth0_GetJWTToken(t *testing.T) {
 				resBody: testCase.inputResBody,
 				code:    testCase.inputCode,
 			}
-			creds := Auth0ClientCredentials{}
+			config := Auth0ClientConfig{}
 
-			manager := NewAuth0Manager(creds)
+			creds := Auth0Credentials{
+				clientConfig: config,
+				httpClient:   &jwtReqClient,
+			}
 
-			manager.httpClient = &jwtReqClient
+			creds.jwtToken.expiresInTime = testCase.inputExpireToken
 
-			manager.jwtToken.expiresInTime = testCase.inputExpireToken
-
-			err := manager.getJWTToken()
+			_, err := creds.Authenticate()
 			if err != nil {
 				if testCase.expectedFuncExitErrDiff != nil {
 					assert.EqualError(t, err, testCase.expectedFuncExitErrDiff.Error(), "errors should be the same")
@@ -243,7 +249,7 @@ func TestAuth0_GetJWTToken(t *testing.T) {
 				}
 			}
 
-			assert.Equalf(t, testCase.expectedToken, manager.jwtToken.AccessToken, "two tokens should be the same")
+			assert.Equalf(t, testCase.expectedToken, creds.jwtToken.AccessToken, "two tokens should be the same")
 		})
 	}
 
@@ -258,8 +264,8 @@ func Test_UpdateUserAppMetadata(t *testing.T) {
 		resBody: fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
 		code:    200,
 	}
-	creds := Auth0ClientCredentials{}
-	manager := NewAuth0Manager(creds)
+	creds := Auth0ClientConfig{}
+	manager := NewDefaultAuth0Manager(creds)
 	manager.httpClient = &jwtReqClient
 
 	appMetadata := AppMetadata{WTAccountId: "ok"}
