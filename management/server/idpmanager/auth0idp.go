@@ -15,10 +15,10 @@ import (
 
 // Auth0Manager auth0 manager client instance
 type Auth0Manager struct {
-	authIssuer string
-	//clientConfig Auth0ClientConfig
-	httpClient  Auth0HTTPClient
+	authIssuer  string
+	httpClient  ManagerHTTPClient
 	credentials ManagerCredentials
+	helper      ManagerHelper
 }
 
 // Auth0ClientConfig auth0 manager client configurations
@@ -30,29 +30,30 @@ type Auth0ClientConfig struct {
 	GrantType    string `json:"grant_type"`
 }
 
-// Auth0HTTPClient http client interface for API calls
-type Auth0HTTPClient interface {
-	Do(req *http.Request) (*http.Response, error)
-}
-
 // Auth0Credentials auth0 authentication information
 type Auth0Credentials struct {
 	clientConfig Auth0ClientConfig
-	httpClient   Auth0HTTPClient
+	helper       ManagerHelper
+	httpClient   ManagerHTTPClient
 	jwtToken     JWTToken
 	mux          sync.Mutex
 }
 
 // NewDefaultAuth0Manager creates a new instance of the Auth0Manager
 func NewDefaultAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
+	httpClient := http.DefaultClient
+	helper := JsonParser{}
+
 	credentials := &Auth0Credentials{
 		clientConfig: config,
-		httpClient:   http.DefaultClient,
+		httpClient:   httpClient,
+		helper:       helper,
 	}
 	return &Auth0Manager{
 		authIssuer:  config.AuthIssuer,
 		credentials: credentials,
-		httpClient:  http.DefaultClient,
+		httpClient:  httpClient,
+		helper:      helper,
 	}
 }
 
@@ -61,12 +62,12 @@ func (c *Auth0Credentials) jwtStillValid() bool {
 	return !c.jwtToken.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(c.jwtToken.expiresInTime)
 }
 
-// getJWTRequest performs request to get jwt token
-func (c *Auth0Credentials) getJWTRequest() (*http.Response, error) {
+// requestJWTToken performs request to get jwt token
+func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 	var res *http.Response
 	url := c.clientConfig.AuthIssuer + "/oauth/token"
 
-	p, err := Marshal(c.clientConfig)
+	p, err := c.helper.Marshal(c.clientConfig)
 	if err != nil {
 		return res, err
 	}
@@ -90,15 +91,15 @@ func (c *Auth0Credentials) getJWTRequest() (*http.Response, error) {
 	return res, nil
 }
 
-// parseGetJWTResponse parses jwt raw response body and extracts token and expires in seconds
-func (c *Auth0Credentials) parseGetJWTResponse(rawBody io.ReadCloser) (JWTToken, error) {
+// parseRequestJWTResponse parses jwt raw response body and extracts token and expires in seconds
+func (c *Auth0Credentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JWTToken, error) {
 	jwtToken := JWTToken{}
 	body, err := ioutil.ReadAll(rawBody)
 	if err != nil {
 		return jwtToken, err
 	}
 
-	err = Unmarshal(body, &jwtToken)
+	err = c.helper.Unmarshal(body, &jwtToken)
 	if err != nil {
 		return jwtToken, err
 	}
@@ -130,7 +131,7 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 		return c.jwtToken, nil
 	}
 
-	res, err := c.getJWTRequest()
+	res, err := c.requestJWTToken()
 	if err != nil {
 		return c.jwtToken, err
 	}
@@ -141,7 +142,7 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 		}
 	}()
 
-	jwtToken, err := c.parseGetJWTResponse(res.Body)
+	jwtToken, err := c.parseRequestJWTResponse(res.Body)
 	if err != nil {
 		return c.jwtToken, err
 	}
@@ -161,7 +162,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 
 	url := am.authIssuer + "/api/v2/users/" + userId
 
-	data, err := Marshal(appMetadata)
+	data, err := am.helper.Marshal(appMetadata)
 	if err != nil {
 		return err
 	}

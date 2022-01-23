@@ -2,10 +2,12 @@ package idpmanager
 
 import "encoding/json"
 
-func Marshal(v interface{}) ([]byte, error) {
+type JsonParser struct{}
+
+func (JsonParser) Marshal(v interface{}) ([]byte, error) {
 	return json.Marshal(v)
 }
 
-func Unmarshal(data []byte, v interface{}) error {
+func (JsonParser) Unmarshal(data []byte, v interface{}) error {
 	return json.Unmarshal(data, v)
 }

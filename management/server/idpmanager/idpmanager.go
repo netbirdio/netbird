@@ -2,6 +2,7 @@ package idpmanager
 
 import (
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 )
@@ -17,6 +18,16 @@ type ManagerConfig struct {
 
 type ManagerCredentials interface {
 	Authenticate() (JWTToken, error)
+}
+
+// ManagerHTTPClient http client interface for API calls
+type ManagerHTTPClient interface {
+	Do(req *http.Request) (*http.Response, error)
+}
+
+type ManagerHelper interface {
+	Marshal(v interface{}) ([]byte, error)
+	Unmarshal(data []byte, v interface{}) error
 }
 
 type AppMetadata struct {
