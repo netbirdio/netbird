@@ -96,7 +96,13 @@ func (e *Engine) Stop() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	err := e.removeAllPeers()
+	err := e.mgmClient.Close()
+	if err != nil {
+		log.Errorf("failed closing engine's management client: %v", err)
+		return err
+	}
+
+	err = e.removeAllPeers()
 	if err != nil {
 		return err
 	}
