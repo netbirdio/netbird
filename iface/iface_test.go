@@ -276,13 +276,21 @@ func Test_ConnectPeers(t *testing.T) {
 
 	err = iface1.Configure(peer1Key.String(), peer1Port)
 	if err != nil {
-		devs, _ := wg.Devices()
+		devlist, _ := wg.Devices()
+		var devs []wgtypes.Device
+		for _, d := range devlist {
+			devs = append(devs, *d)
+		}
 		port, _ := iface1.GetListenPort()
 		t.Fatalf("got error %v and int is listening to port %d and devs %v", err, *port, devs)
 	}
 	err = iface2.Configure(peer2Key.String(), peer2Port)
 	if err != nil {
-		devs, _ := wg.Devices()
+		devlist, _ := wg.Devices()
+		var devs []wgtypes.Device
+		for _, d := range devlist {
+			devs = append(devs, *d)
+		}
 		port, _ := iface2.GetListenPort()
 		t.Fatalf("got error %v and int is listening to port %d and devs %v", err, *port, devs)
 	}
