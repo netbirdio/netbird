@@ -207,6 +207,29 @@ func TestConn_sendOffer(t *testing.T) {
 	}
 }
 
+func TestConn_onICECandidate(t *testing.T) {
+	conn, err := NewConn(connConf)
+	assert.NoError(t, err)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	conn.signalCandidate = func(candidate ice.Candidate) error {
+		wg.Done()
+		return nil
+	}
+
+	candidate, err := ice.NewCandidateHost(&ice.CandidateHostConfig{
+		Network:   "udp",
+		Address:   "192.168.1.1",
+		Port:      19216,
+		Component: 1,
+	})
+	assert.NoError(t, err)
+
+	conn.onICECandidate(candidate)
+	wg.Wait()
+}
+
 func TestConn_sendAnswer(t *testing.T) {
 
 	conn, err := NewConn(connConf)
