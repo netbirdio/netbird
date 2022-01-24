@@ -30,12 +30,6 @@ type ConnConfig struct {
 	ProxyConfig proxy.Config
 }
 
-// IceCredentials ICE protocol credentials struct
-type IceCredentials struct {
-	UFrag string
-	Pwd   string
-}
-
 type Conn struct {
 	config ConnConfig
 	mu     sync.Mutex
@@ -58,68 +52,39 @@ type Conn struct {
 	status ConnStatus
 
 	proxy proxy.Proxy
+
+	iceAgentProvider iceAgentProvider
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(config ConnConfig) (*Conn, error) {
-	return &Conn{
+	conn := &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
 		status:         StatusDisconnected,
 		closeCh:        make(chan struct{}),
 		remoteOffersCh: make(chan IceCredentials),
 		remoteAnswerCh: make(chan IceCredentials),
-	}, nil
-}
+	}
 
-// interfaceFilter is a function passed to ICE Agent to filter out blacklisted interfaces
-func interfaceFilter(blackList []string) func(string) bool {
-	var blackListMap map[string]struct{}
-	if blackList != nil {
-		blackListMap = make(map[string]struct{})
-		for _, s := range blackList {
-			blackListMap[s] = struct{}{}
-		}
+	conn.iceAgentProvider = &defaultICEAgentProvider{
+		StunTurn:                   config.StunTurn,
+		InterfaceBlackList:         config.InterfaceBlackList,
+		onICECandidate:             conn.onICECandidate,
+		onICEConnectionStateChange: conn.onICEConnectionStateChange,
+		onICESelectedCandidatePair: conn.onICESelectedCandidatePair,
 	}
-	return func(iFace string) bool {
-		if len(blackListMap) == 0 {
-			return true
-		}
-		_, ok := blackListMap[iFace]
-		return !ok
-	}
+
+	return conn, nil
 }
 
 func (conn *Conn) reCreateAgent() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	failedTimeout := 6 * time.Second
 	var err error
-	conn.agent, err = ice.NewAgent(&ice.AgentConfig{
-		MulticastDNSMode: ice.MulticastDNSModeDisabled,
-		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
-		Urls:             conn.config.StunTurn,
-		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
-		FailedTimeout:    &failedTimeout,
-		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
-	})
-	if err != nil {
-		return err
-	}
-
-	err = conn.agent.OnCandidate(conn.onICECandidate)
-	if err != nil {
-		return err
-	}
-
-	err = conn.agent.OnConnectionStateChange(conn.onICEConnectionStateChange)
-	if err != nil {
-		return err
-	}
-
-	err = conn.agent.OnSelectedCandidatePairChange(conn.onICESelectedCandidatePair)
+	conn.agent, err = conn.iceAgentProvider.createAgent()
 	if err != nil {
 		return err
 	}

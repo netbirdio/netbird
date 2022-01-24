@@ -4,7 +4,70 @@ import (
 	"context"
 	"github.com/pion/ice/v2"
 	"io"
+	"time"
 )
+
+type iceAgentProvider interface {
+	createAgent() (ICEAgent, error)
+}
+
+type defaultICEAgentProvider struct {
+	// StunTurn is a list of STUN and TURN URLs
+	StunTurn                   []*ice.URL
+	InterfaceBlackList         []string
+	onICECandidate             func(candidate ice.Candidate)
+	onICEConnectionStateChange func(state ice.ConnectionState)
+	onICESelectedCandidatePair func(c1 ice.Candidate, c2 ice.Candidate)
+}
+
+func (p *defaultICEAgentProvider) createAgent() (ICEAgent, error) {
+	failedTimeout := 6 * time.Second
+	agent, err := ice.NewAgent(&ice.AgentConfig{
+		MulticastDNSMode: ice.MulticastDNSModeDisabled,
+		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
+		Urls:             p.StunTurn,
+		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
+		FailedTimeout:    &failedTimeout,
+		InterfaceFilter:  interfaceFilter(p.InterfaceBlackList),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = agent.OnCandidate(p.onICECandidate)
+	if err != nil {
+		return nil, err
+	}
+
+	err = agent.OnConnectionStateChange(p.onICEConnectionStateChange)
+	if err != nil {
+		return nil, err
+	}
+
+	err = agent.OnSelectedCandidatePairChange(p.onICESelectedCandidatePair)
+	if err != nil {
+		return nil, err
+	}
+	return agent, nil
+}
+
+// interfaceFilter is a function passed to ICE Agent to filter out blacklisted interfaces
+func interfaceFilter(blackList []string) func(string) bool {
+	var blackListMap map[string]struct{}
+	if blackList != nil {
+		blackListMap = make(map[string]struct{})
+		for _, s := range blackList {
+			blackListMap[s] = struct{}{}
+		}
+	}
+	return func(iFace string) bool {
+		if len(blackListMap) == 0 {
+			return true
+		}
+		_, ok := blackListMap[iFace]
+		return !ok
+	}
+}
 
 // ICEAgent represents an ICE agent
 type ICEAgent interface {
@@ -17,6 +80,12 @@ type ICEAgent interface {
 	OnConnectionStateChange(f func(ice.ConnectionState)) error
 	OnSelectedCandidatePairChange(f func(ice.Candidate, ice.Candidate)) error
 	GetLocalUserCredentials() (frag string, pwd string, err error)
+}
+
+// IceCredentials ICE protocol credentials struct
+type IceCredentials struct {
+	UFrag string
+	Pwd   string
 }
 
 type iceAgentMock struct {
