@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"fmt"
 	"github.com/pion/ice/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/wiretrustee/wiretrustee/client/internal/proxy"
@@ -134,32 +135,76 @@ func TestConn_Close(t *testing.T) {
 }
 
 func TestConn_sendAnswer(t *testing.T) {
+
 	conn, err := NewConn(connConf)
 	assert.NoError(t, err)
 
 	signals := 0
 	ufrag := ""
 	pwd := ""
-	signalAnswer := func(u string, p string) error {
-		signals++
-		ufrag = u
-		pwd = p
-		return nil
+
+	tables := []struct {
+		name                        string
+		signalAnswer                func(u string, p string) error
+		getLocalUserCredentialsFunc func() (frag string, pwd string, err error)
+		wantUfrag                   string
+		wantPwd                     string
+		wantError                   bool
+		wantSignals                 int
+	}{
+		{"Happy Scenario", func(u string, p string) error {
+			signals = signals + 1
+			ufrag = u
+			pwd = p
+			return nil
+		}, func() (frag string, pwd string, err error) {
+			return "ufrag", "pwd", nil
+		}, "ufrag", "pwd", false, 1,
+		},
+
+		{"GetLocalUserCredentials failed", func(u string, p string) error {
+			signals++
+			ufrag = u
+			pwd = p
+			return nil
+		}, func() (frag string, pwd string, err error) {
+			return "", "", fmt.Errorf("forced")
+		}, "", "", true, 0,
+		},
+
+		{"SignalAnswer failed", func(u string, p string) error {
+			return fmt.Errorf("forced")
+		}, func() (frag string, pwd string, err error) {
+			return "ufrag", "pwd", nil
+		}, "", "", true, 0,
+		},
 	}
 
-	agent := &iceAgentMock{}
-	agent.GetLocalUserCredentialsFunc = func() (frag string, pwd string, err error) {
-		return "ufrag", "pwd", nil
+	for _, table := range tables {
+		t.Run(table.name, func(t *testing.T) {
+
+			signals = 0
+			ufrag = ""
+			pwd = ""
+
+			conn.SetSignalAnswer(table.signalAnswer)
+			agent := &iceAgentMock{}
+			agent.GetLocalUserCredentialsFunc = table.getLocalUserCredentialsFunc
+			conn.agent = agent
+
+			err = conn.sendAnswer()
+			if !table.wantError {
+				assert.NoError(t, err)
+				assert.Equal(t, ufrag, "ufrag")
+				assert.Equal(t, pwd, "pwd")
+				assert.Equal(t, signals, 1)
+			} else {
+				assert.Error(t, err)
+				assert.Equal(t, signals, 0)
+			}
+
+		})
 	}
-	conn.agent = agent
-
-	conn.SetSignalAnswer(signalAnswer)
-
-	err = conn.sendAnswer()
-	assert.NoError(t, err)
-	assert.Equal(t, ufrag, "ufrag")
-	assert.Equal(t, pwd, "pwd")
-	assert.Equal(t, signals, 1)
 }
 
 func TestConn_sendOffer(t *testing.T) {
