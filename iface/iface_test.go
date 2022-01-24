@@ -2,6 +2,7 @@ package iface
 
 import (
 	"fmt"
+	"github.com/cakturk/go-netstat/netstat"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -149,8 +150,8 @@ func Test_UpdatePeer(t *testing.T) {
 	}()
 	err = iface.Configure(key, WgPort+2)
 	if err != nil {
-		port, listening, devs := debug(iface, WgPort+2)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v", err, listening, port, devs)
+		port, listening, devs, socks := debug(iface, WgPort+2)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, port, devs, socks)
 		//t.Fatal(err)
 	}
 	keepAlive := 15 * time.Second
@@ -206,8 +207,8 @@ func Test_RemovePeer(t *testing.T) {
 	}()
 	err = iface.Configure(key, WgPort+3)
 	if err != nil {
-		port, listening, devs := debug(iface, WgPort+3)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v", err, listening, port, devs)
+		port, listening, devs, socks := debug(iface, WgPort+3)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, port, devs, socks)
 		//t.Fatal(err)
 	}
 	keepAlive := 15 * time.Second
@@ -279,13 +280,13 @@ func Test_ConnectPeers(t *testing.T) {
 
 	err = iface1.Configure(peer1Key.String(), peer1Port)
 	if err != nil {
-		port, listening, devs := debug(iface1, peer1Port)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v", err, listening, port, devs)
+		port, listening, devs, socks := debug(iface1, peer1Port)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v", err, listening, port, devs, socks)
 	}
 	err = iface2.Configure(peer2Key.String(), peer2Port)
 	if err != nil {
-		port, listening, devs := debug(iface2, peer2Port)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v", err, listening, port, devs)
+		port, listening, devs, socks := debug(iface2, peer2Port)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, port, devs, socks)
 	}
 
 	err = iface1.UpdatePeer(peer2Key.PublicKey().String(), peer2wgIP, keepAlive, peer2endpoint, nil)
@@ -316,8 +317,15 @@ func Test_ConnectPeers(t *testing.T) {
 	}
 
 }
-func debug(iface WGIface, port int) (int, bool, []wgtypes.Device) {
+func debug(iface WGIface, port int) (int, bool, []wgtypes.Device, map[string]string) {
 	var listening bool
+	socks, err := netstat.UDPSocks(func(s *netstat.SockTabEntry) bool {
+		return s.State == netstat.Listen
+	})
+	sockMap := make(map[string]string)
+	for _, sock := range socks {
+		sockMap[sock.LocalAddr.String()] = sock.Process.String()
+	}
 	wg, _ := wgctrl.New()
 	devlist, _ := wg.Devices()
 	defer wg.Close()
@@ -339,7 +347,7 @@ func debug(iface WGIface, port int) (int, bool, []wgtypes.Device) {
 		defer l.Close()
 	}
 	lport, _ := iface.GetListenPort()
-	return *lport, listening, devs
+	return *lport, listening, devs, sockMap
 }
 
 func getPeer(ifaceName, peerPubKey string, t *testing.T) (wgtypes.Peer, error) {

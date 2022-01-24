@@ -28,6 +28,7 @@ require (
 )
 
 require (
+	github.com/cakturk/go-netstat v0.0.0-20200220111822-e5b49efee7a5
 	github.com/magiconair/properties v1.8.5
 	github.com/rs/xid v1.3.0
 	github.com/stretchr/testify v1.7.0
