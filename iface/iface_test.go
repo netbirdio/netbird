@@ -331,9 +331,12 @@ func debug(iface WGIface, port int) (int, bool, []wgtypes.Device) {
 		})
 	}
 	l, err := net.Listen("udp", fmt.Sprintf(":%d", port))
-	defer l.Close()
+
 	if err != nil {
 		listening = true
+	}
+	if l != nil {
+		defer l.Close()
 	}
 	lport, _ := iface.GetListenPort()
 	return *lport, listening, devs
