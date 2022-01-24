@@ -1,11 +1,10 @@
 name: Test Code Linux
-on: push
+on: [push,pull_request]
 jobs:
   test:
     strategy:
       matrix:
         go-version: [1.17.x]
-        range: [1,2,3,4,5,6,7,8,9,0]
     runs-on: ubuntu-latest
     steps:
       - name: Install Go

@@ -1,5 +1,5 @@
 name: Test Code Windows
-on: push
+on: [push,pull_request]
 jobs:
   pre:
     runs-on: ubuntu-latest
@@ -47,5 +47,5 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
-      - name: Test build
+      - name: Test
         run: go test -tags=load_wgnt_from_rsrc ./...
