@@ -274,7 +274,8 @@ func Test_ConnectPeers(t *testing.T) {
 	}()
 	err = iface1.Configure(peer1Key.String(), peer1Port)
 	if err != nil {
-		t.Fatal(err)
+		port, _ := iface1.GetListenPort()
+		t.Fatalf("got error %v and int is listening to port %d", err, *port)
 	}
 	err = iface2.Configure(peer2Key.String(), peer2Port)
 	if err != nil {
