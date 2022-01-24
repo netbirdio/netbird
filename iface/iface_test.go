@@ -320,7 +320,7 @@ func Test_ConnectPeers(t *testing.T) {
 func debug(iface WGIface, port int) (int, bool, []wgtypes.Device, map[string]string) {
 	var listening bool
 	socks, err := netstat.UDPSocks(func(s *netstat.SockTabEntry) bool {
-		return s.State == netstat.Listen
+		return s.LocalAddr.Port == uint16(port)
 	})
 	sockMap := make(map[string]string)
 	for _, sock := range socks {
@@ -331,12 +331,14 @@ func debug(iface WGIface, port int) (int, bool, []wgtypes.Device, map[string]str
 	defer wg.Close()
 	var devs []wgtypes.Device
 	for _, d := range devlist {
-		devs = append(devs, wgtypes.Device{
-			Name:         d.Name,
-			ListenPort:   d.ListenPort,
-			Type:         d.Type,
-			FirewallMark: d.FirewallMark,
-		})
+		if d.ListenPort == port {
+			devs = append(devs, wgtypes.Device{
+				Name:         d.Name,
+				ListenPort:   d.ListenPort,
+				Type:         d.Type,
+				FirewallMark: d.FirewallMark,
+			})
+		}
 	}
 	l, err := net.Listen("udp", fmt.Sprintf(":%d", port))
 
