@@ -110,7 +110,7 @@ func Test_SyncProtocol(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	defer mgmtServer.Stop()
+	defer mgmtServer.GracefulStop()
 
 	client, clientConn, err := createRawClient(fmt.Sprintf("localhost:%d", mport))
 	if err != nil {

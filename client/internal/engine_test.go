@@ -297,7 +297,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	defer mgmtServer.Stop()
+	defer mgmtServer.GracefulStop()
 
 	setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
