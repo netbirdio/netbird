@@ -28,6 +28,7 @@ require (
 )
 
 require (
+	github.com/magiconair/properties v1.8.5
 	github.com/rs/xid v1.3.0
 	github.com/stretchr/testify v1.7.0
 )
