@@ -15,6 +15,7 @@ import (
 // SetupKeys is a handler that returns a list of setup keys of the account
 type SetupKeys struct {
 	accountManager *server.AccountManager
+	authAudience   string
 }
 
 // SetupKeyResponse is a response sent to the client
@@ -39,9 +40,10 @@ type SetupKeyRequest struct {
 	Revoked   bool
 }
 
-func NewSetupKeysHandler(accountManager *server.AccountManager) *SetupKeys {
+func NewSetupKeysHandler(accountManager *server.AccountManager, authAudience string) *SetupKeys {
 	return &SetupKeys{
 		accountManager: accountManager,
+		authAudience:   authAudience,
 	}
 }
 
@@ -118,8 +120,8 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 }
 
 func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
-	userId := extractUserIdFromRequestContext(r)
-	account, err := h.accountManager.GetOrCreateAccountByUser(userId)
+	userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
+	account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
 	if err != nil {
 		log.Errorf("failed getting account of a user %s: %v", userId, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -147,9 +149,8 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 
 func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 
-	userId := extractUserIdFromRequestContext(r)
-	//new user -> create a new account
-	account, err := h.accountManager.GetOrCreateAccountByUser(userId)
+	userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
+	account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
 	if err != nil {
 		log.Errorf("failed getting account of a user %s: %v", userId, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
