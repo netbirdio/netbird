@@ -8,13 +8,17 @@ import (
 	"time"
 )
 
-// extractUserIdFromRequestContext extracts accountId from the request context previously filled by the JWT token (after auth)
-func extractUserIdFromRequestContext(r *http.Request) string {
+// extractUserAndAccountIdFromRequestContext extracts accountId from the request context previously filled by the JWT token (after auth)
+func extractUserAndAccountIdFromRequestContext(r *http.Request, authAudiance string) (userId, accountId string) {
 	token := r.Context().Value("user").(*jwt.Token)
 	claims := token.Claims.(jwt.MapClaims)
 
-	//actually a user id but for now we have a 1 to 1 mapping.
-	return claims["sub"].(string)
+	userId = claims["sub"].(string)
+	accountIdInt, ok := claims[authAudiance+"wt_account_id"]
+	if ok {
+		accountId = accountIdInt.(string)
+	}
+	return userId, accountId
 }
 
 //writeJSONObject simply writes object to the HTTP reponse in JSON format
