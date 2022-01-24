@@ -193,7 +193,15 @@ func (e *Engine) removePeer(peerKey string) error {
 	conn, exists := e.peerConns[peerKey]
 	if exists {
 		delete(e.peerConns, peerKey)
-		return conn.Close()
+		err := conn.Close()
+		if err != nil {
+			switch err.(type) {
+			case *peer.ConnectionAlreadyClosedError:
+				return nil
+			default:
+				return err
+			}
+		}
 	}
 	return nil
 }

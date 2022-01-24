@@ -54,3 +54,19 @@ func NewConnectionDisconnectedError(peer string) error {
 		peer: peer,
 	}
 }
+
+// ConnectionAlreadyClosedError is an error indicating that a peer Conn has been already closed and the invocation of the Close() method has been performed over a closed connection
+type ConnectionAlreadyClosedError struct {
+	peer string
+}
+
+func (e *ConnectionAlreadyClosedError) Error() string {
+	return fmt.Sprintf("connection to peer %s has been already closed", e.peer)
+}
+
+// NewConnectionAlreadyClosed creates a new ConnectionAlreadyClosedError error
+func NewConnectionAlreadyClosed(peer string) error {
+	return &ConnectionAlreadyClosedError{
+		peer: peer,
+	}
+}
