@@ -11,10 +11,6 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-const (
-	wireguarModuleName = "wireguard"
-)
-
 type NativeLink struct {
 	Link *netlink.Link
 }
