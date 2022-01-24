@@ -2,7 +2,6 @@ package iface
 
 import (
 	"fmt"
-	"github.com/cakturk/go-netstat/netstat"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -13,7 +12,7 @@ import (
 
 // keep darwin compability
 const (
-	WgPort      = 51000
+	//WgPort      = 51000
 	WgIntNumber = 2000
 )
 
@@ -106,7 +105,11 @@ func Test_ConfigureInterface(t *testing.T) {
 		}
 	}()
 
-	err = iface.Configure(key, WgPort+1)
+	port, err := iface.GetListenPort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = iface.Configure(key, *port)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,10 +151,14 @@ func Test_UpdatePeer(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	err = iface.Configure(key, WgPort+2)
+	port, err := iface.GetListenPort()
 	if err != nil {
-		port, listening, devs, socks := debug(iface, WgPort+2)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, port, devs, socks)
+		t.Fatal(err)
+	}
+	err = iface.Configure(key, *port)
+	if err != nil {
+		dynPort, listening, devs, socks := debug(iface, *port)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, dynPort, devs, socks)
 		//t.Fatal(err)
 	}
 	keepAlive := 15 * time.Second
@@ -205,10 +212,14 @@ func Test_RemovePeer(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	err = iface.Configure(key, WgPort+3)
+	port, err := iface.GetListenPort()
 	if err != nil {
-		port, listening, devs, socks := debug(iface, WgPort+3)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, port, devs, socks)
+		t.Fatal(err)
+	}
+	err = iface.Configure(key, *port)
+	if err != nil {
+		dynPort, listening, devs, socks := debug(iface, *port)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, dynPort, devs, socks)
 		//t.Fatal(err)
 	}
 	keepAlive := 15 * time.Second
@@ -232,22 +243,12 @@ func Test_ConnectPeers(t *testing.T) {
 	peer1ifaceName := fmt.Sprintf("utun%d", WgIntNumber+400)
 	peer1wgIP := "10.99.99.17/30"
 	peer1Key, _ := wgtypes.GeneratePrivateKey()
-	peer1Port := WgPort + 4
-
-	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer1Port))
-	if err != nil {
-		t.Fatal(err)
-	}
+	//peer1Port := WgPort + 4
 
 	peer2ifaceName := fmt.Sprintf("utun%d", 500)
 	peer2wgIP := "10.99.99.18/30"
 	peer2Key, _ := wgtypes.GeneratePrivateKey()
-	peer2Port := WgPort + 5
-
-	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", peer2Port))
-	if err != nil {
-		t.Fatal(err)
-	}
+	//peer2Port := WgPort + 5
 
 	keepAlive := 1 * time.Second
 
@@ -259,11 +260,28 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	peer1Port, err := iface1.GetListenPort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer1endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", *peer1Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	iface2, err := NewWGIface(peer2ifaceName, peer2wgIP, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
 	}
 	err = iface2.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer2Port, err := iface2.GetListenPort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer2endpoint, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", *peer2Port))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,14 +296,14 @@ func Test_ConnectPeers(t *testing.T) {
 		}
 	}()
 
-	err = iface1.Configure(peer1Key.String(), peer1Port)
+	err = iface1.Configure(peer1Key.String(), *peer1Port)
 	if err != nil {
-		port, listening, devs, socks := debug(iface1, peer1Port)
+		port, listening, devs, socks := debug(iface1, *peer1Port)
 		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, port, devs, socks)
 	}
-	err = iface2.Configure(peer2Key.String(), peer2Port)
+	err = iface2.Configure(peer2Key.String(), *peer2Port)
 	if err != nil {
-		port, listening, devs, socks := debug(iface2, peer2Port)
+		port, listening, devs, socks := debug(iface2, *peer2Port)
 		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, port, devs, socks)
 	}
 
@@ -319,13 +337,13 @@ func Test_ConnectPeers(t *testing.T) {
 }
 func debug(iface WGIface, port int) (int, bool, []wgtypes.Device, map[string]string) {
 	var listening bool
-	socks, err := netstat.UDPSocks(func(s *netstat.SockTabEntry) bool {
-		return s.LocalAddr.Port == uint16(port)
-	})
+	//socks, err := netstat.UDPSocks(func(s *netstat.SockTabEntry) bool {
+	//	return s.LocalAddr.Port == uint16(port)
+	//})
 	sockMap := make(map[string]string)
-	for _, sock := range socks {
-		sockMap[sock.LocalAddr.String()] = sock.Process.String()
-	}
+	//for _, sock := range socks {
+	//	sockMap[sock.LocalAddr.String()] = sock.Process.String()
+	//}
 	wg, _ := wgctrl.New()
 	devlist, _ := wg.Devices()
 	defer wg.Close()
