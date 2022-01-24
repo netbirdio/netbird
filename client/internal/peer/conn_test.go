@@ -134,6 +134,79 @@ func TestConn_Close(t *testing.T) {
 	wg.Wait()
 }
 
+func TestConn_sendOffer(t *testing.T) {
+
+	conn, err := NewConn(connConf)
+	assert.NoError(t, err)
+
+	signals := 0
+	ufrag := ""
+	pwd := ""
+
+	tables := []struct {
+		name                        string
+		signalOffer                 func(u string, p string) error
+		getLocalUserCredentialsFunc func() (frag string, pwd string, err error)
+		wantUfrag                   string
+		wantPwd                     string
+		wantError                   bool
+		wantSignals                 int
+	}{
+		{"Happy Scenario", func(u string, p string) error {
+			signals = signals + 1
+			ufrag = u
+			pwd = p
+			return nil
+		}, func() (frag string, pwd string, err error) {
+			return "ufrag", "pwd", nil
+		}, "ufrag", "pwd", false, 1,
+		},
+
+		{"GetLocalUserCredentials failed", func(u string, p string) error {
+			signals++
+			ufrag = u
+			pwd = p
+			return nil
+		}, func() (frag string, pwd string, err error) {
+			return "", "", fmt.Errorf("forced")
+		}, "", "", true, 0,
+		},
+
+		{"SignalAnswer failed", func(u string, p string) error {
+			return fmt.Errorf("forced")
+		}, func() (frag string, pwd string, err error) {
+			return "ufrag", "pwd", nil
+		}, "", "", true, 0,
+		},
+	}
+
+	for _, table := range tables {
+		t.Run(table.name, func(t *testing.T) {
+
+			signals = 0
+			ufrag = ""
+			pwd = ""
+
+			conn.SetSignalOffer(table.signalOffer)
+			agent := &iceAgentMock{}
+			agent.GetLocalUserCredentialsFunc = table.getLocalUserCredentialsFunc
+			conn.agent = agent
+
+			err = conn.sendOffer()
+			if !table.wantError {
+				assert.NoError(t, err)
+				assert.Equal(t, ufrag, "ufrag")
+				assert.Equal(t, pwd, "pwd")
+				assert.Equal(t, signals, 1)
+			} else {
+				assert.Error(t, err)
+				assert.Equal(t, signals, 0)
+			}
+
+		})
+	}
+}
+
 func TestConn_sendAnswer(t *testing.T) {
 
 	conn, err := NewConn(connConf)
@@ -205,35 +278,6 @@ func TestConn_sendAnswer(t *testing.T) {
 
 		})
 	}
-}
-
-func TestConn_sendOffer(t *testing.T) {
-	conn, err := NewConn(connConf)
-	assert.NoError(t, err)
-
-	signals := 0
-	ufrag := ""
-	pwd := ""
-	signalOffer := func(u string, p string) error {
-		signals++
-		ufrag = u
-		pwd = p
-		return nil
-	}
-
-	agent := &iceAgentMock{}
-	agent.GetLocalUserCredentialsFunc = func() (frag string, pwd string, err error) {
-		return "ufrag", "pwd", nil
-	}
-	conn.agent = agent
-
-	conn.SetSignalOffer(signalOffer)
-
-	err = conn.sendOffer()
-	assert.NoError(t, err)
-	assert.Equal(t, ufrag, "ufrag")
-	assert.Equal(t, pwd, "pwd")
-	assert.Equal(t, signals, 1)
 }
 
 func TestConn_reCreateAgent(t *testing.T) {
