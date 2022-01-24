@@ -12,7 +12,6 @@ import (
 
 // keep darwin compability
 const (
-	//WgPort      = 51000
 	WgIntNumber = 2000
 )
 
@@ -157,9 +156,7 @@ func Test_UpdatePeer(t *testing.T) {
 	}
 	err = iface.Configure(key, *port)
 	if err != nil {
-		dynPort, listening, devs, socks := debug(iface, *port)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, dynPort, devs, socks)
-		//t.Fatal(err)
+		t.Fatal(err)
 	}
 	keepAlive := 15 * time.Second
 	allowedIP := "10.99.99.10/32"
@@ -218,9 +215,7 @@ func Test_RemovePeer(t *testing.T) {
 	}
 	err = iface.Configure(key, *port)
 	if err != nil {
-		dynPort, listening, devs, socks := debug(iface, *port)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, dynPort, devs, socks)
-		//t.Fatal(err)
+		t.Fatal(err)
 	}
 	keepAlive := 15 * time.Second
 	allowedIP := "10.99.99.14/32"
@@ -298,13 +293,11 @@ func Test_ConnectPeers(t *testing.T) {
 
 	err = iface1.Configure(peer1Key.String(), *peer1Port)
 	if err != nil {
-		port, listening, devs, socks := debug(iface1, *peer1Port)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, port, devs, socks)
+		t.Fatal(err)
 	}
 	err = iface2.Configure(peer2Key.String(), *peer2Port)
 	if err != nil {
-		port, listening, devs, socks := debug(iface2, *peer2Port)
-		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v and socks %v", err, listening, port, devs, socks)
+		t.Fatal(err)
 	}
 
 	err = iface1.UpdatePeer(peer2Key.PublicKey().String(), peer2wgIP, keepAlive, peer2endpoint, nil)
@@ -334,40 +327,6 @@ func Test_ConnectPeers(t *testing.T) {
 		}
 	}
 
-}
-func debug(iface WGIface, port int) (int, bool, []wgtypes.Device, map[string]string) {
-	var listening bool
-	//socks, err := netstat.UDPSocks(func(s *netstat.SockTabEntry) bool {
-	//	return s.LocalAddr.Port == uint16(port)
-	//})
-	sockMap := make(map[string]string)
-	//for _, sock := range socks {
-	//	sockMap[sock.LocalAddr.String()] = sock.Process.String()
-	//}
-	wg, _ := wgctrl.New()
-	devlist, _ := wg.Devices()
-	defer wg.Close()
-	var devs []wgtypes.Device
-	for _, d := range devlist {
-		if d.ListenPort == port {
-			devs = append(devs, wgtypes.Device{
-				Name:         d.Name,
-				ListenPort:   d.ListenPort,
-				Type:         d.Type,
-				FirewallMark: d.FirewallMark,
-			})
-		}
-	}
-	l, err := net.Listen("udp", fmt.Sprintf(":%d", port))
-
-	if err != nil {
-		listening = true
-	}
-	if l != nil {
-		defer l.Close()
-	}
-	lport, _ := iface.GetListenPort()
-	return *lport, listening, devs, sockMap
 }
 
 func getPeer(ifaceName, peerPubKey string, t *testing.T) (wgtypes.Peer, error) {
