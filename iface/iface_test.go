@@ -149,7 +149,9 @@ func Test_UpdatePeer(t *testing.T) {
 	}()
 	err = iface.Configure(key, WgPort+2)
 	if err != nil {
-		t.Fatal(err)
+		port, listening, devs := debug(iface, WgPort+2)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v", err, listening, port, devs)
+		//t.Fatal(err)
 	}
 	keepAlive := 15 * time.Second
 	allowedIP := "10.99.99.10/32"
@@ -204,7 +206,9 @@ func Test_RemovePeer(t *testing.T) {
 	}()
 	err = iface.Configure(key, WgPort+3)
 	if err != nil {
-		t.Fatal(err)
+		port, listening, devs := debug(iface, WgPort+3)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v", err, listening, port, devs)
+		//t.Fatal(err)
 	}
 	keepAlive := 15 * time.Second
 	allowedIP := "10.99.99.14/32"
@@ -272,27 +276,16 @@ func Test_ConnectPeers(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	wg, err := wgctrl.New()
 
 	err = iface1.Configure(peer1Key.String(), peer1Port)
 	if err != nil {
-		devlist, _ := wg.Devices()
-		var devs []wgtypes.Device
-		for _, d := range devlist {
-			devs = append(devs, *d)
-		}
-		port, _ := iface1.GetListenPort()
-		t.Fatalf("got error %v and int is listening to port %d and devs %v", err, *port, devs)
+		port, listening, devs := debug(iface1, peer1Port)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v", err, listening, port, devs)
 	}
 	err = iface2.Configure(peer2Key.String(), peer2Port)
 	if err != nil {
-		devlist, _ := wg.Devices()
-		var devs []wgtypes.Device
-		for _, d := range devlist {
-			devs = append(devs, *d)
-		}
-		port, _ := iface2.GetListenPort()
-		t.Fatalf("got error %v and int is listening to port %d and devs %v", err, *port, devs)
+		port, listening, devs := debug(iface2, peer2Port)
+		t.Fatalf("got error %v and was listening? %t, int is listening to port %d and devs %v", err, listening, port, devs)
 	}
 
 	err = iface1.UpdatePeer(peer2Key.PublicKey().String(), peer2wgIP, keepAlive, peer2endpoint, nil)
@@ -322,6 +315,28 @@ func Test_ConnectPeers(t *testing.T) {
 		}
 	}
 
+}
+func debug(iface WGIface, port int) (int, bool, []wgtypes.Device) {
+	var listening bool
+	wg, _ := wgctrl.New()
+	devlist, _ := wg.Devices()
+	defer wg.Close()
+	var devs []wgtypes.Device
+	for _, d := range devlist {
+		devs = append(devs, wgtypes.Device{
+			Name:         d.Name,
+			ListenPort:   d.ListenPort,
+			Type:         d.Type,
+			FirewallMark: d.FirewallMark,
+		})
+	}
+	l, err := net.Listen("udp", fmt.Sprintf(":%d", port))
+	defer l.Close()
+	if err != nil {
+		listening = true
+	}
+	lport, _ := iface.GetListenPort()
+	return *lport, listening, devs
 }
 
 func getPeer(ifaceName, peerPubKey string, t *testing.T) (wgtypes.Peer, error) {
