@@ -45,7 +45,7 @@ docker run -d --name wiretrustee-management \
 wiretrustee/management:latest \
 --letsencrypt-domain <YOUR-DOMAIN>
 ```
-> An example of config.json can be found here [config.json](../infrastructure_files/config.json)
+> An example of config.json can be found here [management.json](../infrastructure_files/management.json.tmpl)
 
 Trigger Let's encrypt certificate generation:
 ```bash

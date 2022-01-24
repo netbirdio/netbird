@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/management/server/idp"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,6 +15,7 @@ type AccountManager struct {
 	// mutex to synchronise account operations (e.g. generating Peer IP address inside the Network)
 	mux                sync.Mutex
 	peersUpdateManager *PeersUpdateManager
+	idpManager         idp.Manager
 }
 
 // Account represents a unique account of the system
@@ -60,11 +62,12 @@ func (a *Account) Copy() *Account {
 }
 
 // NewManager creates a new AccountManager with a provided Store
-func NewManager(store Store, peersUpdateManager *PeersUpdateManager) *AccountManager {
+func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) *AccountManager {
 	return &AccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
 		peersUpdateManager: peersUpdateManager,
+		idpManager:         idpManager,
 	}
 }
 
@@ -157,6 +160,30 @@ func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
 	}
 
 	return account, nil
+}
+
+//GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
+// user id doesn't have an account associated with it, one account is created
+func (am *AccountManager) GetAccountByUserOrAccountId(userId, accountId string) (*Account, error) {
+
+	if accountId != "" {
+		return am.GetAccount(accountId)
+	} else if userId != "" {
+		account, err := am.GetOrCreateAccountByUser(userId)
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
+		}
+		// update idp manager app metadata
+		if am.idpManager != nil {
+			err = am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: account.Id})
+			if err != nil {
+				return nil, status.Errorf(codes.Internal, "updating user's app metadata failed with: %v", err)
+			}
+		}
+		return account, nil
+	}
+
+	return nil, status.Errorf(codes.NotFound, "no valid user or account Id provided")
 }
 
 //AccountExists checks whether account exists (returns true) or not (returns false)

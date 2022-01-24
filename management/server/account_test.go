@@ -70,6 +70,36 @@ func TestAccountManager_AddAccount(t *testing.T) {
 	}
 }
 
+func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	userId := "test_user"
+
+	account, err := manager.GetAccountByUserOrAccountId(userId, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account == nil {
+		t.Fatalf("expected to create an account for a user %s", userId)
+	}
+
+	accountId := account.Id
+
+	_, err = manager.GetAccountByUserOrAccountId("", accountId)
+	if err != nil {
+		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", accountId)
+	}
+
+	_, err = manager.GetAccountByUserOrAccountId("", "")
+	if err == nil {
+		t.Errorf("expected an error when user and account IDs are empty")
+	}
+}
+
 func TestAccountManager_AccountExists(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -258,7 +288,7 @@ func createManager(t *testing.T) (*AccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewManager(store, NewPeersUpdateManager()), nil
+	return NewManager(store, NewPeersUpdateManager(), nil), nil
 }
 
 func createStore(t *testing.T) (Store, error) {

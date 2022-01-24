@@ -73,8 +73,8 @@ func (s *Server) Start() error {
 	r := mux.NewRouter()
 	r.Use(jwtMiddleware.Handler, corsMiddleware.Handler)
 
-	peersHandler := handler.NewPeers(s.accountManager)
-	keysHandler := handler.NewSetupKeysHandler(s.accountManager)
+	peersHandler := handler.NewPeers(s.accountManager, s.config.AuthAudience)
+	keysHandler := handler.NewSetupKeysHandler(s.accountManager, s.config.AuthAudience)
 	r.HandleFunc("/api/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/peers/{id}", peersHandler.HandlePeer).Methods("GET", "PUT", "DELETE", "OPTIONS")
 
