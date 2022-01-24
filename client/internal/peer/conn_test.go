@@ -133,6 +133,35 @@ func TestConn_Close(t *testing.T) {
 	wg.Wait()
 }
 
+func TestConn_sendAnswer(t *testing.T) {
+	conn, err := NewConn(connConf)
+	assert.NoError(t, err)
+
+	signals := 0
+	ufrag := ""
+	pwd := ""
+	signalAnswer := func(u string, p string) error {
+		signals++
+		ufrag = u
+		pwd = p
+		return nil
+	}
+
+	agent := &iceAgentMock{}
+	agent.GetLocalUserCredentialsFunc = func() (frag string, pwd string, err error) {
+		return "ufrag", "pwd", nil
+	}
+	conn.agent = agent
+
+	conn.SetSignalAnswer(signalAnswer)
+
+	err = conn.sendAnswer()
+	assert.NoError(t, err)
+	assert.Equal(t, ufrag, "ufrag")
+	assert.Equal(t, pwd, "pwd")
+	assert.Equal(t, signals, 1)
+}
+
 func TestConn_sendOffer(t *testing.T) {
 	conn, err := NewConn(connConf)
 	assert.NoError(t, err)
@@ -159,6 +188,7 @@ func TestConn_sendOffer(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, ufrag, "ufrag")
 	assert.Equal(t, pwd, "pwd")
+	assert.Equal(t, signals, 1)
 }
 
 func TestConn_reCreateAgent(t *testing.T) {
