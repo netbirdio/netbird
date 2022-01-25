@@ -13,16 +13,21 @@ type iceAgentProvider interface {
 
 type defaultICEAgentProvider struct {
 	// StunTurn is a list of STUN and TURN URLs
-	StunTurn                   []*ice.URL
-	InterfaceBlackList         []string
-	onICECandidate             func(candidate ice.Candidate)
-	onICEConnectionStateChange func(state ice.ConnectionState)
-	onICESelectedCandidatePair func(c1 ice.Candidate, c2 ice.Candidate)
+	StunTurn           []*ice.URL
+	InterfaceBlackList []string
+}
+
+type iceAgentProviderMock struct {
+	agent ICEAgent
+}
+
+func (p *iceAgentProviderMock) createAgent() (ICEAgent, error) {
+	return p.agent, nil
 }
 
 func (p *defaultICEAgentProvider) createAgent() (ICEAgent, error) {
 	failedTimeout := 6 * time.Second
-	agent, err := ice.NewAgent(&ice.AgentConfig{
+	return ice.NewAgent(&ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
 		Urls:             p.StunTurn,
@@ -30,25 +35,6 @@ func (p *defaultICEAgentProvider) createAgent() (ICEAgent, error) {
 		FailedTimeout:    &failedTimeout,
 		InterfaceFilter:  interfaceFilter(p.InterfaceBlackList),
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	err = agent.OnCandidate(p.onICECandidate)
-	if err != nil {
-		return nil, err
-	}
-
-	err = agent.OnConnectionStateChange(p.onICEConnectionStateChange)
-	if err != nil {
-		return nil, err
-	}
-
-	err = agent.OnSelectedCandidatePairChange(p.onICESelectedCandidatePair)
-	if err != nil {
-		return nil, err
-	}
-	return agent, nil
 }
 
 // interfaceFilter is a function passed to ICE Agent to filter out blacklisted interfaces

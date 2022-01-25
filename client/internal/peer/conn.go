@@ -54,29 +54,25 @@ type Conn struct {
 	proxy proxy.Proxy
 
 	iceAgentProvider iceAgentProvider
+	proxyProvider    proxy.Provider
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(config ConnConfig) (*Conn, error) {
-	conn := &Conn{
+	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
 		status:         StatusDisconnected,
 		closeCh:        make(chan struct{}),
 		remoteOffersCh: make(chan IceCredentials),
 		remoteAnswerCh: make(chan IceCredentials),
-	}
-
-	conn.iceAgentProvider = &defaultICEAgentProvider{
-		StunTurn:                   config.StunTurn,
-		InterfaceBlackList:         config.InterfaceBlackList,
-		onICECandidate:             conn.onICECandidate,
-		onICEConnectionStateChange: conn.onICEConnectionStateChange,
-		onICESelectedCandidatePair: conn.onICESelectedCandidatePair,
-	}
-
-	return conn, nil
+		iceAgentProvider: &defaultICEAgentProvider{
+			StunTurn:           config.StunTurn,
+			InterfaceBlackList: config.InterfaceBlackList,
+		},
+		proxyProvider: &proxy.DefaultProvider{},
+	}, nil
 }
 
 func (conn *Conn) reCreateAgent() error {
@@ -85,6 +81,21 @@ func (conn *Conn) reCreateAgent() error {
 
 	var err error
 	conn.agent, err = conn.iceAgentProvider.createAgent()
+	if err != nil {
+		return err
+	}
+
+	err = conn.agent.OnCandidate(conn.onICECandidate)
+	if err != nil {
+		return err
+	}
+
+	err = conn.agent.OnConnectionStateChange(conn.onICEConnectionStateChange)
+	if err != nil {
+		return err
+	}
+
+	err = conn.agent.OnSelectedCandidatePairChange(conn.onICESelectedCandidatePair)
 	if err != nil {
 		return err
 	}
@@ -189,7 +200,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	conn.proxy = proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	conn.proxy = conn.proxyProvider.CreateProxy(conn.config.ProxyConfig)
 	err := conn.proxy.Start(remoteConn)
 	if err != nil {
 		return err

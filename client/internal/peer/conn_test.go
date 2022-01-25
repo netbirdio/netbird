@@ -5,6 +5,7 @@ import (
 	"github.com/pion/ice/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/wiretrustee/wiretrustee/client/internal/proxy"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -15,7 +16,7 @@ var connConf = ConnConfig{
 	LocalKey:           "RRHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
 	StunTurn:           []*ice.URL{},
 	InterfaceBlackList: nil,
-	Timeout:            time.Second,
+	Timeout:            2 * time.Second,
 	ProxyConfig:        proxy.Config{},
 }
 
@@ -228,6 +229,83 @@ func TestConn_onICECandidate(t *testing.T) {
 
 	conn.onICECandidate(candidate)
 	wg.Wait()
+}
+
+func TestConn_Open(t *testing.T) {
+	conn, err := NewConn(connConf)
+	assert.NoError(t, err)
+
+	signalCandidateWg := sync.WaitGroup{}
+	signalCandidateWg.Add(2)
+	conn.SetSignalCandidate(func(candidate ice.Candidate) error {
+		signalCandidateWg.Done()
+		return nil
+	})
+
+	signalOfferWg := sync.WaitGroup{}
+	signalOfferWg.Add(1)
+	conn.SetSignalOffer(func(uFrag string, pwd string) error {
+		go func() {
+			time.Sleep(time.Second)
+			conn.OnRemoteAnswer(IceCredentials{
+				UFrag: "remoteUfrag",
+				Pwd:   "remotePwd",
+			})
+			signalOfferWg.Done()
+		}()
+		return nil
+	})
+	conn.SetSignalAnswer(func(uFrag string, pwd string) error {
+		return nil
+	})
+
+	gatherCandidatesWg := sync.WaitGroup{}
+	gatherCandidatesWg.Add(1)
+	conn.iceAgentProvider = &iceAgentProviderMock{agent: &iceAgentMock{
+		CloseFunc:              nil,
+		AddRemoteCandidateFunc: nil,
+		GatherCandidatesFunc: func() error {
+
+			candidate, err := ice.NewCandidateHost(&ice.CandidateHostConfig{
+				Network:   "udp",
+				Address:   "192.168.1.1",
+				Port:      19216,
+				Component: 1,
+			})
+			assert.NoError(t, err)
+			conn.onICECandidate(candidate)
+			gatherCandidatesWg.Done()
+			return nil
+		},
+		DialFunc:                          nil,
+		AcceptFunc:                        nil,
+		OnCandidateFunc:                   nil,
+		OnConnectionStateChangeFunc:       nil,
+		OnSelectedCandidatePairChangeFunc: nil,
+		GetLocalUserCredentialsFunc:       nil,
+	}}
+
+	proxyStartWg := sync.WaitGroup{}
+	proxyStartWg.Add(1)
+	conn.proxyProvider = &proxy.ProviderMock{Proxy: &proxy.Mock{
+		StartFunc: func(remoteConn net.Conn) error {
+			proxyStartWg.Done()
+			return nil
+		},
+		CloseFunc: func() error {
+			return nil
+		},
+	}}
+
+	go func() {
+		err = conn.Open()
+		assert.NoError(t, err)
+	}()
+
+	signalOfferWg.Wait()
+	signalCandidateWg.Wait()
+	gatherCandidatesWg.Wait()
+	proxyStartWg.Wait()
 }
 
 func TestConn_sendAnswer(t *testing.T) {
