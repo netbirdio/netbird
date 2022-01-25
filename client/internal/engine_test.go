@@ -351,7 +351,11 @@ func TestEngine_MultiplePeers(t *testing.T) {
 
 	// cleanup test
 	for _, peerEngine := range engines {
-		errStop := peerEngine.Stop()
+		errStop := peerEngine.mgmClient.Close()
+		if errStop != nil {
+			log.Infoln("got error trying to close management clients from engine: ", errStop)
+		}
+		errStop = peerEngine.Stop()
 		if errStop != nil {
 			log.Infoln("got error trying to close testing peers engine: ", errStop)
 		}
