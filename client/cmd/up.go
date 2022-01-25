@@ -22,11 +22,13 @@ var (
 		Short: "install, login and start wiretrustee client",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			SetFlagsFromEnvVars()
+
 			err := loginCmd.RunE(cmd, args)
 			if err != nil {
 				return err
 			}
 			if logFile == "console" {
+				SetupCloseHandler()
 				return runClient()
 			}
 
