@@ -1,5 +1,5 @@
 name: Test Code Darwin
-on: push
+on: [push,pull_request]
 jobs:
   test:
     strategy:
