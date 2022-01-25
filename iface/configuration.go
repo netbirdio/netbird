@@ -1,6 +1,7 @@
 package iface
 
 import (
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -45,7 +46,11 @@ func (w *WGIface) Configure(privateKey string, port int) error {
 		ListenPort:   &port,
 	}
 
-	return w.configureDevice(config)
+	err = w.configureDevice(config)
+	if err != nil {
+		return fmt.Errorf("received error \"%v\" while configuring interface %s with port %d", err, w.Name, port)
+	}
+	return nil
 }
 
 // GetListenPort returns the listening port of the Wireguard endpoint
@@ -96,8 +101,11 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-
-	return w.configureDevice(config)
+	err = w.configureDevice(config)
+	if err != nil {
+		return fmt.Errorf("received error \"%v\" while updating peer on interface %s with settings: allowed ips %s, endpoint %s", err, w.Name, allowedIps, endpoint.String())
+	}
+	return nil
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface
@@ -117,6 +125,9 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 	config := wgtypes.Config{
 		Peers: []wgtypes.PeerConfig{peer},
 	}
-
-	return w.configureDevice(config)
+	err = w.configureDevice(config)
+	if err != nil {
+		return fmt.Errorf("received error \"%v\" while removing peer %s from interface %s", err, peerKey, w.Name)
+	}
+	return nil
 }
