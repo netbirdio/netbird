@@ -4,6 +4,8 @@ on:
     types: [created]
   pull_request_target:
     types: [opened,closed,synchronize]
+  pull_request:
+    types: [opened,closed,synchronize]
 
 jobs:
   CLAssistant:
