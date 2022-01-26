@@ -49,7 +49,7 @@ It requires zero configuration effort leaving behind the hassle of opening ports
 
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/wiretrustee/wiretrustee/releases).
 
-Hosted demo version: 
+Hosted version: 
 [https://app.wiretrustee.com/](https://app.wiretrustee.com/peers). 
 
 [UI Dashboard Repo](https://github.com/wiretrustee/wiretrustee-dashboard)
