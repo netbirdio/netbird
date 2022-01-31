@@ -2,12 +2,13 @@ package peer
 
 import (
 	"context"
-	"github.com/pion/ice/v2"
-	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/client/internal/proxy"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/pion/ice/v2"
+	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/client/internal/proxy"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -28,6 +29,9 @@ type ConnConfig struct {
 	Timeout time.Duration
 
 	ProxyConfig proxy.Config
+
+	UDPMux      ice.UDPMux
+	UDPMuxSrflx ice.UDPMux
 }
 
 // IceCredentials ICE protocol credentials struct
@@ -104,6 +108,8 @@ func (conn *Conn) reCreateAgent() error {
 		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
 		FailedTimeout:    &failedTimeout,
 		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
+		UDPMux:           conn.config.UDPMux,
+		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
 	})
 	if err != nil {
 		return err
@@ -174,7 +180,7 @@ func (conn *Conn) Open() error {
 
 	log.Debugf("received connection confirmation from peer %s", conn.config.Key)
 
-	//at this point we received offer/answer and we are ready to gather candidates
+	// at this point we received offer/answer and we are ready to gather candidates
 	conn.mu.Lock()
 	conn.status = StatusConnecting
 	conn.ctx, conn.notifyDisconnected = context.WithCancel(context.Background())
@@ -287,7 +293,7 @@ func (conn *Conn) SetSignalCandidate(handler func(candidate ice.Candidate) error
 // and then signals them to the remote peer
 func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 	if candidate != nil {
-		//log.Debugf("discovered local candidate %s", candidate.String())
+		// log.Debugf("discovered local candidate %s", candidate.String())
 		go func() {
 			err := conn.signalCandidate(candidate)
 			if err != nil {
@@ -386,7 +392,7 @@ func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) bool {
 		return true
 	default:
 		log.Debugf("OnRemoteOffer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
-		//connection might not be ready yet to receive so we ignore the message
+		// connection might not be ready yet to receive so we ignore the message
 		return false
 	}
 }
@@ -400,7 +406,7 @@ func (conn *Conn) OnRemoteAnswer(remoteAuth IceCredentials) bool {
 	case conn.remoteAnswerCh <- remoteAuth:
 		return true
 	default:
-		//connection might not be ready yet to receive so we ignore the message
+		// connection might not be ready yet to receive so we ignore the message
 		log.Debugf("OnRemoteAnswer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
 		return false
 	}
