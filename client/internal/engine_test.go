@@ -266,7 +266,7 @@ func TestEngine_Sync(t *testing.T) {
 
 func TestEngine_MultiplePeers(t *testing.T) {
 
-	//log.SetLevel(log.DebugLevel)
+	log.SetLevel(log.DebugLevel)
 
 	dir := t.TempDir()
 
