@@ -4,6 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
+	"time"
+
 	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/client/system"
@@ -15,8 +18,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
-	"io"
-	"time"
 )
 
 type GrpcClient struct {
@@ -241,7 +242,7 @@ func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string) (*proto.Lo
 		Core:               gi.OSVersion,
 		Platform:           gi.Platform,
 		Kernel:             gi.Kernel,
-		WiretrusteeVersion: "",
+		WiretrusteeVersion: gi.WiretrusteeVersion,
 	}
 	log.Debugf("detected system %v", meta)
 	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: meta})
