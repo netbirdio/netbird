@@ -1,5 +1,5 @@
 name: Test Build On Platforms
-on: [push,pull_request]
+on: [pull_request]
 jobs:
   test_build:
     strategy:
