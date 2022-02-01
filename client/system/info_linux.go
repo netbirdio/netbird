@@ -45,6 +45,7 @@ func GetInfo() *Info {
 	gio := &Info{Kernel: osInfo[0], Core: osInfo[1], Platform: osInfo[2], OS: osName, OSVersion: osVer, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
 	gio.WiretrusteeVersion = _getWiretrusteeVersion()
+
 	return gio
 }
 
@@ -85,7 +86,7 @@ func _getWiretrusteeVersion() string {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("getReleaseInfo:", err)
+		fmt.Println("getWiretrusteeInfo:", err)
 	}
 
 	return out.String()
