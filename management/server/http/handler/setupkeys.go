@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
@@ -119,11 +120,21 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 	writeSuccess(w, setupKey)
 }
 
-func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
-	userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
-	account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
+func (h *SetupKeys) getSetupKeyAccount(r *http.Request) (*server.Account, error) {
+	jwtClaims := extractClaimsFromRequestContext(r, h.authAudience)
+
+	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId)
 	if err != nil {
-		log.Errorf("failed getting account of a user %s: %v", userId, err)
+		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
+	}
+
+	return account, nil
+}
+
+func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
+	account, err := h.getSetupKeyAccount(r)
+	if err != nil {
+		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
@@ -149,10 +160,9 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 
 func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 
-	userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
-	account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
+	account, err := h.getSetupKeyAccount(r)
 	if err != nil {
-		log.Errorf("failed getting account of a user %s: %v", userId, err)
+		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
