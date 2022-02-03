@@ -1,14 +1,16 @@
 package cmd
 
-import "github.com/spf13/cobra"
+import (
+	"github.com/spf13/cobra"
+	"github.com/wiretrustee/wiretrustee/client/system"
+)
 
 var (
-	Version    string
 	versionCmd = &cobra.Command{
 		Use:   "version",
 		Short: "prints wiretrustee version",
 		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Println(Version)
+			cmd.Println(system.Version)
 		},
 	}
 )
