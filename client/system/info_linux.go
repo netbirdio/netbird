@@ -44,7 +44,7 @@ func GetInfo() *Info {
 	}
 	gio := &Info{Kernel: osInfo[0], Core: osInfo[1], Platform: osInfo[2], OS: osName, OSVersion: osVer, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
-	gio.WiretrusteeVersion = wiretrusteeVersion()
+	gio.WiretrusteeVersion = WiretrusteeVersion()
 
 	return gio
 }

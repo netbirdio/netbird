@@ -2,7 +2,7 @@ package system
 
 // this is the wiretrustee version
 // will be replaced with the release version when using goreleaser
-var Version string = "development"
+var version = "development"
 
 //Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
@@ -18,6 +18,6 @@ type Info struct {
 	WiretrusteeVersion string
 }
 
-func wiretrusteeVersion() string {
-	return Version
+func WiretrusteeVersion() string {
+	return version
 }

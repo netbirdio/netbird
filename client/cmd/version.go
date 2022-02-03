@@ -10,7 +10,7 @@ var (
 		Use:   "version",
 		Short: "prints wiretrustee version",
 		Run: func(cmd *cobra.Command, args []string) {
-			cmd.Println(system.Version)
+			cmd.Println(system.WiretrusteeVersion())
 		},
 	}
 )
