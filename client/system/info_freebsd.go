@@ -21,6 +21,7 @@ func GetInfo() *Info {
 	osInfo := strings.Split(osStr, " ")
 	gio := &Info{Kernel: osInfo[0], Core: osInfo[1], Platform: runtime.GOARCH, OS: osInfo[2], GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
+	gio.WiretrusteeVersion = wiretrusteeVersion()
 	return gio
 }
 

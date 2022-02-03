@@ -17,3 +17,7 @@ type Info struct {
 	CPUs               int
 	WiretrusteeVersion string
 }
+
+func wiretrusteeVersion() string {
+	return Version
+}
