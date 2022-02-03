@@ -1,15 +1,12 @@
 package main
 
 import (
-	"github.com/wiretrustee/wiretrustee/client/cmd"
 	"os"
+
+	"github.com/wiretrustee/wiretrustee/client/cmd"
 )
 
-var version = "development"
-
 func main() {
-
-	cmd.Version = version
 	if err := cmd.Execute(); err != nil {
 		os.Exit(1)
 	}
