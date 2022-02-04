@@ -48,3 +48,12 @@ type ManagementServiceSyncClientMock struct {
 func (x *ManagementServiceSyncClientMock) Recv() (*proto.EncryptedMessage, error) {
 	return nil, nil
 }
+
+type GrpcConnectorMock struct {
+	ClientMock *ManagementServiceClientMock
+	ConnMock   *grpc.ClientConn
+}
+
+func (c *GrpcConnectorMock) Connect() (proto.ManagementServiceClient, *grpc.ClientConn, error) {
+	return c.ClientMock, c.ConnMock, nil
+}

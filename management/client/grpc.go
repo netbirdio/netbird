@@ -20,44 +20,18 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-type GrpcClient struct {
-	key        wgtypes.Key
-	realClient proto.ManagementServiceClient
-	ctx        context.Context
-	conn       *grpc.ClientConn
+type grpcConnector interface {
+	Connect() (proto.ManagementServiceClient, *grpc.ClientConn, error)
+}
+
+// defaultGrpcConnector is an interface that creates a connection between our client and gRPC service
+type defaultGrpcConnector struct {
 	addr       string
 	tlsEnabled bool
-
-	// connectGrpc real conn
-	connectGrpc func() (proto.ManagementServiceClient, *grpc.ClientConn, error)
-	checkReady  func() bool
+	ctx        context.Context
 }
 
-func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
-	c := &GrpcClient{
-		key:        ourPrivateKey,
-		ctx:        ctx,
-		addr:       addr,
-		tlsEnabled: tlsEnabled,
-	}
-	c.checkReady = c.ready
-	c.connectGrpc = c.connect
-	return c, nil
-}
-
-func (c *GrpcClient) Connect() error {
-	realClient, conn, err := c.connectGrpc()
-	if err != nil {
-		return err
-	}
-	c.realClient = realClient
-	c.conn = conn
-	return nil
-
-}
-
-// Connect creates a new client to Management service
-func (c *GrpcClient) connect() (proto.ManagementServiceClient, *grpc.ClientConn, error) {
+func (c *defaultGrpcConnector) Connect() (proto.ManagementServiceClient, *grpc.ClientConn, error) {
 
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 
@@ -85,6 +59,42 @@ func (c *GrpcClient) connect() (proto.ManagementServiceClient, *grpc.ClientConn,
 	client := proto.NewManagementServiceClient(conn)
 
 	return client, conn, nil
+}
+
+type GrpcClient struct {
+	key        wgtypes.Key
+	realClient proto.ManagementServiceClient
+	ctx        context.Context
+	conn       *grpc.ClientConn
+
+	// connectGrpc real conn
+	grpcConnProvider grpcConnector
+	checkReady       func() bool
+}
+
+func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
+	c := &GrpcClient{
+		key: ourPrivateKey,
+		ctx: ctx,
+	}
+	c.checkReady = c.ready
+	c.grpcConnProvider = &defaultGrpcConnector{
+		addr:       addr,
+		tlsEnabled: tlsEnabled,
+		ctx:        ctx,
+	}
+	return c, nil
+}
+
+func (c *GrpcClient) Connect() error {
+	realClient, conn, err := c.grpcConnProvider.Connect()
+	if err != nil {
+		return err
+	}
+	c.realClient = realClient
+	c.conn = conn
+	return nil
+
 }
 
 // Close closes connection to the Management Service

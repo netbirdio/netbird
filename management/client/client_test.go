@@ -2,8 +2,8 @@ package client
 
 import (
 	"context"
-	"fmt"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/wiretrustee/wiretrustee/encryption"
 	"github.com/wiretrustee/wiretrustee/management/client/mock"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
@@ -195,6 +195,8 @@ func TestClient_SendSystemMeta(t *testing.T) {
 		return
 	}
 
+	var meta *mgmtProto.PeerSystemMeta
+
 	// mock real gRpc client and connection
 	mgmtMock := &mock.ManagementServiceClientMock{}
 	mgmtMock.LoginFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage, opts ...grpc.CallOption) (*mgmtProto.EncryptedMessage, error) {
@@ -208,11 +210,24 @@ func TestClient_SendSystemMeta(t *testing.T) {
 			return nil, err
 		}
 
-		return nil, nil
+		meta = loginReq.GetMeta()
+
+		resp := &mgmtProto.LoginResponse{}
+		encryptedResp, err := encryption.EncryptMessage(peerKey, serverKey, resp)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed logging in peer")
+		}
+
+		return &mgmtProto.EncryptedMessage{
+			WgPubKey: serverKey.PublicKey().String(),
+			Body:     encryptedResp,
+			Version:  0,
+		}, nil
 	}
 
-	client.connectGrpc = func() (mgmtProto.ManagementServiceClient, *grpc.ClientConn, error) {
-		return mgmtMock, &grpc.ClientConn{}, nil
+	client.grpcConnProvider = &mock.GrpcConnectorMock{
+		ClientMock: mgmtMock,
+		ConnMock:   &grpc.ClientConn{},
 	}
 	client.checkReady = func() bool {
 		return true
@@ -223,10 +238,10 @@ func TestClient_SendSystemMeta(t *testing.T) {
 		return
 	}
 
-	login, err := client.Register(serverKey.PublicKey(), "setup-key")
+	_, err = client.Register(serverKey.PublicKey(), "setup-key")
 	if err != nil {
 		return
 	}
 
-	fmt.Print(login)
+	assert.Equal(t, meta.WiretrusteeVersion, "development")
 }
