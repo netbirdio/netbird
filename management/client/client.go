@@ -12,4 +12,5 @@ type Client interface {
 	GetServerPublicKey() (*wgtypes.Key, error)
 	Register(serverKey wgtypes.Key, setupKey string) (*proto.LoginResponse, error)
 	Login(serverKey wgtypes.Key) (*proto.LoginResponse, error)
+	Connect() error
 }

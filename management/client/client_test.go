@@ -2,7 +2,10 @@ package client
 
 import (
 	"context"
+	"fmt"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/encryption"
+	"github.com/wiretrustee/wiretrustee/management/client/mock"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	mgmt "github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
@@ -176,4 +179,54 @@ func TestClient_Sync(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Error("timeout waiting for test to finish")
 	}
+}
+func TestClient_SendSystemMeta(t *testing.T) {
+	key, err := wgtypes.GenerateKey()
+	if err != nil {
+		return
+	}
+
+	serverKey, err := wgtypes.GenerateKey()
+	if err != nil {
+		return
+	}
+	client, err := NewClient(context.TODO(), "", key, false)
+	if err != nil {
+		return
+	}
+
+	// mock real gRpc client and connection
+	mgmtMock := &mock.ManagementServiceClientMock{}
+	mgmtMock.LoginFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage, opts ...grpc.CallOption) (*mgmtProto.EncryptedMessage, error) {
+		peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
+		if err != nil {
+			return nil, err
+		}
+		loginReq := &mgmtProto.LoginRequest{}
+		err = encryption.DecryptMessage(peerKey, serverKey, req.Body, loginReq)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, nil
+	}
+
+	client.connectGrpc = func() (mgmtProto.ManagementServiceClient, *grpc.ClientConn, error) {
+		return mgmtMock, &grpc.ClientConn{}, nil
+	}
+	client.checkReady = func() bool {
+		return true
+	}
+
+	err = client.Connect()
+	if err != nil {
+		return
+	}
+
+	login, err := client.Register(serverKey.PublicKey(), "setup-key")
+	if err != nil {
+		return
+	}
+
+	fmt.Print(login)
 }

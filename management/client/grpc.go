@@ -25,22 +25,51 @@ type GrpcClient struct {
 	realClient proto.ManagementServiceClient
 	ctx        context.Context
 	conn       *grpc.ClientConn
+	addr       string
+	tlsEnabled bool
+
+	// connectGrpc real conn
+	connectGrpc func() (proto.ManagementServiceClient, *grpc.ClientConn, error)
+	checkReady  func() bool
 }
 
-// NewClient creates a new client to Management service
 func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
+	c := &GrpcClient{
+		key:        ourPrivateKey,
+		ctx:        ctx,
+		addr:       addr,
+		tlsEnabled: tlsEnabled,
+	}
+	c.checkReady = c.ready
+	c.connectGrpc = c.connect
+	return c, nil
+}
+
+func (c *GrpcClient) Connect() error {
+	realClient, conn, err := c.connectGrpc()
+	if err != nil {
+		return err
+	}
+	c.realClient = realClient
+	c.conn = conn
+	return nil
+
+}
+
+// Connect creates a new client to Management service
+func (c *GrpcClient) connect() (proto.ManagementServiceClient, *grpc.ClientConn, error) {
 
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 
-	if tlsEnabled {
+	if c.tlsEnabled {
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	mgmCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	mgmCtx, cancel := context.WithTimeout(c.ctx, 10*time.Second)
 	defer cancel()
 	conn, err := grpc.DialContext(
 		mgmCtx,
-		addr,
+		c.addr,
 		transportOption,
 		grpc.WithBlock(),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
@@ -50,21 +79,19 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 
 	if err != nil {
 		log.Errorf("failed creating connection to Management Service %v", err)
-		return nil, err
+		return nil, nil, err
 	}
 
-	realClient := proto.NewManagementServiceClient(conn)
+	client := proto.NewManagementServiceClient(conn)
 
-	return &GrpcClient{
-		key:        ourPrivateKey,
-		realClient: realClient,
-		ctx:        ctx,
-		conn:       conn,
-	}, nil
+	return client, conn, nil
 }
 
 // Close closes connection to the Management Service
 func (c *GrpcClient) Close() error {
+	if c.conn == nil {
+		return nil
+	}
 	return c.conn.Close()
 }
 
@@ -84,7 +111,10 @@ func defaultBackoff(ctx context.Context) backoff.BackOff {
 // ready indicates whether the client is okay and ready to be used
 // for now it just checks whether gRPC connection to the service is ready
 func (c *GrpcClient) ready() bool {
-	return c.conn.GetState() == connectivity.Ready || c.conn.GetState() == connectivity.Idle
+	if c.conn != nil {
+		return c.conn.GetState() == connectivity.Ready || c.conn.GetState() == connectivity.Idle
+	}
+	return false
 }
 
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
@@ -97,7 +127,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 
 		log.Debugf("management connection state %v", c.conn.GetState())
 
-		if !c.ready() {
+		if !c.checkReady() {
 			return fmt.Errorf("no connection to management")
 		}
 
@@ -181,7 +211,7 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 
 // GetServerPublicKey returns server Wireguard public key (used later for encrypting messages sent to the server)
 func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
-	if !c.ready() {
+	if !c.checkReady() {
 		return nil, fmt.Errorf("no connection to management")
 	}
 
@@ -201,7 +231,7 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 }
 
 func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*proto.LoginResponse, error) {
-	if !c.ready() {
+	if !c.checkReady() {
 		return nil, fmt.Errorf("no connection to management")
 	}
 	loginReq, err := encryption.EncryptMessage(serverKey, c.key, req)
