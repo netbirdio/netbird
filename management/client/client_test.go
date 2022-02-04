@@ -2,7 +2,14 @@ package client
 
 import (
 	"context"
+	"net"
+	"path/filepath"
+	"testing"
+	"time"
+
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/encryption"
+	"github.com/wiretrustee/wiretrustee/management/proto"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	mgmt "github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
@@ -10,10 +17,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net"
-	"path/filepath"
-	"testing"
-	"time"
 )
 
 var tested *GrpcClient
@@ -67,6 +70,54 @@ func startManagement(config *mgmt.Config, t *testing.T) (*grpc.Server, net.Liste
 	if err != nil {
 		t.Fatal(err)
 	}
+	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			t.Error(err)
+			return
+		}
+	}()
+
+	return s, lis
+}
+
+func startMockManagement(t *testing.T) (*grpc.Server, net.Listener) {
+	lis, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	s := grpc.NewServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mgmtServer := &mgmt.ManagementServiceServerMock{
+		//TODO: here needs to be the logic to test the equality of the metadata
+		LoginFunc: func(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+
+			peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
+			if err != nil {
+				log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", msg.WgPubKey)
+				return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", msg.WgPubKey)
+			}
+
+			loginReq := &proto.LoginRequest{}
+			// GetServerPublicKey()
+			// how can we get the data access without the private key
+			err = encryption.DecryptMessage(peerKey, wgtypes.Key{}, msg.Body, loginReq) // need to init the privKey?
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			return nil, nil
+		},
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
 		if err := s.Serve(lis); err != nil {
@@ -176,4 +227,33 @@ func TestClient_Sync(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Error("timeout waiting for test to finish")
 	}
+}
+
+func Test_SystemMetaDataFromClient(t *testing.T) {
+	_, lis := startMockManagement(t)
+
+	testKey, err := wgtypes.GenerateKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	serverAddr := lis.Addr().String()
+	ctx := context.Background()
+
+	testClient, err := NewClient(ctx, serverAddr, testKey, false)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	key, err := testClient.GetServerPublicKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = testClient.Register(*key, ValidKey)
+	if err != nil {
+		t.Error(err)
+	}
+
+	// assert.Equalf()
 }
