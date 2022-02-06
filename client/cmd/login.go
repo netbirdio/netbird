@@ -31,7 +31,7 @@ var (
 				RandomizationFactor: backoff.DefaultRandomizationFactor,
 				Multiplier:          backoff.DefaultMultiplier,
 				MaxInterval:         2 * time.Second,
-				MaxElapsedTime:      time.Second * 5,
+				MaxElapsedTime:      time.Second * 10,
 				Stop:                backoff.Stop,
 				Clock:               backoff.SystemClock,
 			}
@@ -93,7 +93,9 @@ var (
 				return nil
 			}
 
-			err := backoff.Retry(loginOp, backOff)
+			err := backoff.RetryNotify(loginOp, backOff, func(err error, duration time.Duration) {
+				log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
+			})
 			if err != nil {
 				log.Errorf("exiting login retry loop due to unrecoverable error: %v", err)
 				return err
