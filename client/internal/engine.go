@@ -3,6 +3,11 @@ package internal
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/client/internal/peer"
@@ -14,10 +19,6 @@ import (
 	sProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"math/rand"
-	"strings"
-	"sync"
-	"time"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
