@@ -92,9 +92,6 @@ func startMockManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	}
 
 	s := grpc.NewServer()
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	serverKey, err = wgtypes.GenerateKey()
 	if err != nil {
@@ -108,10 +105,6 @@ func startMockManagement(t *testing.T) (*grpc.Server, net.Listener) {
 			}
 			return response, nil
 		},
-	}
-
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	mgmtProto.RegisterManagementServiceServer(s, mgmtMockServer)
@@ -246,11 +239,6 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		log.Fatalf("error while getting server public key from testclient, %v", err)
 	}
 
-	_, err = testClient.Register(*key, ValidKey)
-	if err != nil {
-		t.Errorf("error while trying to register client: %v", err)
-	}
-
 	var actualMeta *proto.PeerSystemMeta
 	var actualValidKey string
 	var wg sync.WaitGroup
@@ -273,8 +261,24 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 			actualMeta = loginReq.GetMeta()
 			actualValidKey = loginReq.GetSetupKey()
 			wg.Done()
-			return nil, nil
+
+			loginResp := &proto.LoginResponse{}
+			encryptedResp, err := encryption.EncryptMessage(peerKey, serverKey, loginResp)
+			if err != nil {
+				return nil, err
+			}
+
+			return &mgmtProto.EncryptedMessage{
+				WgPubKey: serverKey.PublicKey().String(),
+				Body:     encryptedResp,
+				Version:  0,
+			}, nil
 		}
+
+	_, err = testClient.Register(*key, ValidKey)
+	if err != nil {
+		t.Errorf("error while trying to register client: %v", err)
+	}
 
 	wg.Wait()
 	assert.Equal(t, ValidKey, actualValidKey)
