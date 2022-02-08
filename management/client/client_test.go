@@ -4,10 +4,12 @@ import (
 	"context"
 	"net"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/wiretrustee/wiretrustee/encryption"
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
@@ -21,6 +23,8 @@ import (
 
 var tested *GrpcClient
 var serverAddr string
+var mgmtMockServer *mgmt.ManagementServiceServerMock
+var serverKey wgtypes.Key
 
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
@@ -92,25 +96,17 @@ func startMockManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 
-	mgmtServer := &mgmt.ManagementServiceServerMock{
-		//TODO: here needs to be the logic to test the equality of the metadata
-		LoginFunc: func(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	serverKey, err = wgtypes.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
-			if err != nil {
-				log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", msg.WgPubKey)
-				return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", msg.WgPubKey)
+	mgmtMockServer = &mgmt.ManagementServiceServerMock{
+		GetServerKeyFunc: func(context.Context, *proto.Empty) (*proto.ServerKeyResponse, error) {
+			response := &proto.ServerKeyResponse{
+				Key: serverKey.PublicKey().String(),
 			}
-
-			loginReq := &proto.LoginRequest{}
-			// GetServerPublicKey()
-			// how can we get the data access without the private key
-			err = encryption.DecryptMessage(peerKey, wgtypes.Key{}, msg.Body, loginReq) // need to init the privKey?
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			return nil, nil
+			return response, nil
 		},
 	}
 
@@ -118,7 +114,7 @@ func startMockManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 
-	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
+	mgmtProto.RegisterManagementServiceServer(s, mgmtMockServer)
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			t.Error(err)
@@ -242,18 +238,45 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 
 	testClient, err := NewClient(ctx, serverAddr, testKey, false)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("error while creating testClient: %v", err)
 	}
 
 	key, err := testClient.GetServerPublicKey()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("error while getting server public key from testclient, %v", err)
 	}
 
 	_, err = testClient.Register(*key, ValidKey)
 	if err != nil {
-		t.Error(err)
+		t.Errorf("error while trying to register client: %v", err)
 	}
 
-	// assert.Equalf()
+	var actualMeta *proto.PeerSystemMeta
+	var actualValidKey string
+	var wg sync.WaitGroup
+	wg.Add(1)
+
+	mgmtMockServer.LoginFunc =
+		func(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+			peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
+			if err != nil {
+				log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", msg.WgPubKey)
+				return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", msg.WgPubKey)
+			}
+
+			loginReq := &proto.LoginRequest{}
+			err = encryption.DecryptMessage(peerKey, serverKey, msg.Body, loginReq)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			actualMeta = loginReq.GetMeta()
+			actualValidKey = loginReq.GetSetupKey()
+			wg.Done()
+			return nil, nil
+		}
+
+	wg.Wait()
+	assert.Equal(t, ValidKey, actualValidKey)
+	assert.Equal(t, "development", actualMeta.WiretrusteeVersion)
 }
