@@ -1,10 +1,10 @@
 package client
 
 import (
-	"github.com/wiretrustee/wiretrustee/client/system"
+	"io"
+
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"io"
 )
 
 type Client interface {
@@ -13,6 +13,6 @@ type Client interface {
 	GetServerPublicKey() (*wgtypes.Key, error)
 	// Register Deprecated
 	Register(serverKey wgtypes.Key, setupKey string) (*proto.LoginResponse, error)
-	RegisterV2(serverKey wgtypes.Key, setupKey string, info *system.Info) (*proto.LoginResponse, error)
+	// RegisterV2(serverKey wgtypes.Key, setupKey string, info *system.Info) (*proto.LoginResponse, error)
 	Login(serverKey wgtypes.Key) (*proto.LoginResponse, error)
 }
