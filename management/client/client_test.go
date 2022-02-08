@@ -2,12 +2,13 @@ package client
 
 import (
 	"context"
-	"github.com/wiretrustee/wiretrustee/client/system"
 	"net"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/wiretrustee/wiretrustee/client/system"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -150,7 +151,9 @@ func TestClient_LoginRegistered(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	resp, err := tested.Register(*key, ValidKey)
+	info := system.GetInfo()
+	resp, err := tested.Register(*key, ValidKey, info)
+	// resp, err := tested.Register(*key, ValidKey)
 	if err != nil {
 		t.Error(err)
 	}
@@ -166,7 +169,8 @@ func TestClient_Sync(t *testing.T) {
 		t.Error(err)
 	}
 
-	_, err = tested.Register(*serverKey, ValidKey)
+	info := system.GetInfo()
+	_, err = tested.Register(*serverKey, ValidKey, info)
 	if err != nil {
 		t.Error(err)
 	}
@@ -180,7 +184,9 @@ func TestClient_Sync(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = remoteClient.Register(*serverKey, ValidKey)
+
+	info = system.GetInfo()
+	_, err = remoteClient.Register(*serverKey, ValidKey, info)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +283,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		}
 
 	info := system.GetInfo()
-	_, err = testClient.RegisterV2(*key, ValidKey, info)
+	_, err = testClient.Register(*key, ValidKey, info)
 	if err != nil {
 		t.Errorf("error while trying to register client: %v", err)
 	}

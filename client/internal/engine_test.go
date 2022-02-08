@@ -3,7 +3,16 @@ package internal
 import (
 	"context"
 	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"runtime"
+	"sync"
+	"testing"
+	"time"
+
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/client/system"
 	mgmt "github.com/wiretrustee/wiretrustee/management/client"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	"github.com/wiretrustee/wiretrustee/management/server"
@@ -14,13 +23,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
-	"net"
-	"os"
-	"path/filepath"
-	"runtime"
-	"sync"
-	"testing"
-	"time"
 )
 
 var (
@@ -382,7 +384,9 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		return nil, err
 	}
 
-	resp, err := mgmtClient.Register(*publicKey, setupKey)
+	info := system.GetInfo()
+	resp, err := mgmtClient.Register(*publicKey, setupKey, info)
+	// resp, err := mgmtClient.Register(*publicKey, setupKey)
 	if err != nil {
 		return nil, err
 	}

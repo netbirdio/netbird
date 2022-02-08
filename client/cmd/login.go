@@ -4,17 +4,19 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"os"
+
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/client/internal"
+	"github.com/wiretrustee/wiretrustee/client/system"
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
 	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"os"
 )
 
 var (
@@ -118,7 +120,8 @@ func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey 
 	}
 
 	log.Debugf("sending peer registration request to Management Service")
-	loginResp, err := client.Register(serverPublicKey, validSetupKey.String())
+	info := system.GetInfo()
+	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), info)
 	if err != nil {
 		log.Errorf("failed registering peer %v", err)
 		return nil, err
