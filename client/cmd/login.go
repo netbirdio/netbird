@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -26,55 +28,78 @@ var (
 		RunE: func(cmd *cobra.Command, args []string) error {
 			SetFlagsFromEnvVars()
 
-			err := util.InitLog(logLevel, logFile)
-			if err != nil {
-				log.Errorf("failed initializing log %v", err)
-				return err
+			var backOff = &backoff.ExponentialBackOff{
+				InitialInterval:     time.Second,
+				RandomizationFactor: backoff.DefaultRandomizationFactor,
+				Multiplier:          backoff.DefaultMultiplier,
+				MaxInterval:         2 * time.Second,
+				MaxElapsedTime:      time.Second * 10,
+				Stop:                backoff.Stop,
+				Clock:               backoff.SystemClock,
 			}
 
-			config, err := internal.GetConfig(managementURL, configPath, preSharedKey)
-			if err != nil {
-				log.Errorf("failed getting config %s %v", configPath, err)
-				return err
+			loginOp := func() error {
+
+				err := util.InitLog(logLevel, logFile)
+				if err != nil {
+					log.Errorf("failed initializing log %v", err)
+					return err
+				}
+
+				config, err := internal.GetConfig(managementURL, configPath, preSharedKey)
+				if err != nil {
+					log.Errorf("failed getting config %s %v", configPath, err)
+					return err
+				}
+
+				//validate our peer's Wireguard PRIVATE key
+				myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
+				if err != nil {
+					log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
+					return err
+				}
+
+				ctx := context.Background()
+
+				mgmTlsEnabled := false
+				if config.ManagementURL.Scheme == "https" {
+					mgmTlsEnabled = true
+				}
+
+				log.Debugf("connecting to Management Service %s", config.ManagementURL.String())
+				mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+				if err != nil {
+					log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
+					return err
+				}
+				log.Debugf("connected to management Service %s", config.ManagementURL.String())
+
+				serverKey, err := mgmClient.GetServerPublicKey()
+				if err != nil {
+					log.Errorf("failed while getting Management Service public key: %v", err)
+					return err
+				}
+
+				_, err = loginPeer(*serverKey, mgmClient, setupKey)
+				if err != nil {
+					log.Errorf("failed logging-in peer on Management Service : %v", err)
+					return err
+				}
+
+				err = mgmClient.Close()
+				if err != nil {
+					log.Errorf("failed closing Management Service client: %v", err)
+					return err
+				}
+
+				return nil
 			}
 
-			//validate our peer's Wireguard PRIVATE key
-			myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
+			err := backoff.RetryNotify(loginOp, backOff, func(err error, duration time.Duration) {
+				log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
+			})
 			if err != nil {
-				log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-				return err
-			}
-
-			ctx := context.Background()
-
-			mgmTlsEnabled := false
-			if config.ManagementURL.Scheme == "https" {
-				mgmTlsEnabled = true
-			}
-
-			log.Debugf("connecting to Management Service %s", config.ManagementURL.String())
-			mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
-			if err != nil {
-				log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
-				return err
-			}
-			log.Debugf("connected to anagement Service %s", config.ManagementURL.String())
-
-			serverKey, err := mgmClient.GetServerPublicKey()
-			if err != nil {
-				log.Errorf("failed while getting Management Service public key: %v", err)
-				return err
-			}
-
-			_, err = loginPeer(*serverKey, mgmClient, setupKey)
-			if err != nil {
-				log.Errorf("failed logging-in peer on Management Service : %v", err)
-				return err
-			}
-
-			err = mgmClient.Close()
-			if err != nil {
-				log.Errorf("failed closing Management Service client: %v", err)
+				log.Errorf("exiting login retry loop due to unrecoverable error: %v", err)
 				return err
 			}
 

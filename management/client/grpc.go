@@ -36,7 +36,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 		transportOption = grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{}))
 	}
 
-	mgmCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	mgmCtx, cancel := context.WithTimeout(ctx, time.Second*3)
 	defer cancel()
 	conn, err := grpc.DialContext(
 		mgmCtx,
@@ -185,7 +185,7 @@ func (c *GrpcClient) GetServerPublicKey() (*wgtypes.Key, error) {
 		return nil, fmt.Errorf("no connection to management")
 	}
 
-	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second) //todo make a general setting
+	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
 	defer cancel()
 	resp, err := c.realClient.GetServerKey(mgmCtx, &proto.Empty{})
 	if err != nil {
@@ -209,7 +209,7 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 		log.Errorf("failed to encrypt message: %s", err)
 		return nil, err
 	}
-	mgmCtx, cancel := context.WithTimeout(c.ctx, 5*time.Second) //todo make a general setting
+	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
 	defer cancel()
 	resp, err := c.realClient.Login(mgmCtx, &proto.EncryptedMessage{
 		WgPubKey: c.key.PublicKey().String(),
