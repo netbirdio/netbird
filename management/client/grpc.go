@@ -233,6 +233,7 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 // Register registers peer on Management Server. It actually calls a Login endpoint with a provided setup key
 // Takes care of encrypting and decrypting messages.
 // This method will also collect system info and send it with the request (e.g. hostname, os, etc)
+//Deprecated
 func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string) (*proto.LoginResponse, error) {
 	gi := system.GetInfo()
 	meta := &proto.PeerSystemMeta{
@@ -245,6 +246,21 @@ func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string) (*proto.Lo
 		WiretrusteeVersion: gi.WiretrusteeVersion,
 	}
 	log.Debugf("detected system %v", meta)
+	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: meta})
+}
+
+// Register registers peer on Management Server. It actually calls a Login endpoint with a provided setup key and system information
+// Takes care of encrypting and decrypting messages.
+func (c *GrpcClient) RegisterV2(serverKey wgtypes.Key, setupKey string, info *system.Info) (*proto.LoginResponse, error) {
+	meta := &proto.PeerSystemMeta{
+		Hostname:           info.Hostname,
+		GoOS:               info.GoOS,
+		OS:                 info.OS,
+		Core:               info.OSVersion,
+		Platform:           info.Platform,
+		Kernel:             info.Kernel,
+		WiretrusteeVersion: info.WiretrusteeVersion,
+	}
 	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: meta})
 }
 

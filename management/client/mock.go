@@ -1,6 +1,7 @@
 package client
 
 import (
+	"github.com/wiretrustee/wiretrustee/client/system"
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -10,6 +11,7 @@ type MockClient struct {
 	SyncFunc               func(msgHandler func(msg *proto.SyncResponse) error) error
 	GetServerPublicKeyFunc func() (*wgtypes.Key, error)
 	RegisterFunc           func(serverKey wgtypes.Key, setupKey string) (*proto.LoginResponse, error)
+	RegisterV2Func         func(serverKey wgtypes.Key, setupKey string, info *system.Info) (*proto.LoginResponse, error)
 	LoginFunc              func(serverKey wgtypes.Key) (*proto.LoginResponse, error)
 }
 
@@ -39,6 +41,13 @@ func (m *MockClient) Register(serverKey wgtypes.Key, setupKey string) (*proto.Lo
 		return nil, nil
 	}
 	return m.RegisterFunc(serverKey, setupKey)
+}
+
+func (m *MockClient) RegisterV2(serverKey wgtypes.Key, setupKey string, info *system.Info) (*proto.LoginResponse, error) {
+	if m.RegisterV2Func == nil {
+		return nil, nil
+	}
+	return m.RegisterV2Func(serverKey, setupKey, info)
 }
 
 func (m *MockClient) Login(serverKey wgtypes.Key) (*proto.LoginResponse, error) {

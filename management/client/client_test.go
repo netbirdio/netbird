@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"github.com/wiretrustee/wiretrustee/client/system"
 	"net"
 	"path/filepath"
 	"sync"
@@ -275,12 +276,24 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 			}, nil
 		}
 
-	_, err = testClient.Register(*key, ValidKey)
+	info := system.GetInfo()
+	_, err = testClient.RegisterV2(*key, ValidKey, info)
 	if err != nil {
 		t.Errorf("error while trying to register client: %v", err)
 	}
 
 	wg.Wait()
+
+	expectedMeta := &proto.PeerSystemMeta{
+		Hostname:           info.Hostname,
+		GoOS:               info.GoOS,
+		Kernel:             info.Kernel,
+		Core:               info.OSVersion,
+		Platform:           info.Platform,
+		OS:                 info.OS,
+		WiretrusteeVersion: info.WiretrusteeVersion,
+	}
+
 	assert.Equal(t, ValidKey, actualValidKey)
-	assert.Equal(t, "development", actualMeta.WiretrusteeVersion)
+	assert.Equal(t, expectedMeta, actualMeta)
 }
