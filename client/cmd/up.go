@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"time"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
@@ -13,7 +15,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"time"
 )
 
 var (
@@ -186,7 +187,6 @@ func runClient() error {
 			return err
 		}
 
-		// create start the Wiretrustee Engine that will connect to the Signal and Management streams and manage connections to remote peers.
 		engine := internal.NewEngine(signalClient, mgmClient, engineConfig, cancel, ctx)
 		err = engine.Start()
 		if err != nil {
