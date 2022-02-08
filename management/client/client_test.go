@@ -153,7 +153,6 @@ func TestClient_LoginRegistered(t *testing.T) {
 	}
 	info := system.GetInfo()
 	resp, err := tested.Register(*key, ValidKey, info)
-	// resp, err := tested.Register(*key, ValidKey)
 	if err != nil {
 		t.Error(err)
 	}
