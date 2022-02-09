@@ -66,7 +66,7 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 func (h *Peers) getPeerAccount(r *http.Request) (*server.Account, error) {
 	jwtClaims := extractClaimsFromRequestContext(r, h.authAudience)
 
-	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId)
+	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId, jwtClaims.Domain)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
 	}

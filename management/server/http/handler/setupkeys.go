@@ -79,7 +79,7 @@ func (h *SetupKeys) updateKey(accountId string, keyId string, w http.ResponseWri
 }
 
 func (h *SetupKeys) getKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
-	account, err := h.accountManager.GetAccount(accountId)
+	account, err := h.accountManager.GetAccountById(accountId)
 	if err != nil {
 		http.Error(w, "account doesn't exist", http.StatusInternalServerError)
 		return
@@ -123,7 +123,7 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 func (h *SetupKeys) getSetupKeyAccount(r *http.Request) (*server.Account, error) {
 	jwtClaims := extractClaimsFromRequestContext(r, h.authAudience)
 
-	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId)
+	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId, jwtClaims.Domain)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
 	}
