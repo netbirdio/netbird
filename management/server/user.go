@@ -59,6 +59,14 @@ func (am *AccountManager) GetOrCreateAccountByUser(userId, domain string) (*Acco
 		}
 	}
 
+	if account.Domain != domain {
+		account.Domain = domain
+		err = am.Store.SaveAccount(account)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed updating account with domain")
+		}
+	}
+
 	return account, nil
 }
 
