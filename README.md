@@ -31,7 +31,7 @@ It requires zero configuration effort leaving behind the hassle of opening ports
 
 **Wiretrustee automates Wireguard-based networks, offering a management layer with:**
 * Centralized Peer IP management with a UI dashboard.
-* Encrypted peer-to-peet connections without a centralized VPN gateway.
+* Encrypted peer-to-peer connections without a centralized VPN gateway.
 * Automatic Peer discovery and configuration.
 * UDP hole punching to establish peer-to-peer connections behind NAT, firewall, and without a public static IP.
 * Connection relay fallback in case a peer-to-peer connection is not possible.
@@ -159,7 +159,7 @@ Alternatively, if you are hosting your own Management Service provide `--managem
   sudo wiretrustee up --setup-key <SETUP KEY> --management-url https://localhost:33073
   ```
 
-> You could also omit `--setup-key` property. In this case the tool will prompt it the key.
+> You could also omit the `--setup-key` property. In this case, the tool will prompt for the key.
 
 
 2. Check your IP:
@@ -181,8 +181,8 @@ For **Windows** systems:
 ### Running Dashboard, Management, Signal and Coturn
 Wiretrustee uses [Auth0](https://auth0.com) for user authentication and authorization, therefore you will need to create a free account 
 and configure Auth0 variables in the compose file (dashboard) and in the management config file.
-We chose Auth0 to "outsource" the user management part of our platform because we believe that implementing a proper user auth is not a trivial task and requires significant amount of time to make it right. We focused on connectivity instead.
-It is worth mentioning that dependency to Auth0 is the only one that cannot be self-hosted.
+We chose Auth0 to "outsource" the user management part of our platform because we believe that implementing a proper user auth is not a trivial task and requires a significant amount of time to make it right. We focused on connectivity instead.
+It is worth mentioning that the dependency on Auth0 is the only one that cannot be self-hosted.
 
 Configuring Wiretrustee Auth0 integration:
 - check [How to run](https://github.com/wiretrustee/wiretrustee-dashboard#how-to-run) to obtain Auth0 environment variables for UI Dashboard
@@ -194,13 +194,13 @@ Configuring Wiretrustee Auth0 integration:
 Under infrastructure_files we have a docker-compose example to run Dashboard, Wiretrustee Management and Signal services, plus an instance of [Coturn](https://github.com/coturn/coturn), it also provides a turnserver.conf file as a simple example of Coturn configuration. 
 You can edit the turnserver.conf file and change its Realm setting (defaults to wiretrustee.com) to your own domain and user setting (defaults to username1:password1) to **proper credentials**.
 
-The example is set to use the official images from Wiretrustee and Coturn, you can find our documentation to run the signal server in docker in [Running the Signal service](#running-the-signal-service), the management in [Management](./management/README.md), and the Coturn official documentation [here](https://hub.docker.com/r/coturn/coturn).
+The example is set to use the official images from Wiretrustee and Coturn; you can find our documentation to run the signal server in docker in [Running the Signal service](#running-the-signal-service), the management in [Management](./management/README.md), and the Coturn official documentation [here](https://hub.docker.com/r/coturn/coturn).
 
 > Run Coturn at your own risk, we are just providing an example, be sure to follow security best practices and to configure proper credentials as this service can be exploited and you may face large data transfer charges.
 
-Also, if you have an SSL certificate for Coturn, you can modify the docker-compose.yml file to point to its files in your host machine, then switch the domainname to your own SSL domain. If you don't already have an SSL certificate, you can follow [Certbot's](https://certbot.eff.org/docs/intro.html) official documentation
+Also, if you have an SSL certificate for Coturn, you can modify the docker-compose.yml file to point to its files in your host machine and then switch the domain name to your own SSL domain. If you don't already have an SSL certificate, you can follow [Certbot's](https://certbot.eff.org/docs/intro.html) official documentation
 to generate one from [Let’s Encrypt](https://letsencrypt.org/), or, we found that the example provided by [BigBlueButton](https://docs.bigbluebutton.org/2.2/setup-turn-server.html#generating-tls-certificates) covers the basics to configure Coturn with Let's Encrypt certs. 
-> The Wiretrustee Management service can generate and maintain the certificates automatically, all you need to do is run the servicein a host  with a public IP, configure a valid DNS record pointing to that IP and uncomment the 443 ports and command lines in the docker-compose.yml file.
+> The Wiretrustee Management service can generate and maintain the certificates automatically, all you need to do is run the service in a host with a public IP, configure a valid DNS record pointing to that IP and uncomment the 443 ports and command lines in the docker-compose.yml file.
 
 Simple docker-composer execution:
 ````shell
