@@ -63,12 +63,21 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 	writeJSONObject(w, "")
 }
 
-func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
-	userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
-	//new user -> create a new account
-	account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
+func (h *Peers) getPeerAccount(r *http.Request) (*server.Account, error) {
+	jwtClaims := extractClaimsFromRequestContext(r, h.authAudience)
+
+	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId, jwtClaims.Domain)
 	if err != nil {
-		log.Errorf("failed getting account of a user %s: %v", userId, err)
+		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
+	}
+
+	return account, nil
+}
+
+func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
+	account, err := h.getPeerAccount(r)
+	if err != nil {
+		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
@@ -105,11 +114,9 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
-		//new user -> create a new account
-		account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
+		account, err := h.getPeerAccount(r)
 		if err != nil {
-			log.Errorf("failed getting account of a user %s: %v", userId, err)
+			log.Error(err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
 			return
 		}

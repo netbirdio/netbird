@@ -14,7 +14,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 
 	expectedId := "test_account"
 	userId := "account_creator"
-	account, err := manager.AddAccount(expectedId, userId)
+	account, err := manager.AddAccount(expectedId, userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}

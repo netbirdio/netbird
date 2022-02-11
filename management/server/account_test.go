@@ -14,7 +14,7 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	}
 
 	userId := "test_user"
-	account, err := manager.GetOrCreateAccountByUser(userId)
+	account, err := manager.GetOrCreateAccountByUser(userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,6 +29,43 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 
 	if account != nil && account.Users[userId] == nil {
 		t.Fatalf("expected to create an account for a user %s but no user was found after creation udner the account %s", userId, account.Id)
+	}
+}
+
+func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	userId := "test_user"
+	domain := "hotmail.com"
+	account, err := manager.GetOrCreateAccountByUser(userId, domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account == nil {
+		t.Fatalf("expected to create an account for a user %s", userId)
+	}
+
+	if account.Domain != domain {
+		t.Errorf("setting account domain failed, expected %s, got %s", domain, account.Domain)
+	}
+
+	domain = "gmail.com"
+
+	account, err = manager.GetOrCreateAccountByUser(userId, domain)
+	if err != nil {
+		t.Fatalf("got the following error while retrieving existing acc: %v", err)
+	}
+
+	if account == nil {
+		t.Fatalf("expected to get an account for a user %s", userId)
+	}
+
+	if account.Domain != domain {
+		t.Errorf("updating domain. expected %s got %s", domain, account.Domain)
 	}
 }
 
@@ -48,7 +85,7 @@ func TestAccountManager_AddAccount(t *testing.T) {
 		Mask: net.IPMask{255, 192, 0, 0},
 	}
 
-	account, err := manager.AddAccount(expectedId, userId)
+	account, err := manager.AddAccount(expectedId, userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +116,7 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 
 	userId := "test_user"
 
-	account, err := manager.GetAccountByUserOrAccountId(userId, "")
+	account, err := manager.GetAccountByUserOrAccountId(userId, "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,12 +126,12 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 
 	accountId := account.Id
 
-	_, err = manager.GetAccountByUserOrAccountId("", accountId)
+	_, err = manager.GetAccountByUserOrAccountId("", accountId, "")
 	if err != nil {
 		t.Errorf("expected to get existing account after creation using userid, no account was found for a account %s", accountId)
 	}
 
-	_, err = manager.GetAccountByUserOrAccountId("", "")
+	_, err = manager.GetAccountByUserOrAccountId("", "", "")
 	if err == nil {
 		t.Errorf("expected an error when user and account IDs are empty")
 	}
@@ -109,7 +146,7 @@ func TestAccountManager_AccountExists(t *testing.T) {
 
 	expectedId := "test_account"
 	userId := "account_creator"
-	_, err = manager.AddAccount(expectedId, userId)
+	_, err = manager.AddAccount(expectedId, userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,13 +171,13 @@ func TestAccountManager_GetAccount(t *testing.T) {
 
 	expectedId := "test_account"
 	userId := "account_creator"
-	account, err := manager.AddAccount(expectedId, userId)
+	account, err := manager.AddAccount(expectedId, userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	//AddAccount has been already tested so we can assume it is correct and compare results
-	getAccount, err := manager.GetAccount(expectedId)
+	getAccount, err := manager.GetAccountById(expectedId)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -171,7 +208,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator")
+	account, err := manager.AddAccount("test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +248,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	account, err = manager.GetAccount(account.Id)
+	account, err = manager.GetAccountById(account.Id)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -238,7 +275,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator")
+	account, err := manager.AddAccount("test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +308,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	account, err = manager.GetAccount(account.Id)
+	account, err = manager.GetAccountById(account.Id)
 	if err != nil {
 		t.Fatal(err)
 		return

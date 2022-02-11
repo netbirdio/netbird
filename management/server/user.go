@@ -40,14 +40,14 @@ func NewAdminUser(id string) *User {
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
-func (am *AccountManager) GetOrCreateAccountByUser(userId string) (*Account, error) {
+func (am *AccountManager) GetOrCreateAccountByUser(userId, domain string) (*Account, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	account, err := am.Store.GetUserAccount(userId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			account = NewAccount(userId)
+			account = NewAccount(userId, domain)
 			account.Users[userId] = NewAdminUser(userId)
 			err = am.Store.SaveAccount(account)
 			if err != nil {
@@ -56,6 +56,14 @@ func (am *AccountManager) GetOrCreateAccountByUser(userId string) (*Account, err
 		} else {
 			// other error
 			return nil, err
+		}
+	}
+
+	if account.Domain != domain {
+		account.Domain = domain
+		err = am.Store.SaveAccount(account)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed updating account with domain")
 		}
 	}
 
