@@ -32,6 +32,43 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	}
 }
 
+func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	userId := "test_user"
+	domain := "hotmail.com"
+	account, err := manager.GetOrCreateAccountByUser(userId, domain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account == nil {
+		t.Fatalf("expected to create an account for a user %s", userId)
+	}
+
+	if account.Domain != domain {
+		t.Errorf("setting account domain failed, expected %s, got %s", domain, account.Domain)
+	}
+
+	domain = "gmail.com"
+
+	account, err = manager.GetOrCreateAccountByUser(userId, domain)
+	if err != nil {
+		t.Fatalf("got the following error while retrieving existing acc: %v", err)
+	}
+
+	if account == nil {
+		t.Fatalf("expected to get an account for a user %s", userId)
+	}
+
+	if account.Domain != domain {
+		t.Errorf("updating domain. expected %s got %s", domain, account.Domain)
+	}
+}
+
 func TestAccountManager_AddAccount(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
