@@ -23,6 +23,7 @@ type PeerResponse struct {
 	Connected bool
 	LastSeen  time.Time
 	OS        string
+	Version   string
 }
 
 //PeerRequest is a request sent by the client
@@ -139,5 +140,6 @@ func toPeerResponse(peer *server.Peer) *PeerResponse {
 		Connected: peer.Status.Connected,
 		LastSeen:  peer.Status.LastSeen,
 		OS:        fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		Version:   peer.Meta.WtVersion,
 	}
 }
