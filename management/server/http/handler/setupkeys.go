@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
@@ -14,7 +15,7 @@ import (
 
 // SetupKeys is a handler that returns a list of setup keys of the account
 type SetupKeys struct {
-	accountManager *server.AccountManager
+	accountManager *server.DefaultAccountManager
 	authAudience   string
 }
 
@@ -40,7 +41,7 @@ type SetupKeyRequest struct {
 	Revoked   bool
 }
 
-func NewSetupKeysHandler(accountManager *server.AccountManager, authAudience string) *SetupKeys {
+func NewSetupKeysHandler(accountManager *server.DefaultAccountManager, authAudience string) *SetupKeys {
 	return &SetupKeys{
 		accountManager: accountManager,
 		authAudience:   authAudience,
@@ -78,7 +79,7 @@ func (h *SetupKeys) updateKey(accountId string, keyId string, w http.ResponseWri
 }
 
 func (h *SetupKeys) getKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
-	account, err := h.accountManager.GetAccount(accountId)
+	account, err := h.accountManager.GetAccountById(accountId)
 	if err != nil {
 		http.Error(w, "account doesn't exist", http.StatusInternalServerError)
 		return
@@ -119,11 +120,21 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 	writeSuccess(w, setupKey)
 }
 
-func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
-	userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
-	account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
+func (h *SetupKeys) getSetupKeyAccount(r *http.Request) (*server.Account, error) {
+	jwtClaims := extractClaimsFromRequestContext(r, h.authAudience)
+
+	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId, jwtClaims.Domain)
 	if err != nil {
-		log.Errorf("failed getting account of a user %s: %v", userId, err)
+		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
+	}
+
+	return account, nil
+}
+
+func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
+	account, err := h.getSetupKeyAccount(r)
+	if err != nil {
+		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
@@ -149,10 +160,9 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 
 func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 
-	userId, accountId := extractUserAndAccountIdFromRequestContext(r, h.authAudience)
-	account, err := h.accountManager.GetAccountByUserOrAccountId(userId, accountId)
+	account, err := h.getSetupKeyAccount(r)
 	if err != nil {
-		log.Errorf("failed getting account of a user %s: %v", userId, err)
+		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}

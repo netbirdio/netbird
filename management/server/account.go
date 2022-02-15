@@ -10,7 +10,26 @@ import (
 	"sync"
 )
 
-type AccountManager struct {
+type AccountManager interface {
+	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
+	GetAccountByUser(userId string) (*Account, error)
+	AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn *util.Duration) (*SetupKey, error)
+	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
+	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
+	GetAccountById(accountId string) (*Account, error)
+	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
+	AccountExists(accountId string) (*bool, error)
+	AddAccount(accountId, userId, domain string) (*Account, error)
+	GetPeer(peerKey string) (*Peer, error)
+	MarkPeerConnected(peerKey string, connected bool) error
+	RenamePeer(accountId string, peerKey string, newName string) (*Peer, error)
+	DeletePeer(accountId string, peerKey string) (*Peer, error)
+	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
+	GetNetworkMap(peerKey string) (*NetworkMap, error)
+	AddPeer(setupKey string, peer *Peer) (*Peer, error)
+}
+
+type DefaultAccountManager struct {
 	Store Store
 	// mutex to synchronise account operations (e.g. generating Peer IP address inside the Network)
 	mux                sync.Mutex
@@ -23,6 +42,7 @@ type Account struct {
 	Id string
 	// User.Id it was created by
 	CreatedBy string
+	Domain    string
 	SetupKeys map[string]*SetupKey
 	Network   *Network
 	Peers     map[string]*Peer
@@ -30,9 +50,9 @@ type Account struct {
 }
 
 // NewAccount creates a new Account with a generated ID and generated default setup keys
-func NewAccount(userId string) *Account {
+func NewAccount(userId, domain string) *Account {
 	accountId := xid.New().String()
-	return newAccountWithId(accountId, userId)
+	return newAccountWithId(accountId, userId, domain)
 }
 
 func (a *Account) Copy() *Account {
@@ -61,9 +81,9 @@ func (a *Account) Copy() *Account {
 	}
 }
 
-// NewManager creates a new AccountManager with a provided Store
-func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) *AccountManager {
-	return &AccountManager{
+// NewManager creates a new DefaultAccountManager with a provided Store
+func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) *DefaultAccountManager {
+	return &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
 		peersUpdateManager: peersUpdateManager,
@@ -72,7 +92,7 @@ func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager 
 }
 
 //AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
-func (am *AccountManager) AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn *util.Duration) (*SetupKey, error) {
+func (am *DefaultAccountManager) AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn *util.Duration) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -98,7 +118,7 @@ func (am *AccountManager) AddSetupKey(accountId string, keyName string, keyType 
 }
 
 //RevokeSetupKey marks SetupKey as revoked - becomes not valid anymore
-func (am *AccountManager) RevokeSetupKey(accountId string, keyId string) (*SetupKey, error) {
+func (am *DefaultAccountManager) RevokeSetupKey(accountId string, keyId string) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -124,7 +144,7 @@ func (am *AccountManager) RevokeSetupKey(accountId string, keyId string) (*Setup
 }
 
 //RenameSetupKey renames existing setup key of the specified account.
-func (am *AccountManager) RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error) {
+func (am *DefaultAccountManager) RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -149,8 +169,8 @@ func (am *AccountManager) RenameSetupKey(accountId string, keyId string, newName
 	return keyCopy, nil
 }
 
-//GetAccount returns an existing account or error (NotFound) if doesn't exist
-func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
+//GetAccountById returns an existing account using its ID or error (NotFound) if doesn't exist
+func (am *DefaultAccountManager) GetAccountById(accountId string) (*Account, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -164,12 +184,12 @@ func (am *AccountManager) GetAccount(accountId string) (*Account, error) {
 
 //GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
 // user id doesn't have an account associated with it, one account is created
-func (am *AccountManager) GetAccountByUserOrAccountId(userId, accountId string) (*Account, error) {
+func (am *DefaultAccountManager) GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error) {
 
 	if accountId != "" {
-		return am.GetAccount(accountId)
+		return am.GetAccountById(accountId)
 	} else if userId != "" {
-		account, err := am.GetOrCreateAccountByUser(userId)
+		account, err := am.GetOrCreateAccountByUser(userId, domain)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
 		}
@@ -187,7 +207,7 @@ func (am *AccountManager) GetAccountByUserOrAccountId(userId, accountId string) 
 }
 
 //AccountExists checks whether account exists (returns true) or not (returns false)
-func (am *AccountManager) AccountExists(accountId string) (*bool, error) {
+func (am *DefaultAccountManager) AccountExists(accountId string) (*bool, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -207,17 +227,17 @@ func (am *AccountManager) AccountExists(accountId string) (*bool, error) {
 }
 
 // AddAccount generates a new Account with a provided accountId and userId, saves to the Store
-func (am *AccountManager) AddAccount(accountId string, userId string) (*Account, error) {
+func (am *DefaultAccountManager) AddAccount(accountId, userId, domain string) (*Account, error) {
 
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	return am.createAccount(accountId, userId)
+	return am.createAccount(accountId, userId, domain)
 
 }
 
-func (am *AccountManager) createAccount(accountId string, userId string) (*Account, error) {
-	account := newAccountWithId(accountId, userId)
+func (am *DefaultAccountManager) createAccount(accountId, userId, domain string) (*Account, error) {
+	account := newAccountWithId(accountId, userId, domain)
 
 	err := am.Store.SaveAccount(account)
 	if err != nil {
@@ -228,7 +248,7 @@ func (am *AccountManager) createAccount(accountId string, userId string) (*Accou
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(accountId string, userId string) *Account {
+func newAccountWithId(accountId, userId, domain string) *Account {
 
 	log.Debugf("creating new account")
 
@@ -243,7 +263,15 @@ func newAccountWithId(accountId string, userId string) *Account {
 
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
-	return &Account{Id: accountId, SetupKeys: setupKeys, Network: network, Peers: peers, Users: users, CreatedBy: userId}
+	return &Account{
+		Id:        accountId,
+		SetupKeys: setupKeys,
+		Network:   network,
+		Peers:     peers,
+		Users:     users,
+		CreatedBy: userId,
+		Domain:    domain,
+	}
 }
 
 func getAccountSetupKeyById(acc *Account, keyId string) *SetupKey {

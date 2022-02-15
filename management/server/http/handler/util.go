@@ -9,17 +9,28 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-// extractUserAndAccountIdFromRequestContext extracts accountId from the request context previously filled by the JWT token (after auth)
-func extractUserAndAccountIdFromRequestContext(r *http.Request, authAudiance string) (userId, accountId string) {
+// JWTClaims stores information from JWTs
+type JWTClaims struct {
+	UserId    string
+	AccountId string
+	Domain    string
+}
+
+// extractClaimsFromRequestContext extracts claims from the request context previously filled by the JWT token (after auth)
+func extractClaimsFromRequestContext(r *http.Request, authAudiance string) JWTClaims {
 	token := r.Context().Value("user").(*jwt.Token)
 	claims := token.Claims.(jwt.MapClaims)
-
-	userId = claims["sub"].(string)
-	accountIdInt, ok := claims[authAudiance+"wt_account_id"]
+	jwtClaims := JWTClaims{}
+	jwtClaims.UserId = claims["sub"].(string)
+	accountIdClaim, ok := claims[authAudiance+"wt_account_id"]
 	if ok {
-		accountId = accountIdInt.(string)
+		jwtClaims.AccountId = accountIdClaim.(string)
 	}
-	return userId, accountId
+	domainClaim, ok := claims[authAudiance+"wt_user_domain"]
+	if ok {
+		jwtClaims.AccountId = domainClaim.(string)
+	}
+	return jwtClaims
 }
 
 //writeJSONObject simply writes object to the HTTP reponse in JSON format
