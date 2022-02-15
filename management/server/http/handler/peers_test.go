@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-func mockJWTToken() {
-
-}
-
 func TestHandlePeer(t *testing.T) {
 	var tt = []struct {
 		request *http.Request
