@@ -3,16 +3,17 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
-	"net/http"
-	"time"
 )
 
 //Peers is a handler that returns peers of the account
 type Peers struct {
-	accountManager *server.DefaultAccountManager
+	accountManager server.AccountManager
 	authAudience   string
 }
 
