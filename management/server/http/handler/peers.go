@@ -13,7 +13,7 @@ import (
 
 //Peers is a handler that returns peers of the account
 type Peers struct {
-	accountManager *server.DefaultAccountManager
+	accountManager server.AccountManager
 	authAudience   string
 }
 
@@ -32,7 +32,7 @@ type PeerRequest struct {
 	Name string
 }
 
-func NewPeers(accountManager *server.DefaultAccountManager, authAudience string) *Peers {
+func NewPeers(accountManager server.AccountManager, authAudience string) *Peers {
 	return &Peers{
 		accountManager: accountManager,
 		authAudience:   authAudience,

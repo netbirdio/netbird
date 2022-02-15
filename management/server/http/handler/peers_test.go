@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/wiretrustee/wiretrustee/management/server/mock_server"
 )
 
 func TestHandlePeer(t *testing.T) {
@@ -18,9 +20,11 @@ func TestHandlePeer(t *testing.T) {
 		{httptest.NewRequest(http.MethodPut, "", nil), []byte(`{"Name": "Bob"}`)},
 	}
 
-	// We create a ResponseRecorder (which satisfies http.ResponseWriter) to record the response.
+	//
 	rr := httptest.NewRecorder()
-	p := &Peers{}
+	p := &Peers{
+		accountManager: &mock_server.MockAccountManager{},
+	}
 
 	for _, tv := range tt {
 		p.HandlePeer(rr, tv.request)
