@@ -3,9 +3,10 @@ package handler
 import (
 	"encoding/json"
 	"errors"
-	"github.com/golang-jwt/jwt"
 	"net/http"
 	"time"
+
+	"github.com/golang-jwt/jwt"
 )
 
 // extractUserAndAccountIdFromRequestContext extracts accountId from the request context previously filled by the JWT token (after auth)

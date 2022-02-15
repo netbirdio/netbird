@@ -3,11 +3,12 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
-	"net/http"
-	"time"
 )
 
 //Peers is a handler that returns peers of the account
@@ -54,6 +55,7 @@ func (h *Peers) updatePeer(accountId string, peer *server.Peer, w http.ResponseW
 	}
 	writeJSONObject(w, toPeerResponse(peer))
 }
+
 func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
 	_, err := h.accountManager.DeletePeer(accountId, peer.Key)
 	if err != nil {
