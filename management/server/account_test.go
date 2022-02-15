@@ -320,7 +320,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 
 }
 
-func createManager(t *testing.T) (*AccountManager, error) {
+func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	store, err := createStore(t)
 	if err != nil {
 		return nil, err

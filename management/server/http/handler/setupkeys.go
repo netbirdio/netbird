@@ -15,7 +15,7 @@ import (
 
 // SetupKeys is a handler that returns a list of setup keys of the account
 type SetupKeys struct {
-	accountManager *server.AccountManager
+	accountManager *server.DefaultAccountManager
 	authAudience   string
 }
 
@@ -41,7 +41,7 @@ type SetupKeyRequest struct {
 	Revoked   bool
 }
 
-func NewSetupKeysHandler(accountManager *server.AccountManager, authAudience string) *SetupKeys {
+func NewSetupKeysHandler(accountManager *server.DefaultAccountManager, authAudience string) *SetupKeys {
 	return &SetupKeys{
 		accountManager: accountManager,
 		authAudience:   authAudience,

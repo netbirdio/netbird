@@ -16,7 +16,7 @@ import (
 
 // Server an instance of a Management server
 type Server struct {
-	accountManager *AccountManager
+	accountManager *DefaultAccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peersUpdateManager     *PeersUpdateManager
@@ -28,7 +28,7 @@ type Server struct {
 const AllowedIPsFormat = "%s/32"
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager *AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*Server, error) {
+func NewServer(config *Config, accountManager *DefaultAccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
 
-	//todo move to AccountManager the code below
+	//todo move to DefaultAccountManager the code below
 	networkMap, err := s.accountManager.GetNetworkMap(peer.Key)
 	if err != nil {
 		return nil, status.Error(codes.Internal, "internal server error")

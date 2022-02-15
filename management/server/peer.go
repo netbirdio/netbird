@@ -56,7 +56,7 @@ func (p *Peer) Copy() *Peer {
 }
 
 //GetPeer returns a peer from a Store
-func (am *AccountManager) GetPeer(peerKey string) (*Peer, error) {
+func (am *DefaultAccountManager) GetPeer(peerKey string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -69,7 +69,7 @@ func (am *AccountManager) GetPeer(peerKey string) (*Peer, error) {
 }
 
 //MarkPeerConnected marks peer as connected (true) or disconnected (false)
-func (am *AccountManager) MarkPeerConnected(peerKey string, connected bool) error {
+func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected bool) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -94,7 +94,7 @@ func (am *AccountManager) MarkPeerConnected(peerKey string, connected bool) erro
 }
 
 //RenamePeer changes peer's name
-func (am *AccountManager) RenamePeer(accountId string, peerKey string, newName string) (*Peer, error) {
+func (am *DefaultAccountManager) RenamePeer(accountId string, peerKey string, newName string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -114,7 +114,7 @@ func (am *AccountManager) RenamePeer(accountId string, peerKey string, newName s
 }
 
 //DeletePeer removes peer from the account by it's IP
-func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, error) {
+func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -188,7 +188,7 @@ func (am *AccountManager) DeletePeer(accountId string, peerKey string) (*Peer, e
 }
 
 //GetPeerByIP returns peer by it's IP
-func (am *AccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, error) {
+func (am *DefaultAccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -207,7 +207,7 @@ func (am *AccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, e
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
-func (am *AccountManager) GetNetworkMap(peerKey string) (*NetworkMap, error) {
+func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -235,7 +235,7 @@ func (am *AccountManager) GetNetworkMap(peerKey string) (*NetworkMap, error) {
 // will be returned, meaning the key is invalid
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *AccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, error) {
+func (am *DefaultAccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
