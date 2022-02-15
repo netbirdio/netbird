@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -22,10 +23,13 @@ import (
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
-// E.g. this peer will wait PeerConnectionTimeoutMax for the remote peer to respond, if not successful then it will retry the connection attempt.
+// E.g. this peer will wait PeerConnectionTimeoutMax for the remote peer to respond,
+// if not successful then it will retry the connection attempt.
 // Todo pass timeout at EnginConfig
-const PeerConnectionTimeoutMax = 45000 //ms
-const PeerConnectionTimeoutMin = 30000 //ms
+const (
+	PeerConnectionTimeoutMax = 45000 // ms
+	PeerConnectionTimeoutMin = 30000 // ms
+)
 
 const WgPort = 51820
 
@@ -33,14 +37,23 @@ const WgPort = 51820
 type EngineConfig struct {
 	WgPort      int
 	WgIfaceName string
+
 	// WgAddr is a Wireguard local address (Wiretrustee Network IP)
 	WgAddr string
+
 	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
 	WgPrivateKey wgtypes.Key
+
 	// IFaceBlackList is a list of network interfaces to ignore when discovering connection candidates (ICE related)
 	IFaceBlackList map[string]struct{}
 
 	PreSharedKey *wgtypes.Key
+
+	// UDPMuxPort default value 55050
+	UDPMuxPort *int
+
+	// UDPMuxSrflxPort default value 55051
+	UDPMuxSrflxPort *int
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -67,6 +80,9 @@ type Engine struct {
 
 	wgInterface iface.WGIface
 
+	udpMux      ice.UDPMux
+	udpMuxSrflx ice.UniversalUDPMux
+
 	// networkSerial is the latest Serial (state ID) of the network sent by the Management service
 	networkSerial uint64
 }
@@ -78,7 +94,10 @@ type Peer struct {
 }
 
 // NewEngine creates a new Connection Engine
-func NewEngine(signalClient signal.Client, mgmClient mgm.Client, config *EngineConfig, cancel context.CancelFunc, ctx context.Context) *Engine {
+func NewEngine(
+	signalClient signal.Client, mgmClient mgm.Client, config *EngineConfig,
+	cancel context.CancelFunc, ctx context.Context,
+) *Engine {
 	return &Engine{
 		signal:        signalClient,
 		mgmClient:     mgmClient,
@@ -111,6 +130,18 @@ func (e *Engine) Stop() error {
 		}
 	}
 
+	if e.udpMux != nil {
+		if err := e.udpMux.Close(); err != nil {
+			log.Debugf("close udp mux: %v", err)
+		}
+	}
+
+	if e.udpMuxSrflx != nil {
+		if err := e.udpMuxSrflx.Close(); err != nil {
+			log.Debugf("close server reflexive udp mux: %v", err)
+		}
+	}
+
 	log.Infof("stopped Wiretrustee Engine")
 
 	return nil
@@ -134,6 +165,29 @@ func (e *Engine) Start() error {
 		return err
 	}
 
+	muxConnPort := 55050
+	if e.config.UDPMuxPort != nil {
+		muxConnPort = *e.config.UDPMuxPort
+	}
+	muxConn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: muxConnPort})
+	if err != nil {
+		log.Errorf("failed listening on UDP port %d: [%s]", muxConnPort, err.Error())
+		return err
+	}
+
+	muxConnSrflxPort := 55051
+	if e.config.UDPMuxSrflxPort != nil {
+		muxConnSrflxPort = *e.config.UDPMuxSrflxPort
+	}
+	muxConnSrflx, err := net.ListenUDP("udp4", &net.UDPAddr{Port: muxConnSrflxPort})
+	if err != nil {
+		log.Errorf("failed listening on UDP port %d: [%s]", muxConnSrflxPort, err.Error())
+		return err
+	}
+
+	e.udpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConn})
+	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: muxConnSrflx})
+
 	err = e.wgInterface.Create()
 	if err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIfaceName, err.Error())
@@ -154,7 +208,6 @@ func (e *Engine) Start() error {
 
 // removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service
 func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
-
 	currentPeers := make([]string, 0, len(e.peerConns))
 	for p := range e.peerConns {
 		currentPeers = append(currentPeers, p)
@@ -209,7 +262,6 @@ func (e *Engine) removePeer(peerKey string) error {
 
 // GetPeerConnectionStatus returns a connection Status or nil if peer connection wasn't found
 func (e *Engine) GetPeerConnectionStatus(peerKey string) peer.ConnStatus {
-
 	conn, exists := e.peerConns[peerKey]
 	if exists && conn != nil {
 		return conn.Status()
@@ -217,6 +269,7 @@ func (e *Engine) GetPeerConnectionStatus(peerKey string) peer.ConnStatus {
 
 	return -1
 }
+
 func (e *Engine) GetPeers() []string {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
@@ -254,7 +307,7 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 	})
 	if err != nil {
 		log.Errorf("failed signaling candidate to the remote peer %s %s", remoteKey.String(), err)
-		//todo ??
+		// todo ??
 		return err
 	}
 
@@ -262,7 +315,6 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 }
 
 func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
-
 	var t sProto.Body_Type
 	if isAnswer {
 		t = sProto.Body_ANSWER
@@ -272,7 +324,8 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 
 	msg, err := signal.MarshalCredential(myKey, remoteKey, &signal.Credential{
 		UFrag: uFrag,
-		Pwd:   pwd}, t)
+		Pwd:   pwd,
+	}, t)
 	if err != nil {
 		return err
 	}
@@ -299,7 +352,7 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 			return err
 		}
 
-		//todo update signal
+		// todo update signal
 	}
 
 	if update.GetNetworkMap() != nil {
@@ -311,7 +364,6 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	return nil
-
 }
 
 // receiveManagementEvents connects to the Management Service event stream to receive updates from the management service
@@ -371,7 +423,6 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
-
 	serial := networkMap.GetSerial()
 	if e.networkSerial > serial {
 		log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
@@ -455,7 +506,6 @@ func (e Engine) peerExists(peerKey string) bool {
 }
 
 func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
-
 	var stunTurn []*ice.URL
 	stunTurn = append(stunTurn, e.STUNs...)
 	stunTurn = append(stunTurn, e.TURNs...)
@@ -481,6 +531,8 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		StunTurn:           stunTurn,
 		InterfaceBlackList: interfaceBlacklist,
 		Timeout:            timeout,
+		UDPMux:             e.udpMux,
+		UDPMuxSrflx:        e.udpMuxSrflx,
 		ProxyConfig:        proxyConfig,
 	}
 
@@ -515,11 +567,9 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 
 // receiveSignalEvents connects to the Signal Service event stream to negotiate connection with remote peers
 func (e *Engine) receiveSignalEvents() {
-
 	go func() {
 		// connect to a stream of messages coming from the signal server
 		err := e.signal.Receive(func(msg *sProto.Message) error {
-
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
 
