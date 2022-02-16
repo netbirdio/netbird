@@ -105,12 +105,11 @@ func (conn *Conn) reCreateAgent() error {
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
 		Urls:             conn.config.StunTurn,
-		//CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
-		CandidateTypes:  []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive},
-		FailedTimeout:   &failedTimeout,
-		InterfaceFilter: interfaceFilter(conn.config.InterfaceBlackList),
-		UDPMux:          conn.config.UDPMux,
-		UDPMuxSrflx:     conn.config.UDPMuxSrflx,
+		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
+		FailedTimeout:    &failedTimeout,
+		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
+		UDPMux:           conn.config.UDPMux,
+		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
 	})
 	if err != nil {
 		return err
