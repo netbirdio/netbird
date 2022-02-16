@@ -397,11 +397,16 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		ifaceName = fmt.Sprintf("wt%d", i)
 	}
 
+	wgPort := 33100 + i
+	udpMuxPort := wgPort + 1
+	udpMuxSrflxPort := udpMuxPort + 1
 	conf := &EngineConfig{
-		WgIfaceName:  ifaceName,
-		WgAddr:       resp.PeerConfig.Address,
-		WgPrivateKey: key,
-		WgPort:       33100 + i,
+		WgIfaceName:     ifaceName,
+		WgAddr:          resp.PeerConfig.Address,
+		WgPrivateKey:    key,
+		WgPort:          wgPort,
+		UDPMuxPort:      &udpMuxPort,
+		UDPMuxSrflxPort: &udpMuxSrflxPort,
 	}
 
 	return NewEngine(signalClient, mgmtClient, conf, cancel, ctx), nil
