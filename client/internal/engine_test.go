@@ -256,6 +256,7 @@ func TestEngine_Sync(t *testing.T) {
 		select {
 		case <-timeout:
 			t.Fatalf("timeout while waiting for test to finish")
+			return
 		default:
 		}
 
@@ -398,8 +399,8 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	wgPort := 33100 + i
-	udpMuxPort := wgPort + 1
-	udpMuxSrflxPort := udpMuxPort + 1
+	udpMuxPort := 55100 + i
+	udpMuxSrflxPort := 62000 + i
 	conf := &EngineConfig{
 		WgIfaceName:     ifaceName,
 		WgAddr:          resp.PeerConfig.Address,
