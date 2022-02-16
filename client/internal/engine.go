@@ -80,8 +80,10 @@ type Engine struct {
 
 	wgInterface iface.WGIface
 
-	udpMux      ice.UDPMux
-	udpMuxSrflx ice.UniversalUDPMux
+	udpMux          ice.UDPMux
+	udpMuxSrflx     ice.UniversalUDPMux
+	udpMuxConn      *net.UDPConn
+	udpMuxConnSrflx *net.UDPConn
 
 	// networkSerial is the latest Serial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -142,6 +144,18 @@ func (e *Engine) Stop() error {
 		}
 	}
 
+	if e.udpMuxConn != nil {
+		if err := e.udpMuxConn.Close(); err != nil {
+			log.Debugf("close udp mux connection: %v", err)
+		}
+	}
+
+	if e.udpMuxConnSrflx != nil {
+		if err := e.udpMuxConnSrflx.Close(); err != nil {
+			log.Debugf("close server reflexive udp mux connection: %v", err)
+		}
+	}
+
 	log.Infof("stopped Wiretrustee Engine")
 
 	return nil
@@ -169,7 +183,7 @@ func (e *Engine) Start() error {
 	if e.config.UDPMuxPort != nil {
 		muxConnPort = *e.config.UDPMuxPort
 	}
-	muxConn, err := net.ListenUDP("udp4", &net.UDPAddr{Port: muxConnPort})
+	e.udpMuxConn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: muxConnPort})
 	if err != nil {
 		log.Errorf("failed listening on UDP port %d: [%s]", muxConnPort, err.Error())
 		return err
@@ -179,14 +193,14 @@ func (e *Engine) Start() error {
 	if e.config.UDPMuxSrflxPort != nil {
 		muxConnSrflxPort = *e.config.UDPMuxSrflxPort
 	}
-	muxConnSrflx, err := net.ListenUDP("udp4", &net.UDPAddr{Port: muxConnSrflxPort})
+	e.udpMuxConnSrflx, err = net.ListenUDP("udp4", &net.UDPAddr{Port: muxConnSrflxPort})
 	if err != nil {
 		log.Errorf("failed listening on UDP port %d: [%s]", muxConnSrflxPort, err.Error())
 		return err
 	}
 
-	e.udpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: muxConn})
-	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: muxConnSrflx})
+	e.udpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: e.udpMuxConn})
+	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx})
 
 	err = e.wgInterface.Create()
 	if err != nil {
