@@ -49,11 +49,11 @@ type EngineConfig struct {
 
 	PreSharedKey *wgtypes.Key
 
-	// UDPMuxPort default value 55050
-	UDPMuxPort *int
+	// UDPMuxPort default value 0 - the system will pick an available port
+	UDPMuxPort int
 
-	// UDPMuxSrflxPort default value 55051
-	UDPMuxSrflxPort *int
+	// UDPMuxSrflxPort default value 0 - the system will pick an available port
+	UDPMuxSrflxPort int
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -179,23 +179,15 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	muxConnPort := 0
-	if e.config.UDPMuxPort != nil {
-		muxConnPort = *e.config.UDPMuxPort
-	}
-	e.udpMuxConn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: muxConnPort})
+	e.udpMuxConn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: e.config.UDPMuxPort})
 	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", muxConnPort, err.Error())
+		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
 		return err
 	}
 
-	muxConnSrflxPort := 0
-	if e.config.UDPMuxSrflxPort != nil {
-		muxConnSrflxPort = *e.config.UDPMuxSrflxPort
-	}
-	e.udpMuxConnSrflx, err = net.ListenUDP("udp4", &net.UDPAddr{Port: muxConnSrflxPort})
+	e.udpMuxConnSrflx, err = net.ListenUDP("udp4", &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
 	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", muxConnSrflxPort, err.Error())
+		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
 		return err
 	}
 
