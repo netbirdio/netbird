@@ -179,7 +179,7 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	muxConnPort := 55050
+	muxConnPort := 0
 	if e.config.UDPMuxPort != nil {
 		muxConnPort = *e.config.UDPMuxPort
 	}
@@ -189,7 +189,7 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	muxConnSrflxPort := 55051
+	muxConnSrflxPort := 0
 	if e.config.UDPMuxSrflxPort != nil {
 		muxConnSrflxPort = *e.config.UDPMuxSrflxPort
 	}
