@@ -256,6 +256,7 @@ func TestEngine_Sync(t *testing.T) {
 		select {
 		case <-timeout:
 			t.Fatalf("timeout while waiting for test to finish")
+			return
 		default:
 		}
 
@@ -397,11 +398,12 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		ifaceName = fmt.Sprintf("wt%d", i)
 	}
 
+	wgPort := 33100 + i
 	conf := &EngineConfig{
 		WgIfaceName:  ifaceName,
 		WgAddr:       resp.PeerConfig.Address,
 		WgPrivateKey: key,
-		WgPort:       33100 + i,
+		WgPort:       wgPort,
 	}
 
 	return NewEngine(signalClient, mgmtClient, conf, cancel, ctx), nil
