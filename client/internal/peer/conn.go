@@ -304,8 +304,8 @@ func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 }
 
 func (conn *Conn) onICESelectedCandidatePair(c1 ice.Candidate, c2 ice.Candidate) {
-	log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", conn.config.Key,
-		c1.String(), c2.String())
+	log.Debugf("selected candidate pair [local <-> remote] -> [%s <-> %s], peer %s", c1.String(), c2.String(),
+		conn.config.Key)
 }
 
 // onICEConnectionStateChange registers callback of an ICE Agent to track connection state
