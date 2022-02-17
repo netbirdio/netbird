@@ -2,7 +2,6 @@ package handler
 
 import (
 	"bytes"
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -56,8 +55,6 @@ func TestHandlePeer(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	for _, tv := range tt {
-		ctx := context.WithValue(context.Background(), "lol", "lol")
-		tv.request.WithContext(ctx)
 		p.HandlePeer(rr, tv.request)
 
 		// Check the status code is what we expect.
