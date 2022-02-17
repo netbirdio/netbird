@@ -69,10 +69,15 @@ var (
 				log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 			}
 			peersUpdateManager := server.NewPeersUpdateManager()
-			idpManager, err := idp.NewManager(*config.IdpManagerConfig)
-			if err != nil {
-				log.Fatalln("failed retrieving a new idp manager with err: ", err)
+
+			var idpManager idp.Manager
+			if config.IdpManagerConfig != nil {
+				idpManager, err = idp.NewManager(*config.IdpManagerConfig)
+				if err != nil {
+					log.Fatalln("failed retrieving a new idp manager with err: ", err)
+				}
 			}
+
 			accountManager := server.NewManager(store, peersUpdateManager, idpManager)
 
 			var opts []grpc.ServerOption
