@@ -16,6 +16,25 @@ type JWTClaims struct {
 	Domain    string
 }
 
+type extractJWTClaims func(r *http.Request, authAudiance string) JWTClaims
+
+type JWTClaimsExtractor struct {
+	extractClaimsFromRequestContext extractJWTClaims
+}
+
+// NewJWTClaimsExtractor returns an extractor, and if provided with a function with extractJWTClaims signature,
+// then it will use that logic. Uses extractClaimsFromRequestContext by default
+func NewJWTClaimsExtractor(e extractJWTClaims) *JWTClaimsExtractor {
+	var extractFunc extractJWTClaims
+	if extractFunc = e; extractFunc == nil {
+		extractFunc = extractClaimsFromRequestContext
+	}
+
+	return &JWTClaimsExtractor{
+		extractClaimsFromRequestContext: extractFunc,
+	}
+}
+
 // extractClaimsFromRequestContext extracts claims from the request context previously filled by the JWT token (after auth)
 func extractClaimsFromRequestContext(r *http.Request, authAudiance string) JWTClaims {
 	token := r.Context().Value("user").(*jwt.Token)

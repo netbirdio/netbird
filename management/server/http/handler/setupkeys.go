@@ -3,14 +3,15 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net/http"
-	"time"
 )
 
 // SetupKeys is a handler that returns a list of setup keys of the account
@@ -121,7 +122,8 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 }
 
 func (h *SetupKeys) getSetupKeyAccount(r *http.Request) (*server.Account, error) {
-	jwtClaims := extractClaimsFromRequestContext(r, h.authAudience)
+	extractor := NewJWTClaimsExtractor(nil)
+	jwtClaims := extractor.extractClaimsFromRequestContext(r, h.authAudience)
 
 	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId, jwtClaims.Domain)
 	if err != nil {
