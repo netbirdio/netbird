@@ -28,7 +28,7 @@ func extractClaimsFromRequestContext(r *http.Request, authAudiance string) JWTCl
 	}
 	domainClaim, ok := claims[authAudiance+"wt_user_domain"]
 	if ok {
-		jwtClaims.AccountId = domainClaim.(string)
+		jwtClaims.Domain = domainClaim.(string)
 	}
 	return jwtClaims
 }

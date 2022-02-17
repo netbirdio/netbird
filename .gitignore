@@ -7,3 +7,4 @@ http-cmds.sh
 infrastructure_files/management.json
 infrastructure_files/docker-compose.yml
 *.syso
+client/.distfiles/
