@@ -4,11 +4,13 @@ import (
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
 )
 
 type program struct {
 	cmd  *cobra.Command
 	args []string
+	daemonSrv *grpc.Server
 }
 
 func newSVCConfig() *service.Config {
@@ -28,9 +30,8 @@ func newSVC(prg *program, conf *service.Config) (service.Service, error) {
 	return s, nil
 }
 
-var (
-	serviceCmd = &cobra.Command{
-		Use:   "service",
-		Short: "manages wiretrustee service",
-	}
-)
+var serviceCmd = &cobra.Command{
+	Use:   "service",
+	Short: "manages wiretrustee service",
+}
+

@@ -2,15 +2,16 @@ package cmd
 
 import (
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
-	"github.com/wiretrustee/wiretrustee/client/internal"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
 	"syscall"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"github.com/wiretrustee/wiretrustee/client/internal"
 )
 
 var (
@@ -19,6 +20,7 @@ var (
 	logLevel          string
 	defaultLogFile    string
 	logFile           string
+	daemonAddr        string
 	managementURL     string
 	setupKey          string
 	preSharedKey      string
@@ -37,8 +39,8 @@ var (
 func Execute() error {
 	return rootCmd.Execute()
 }
-func init() {
 
+func init() {
 	stopCh = make(chan int)
 	cleanupCh = make(chan struct{})
 
@@ -49,6 +51,11 @@ func init() {
 		defaultLogFile = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "client.log"
 	}
 
+	defaultDaemonAddr := "unix:///var/run/wiretrustee.sock"
+	if runtime.GOOS == "windows" {
+		defaultDaemonAddr = "tcp://127.0.0.1:41731"
+	}
+	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	rootCmd.PersistentFlags().StringVar(&managementURL, "management-url", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.ManagementURLDefault().String()))
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "sets Wiretrustee log level")
@@ -57,6 +64,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, "preshared-key", "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
+	rootCmd.AddCommand(downCmd)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(versionCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
@@ -79,7 +87,6 @@ func SetupCloseHandler() {
 func SetFlagsFromEnvVars() {
 	flags := rootCmd.PersistentFlags()
 	flags.VisitAll(func(f *pflag.Flag) {
-
 		envVar := FlagNameToEnvVar(f.Name)
 
 		if value, present := os.LookupEnv(envVar); present {
