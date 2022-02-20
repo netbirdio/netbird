@@ -29,19 +29,26 @@ func WriteJson(file string, obj interface{}) error {
 		return err
 	}
 
-	defer func() {
-		_, err = os.Stat(tempFile.Name())
-		if err == nil {
-			os.Remove(tempFile.Name())
-		}
-	}()
-
-	err = ioutil.WriteFile(tempFile.Name(), bs, 0600)
+	tempFileName := tempFile.Name()
+	// closing file ops as windows doesn't allow to move it
+	err = tempFile.Close()
 	if err != nil {
 		return err
 	}
 
-	err = os.Rename(tempFile.Name(), file)
+	defer func() {
+		_, err = os.Stat(tempFileName)
+		if err == nil {
+			os.Remove(tempFileName)
+		}
+	}()
+
+	err = ioutil.WriteFile(tempFileName, bs, 0600)
+	if err != nil {
+		return err
+	}
+
+	err = os.Rename(tempFileName, file)
 	if err != nil {
 		return err
 	}
