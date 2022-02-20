@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
 	"sync"
 	"time"
@@ -87,11 +88,20 @@ func interfaceFilter(blackList []string) func(string) bool {
 		}
 	}
 	return func(iFace string) bool {
-		if len(blackListMap) == 0 {
-			return true
-		}
+
 		_, ok := blackListMap[iFace]
-		return !ok
+		if ok {
+			return false
+		}
+		// look for unlisted Wireguard interfaces
+		wg, err := wgctrl.New()
+		if err != nil {
+			log.Debugf("trying to create a wgctrl client failed with: %v", err)
+		}
+		defer wg.Close()
+
+		_, err = wg.Device(iFace)
+		return err != nil
 	}
 }
 
