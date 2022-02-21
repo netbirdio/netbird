@@ -1,12 +1,8 @@
 package cmd
 
 import (
-	"context"
-	"time"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
 
 	"github.com/wiretrustee/wiretrustee/client/internal"
 	"github.com/wiretrustee/wiretrustee/client/proto"
@@ -17,6 +13,7 @@ var upCmd = &cobra.Command{
 	Short: "install, login and start wiretrustee client",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
+		ctx := internal.CtxInitState(cmd.Context())
 
 		// workaround to run without service
 		if logFile == "console" {
@@ -25,23 +22,24 @@ var upCmd = &cobra.Command{
 				log.Errorf("get config file: %v", err)
 				return err
 			}
-			if err := internal.Login(config, setupKey); err != nil {
-				log.Errorf("login: %v", err)
+			err = WithBackOff(func() error {
+				return internal.Login(ctx, config, setupKey)
+			})
+			if err != nil {
+				log.Errorf("backoff cycle failed: %v", err)
 				return err
 			}
 
 			SetupCloseHandler()
-			return internal.RunClient(config, stopCh, cleanupCh)
+			return internal.RunClient(ctx, config, stopCh, cleanupCh)
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
-		defer cancel()
-
-		conn, err := grpc.DialContext(ctx, daemonAddr, grpc.WithInsecure())
+		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
 			log.Errorf("failed to connect to service CLI interface %v", err)
 			return err
 		}
+		defer conn.Close()
 
 		daemonClient := proto.NewDaemonServiceClient(conn)
 
@@ -49,9 +47,24 @@ var upCmd = &cobra.Command{
 			SetupKey:     setupKey,
 			PresharedKey: preSharedKey,
 		}
-		if _, err := daemonClient.Login(ctx, &loginRequest); err != nil {
-			log.Errorf("call service login method: %v", err)
+		err = WithBackOff(func() error {
+			_, err := daemonClient.Login(ctx, &loginRequest)
 			return err
+		})
+		if err != nil {
+			log.Errorf("backoff cycle failed: %v", err)
+			return err
+		}
+
+		status, err := daemonClient.Status(ctx, &proto.StatusRequest{})
+		if err != nil {
+			log.Errorf("get status: %v", err)
+			return err
+		}
+
+		if status.Status != string(internal.StatusIdle) {
+			log.Warnf("already connected")
+			return nil
 		}
 
 		if _, err := daemonClient.Up(ctx, &proto.UpRequest{}); err != nil {

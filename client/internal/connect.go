@@ -4,18 +4,22 @@ import (
 	"context"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
+	"github.com/wiretrustee/wiretrustee/iface"
 	mgm "github.com/wiretrustee/wiretrustee/management/client"
 	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
 	signal "github.com/wiretrustee/wiretrustee/signal/client"
+
+	"github.com/cenkalti/backoff/v4"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // RunClient with main logic.
-func RunClient(config *Config, stopCh <-chan int, cleanupCh chan<- struct{}) error {
+func RunClient(
+	ctx context.Context, config *Config, stopCh <-chan int, cleanupCh chan<- struct{},
+) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
@@ -26,17 +30,27 @@ func RunClient(config *Config, stopCh <-chan int, cleanupCh chan<- struct{}) err
 		Clock:               backoff.SystemClock,
 	}
 
+	state := CtxGetState(ctx)
+	defer state.Set(StatusIdle)
+
+	wrapErr := state.Wrap
 	operation := func() error {
+		// if context cancelled we not start new backoff cycle
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		state.Set(StatusConnecting)
 		// validate our peer's Wireguard PRIVATE key
 		myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 		if err != nil {
 			log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-			return err
+			return wrapErr(err)
 		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 
-		mgmTlsEnabled := false
+		var mgmTlsEnabled bool
 		if config.ManagementURL.Scheme == "https" {
 			mgmTlsEnabled = true
 		}
@@ -45,14 +59,14 @@ func RunClient(config *Config, stopCh <-chan int, cleanupCh chan<- struct{}) err
 		mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
 			log.Warn(err)
-			return err
+			return wrapErr(err)
 		}
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(ctx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
 		if err != nil {
 			log.Error(err)
-			return err
+			return wrapErr(err)
 		}
 
 		peerConfig := loginResp.GetPeerConfig()
@@ -60,17 +74,21 @@ func RunClient(config *Config, stopCh <-chan int, cleanupCh chan<- struct{}) err
 		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig)
 		if err != nil {
 			log.Error(err)
-			return err
+			return wrapErr(err)
 		}
 
-		engine := NewEngine(signalClient, mgmClient, engineConfig, cancel, ctx)
+		ctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		engine := NewEngine(ctx, cancel, signalClient, mgmClient, engineConfig)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
-			return err
+			return wrapErr(err)
 		}
 
 		log.Print("Wiretrustee engine started, my IP is: ", peerConfig.Address)
+		state.Set(StatusConnected)
 
 		select {
 		case <-stopCh:
@@ -82,18 +100,18 @@ func RunClient(config *Config, stopCh <-chan int, cleanupCh chan<- struct{}) err
 		err = mgmClient.Close()
 		if err != nil {
 			log.Errorf("failed closing Management Service client %v", err)
-			return err
+			return wrapErr(err)
 		}
 		err = signalClient.Close()
 		if err != nil {
 			log.Errorf("failed closing Signal Service client %v", err)
-			return err
+			return wrapErr(err)
 		}
 
 		err = engine.Stop()
 		if err != nil {
 			log.Errorf("failed stopping engine %v", err)
-			return err
+			return wrapErr(err)
 		}
 
 		go func() {
@@ -102,7 +120,11 @@ func RunClient(config *Config, stopCh <-chan int, cleanupCh chan<- struct{}) err
 
 		log.Info("stopped Wiretrustee client")
 
-		return ctx.Err()
+		if _, err := state.Status(); err == ErrResetConnection {
+			return err
+		}
+
+		return nil
 	}
 
 	err := backoff.Retry(operation, backOff)
@@ -114,13 +136,13 @@ func RunClient(config *Config, stopCh <-chan int, cleanupCh chan<- struct{}) err
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *internal.Config, peerConfig *mgmProto.PeerConfig) (*internal.EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
 	iFaceBlackList := make(map[string]struct{})
 	for i := 0; i < len(config.IFaceBlackList); i += 2 {
 		iFaceBlackList[config.IFaceBlackList[i]] = struct{}{}
 	}
 
-	engineConf := &internal.EngineConfig{
+	engineConf := &EngineConfig{
 		WgIfaceName:    config.WgIface,
 		WgAddr:         peerConfig.Address,
 		IFaceBlackList: iFaceBlackList,

@@ -26,7 +26,7 @@ func TestLogin_Start(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, listener := startManagement(config, t)
+	_, listener := startManagement(t, config)
 	mgmAddr = listener.Addr().String()
 }
 

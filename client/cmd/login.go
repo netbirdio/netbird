@@ -3,11 +3,9 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"google.golang.org/grpc"
 
 	"github.com/wiretrustee/wiretrustee/client/internal"
 	"github.com/wiretrustee/wiretrustee/client/proto"
@@ -18,6 +16,7 @@ var loginCmd = &cobra.Command{
 	Short: "login to the Wiretrustee Management Service (first run)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
+		ctx := internal.CtxInitState(context.Background())
 
 		// workaround to run without service
 		if logFile == "console" {
@@ -26,11 +25,13 @@ var loginCmd = &cobra.Command{
 				log.Errorf("get config file: %v", err)
 				return err
 			}
-			if err = internal.Login(config, setupKey); err != nil {
-				log.Errorf("login: %v", err)
-				return err
+			err = WithBackOff(func() error {
+				return internal.Login(ctx, config, setupKey)
+			})
+			if err != nil {
+				log.Errorf("backoff cycle failed: %v", err)
 			}
-			return nil
+			return err
 		}
 
 		if setupKey == "" {
@@ -38,24 +39,28 @@ var loginCmd = &cobra.Command{
 			return fmt.Errorf("empty setup key")
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
-		defer cancel()
-
-		conn, err := grpc.DialContext(ctx, daemonAddr, grpc.WithInsecure())
+		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
 			log.Errorf("failed to connect to service CLI interface %v", err)
 			return err
 		}
+		defer conn.Close()
 
 		request := proto.LoginRequest{
-			SetupKey:     setupKey,
-			PresharedKey: preSharedKey,
+			SetupKey:      setupKey,
+			PresharedKey:  preSharedKey,
+			ManagementUrl: managementURL,
 		}
-		if _, err := proto.NewDaemonServiceClient(conn).Login(ctx, &request); err != nil {
-			log.Error("can't call service login method", err)
-			log.Info("please, check service is installed correctly")
+		client := proto.NewDaemonServiceClient(conn)
+		err = WithBackOff(func() error {
+			if _, err := client.Login(ctx, &request); err != nil {
+				log.Errorf("try login: %v", err)
+			}
+			return err
+		})
+		if err != nil {
+			log.Errorf("backoff cycle failed: %v", err)
 		}
-		return nil
+		return err
 	},
 }
-

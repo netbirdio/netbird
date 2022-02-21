@@ -40,7 +40,6 @@ var (
 )
 
 func TestEngine_UpdateNetworkMap(t *testing.T) {
-
 	// test setup
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -51,12 +50,12 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	engine := NewEngine(&signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
+	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
 		WgIfaceName:  "utun100",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	}, cancel, ctx)
+	})
 
 	type testCase struct {
 		name       string
@@ -157,7 +156,6 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	}
 
 	for _, c := range []testCase{case1, case2, case3, case4, case5} {
-
 		t.Run(c.name, func(t *testing.T) {
 			err = engine.updateNetworkMap(c.networkMap)
 			if err != nil {
@@ -179,13 +177,10 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 				}
 			}
 		})
-
 	}
-
 }
 
 func TestEngine_Sync(t *testing.T) {
-
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +194,6 @@ func TestEngine_Sync(t *testing.T) {
 	updates := make(chan *mgmtProto.SyncResponse)
 	defer close(updates)
 	syncFunc := func(msgHandler func(msg *mgmtProto.SyncResponse) error) error {
-
 		for msg := range updates {
 			err := msgHandler(msg)
 			if err != nil {
@@ -209,12 +203,12 @@ func TestEngine_Sync(t *testing.T) {
 		return nil
 	}
 
-	engine := NewEngine(&signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, &EngineConfig{
+	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, &EngineConfig{
 		WgIfaceName:  "utun100",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	}, cancel, ctx)
+	})
 
 	defer func() {
 		err := engine.Stop()
@@ -264,12 +258,10 @@ func TestEngine_Sync(t *testing.T) {
 			break
 		}
 	}
-
 }
 
 func TestEngine_MultiplePeers(t *testing.T) {
-
-	//log.SetLevel(log.DebugLevel)
+	// log.SetLevel(log.DebugLevel)
 
 	dir := t.TempDir()
 
@@ -285,8 +277,9 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		}
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
+
 	sport := 10010
 	sigServer, err := startSignal(sport)
 	if err != nil {
@@ -366,7 +359,6 @@ func TestEngine_MultiplePeers(t *testing.T) {
 }
 
 func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey string, i int, mport int, sport int) (*Engine, error) {
-
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -406,7 +398,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgPort:       wgPort,
 	}
 
-	return NewEngine(signalClient, mgmtClient, conf, cancel, ctx), nil
+	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf), nil
 }
 
 func startSignal(port int) (*grpc.Server, error) {
@@ -429,7 +421,6 @@ func startSignal(port int) (*grpc.Server, error) {
 }
 
 func startManagement(port int, dataDir string) (*grpc.Server, error) {
-
 	config := &server.Config{
 		Stuns:      []*server.Host{},
 		TURNConfig: &server.TURNConfig{},

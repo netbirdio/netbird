@@ -1,16 +1,22 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
 	"github.com/wiretrustee/wiretrustee/client/internal"
 )
 
@@ -65,6 +71,7 @@ func init() {
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
+	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(versionCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
@@ -105,4 +112,35 @@ func FlagNameToEnvVar(f string) string {
 	parsed := strings.ReplaceAll(f, "-", "_")
 	upper := strings.ToUpper(parsed)
 	return prefix + upper
+}
+
+// DialClientGRPCServer returns client connection to the dameno server.
+func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
+	defer cancel()
+
+	return grpc.DialContext(
+		ctx,
+		strings.TrimPrefix(addr, "tcp://"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+}
+
+// WithBackOff execute function in backoff cycle.
+func WithBackOff(bf func() error) error {
+	return backoff.RetryNotify(bf, CLIBackOffSettings, func(err error, duration time.Duration) {
+		log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
+	})
+}
+
+// CLIBackOffSettings is default backoff settings for CLI commands.
+var CLIBackOffSettings = &backoff.ExponentialBackOff{
+	InitialInterval:     time.Second,
+	RandomizationFactor: backoff.DefaultRandomizationFactor,
+	Multiplier:          backoff.DefaultMultiplier,
+	MaxInterval:         10 * time.Second,
+	MaxElapsedTime:      30 * time.Second,
+	Stop:                backoff.Stop,
+	Clock:               backoff.SystemClock,
 }

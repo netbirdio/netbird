@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func Login(config *Config, setupKey string) error {
+func Login(ctx context.Context, config *Config, setupKey string) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
@@ -25,8 +25,6 @@ func Login(config *Config, setupKey string) error {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}
-
-	ctx := context.Background()
 
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)

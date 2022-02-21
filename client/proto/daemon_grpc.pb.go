@@ -22,7 +22,9 @@ type DaemonServiceClient interface {
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 	// Up starts engine work in the daemon.
 	Up(ctx context.Context, in *UpRequest, opts ...grpc.CallOption) (*UpResponse, error)
-	// Down dengine work in the daemon.
+	// Status of the service.
+	Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error)
+	// Down engine work in the daemon.
 	Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error)
 }
 
@@ -52,6 +54,15 @@ func (c *daemonServiceClient) Up(ctx context.Context, in *UpRequest, opts ...grp
 	return out, nil
 }
 
+func (c *daemonServiceClient) Status(ctx context.Context, in *StatusRequest, opts ...grpc.CallOption) (*StatusResponse, error) {
+	out := new(StatusResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/Status", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *daemonServiceClient) Down(ctx context.Context, in *DownRequest, opts ...grpc.CallOption) (*DownResponse, error) {
 	out := new(DownResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/Down", in, out, opts...)
@@ -69,7 +80,9 @@ type DaemonServiceServer interface {
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	// Up starts engine work in the daemon.
 	Up(context.Context, *UpRequest) (*UpResponse, error)
-	// Down dengine work in the daemon.
+	// Status of the service.
+	Status(context.Context, *StatusRequest) (*StatusResponse, error)
+	// Down engine work in the daemon.
 	Down(context.Context, *DownRequest) (*DownResponse, error)
 	mustEmbedUnimplementedDaemonServiceServer()
 }
@@ -83,6 +96,9 @@ func (UnimplementedDaemonServiceServer) Login(context.Context, *LoginRequest) (*
 }
 func (UnimplementedDaemonServiceServer) Up(context.Context, *UpRequest) (*UpResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Up not implemented")
+}
+func (UnimplementedDaemonServiceServer) Status(context.Context, *StatusRequest) (*StatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Status not implemented")
 }
 func (UnimplementedDaemonServiceServer) Down(context.Context, *DownRequest) (*DownResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Down not implemented")
@@ -136,6 +152,24 @@ func _DaemonService_Up_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DaemonService_Status_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).Status(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/Status",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).Status(ctx, req.(*StatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _DaemonService_Down_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DownRequest)
 	if err := dec(in); err != nil {
@@ -168,6 +202,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Up",
 			Handler:    _DaemonService_Up_Handler,
+		},
+		{
+			MethodName: "Status",
+			Handler:    _DaemonService_Status_Handler,
 		},
 		{
 			MethodName: "Down",
