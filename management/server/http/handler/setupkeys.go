@@ -3,19 +3,20 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"time"
+
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net/http"
-	"time"
 )
 
 // SetupKeys is a handler that returns a list of setup keys of the account
 type SetupKeys struct {
-	accountManager *server.DefaultAccountManager
+	accountManager server.AccountManager
 	authAudience   string
 }
 
@@ -41,7 +42,7 @@ type SetupKeyRequest struct {
 	Revoked   bool
 }
 
-func NewSetupKeysHandler(accountManager *server.DefaultAccountManager, authAudience string) *SetupKeys {
+func NewSetupKeysHandler(accountManager server.AccountManager, authAudience string) *SetupKeys {
 	return &SetupKeys{
 		accountManager: accountManager,
 		authAudience:   authAudience,

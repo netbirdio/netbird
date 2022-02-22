@@ -16,7 +16,7 @@ import (
 
 // Server an instance of a Management server
 type Server struct {
-	accountManager *DefaultAccountManager
+	accountManager *AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
 	peersUpdateManager     *PeersUpdateManager
@@ -28,7 +28,7 @@ type Server struct {
 const AllowedIPsFormat = "%s/32"
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager *DefaultAccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*Server, error) {
+func NewServer(config *Config, accountManager *AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err

@@ -32,7 +32,7 @@ type PeerRequest struct {
 	Name string
 }
 
-func NewPeers(accountManager *server.DefaultAccountManager, authAudience string) *Peers {
+func NewPeers(accountManager server.AccountManager, authAudience string) *Peers {
 	return &Peers{
 		accountManager: accountManager,
 		authAudience:   authAudience,
