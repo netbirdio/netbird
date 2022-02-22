@@ -3,9 +3,10 @@ package handler
 import (
 	"encoding/json"
 	"errors"
-	"github.com/golang-jwt/jwt"
 	"net/http"
 	"time"
+
+	"github.com/golang-jwt/jwt"
 )
 
 // JWTClaims stores information from JWTs
@@ -13,6 +14,25 @@ type JWTClaims struct {
 	UserId    string
 	AccountId string
 	Domain    string
+}
+
+type extractJWTClaims func(r *http.Request, authAudiance string) JWTClaims
+
+type JWTClaimsExtractor struct {
+	extractClaimsFromRequestContext extractJWTClaims
+}
+
+// NewJWTClaimsExtractor returns an extractor, and if provided with a function with extractJWTClaims signature,
+// then it will use that logic. Uses extractClaimsFromRequestContext by default
+func NewJWTClaimsExtractor(e extractJWTClaims) *JWTClaimsExtractor {
+	var extractFunc extractJWTClaims
+	if extractFunc = e; extractFunc == nil {
+		extractFunc = extractClaimsFromRequestContext
+	}
+
+	return &JWTClaimsExtractor{
+		extractClaimsFromRequestContext: extractFunc,
+	}
 }
 
 // extractClaimsFromRequestContext extracts claims from the request context previously filled by the JWT token (after auth)
@@ -34,7 +54,7 @@ func extractClaimsFromRequestContext(r *http.Request, authAudiance string) JWTCl
 
 //writeJSONObject simply writes object to the HTTP reponse in JSON format
 func writeJSONObject(w http.ResponseWriter, obj interface{}) {
-	w.WriteHeader(200)
+	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	err := json.NewEncoder(w).Encode(obj)
 	if err != nil {

@@ -15,6 +15,7 @@ import (
 type Peers struct {
 	accountManager server.AccountManager
 	authAudience   string
+	jwtExtractor   JWTClaimsExtractor
 }
 
 //PeerResponse is a response sent to the client
@@ -36,6 +37,7 @@ func NewPeers(accountManager server.AccountManager, authAudience string) *Peers 
 	return &Peers{
 		accountManager: accountManager,
 		authAudience:   authAudience,
+		jwtExtractor:   *NewJWTClaimsExtractor(nil),
 	}
 }
 
@@ -55,6 +57,7 @@ func (h *Peers) updatePeer(accountId string, peer *server.Peer, w http.ResponseW
 	}
 	writeJSONObject(w, toPeerResponse(peer))
 }
+
 func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
 	_, err := h.accountManager.DeletePeer(accountId, peer.Key)
 	if err != nil {
@@ -66,7 +69,7 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 }
 
 func (h *Peers) getPeerAccount(r *http.Request) (*server.Account, error) {
-	jwtClaims := extractClaimsFromRequestContext(r, h.authAudience)
+	jwtClaims := h.jwtExtractor.extractClaimsFromRequestContext(r, h.authAudience)
 
 	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId, jwtClaims.Domain)
 	if err != nil {
