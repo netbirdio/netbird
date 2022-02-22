@@ -16,6 +16,8 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/proto"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	mgmt "github.com/wiretrustee/wiretrustee/management/server"
+	"github.com/wiretrustee/wiretrustee/management/server/mock_server"
+
 	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -25,7 +27,7 @@ import (
 
 var tested *GrpcClient
 var serverAddr string
-var mgmtMockServer *mgmt.ManagementServiceServerMock
+var mgmtMockServer *mock_server.ManagementServiceServerMock
 var serverKey wgtypes.Key
 
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
@@ -100,7 +102,7 @@ func startMockManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 
-	mgmtMockServer = &mgmt.ManagementServiceServerMock{
+	mgmtMockServer = &mock_server.ManagementServiceServerMock{
 		GetServerKeyFunc: func(context.Context, *proto.Empty) (*proto.ServerKeyResponse, error) {
 			response := &proto.ServerKeyResponse{
 				Key: serverKey.PublicKey().String(),
