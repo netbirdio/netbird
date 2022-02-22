@@ -6,7 +6,7 @@
 
   <p>
     <img src="https://img.shields.io/badge/license-BSD--3-blue" />
-    <img src="https://img.shields.io/docker/pulls/wiretrustee/management" />
+    <img src="https://img.shields.io/docker/pulls/wiretrustee/wiretrustee" />
     <img src="https://badgen.net/badge/Open%20Source%3F/Yes%21/blue?icon=github" />
   </p>
 </div>
