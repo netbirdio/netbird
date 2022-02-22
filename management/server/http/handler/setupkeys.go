@@ -122,7 +122,8 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 }
 
 func (h *SetupKeys) getSetupKeyAccount(r *http.Request) (*server.Account, error) {
-	jwtClaims := extractClaimsFromRequestContext(r, h.authAudience)
+	extractor := NewJWTClaimsExtractor(nil)
+	jwtClaims := extractor.extractClaimsFromRequestContext(r, h.authAudience)
 
 	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId, jwtClaims.Domain)
 	if err != nil {

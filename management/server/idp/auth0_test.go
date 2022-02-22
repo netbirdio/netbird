@@ -3,13 +3,14 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	"github.com/stretchr/testify/assert"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt"
+	"github.com/stretchr/testify/assert"
 )
 
 type mockHTTPClient struct {
