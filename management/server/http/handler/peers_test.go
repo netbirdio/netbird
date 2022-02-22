@@ -13,7 +13,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/server/mock_server"
 )
 
-func initTestMetaData() *Peers {
+func initTestMetaData(peer ...*server.Peer) *Peers {
 	return &Peers{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountByUserOrAccountIdFunc: func(userId, accountId, domain string) (*server.Account, error) {
@@ -21,22 +21,7 @@ func initTestMetaData() *Peers {
 					Id:     accountId,
 					Domain: "hotmail.com",
 					Peers: map[string]*server.Peer{
-						"test_user": &server.Peer{
-							Key:      "key",
-							SetupKey: "setupkey",
-							IP:       net.ParseIP("Test_IPv4"),
-							Status:   &server.PeerStatus{},
-							Name:     "PeerName",
-							Meta: server.PeerSystemMeta{
-								Hostname:  "hostname",
-								GoOS:      "GoOS",
-								Kernel:    "kernel",
-								Core:      "core",
-								Platform:  "platform",
-								OS:        "OS",
-								WtVersion: "development",
-							},
-						},
+						"test_peer": peer[0],
 					},
 				}, nil
 			},
@@ -68,7 +53,24 @@ func TestGetPeers(t *testing.T) {
 	}
 
 	rr := httptest.NewRecorder()
-	p := initTestMetaData()
+	peer := &server.Peer{
+		Key:      "key",
+		SetupKey: "setupkey",
+		IP:       net.ParseIP("100.64.0.1"),
+		Status:   &server.PeerStatus{},
+		Name:     "PeerName",
+		Meta: server.PeerSystemMeta{
+			Hostname:  "hostname",
+			GoOS:      "GoOS",
+			Kernel:    "kernel",
+			Core:      "core",
+			Platform:  "platform",
+			OS:        "OS",
+			WtVersion: "development",
+		},
+	}
+
+	p := initTestMetaData(peer)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -95,11 +97,11 @@ func TestGetPeers(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			peer := respBody[0]
-			assert.Equal(t, "PeerName", peer.Name)
-			assert.Equal(t, "development", peer.Version)
-			assert.Equal(t, net.ParseIP("Test_IPv4"), net.ParseIP(peer.IP))
-			assert.Equal(t, "OS core", peer.OS)
+			got := respBody[0]
+			assert.Equal(t, got.Name, peer.Name)
+			assert.Equal(t, got.Version, peer.Meta.WtVersion)
+			assert.Equal(t, got.IP, peer.IP.String())
+			assert.Equal(t, got.OS, "OS core")
 		})
 	}
 }
