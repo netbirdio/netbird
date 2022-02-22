@@ -54,7 +54,7 @@ func extractClaimsFromRequestContext(r *http.Request, authAudiance string) JWTCl
 
 //writeJSONObject simply writes object to the HTTP reponse in JSON format
 func writeJSONObject(w http.ResponseWriter, obj interface{}) {
-	w.WriteHeader(200)
+	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	err := json.NewEncoder(w).Encode(obj)
 	if err != nil {
