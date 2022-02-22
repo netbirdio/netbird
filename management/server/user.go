@@ -40,7 +40,7 @@ func NewAdminUser(id string) *User {
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
-func (am *AccountManager) GetOrCreateAccountByUser(userId, domain string) (*Account, error) {
+func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string) (*Account, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -71,7 +71,7 @@ func (am *AccountManager) GetOrCreateAccountByUser(userId, domain string) (*Acco
 }
 
 // GetAccountByUser returns an existing account for a given user id, NotFound if account couldn't be found
-func (am *AccountManager) GetAccountByUser(userId string) (*Account, error) {
+func (am *DefaultAccountManager) GetAccountByUser(userId string) (*Account, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
