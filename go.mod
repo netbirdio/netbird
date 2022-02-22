@@ -68,4 +68,4 @@ require (
 	honnef.co/go/tools v0.2.2 // indirect
 )
 
-replace github.com/pion/ice/v2 => github.com/wiretrustee/ice/v2 v2.1.21-0.20220216144753-138db20d36ad
+replace github.com/pion/ice/v2 => github.com/wiretrustee/ice/v2 v2.1.21-0.20220218121004-dc81faead4bb

@@ -12,7 +12,7 @@ import (
 // The output JSON is pretty-formatted
 func WriteJson(file string, obj interface{}) error {
 
-	configDir := filepath.Dir(file)
+	configDir, configFileName := filepath.Split(file)
 	err := os.MkdirAll(configDir, 0750)
 	if err != nil {
 		return err
@@ -24,7 +24,31 @@ func WriteJson(file string, obj interface{}) error {
 		return err
 	}
 
-	err = ioutil.WriteFile(file, bs, 0600)
+	tempFile, err := ioutil.TempFile(configDir, ".*"+configFileName)
+	if err != nil {
+		return err
+	}
+
+	tempFileName := tempFile.Name()
+	// closing file ops as windows doesn't allow to move it
+	err = tempFile.Close()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		_, err = os.Stat(tempFileName)
+		if err == nil {
+			os.Remove(tempFileName)
+		}
+	}()
+
+	err = ioutil.WriteFile(tempFileName, bs, 0600)
+	if err != nil {
+		return err
+	}
+
+	err = os.Rename(tempFileName, file)
 	if err != nil {
 		return err
 	}
