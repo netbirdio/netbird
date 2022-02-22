@@ -3,6 +3,9 @@ package http
 import (
 	"context"
 	"crypto/tls"
+	"net/http"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
@@ -10,8 +13,6 @@ import (
 	"github.com/wiretrustee/wiretrustee/management/server/http/handler"
 	"github.com/wiretrustee/wiretrustee/management/server/http/middleware"
 	"golang.org/x/crypto/acme/autocert"
-	"net/http"
-	"time"
 )
 
 type Server struct {
@@ -19,12 +20,12 @@ type Server struct {
 	config         *s.HttpServerConfig
 	certManager    *autocert.Manager
 	tlsConfig      *tls.Config
-	accountManager *s.DefaultAccountManager
+	accountManager s.AccountManager
 }
 
 // NewHttpsServer creates a new HTTPs server (with HTTPS support) and a certManager that is responsible for generating and renewing Let's Encrypt certificate
 // The listening address will be :443 no matter what was specified in s.HttpServerConfig.Address
-func NewHttpsServer(config *s.HttpServerConfig, certManager *autocert.Manager, accountManager *s.DefaultAccountManager) *Server {
+func NewHttpsServer(config *s.HttpServerConfig, certManager *autocert.Manager, accountManager s.AccountManager) *Server {
 	server := &http.Server{
 		Addr:         config.Address,
 		WriteTimeout: time.Second * 15,
@@ -36,7 +37,7 @@ func NewHttpsServer(config *s.HttpServerConfig, certManager *autocert.Manager, a
 
 // NewHttpsServerWithTLSConfig creates a new HTTPs server with a provided tls.Config.
 // Usually used when you already have a certificate
-func NewHttpsServerWithTLSConfig(config *s.HttpServerConfig, tlsConfig *tls.Config, accountManager *s.DefaultAccountManager) *Server {
+func NewHttpsServerWithTLSConfig(config *s.HttpServerConfig, tlsConfig *tls.Config, accountManager s.AccountManager) *Server {
 	server := &http.Server{
 		Addr:         config.Address,
 		WriteTimeout: time.Second * 15,
@@ -47,7 +48,7 @@ func NewHttpsServerWithTLSConfig(config *s.HttpServerConfig, tlsConfig *tls.Conf
 }
 
 // NewHttpServer creates a new HTTP server (without HTTPS)
-func NewHttpServer(config *s.HttpServerConfig, accountManager *s.DefaultAccountManager) *Server {
+func NewHttpServer(config *s.HttpServerConfig, accountManager s.AccountManager) *Server {
 	return NewHttpsServer(config, nil, accountManager)
 }
 
