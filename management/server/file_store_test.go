@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/stretchr/testify/require"
 	"github.com/wiretrustee/wiretrustee/util"
 	"net"
 	"path/filepath"
@@ -131,34 +132,22 @@ func TestRestore(t *testing.T) {
 	}
 
 	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
-	if account == nil {
-		t.Errorf("failed to restore a FileStore file - missing account bf1c8084-ba50-4ce7-9439-34653001fc3b")
-	}
 
-	if account != nil && account.Users["edafee4e-63fb-11ec-90d6-0242ac120003"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Account User edafee4e-63fb-11ec-90d6-0242ac120003")
-	}
+	require.NotNil(t, account, "failed to restore a FileStore file - missing account bf1c8084-ba50-4ce7-9439-34653001fc3b")
 
-	if account != nil && account.Users["f4f6d672-63fb-11ec-90d6-0242ac120003"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Account User f4f6d672-63fb-11ec-90d6-0242ac120003")
-	}
+	require.NotNil(t, account.Users["edafee4e-63fb-11ec-90d6-0242ac120003"], "failed to restore a FileStore file - missing Account User edafee4e-63fb-11ec-90d6-0242ac120003")
 
-	if account != nil && account.Network == nil {
-		t.Errorf("failed to restore a FileStore file - missing Account Network")
-	}
+	require.NotNil(t, account.Users["f4f6d672-63fb-11ec-90d6-0242ac120003"], "failed to restore a FileStore file - missing Account User f4f6d672-63fb-11ec-90d6-0242ac120003")
 
-	if account != nil && account.SetupKeys["A2C8E62B-38F5-4553-B31E-DD66C696CEBB"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Account SetupKey A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
-	}
+	require.NotNil(t, account.Network, "failed to restore a FileStore file - missing Account Network")
 
-	if len(store.UserId2AccountId) != 2 {
-		t.Errorf("failed to restore a FileStore wrong UserId2AccountId mapping")
-	}
+	require.NotNil(t, account.SetupKeys["A2C8E62B-38F5-4553-B31E-DD66C696CEBB"], "failed to restore a FileStore file - missing Account SetupKey A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
 
-	if len(store.SetupKeyId2AccountId) != 1 {
-		t.Errorf("failed to restore a FileStore wrong SetupKeyId2AccountId mapping")
-	}
+	require.Len(t, store.UserId2AccountId, 2, "failed to restore a FileStore wrong UserId2AccountId mapping length")
 
+	require.Len(t, store.SetupKeyId2AccountId, 1, "failed to restore a FileStore wrong SetupKeyId2AccountId mapping length")
+
+	require.Len(t, store.Domain2AccountId, 1, "failed to restore a FileStore wrong Domain2AccountId mapping length")
 }
 
 func newStore(t *testing.T) *FileStore {

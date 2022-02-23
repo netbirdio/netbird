@@ -41,12 +41,13 @@ type DefaultAccountManager struct {
 type Account struct {
 	Id string
 	// User.Id it was created by
-	CreatedBy string
-	Domain    string
-	SetupKeys map[string]*SetupKey
-	Network   *Network
-	Peers     map[string]*Peer
-	Users     map[string]*User
+	CreatedBy      string
+	Domain         string
+	DomainCategory string
+	SetupKeys      map[string]*SetupKey
+	Network        *Network
+	Peers          map[string]*Peer
+	Users          map[string]*User
 }
 
 // NewAccount creates a new Account with a generated ID and generated default setup keys

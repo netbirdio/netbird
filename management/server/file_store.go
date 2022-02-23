@@ -21,6 +21,7 @@ type FileStore struct {
 	SetupKeyId2AccountId map[string]string `json:"-"`
 	PeerKeyId2AccountId  map[string]string `json:"-"`
 	UserId2AccountId     map[string]string `json:"-"`
+	Domain2AccountId     map[string]string `json:"-"`
 
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
@@ -47,6 +48,7 @@ func restore(file string) (*FileStore, error) {
 			SetupKeyId2AccountId: make(map[string]string),
 			PeerKeyId2AccountId:  make(map[string]string),
 			UserId2AccountId:     make(map[string]string),
+			Domain2AccountId:     make(map[string]string),
 			storeFile:            file,
 		}
 
@@ -68,6 +70,7 @@ func restore(file string) (*FileStore, error) {
 	store.SetupKeyId2AccountId = make(map[string]string)
 	store.PeerKeyId2AccountId = make(map[string]string)
 	store.UserId2AccountId = make(map[string]string)
+	store.Domain2AccountId = make(map[string]string)
 	for accountId, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyId2AccountId[strings.ToUpper(setupKeyId)] = accountId
@@ -77,6 +80,12 @@ func restore(file string) (*FileStore, error) {
 		}
 		for _, user := range account.Users {
 			store.UserId2AccountId[user.Id] = accountId
+		}
+		for _, user := range account.Users {
+			store.UserId2AccountId[user.Id] = accountId
+		}
+		if account.Domain != "" && account.DomainCategory == "private" {
+			store.Domain2AccountId[account.Domain] = accountId
 		}
 	}
 
