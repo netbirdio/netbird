@@ -5,52 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"time"
-
-	"github.com/golang-jwt/jwt"
 )
-
-// JWTClaims stores information from JWTs
-type JWTClaims struct {
-	UserId    string
-	AccountId string
-	Domain    string
-}
-
-type extractJWTClaims func(r *http.Request, authAudiance string) JWTClaims
-
-type JWTClaimsExtractor struct {
-	extractClaimsFromRequestContext extractJWTClaims
-}
-
-// NewJWTClaimsExtractor returns an extractor, and if provided with a function with extractJWTClaims signature,
-// then it will use that logic. Uses extractClaimsFromRequestContext by default
-func NewJWTClaimsExtractor(e extractJWTClaims) *JWTClaimsExtractor {
-	var extractFunc extractJWTClaims
-	if extractFunc = e; extractFunc == nil {
-		extractFunc = extractClaimsFromRequestContext
-	}
-
-	return &JWTClaimsExtractor{
-		extractClaimsFromRequestContext: extractFunc,
-	}
-}
-
-// extractClaimsFromRequestContext extracts claims from the request context previously filled by the JWT token (after auth)
-func extractClaimsFromRequestContext(r *http.Request, authAudiance string) JWTClaims {
-	token := r.Context().Value("user").(*jwt.Token)
-	claims := token.Claims.(jwt.MapClaims)
-	jwtClaims := JWTClaims{}
-	jwtClaims.UserId = claims["sub"].(string)
-	accountIdClaim, ok := claims[authAudiance+"wt_account_id"]
-	if ok {
-		jwtClaims.AccountId = accountIdClaim.(string)
-	}
-	domainClaim, ok := claims[authAudiance+"wt_user_domain"]
-	if ok {
-		jwtClaims.Domain = domainClaim.(string)
-	}
-	return jwtClaims
-}
 
 //writeJSONObject simply writes object to the HTTP reponse in JSON format
 func writeJSONObject(w http.ResponseWriter, obj interface{}) {

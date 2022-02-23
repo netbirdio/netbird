@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
 	"net/http"
 	"time"
 
@@ -122,8 +123,8 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 }
 
 func (h *SetupKeys) getSetupKeyAccount(r *http.Request) (*server.Account, error) {
-	extractor := NewJWTClaimsExtractor(nil)
-	jwtClaims := extractor.extractClaimsFromRequestContext(r, h.authAudience)
+	extractor := jwtclaims.NewClaimsExtractor(nil)
+	jwtClaims := extractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 
 	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId, jwtClaims.Domain)
 	if err != nil {
