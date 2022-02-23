@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
 	"io"
 	"net"
 	"net/http"
@@ -27,9 +28,9 @@ func initTestMetaData(peer ...*server.Peer) *Peers {
 			},
 		},
 		authAudience: "",
-		jwtExtractor: JWTClaimsExtractor{
-			extractClaimsFromRequestContext: func(r *http.Request, authAudiance string) JWTClaims {
-				return JWTClaims{
+		jwtExtractor: jwtclaims.ClaimsExtractor{
+			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
+				return jwtclaims.AuthorizationClaims{
 					UserId:    "test_user",
 					Domain:    "hotmail.com",
 					AccountId: "test_id",
