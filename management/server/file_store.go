@@ -195,6 +195,21 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	return nil
 }
 
+func (s *FileStore) GetAccountByDomain(domain string) (*Account, error) {
+
+	accountId, accountIdFound := s.Domain2AccountId[strings.ToLower(domain)]
+	if !accountIdFound {
+		return nil, status.Errorf(codes.NotFound, "provided domain is not registered or is not private")
+	}
+
+	account, err := s.GetAccount(accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
+}
+
 func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 
 	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToUpper(setupKey)]

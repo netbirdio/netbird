@@ -150,6 +150,29 @@ func TestRestore(t *testing.T) {
 	require.Len(t, store.Domain2AccountId, 1, "failed to restore a FileStore wrong Domain2AccountId mapping length")
 }
 
+func TestGetAccountByDomain(t *testing.T) {
+	storeDir := t.TempDir()
+
+	err := util.CopyFileContents("testdata/store.json", filepath.Join(storeDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewStore(storeDir)
+	if err != nil {
+		return
+	}
+
+	existingDomain := "test.com"
+
+	account, err := store.GetAccountByDomain(existingDomain)
+	require.NoError(t, err, "should found account")
+	require.Equal(t, existingDomain, account.Domain, "domains should match")
+
+	account, err = store.GetAccountByDomain("missing-domain.com")
+	require.Error(t, err, "should return error on domain lookup")
+}
+
 func newStore(t *testing.T) *FileStore {
 	store, err := NewStore(t.TempDir())
 	if err != nil {
