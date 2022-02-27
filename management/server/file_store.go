@@ -17,11 +17,11 @@ const storeFileName = "store.json"
 
 // FileStore represents an account storage backed by a file persisted to disk
 type FileStore struct {
-	Accounts             map[string]*Account
-	SetupKeyId2AccountId map[string]string `json:"-"`
-	PeerKeyId2AccountId  map[string]string `json:"-"`
-	UserId2AccountId     map[string]string `json:"-"`
-	Domain2AccountId     map[string]string `json:"-"`
+	Accounts                map[string]*Account
+	SetupKeyId2AccountId    map[string]string `json:"-"`
+	PeerKeyId2AccountId     map[string]string `json:"-"`
+	UserId2AccountId        map[string]string `json:"-"`
+	PrivateDomain2AccountId map[string]string `json:"-"`
 
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
@@ -43,13 +43,13 @@ func restore(file string) (*FileStore, error) {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		// create a new FileStore if previously didn't exist (e.g. first run)
 		s := &FileStore{
-			Accounts:             make(map[string]*Account),
-			mux:                  sync.Mutex{},
-			SetupKeyId2AccountId: make(map[string]string),
-			PeerKeyId2AccountId:  make(map[string]string),
-			UserId2AccountId:     make(map[string]string),
-			Domain2AccountId:     make(map[string]string),
-			storeFile:            file,
+			Accounts:                make(map[string]*Account),
+			mux:                     sync.Mutex{},
+			SetupKeyId2AccountId:    make(map[string]string),
+			PeerKeyId2AccountId:     make(map[string]string),
+			UserId2AccountId:        make(map[string]string),
+			PrivateDomain2AccountId: make(map[string]string),
+			storeFile:               file,
 		}
 
 		err = s.persist(file)
@@ -70,7 +70,7 @@ func restore(file string) (*FileStore, error) {
 	store.SetupKeyId2AccountId = make(map[string]string)
 	store.PeerKeyId2AccountId = make(map[string]string)
 	store.UserId2AccountId = make(map[string]string)
-	store.Domain2AccountId = make(map[string]string)
+	store.PrivateDomain2AccountId = make(map[string]string)
 	for accountId, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyId2AccountId[strings.ToUpper(setupKeyId)] = accountId
@@ -85,7 +85,7 @@ func restore(file string) (*FileStore, error) {
 			store.UserId2AccountId[user.Id] = accountId
 		}
 		if account.Domain != "" && account.DomainCategory == "private" {
-			store.Domain2AccountId[account.Domain] = accountId
+			store.PrivateDomain2AccountId[account.Domain] = accountId
 		}
 	}
 
@@ -187,6 +187,10 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.UserId2AccountId[user.Id] = account.Id
 	}
 
+	if account.DomainCategory == PrivateCategory && account.IsDomainPrimaryAccount {
+		s.PrivateDomain2AccountId[account.Domain] = account.Id
+	}
+
 	err := s.persist(s.storeFile)
 	if err != nil {
 		return err
@@ -195,9 +199,9 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	return nil
 }
 
-func (s *FileStore) GetAccountByDomain(domain string) (*Account, error) {
+func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 
-	accountId, accountIdFound := s.Domain2AccountId[strings.ToLower(domain)]
+	accountId, accountIdFound := s.PrivateDomain2AccountId[strings.ToLower(domain)]
 	if !accountIdFound {
 		return nil, status.Errorf(codes.NotFound, "provided domain is not registered or is not private")
 	}
