@@ -4,10 +4,18 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server/idp"
+	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 	"sync"
+)
+
+const (
+	PublicCategory  = "public"
+	PrivateCategory = "private"
+	UnknownCategory = "unknown"
 )
 
 type AccountManager interface {
@@ -41,13 +49,14 @@ type DefaultAccountManager struct {
 type Account struct {
 	Id string
 	// User.Id it was created by
-	CreatedBy      string
-	Domain         string
-	DomainCategory string
-	SetupKeys      map[string]*SetupKey
-	Network        *Network
-	Peers          map[string]*Peer
-	Users          map[string]*User
+	CreatedBy              string
+	Domain                 string
+	DomainCategory         string
+	IsDomainPrimaryAccount bool
+	SetupKeys              map[string]*SetupKey
+	Network                *Network
+	Peers                  map[string]*Peer
+	Users                  map[string]*User
 }
 
 // NewAccount creates a new Account with a generated ID and generated default setup keys
@@ -194,17 +203,107 @@ func (am *DefaultAccountManager) GetAccountByUserOrAccountId(userId, accountId, 
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
 		}
-		// update idp manager app metadata
-		if am.idpManager != nil {
-			err = am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: account.Id})
-			if err != nil {
-				return nil, status.Errorf(codes.Internal, "updating user's app metadata failed with: %v", err)
-			}
+		err = am.updateIDPMetadata(userId, account.Id)
+		if err != nil {
+			return nil, err
 		}
 		return account, nil
 	}
 
 	return nil, status.Errorf(codes.NotFound, "no valid user or account Id provided")
+}
+
+// updateIDPMetadata update user's  app metadata in idp manager
+func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) error {
+	if am.idpManager != nil {
+		err := am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: accountID})
+		if err != nil {
+			return status.Errorf(codes.Internal, "updating user's app metadata failed with: %v", err)
+		}
+	}
+	return nil
+}
+
+// updateAccountDomainAttributes updates the account domain attributes and then, saves the account
+func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims, primaryDomain bool) error {
+	account.IsDomainPrimaryAccount = primaryDomain
+	account.Domain = strings.ToLower(claims.Domain)
+	account.DomainCategory = claims.DomainCategory
+	err := am.Store.SaveAccount(account)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed saving updated account")
+	}
+	return nil
+}
+
+// GetAccountWithAuthorizationClaims retrievs an account using JWT Claims.
+// if domain is of the PrivateCategory category, it will evaluate
+// if account is new, existing or if there is another account with the same domain
+func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	if claims.DomainCategory != PrivateCategory || claims.AccountId != "" {
+		return am.GetAccountByUserOrAccountId(claims.UserId, claims.AccountId, claims.Domain)
+	}
+
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	isDomainIndexed := false
+
+	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
+	if err != nil {
+		if _, ok := status.FromError(err); !ok {
+			return nil, err
+		}
+	} else {
+		isDomainIndexed = true
+	}
+
+	account, err := am.Store.GetUserAccount(claims.UserId)
+	if err == nil {
+		log.Infoln("exxisting account: ", account.Id)
+		if !isDomainIndexed || account.Id != domainAccount.Id {
+			log.Infoln("not indexed account: ", account.Id)
+			err = am.updateAccountDomainAttributes(account, claims, !isDomainIndexed)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		err = am.updateIDPMetadata(claims.UserId, account.Id)
+		if err != nil {
+			return nil, err
+		}
+
+		return account, nil
+
+	} else if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		lowerDomain := strings.ToLower(claims.Domain)
+		if isDomainIndexed {
+			account = domainAccount
+			account.Users[claims.UserId] = NewRegularUser(claims.UserId)
+
+		} else {
+			log.Infoln("account not found for: ", claims.UserId, isDomainIndexed)
+			account = NewAccount(claims.UserId, lowerDomain)
+			account.Users[claims.UserId] = NewAdminUser(claims.UserId)
+		}
+
+		err = am.updateAccountDomainAttributes(account, claims, !isDomainIndexed)
+		if err != nil {
+			return nil, err
+		}
+
+		err = am.updateIDPMetadata(claims.UserId, account.Id)
+		if err != nil {
+			return nil, err
+		}
+
+		return account, nil
+
+	} else {
+		// other error
+		return nil, err
+	}
 }
 
 //AccountExists checks whether account exists (returns true) or not (returns false)
