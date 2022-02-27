@@ -4,6 +4,7 @@
             "Id": "bf1c8084-ba50-4ce7-9439-34653001fc3b",
             "Domain": "test.com",
             "DomainCategory": "private",
+            "IsDomainPrimaryAccount": true,
             "SetupKeys": {
                 "A2C8E62B-38F5-4553-B31E-DD66C696CEBB": {
                     "Key": "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",

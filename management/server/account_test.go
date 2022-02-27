@@ -49,6 +49,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		name                string
 		inputClaims         jwtclaims.AuthorizationClaims
 		inputInitUserParams initUserParams
+		inputUpdateAttrs    bool
 		testingFunc         require.ComparisonAssertionFunc
 		expectedMSG         string
 		expectedUserRole    UserRole
@@ -61,9 +62,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 	)
 
 	defaultInitAccount := initUserParams{
-		Domain:    publicDomain,
-		AccountId: "default",
-		UserId:    "defaultUser",
+		Domain: publicDomain,
+		UserId: "defaultUser",
 	}
 
 	testCase1 := test{
@@ -114,31 +114,50 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 	privateInitAccount.DomainCategory = PrivateCategory
 
 	testCase4 := test{
-		name: "New User With Existing Private Domain",
+		name: "New Regular User With Existing Private Domain",
 		inputClaims: jwtclaims.AuthorizationClaims{
 			Domain:         privateDomain,
 			UserId:         "pvt-domain-user",
 			DomainCategory: PrivateCategory,
 		},
+		inputUpdateAttrs:    true,
 		inputInitUserParams: privateInitAccount,
 		testingFunc:         require.Equal,
 		expectedMSG:         "account IDs should match",
 		expectedUserRole:    UserRoleUser,
 	}
 
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4} {
+	testCase5 := test{
+		name: "Existing User With Existing Reclassified Private Domain",
+		inputClaims: jwtclaims.AuthorizationClaims{
+			Domain:         defaultInitAccount.Domain,
+			UserId:         defaultInitAccount.UserId,
+			DomainCategory: PrivateCategory,
+		},
+		inputInitUserParams: defaultInitAccount,
+		testingFunc:         require.Equal,
+		expectedMSG:         "account IDs should match",
+		expectedUserRole:    UserRoleAdmin,
+	}
+
+	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5} {
 		t.Run(testCase.name, func(t *testing.T) {
 
 			manager, err := createManager(t)
 			require.NoError(t, err, "unable to create account manager")
 
-			initAccount, err := manager.AddAccount(testCase.inputInitUserParams.AccountId, testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.Domain)
+			initAccount, err := manager.GetAccountByUserOrAccountId(testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.AccountId, testCase.inputInitUserParams.Domain)
 			require.NoError(t, err, "create init user failed")
+
+			if testCase.inputUpdateAttrs {
+				err = manager.updateAccountDomainAttributes(initAccount, jwtclaims.AuthorizationClaims{UserId: testCase.inputInitUserParams.UserId, Domain: testCase.inputInitUserParams.Domain, DomainCategory: testCase.inputInitUserParams.DomainCategory}, true)
+				require.NoError(t, err, "update init user failed")
+			}
 
 			account, err := manager.GetAccountWithAuthorizationClaims(testCase.inputClaims)
 			require.NoError(t, err, "support function failed")
 
-			testCase.testingFunc(t, account.Id, initAccount.Id, testCase.expectedMSG)
+			testCase.testingFunc(t, initAccount.Id, account.Id, testCase.expectedMSG)
 
 			require.EqualValues(t, testCase.expectedUserRole, account.Users[testCase.inputClaims.UserId].Role, "user role should match")
 		})

@@ -84,7 +84,7 @@ func restore(file string) (*FileStore, error) {
 		for _, user := range account.Users {
 			store.UserId2AccountId[user.Id] = accountId
 		}
-		if account.Domain != "" && account.DomainCategory == "private" {
+		if account.Domain != "" && account.DomainCategory == PrivateCategory && account.IsDomainPrimaryAccount {
 			store.PrivateDomain2AccountId[account.Domain] = accountId
 		}
 	}
