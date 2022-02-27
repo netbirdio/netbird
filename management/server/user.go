@@ -35,6 +35,11 @@ func NewUser(id string, role UserRole) *User {
 	}
 }
 
+// NewRegularUser creates a new user with role UserRoleAdmin
+func NewRegularUser(id string) *User {
+	return NewUser(id, UserRoleUser)
+}
+
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
 	return NewUser(id, UserRoleAdmin)
