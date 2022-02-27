@@ -41,6 +41,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 	New user + New account + Existing PUB Domain -> create acc, user admin
 	Existing user + Existing account + Existing Domain -> Nothing changes (if pvt, index domain)
 	Existing user + Existing account + Existing Indexed Domain -> Nothing changes
+	Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
 	*/
 
 	type initUserParams jwtclaims.AuthorizationClaims

@@ -169,7 +169,7 @@ func TestGetAccountByPrivateDomain(t *testing.T) {
 	require.NoError(t, err, "should found account")
 	require.Equal(t, existingDomain, account.Domain, "domains should match")
 
-	account, err = store.GetAccountByPrivateDomain("missing-domain.com")
+	_, err = store.GetAccountByPrivateDomain("missing-domain.com")
 	require.Error(t, err, "should return error on domain lookup")
 }
 
