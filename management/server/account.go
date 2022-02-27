@@ -26,6 +26,7 @@ type AccountManager interface {
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
+	GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	AccountExists(accountId string) (*bool, error)
 	AddAccount(accountId, userId, domain string) (*Account, error)
 	GetPeer(peerKey string) (*Peer, error)

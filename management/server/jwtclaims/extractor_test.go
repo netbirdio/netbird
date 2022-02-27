@@ -19,6 +19,9 @@ func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audiance st
 	if claims.Domain != "" {
 		claimMaps[audiance+DomainIDSuffix] = claims.Domain
 	}
+	if claims.DomainCategory != "" {
+		claimMaps[audiance+DomainCategorySuffix] = claims.DomainCategory
+	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	r, err := http.NewRequest(http.MethodGet, "http://localhost", nil)
 	require.NoError(t, err, "creating testing request failed")
@@ -41,9 +44,10 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 		name:          "All Claim Fields",
 		inputAudiance: "https://login/",
 		inputAuthorizationClaims: AuthorizationClaims{
-			UserId:    "test",
-			Domain:    "test.com",
-			AccountId: "testAcc",
+			UserId:         "test",
+			Domain:         "test.com",
+			AccountId:      "testAcc",
+			DomainCategory: "public",
 		},
 		testingFunc: require.EqualValues,
 		expectedMSG: "extracted claims should match input claims",
@@ -72,6 +76,18 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 	}
 
 	testCase4 := test{
+		name:          "Category Is Empty",
+		inputAudiance: "https://login/",
+		inputAuthorizationClaims: AuthorizationClaims{
+			UserId:    "test",
+			Domain:    "test.com",
+			AccountId: "testAcc",
+		},
+		testingFunc: require.EqualValues,
+		expectedMSG: "extracted claims should match input claims",
+	}
+
+	testCase5 := test{
 		name:          "Only User ID Is set",
 		inputAudiance: "https://login/",
 		inputAuthorizationClaims: AuthorizationClaims{
@@ -81,7 +97,7 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 		expectedMSG: "extracted claims should match input claims",
 	}
 
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4} {
+	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5} {
 		t.Run(testCase.name, func(t *testing.T) {
 
 			request := newTestRequestWithJWT(t, testCase.inputAuthorizationClaims, testCase.inputAudiance)
