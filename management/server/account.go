@@ -261,9 +261,7 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtcla
 
 	account, err := am.Store.GetUserAccount(claims.UserId)
 	if err == nil {
-		log.Infoln("exxisting account: ", account.Id)
 		if !isDomainIndexed || account.Id != domainAccount.Id {
-			log.Infoln("not indexed account: ", account.Id)
 			err = am.updateAccountDomainAttributes(account, claims, !isDomainIndexed)
 			if err != nil {
 				return nil, err
@@ -284,7 +282,6 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtcla
 			account.Users[claims.UserId] = NewRegularUser(claims.UserId)
 
 		} else {
-			log.Infoln("account not found for: ", claims.UserId, isDomainIndexed)
 			account = NewAccount(claims.UserId, lowerDomain)
 			account.Users[claims.UserId] = NewAdminUser(claims.UserId)
 		}
