@@ -1,12 +1,150 @@
 package server
 
 import (
+	"github.com/stretchr/testify/require"
+	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 	"testing"
 )
 
 func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	userId := "test_user"
+	account, err := manager.GetOrCreateAccountByUser(userId, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account == nil {
+		t.Fatalf("expected to create an account for a user %s", userId)
+	}
+
+	account, err = manager.GetAccountByUser(userId)
+	if err != nil {
+		t.Errorf("expected to get existing account after creation, no account was found for a user %s", userId)
+	}
+
+	if account != nil && account.Users[userId] == nil {
+		t.Fatalf("expected to create an account for a user %s but no user was found after creation udner the account %s", userId, account.Id)
+	}
+}
+
+func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
+	/* Use cases
+	New user + New account + New domain          -> create acc, user admin (if pvt, index domain)
+	New user + New account + Existing PVT Domain -> use existing acc, user regular
+	New user + New account + Existing PUB Domain -> create acc, user admin
+	Existing user + Existing account + Existing Domain -> Nothing changes (if pvt, index domain)
+	Existing user + Existing account + Existing Indexed Domain -> Nothing changes
+	*/
+
+	type initUserParams jwtclaims.AuthorizationClaims
+
+	type test struct {
+		name                string
+		inputClaims         jwtclaims.AuthorizationClaims
+		inputInitUserParams initUserParams
+		testingFunc         require.ComparisonAssertionFunc
+		expectedMSG         string
+		expectedUserRole    UserRole
+	}
+
+	var (
+		publicDomain  = "public.com"
+		privateDomain = "private.com"
+		unknownDomain = "unknown.com"
+	)
+
+	defaultInitAccount := initUserParams{
+		Domain:    publicDomain,
+		AccountId: "default",
+		UserId:    "defaultUser",
+	}
+
+	testCase1 := test{
+		name: "New User With Public Domain",
+		inputClaims: jwtclaims.AuthorizationClaims{
+			Domain:         publicDomain,
+			UserId:         "pub-domain-user",
+			DomainCategory: PublicCategory,
+		},
+		inputInitUserParams: defaultInitAccount,
+		testingFunc:         require.NotEqual,
+		expectedMSG:         "account IDs shouldn't match",
+		expectedUserRole:    UserRoleAdmin,
+	}
+
+	initUnknown := defaultInitAccount
+	initUnknown.DomainCategory = UnknownCategory
+	initUnknown.Domain = unknownDomain
+
+	testCase2 := test{
+		name: "New User With Unknown Domain",
+		inputClaims: jwtclaims.AuthorizationClaims{
+			Domain:         unknownDomain,
+			UserId:         "unknown-domain-user",
+			DomainCategory: UnknownCategory,
+		},
+		inputInitUserParams: initUnknown,
+		testingFunc:         require.NotEqual,
+		expectedMSG:         "account IDs shouldn't match",
+		expectedUserRole:    UserRoleAdmin,
+	}
+
+	testCase3 := test{
+		name: "New User With Private Domain",
+		inputClaims: jwtclaims.AuthorizationClaims{
+			Domain:         privateDomain,
+			UserId:         "pvt-domain-user",
+			DomainCategory: PrivateCategory,
+		},
+		inputInitUserParams: defaultInitAccount,
+		testingFunc:         require.NotEqual,
+		expectedMSG:         "account IDs shouldn't match",
+		expectedUserRole:    UserRoleAdmin,
+	}
+
+	privateInitAccount := defaultInitAccount
+	privateInitAccount.Domain = privateDomain
+	privateInitAccount.DomainCategory = PrivateCategory
+
+	testCase4 := test{
+		name: "New User With Existing Private Domain",
+		inputClaims: jwtclaims.AuthorizationClaims{
+			Domain:         privateDomain,
+			UserId:         "pvt-domain-user",
+			DomainCategory: PrivateCategory,
+		},
+		inputInitUserParams: privateInitAccount,
+		testingFunc:         require.Equal,
+		expectedMSG:         "account IDs should match",
+		expectedUserRole:    UserRoleUser,
+	}
+
+	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4} {
+		t.Run(testCase.name, func(t *testing.T) {
+
+			manager, err := createManager(t)
+			require.NoError(t, err, "unable to create account manager")
+
+			initAccount, err := manager.AddAccount(testCase.inputInitUserParams.AccountId, testCase.inputInitUserParams.UserId, testCase.inputInitUserParams.Domain)
+			require.NoError(t, err, "create init user failed")
+
+			account, err := manager.GetAccountWithAuthorizationClaims(testCase.inputClaims)
+			require.NoError(t, err, "support function failed")
+
+			testCase.testingFunc(t, account.Id, initAccount.Id, testCase.expectedMSG)
+
+			require.EqualValues(t, testCase.expectedUserRole, account.Users[testCase.inputClaims.UserId].Role, "user role should match")
+		})
+	}
+}
+func TestAccountManager_PrivateAccount(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
