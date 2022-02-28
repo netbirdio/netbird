@@ -5,8 +5,12 @@
 </p>
 
   <p>
-    <img src="https://img.shields.io/badge/license-BSD--3-blue" />
-    <img src="https://img.shields.io/docker/pulls/wiretrustee/wiretrustee" />
+     <a href="https://github.com/wiretrustee/wiretrustee/blob/main/LICENSE">
+       <img src="https://img.shields.io/badge/license-BSD--3-blue" />
+     </a> 
+     <a href="https://hub.docker.com/r/wiretrustee/wiretrustee/tags">
+        <img src="https://img.shields.io/docker/pulls/wiretrustee/wiretrustee" />
+     </a>  
     <img src="https://badgen.net/badge/Open%20Source%3F/Yes%21/blue?icon=github" />
   </p>
 </div>
