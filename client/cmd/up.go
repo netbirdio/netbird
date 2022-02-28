@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"github.com/wiretrustee/wiretrustee/iface"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -71,7 +72,7 @@ func createEngineConfig(key wgtypes.Key, config *internal.Config, peerConfig *mg
 		WgAddr:         peerConfig.Address,
 		IFaceBlackList: iFaceBlackList,
 		WgPrivateKey:   key,
-		WgPort:         internal.WgPort,
+		WgPort:         iface.DefaultWgPort,
 	}
 
 	if config.PreSharedKey != "" {

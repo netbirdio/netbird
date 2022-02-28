@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"github.com/wiretrustee/wiretrustee/iface"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
 	"sync"
@@ -222,7 +223,14 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
-	log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", conn.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
+	if conn.proxy.Type() == proxy.TypeNoProxy {
+		host, _, _ := net.SplitHostPort(remoteConn.LocalAddr().String())
+		rhost, _, _ := net.SplitHostPort(remoteConn.RemoteAddr().String())
+		// direct Wireguard connection
+		log.Infof("directly connected to peer %s [laddr <-> raddr] [%s:%d <-> %s:%d]", conn.config.Key, host, iface.DefaultWgPort, rhost, iface.DefaultWgPort)
+	} else {
+		log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", conn.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
+	}
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
@@ -235,16 +243,57 @@ func (conn *Conn) Open() error {
 	}
 }
 
+// useProxy determines whether a direct connection (without a go proxy) is possible
+// There are 3 cases: one of the peers has a public IP or both peers are in the same private network
+// Please note, that this check happens when peers were already able to ping each other using ICE layer.
+func shouldUseProxy(pair *ice.CandidatePair) bool {
+	remoteIP := net.ParseIP(pair.Remote.Address())
+	myIp := net.ParseIP(pair.Local.Address())
+	remoteIsPublic := IsPublicIP(remoteIP)
+	myIsPublic := IsPublicIP(myIp)
+
+	//one of the hosts has a public IP
+	if remoteIsPublic && pair.Remote.Type() == ice.CandidateTypeHost {
+		return false
+	}
+	if myIsPublic && pair.Local.Type() == ice.CandidateTypeHost {
+		return false
+	}
+
+	if pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost {
+		if !remoteIsPublic && !myIsPublic {
+			//both hosts are in the same private network
+			return false
+		}
+	}
+
+	return true
+}
+
 // startProxy starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
 func (conn *Conn) startProxy(remoteConn net.Conn) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	conn.proxy = proxy.NewWireguardProxy(conn.config.ProxyConfig)
-	err := conn.proxy.Start(remoteConn)
+	var pair *ice.CandidatePair
+	pair, err := conn.agent.GetSelectedCandidatePair()
 	if err != nil {
 		return err
 	}
+
+	useProxy := shouldUseProxy(pair)
+	var p proxy.Proxy
+	if useProxy {
+		p = proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	} else {
+		p = proxy.NewNoProxy(conn.config.ProxyConfig)
+	}
+	conn.proxy = p
+	err = p.Start(remoteConn)
+	if err != nil {
+		return err
+	}
+
 	conn.status = StatusConnected
 
 	return nil
