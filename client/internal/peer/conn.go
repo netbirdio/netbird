@@ -270,6 +270,14 @@ func shouldUseProxy(pair *ice.CandidatePair) bool {
 	return true
 }
 
+// IsPublicIP indicates whether IP is public or not.
+func IsPublicIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
+		return false
+	}
+	return true
+}
+
 // startProxy starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
 func (conn *Conn) startProxy(remoteConn net.Conn) error {
 	conn.mu.Lock()
