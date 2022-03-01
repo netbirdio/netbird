@@ -302,20 +302,20 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 //
 // Use cases:
 //
-// New user + New account + New domain          -> create acc, user admin (if pvt, index domain)
+// New user + New account + New domain -> create account, user role = admin (if private domain, index domain)
 //
-// New user + New account + Existing PVT Domain -> use existing acc, user regular
+// New user + New account + Existing Private Domain -> add user to the existing account, user role = regular (not admin)
 //
-// New user + New account + Existing PUB Domain -> create acc, user admin
+// New user + New account + Existing Public Domain -> create account, user role = admin
 //
-// Existing user + Existing account + Existing Domain -> Nothing changes (if pvt, index domain)
+// Existing user + Existing account + Existing Domain -> Nothing changes (if private, index domain)
 //
 // Existing user + Existing account + Existing Indexed Domain -> Nothing changes
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
 func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
 	// if Account ID is part of the claims
-	// it means that we already classify the user account
+	// it means that we've already classified the domain and user has an account
 	if claims.DomainCategory != PrivateCategory || claims.AccountId != "" {
 		return am.GetAccountByUserOrAccountId(claims.UserId, claims.AccountId, claims.Domain)
 	}
@@ -323,7 +323,7 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtcla
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	// We checked if the domain already has primary account
+	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
 	accStatus, _ := status.FromError(err)
 	if accStatus.Code() != codes.OK && accStatus.Code() != codes.NotFound {
@@ -333,7 +333,10 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtcla
 	account, err := am.Store.GetUserAccount(claims.UserId)
 	if err == nil {
 		err = am.handleExistingUserAccount(account, domainAccount, claims)
-		return account, err
+		if err != nil {
+			return nil, err
+		}
+		return account, nil
 	} else if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 		return am.handleNewUserAccount(domainAccount, claims)
 	} else {
