@@ -237,6 +237,65 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account,
 	return nil
 }
 
+// handleExistingUserAccount handles existing User accounts and update its domain attributes.
+//
+//
+// If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
+// we compare the account's ID with the domain account ID, and if they don't match, we set the account as
+// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
+// was previously unclassified or classified as public so N users that logged int that time, has they own account
+// and peers that shouldn't be lost.
+func (am *DefaultAccountManager) handleExistingUserAccount(existingAcc *Account, domainAcc *Account, claims jwtclaims.AuthorizationClaims) error {
+	var err error
+
+	if domainAcc == nil || existingAcc.Id != domainAcc.Id {
+		err = am.updateAccountDomainAttributes(existingAcc, claims, false)
+		if err != nil {
+			return err
+		}
+	}
+
+	// we should register the account ID to this user's metadata in our IDP manager
+	err = am.updateIDPMetadata(claims.UserId, existingAcc.Id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// handleNewUserAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
+// otherwise it will create a new account and make it primary account for the domain.
+func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	var (
+		account        *Account
+		primaryAccount bool
+	)
+	lowerDomain := strings.ToLower(claims.Domain)
+	// if domain already has a primary account, add regular user
+	if domainAcc != nil {
+		account = domainAcc
+		account.Users[claims.UserId] = NewRegularUser(claims.UserId)
+		primaryAccount = false
+	} else {
+		account = NewAccount(claims.UserId, lowerDomain)
+		account.Users[claims.UserId] = NewAdminUser(claims.UserId)
+		primaryAccount = true
+	}
+
+	err := am.updateAccountDomainAttributes(account, claims, primaryAccount)
+	if err != nil {
+		return nil, err
+	}
+
+	err = am.updateIDPMetadata(claims.UserId, account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
+}
+
 // GetAccountWithAuthorizationClaims retrievs an account using JWT Claims.
 // if domain is of the PrivateCategory category, it will evaluate
 // if account is new, existing or if there is another account with the same domain
@@ -264,63 +323,19 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtcla
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	var domainHasPrimaryAccount bool
 	// We checked if the domain already has primary account
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			domainHasPrimaryAccount = false
-		} else {
-			return nil, err
-		}
-	} else {
-		domainHasPrimaryAccount = true
+	accStatus, _ := status.FromError(err)
+	if accStatus.Code() != codes.OK && accStatus.Code() != codes.NotFound {
+		return nil, err
 	}
 
 	account, err := am.Store.GetUserAccount(claims.UserId)
 	if err == nil {
-		// if user account exists and its user id doesn't match the domainAccount
-		// it means that another user account is the primary and that we shouldn't merge account
-		// this is due to cases when a domain was previously unclassified or classified as public
-		// so N users that logged int that time, has they own account and peers that shouldn't be lost
-		if !domainHasPrimaryAccount || account.Id != domainAccount.Id {
-			err = am.updateAccountDomainAttributes(account, claims, !domainHasPrimaryAccount)
-			if err != nil {
-				return nil, err
-			}
-		}
-		// we should register the account ID to this user's metadata in our IDP manager
-		err = am.updateIDPMetadata(claims.UserId, account.Id)
-		if err != nil {
-			return nil, err
-		}
-
-		return account, nil
-		// if new user
+		err = am.handleExistingUserAccount(account, domainAccount, claims)
+		return account, err
 	} else if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-		lowerDomain := strings.ToLower(claims.Domain)
-		// if domain already has a primary account, add regular user
-		if domainHasPrimaryAccount {
-			account = domainAccount
-			account.Users[claims.UserId] = NewRegularUser(claims.UserId)
-
-		} else {
-			account = NewAccount(claims.UserId, lowerDomain)
-			account.Users[claims.UserId] = NewAdminUser(claims.UserId)
-		}
-
-		err = am.updateAccountDomainAttributes(account, claims, !domainHasPrimaryAccount)
-		if err != nil {
-			return nil, err
-		}
-
-		err = am.updateIDPMetadata(claims.UserId, account.Id)
-		if err != nil {
-			return nil, err
-		}
-
-		return account, nil
-
+		return am.handleNewUserAccount(domainAccount, claims)
 	} else {
 		// other error
 		return nil, err
