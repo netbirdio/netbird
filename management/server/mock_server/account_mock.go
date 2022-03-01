@@ -2,28 +2,30 @@ package mock_server
 
 import (
 	"github.com/wiretrustee/wiretrustee/management/server"
+	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 type MockAccountManager struct {
-	GetOrCreateAccountByUserFunc    func(userId, domain string) (*server.Account, error)
-	GetAccountByUserFunc            func(userId string) (*server.Account, error)
-	AddSetupKeyFunc                 func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn *util.Duration) (*server.SetupKey, error)
-	RevokeSetupKeyFunc              func(accountId string, keyId string) (*server.SetupKey, error)
-	RenameSetupKeyFunc              func(accountId string, keyId string, newName string) (*server.SetupKey, error)
-	GetAccountByIdFunc              func(accountId string) (*server.Account, error)
-	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
-	AccountExistsFunc               func(accountId string) (*bool, error)
-	AddAccountFunc                  func(accountId, userId, domain string) (*server.Account, error)
-	GetPeerFunc                     func(peerKey string) (*server.Peer, error)
-	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
-	RenamePeerFunc                  func(accountId string, peerKey string, newName string) (*server.Peer, error)
-	DeletePeerFunc                  func(accountId string, peerKey string) (*server.Peer, error)
-	GetPeerByIPFunc                 func(accountId string, peerIP string) (*server.Peer, error)
-	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
-	AddPeerFunc                     func(setupKey string, peer *server.Peer) (*server.Peer, error)
+	GetOrCreateAccountByUserFunc          func(userId, domain string) (*server.Account, error)
+	GetAccountByUserFunc                  func(userId string) (*server.Account, error)
+	AddSetupKeyFunc                       func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn *util.Duration) (*server.SetupKey, error)
+	RevokeSetupKeyFunc                    func(accountId string, keyId string) (*server.SetupKey, error)
+	RenameSetupKeyFunc                    func(accountId string, keyId string, newName string) (*server.SetupKey, error)
+	GetAccountByIdFunc                    func(accountId string) (*server.Account, error)
+	GetAccountByUserOrAccountIdFunc       func(userId, accountId, domain string) (*server.Account, error)
+	GetAccountWithAuthorizationClaimsFunc func(claims jwtclaims.AuthorizationClaims) (*server.Account, error)
+	AccountExistsFunc                     func(accountId string) (*bool, error)
+	AddAccountFunc                        func(accountId, userId, domain string) (*server.Account, error)
+	GetPeerFunc                           func(peerKey string) (*server.Peer, error)
+	MarkPeerConnectedFunc                 func(peerKey string, connected bool) error
+	RenamePeerFunc                        func(accountId string, peerKey string, newName string) (*server.Peer, error)
+	DeletePeerFunc                        func(accountId string, peerKey string) (*server.Peer, error)
+	GetPeerByIPFunc                       func(accountId string, peerIP string) (*server.Peer, error)
+	GetNetworkMapFunc                     func(peerKey string) (*server.NetworkMap, error)
+	AddPeerFunc                           func(setupKey string, peer *server.Peer) (*server.Peer, error)
 }
 
 func (am *MockAccountManager) GetOrCreateAccountByUser(userId, domain string) (*server.Account, error) {
@@ -73,6 +75,13 @@ func (am *MockAccountManager) GetAccountByUserOrAccountId(userId, accountId, dom
 		return am.GetAccountByUserOrAccountIdFunc(userId, accountId, domain)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByUserOrAccountId not implemented")
+}
+
+func (am *MockAccountManager) GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+	if am.GetAccountWithAuthorizationClaimsFunc != nil {
+		return am.GetAccountWithAuthorizationClaimsFunc(claims)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountWithAuthorizationClaims not implemented")
 }
 
 func (am *MockAccountManager) AccountExists(accountId string) (*bool, error) {

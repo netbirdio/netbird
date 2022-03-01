@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/stretchr/testify/require"
 	"github.com/wiretrustee/wiretrustee/util"
 	"net"
 	"path/filepath"
@@ -131,34 +132,45 @@ func TestRestore(t *testing.T) {
 	}
 
 	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
-	if account == nil {
-		t.Errorf("failed to restore a FileStore file - missing account bf1c8084-ba50-4ce7-9439-34653001fc3b")
+
+	require.NotNil(t, account, "failed to restore a FileStore file - missing account bf1c8084-ba50-4ce7-9439-34653001fc3b")
+
+	require.NotNil(t, account.Users["edafee4e-63fb-11ec-90d6-0242ac120003"], "failed to restore a FileStore file - missing Account User edafee4e-63fb-11ec-90d6-0242ac120003")
+
+	require.NotNil(t, account.Users["f4f6d672-63fb-11ec-90d6-0242ac120003"], "failed to restore a FileStore file - missing Account User f4f6d672-63fb-11ec-90d6-0242ac120003")
+
+	require.NotNil(t, account.Network, "failed to restore a FileStore file - missing Account Network")
+
+	require.NotNil(t, account.SetupKeys["A2C8E62B-38F5-4553-B31E-DD66C696CEBB"], "failed to restore a FileStore file - missing Account SetupKey A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
+
+	require.Len(t, store.UserId2AccountId, 2, "failed to restore a FileStore wrong UserId2AccountId mapping length")
+
+	require.Len(t, store.SetupKeyId2AccountId, 1, "failed to restore a FileStore wrong SetupKeyId2AccountId mapping length")
+
+	require.Len(t, store.PrivateDomain2AccountId, 1, "failed to restore a FileStore wrong PrivateDomain2AccountId mapping length")
+}
+
+func TestGetAccountByPrivateDomain(t *testing.T) {
+	storeDir := t.TempDir()
+
+	err := util.CopyFileContents("testdata/store.json", filepath.Join(storeDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	if account != nil && account.Users["edafee4e-63fb-11ec-90d6-0242ac120003"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Account User edafee4e-63fb-11ec-90d6-0242ac120003")
+	store, err := NewStore(storeDir)
+	if err != nil {
+		return
 	}
 
-	if account != nil && account.Users["f4f6d672-63fb-11ec-90d6-0242ac120003"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Account User f4f6d672-63fb-11ec-90d6-0242ac120003")
-	}
+	existingDomain := "test.com"
 
-	if account != nil && account.Network == nil {
-		t.Errorf("failed to restore a FileStore file - missing Account Network")
-	}
+	account, err := store.GetAccountByPrivateDomain(existingDomain)
+	require.NoError(t, err, "should found account")
+	require.Equal(t, existingDomain, account.Domain, "domains should match")
 
-	if account != nil && account.SetupKeys["A2C8E62B-38F5-4553-B31E-DD66C696CEBB"] == nil {
-		t.Errorf("failed to restore a FileStore file - missing Account SetupKey A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
-	}
-
-	if len(store.UserId2AccountId) != 2 {
-		t.Errorf("failed to restore a FileStore wrong UserId2AccountId mapping")
-	}
-
-	if len(store.SetupKeyId2AccountId) != 1 {
-		t.Errorf("failed to restore a FileStore wrong SetupKeyId2AccountId mapping")
-	}
-
+	_, err = store.GetAccountByPrivateDomain("missing-domain.com")
+	require.Error(t, err, "should return error on domain lookup")
 }
 
 func newStore(t *testing.T) *FileStore {

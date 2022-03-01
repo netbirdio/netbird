@@ -6,10 +6,11 @@ import (
 )
 
 const (
-	TokenUserProperty = "user"
-	AccountIDSuffix   = "wt_account_id"
-	DomainIDSuffix    = "wt_account_domain"
-	UserIDClaim       = "sub"
+	TokenUserProperty    = "user"
+	AccountIDSuffix      = "wt_account_id"
+	DomainIDSuffix       = "wt_account_domain"
+	DomainCategorySuffix = "wt_account_domain_category"
+	UserIDClaim          = "sub"
 )
 
 // Extract function type
@@ -46,6 +47,10 @@ func ExtractClaimsFromRequestContext(r *http.Request, authAudiance string) Autho
 	domainClaim, ok := claims[authAudiance+DomainIDSuffix]
 	if ok {
 		jwtClaims.Domain = domainClaim.(string)
+	}
+	domainCategoryClaim, ok := claims[authAudiance+DomainCategorySuffix]
+	if ok {
+		jwtClaims.DomainCategory = domainCategoryClaim.(string)
 	}
 	return jwtClaims
 }

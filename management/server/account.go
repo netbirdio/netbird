@@ -4,10 +4,18 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"github.com/wiretrustee/wiretrustee/management/server/idp"
+	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
 	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 	"sync"
+)
+
+const (
+	PublicCategory  = "public"
+	PrivateCategory = "private"
+	UnknownCategory = "unknown"
 )
 
 type AccountManager interface {
@@ -18,6 +26,7 @@ type AccountManager interface {
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
+	GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	AccountExists(accountId string) (*bool, error)
 	AddAccount(accountId, userId, domain string) (*Account, error)
 	GetPeer(peerKey string) (*Peer, error)
@@ -41,12 +50,14 @@ type DefaultAccountManager struct {
 type Account struct {
 	Id string
 	// User.Id it was created by
-	CreatedBy string
-	Domain    string
-	SetupKeys map[string]*SetupKey
-	Network   *Network
-	Peers     map[string]*Peer
-	Users     map[string]*User
+	CreatedBy              string
+	Domain                 string
+	DomainCategory         string
+	IsDomainPrimaryAccount bool
+	SetupKeys              map[string]*SetupKey
+	Network                *Network
+	Peers                  map[string]*Peer
+	Users                  map[string]*User
 }
 
 // NewAccount creates a new Account with a generated ID and generated default setup keys
@@ -193,17 +204,145 @@ func (am *DefaultAccountManager) GetAccountByUserOrAccountId(userId, accountId, 
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
 		}
-		// update idp manager app metadata
-		if am.idpManager != nil {
-			err = am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: account.Id})
-			if err != nil {
-				return nil, status.Errorf(codes.Internal, "updating user's app metadata failed with: %v", err)
-			}
+		err = am.updateIDPMetadata(userId, account.Id)
+		if err != nil {
+			return nil, err
 		}
 		return account, nil
 	}
 
 	return nil, status.Errorf(codes.NotFound, "no valid user or account Id provided")
+}
+
+// updateIDPMetadata update user's  app metadata in idp manager
+func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) error {
+	if am.idpManager != nil {
+		err := am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: accountID})
+		if err != nil {
+			return status.Errorf(codes.Internal, "updating user's app metadata failed with: %v", err)
+		}
+	}
+	return nil
+}
+
+// updateAccountDomainAttributes updates the account domain attributes and then, saves the account
+func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims, primaryDomain bool) error {
+	account.IsDomainPrimaryAccount = primaryDomain
+	account.Domain = strings.ToLower(claims.Domain)
+	account.DomainCategory = claims.DomainCategory
+	err := am.Store.SaveAccount(account)
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed saving updated account")
+	}
+	return nil
+}
+
+// handleExistingUserAccount handles existing User accounts and update its domain attributes.
+//
+//
+// If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
+// we compare the account's ID with the domain account ID, and if they don't match, we set the account as
+// non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
+// was previously unclassified or classified as public so N users that logged int that time, has they own account
+// and peers that shouldn't be lost.
+func (am *DefaultAccountManager) handleExistingUserAccount(existingAcc *Account, domainAcc *Account, claims jwtclaims.AuthorizationClaims) error {
+	var err error
+
+	if domainAcc == nil || existingAcc.Id != domainAcc.Id {
+		err = am.updateAccountDomainAttributes(existingAcc, claims, false)
+		if err != nil {
+			return err
+		}
+	}
+
+	// we should register the account ID to this user's metadata in our IDP manager
+	err = am.updateIDPMetadata(claims.UserId, existingAcc.Id)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// handleNewUserAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
+// otherwise it will create a new account and make it primary account for the domain.
+func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	var (
+		account        *Account
+		primaryAccount bool
+	)
+	lowerDomain := strings.ToLower(claims.Domain)
+	// if domain already has a primary account, add regular user
+	if domainAcc != nil {
+		account = domainAcc
+		account.Users[claims.UserId] = NewRegularUser(claims.UserId)
+		primaryAccount = false
+	} else {
+		account = NewAccount(claims.UserId, lowerDomain)
+		account.Users[claims.UserId] = NewAdminUser(claims.UserId)
+		primaryAccount = true
+	}
+
+	err := am.updateAccountDomainAttributes(account, claims, primaryAccount)
+	if err != nil {
+		return nil, err
+	}
+
+	err = am.updateIDPMetadata(claims.UserId, account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
+}
+
+// GetAccountWithAuthorizationClaims retrievs an account using JWT Claims.
+// if domain is of the PrivateCategory category, it will evaluate
+// if account is new, existing or if there is another account with the same domain
+//
+// Use cases:
+//
+// New user + New account + New domain -> create account, user role = admin (if private domain, index domain)
+//
+// New user + New account + Existing Private Domain -> add user to the existing account, user role = regular (not admin)
+//
+// New user + New account + Existing Public Domain -> create account, user role = admin
+//
+// Existing user + Existing account + Existing Domain -> Nothing changes (if private, index domain)
+//
+// Existing user + Existing account + Existing Indexed Domain -> Nothing changes
+//
+// Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
+func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	// if Account ID is part of the claims
+	// it means that we've already classified the domain and user has an account
+	if claims.DomainCategory != PrivateCategory || claims.AccountId != "" {
+		return am.GetAccountByUserOrAccountId(claims.UserId, claims.AccountId, claims.Domain)
+	}
+
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	// We checked if the domain has a primary account already
+	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
+	accStatus, _ := status.FromError(err)
+	if accStatus.Code() != codes.OK && accStatus.Code() != codes.NotFound {
+		return nil, err
+	}
+
+	account, err := am.Store.GetUserAccount(claims.UserId)
+	if err == nil {
+		err = am.handleExistingUserAccount(account, domainAccount, claims)
+		if err != nil {
+			return nil, err
+		}
+		return account, nil
+	} else if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		return am.handleNewUserAccount(domainAccount, claims)
+	} else {
+		// other error
+		return nil, err
+	}
 }
 
 //AccountExists checks whether account exists (returns true) or not (returns false)

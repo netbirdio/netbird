@@ -126,7 +126,7 @@ func (h *SetupKeys) getSetupKeyAccount(r *http.Request) (*server.Account, error)
 	extractor := jwtclaims.NewClaimsExtractor(nil)
 	jwtClaims := extractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 
-	account, err := h.accountManager.GetAccountByUserOrAccountId(jwtClaims.UserId, jwtClaims.AccountId, jwtClaims.Domain)
+	account, err := h.accountManager.GetAccountWithAuthorizationClaims(jwtClaims)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
 	}
