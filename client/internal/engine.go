@@ -31,8 +31,6 @@ const (
 	PeerConnectionTimeoutMin = 30000 // ms
 )
 
-const WgPort = 51820
-
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
 	WgPort      int

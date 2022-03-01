@@ -9,6 +9,7 @@ import (
 
 const (
 	DefaultMTU = 1280
+	DefaultWgPort = 51820
 )
 
 // WGIface represents a interface instance

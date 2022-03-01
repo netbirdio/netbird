@@ -66,3 +66,7 @@ func (p *DummyProxy) Start(remoteConn net.Conn) error {
 
 	return nil
 }
+
+func (p *DummyProxy) Type() Type {
+	return TypeDummy
+}
