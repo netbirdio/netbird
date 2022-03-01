@@ -122,3 +122,7 @@ func (p *WireguardProxy) proxyToLocal() {
 		}
 	}
 }
+
+func (p *WireguardProxy) Type() Type {
+	return TypeWireguard
+}

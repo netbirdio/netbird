@@ -10,6 +10,14 @@ import (
 
 const DefaultWgKeepAlive = 25 * time.Second
 
+type Type string
+
+const (
+	TypeNoProxy   Type = "NoProxy"
+	TypeWireguard Type = "Wireguard"
+	TypeDummy     Type = "Dummy"
+)
+
 type Config struct {
 	WgListenAddr string
 	RemoteKey    string
@@ -22,4 +30,5 @@ type Proxy interface {
 	io.Closer
 	// Start creates a local remoteConn and starts proxying data from/to remoteConn
 	Start(remoteConn net.Conn) error
+	Type() Type
 }
