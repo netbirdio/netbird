@@ -9,5 +9,6 @@ type Store interface {
 	GetAccountPeers(accountId string) ([]*Peer, error)
 	GetPeerAccount(peerKey string) (*Account, error)
 	GetAccountBySetupKey(setupKey string) (*Account, error)
+	GetAccountByPrivateDomain(domain string) (*Account, error)
 	SaveAccount(account *Account) error
 }

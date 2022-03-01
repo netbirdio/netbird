@@ -3,6 +3,7 @@ package server
 import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 )
 
 const (
@@ -34,6 +35,11 @@ func NewUser(id string, role UserRole) *User {
 	}
 }
 
+// NewRegularUser creates a new user with role UserRoleAdmin
+func NewRegularUser(id string) *User {
+	return NewUser(id, UserRoleUser)
+}
+
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
 	return NewUser(id, UserRoleAdmin)
@@ -44,10 +50,12 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
+	lowerDomain := strings.ToLower(domain)
+
 	account, err := am.Store.GetUserAccount(userId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			account = NewAccount(userId, domain)
+			account = NewAccount(userId, lowerDomain)
 			account.Users[userId] = NewAdminUser(userId)
 			err = am.Store.SaveAccount(account)
 			if err != nil {
@@ -59,8 +67,8 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 		}
 	}
 
-	if account.Domain != domain {
-		account.Domain = domain
+	if account.Domain != lowerDomain {
+		account.Domain = lowerDomain
 		err = am.Store.SaveAccount(account)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed updating account with domain")
