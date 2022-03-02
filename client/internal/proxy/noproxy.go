@@ -21,7 +21,10 @@ func NewNoProxy(config Config) *NoProxy {
 }
 
 func (p *NoProxy) Close() error {
-	// noop
+	err := p.config.WgInterface.RemovePeer(p.config.RemoteKey)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
