@@ -64,6 +64,6 @@ jobs:
         with:
           workflow: Sign windows bin and installer
           repo: wiretrustee/windows-sign-pipeline
-          ref: v0.0.1
+          ref: v0.0.2
           token: ${{ secrets.SIGN_GITHUB_TOKEN }}
           inputs: '{ "tag": "${{ github.ref }}" }'
