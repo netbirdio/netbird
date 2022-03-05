@@ -96,3 +96,9 @@ For this tutorial we will be using domain ```test.wiretrustee.com``` which point
     docker-compose logs management
     docker-compose logs coturn
     docker-compose logs dashboard
+
+10. Once the server is running, you can access the dashboard by https://$WIRETRUSTEE_DOMAIN
+11. Adding a peer will require you to enter the management URL by following the steps in the page https://$WIRETRUSTEE_DOMAIN/add-peer and in the 3rd step:
+```shell
+sudo wiretrustee up --setup-key <PASTE-SETUP-KEY> --management-url https://$WIRETRUSTEE_DOMAIN:33073
+```
