@@ -6,7 +6,7 @@ a 3rd party open-source STUN/TURN service [Coturn](https://github.com/coturn/cot
 
 All the components can be self-hosted except for the Auth0 service.
 We chose Auth0 to "outsource" the user management part of the platform because we believe that implementing a proper user auth requires significant amount of time to make it right. 
-We focused on connectivity instead.
+We focused on connectivity instead. It also offers a always free plan that should be ok for most users as its limits are high enough for most teams.
 
 If you would like to learn more about the architecture please refer to the [Wiretrustee Architecture section](architecture.md).
 
@@ -17,10 +17,11 @@ If you would like to learn more about the architecture please refer to the [Wire
 ### Requirements
 
 - Virtual machine offered by any cloud provider (e.g., AWS, DigitalOcean, Hetzner, Google Cloud, Azure ...). 
-- Any Linux OS.
+- Any Unix OS.
 - Docker Compose installed (see [Install Docker Compose](https://docs.docker.com/compose/install/)).
 - Domain name pointing to the public IP address of your server.
-- Open ports ```443, 33071, 33073, 10000, 3478``` (Dashboard, Management HTTP API, Management gRpc API, Signal gRpc, Coturn STUN/TURN respectively) on your server.
+- Wiretrustee Open ports ```443, 33071, 33073, 10000``` (Dashboard, Management HTTP API, Management gRpc API, Signal gRpc) on your server. 
+- Coturn is used for relay using the STUN/TURN protocols. It requires a listening port, ```UDP 3478```,  and range of ports,```UDP 49152-65535```, for dynamic relay connections.
 - Maybe a cup of coffee or tea :)
 
 ### Step-by-step guide
@@ -41,7 +42,7 @@ For this tutorial we will be using domain ```test.wiretrustee.com``` which point
    ```
 3. Prepare configuration files.
    
-   To simplify the setup we have prepared a script to substitute required properties in the [docker-compose.yml.tmpl](../infrastructure_files/docker-compose.yml.tmpl) and [management.json.tmpl](../infrastructure_files/management.json.tmpl) files.
+   To simplify the setup we have prepared a script to substitute required properties in the [turnserver.conf.tmpl](../infrastructure_files/turnserver.conf.tmpl),[docker-compose.yml.tmpl](../infrastructure_files/docker-compose.yml.tmpl) and [management.json.tmpl](../infrastructure_files/management.json.tmpl) files.
    
    The [setup.env](../infrastructure_files/setup.env) file contains the following properties that have to be filled:
    
@@ -57,8 +58,9 @@ For this tutorial we will be using domain ```test.wiretrustee.com``` which point
    # e.g. hello@mydomain.com
    WIRETRUSTEE_LETSENCRYPT_EMAIL=""
    ```
+   > Other options are available, but they are automatically updated.
    
-   Please follow the steps to get the values.
+   Please follow the steps to get the values. 
 
 4. Configure ```WIRETRUSTEE_AUTH0_DOMAIN``` ```WIRETRUSTEE_AUTH0_CLIENT_ID``` ```WIRETRUSTEE_AUTH0_AUDIENCE``` properties.          
    
