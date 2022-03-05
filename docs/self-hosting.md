@@ -6,7 +6,7 @@ a 3rd party open-source STUN/TURN service [Coturn](https://github.com/coturn/cot
 
 All the components can be self-hosted except for the Auth0 service.
 We chose Auth0 to "outsource" the user management part of the platform because we believe that implementing a proper user auth requires significant amount of time to make it right. 
-We focused on connectivity instead. It also offers a always free plan that should be ok for most users as its limits are high enough for most teams.
+We focused on connectivity instead. It also offers an always free plan that should be ok for most users as its limits are high enough for most teams.
 
 If you would like to learn more about the architecture please refer to the [Wiretrustee Architecture section](architecture.md).
 
