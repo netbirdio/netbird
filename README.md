@@ -17,6 +17,10 @@
      <a href="https://goreportcard.com/report/wiretrustee/wiretrustee">
         <img src="https://goreportcard.com/badge/github.com/wiretrustee/wiretrustee?style=flat-square" />
      </a>
+    <br>
+    <a href="https://join.slack.com/t/wiretrustee/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A">
+        <img src="https://img.shields.io/badge/slack-@wiretrustee-red.svg?logo=slack"/>
+     </a>    
   </p>
 </div>
 
