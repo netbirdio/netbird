@@ -12,8 +12,14 @@
         <img src="https://img.shields.io/docker/pulls/wiretrustee/wiretrustee" />
      </a>  
     <img src="https://badgen.net/badge/Open%20Source%3F/Yes%21/blue?icon=github" />
+    <br>
+    <a href="https://www.codacy.com/gh/wiretrustee/wiretrustee/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=wiretrustee/wiretrustee&amp;utm_campaign=Badge_Grade"><img src="https://app.codacy.com/project/badge/Grade/d366de2c9d8b4cf982da27f8f5831809"/></a>
+     <a href="https://goreportcard.com/report/wiretrustee/wiretrustee">
+        <img src="https://goreportcard.com/badge/github.com/wiretrustee/wiretrustee?style=flat-square" />
+     </a>
   </p>
 </div>
+
 
 <p align="center">
 <strong>
@@ -28,7 +34,6 @@
 </p>
 
 <br>
-
 **Wiretrustee is an open-source VPN platform built on top of WireGuard® making it easy to create secure private networks for your organization or home.**
 
 It requires zero configuration effort leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
