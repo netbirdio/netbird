@@ -31,6 +31,8 @@ const (
 	PeerConnectionTimeoutMin = 30000 // ms
 )
 
+var ErrResetConnection = fmt.Errorf("reset connection")
+
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
 	WgPort      int
@@ -95,10 +97,12 @@ type Peer struct {
 
 // NewEngine creates a new Connection Engine
 func NewEngine(
+	ctx context.Context, cancel context.CancelFunc,
 	signalClient signal.Client, mgmClient mgm.Client, config *EngineConfig,
-	cancel context.CancelFunc, ctx context.Context,
 ) *Engine {
 	return &Engine{
+		ctx:           ctx,
+		cancel:        cancel,
 		signal:        signalClient,
 		mgmClient:     mgmClient,
 		peerConns:     map[string]*peer.Conn{},
@@ -106,8 +110,6 @@ func NewEngine(
 		config:        config,
 		STUNs:         []*ice.URL{},
 		TURNs:         []*ice.URL{},
-		cancel:        cancel,
-		ctx:           ctx,
 		networkSerial: 0,
 	}
 }
@@ -380,6 +382,7 @@ func (e *Engine) receiveManagementEvents() {
 		if err != nil {
 			// happens if management is unavailable for a long time.
 			// We want to cancel the operation of the whole client
+			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
 			e.cancel()
 			return
 		}
@@ -615,6 +618,7 @@ func (e *Engine) receiveSignalEvents() {
 		if err != nil {
 			// happens if signal is unavailable for a long time.
 			// We want to cancel the operation of the whole client
+			_ = CtxGetState(e.ctx).Wrap(ErrResetConnection)
 			e.cancel()
 			return
 		}

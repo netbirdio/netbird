@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+import "google/protobuf/descriptor.proto";
+
+option go_package = "/proto";
+
+package daemon;
+
+service DaemonService {
+  // Login uses setup key to prepare configuration for the daemon.
+  rpc Login(LoginRequest) returns (LoginResponse) {}
+
+  // Up starts engine work in the daemon.
+  rpc Up(UpRequest) returns (UpResponse) {}
+
+  // Status of the service.
+  rpc Status(StatusRequest) returns (StatusResponse) {}
+
+  // Down engine work in the daemon.
+  rpc Down(DownRequest) returns (DownResponse) {}
+};
+
+message LoginRequest {
+  // setupKey wiretrustee setup key.
+  string setupKey = 1;
+
+  // presharedKey for wireguard setup.
+  string presharedKey = 2;
+
+  // managementUrl to authenticate.
+  string managementUrl = 3;
+}
+
+message LoginResponse {}
+
+message UpRequest {}
+
+message UpResponse {}
+
+message StatusRequest{}
+
+message StatusResponse{
+  // status of the server.
+  string status = 1;
+}
+
+message DownRequest {}
+
+message DownResponse {}

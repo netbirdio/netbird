@@ -29,7 +29,6 @@ type GrpcClient struct {
 
 // NewClient creates a new client to Management service
 func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*GrpcClient, error) {
-
 	transportOption := grpc.WithTransportCredentials(insecure.NewCredentials())
 
 	if tlsEnabled {
@@ -47,7 +46,6 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 			Time:    15 * time.Second,
 			Timeout: 10 * time.Second,
 		}))
-
 	if err != nil {
 		log.Errorf("failed creating connection to Management Service %v", err)
 		return nil, err
@@ -68,14 +66,14 @@ func (c *GrpcClient) Close() error {
 	return c.conn.Close()
 }
 
-//defaultBackoff is a basic backoff mechanism for general issues
+// defaultBackoff is a basic backoff mechanism for general issues
 func defaultBackoff(ctx context.Context) backoff.BackOff {
 	return backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
 		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      12 * time.Hour, //stop after 12 hours of trying, the error will be propagated to the general retry of the client
+		MaxElapsedTime:      12 * time.Hour, // stop after 12 hours of trying, the error will be propagated to the general retry of the client
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -90,11 +88,9 @@ func (c *GrpcClient) ready() bool {
 // Sync wraps the real client's Sync endpoint call and takes care of retries and encryption/decryption of messages
 // Blocking request. The result will be sent via msgHandler callback function
 func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error {
-
-	var backOff = defaultBackoff(c.ctx)
+	backOff := defaultBackoff(c.ctx)
 
 	operation := func() error {
-
 		log.Debugf("management connection state %v", c.conn.GetState())
 
 		if !c.ready() {
@@ -215,7 +211,6 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 		WgPubKey: c.key.PublicKey().String(),
 		Body:     loginReq,
 	})
-
 	if err != nil {
 		return nil, err
 	}
