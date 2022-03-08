@@ -44,8 +44,9 @@ var upCmd = &cobra.Command{
 		daemonClient := proto.NewDaemonServiceClient(conn)
 
 		loginRequest := proto.LoginRequest{
-			SetupKey:     setupKey,
-			PresharedKey: preSharedKey,
+			SetupKey:      setupKey,
+			PresharedKey:  preSharedKey,
+			ManagementUrl: managementURL,
 		}
 		err = WithBackOff(func() error {
 			_, err := daemonClient.Login(ctx, &loginRequest)
