@@ -1,13 +1,18 @@
 package cmd
 
 import (
+	"context"
+	"net"
+	"testing"
+	"time"
+
+	clientProto "github.com/wiretrustee/wiretrustee/client/proto"
+	client "github.com/wiretrustee/wiretrustee/client/server"
 	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
 	mgmt "github.com/wiretrustee/wiretrustee/management/server"
 	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
 	sig "github.com/wiretrustee/wiretrustee/signal/server"
 	"google.golang.org/grpc"
-	"net"
-	"testing"
 )
 
 func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
@@ -26,7 +31,7 @@ func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 	return s, lis
 }
 
-func startManagement(config *mgmt.Config, t *testing.T) (*grpc.Server, net.Listener) {
+func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -48,9 +53,40 @@ func startManagement(config *mgmt.Config, t *testing.T) (*grpc.Server, net.Liste
 	go func() {
 		if err := s.Serve(lis); err != nil {
 			t.Error(err)
-			return
 		}
 	}()
+
+	return s, lis
+}
+
+func startClientDaemon(
+	t *testing.T, ctx context.Context, managementURL, configPath string,
+	stopCh chan int, cleanupCh chan<- struct{},
+) (*grpc.Server, net.Listener) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := grpc.NewServer()
+
+	server := client.New(
+		ctx,
+		managementURL,
+		configPath,
+		stopCh,
+		cleanupCh,
+	)
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	clientProto.RegisterDaemonServiceServer(s, server)
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			t.Error(err)
+		}
+	}()
+
+	time.Sleep(time.Second)
 
 	return s, lis
 }

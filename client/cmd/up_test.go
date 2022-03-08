@@ -1,16 +1,20 @@
 package cmd
 
 import (
-	"github.com/wiretrustee/wiretrustee/iface"
-	mgmt "github.com/wiretrustee/wiretrustee/management/server"
-	"github.com/wiretrustee/wiretrustee/util"
 	"net/url"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/wiretrustee/wiretrustee/iface"
+	mgmt "github.com/wiretrustee/wiretrustee/management/server"
+	"github.com/wiretrustee/wiretrustee/util"
 )
 
-var signalAddr string
+var (
+	signalAddr string
+	cliAddr    string
+)
 
 func TestUp_Start(t *testing.T) {
 	config := &mgmt.Config{}
@@ -29,15 +33,11 @@ func TestUp_Start(t *testing.T) {
 	signalAddr = signalLis.Addr().String()
 	config.Signal.URI = signalAddr
 
-	_, mgmLis := startManagement(config, t)
+	_, mgmLis := startManagement(t, config)
 	mgmAddr = mgmLis.Addr().String()
-
 }
 
 func TestUp(t *testing.T) {
-
-	//defer iface.Close("wt0")
-
 	tempDir := t.TempDir()
 	confPath := tempDir + "/config.json"
 	mgmtURL, err := url.Parse("http://" + mgmAddr)
@@ -58,12 +58,13 @@ func TestUp(t *testing.T) {
 		"--log-file",
 		"console",
 	})
+
 	go func() {
-		err = rootCmd.Execute()
-		if err != nil {
+		if err := rootCmd.Execute(); err != nil {
 			t.Errorf("expected no error while running up command, got %v", err)
 		}
 	}()
+	time.Sleep(time.Second * 2)
 
 	timeout := 15 * time.Second
 	timeoutChannel := time.After(timeout)

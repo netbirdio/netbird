@@ -2,13 +2,14 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
+	"testing"
+
 	"github.com/wiretrustee/wiretrustee/client/internal"
 	"github.com/wiretrustee/wiretrustee/iface"
 	mgmt "github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
-	"path/filepath"
-	"strings"
-	"testing"
 )
 
 var mgmAddr string
@@ -25,12 +26,11 @@ func TestLogin_Start(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, listener := startManagement(config, t)
+	_, listener := startManagement(t, config)
 	mgmAddr = listener.Addr().String()
 }
 
 func TestLogin(t *testing.T) {
-
 	tempDir := t.TempDir()
 	confPath := tempDir + "/config.json"
 	mgmtURL := fmt.Sprintf("http://%s", mgmAddr)
@@ -38,6 +38,8 @@ func TestLogin(t *testing.T) {
 		"login",
 		"--config",
 		confPath,
+		"--log-file",
+		"console",
 		"--setup-key",
 		strings.ToUpper("a2c8e62b-38f5-4553-b31e-dd66c696cebb"),
 		"--management-url",

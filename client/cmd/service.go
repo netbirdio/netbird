@@ -1,14 +1,30 @@
 package cmd
 
 import (
+	"context"
+
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"google.golang.org/grpc"
+
+	"github.com/wiretrustee/wiretrustee/client/internal"
 )
 
 type program struct {
-	cmd  *cobra.Command
-	args []string
+	ctx    context.Context
+	cmd    *cobra.Command
+	args   []string
+	serv   *grpc.Server
+}
+
+func newProgram(cmd *cobra.Command, args []string) *program {
+	ctx := internal.CtxInitState(cmd.Context())
+	return &program{
+		ctx:  ctx,
+		cmd:  cmd,
+		args: args,
+	}
 }
 
 func newSVCConfig() *service.Config {
@@ -28,9 +44,8 @@ func newSVC(prg *program, conf *service.Config) (service.Service, error) {
 	return s, nil
 }
 
-var (
-	serviceCmd = &cobra.Command{
-		Use:   "service",
-		Short: "manages wiretrustee service",
-	}
-)
+var serviceCmd = &cobra.Command{
+	Use:   "service",
+	Short: "manages wiretrustee service",
+}
+

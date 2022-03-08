@@ -1,16 +1,23 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
-	"github.com/wiretrustee/wiretrustee/client/internal"
 	"os"
 	"os/signal"
 	"runtime"
 	"strings"
 	"syscall"
+	"time"
+
+	"github.com/cenkalti/backoff/v4"
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+
+	"github.com/wiretrustee/wiretrustee/client/internal"
 )
 
 var (
@@ -19,6 +26,7 @@ var (
 	logLevel          string
 	defaultLogFile    string
 	logFile           string
+	daemonAddr        string
 	managementURL     string
 	setupKey          string
 	preSharedKey      string
@@ -37,8 +45,8 @@ var (
 func Execute() error {
 	return rootCmd.Execute()
 }
-func init() {
 
+func init() {
 	stopCh = make(chan int)
 	cleanupCh = make(chan struct{})
 
@@ -49,6 +57,11 @@ func init() {
 		defaultLogFile = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "client.log"
 	}
 
+	defaultDaemonAddr := "unix:///var/run/wiretrustee.sock"
+	if runtime.GOOS == "windows" {
+		defaultDaemonAddr = "tcp://127.0.0.1:41731"
+	}
+	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	rootCmd.PersistentFlags().StringVar(&managementURL, "management-url", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.ManagementURLDefault().String()))
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "sets Wiretrustee log level")
@@ -57,6 +70,8 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, "preshared-key", "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
+	rootCmd.AddCommand(downCmd)
+	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(versionCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
@@ -79,7 +94,6 @@ func SetupCloseHandler() {
 func SetFlagsFromEnvVars() {
 	flags := rootCmd.PersistentFlags()
 	flags.VisitAll(func(f *pflag.Flag) {
-
 		envVar := FlagNameToEnvVar(f.Name)
 
 		if value, present := os.LookupEnv(envVar); present {
@@ -98,4 +112,35 @@ func FlagNameToEnvVar(f string) string {
 	parsed := strings.ReplaceAll(f, "-", "_")
 	upper := strings.ToUpper(parsed)
 	return prefix + upper
+}
+
+// DialClientGRPCServer returns client connection to the dameno server.
+func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second*3)
+	defer cancel()
+
+	return grpc.DialContext(
+		ctx,
+		strings.TrimPrefix(addr, "tcp://"),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithBlock(),
+	)
+}
+
+// WithBackOff execute function in backoff cycle.
+func WithBackOff(bf func() error) error {
+	return backoff.RetryNotify(bf, CLIBackOffSettings, func(err error, duration time.Duration) {
+		log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
+	})
+}
+
+// CLIBackOffSettings is default backoff settings for CLI commands.
+var CLIBackOffSettings = &backoff.ExponentialBackOff{
+	InitialInterval:     time.Second,
+	RandomizationFactor: backoff.DefaultRandomizationFactor,
+	Multiplier:          backoff.DefaultMultiplier,
+	MaxInterval:         10 * time.Second,
+	MaxElapsedTime:      30 * time.Second,
+	Stop:                backoff.Stop,
+	Clock:               backoff.SystemClock,
 }
