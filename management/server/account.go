@@ -316,8 +316,16 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
-	if claims.DomainCategory != PrivateCategory || claims.AccountId != "" {
+	if claims.DomainCategory != PrivateCategory {
 		return am.GetAccountByUserOrAccountId(claims.UserId, claims.AccountId, claims.Domain)
+	} else if claims.AccountId != "" {
+		accountFromID, err := am.GetAccountByUserOrAccountId(claims.UserId, claims.AccountId, claims.Domain)
+		if err != nil {
+			return nil, err
+		}
+		if accountFromID.DomainCategory == PrivateCategory || claims.DomainCategory != PrivateCategory {
+			return accountFromID, nil
+		}
 	}
 
 	am.mux.Lock()
