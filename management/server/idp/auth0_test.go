@@ -415,7 +415,7 @@ func TestNewAuth0Manager(t *testing.T) {
 	defaultTestConfig := Auth0ClientConfig{
 		AuthIssuer:   "https://abc-auth0.eu.auth0.com",
 		Audience:     "https://abc-auth0.eu.auth0.com/api/v2/",
-		ClientId:     "abcdefg",
+		ClientID:     "abcdefg",
 		ClientSecret: "supersecret",
 		GrantType:    "client_credentials",
 	}
@@ -428,7 +428,7 @@ func TestNewAuth0Manager(t *testing.T) {
 	}
 
 	testCase2Config := defaultTestConfig
-	testCase2Config.ClientId = ""
+	testCase2Config.ClientID = ""
 
 	testCase2 := test{
 		name:                 "Missing Configuration",

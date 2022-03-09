@@ -25,7 +25,7 @@ type Auth0Manager struct {
 type Auth0ClientConfig struct {
 	Audience     string
 	AuthIssuer   string
-	ClientId     string
+	ClientID     string
 	ClientSecret string
 	GrantType    string
 }
@@ -34,7 +34,7 @@ type Auth0ClientConfig struct {
 type auth0JWTRequest struct {
 	Audience     string `json:"audience"`
 	AuthIssuer   string `json:"auth_issuer"`
-	ClientId     string `json:"client_id"`
+	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	GrantType    string `json:"grant_type"`
 }
@@ -61,7 +61,7 @@ func NewAuth0Manager(config Auth0ClientConfig) (*Auth0Manager, error) {
 
 	helper := JsonParser{}
 
-	if config.ClientId == "" || config.ClientSecret == "" || config.GrantType == "" || config.Audience == "" || config.AuthIssuer == "" {
+	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.Audience == "" || config.AuthIssuer == "" {
 		return nil, fmt.Errorf("auth0 idp configuration is not complete")
 	}
 
