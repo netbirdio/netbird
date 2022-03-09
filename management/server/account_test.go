@@ -39,13 +39,15 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 	type initUserParams jwtclaims.AuthorizationClaims
 
 	type test struct {
-		name                string
-		inputClaims         jwtclaims.AuthorizationClaims
-		inputInitUserParams initUserParams
-		inputUpdateAttrs    bool
-		testingFunc         require.ComparisonAssertionFunc
-		expectedMSG         string
-		expectedUserRole    UserRole
+		name                    string
+		inputClaims             jwtclaims.AuthorizationClaims
+		inputInitUserParams     initUserParams
+		inputUpdateAttrs        bool
+		inputUpdateClaimAccount bool
+		testingFunc             require.ComparisonAssertionFunc
+		expectedMSG             string
+		expectedUserRole        UserRole
+		expectedDomainCategory  string
 	}
 
 	var (
@@ -66,10 +68,11 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         "pub-domain-user",
 			DomainCategory: PublicCategory,
 		},
-		inputInitUserParams: defaultInitAccount,
-		testingFunc:         require.NotEqual,
-		expectedMSG:         "account IDs shouldn't match",
-		expectedUserRole:    UserRoleAdmin,
+		inputInitUserParams:    defaultInitAccount,
+		testingFunc:            require.NotEqual,
+		expectedMSG:            "account IDs shouldn't match",
+		expectedUserRole:       UserRoleAdmin,
+		expectedDomainCategory: "",
 	}
 
 	initUnknown := defaultInitAccount
@@ -83,10 +86,11 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         "unknown-domain-user",
 			DomainCategory: UnknownCategory,
 		},
-		inputInitUserParams: initUnknown,
-		testingFunc:         require.NotEqual,
-		expectedMSG:         "account IDs shouldn't match",
-		expectedUserRole:    UserRoleAdmin,
+		inputInitUserParams:    initUnknown,
+		testingFunc:            require.NotEqual,
+		expectedMSG:            "account IDs shouldn't match",
+		expectedUserRole:       UserRoleAdmin,
+		expectedDomainCategory: "",
 	}
 
 	testCase3 := test{
@@ -96,10 +100,11 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         "pvt-domain-user",
 			DomainCategory: PrivateCategory,
 		},
-		inputInitUserParams: defaultInitAccount,
-		testingFunc:         require.NotEqual,
-		expectedMSG:         "account IDs shouldn't match",
-		expectedUserRole:    UserRoleAdmin,
+		inputInitUserParams:    defaultInitAccount,
+		testingFunc:            require.NotEqual,
+		expectedMSG:            "account IDs shouldn't match",
+		expectedUserRole:       UserRoleAdmin,
+		expectedDomainCategory: PrivateCategory,
 	}
 
 	privateInitAccount := defaultInitAccount
@@ -113,11 +118,12 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         "pvt-domain-user",
 			DomainCategory: PrivateCategory,
 		},
-		inputUpdateAttrs:    true,
-		inputInitUserParams: privateInitAccount,
-		testingFunc:         require.Equal,
-		expectedMSG:         "account IDs should match",
-		expectedUserRole:    UserRoleUser,
+		inputUpdateAttrs:       true,
+		inputInitUserParams:    privateInitAccount,
+		testingFunc:            require.Equal,
+		expectedMSG:            "account IDs should match",
+		expectedUserRole:       UserRoleUser,
+		expectedDomainCategory: PrivateCategory,
 	}
 
 	testCase5 := test{
@@ -127,13 +133,28 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         defaultInitAccount.UserId,
 			DomainCategory: PrivateCategory,
 		},
-		inputInitUserParams: defaultInitAccount,
-		testingFunc:         require.Equal,
-		expectedMSG:         "account IDs should match",
-		expectedUserRole:    UserRoleAdmin,
+		inputInitUserParams:    defaultInitAccount,
+		testingFunc:            require.Equal,
+		expectedMSG:            "account IDs should match",
+		expectedUserRole:       UserRoleAdmin,
+		expectedDomainCategory: PrivateCategory,
 	}
 
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5} {
+	testCase6 := test{
+		name: "Existing Account Id With Existing Reclassified Private Domain",
+		inputClaims: jwtclaims.AuthorizationClaims{
+			Domain:         defaultInitAccount.Domain,
+			UserId:         defaultInitAccount.UserId,
+			DomainCategory: PrivateCategory,
+		},
+		inputUpdateClaimAccount: true,
+		inputInitUserParams:     defaultInitAccount,
+		testingFunc:             require.Equal,
+		expectedMSG:             "account IDs should match",
+		expectedUserRole:        UserRoleAdmin,
+		expectedDomainCategory:  PrivateCategory,
+	}
+	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6} {
 		t.Run(testCase.name, func(t *testing.T) {
 
 			manager, err := createManager(t)
@@ -147,12 +168,17 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 				require.NoError(t, err, "update init user failed")
 			}
 
+			if testCase.inputUpdateClaimAccount {
+				testCase.inputClaims.AccountId = initAccount.Id
+			}
+
 			account, err := manager.GetAccountWithAuthorizationClaims(testCase.inputClaims)
 			require.NoError(t, err, "support function failed")
 
 			testCase.testingFunc(t, initAccount.Id, account.Id, testCase.expectedMSG)
 
 			require.EqualValues(t, testCase.expectedUserRole, account.Users[testCase.inputClaims.UserId].Role, "user role should match")
+			require.EqualValues(t, testCase.expectedDomainCategory, account.DomainCategory, "account domain category should match")
 		})
 	}
 }
