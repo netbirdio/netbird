@@ -23,9 +23,18 @@ type Auth0Manager struct {
 
 // Auth0ClientConfig auth0 manager client configurations
 type Auth0ClientConfig struct {
-	Audience     string `json:"audiance"`
+	Audience     string
+	AuthIssuer   string
+	ClientID     string
+	ClientSecret string
+	GrantType    string
+}
+
+// auth0JWTRequest payload struct to request a JWT Token
+type auth0JWTRequest struct {
+	Audience     string `json:"audience"`
 	AuthIssuer   string `json:"auth_issuer"`
-	ClientId     string `json:"client_id"`
+	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	GrantType    string `json:"grant_type"`
 }
@@ -40,11 +49,10 @@ type Auth0Credentials struct {
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
-func NewAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
+func NewAuth0Manager(config Auth0ClientConfig) (*Auth0Manager, error) {
 
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
-	httpTransport.IdleConnTimeout = 30
 
 	httpClient := &http.Client{
 		Timeout:   10 * time.Second,
@@ -52,6 +60,18 @@ func NewAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
 	}
 
 	helper := JsonParser{}
+
+	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.Audience == "" || config.AuthIssuer == "" {
+		return nil, fmt.Errorf("auth0 idp configuration is not complete")
+	}
+
+	if config.GrantType != "client_credentials" {
+		return nil, fmt.Errorf("auth0 idp configuration failed. Grant Type should be client_credentials")
+	}
+
+	if !strings.HasPrefix(strings.ToLower(config.AuthIssuer), "https://") {
+		return nil, fmt.Errorf("auth0 idp configuration failed. AuthIssuer should contain https://")
+	}
 
 	credentials := &Auth0Credentials{
 		clientConfig: config,
@@ -63,7 +83,7 @@ func NewAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
 		credentials: credentials,
 		httpClient:  httpClient,
 		helper:      helper,
-	}
+	}, nil
 }
 
 // jwtStillValid returns true if the token still valid and have enough time to be used and get a response from Auth0
@@ -76,7 +96,7 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 	var res *http.Response
 	url := c.clientConfig.AuthIssuer + "/oauth/token"
 
-	p, err := c.helper.Marshal(c.clientConfig)
+	p, err := c.helper.Marshal(auth0JWTRequest(c.clientConfig))
 	if err != nil {
 		return res, err
 	}
@@ -88,6 +108,8 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 	}
 
 	req.Header.Add("content-type", "application/json")
+
+	log.Debug("requesting new jwt token for idp manager")
 
 	res, err = c.httpClient.Do(req)
 	if err != nil {
@@ -186,6 +208,8 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 	}
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
+
+	log.Debugf("updating metadata for user %s", userId)
 
 	res, err := am.httpClient.Do(req)
 	if err != nil {
