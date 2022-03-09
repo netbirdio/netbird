@@ -35,10 +35,10 @@
         "AuthKeysLocation": "<PASTE YOUR AUTH0 PUBLIC JWT KEYS LOCATION HERE>"
     },
     "IdpManagerConfig": {
-        "Manager": "<none|auth0>",
+        "ManagerType": "<none|auth0>",
         "Auth0ClientCredentials": {
             "Audience": "<PASTE YOUR AUTH0 AUDIENCE HERE>",
-            "AuthIssuer": "<PASTE YOUR AUTH0 Auth Issuer HERE>",
+            "AuthIssuer": "https://<PASTE YOUR AUTH0 Auth Issuer HERE>",
             "ClientId": "<PASTE YOUR AUTH0 Application Client ID HERE>",
             "ClientSecret": "<PASTE YOUR AUTH0 Application Client Secret HERE>",
             "GrantType": "client_credentials"
