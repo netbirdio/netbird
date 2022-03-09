@@ -56,7 +56,7 @@ func NewManager(config Config) (Manager, error) {
 	case "none", "":
 		return nil, nil
 	case "auth0":
-		return NewAuth0Manager(config.Auth0ClientCredentials), nil
+		return NewAuth0Manager(config.Auth0ClientCredentials)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
