@@ -248,8 +248,13 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account,
 func (am *DefaultAccountManager) handleExistingUserAccount(existingAcc *Account, domainAcc *Account, claims jwtclaims.AuthorizationClaims) error {
 	var err error
 
-	if domainAcc == nil || existingAcc.Id != domainAcc.Id {
+	if domainAcc != nil && existingAcc.Id != domainAcc.Id {
 		err = am.updateAccountDomainAttributes(existingAcc, claims, false)
+		if err != nil {
+			return err
+		}
+	} else {
+		err = am.updateAccountDomainAttributes(existingAcc, claims, true)
 		if err != nil {
 			return err
 		}
@@ -268,24 +273,21 @@ func (am *DefaultAccountManager) handleExistingUserAccount(existingAcc *Account,
 // otherwise it will create a new account and make it primary account for the domain.
 func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims jwtclaims.AuthorizationClaims) (*Account, error) {
 	var (
-		account        *Account
-		primaryAccount bool
+		account *Account
+		err     error
 	)
 	lowerDomain := strings.ToLower(claims.Domain)
 	// if domain already has a primary account, add regular user
 	if domainAcc != nil {
 		account = domainAcc
 		account.Users[claims.UserId] = NewRegularUser(claims.UserId)
-		primaryAccount = false
 	} else {
 		account = NewAccount(claims.UserId, lowerDomain)
 		account.Users[claims.UserId] = NewAdminUser(claims.UserId)
-		primaryAccount = true
-	}
-
-	err := am.updateAccountDomainAttributes(account, claims, primaryAccount)
-	if err != nil {
-		return nil, err
+		err = am.updateAccountDomainAttributes(account, claims, true)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	err = am.updateIDPMetadata(claims.UserId, account.Id)
