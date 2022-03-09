@@ -49,7 +49,7 @@ type Auth0Credentials struct {
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
-func NewAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
+func NewAuth0Manager(config Auth0ClientConfig) (*Auth0Manager, error) {
 
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
@@ -61,6 +61,18 @@ func NewAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
 
 	helper := JsonParser{}
 
+	if config.ClientId == "" || config.ClientSecret == "" || config.GrantType == "" || config.Audience == "" || config.AuthIssuer == "" {
+		return nil, fmt.Errorf("auth0 idp configuration is not complete")
+	}
+
+	if config.GrantType != "client_credentials" {
+		return nil, fmt.Errorf("auth0 idp configuration failed. Grant Type should be client_credentials")
+	}
+
+	if !strings.HasPrefix(strings.ToLower(config.AuthIssuer), "https://") {
+		return nil, fmt.Errorf("auth0 idp configuration failed. AuthIssuer should contain https://")
+	}
+
 	credentials := &Auth0Credentials{
 		clientConfig: config,
 		httpClient:   httpClient,
@@ -71,7 +83,7 @@ func NewAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
 		credentials: credentials,
 		httpClient:  httpClient,
 		helper:      helper,
-	}
+	}, nil
 }
 
 // jwtStillValid returns true if the token still valid and have enough time to be used and get a response from Auth0

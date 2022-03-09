@@ -3,6 +3,7 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/stretchr/testify/require"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -399,6 +400,67 @@ func TestAuth0_UpdateUserAppMetadata(t *testing.T) {
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 
 			assert.Equal(t, testCase.expectedReqBody, jwtReqClient.reqBody, "request body should match")
+		})
+	}
+}
+
+func TestNewAuth0Manager(t *testing.T) {
+	type test struct {
+		name                 string
+		inputConfig          Auth0ClientConfig
+		assertErrFunc        require.ErrorAssertionFunc
+		assertErrFuncMessage string
+	}
+
+	defaultTestConfig := Auth0ClientConfig{
+		AuthIssuer:   "https://abc-auth0.eu.auth0.com",
+		Audience:     "https://abc-auth0.eu.auth0.com/api/v2/",
+		ClientId:     "abcdefg",
+		ClientSecret: "supersecret",
+		GrantType:    "client_credentials",
+	}
+
+	testCase1 := test{
+		name:                 "Good Scenario With Config",
+		inputConfig:          defaultTestConfig,
+		assertErrFunc:        require.NoError,
+		assertErrFuncMessage: "shouldn't return error",
+	}
+
+	testCase2Config := defaultTestConfig
+	testCase2Config.ClientId = ""
+
+	testCase2 := test{
+		name:                 "Missing Configuration",
+		inputConfig:          testCase2Config,
+		assertErrFunc:        require.Error,
+		assertErrFuncMessage: "shouldn't return error when field empty",
+	}
+
+	testCase3Config := defaultTestConfig
+	testCase3Config.AuthIssuer = "abc-auth0.eu.auth0.com"
+
+	testCase3 := test{
+		name:                 "Wrong Auth Issuer Format",
+		inputConfig:          testCase3Config,
+		assertErrFunc:        require.Error,
+		assertErrFuncMessage: "should return error when wrong auth issuer format",
+	}
+
+	testCase4Config := defaultTestConfig
+	testCase4Config.GrantType = "spa"
+
+	testCase4 := test{
+		name:                 "Wrong Grant Type",
+		inputConfig:          testCase4Config,
+		assertErrFunc:        require.Error,
+		assertErrFuncMessage: "should return error when wrong grant type",
+	}
+
+	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4} {
+		t.Run(testCase.name, func(t *testing.T) {
+			_, err := NewAuth0Manager(testCase.inputConfig)
+			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 		})
 	}
 }
