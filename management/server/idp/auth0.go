@@ -23,7 +23,16 @@ type Auth0Manager struct {
 
 // Auth0ClientConfig auth0 manager client configurations
 type Auth0ClientConfig struct {
-	Audience     string `json:"audiance"`
+	Audience     string
+	AuthIssuer   string
+	ClientId     string
+	ClientSecret string
+	GrantType    string
+}
+
+// auth0JWTRequest payload struct to request a JWT Token
+type auth0JWTRequest struct {
+	Audience     string `json:"audience"`
 	AuthIssuer   string `json:"auth_issuer"`
 	ClientId     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
@@ -44,7 +53,6 @@ func NewAuth0Manager(config Auth0ClientConfig) *Auth0Manager {
 
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
-	httpTransport.IdleConnTimeout = 30
 
 	httpClient := &http.Client{
 		Timeout:   10 * time.Second,
@@ -76,7 +84,7 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 	var res *http.Response
 	url := c.clientConfig.AuthIssuer + "/oauth/token"
 
-	p, err := c.helper.Marshal(c.clientConfig)
+	p, err := c.helper.Marshal(auth0JWTRequest(c.clientConfig))
 	if err != nil {
 		return res, err
 	}
