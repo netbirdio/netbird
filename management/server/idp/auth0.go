@@ -97,6 +97,8 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 
 	req.Header.Add("content-type", "application/json")
 
+	log.Debug("requesting new jwt token for idp manager")
+
 	res, err = c.httpClient.Do(req)
 	if err != nil {
 		return res, err
@@ -194,6 +196,8 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 	}
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
+
+	log.Debugf("updating metadata for user %s", userId)
 
 	res, err := am.httpClient.Do(req)
 	if err != nil {
