@@ -173,7 +173,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 				peersToSend = append(peersToSend, p)
 			}
 		}
-		update := toSyncResponse(s.config, peer, peersToSend, nil, networkMap.Network.Serial())
+		update := toSyncResponse(s.config, peer, peersToSend, nil, networkMap.Network.CurrentSerial())
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
@@ -362,7 +362,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 	} else {
 		turnCredentials = nil
 	}
-	plainResp := toSyncResponse(s.config, peer, networkMap.Peers, turnCredentials, networkMap.Network.Serial())
+	plainResp := toSyncResponse(s.config, peer, networkMap.Peers, turnCredentials, networkMap.Network.CurrentSerial())
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

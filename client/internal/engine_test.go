@@ -96,7 +96,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		expectedSerial: 1,
 	}
 
-	// 2nd case - one extra peer added and network map has Serial grater than local => apply the update
+	// 2nd case - one extra peer added and network map has CurrentSerial grater than local => apply the update
 	case2 := testCase{
 		name: "input with an old peer and a new peer to add",
 		networkMap: &mgmtProto.NetworkMap{
