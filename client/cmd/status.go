@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"github.com/wiretrustee/wiretrustee/util"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -16,6 +17,13 @@ var statusCmd = &cobra.Command{
 	Short: "status of the Wiretrustee Service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
+
+		err := util.InitLog(logLevel, logFile)
+		if err != nil {
+			log.Errorf("failed initializing log %v", err)
+			return err
+		}
+
 		ctx := internal.CtxInitState(context.Background())
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"github.com/wiretrustee/wiretrustee/util"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -15,6 +16,12 @@ var downCmd = &cobra.Command{
 	Short: "down wiretrustee connections",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
+
+		err := util.InitLog(logLevel, logFile)
+		if err != nil {
+			log.Errorf("failed initializing log %v", err)
+			return err
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
 		defer cancel()
