@@ -836,7 +836,7 @@ type NetworkMap struct {
 	// Serial is an ID of the network state to be used by clients to order updates.
 	// The larger the Serial the newer the configuration.
 	// E.g. the client app should keep track of this id locally and discard all the configurations with a lower value
-	Serial uint64 `protobuf:"varint,1,opt,name=Serial,proto3" json:"Serial,omitempty"`
+	Serial uint64 `protobuf:"varint,1,opt,name=CurrentSerial,proto3" json:"CurrentSerial,omitempty"`
 	// PeerConfig represents configuration of a peer
 	PeerConfig *PeerConfig `protobuf:"bytes,2,opt,name=peerConfig,proto3" json:"peerConfig,omitempty"`
 	// RemotePeerConfig represents a list of remote peers that the receiver can connect to

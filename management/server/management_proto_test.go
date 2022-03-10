@@ -258,7 +258,7 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	if networkMap.GetSerial() <= 0 {
-		t.Fatalf("expecting SyncResponse to have NetworkMap with a positive Network Serial, actual %d", networkMap.GetSerial())
+		t.Fatalf("expecting SyncResponse to have NetworkMap with a positive Network CurrentSerial, actual %d", networkMap.GetSerial())
 	}
 }
 

@@ -85,7 +85,7 @@ type Engine struct {
 	udpMuxConn      *net.UDPConn
 	udpMuxConnSrflx *net.UDPConn
 
-	// networkSerial is the latest Serial (state ID) of the network sent by the Management service
+	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 }
 

@@ -397,7 +397,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	serial := account.Network.Serial() //should be 0
+	serial := account.Network.CurrentSerial() //should be 0
 
 	var setupKey *SetupKey
 	for _, key := range account.SetupKeys {
@@ -409,8 +409,8 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	if account.Network.serial != 0 {
-		t.Errorf("expecting account network to have an initial serial=0")
+	if account.Network.Serial != 0 {
+		t.Errorf("expecting account network to have an initial Serial=0")
 		return
 	}
 
@@ -446,8 +446,8 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Errorf("expecting just added peer to have IP = %s, got %s", expectedPeerIP, peer.IP.String())
 	}
 
-	if account.Network.Serial() != 1 {
-		t.Errorf("expecting Network serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.Serial())
+	if account.Network.CurrentSerial() != 1 {
+		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
 	}
 
 }
@@ -498,8 +498,8 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	if account.Network.Serial() != 2 {
-		t.Errorf("expecting Network serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.Serial())
+	if account.Network.CurrentSerial() != 2 {
+		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.CurrentSerial())
 	}
 
 }
