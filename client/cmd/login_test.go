@@ -2,35 +2,17 @@ package cmd
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/wiretrustee/wiretrustee/client/internal"
 	"github.com/wiretrustee/wiretrustee/iface"
-	mgmt "github.com/wiretrustee/wiretrustee/management/server"
 	"github.com/wiretrustee/wiretrustee/util"
 )
 
-var mgmAddr string
-
-func TestLogin_Start(t *testing.T) {
-	config := &mgmt.Config{}
-	_, err := util.ReadJson("../testdata/management.json", config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	testDir := t.TempDir()
-	config.Datadir = testDir
-	err = util.CopyFileContents("../testdata/store.json", filepath.Join(testDir, "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, listener := startManagement(t, config)
-	mgmAddr = listener.Addr().String()
-}
-
 func TestLogin(t *testing.T) {
+	mgmAddr := startTestingServices(t)
+
 	tempDir := t.TempDir()
 	confPath := tempDir + "/config.json"
 	mgmtURL := fmt.Sprintf("http://%s", mgmAddr)
