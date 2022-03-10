@@ -44,7 +44,7 @@ func TestUp(t *testing.T) {
 	}()
 	time.Sleep(time.Second * 2)
 
-	timeout := 15 * time.Second
+	timeout := 30 * time.Second
 	timeoutChannel := time.After(timeout)
 	for {
 		select {
