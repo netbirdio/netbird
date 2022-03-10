@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/wiretrustee/wiretrustee/util"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -16,6 +17,13 @@ var loginCmd = &cobra.Command{
 	Short: "login to the Wiretrustee Management Service (first run)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
+
+		err := util.InitLog(logLevel, logFile)
+		if err != nil {
+			log.Errorf("failed initializing log %v", err)
+			return err
+		}
+
 		ctx := internal.CtxInitState(context.Background())
 
 		// workaround to run without service
