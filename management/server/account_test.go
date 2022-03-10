@@ -39,15 +39,16 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 	type initUserParams jwtclaims.AuthorizationClaims
 
 	type test struct {
-		name                    string
-		inputClaims             jwtclaims.AuthorizationClaims
-		inputInitUserParams     initUserParams
-		inputUpdateAttrs        bool
-		inputUpdateClaimAccount bool
-		testingFunc             require.ComparisonAssertionFunc
-		expectedMSG             string
-		expectedUserRole        UserRole
-		expectedDomainCategory  string
+		name                        string
+		inputClaims                 jwtclaims.AuthorizationClaims
+		inputInitUserParams         initUserParams
+		inputUpdateAttrs            bool
+		inputUpdateClaimAccount     bool
+		testingFunc                 require.ComparisonAssertionFunc
+		expectedMSG                 string
+		expectedUserRole            UserRole
+		expectedDomainCategory      string
+		expectedPrimaryDomainStatus bool
 	}
 
 	var (
@@ -68,11 +69,12 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         "pub-domain-user",
 			DomainCategory: PublicCategory,
 		},
-		inputInitUserParams:    defaultInitAccount,
-		testingFunc:            require.NotEqual,
-		expectedMSG:            "account IDs shouldn't match",
-		expectedUserRole:       UserRoleAdmin,
-		expectedDomainCategory: "",
+		inputInitUserParams:         defaultInitAccount,
+		testingFunc:                 require.NotEqual,
+		expectedMSG:                 "account IDs shouldn't match",
+		expectedUserRole:            UserRoleAdmin,
+		expectedDomainCategory:      "",
+		expectedPrimaryDomainStatus: false,
 	}
 
 	initUnknown := defaultInitAccount
@@ -86,11 +88,12 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         "unknown-domain-user",
 			DomainCategory: UnknownCategory,
 		},
-		inputInitUserParams:    initUnknown,
-		testingFunc:            require.NotEqual,
-		expectedMSG:            "account IDs shouldn't match",
-		expectedUserRole:       UserRoleAdmin,
-		expectedDomainCategory: "",
+		inputInitUserParams:         initUnknown,
+		testingFunc:                 require.NotEqual,
+		expectedMSG:                 "account IDs shouldn't match",
+		expectedUserRole:            UserRoleAdmin,
+		expectedDomainCategory:      "",
+		expectedPrimaryDomainStatus: false,
 	}
 
 	testCase3 := test{
@@ -100,11 +103,12 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         "pvt-domain-user",
 			DomainCategory: PrivateCategory,
 		},
-		inputInitUserParams:    defaultInitAccount,
-		testingFunc:            require.NotEqual,
-		expectedMSG:            "account IDs shouldn't match",
-		expectedUserRole:       UserRoleAdmin,
-		expectedDomainCategory: PrivateCategory,
+		inputInitUserParams:         defaultInitAccount,
+		testingFunc:                 require.NotEqual,
+		expectedMSG:                 "account IDs shouldn't match",
+		expectedUserRole:            UserRoleAdmin,
+		expectedDomainCategory:      PrivateCategory,
+		expectedPrimaryDomainStatus: true,
 	}
 
 	privateInitAccount := defaultInitAccount
@@ -118,12 +122,13 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         "pvt-domain-user",
 			DomainCategory: PrivateCategory,
 		},
-		inputUpdateAttrs:       true,
-		inputInitUserParams:    privateInitAccount,
-		testingFunc:            require.Equal,
-		expectedMSG:            "account IDs should match",
-		expectedUserRole:       UserRoleUser,
-		expectedDomainCategory: PrivateCategory,
+		inputUpdateAttrs:            true,
+		inputInitUserParams:         privateInitAccount,
+		testingFunc:                 require.Equal,
+		expectedMSG:                 "account IDs should match",
+		expectedUserRole:            UserRoleUser,
+		expectedDomainCategory:      PrivateCategory,
+		expectedPrimaryDomainStatus: true,
 	}
 
 	testCase5 := test{
@@ -133,11 +138,12 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         defaultInitAccount.UserId,
 			DomainCategory: PrivateCategory,
 		},
-		inputInitUserParams:    defaultInitAccount,
-		testingFunc:            require.Equal,
-		expectedMSG:            "account IDs should match",
-		expectedUserRole:       UserRoleAdmin,
-		expectedDomainCategory: PrivateCategory,
+		inputInitUserParams:         defaultInitAccount,
+		testingFunc:                 require.Equal,
+		expectedMSG:                 "account IDs should match",
+		expectedUserRole:            UserRoleAdmin,
+		expectedDomainCategory:      PrivateCategory,
+		expectedPrimaryDomainStatus: true,
 	}
 
 	testCase6 := test{
@@ -147,12 +153,13 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			UserId:         defaultInitAccount.UserId,
 			DomainCategory: PrivateCategory,
 		},
-		inputUpdateClaimAccount: true,
-		inputInitUserParams:     defaultInitAccount,
-		testingFunc:             require.Equal,
-		expectedMSG:             "account IDs should match",
-		expectedUserRole:        UserRoleAdmin,
-		expectedDomainCategory:  PrivateCategory,
+		inputUpdateClaimAccount:     true,
+		inputInitUserParams:         defaultInitAccount,
+		testingFunc:                 require.Equal,
+		expectedMSG:                 "account IDs should match",
+		expectedUserRole:            UserRoleAdmin,
+		expectedDomainCategory:      PrivateCategory,
+		expectedPrimaryDomainStatus: true,
 	}
 	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -177,8 +184,9 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 
 			testCase.testingFunc(t, initAccount.Id, account.Id, testCase.expectedMSG)
 
-			require.EqualValues(t, testCase.expectedUserRole, account.Users[testCase.inputClaims.UserId].Role, "user role should match")
-			require.EqualValues(t, testCase.expectedDomainCategory, account.DomainCategory, "account domain category should match")
+			require.EqualValues(t, testCase.expectedUserRole, account.Users[testCase.inputClaims.UserId].Role, "expected user role should match")
+			require.EqualValues(t, testCase.expectedDomainCategory, account.DomainCategory, "expected account domain category should match")
+			require.EqualValues(t, testCase.expectedPrimaryDomainStatus, account.IsDomainPrimaryAccount, "expected account primary status should match")
 		})
 	}
 }
