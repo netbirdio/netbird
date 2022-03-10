@@ -2,37 +2,15 @@ package cmd
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/wiretrustee/wiretrustee/client/internal"
-	mgmt "github.com/wiretrustee/wiretrustee/management/server"
-	"github.com/wiretrustee/wiretrustee/util"
 )
 
-func TestUpDaemon_Start(t *testing.T) {
-	config := &mgmt.Config{}
-	_, err := util.ReadJson("../testdata/management.json", config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	testDir := t.TempDir()
-	config.Datadir = testDir
-	err = util.CopyFileContents("../testdata/store.json", filepath.Join(testDir, "store.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, signalLis := startSignal(t)
-	signalAddr = signalLis.Addr().String()
-	config.Signal.URI = signalAddr
-
-	_, mgmLis := startManagement(t, config)
-	mgmAddr = mgmLis.Addr().String()
-}
-
 func TestUpDaemon(t *testing.T) {
+	mgmAddr := startTestingServices(t)
+
 	tempDir := t.TempDir()
 	confPath := tempDir + "/config.json"
 

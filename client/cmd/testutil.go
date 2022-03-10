@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"context"
+	"github.com/wiretrustee/wiretrustee/util"
 	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,6 +16,28 @@ import (
 	sig "github.com/wiretrustee/wiretrustee/signal/server"
 	"google.golang.org/grpc"
 )
+
+func startTestingServices(t *testing.T) string {
+	config := &mgmt.Config{}
+	_, err := util.ReadJson("../testdata/management.json", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testDir := t.TempDir()
+	config.Datadir = testDir
+	err = util.CopyFileContents("../testdata/store.json", filepath.Join(testDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, signalLis := startSignal(t)
+	signalAddr := signalLis.Addr().String()
+	config.Signal.URI = signalAddr
+
+	_, mgmLis := startManagement(t, config)
+	mgmAddr := mgmLis.Addr().String()
+	return mgmAddr
+}
 
 func startSignal(t *testing.T) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
