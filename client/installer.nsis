@@ -97,6 +97,7 @@ EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
 
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service install'
+Exec '"$INSTDIR\${MAIN_APP_EXE}" service start'
 # sleep a bit for visibility
 Sleep 1000
 SectionEnd
