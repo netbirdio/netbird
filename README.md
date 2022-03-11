@@ -199,18 +199,18 @@ For **Windows** systems:
 
 ### Troubleshooting
 
-1. If you have specified a wrong `--management-url` (e.g., just by mistake when self-hosting) 
-   to override it you can do the following:
+1.  If you have specified a wrong `--management-url` (e.g., just by mistake when self-hosting)
+    to override it you can do the following:
 
-```shell
-sudo wiretrustee down
-sudo wiretrustee up --management-url https://<CORRECT HOST:PORT>/
-```
+    ```shell
+    sudo wiretrustee down
+    sudo wiretrustee up --management-url https://<CORRECT HOST:PORT>/
+    ```
 
-2. If you are using self-hosted version and haven't specified `--management-url`, the client app will use the default URL
-   which is ```https://api.wiretrustee.com:33073```. 
-   
-   To override it see solution #1 above.
+2.  If you are using self-hosted version and haven't specified `--management-url`, the client app will use the default URL
+    which is ```https://api.wiretrustee.com:33073```.
+    
+    To override it see solution #1 above.
 
 ### Running Dashboard, Management, Signal and Coturn
 See [Self-Hosting Guide](https://docs.wiretrustee.com/getting-started/self-hosting)
