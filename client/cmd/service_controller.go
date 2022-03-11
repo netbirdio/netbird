@@ -45,6 +45,14 @@ func (p *program) Start(svc service.Service) error {
 		}
 		defer listen.Close()
 
+		if split[0] == "unix" {
+			err = os.Chmod(split[1], 0666)
+			if err != nil {
+				log.Errorf("failed setting daemon permissions: %v", split[1])
+				return
+			}
+		}
+
 		serverInstance := server.New(p.ctx, managementURL, configPath, stopCh, cleanupCh)
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed start daemon: %v", err)
