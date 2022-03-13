@@ -64,6 +64,7 @@ func (s *Server) Start() error {
 		log.Warnf("no config file, skip connection stage: %v", err)
 		return nil
 	}
+	s.config = config
 
 	go func() {
 		if err := internal.RunClient(ctx, config, s.stopCh, s.cleanupCh); err != nil {
