@@ -5,12 +5,15 @@ import (
 	"runtime"
 )
 
+// ClientConfig basic settings for the UI application.
 type ClientConfig struct {
 	configPath string
 	logFile    string
 	daemonAddr string
 }
 
+// Config object with default settings.
+//
 // We are creating this package to extract utility functions from the cmd package
 // reading and parsing the configurations for the client should be done here
 func Config() *ClientConfig {
@@ -32,10 +35,12 @@ func Config() *ClientConfig {
 	}
 }
 
+// DaemonAddr of the gRPC API.
 func (c *ClientConfig) DaemonAddr() string {
 	return c.daemonAddr
 }
 
+// LogFile path.
 func (c *ClientConfig) LogFile() string {
 	return c.logFile
 }

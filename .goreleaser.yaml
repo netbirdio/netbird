@@ -4,7 +4,6 @@ builds:
     dir: client
     binary: wiretrustee
     env: [CGO_ENABLED=0]
-
     goos:
       - linux
       - darwin
@@ -55,14 +54,50 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
+
+  - id: wiretrustee-ui
+    dir: client/ui
+    binary: wiretrustee-ui
+    env: [CGO_ENABLED=1]
+    goos:
+      - windows
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w -X github.com/wiretrustee/wiretrustee/client/ui/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
 archives:
   - builds:
       - wiretrustee
+
 nfpms:
+
+  - maintainer: Wiretrustee <dev@wiretrustee.com>
+    description: Wiretrustee client UI.
+    homepage: https://wiretrustee.com/
+    id: wiretrustee-ui-deb
+    package_name: wiretrustee-ui
+    builds:
+      - wiretrustee-ui
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: client/ui/wiretrustee.desktop
+        dst: /usr/share/applications/wiretrustee.desktop
+      - src: client/ui/wiretrustee.png
+        dst: /usr/share/icons/hicolor/256x256/wiretrustee.png
+    dependencies:
+      - libayatana-appindicator3-1
+      - libgtk-3-dev
+      - libappindicator3-dev
+
   - maintainer: Wiretrustee <dev@wiretrustee.com>
     description: Wiretrustee client.
     homepage: https://wiretrustee.com/
-    id: deb
+    id: wiretrustee-deb
     bindir: /usr/bin
     builds:
       - wiretrustee
@@ -76,7 +111,7 @@ nfpms:
   - maintainer: Wiretrustee <dev@wiretrustee.com>
     description: Wiretrustee client.
     homepage: https://wiretrustee.com/
-    id: rpm
+    id: wiretrustee-rpm
     bindir: /usr/bin
     builds:
       - wiretrustee

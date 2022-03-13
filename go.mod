@@ -28,7 +28,7 @@ require (
 )
 
 require (
-	github.com/getlantern/systray v1.2.0
+	github.com/getlantern/systray v1.2.1
 	github.com/magiconair/properties v1.8.5
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
