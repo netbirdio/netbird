@@ -153,7 +153,7 @@ func (conn *Conn) Open() error {
 	defer func() {
 		err := conn.cleanup()
 		if err != nil {
-			log.Errorf("error while cleaning up peer connection %s: %v", conn.config.Key, err)
+			log.Warnf("error while cleaning up peer connection %s: %v", conn.config.Key, err)
 			return
 		}
 	}()
