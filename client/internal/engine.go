@@ -123,6 +123,10 @@ func (e *Engine) Stop() error {
 		return err
 	}
 
+	// very ugly but we want to remove peers from the WireGuard interface first before removing interface.
+	// Removing peers happens in the conn.CLose() asynchronously
+	time.Sleep(500 * time.Millisecond)
+
 	log.Debugf("removing Wiretrustee interface %s", e.config.WgIfaceName)
 	if e.wgInterface.Interface != nil {
 		err = e.wgInterface.Close()
@@ -489,7 +493,7 @@ func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
 
 		// if peer has been removed -> give up
 		if !e.peerExists(peerKey) {
-			log.Infof("peer %s doesn't exist anymore, won't retry connection", peerKey)
+			log.Debugf("peer %s doesn't exist anymore, won't retry connection", peerKey)
 			return
 		}
 
