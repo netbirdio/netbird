@@ -86,12 +86,18 @@ func ReadConfig(managementURL string, configPath string) (*Config, error) {
 		return nil, err
 	}
 
-	if managementURL != "" {
+	if managementURL != "" && config.ManagementURL.String() != managementURL {
 		URL, err := parseManagementURL(managementURL)
 		if err != nil {
 			return nil, err
 		}
 		config.ManagementURL = URL
+		// since we have new management URL, we need to update config file
+		err = util.WriteJson(configPath, config)
+		if err != nil {
+			return nil, err
+		}
+		log.Infof("new Management URL provided, updated to %s (old value %s)", managementURL, config.ManagementURL)
 	}
 
 	return config, err
