@@ -22,7 +22,7 @@ remove() {
 
   fi
   printf "\033[32m Uninstalling the service\033[0m\n"
-  /usr/local/bin/wiretrustee service uninstall || true
+  /usr/bin/wiretrustee service uninstall || true
 
 
   if [ "${use_systemctl}" = "True" ]; then
