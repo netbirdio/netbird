@@ -51,7 +51,6 @@ jobs:
         uses: goreleaser/goreleaser-action@v2
         with:
           version: 1.6.3
-          bindir: /usr/bin
           args: release --rm-dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
