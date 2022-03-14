@@ -63,6 +63,7 @@ nfpms:
     description: Wiretrustee client.
     homepage: https://wiretrustee.com/
     id: deb
+    bindir: /usr/bin
     builds:
       - wiretrustee
     formats:
@@ -76,6 +77,7 @@ nfpms:
     description: Wiretrustee client.
     homepage: https://wiretrustee.com/
     id: rpm
+    bindir: /usr/bin
     builds:
       - wiretrustee
     formats:

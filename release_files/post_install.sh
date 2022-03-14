@@ -12,8 +12,8 @@ fi
 cleanInstall() {
     printf "\033[32m Post Install of an clean install\033[0m\n"
     # Step 3 (clean install), enable the service in the proper way for this platform
-    /usr/local/bin/wiretrustee service install
-    /usr/local/bin/wiretrustee service start
+    /usr/bin/wiretrustee service install
+    /usr/bin/wiretrustee service start
 }
 
 upgrade() {
@@ -27,9 +27,9 @@ upgrade() {
       systemctl daemon-reload
     fi
     # will trow an error until everyone upgrade
-    /usr/local/bin/wiretrustee service uninstall 2> /dev/null || true
-    /usr/local/bin/wiretrustee service install
-    /usr/local/bin/wiretrustee service start
+    /usr/bin/wiretrustee service uninstall 2> /dev/null || true
+    /usr/bin/wiretrustee service install
+    /usr/bin/wiretrustee service start
 }
 
 # Check if this is a clean install or an upgrade

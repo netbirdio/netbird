@@ -135,12 +135,12 @@ Hosted version:
 3. Decompress
   ```shell
   tar xcf ./wiretrustee_<VERSION>_darwin_amd64.tar.gz
-  sudo mv wiretrusee /usr/local/bin/wiretrustee
-  chmod +x /usr/local/bin/wiretrustee
+  sudo mv wiretrusee /usr/bin/wiretrustee
+  chmod +x /usr/bin/wiretrustee
   ```
-After that you may need to add /usr/local/bin in your PATH environment variable:
+After that you may need to add /usr/bin in your PATH environment variable:
   ````shell
-  export PATH=$PATH:/usr/local/bin
+  export PATH=$PATH:/usr/bin
   ````
 4. Install and run the service
 ```shell

@@ -18,7 +18,7 @@ var statusCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
-		err := util.InitLog(logLevel, logFile)
+		err := util.InitLog(logLevel, "console")
 		if err != nil {
 			log.Errorf("failed initializing log %v", err)
 			return err
