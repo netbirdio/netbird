@@ -64,6 +64,7 @@ jobs:
       -
         name: Trigger Windows binaries sign pipeline
         uses: benc-uk/workflow-dispatch@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           workflow: Sign windows bin and installer
           repo: wiretrustee/windows-sign-pipeline

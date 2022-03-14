@@ -8,6 +8,10 @@ import (
 	"github.com/wiretrustee/wiretrustee/client/internal"
 )
 
+var (
+	cliAddr string
+)
+
 func TestUpDaemon(t *testing.T) {
 	mgmAddr := startTestingServices(t)
 
