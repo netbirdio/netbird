@@ -42,6 +42,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: enable defender
+        run: Set-MpPreference -DisableRealtimeMonitoring $false
+
       - uses: actions/download-artifact@v2
         with:
           name: syso
