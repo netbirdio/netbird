@@ -334,7 +334,7 @@ loop:
 		select {
 		case <-timeoutChan:
 			log.Infof("waiting for expected connections timeout after %s", timeout.String())
-			return
+			break loop
 		case <-ticker.C:
 			totalConnected := 0
 			for _, engine := range engines {
