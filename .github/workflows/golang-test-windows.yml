@@ -30,15 +30,6 @@ jobs:
         with:
           go-version: ${{ matrix.go-version }}
 
-#      - uses: actions/cache@v2
-#        with:
-#          path: |
-#            %LocalAppData%\go-build
-#            ~/go/pkg/mod
-#          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-#          restore-keys: |
-#            ${{ runner.os }}-go-
-
       - uses: actions/download-artifact@v2
         with:
           name: syso
@@ -48,4 +39,4 @@ jobs:
         run: go mod tidy
 
       - name: Test
-        run: go test -tags=load_wgnt_from_rsrc ./...
+        run: go test -tags=load_wgnt_from_rsrc -timeout 5m ./...
