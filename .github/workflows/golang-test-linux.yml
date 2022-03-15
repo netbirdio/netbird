@@ -40,5 +40,5 @@ jobs:
 
       - name: Test
         env:
-          GOPATH=$GOROOT
+          GOPATH: $GOROOT
         run: GOBIN=$(which go) && sudo --preserve-env=GOROOT --preserve-env=GOPATH $GOBIN test -timeout 5m ./...
