@@ -6,7 +6,7 @@ jobs:
     strategy:
       matrix:
         go-version: [1.17.x]
-        run: [1,2,3,4,5]
+        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
