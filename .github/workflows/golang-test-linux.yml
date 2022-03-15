@@ -39,6 +39,4 @@ jobs:
         run: go mod tidy
 
       - name: Test
-        env:
-          GOPATH: ${{ env.GOROOT }}
-        run: GOBIN=$(which go) && sudo --preserve-env=GOROOT --preserve-env=GOPATH $GOBIN test -timeout 5m ./...
+        run: go test -exec sudo -timeout 5m ./...
