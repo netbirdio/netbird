@@ -20,11 +20,11 @@ func (w *WGIface) Create() error {
 	}
 	w.Interface = adapter
 	luid := adapter.LUID()
-	err = adapter.SetLogging(driver.AdapterLogOn)
-	if err != nil {
-		err = fmt.Errorf("Error enabling adapter logging: %w", err)
-		return err
-	}
+	//err = adapter.SetLogging(driver.AdapterLogOn)
+	//if err != nil {
+	//	err = fmt.Errorf("Error enabling adapter logging: %w", err)
+	//	return err
+	//}
 	err = adapter.SetAdapterState(driver.AdapterStateUp)
 	if err != nil {
 		return err
