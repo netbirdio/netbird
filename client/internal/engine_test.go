@@ -356,7 +356,6 @@ loop:
 			}
 			log.Infof("total connected=%d", totalConnected)
 		}
-
 	}
 	// cleanup test
 	for n, peerEngine := range engines {
