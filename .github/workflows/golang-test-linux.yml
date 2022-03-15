@@ -2,6 +2,7 @@ name: Test Code Linux
 on: [push,pull_request]
 jobs:
   test:
+    timeout-minutes: 5
     strategy:
       matrix:
         go-version: [1.17.x]
