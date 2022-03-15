@@ -308,13 +308,15 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		go func() {
 			engine, err := createEngine(ctx, cancel, setupKey, j, mport, sport)
 			if err != nil {
+				wg.Done()
 				return
 			}
 			mu.Lock()
 			defer mu.Unlock()
 			err = engine.Start()
 			if err != nil {
-				t.Fatalf("unable to start engine for peer %d with error %v", j, err)
+				t.Errorf("unable to start engine for peer %d with error %v", j, err)
+				wg.Done()
 				return
 			}
 			engines = append(engines, engine)
@@ -324,6 +326,9 @@ func TestEngine_MultiplePeers(t *testing.T) {
 
 	// wait until all have been created and started
 	wg.Wait()
+	if len(engines) != numPeers {
+		t.Fatal("not all peers was started")
+	}
 	// check whether all the peer have expected peers connected
 
 	expectedConnected := numPeers * (numPeers - 1)
