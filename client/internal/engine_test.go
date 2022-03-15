@@ -312,7 +312,11 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			engine.Start() //nolint
+			err = engine.Start()
+			if err != nil {
+				t.Fatalf("unable to start engine for peer %d with error %v", j, err)
+				return
+			}
 			engines = append(engines, engine)
 			wg.Done()
 		}()
@@ -333,7 +337,7 @@ loop:
 	for {
 		select {
 		case <-timeoutChan:
-			log.Infof("waiting for expected connections timeout after %s", timeout.String())
+			t.Fatalf("waiting for expected connections timeout after %s", timeout.String())
 			break loop
 		case <-ticker.C:
 			totalConnected := 0
