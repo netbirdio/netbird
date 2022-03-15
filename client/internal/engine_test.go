@@ -309,6 +309,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 			engine, err := createEngine(ctx, cancel, setupKey, j, mport, sport)
 			if err != nil {
 				wg.Done()
+				t.Errorf("unable to create the engine for peer %d with error %v", j, err)
 				return
 			}
 			mu.Lock()
