@@ -2,11 +2,9 @@ name: Test Code Linux
 on: [push,pull_request]
 jobs:
   test:
-    timeout-minutes: 5
     strategy:
       matrix:
         go-version: [1.17.x]
-        run: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
@@ -41,4 +39,6 @@ jobs:
         run: go mod tidy
 
       - name: Test
-        run: GOBIN=$(which go) && sudo --preserve-env=GOROOT $GOBIN test ./...
+        env:
+          GOPATH=$GOROOT
+        run: GOBIN=$(which go) && sudo --preserve-env=GOROOT --preserve-env=GOPATH $GOBIN test -timeout 5m ./...
