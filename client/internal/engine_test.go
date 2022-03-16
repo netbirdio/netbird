@@ -308,11 +308,18 @@ func TestEngine_MultiplePeers(t *testing.T) {
 		go func() {
 			engine, err := createEngine(ctx, cancel, setupKey, j, mport, sport)
 			if err != nil {
+				wg.Done()
+				t.Errorf("unable to create the engine for peer %d with error %v", j, err)
 				return
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			engine.Start() //nolint
+			err = engine.Start()
+			if err != nil {
+				t.Errorf("unable to start engine for peer %d with error %v", j, err)
+				wg.Done()
+				return
+			}
 			engines = append(engines, engine)
 			wg.Done()
 		}()
@@ -320,33 +327,39 @@ func TestEngine_MultiplePeers(t *testing.T) {
 
 	// wait until all have been created and started
 	wg.Wait()
+	if len(engines) != numPeers {
+		t.Fatal("not all peers was started")
+	}
 	// check whether all the peer have expected peers connected
 
 	expectedConnected := numPeers * (numPeers - 1)
+
 	// adjust according to timeouts
 	timeout := 50 * time.Second
 	timeoutChan := time.After(timeout)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+loop:
 	for {
 		select {
 		case <-timeoutChan:
 			t.Fatalf("waiting for expected connections timeout after %s", timeout.String())
-			return
-		default:
+			break loop
+		case <-ticker.C:
+			totalConnected := 0
+			for _, engine := range engines {
+				totalConnected = totalConnected + len(engine.GetConnectedPeers())
+			}
+			if totalConnected == expectedConnected {
+				log.Infof("total connected=%d", totalConnected)
+				break loop
+			}
+			log.Infof("total connected=%d", totalConnected)
 		}
-		time.Sleep(time.Second)
-		totalConnected := 0
-		for _, engine := range engines {
-			totalConnected = totalConnected + len(engine.GetConnectedPeers())
-		}
-		if totalConnected == expectedConnected {
-			log.Debugf("total connected=%d", totalConnected)
-			break
-		}
-		log.Infof("total connected=%d", totalConnected)
 	}
-
 	// cleanup test
-	for _, peerEngine := range engines {
+	for n, peerEngine := range engines {
+		t.Logf("stopping peer with interface %s from multipeer test, loopIndex %d", peerEngine.wgInterface.Name, n)
 		errStop := peerEngine.mgmClient.Close()
 		if errStop != nil {
 			log.Infoln("got error trying to close management clients from engine: ", errStop)
