@@ -22,6 +22,9 @@ jobs:
         go-version: [1.17.x]
     runs-on: windows-latest
     steps:
+      - name: disable defender
+        run: Set-MpPreference -DisableRealtimeMonitoring $true
+
       - name: Checkout code
         uses: actions/checkout@v2
 
@@ -39,13 +42,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
+      - name: enable defender
+        run: Set-MpPreference -DisableRealtimeMonitoring $false
+
       - uses: actions/download-artifact@v2
         with:
           name: syso
           path: iface\
 
-      - name: Install modules
-        run: go mod tidy
+#      - name: Install modules
+#        run: go mod tidy
 
       - name: Test
-        run: go test -tags=load_wgnt_from_rsrc ./...
+        run: go test -tags=load_wgnt_from_rsrc -timeout 5m -p 1 ./...
