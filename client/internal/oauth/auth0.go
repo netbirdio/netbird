@@ -112,7 +112,8 @@ func (a *Auth0) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
 	return deviceCode, err
 }
 
-// WaitToken waits user's login and authorization. Once the user's login it retrieves the access token
+// WaitToken waits user's login and authorize the app. Once the user's authorize
+// it retrieves the access token from Auth0's endpoint and validates it before returning
 func (a *Auth0) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error) {
 	ticker := time.NewTicker(time.Duration(info.Interval) * time.Second)
 	for {
@@ -183,7 +184,7 @@ func (a *Auth0) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, 
 	}
 }
 
-// isValidAccessToken simple validation of the access token
+// isValidAccessToken is a simple validation of the access token
 func isValidAccessToken(token string, audience string) error {
 	if token == "" {
 		return fmt.Errorf("token received is empty")
