@@ -154,7 +154,7 @@ func TestAuth0_WaitToken(t *testing.T) {
 
 	// payload,timeout,error 500,error conn,error response, invalid token,good req
 	tokenReqPayload := TokenRequestPayload{
-		GrantType:  Auth0GrantType,
+		GrantType:  auth0GrantType,
 		DeviceCode: defaultInfo.DeviceCode,
 		ClientID:   "test",
 	}

@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-const Auth0GrantType = "urn:ietf:params:oauth:grant-type:device_code"
+// auth0GrantType grant type for device flow on Auth0
+const auth0GrantType = "urn:ietf:params:oauth:grant-type:device_code"
 
 // Auth0 client
 type Auth0 struct {
@@ -121,7 +122,7 @@ func (a *Auth0) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, 
 		case <-ticker.C:
 			url := "https://" + a.Domain + "/oauth/token"
 			tokenReqPayload := TokenRequestPayload{
-				GrantType:  Auth0GrantType,
+				GrantType:  auth0GrantType,
 				DeviceCode: info.DeviceCode,
 				ClientID:   a.ClientID,
 			}
