@@ -248,7 +248,7 @@ func TestAuth0_WaitToken(t *testing.T) {
 		inputResBody:      fmt.Sprintf("{\"access_token\":\"%s\"}", tokenString),
 		inputTimeout:      time.Duration(defaultInfo.ExpiresIn) * time.Second,
 		inputMaxReqs:      2,
-		inputCountResBody: fmt.Sprintf("{\"error\":\"authorization_pending\"}"),
+		inputCountResBody: "{\"error\":\"authorization_pending\"}",
 		inputReqCode:      200,
 		inputAudience:     audience,
 		testingErrFunc:    require.NoError,
