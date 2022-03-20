@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0 # It is required for GoReleaser to work properly
           
       - name: Install dependencies
-        run: brew install --cask docker
+        run: brew install --cask docker && brew install docker
 
       - name: Generate syso with DLL
         run: bash -x wireguard_nt.sh
