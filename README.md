@@ -126,7 +126,7 @@ Hosted version:
   ```shell
   brew install wiretrustee/client/wiretrustee
   ```
-**Installation from binary** 
+**Installation from binary**
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
 2. Download the latest release (**Switch VERSION to the latest**):
   ```shell
@@ -138,15 +138,15 @@ Hosted version:
   sudo mv wiretrusee /usr/bin/wiretrustee
   chmod +x /usr/bin/wiretrustee
   ```
-After that you may need to add /usr/bin in your PATH environment variable:
+  After that you may need to add /usr/bin in your PATH environment variable:
   ````shell
   export PATH=$PATH:/usr/bin
   ````
 4. Install and run the service
-```shell
+  ```shell
   sudo wiretrustee service install
-  sudo wiretrustee service start    
-```
+  sudo wiretrustee service start
+  ```
 
 #### Windows
 1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
