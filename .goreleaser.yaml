@@ -68,9 +68,29 @@ builds:
       - -s -w -X github.com/wiretrustee/wiretrustee/client/ui/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
 
+  - id: wiretrustee-ui-darwin
+    dir: client/ui
+    binary: wiretrustee-ui
+    env: [CGO_ENABLED=1]
+
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    gomips:
+      - hardfloat
+      - softfloat
+    ldflags:
+      - -s -w -X github.com/wiretrustee/wiretrustee/client/ui/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    tags:
+      - load_wgnt_from_rsrc
+
 archives:
   - builds:
       - wiretrustee
+      - wiretrustee-ui-darwin
 
 nfpms:
 
@@ -352,6 +372,9 @@ docker_manifests:
 
 brews:
   -
+    name: wiretrustee
+    ids: 
+    - wiretrustee
     tap:
       owner: wiretrustee
       name: homebrew-client
@@ -365,6 +388,24 @@ brews:
     license: "BSD3"
     test: |
       system "#{bin}/{{ .ProjectName	}} -h"
+  -
+    name: wiretrustee-ui-darwin
+    ids: 
+    - wiretrustee-ui-darwin
+    tap:
+      owner: wiretrustee
+      name: homebrew-client
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: Wiretrustee
+      email: wiretrustee@wiretrustee.com
+    description: Wiretrustee Client UI.
+    download_strategy: CurlDownloadStrategy
+    homepage: https://wiretrustee.com/
+    license: "BSD3"
+    test: |
+      system "#{bin}/{{ .ProjectName	}} -h"
+      
 
 uploads:
   - name: debian
