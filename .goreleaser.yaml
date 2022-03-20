@@ -90,6 +90,7 @@ builds:
 archives:
   - builds:
       - wiretrustee
+      - wiretrustee-ui
       - wiretrustee-ui-darwin
 
 nfpms:
