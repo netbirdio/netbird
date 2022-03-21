@@ -5,6 +5,7 @@ import (
 	"github.com/99designs/keyring"
 )
 
+// ServiceName default service name for saving the secret
 const ServiceName = "Wiretrustee"
 
 func newSecretAPI() (keyring.Keyring, error) {
@@ -14,6 +15,7 @@ func newSecretAPI() (keyring.Keyring, error) {
 	})
 }
 
+// SetSecret stores the secret in the system's available backend
 func SetSecret(key string, value string) error {
 	storeAPI, err := newSecretAPI()
 	if err != nil {
@@ -32,6 +34,8 @@ func SetSecret(key string, value string) error {
 
 	return nil
 }
+
+// GetSecret retrieves a secret from the system's available backend
 func GetSecret(key string) (string, error) {
 	storeAPI, err := newSecretAPI()
 	if err != nil {
@@ -46,6 +50,7 @@ func GetSecret(key string) (string, error) {
 	return string(item.Data), nil
 }
 
+// DeleteSecret deletes a secret from the system's available backend
 func DeleteSecret(key string) error {
 	storeAPI, err := newSecretAPI()
 	if err != nil {
