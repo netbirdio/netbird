@@ -52,7 +52,7 @@ type TokenRequestResponse struct {
 
 // Claims used when validating the access token
 type Claims struct {
-	Audiance string `json:"aud"`
+	Audience string `json:"aud"`
 }
 
 // NewAuth0DeviceFlow returns an Auth0 OAuth client
@@ -185,7 +185,7 @@ func (a *Auth0) RotateAccessToken(ctx context.Context, refreshToken string) (Tok
 		return TokenInfo{}, fmt.Errorf("rotate access token: %v", err)
 	}
 
-	if statusCode > 499 {
+	if statusCode != 200 {
 		return TokenInfo{}, fmt.Errorf("rotating token returned error: %s", string(body))
 	}
 
@@ -254,7 +254,7 @@ func isValidAccessToken(token string, audience string) error {
 		return err
 	}
 
-	if claims.Audiance != audience {
+	if claims.Audience != audience {
 		return fmt.Errorf("invalid audience")
 	}
 
