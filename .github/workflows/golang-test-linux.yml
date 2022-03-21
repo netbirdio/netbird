@@ -38,5 +38,7 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
+      - run: sudo apt-get install pass gnome-keyring dbus-x11
+
       - name: Test
         run: go test -exec sudo -timeout 5m -p 1 ./...
