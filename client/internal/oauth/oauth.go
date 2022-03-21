@@ -32,5 +32,6 @@ type TokenInfo struct {
 // Client is a OAuth client interface for various idp providers
 type Client interface {
 	RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error)
+	RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error)
 	WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error)
 }
