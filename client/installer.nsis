@@ -15,6 +15,13 @@
 !define REG_ROOT "HKLM"
 !define REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${MAIN_APP_EXE}"
 !define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
+
+!define UI_APP_NAME "Wiretrustee UI"
+!define UI_APP_EXE "Wiretrustee"
+
+!define UI_REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${UI_APP_EXE}"
+!define UI_UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UI_APP_NAME}"
+
 Unicode True
 
 ######################################################################
@@ -77,6 +84,7 @@ Section -MainProgram
 	SetOverwrite ifnewer
 	SetOutPath "$INSTDIR"
 	File /r "..\\dist\\wiretrustee_windows_amd64\\"
+	File /r "..\\dist\\wiretrustee-ui_windows_amd64\\"
 
 SectionEnd
 
@@ -92,6 +100,13 @@ WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\wiretru
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${MAIN_APP_EXE}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
+
+WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
+WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "DisplayName" "${UI_APP_NAME}"
+WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\wiretrustee_uninstall.exe"
+WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${UI_APP_EXE}"
+WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
+WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
