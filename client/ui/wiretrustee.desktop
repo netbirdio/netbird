@@ -1,0 +1,9 @@
+#!/usr/bin/env xdg-open
+[Desktop Entry]
+Version=1.0
+Terminal=false
+Type=Application
+Name=Wiretrustee UI
+Exec=/usr/bin/wiretrustee-ui
+Icon=/usr/share/icons/hicolor/256x256/wiretrustee.png
+Comment=Wiretrustee client UI.
