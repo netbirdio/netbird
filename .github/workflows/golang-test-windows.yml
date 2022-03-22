@@ -19,7 +19,7 @@ jobs:
     needs: pre
     strategy:
       matrix:
-        go-version: [1.17.x]
+        go-version: [1.18.x]
     runs-on: windows-latest
     steps:
       - name: disable defender
