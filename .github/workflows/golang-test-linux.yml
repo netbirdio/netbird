@@ -30,5 +30,7 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
+      - run: env
+
       - name: Test
         run: go test -exec sudo -timeout 5m -p 1 ./...
