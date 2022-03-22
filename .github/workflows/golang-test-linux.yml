@@ -11,18 +11,7 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: ${{ matrix.go-version }}
-#      - name: update limits.d
-#        run: |
-#          cat <<'EOF' | sudo tee -a /etc/security/limits.d/wt.conf
-#          root soft     nproc          65535
-#          root hard     nproc          65535
-#          root soft     nofile         65535
-#          root hard     nofile         65535
-#          $(whoami) soft     nproc          65535
-#          $(whoami) hard     nproc          65535
-#          $(whoami) soft     nofile         65535
-#          $(whoami) hard     nofile         65535
-#          EOF
+
 
       - name: Cache Go modules
         uses: actions/cache@v2
@@ -37,8 +26,6 @@ jobs:
 
       - name: Install modules
         run: go mod tidy
-
-      - run: sudo apt-get install pass gnome-keyring dbus-x11
 
       - name: Test
         run: go test -exec sudo -timeout 5m -p 1 ./...
