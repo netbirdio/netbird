@@ -21,7 +21,7 @@ If you would like to learn more about the architecture please refer to the [Wire
 - Docker Compose installed (see [Install Docker Compose](https://docs.docker.com/compose/install/)).
 - Domain name pointing to the public IP address of your server.
 - Wiretrustee Open ports ```443, 33071, 33073, 10000``` (Dashboard, Management HTTP API, Management gRpc API, Signal gRpc) on your server. 
-- Coturn is used for relay using the STUN/TURN protocols. It requires a listening port, ```UDP 3478```,  and range of ports,```UDP 49152-65535```, for dynamic relay connections.
+- Coturn is used for relay using the STUN/TURN protocols. It requires a listening port, ```UDP 3478```,  and range of ports,```UDP 49152-65535```, for dynamic relay connections. These are set as defaults in [setup file](https://github.com/wiretrustee/wiretrustee/blob/76db9afa11853ddc7a9500019d402a685468a8f9/infrastructure_files/setup.env#L34), but can be configured to your requirements. 
 - Maybe a cup of coffee or tea :)
 
 ### Step-by-step guide
