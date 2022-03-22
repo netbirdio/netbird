@@ -9,7 +9,7 @@ import (
 func TestSecret(t *testing.T) {
 	// this test is not ready to run as part of our ci/cd
 	// todo fix testing
-	if os.Getenv("CI") != "true" {
+	if os.Getenv("CI") == "true" {
 		t.Skip("skipping testing in github actions")
 	}
 
