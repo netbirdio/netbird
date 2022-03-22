@@ -1,3 +1,6 @@
+//go:build windows
+// +build windows
+
 package oauth
 
 import (
@@ -8,6 +11,8 @@ import (
 
 func TestSecret(t *testing.T) {
 	// this test is not ready to run as part of our ci/cd
+	// it still running when using -exec sudo as environment variables aren't
+	// propagated to sudo session
 	// todo fix testing
 	if os.Getenv("CI") == "true" {
 		t.Skip("skipping testing in github actions")
