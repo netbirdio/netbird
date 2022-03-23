@@ -151,28 +151,31 @@ func (s *serviceClient) updateStatus() {
 
 func (s *serviceClient) onTrayReady() {
 	systray.SetTemplateIcon(iconDisconnected, iconDisconnected)
+
+	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
+	s.mStatus.Disable()
+
+	systray.AddSeparator()
+
+	s.mUp = systray.AddMenuItem("Up", "Up")
+
+	s.mDown = systray.AddMenuItem("Down", "Down")
+	s.mDown.Disable()
+
+	mURL := systray.AddMenuItem("Open UI", "wiretrustee website")
+
+	systray.AddSeparator()
+
+	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
+
 	go func() {
-		s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
-		s.mStatus.Disable()
-
-		systray.AddSeparator()
-
-		s.mUp = systray.AddMenuItem("Up", "Up")
-
-		s.mDown = systray.AddMenuItem("Down", "Down")
-		s.mDown.Disable()
-
-		mURL := systray.AddMenuItem("Open UI", "wiretrustee website")
-
-		systray.AddSeparator()
-
-		mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
-
+		for {
 		s.updateStatus()
+			time.Sleep(time.Second * 3)
+		}
+	}()
 
-		ticker := time.NewTicker(time.Second * 3)
-		defer ticker.Stop()
-
+	go func() {
 		var err error
 		for {
 			select {
@@ -191,8 +194,6 @@ func (s *serviceClient) onTrayReady() {
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return
-			case <-ticker.C:
-				s.updateStatus()
 			}
 			if err != nil {
 				log.Errorf("process connection: %v", err)
