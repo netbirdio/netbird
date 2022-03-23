@@ -4,8 +4,13 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	_ "embed"
@@ -21,6 +26,11 @@ import (
 
 func main() {
 	var daemonAddr string
+
+	if err := checkPIDFile(); err != nil {
+		fmt.Println(err)
+		return
+	}
 
 	defaultDaemonAddr := "unix:///var/run/wiretrustee.sock"
 	if runtime.GOOS == "windows" {
@@ -213,4 +223,20 @@ func (s *serviceClient) client() (proto.DaemonServiceClient, error) {
 
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
+}
+
+// checkPIDFile exists and return error, or write new.
+func checkPIDFile() error {
+	pidFile := path.Join(os.TempDir(), "wiretrustee-ui.pid")
+	if piddata, err := ioutil.ReadFile(pidFile); err == nil {
+		if pid, err := strconv.Atoi(string(piddata)); err == nil {
+			if process, err := os.FindProcess(pid); err == nil {
+				if err := process.Signal(syscall.Signal(0)); err == nil {
+					return fmt.Errorf("process already exists: %d", pid)
+				}
+			}
+		}
+	}
+
+	return ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664)
 }
