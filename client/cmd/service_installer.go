@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"runtime"
 
 	"github.com/spf13/cobra"
@@ -28,7 +29,9 @@ var installCmd = &cobra.Command{
 			svcConfig.Dependencies = []string{"After=network.target syslog.target"}
 		}
 
-		s, err := newSVC(newProgram(cmd, args), svcConfig)
+		ctx, cancel := context.WithCancel(cmd.Context())
+
+		s, err := newSVC(newProgram(ctx, cancel), svcConfig)
 		if err != nil {
 			cmd.PrintErrln(err)
 			return err
@@ -50,7 +53,9 @@ var uninstallCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		SetFlagsFromEnvVars()
 
-		s, err := newSVC(newProgram(cmd, args), newSVCConfig())
+		ctx, cancel := context.WithCancel(cmd.Context())
+
+		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
 			cmd.PrintErrln(err)
 			return
@@ -64,4 +69,3 @@ var uninstallCmd = &cobra.Command{
 		cmd.Println("Wiretrustee has been uninstalled")
 	},
 }
-

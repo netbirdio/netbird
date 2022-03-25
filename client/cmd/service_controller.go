@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -53,7 +54,7 @@ func (p *program) Start(svc service.Service) error {
 			}
 		}
 
-		serverInstance := server.New(p.ctx, managementURL, configPath, stopCh, cleanupCh)
+		serverInstance := server.New(p.ctx, managementURL, configPath)
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed start daemon: %v", err)
 		}
@@ -68,22 +69,13 @@ func (p *program) Start(svc service.Service) error {
 }
 
 func (p *program) Stop(srv service.Service) error {
-	// stop CLI daemon service
-	if p.serv == nil {
-		p.Start(srv)
+	p.cancel()
+
+	if p.serv != nil {
+		p.serv.Stop()
 	}
 
-	go func() {
-		stopCh <- 1
-	}()
-
-	p.serv.GracefulStop()
-
-	select {
-	case <-cleanupCh:
-	case <-time.After(time.Second * 10):
-		log.Warnf("failed waiting for service cleanup, terminating")
-	}
+	time.Sleep(time.Second * 2)
 	log.Info("stopped Wiretrustee service") //nolint
 	return nil
 }
@@ -100,9 +92,10 @@ var runCmd = &cobra.Command{
 			return
 		}
 
-		SetupCloseHandler()
+		ctx, cancel := context.WithCancel(cmd.Context())
+		SetupCloseHandler(ctx, cancel)
 
-		s, err := newSVC(newProgram(cmd, args), newSVCConfig())
+		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
 			cmd.PrintErrln(err)
 			return
@@ -127,7 +120,10 @@ var startCmd = &cobra.Command{
 			log.Errorf("failed initializing log %v", err)
 			return err
 		}
-		s, err := newSVC(newProgram(cmd, args), newSVCConfig())
+
+		ctx, cancel := context.WithCancel(cmd.Context())
+
+		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
 			cmd.PrintErrln(err)
 			return err
@@ -152,7 +148,10 @@ var stopCmd = &cobra.Command{
 		if err != nil {
 			log.Errorf("failed initializing log %v", err)
 		}
-		s, err := newSVC(newProgram(cmd, args), newSVCConfig())
+
+		ctx, cancel := context.WithCancel(cmd.Context())
+
+		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
 			cmd.PrintErrln(err)
 			return
@@ -176,7 +175,10 @@ var restartCmd = &cobra.Command{
 		if err != nil {
 			log.Errorf("failed initializing log %v", err)
 		}
-		s, err := newSVC(newProgram(cmd, args), newSVCConfig())
+
+		ctx, cancel := context.WithCancel(cmd.Context())
+
+		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
 			cmd.PrintErrln(err)
 			return

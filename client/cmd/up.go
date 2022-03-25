@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"context"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/wiretrustee/wiretrustee/util"
@@ -38,8 +40,10 @@ var upCmd = &cobra.Command{
 				return err
 			}
 
-			SetupCloseHandler()
-			return internal.RunClient(ctx, config, stopCh, cleanupCh)
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithCancel(ctx)
+			SetupCloseHandler(ctx, cancel)
+			return internal.RunClient(ctx, config)
 		}
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)

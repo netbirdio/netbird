@@ -18,8 +18,6 @@ type Server struct {
 
 	managementURL string
 	configPath    string
-	stopCh        chan int
-	cleanupCh     chan<- struct{}
 
 	mutex  sync.Mutex
 	config *internal.Config
@@ -27,16 +25,11 @@ type Server struct {
 }
 
 // New server instance constructor.
-func New(
-	ctx context.Context, managementURL, configPath string,
-	stopCh chan int, cleanupCh chan<- struct{},
-) *Server {
+func New(ctx context.Context, managementURL, configPath string) *Server {
 	return &Server{
 		rootCtx:       ctx,
 		managementURL: managementURL,
 		configPath:    configPath,
-		stopCh:        stopCh,
-		cleanupCh:     cleanupCh,
 	}
 }
 
@@ -67,7 +60,7 @@ func (s *Server) Start() error {
 	s.config = config
 
 	go func() {
-		if err := internal.RunClient(ctx, config, s.stopCh, s.cleanupCh); err != nil {
+		if err := internal.RunClient(ctx, config); err != nil {
 			log.Errorf("init connections: %v", err)
 		}
 	}()
@@ -131,7 +124,7 @@ func (s *Server) Up(_ context.Context, msg *proto.UpRequest) (*proto.UpResponse,
 	}
 
 	go func() {
-		if err := internal.RunClient(ctx, s.config, s.stopCh, s.cleanupCh); err != nil {
+		if err := internal.RunClient(ctx, s.config); err != nil {
 			log.Errorf("run client connection: %v", state.Wrap(err))
 			return
 		}
