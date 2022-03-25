@@ -2,11 +2,12 @@ package cmd
 
 import (
 	"context"
-	"github.com/wiretrustee/wiretrustee/util"
 	"net"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/wiretrustee/wiretrustee/util"
 
 	clientProto "github.com/wiretrustee/wiretrustee/client/proto"
 	client "github.com/wiretrustee/wiretrustee/client/server"
@@ -85,7 +86,6 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 
 func startClientDaemon(
 	t *testing.T, ctx context.Context, managementURL, configPath string,
-	stopCh chan int, cleanupCh chan<- struct{},
 ) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -93,13 +93,7 @@ func startClientDaemon(
 	}
 	s := grpc.NewServer()
 
-	server := client.New(
-		ctx,
-		managementURL,
-		configPath,
-		stopCh,
-		cleanupCh,
-	)
+	server := client.New(ctx, managementURL, configPath)
 	if err := server.Start(); err != nil {
 		t.Fatal(err)
 	}

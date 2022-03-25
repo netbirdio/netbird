@@ -8,9 +8,7 @@ import (
 	"github.com/wiretrustee/wiretrustee/client/internal"
 )
 
-var (
-	cliAddr string
-)
+var cliAddr string
 
 func TestUpDaemon(t *testing.T) {
 	mgmAddr := startTestingServices(t)
@@ -18,13 +16,10 @@ func TestUpDaemon(t *testing.T) {
 	tempDir := t.TempDir()
 	confPath := tempDir + "/config.json"
 
-	stopCh = make(chan int, 1)
-	cleanupCh = make(chan struct{}, 1)
-
 	ctx := internal.CtxInitState(context.Background())
 	state := internal.CtxGetState(ctx)
 
-	_, cliLis := startClientDaemon(t, ctx, "http://"+mgmAddr, confPath, stopCh, cleanupCh)
+	_, cliLis := startClientDaemon(t, ctx, "http://"+mgmAddr, confPath)
 
 	cliAddr = cliLis.Addr().String()
 
