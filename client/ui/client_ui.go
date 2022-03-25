@@ -157,20 +157,20 @@ func (s *serviceClient) onTrayReady() {
 
 	systray.AddSeparator()
 
-	s.mUp = systray.AddMenuItem("Up", "Up")
+	s.mUp = systray.AddMenuItem("Connect", "Connect")
 
-	s.mDown = systray.AddMenuItem("Down", "Down")
+	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
 	s.mDown.Disable()
 
-	mURL := systray.AddMenuItem("Open UI", "wiretrustee website")
+	mURL := systray.AddMenuItem("Admin Panel", "Wiretrustee Admin Panel")
 
 	systray.AddSeparator()
 
-	mQuit := systray.AddMenuItem("Quit", "Quit the whole app")
+	mQuit := systray.AddMenuItem("Quit", "Quit the client app")
 
 	go func() {
 		for {
-		s.updateStatus()
+			s.updateStatus()
 			time.Sleep(time.Second * 3)
 		}
 	}()
