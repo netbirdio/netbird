@@ -13,18 +13,13 @@ import (
 
 type program struct {
 	ctx    context.Context
-	cmd    *cobra.Command
-	args   []string
+	cancel context.CancelFunc
 	serv   *grpc.Server
 }
 
-func newProgram(cmd *cobra.Command, args []string) *program {
-	ctx := internal.CtxInitState(cmd.Context())
-	return &program{
-		ctx:  ctx,
-		cmd:  cmd,
-		args: args,
-	}
+func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
+	ctx = internal.CtxInitState(ctx)
+	return &program{ctx: ctx, cancel: cancel}
 }
 
 func newSVCConfig() *service.Config {
@@ -48,4 +43,3 @@ var serviceCmd = &cobra.Command{
 	Use:   "service",
 	Short: "manages wiretrustee service",
 }
-

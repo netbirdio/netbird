@@ -17,9 +17,7 @@ import (
 )
 
 // RunClient with main logic.
-func RunClient(
-	ctx context.Context, config *Config, stopCh <-chan int, cleanupCh chan<- struct{},
-) error {
+func RunClient(ctx context.Context, config *Config) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
@@ -90,10 +88,7 @@ func RunClient(
 		log.Print("Wiretrustee engine started, my IP is: ", peerConfig.Address)
 		state.Set(StatusConnected)
 
-		select {
-		case <-stopCh:
-		case <-ctx.Done():
-		}
+		<-ctx.Done()
 
 		backOff.Reset()
 
@@ -113,10 +108,6 @@ func RunClient(
 			log.Errorf("failed stopping engine %v", err)
 			return wrapErr(err)
 		}
-
-		go func() {
-			cleanupCh <- struct{}{}
-		}()
 
 		log.Info("stopped Wiretrustee client")
 
@@ -207,4 +198,3 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 
 	return client, loginResp, nil
 }
-

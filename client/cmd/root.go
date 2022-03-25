@@ -35,10 +35,6 @@ var (
 		Short: "",
 		Long:  "",
 	}
-
-	// Execution control channel for stopCh signal
-	stopCh    chan int
-	cleanupCh chan struct{}
 )
 
 // Execute executes the root command.
@@ -47,9 +43,6 @@ func Execute() error {
 }
 
 func init() {
-	stopCh = make(chan int)
-	cleanupCh = make(chan struct{})
-
 	defaultConfigPath = "/etc/wiretrustee/config.json"
 	defaultLogFile = "/var/log/wiretrustee/client.log"
 	if runtime.GOOS == "windows" {
@@ -79,14 +72,18 @@ func init() {
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
-func SetupCloseHandler() {
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
+	termCh := make(chan os.Signal, 1)
+	signal.Notify(termCh, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
-		for range c {
-			log.Info("shutdown signal received")
-			stopCh <- 0
+		done := ctx.Done()
+		select {
+		case <-done:
+		case <-termCh:
 		}
+
+		log.Info("shutdown signal received")
+		cancel()
 	}()
 }
 
