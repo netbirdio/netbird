@@ -1,5 +1,5 @@
-# Wiretrustee Management Server
-Wiretrustee management server will control and synchronize peers configuration within your wiretrustee account and network.
+# netbird Management Server
+netbird management server will control and synchronize peers configuration within your wiretrustee account and network.
 
 ## Command Options
 The CLI accepts the command **management** with the following options:
