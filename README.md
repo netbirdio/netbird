@@ -9,7 +9,7 @@
 <div align="center">
 
 <p align="center">
-  <img width="250" src="docs/media/logo-full.png"/>
+  <img width="234" src="docs/media/logo-full.png"/>
 </p>
 
   <p>
