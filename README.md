@@ -35,7 +35,7 @@
 
 <p align="center">
 <strong>
-  Start using Netbird at <a href="https://app.wiretrustee.com/">app.wiretrustee.com</a>
+  Start using Netbird at <a href="https://app.netbird.io/">app.netbird.io</a>
   <br/>
   See <a href="https://docs.netbird.io">Documentation</a>
   <br/>
@@ -72,7 +72,7 @@ It requires zero configuration effort leaving behind the hassle of opening ports
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/netbirdio/netbird).
 
 Hosted version: 
-[https://app.wiretrustee.com/](https://app.wiretrustee.com/peers). 
+[https://app.netbird.io/](https://app.netbird.io/). 
 
 [UI Dashboard Repo](https://github.com/netbirdio/dashboard)
 

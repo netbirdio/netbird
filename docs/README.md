@@ -98,7 +98,7 @@ There are 2 ways of getting started with Netbird:
 - use Cloud Managed version
 - self-hosting
 
-We recommend starting with the cloud managed version hosted at [app.wiretrustee.com](https://app.wiretrustee.com) - the quickest way to get familiar with the system.
+We recommend starting with the cloud managed version hosted at [app.netbird.io](https://app.netbird.io) - the quickest way to get familiar with the system.
 See [Quickstart Guide](../docs/quickstart.md) for instructions.
 
 If you don't want to use the managed version, check out our [Self-hosting Guide](../docs/self-hosting.md).
