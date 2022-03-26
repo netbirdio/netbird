@@ -1,3 +1,5 @@
+### Big News! Wiretrustee becomes `netbird`. [See details](https://blog.netbird.io/wiretrustee-becomes-netbird).
+
 <div align="center">
 
 <p align="center">
@@ -5,10 +7,10 @@
 </p>
 
   <p>
-     <a href="https://github.com/wiretrustee/wiretrustee/blob/main/LICENSE">
+     <a href="https://github.com/netbirdio/netbird/blob/main/LICENSE">
        <img src="https://img.shields.io/badge/license-BSD--3-blue" />
      </a> 
-     <a href="https://hub.docker.com/r/wiretrustee/wiretrustee/tags">
+     <a href="https://hub.docker.com/r/netbirdio/netbird/tags">
         <img src="https://img.shields.io/docker/pulls/wiretrustee/wiretrustee" />
      </a>  
     <img src="https://badgen.net/badge/Open%20Source%3F/Yes%21/blue?icon=github" />
@@ -27,9 +29,9 @@
 
 <p align="center">
 <strong>
-  Start using Wiretrustee at <a href="https://app.wiretrustee.com/">app.wiretrustee.com</a>
+  Start using netbird at <a href="https://app.wiretrustee.com/">app.wiretrustee.com</a>
   <br/>
-  See <a href="https://docs.wiretrustee.com">Documentation</a>
+  See <a href="https://docs.netbird.io">Documentation</a>
   <br/>
    Join our <a href="https://join.slack.com/t/wiretrustee/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A">Slack channel</a>
   <br/>
@@ -39,11 +41,11 @@
 
 <br>
 
-**Wiretrustee is an open-source VPN platform built on top of WireGuard® making it easy to create secure private networks for your organization or home.**
+**netbird is an open-source VPN platform built on top of WireGuard® making it easy to create secure private networks for your organization or home.**
 
 It requires zero configuration effort leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
-**Wiretrustee automates Wireguard-based networks, offering a management layer with:**
+**netbird automates Wireguard-based networks, offering a management layer with:**
 * Centralized Peer IP management with a UI dashboard.
 * Encrypted peer-to-peer connections without a centralized VPN gateway.
 * Automatic Peer discovery and configuration.
@@ -61,30 +63,30 @@ It requires zero configuration effort leaving behind the hassle of opening ports
   <img src="docs/media/peerB.gif" width="400"/>
 </p>
 
-**Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/wiretrustee/wiretrustee/releases).
+**Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/netbirdio/netbird).
 
 Hosted version: 
 [https://app.wiretrustee.com/](https://app.wiretrustee.com/peers). 
 
-[UI Dashboard Repo](https://github.com/wiretrustee/wiretrustee-dashboard)
+[UI Dashboard Repo](https://github.com/netbirdio/dashboard)
 
 
-### A bit on Wiretrustee internals
-* Wiretrustee features a Management Service that offers peer IP management and network updates distribution (e.g. when a new peer joins the network).
-* Wiretrustee uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between devices.
+### A bit on netbird internals
+* netbird features a Management Service that offers peer IP management and network updates distribution (e.g. when a new peer joins the network).
+* netbird uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between devices.
 * Peers negotiate connection through [Signal Service](signal/).
 * Signal Service uses public Wireguard keys to route messages between peers.
   Contents of the messages sent between peers through the signaling server are encrypted with Wireguard keys, making it impossible to inspect them.
-* Occasionally, the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT). When this occurs the system falls back to the relay server (TURN), and a secure Wireguard tunnel is established via the TURN server. [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Wiretrustee setups.
+* Occasionally, the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT). When this occurs the system falls back to the relay server (TURN), and a secure Wireguard tunnel is established via the TURN server. [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in netbird setups.
 
 <p float="left" align="middle">
-  <img src="https://docs.wiretrustee.com/img/architecture/high-level-dia.png" width="700"/>
+  <img src="https://docs.netbird.io/img/architecture/high-level-dia.png" width="700"/>
 </p>
 
 
 ### Product Roadmap
-- [Public Roadmap](https://github.com/wiretrustee/wiretrustee/projects/2)
-- [Public Roadmap Progress Tracking](https://github.com/wiretrustee/wiretrustee/projects/1)
+- [Public Roadmap](https://github.com/netbirdio/netbird/projects/2)
+- [Public Roadmap Progress Tracking](https://github.com/netbirdio/netbird/projects/1)
 
 ### Client Installation
 #### Linux
@@ -127,10 +129,10 @@ Hosted version:
   brew install wiretrustee/client/wiretrustee
   ```
 **Installation from binary**
-1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
+1. Checkout netbird [releases](https://github.com/netbirdio/netbird/releases/latest)
 2. Download the latest release (**Switch VERSION to the latest**):
   ```shell
-  curl -o ./wiretrustee_<VERSION>_darwin_amd64.tar.gz https://github.com/wiretrustee/wiretrustee/releases/download/v<VERSION>/wiretrustee_<VERSION>_darwin_amd64.tar.gz
+  curl -o ./wiretrustee_<VERSION>_darwin_amd64.tar.gz https://github.com/netbirdio/netbird/releases/download/v<VERSION>/wiretrustee_<VERSION>_darwin_amd64.tar.gz
   ```
 3. Decompress
   ```shell
@@ -149,7 +151,7 @@ Hosted version:
   ```
 
 #### Windows
-1. Checkout Wiretrustee [releases](https://github.com/wiretrustee/wiretrustee/releases/latest)
+1. Checkout netbird [releases](https://github.com/netbirdio/netbird/releases/latest)
 2. Download the latest Windows release installer ```wiretrustee_installer_<VERSION>_windows_amd64.exe``` (**Switch VERSION to the latest**):
 3. Proceed with installation steps
 4. This will install the client in the C:\\Program Files\\Wiretrustee and add the client service
@@ -213,7 +215,7 @@ For **Windows** systems:
     To override it see solution #1 above.
 
 ### Running Dashboard, Management, Signal and Coturn
-See [Self-Hosting Guide](https://docs.wiretrustee.com/getting-started/self-hosting)
+See [Self-Hosting Guide](https://docs.netbird.io/getting-started/self-hosting)
 
 
 ### Legal
