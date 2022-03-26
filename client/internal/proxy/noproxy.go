@@ -1,8 +1,8 @@
 package proxy
 
 import (
+	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/iface"
 	"net"
 )
 

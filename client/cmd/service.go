@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 
-	"github.com/wiretrustee/wiretrustee/client/internal"
+	"github.com/netbirdio/netbird/client/internal"
 )
 
 type program struct {

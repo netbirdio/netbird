@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/wiretrustee/wiretrustee/client/internal"
+	"github.com/netbirdio/netbird/client/internal"
 )
 
 var (

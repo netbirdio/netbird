@@ -1,11 +1,11 @@
 package server
 
 import (
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/util"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/management/server/idp"
-	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
-	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"strings"

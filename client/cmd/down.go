@@ -2,13 +2,13 @@ package cmd
 
 import (
 	"context"
-	"github.com/wiretrustee/wiretrustee/util"
+	"github.com/netbirdio/netbird/util"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
-	"github.com/wiretrustee/wiretrustee/client/proto"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 var downCmd = &cobra.Command{

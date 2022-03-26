@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
+	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/encryption"
-	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

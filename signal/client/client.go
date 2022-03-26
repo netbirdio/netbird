@@ -2,7 +2,7 @@ package client
 
 import (
 	"fmt"
-	"github.com/wiretrustee/wiretrustee/signal/proto"
+	"github.com/netbirdio/netbird/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"io"
 	"strings"

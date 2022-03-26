@@ -1,8 +1,8 @@
 package peer
 
 import (
+	"github.com/netbirdio/netbird/signal/proto"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/signal/proto"
 	"sync"
 )
 

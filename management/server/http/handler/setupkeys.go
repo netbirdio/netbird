@@ -3,14 +3,14 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"net/http"
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/management/server"
-	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

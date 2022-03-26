@@ -2,15 +2,15 @@ package peer
 
 import (
 	"context"
-	"github.com/wiretrustee/wiretrustee/iface"
+	"github.com/netbirdio/netbird/iface"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/client/internal/proxy"
 )
 
 // ConnConfig is a peer Connection configuration

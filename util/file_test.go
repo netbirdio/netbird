@@ -3,9 +3,9 @@ package util_test
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"github.com/netbirdio/netbird/util"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/wiretrustee/wiretrustee/util"
 	"io"
 	"io/ioutil"
 	"os"

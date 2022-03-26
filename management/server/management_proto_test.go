@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/encryption"
+	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/encryption"
-	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
-	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"

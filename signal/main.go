@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/wiretrustee/wiretrustee/signal/cmd"
+	"github.com/netbirdio/netbird/signal/cmd"
 	"os"
 )
 

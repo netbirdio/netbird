@@ -1,10 +1,10 @@
 package encryption_test
 
 import (
+	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/encryption/testprotos"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/wiretrustee/wiretrustee/encryption"
-	"github.com/wiretrustee/wiretrustee/encryption/testprotos"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 

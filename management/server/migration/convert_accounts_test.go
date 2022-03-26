@@ -1,8 +1,8 @@
 package main
 
 import (
-	"github.com/wiretrustee/wiretrustee/management/server"
-	"github.com/wiretrustee/wiretrustee/util"
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/util"
 	"path/filepath"
 	"testing"
 )

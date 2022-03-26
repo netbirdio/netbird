@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/spf13/cobra"
-	"github.com/wiretrustee/wiretrustee/client/system"
 )
 
 var (

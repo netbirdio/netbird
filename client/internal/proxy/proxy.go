@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"github.com/wiretrustee/wiretrustee/iface"
+	"github.com/netbirdio/netbird/iface"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"io"
 	"net"

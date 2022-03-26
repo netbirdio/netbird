@@ -1,8 +1,8 @@
 package server
 
 import (
+	"github.com/netbirdio/netbird/util"
 	"github.com/stretchr/testify/require"
-	"github.com/wiretrustee/wiretrustee/util"
 	"net"
 	"path/filepath"
 	"testing"

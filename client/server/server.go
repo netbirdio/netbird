@@ -7,8 +7,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
-	"github.com/wiretrustee/wiretrustee/client/internal"
-	"github.com/wiretrustee/wiretrustee/client/proto"
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 // Server for service control.

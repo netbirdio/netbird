@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/client/system"
-	"github.com/wiretrustee/wiretrustee/encryption"
-	"github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
