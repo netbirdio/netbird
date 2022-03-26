@@ -1,8 +1,8 @@
 package server
 
 import (
-	"github.com/wiretrustee/wiretrustee/management/server/idp"
-	"github.com/wiretrustee/wiretrustee/util"
+	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/util"
 )
 
 type Protocol string

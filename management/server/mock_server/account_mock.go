@@ -1,9 +1,9 @@
 package mock_server
 
 import (
-	"github.com/wiretrustee/wiretrustee/management/server"
-	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
-	"github.com/wiretrustee/wiretrustee/util"
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/wiretrustee/wiretrustee/management/cmd"
+	"github.com/netbirdio/netbird/management/cmd"
 	"os"
 )
 

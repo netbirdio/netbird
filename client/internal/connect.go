@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
+	"github.com/netbirdio/netbird/iface"
+	mgm "github.com/netbirdio/netbird/management/client"
+	mgmProto "github.com/netbirdio/netbird/management/proto"
+	signal "github.com/netbirdio/netbird/signal/client"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/iface"
-	mgm "github.com/wiretrustee/wiretrustee/management/client"
-	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
-	signal "github.com/wiretrustee/wiretrustee/signal/client"
 
 	"github.com/cenkalti/backoff/v4"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"

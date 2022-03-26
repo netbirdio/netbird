@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/wiretrustee/wiretrustee/client/cmd"
+	"github.com/netbirdio/netbird/client/cmd"
 )
 
 func main() {

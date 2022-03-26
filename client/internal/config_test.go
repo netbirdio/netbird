@@ -2,8 +2,8 @@ package internal
 
 import (
 	"errors"
+	"github.com/netbirdio/netbird/util"
 	"github.com/stretchr/testify/assert"
-	"github.com/wiretrustee/wiretrustee/util"
 	"os"
 	"path/filepath"
 	"testing"

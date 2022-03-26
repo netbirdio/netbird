@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	s "github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/http/handler"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/rs/cors"
 	log "github.com/sirupsen/logrus"
-	s "github.com/wiretrustee/wiretrustee/management/server"
-	"github.com/wiretrustee/wiretrustee/management/server/http/handler"
-	"github.com/wiretrustee/wiretrustee/management/server/http/middleware"
 	"golang.org/x/crypto/acme/autocert"
 )
 

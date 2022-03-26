@@ -3,8 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server"
 	"github.com/rs/xid"
-	"github.com/wiretrustee/wiretrustee/management/server"
 )
 
 func main() {

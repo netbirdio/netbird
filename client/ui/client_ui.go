@@ -16,10 +16,10 @@ import (
 	_ "embed"
 
 	"github.com/getlantern/systray"
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/proto"
 	log "github.com/sirupsen/logrus"
 	"github.com/skratchdot/open-golang/open"
-	"github.com/wiretrustee/wiretrustee/client/internal"
-	"github.com/wiretrustee/wiretrustee/client/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )

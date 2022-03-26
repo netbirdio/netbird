@@ -2,14 +2,14 @@ package cmd
 
 import (
 	"context"
-	"github.com/wiretrustee/wiretrustee/util"
+	"github.com/netbirdio/netbird/util"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
 
-	"github.com/wiretrustee/wiretrustee/client/internal"
-	"github.com/wiretrustee/wiretrustee/client/proto"
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 var statusCmd = &cobra.Command{

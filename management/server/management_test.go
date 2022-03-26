@@ -2,7 +2,7 @@ package server_test
 
 import (
 	"context"
-	server "github.com/wiretrustee/wiretrustee/management/server"
+	server "github.com/netbirdio/netbird/management/server"
 	"google.golang.org/grpc/credentials/insecure"
 	"io/ioutil"
 	"math/rand"
@@ -14,13 +14,13 @@ import (
 	"time"
 
 	pb "github.com/golang/protobuf/proto" //nolint
+	"github.com/netbirdio/netbird/encryption"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/encryption"
 
+	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/util"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
-	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"

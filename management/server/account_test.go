@@ -1,8 +1,8 @@
 package server
 
 import (
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/stretchr/testify/require"
-	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 	"testing"

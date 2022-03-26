@@ -2,8 +2,8 @@ package peer
 
 import (
 	"github.com/magiconair/properties/assert"
+	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/pion/ice/v2"
-	"github.com/wiretrustee/wiretrustee/client/internal/proxy"
 	"sync"
 	"testing"
 	"time"

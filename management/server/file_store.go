@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/wiretrustee/wiretrustee/util"
+	"github.com/netbirdio/netbird/util"
 )
 
 // storeFileName Store file name. Stored in the datadir

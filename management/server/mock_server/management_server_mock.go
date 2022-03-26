@@ -3,7 +3,7 @@ package mock_server
 import (
 	"context"
 
-	"github.com/wiretrustee/wiretrustee/management/proto"
+	"github.com/netbirdio/netbird/management/proto"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )

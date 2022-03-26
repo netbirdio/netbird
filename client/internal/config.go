@@ -2,9 +2,9 @@ package internal
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/iface"
-	"github.com/wiretrustee/wiretrustee/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net/url"
 	"os"

@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wiretrustee/wiretrustee/util"
+	"github.com/netbirdio/netbird/util"
 
-	clientProto "github.com/wiretrustee/wiretrustee/client/proto"
-	client "github.com/wiretrustee/wiretrustee/client/server"
-	mgmtProto "github.com/wiretrustee/wiretrustee/management/proto"
-	mgmt "github.com/wiretrustee/wiretrustee/management/server"
-	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
-	sig "github.com/wiretrustee/wiretrustee/signal/server"
+	clientProto "github.com/netbirdio/netbird/client/proto"
+	client "github.com/netbirdio/netbird/client/server"
+	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	mgmt "github.com/netbirdio/netbird/management/server"
+	sigProto "github.com/netbirdio/netbird/signal/proto"
+	sig "github.com/netbirdio/netbird/signal/server"
 	"google.golang.org/grpc"
 )
 
