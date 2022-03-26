@@ -1,14 +1,14 @@
 ## Quickstart guide (Cloud Managed version)
 Step-by-step video guide on YouTube:
 
-[![IMAGE ALT TEXT](https://img.youtube.com/vi/cWTsGUJAUaU/0.jpg)](https://youtu.be/cWTsGUJAUaU "Wiretrustee - secure private network in less than 5 minutes")
+[![IMAGE ALT TEXT](https://img.youtube.com/vi/cWTsGUJAUaU/0.jpg)](https://youtu.be/cWTsGUJAUaU "Netbird - secure private network in less than 5 minutes")
 
 This guide describes how to create secure VPN and connect 2 machines peer-to-peer.
 
 One machine is a Raspberry Pi Compute Module 4 hosted at home (Peer A), and the other one is a regular Ubuntu server running in the Data Center (Peer B).
 Both machines are running Linux (Raspbian and Ubuntu respectively), but you could also use Mac or Windows operating systems.
 
-1. Sign-up at [https://app.wiretrustee.com/](https://app.wiretrustee.com/peers)
+1. Sign-up at [https://app.netbird.io/](https://app.netbird.io/)
 
     You can use your email and password to sign-up or any available social login option (e.g., GitHub account)
     
