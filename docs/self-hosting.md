@@ -1,18 +1,18 @@
 ### Self-hosting
-netbird is an open-source platform that can be self-hosted on your servers.
+Netbird is an open-source platform that can be self-hosted on your servers.
 
-It relies on components developed by netbird Authors [Management Service](https://github.com/netbirdio/netbird/tree/main/management), [Management UI Dashboard](https://github.com/netbirdio/dashboard), [Signal Service](https://github.com/netbirdio/netbird/tree/main/signal), 
+It relies on components developed by Netbird Authors [Management Service](https://github.com/netbirdio/netbird/tree/main/management), [Management UI Dashboard](https://github.com/netbirdio/dashboard), [Signal Service](https://github.com/netbirdio/netbird/tree/main/signal), 
 a 3rd party open-source STUN/TURN service [Coturn](https://github.com/coturn/coturn) and a 3rd party service [Auth0](https://auth0.com/).
 
 All the components can be self-hosted except for the Auth0 service.
 We chose Auth0 to "outsource" the user management part of the platform because we believe that implementing a proper user auth requires significant amount of time to make it right. 
 We focused on connectivity instead. It also offers an always free plan that should be ok for most users as its limits are high enough for most teams.
 
-If you would like to learn more about the architecture please refer to the [netbird Architecture section](architecture.md).
+If you would like to learn more about the architecture please refer to the [Netbird Architecture section](architecture.md).
 
 ### Step-by-step video guide on YouTube:
 
-[![IMAGE ALT TEXT](https://img.youtube.com/vi/Ofpgx5WhT0k/0.jpg)](https://youtu.be/Ofpgx5WhT0k "netbird Self-Hosting Guide")
+[![IMAGE ALT TEXT](https://img.youtube.com/vi/Ofpgx5WhT0k/0.jpg)](https://youtu.be/Ofpgx5WhT0k "Netbird Self-Hosting Guide")
 
 ### Requirements
 
@@ -20,7 +20,7 @@ If you would like to learn more about the architecture please refer to the [netb
 - Any Unix OS.
 - Docker Compose installed (see [Install Docker Compose](https://docs.docker.com/compose/install/)).
 - Domain name pointing to the public IP address of your server.
-- netbird Open ports ```443, 33071, 33073, 10000``` (Dashboard, Management HTTP API, Management gRpc API, Signal gRpc) on your server. 
+- Netbird Open ports ```443, 33071, 33073, 10000``` (Dashboard, Management HTTP API, Management gRpc API, Signal gRpc) on your server. 
 - Coturn is used for relay using the STUN/TURN protocols. It requires a listening port, ```UDP 3478```,  and range of ports,```UDP 49152-65535```, for dynamic relay connections. These are set as defaults in [setup file](https://github.com/netbirdio/netbird/blob/main/infrastructure_files/setup.env#L34), but can be configured to your requirements. 
 - Maybe a cup of coffee or tea :)
 
@@ -29,7 +29,7 @@ If you would like to learn more about the architecture please refer to the [netb
 For this tutorial we will be using domain ```test.netbird.io``` which points to our Ubuntu 20.04 machine hosted at Hetzner.
 
 1. Create Auth0 account at [auth0.com](https://auth0.com/).
-2. Login to your server, clone netbird repository:
+2. Login to your server, clone Netbird repository:
    
    ```bash 
    git clone https://github.com/netbirdio/netbird.git netbird/
