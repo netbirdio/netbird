@@ -4,7 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
-	"github.com/wiretrustee/wiretrustee/util"
+	"github.com/netbirdio/netbird/util"
 	"testing"
 	"time"
 )

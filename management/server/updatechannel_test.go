@@ -1,7 +1,7 @@
 package server
 
 import (
-	"github.com/wiretrustee/wiretrustee/management/proto"
+	"github.com/netbirdio/netbird/management/proto"
 	"testing"
 )
 

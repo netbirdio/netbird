@@ -1,8 +1,8 @@
 package server
 
 import (
+	"github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/management/proto"
 	"sync"
 )
 

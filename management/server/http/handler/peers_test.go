@@ -2,7 +2,7 @@ package handler
 
 import (
 	"encoding/json"
-	"github.com/wiretrustee/wiretrustee/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"io"
 	"net"
 	"net/http"
@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"github.com/magiconair/properties/assert"
-	"github.com/wiretrustee/wiretrustee/management/server"
-	"github.com/wiretrustee/wiretrustee/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
 func initTestMetaData(peer ...*server.Peer) *Peers {

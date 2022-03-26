@@ -3,12 +3,12 @@ package cmd
 import (
 	"context"
 
+	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-	"github.com/wiretrustee/wiretrustee/util"
 
-	"github.com/wiretrustee/wiretrustee/client/internal"
-	"github.com/wiretrustee/wiretrustee/client/proto"
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/proto"
 )
 
 var upCmd = &cobra.Command{

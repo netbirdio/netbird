@@ -1,4 +1,4 @@
-module github.com/wiretrustee/wiretrustee
+module github.com/netbirdio/netbird
 
 go 1.18
 

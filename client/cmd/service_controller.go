@@ -11,10 +11,10 @@ import (
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/server"
+	"github.com/netbirdio/netbird/util"
 	"github.com/spf13/cobra"
-	"github.com/wiretrustee/wiretrustee/client/proto"
-	"github.com/wiretrustee/wiretrustee/client/server"
-	"github.com/wiretrustee/wiretrustee/util"
 	"google.golang.org/grpc"
 )
 

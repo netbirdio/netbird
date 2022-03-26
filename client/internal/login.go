@@ -6,10 +6,10 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/client/system"
+	mgm "github.com/netbirdio/netbird/management/client"
+	mgmProto "github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
-	"github.com/wiretrustee/wiretrustee/client/system"
-	mgm "github.com/wiretrustee/wiretrustee/management/client"
-	mgmProto "github.com/wiretrustee/wiretrustee/management/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

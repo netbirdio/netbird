@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wiretrustee/wiretrustee/client/internal"
+	"github.com/netbirdio/netbird/client/internal"
 )
 
 var cliAddr string

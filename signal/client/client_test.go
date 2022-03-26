@@ -2,11 +2,11 @@ package client
 
 import (
 	"context"
+	sigProto "github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/signal/server"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
-	sigProto "github.com/wiretrustee/wiretrustee/signal/proto"
-	"github.com/wiretrustee/wiretrustee/signal/server"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
