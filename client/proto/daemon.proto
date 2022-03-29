@@ -29,6 +29,9 @@ message LoginRequest {
 
   // managementUrl to authenticate.
   string managementUrl = 3;
+
+  // jwtToken sso token to authenticate.
+  string jwtToken = 4;
 }
 
 message LoginResponse {}
