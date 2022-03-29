@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"time"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
@@ -137,11 +139,37 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
 
+	var reqSetupKey string
+
+	if req.GetJwtToken() != "" {
+		jwtMiddleware, err := middleware.NewJwtMiddleware(
+			s.config.HttpConfig.AuthIssuer,
+			s.config.HttpConfig.AuthAudience,
+			s.config.HttpConfig.AuthKeysLocation)
+		if err != nil {
+			return nil, err
+		}
+		token, err := jwtMiddleware.ValidateAndParse(req.GetJwtToken())
+		claims := jwtclaims.ExtractClaimsWithToken(token, s.config.HttpConfig.AuthAudience)
+		account, err := s.accountManager.GetAccountWithAuthorizationClaims(claims)
+		if err != nil {
+			return nil, err
+		}
+		for _, key := range account.SetupKeys {
+			if key.Name == "Default key" {
+				reqSetupKey = key.Id
+				continue
+			}
+		}
+	} else {
+		reqSetupKey = req.GetSetupKey()
+	}
+
 	meta := req.GetMeta()
 	if meta == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "peer meta data was not provided")
 	}
-	peer, err := s.accountManager.AddPeer(req.GetSetupKey(), &Peer{
+	peer, err := s.accountManager.AddPeer(reqSetupKey, &Peer{
 		Key:  peerKey.String(),
 		Name: meta.GetHostname(),
 		Meta: PeerSystemMeta{
@@ -208,7 +236,7 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 				return nil, status.Errorf(codes.InvalidArgument, "invalid request message")
 			}
 
-			if loginReq.GetSetupKey() == "" {
+			if loginReq.GetJwtToken() == "" && loginReq.GetSetupKey() == "" {
 				//absent setup key -> permission denied
 				return nil, status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered", peerKey.String())
 			}
