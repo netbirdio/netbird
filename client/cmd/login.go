@@ -34,7 +34,7 @@ var loginCmd = &cobra.Command{
 				return err
 			}
 			err = WithBackOff(func() error {
-				return internal.Login(ctx, config, setupKey)
+				return internal.Login(ctx, config, setupKey, "")
 			})
 			if err != nil {
 				log.Errorf("backoff cycle failed: %v", err)

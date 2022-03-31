@@ -142,6 +142,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 	var reqSetupKey string
 
 	if req.GetJwtToken() != "" {
+		log.Debugf("entered in jwt logic to register: %s", req.GetJwtToken())
 		jwtMiddleware, err := middleware.NewJwtMiddleware(
 			s.config.HttpConfig.AuthIssuer,
 			s.config.HttpConfig.AuthAudience,
@@ -157,11 +158,13 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		}
 		for _, key := range account.SetupKeys {
 			if key.Name == "Default key" {
-				reqSetupKey = key.Id
+				reqSetupKey = key.Key
 				continue
 			}
 		}
 	} else {
+		log.Debugf("did not entered in jwt logic to register: %s", req.GetJwtToken())
+
 		reqSetupKey = req.GetSetupKey()
 	}
 
@@ -235,11 +238,12 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid request message")
 			}
-
 			if loginReq.GetJwtToken() == "" && loginReq.GetSetupKey() == "" {
 				//absent setup key -> permission denied
 				return nil, status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered", peerKey.String())
 			}
+
+			log.Debugf("login req: %v", loginReq)
 
 			//setup key is present -> try normal registration flow
 			peer, err = s.registerPeer(peerKey, loginReq)

@@ -10,7 +10,7 @@ type MockClient struct {
 	CloseFunc              func() error
 	SyncFunc               func(msgHandler func(msg *proto.SyncResponse) error) error
 	GetServerPublicKeyFunc func() (*wgtypes.Key, error)
-	RegisterFunc           func(serverKey wgtypes.Key, setupKey string, info *system.Info) (*proto.LoginResponse, error)
+	RegisterFunc           func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error)
 	LoginFunc              func(serverKey wgtypes.Key) (*proto.LoginResponse, error)
 }
 
@@ -35,11 +35,11 @@ func (m *MockClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	return m.GetServerPublicKeyFunc()
 }
 
-func (m *MockClient) Register(serverKey wgtypes.Key, setupKey string, info *system.Info) (*proto.LoginResponse, error) {
+func (m *MockClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error) {
 	if m.RegisterFunc == nil {
 		return nil, nil
 	}
-	return m.RegisterFunc(serverKey, setupKey, info)
+	return m.RegisterFunc(serverKey, setupKey, jwtToken, info)
 }
 
 func (m *MockClient) Login(serverKey wgtypes.Key) (*proto.LoginResponse, error) {

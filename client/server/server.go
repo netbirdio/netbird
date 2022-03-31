@@ -86,7 +86,7 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 
 	// login operation uses backoff scheme to connect to management API
 	// we don't wait for result and return response immediately.
-	if err := internal.Login(s.rootCtx, s.config, msg.SetupKey); err != nil {
+	if err := internal.Login(s.rootCtx, s.config, msg.SetupKey, msg.JwtToken); err != nil {
 		log.Errorf("failed login: %v", err)
 		return nil, err
 	}
