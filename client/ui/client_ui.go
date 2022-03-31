@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/cenkalti/backoff/v4"
+	"github.com/netbirdio/netbird/util"
 	"io/ioutil"
 	"os"
 	"path"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/getlantern/systray"
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/oauth"
 	"github.com/netbirdio/netbird/client/proto"
 	log "github.com/sirupsen/logrus"
 	"github.com/skratchdot/open-golang/open"
@@ -26,8 +29,12 @@ import (
 
 func main() {
 	var daemonAddr string
+	err := util.InitLog("debug", "console")
+	if err != nil {
+		log.Errorf("failed initializing log %v", err)
+	}
 
-	if err := checkPIDFile(); err != nil {
+	if err = checkPIDFile(); err != nil {
 		fmt.Println(err)
 		return
 	}
@@ -71,6 +78,97 @@ func newServiceClient(addr string) *serviceClient {
 	return s
 }
 
+// WithBackOff execute function in backoff cycle.
+func WithBackOff(bf func() error) error {
+	return backoff.RetryNotify(bf, CLIBackOffSettings, func(err error, duration time.Duration) {
+		log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
+	})
+}
+
+// CLIBackOffSettings is default backoff settings for CLI commands.
+var CLIBackOffSettings = &backoff.ExponentialBackOff{
+	InitialInterval:     time.Second,
+	RandomizationFactor: backoff.DefaultRandomizationFactor,
+	Multiplier:          backoff.DefaultMultiplier,
+	MaxInterval:         10 * time.Second,
+	MaxElapsedTime:      30 * time.Second,
+	Stop:                backoff.Stop,
+	Clock:               backoff.SystemClock,
+}
+
+func (s *serviceClient) login() error {
+	var (
+		audience      string
+		clientID      string
+		domain        string
+		managementURL string
+	)
+
+	audience = os.Getenv("AUDIENCE")
+	if audience == "" {
+		log.Errorf("AUDIENCE variable is not exported")
+	}
+	clientID = os.Getenv("CLIENT_ID")
+	if clientID == "" {
+		log.Errorf("CLIENT_ID variable is not exported")
+	}
+	domain = os.Getenv("DOMAIN")
+	if domain == "" {
+		log.Errorf("DOMAIN variable is not exported")
+	}
+	managementURL = os.Getenv("MANAGEMENT_URL")
+	if managementURL == "" {
+		log.Errorf("MANAGEMENT_URL variable is not exported")
+	}
+
+	auth0Client := oauth.NewAuth0DeviceFlow(audience, clientID, domain)
+
+	authInfo, err := auth0Client.RequestDeviceCode(context.TODO())
+	if err != nil {
+		log.Error(err)
+	}
+
+	err = open.Run(authInfo.VerificationURIComplete)
+	if err != nil {
+		log.Error(err)
+	}
+	log.Debugf("opened the browser with url %s and err: %v", authInfo.VerificationURIComplete, err)
+	if err != nil {
+		log.Errorf("opening the browser page failed with: %v", err)
+		return err
+	}
+
+	tctx, c := context.WithTimeout(context.TODO(), 90*time.Second)
+	defer c()
+
+	tokenInfo, err := auth0Client.WaitToken(tctx, authInfo)
+	if err != nil {
+		log.Error(err)
+	}
+	log.Debugf("received info: %v", tokenInfo)
+
+	conn, err := s.client()
+	if err != nil {
+		log.Errorf("get client: %v", err)
+		return err
+	}
+
+	request := proto.LoginRequest{
+		JwtToken:      tokenInfo.AccessToken,
+		PresharedKey:  "",
+		ManagementUrl: managementURL,
+	}
+	err = WithBackOff(func() error {
+		if _, err := conn.Login(s.ctx, &request); err != nil {
+			log.Errorf("try login: %v", err)
+		}
+		return err
+	})
+	if err != nil {
+		log.Errorf("backoff cycle failed: %v", err)
+	}
+	return err
+}
 func (s *serviceClient) up() error {
 	conn, err := s.client()
 	if err != nil {
@@ -183,6 +281,10 @@ func (s *serviceClient) onTrayReady() {
 				err = open.Run("https://app.wiretrustee.com")
 			case <-s.mUp.ClickedCh:
 				s.mUp.Disable()
+				if err = s.login(); err != nil {
+					log.Debugf("got login error: %v", err)
+					s.mUp.Enable()
+				}
 				if err = s.up(); err != nil {
 					s.mUp.Enable()
 				}

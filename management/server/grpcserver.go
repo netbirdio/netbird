@@ -151,6 +151,9 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 			return nil, err
 		}
 		token, err := jwtMiddleware.ValidateAndParse(req.GetJwtToken())
+		if err != nil {
+			return nil, err
+		}
 		claims := jwtclaims.ExtractClaimsWithToken(token, s.config.HttpConfig.AuthAudience)
 		account, err := s.accountManager.GetAccountWithAuthorizationClaims(claims)
 		if err != nil {
