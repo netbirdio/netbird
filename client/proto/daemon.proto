@@ -18,6 +18,9 @@ service DaemonService {
 
   // Down engine work in the daemon.
   rpc Down(DownRequest) returns (DownResponse) {}
+
+  // GetConfig of the daemon.
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
 };
 
 message LoginRequest {
@@ -47,3 +50,16 @@ message StatusResponse{
 message DownRequest {}
 
 message DownResponse {}
+
+message GetConfigRequest {}
+
+message GetConfigResponse {
+  // managementUrl settings value.
+  string managementUrl = 1;
+
+  // configFile settings value.
+  string configFile = 2;
+
+  // logFile settings value.
+  string logFile = 3;
+}

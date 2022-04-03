@@ -22,6 +22,15 @@ import (
 	"github.com/skratchdot/open-golang/open"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/widget"
+)
+
+const (
+	defaulFailTimeout = time.Duration(3 * time.Second)
+	fastFailTimeout   = time.Second
 )
 
 func main() {
@@ -44,8 +53,13 @@ func main() {
 
 	flag.Parse()
 
-	client := newServiceClient(daemonAddr)
-	systray.Run(client.onTrayReady, client.onTrayExit)
+	a := app.New()
+	client := newServiceClient(daemonAddr, a)
+	go func() {
+		systray.Run(client.onTrayReady, client.onTrayExit)
+	}()
+
+	a.Run()
 }
 
 //go:embed connected.ico
@@ -55,24 +69,89 @@ var iconConnected []byte
 var iconDisconnected []byte
 
 type serviceClient struct {
-	ctx     context.Context
-	addr    string
-	conn    proto.DaemonServiceClient
-	mStatus *systray.MenuItem
-	mUp     *systray.MenuItem
-	mDown   *systray.MenuItem
+	ctx       context.Context
+	addr      string
+	conn      proto.DaemonServiceClient
+	mStatus   *systray.MenuItem
+	mUp       *systray.MenuItem
+	mDown     *systray.MenuItem
+	mSettings *systray.MenuItem
+
+	iMngURL     *widget.Entry
+	iConfigFile *widget.Entry
+	iLogFile    *widget.Entry
+
+	app       fyne.App
+	wSettings fyne.Window
+
+	managementURL string
 }
 
-func newServiceClient(addr string) *serviceClient {
+func newServiceClient(addr string, a fyne.App) *serviceClient {
 	s := &serviceClient{
 		ctx:  context.Background(),
 		addr: addr,
+		app:  a,
 	}
+	s.wSettings = s.app.NewWindow("Settings")
+
+	s.iMngURL = widget.NewEntry()
+	s.iConfigFile = widget.NewEntry()
+	s.iConfigFile.Disable()
+	s.iLogFile = widget.NewEntry()
+	s.iLogFile.Disable()
+	form := &widget.Form{
+		Items: []*widget.FormItem{
+			{Text: "Management URL", Widget: s.iMngURL},
+			{Text: "Config File", Widget: s.iConfigFile},
+			{Text: "Log File", Widget: s.iLogFile},
+		},
+		OnSubmit: func() {
+			s.wSettings.Hide()
+
+			s.mSettings.Enable()
+			// If managementURL changed, we try to re-login with new URL
+			if s.managementURL != s.iMngURL.Text {
+				s.managementURL = s.iMngURL.Text
+				client, err := s.getSrvClient(fastFailTimeout)
+				if err != nil {
+					log.Errorf("get daemon client: %v", err)
+					return
+				}
+
+				_, err = client.Login(s.ctx, &proto.LoginRequest{
+					ManagementUrl: s.iMngURL.Text,
+				})
+				if err != nil {
+					log.Errorf("login to management URL: %v", err)
+					return
+				}
+
+				_, err = client.Up(s.ctx, &proto.UpRequest{})
+				if err != nil {
+					log.Errorf("login to management URL: %v", err)
+					return
+				}
+			}
+		},
+		OnCancel: func() {
+			s.wSettings.Hide()
+			s.mSettings.Enable()
+		},
+	}
+
+	s.wSettings.SetContent(form)
+	s.wSettings.SetCloseIntercept(func() {
+		s.wSettings.Hide()
+		s.mSettings.Enable()
+	})
+	s.wSettings.Resize(fyne.NewSize(600, 100))
+
 	return s
 }
 
 func (s *serviceClient) up() error {
-	conn, err := s.client()
+	conn, err := s.getSrvClient(defaulFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -98,7 +177,7 @@ func (s *serviceClient) up() error {
 }
 
 func (s *serviceClient) down() error {
-	conn, err := s.client()
+	conn, err := s.getSrvClient(defaulFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -124,7 +203,7 @@ func (s *serviceClient) down() error {
 }
 
 func (s *serviceClient) updateStatus() {
-	conn, err := s.client()
+	conn, err := s.getSrvClient(defaulFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return
@@ -166,9 +245,14 @@ func (s *serviceClient) onTrayReady() {
 
 	systray.AddSeparator()
 
+	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
+
+	systray.AddSeparator()
+
 	mQuit := systray.AddMenuItem("Quit", "Quit the client app")
 
 	go func() {
+		s.getSrvConfig()
 		for {
 			s.updateStatus()
 			time.Sleep(time.Second * 3)
@@ -191,6 +275,10 @@ func (s *serviceClient) onTrayReady() {
 				if err = s.down(); err != nil {
 					s.mDown.Enable()
 				}
+			case <-s.mSettings.ClickedCh:
+				s.iMngURL.SetText(s.managementURL)
+				s.mSettings.Disable()
+				s.wSettings.Show()
 			case <-mQuit.ClickedCh:
 				systray.Quit()
 				return
@@ -202,14 +290,17 @@ func (s *serviceClient) onTrayReady() {
 	}()
 }
 
-func (s *serviceClient) onTrayExit() {}
+func (s *serviceClient) onTrayExit() {
+	s.app.Quit()
+}
 
-func (s *serviceClient) client() (proto.DaemonServiceClient, error) {
+// getSrvClient connection to the service.
+func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {
 	if s.conn != nil {
 		return s.conn, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*3)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	conn, err := grpc.DialContext(
@@ -224,6 +315,29 @@ func (s *serviceClient) client() (proto.DaemonServiceClient, error) {
 
 	s.conn = proto.NewDaemonServiceClient(conn)
 	return s.conn, nil
+}
+
+// getSrvConfig from the service to show it in the settings window.
+func (s *serviceClient) getSrvConfig() {
+	s.managementURL = "https://api.netbird.io:33073"
+
+	conn, err := s.getSrvClient(fastFailTimeout)
+	if err != nil {
+		log.Errorf("get client: %v", err)
+		return
+	}
+
+	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
+	if err != nil {
+		log.Errorf("get config settings from server: %v", err)
+		return
+	}
+
+	if cfg.ManagementUrl != "" {
+		s.managementURL = cfg.ManagementUrl
+	}
+	s.iConfigFile.SetText(cfg.ConfigFile)
+	s.iLogFile.SetText(cfg.LogFile)
 }
 
 // checkPIDFile exists and return error, or write new.
