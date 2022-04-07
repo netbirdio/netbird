@@ -57,7 +57,7 @@ var upCmd = &cobra.Command{
 
 		loginRequest := proto.LoginRequest{
 			SetupKey:      setupKey,
-			PresharedKey:  preSharedKey,
+			PreSharedKey:  preSharedKey,
 			ManagementUrl: managementURL,
 		}
 		err = WithBackOff(func() error {

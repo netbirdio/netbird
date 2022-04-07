@@ -27,8 +27,8 @@ message LoginRequest {
   // setupKey wiretrustee setup key.
   string setupKey = 1;
 
-  // presharedKey for wireguard setup.
-  string presharedKey = 2;
+  // preSharedKey for wireguard setup.
+  string preSharedKey = 2;
 
   // managementUrl to authenticate.
   string managementUrl = 3;
@@ -62,4 +62,7 @@ message GetConfigResponse {
 
   // logFile settings value.
   string logFile = 3;
+
+  // preSharedKey settings value.
+  string preSharedKey = 4;
 }

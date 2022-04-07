@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+
 	"github.com/netbirdio/netbird/util"
 
 	log "github.com/sirupsen/logrus"
@@ -56,7 +57,7 @@ var loginCmd = &cobra.Command{
 
 		request := proto.LoginRequest{
 			SetupKey:      setupKey,
-			PresharedKey:  preSharedKey,
+			PreSharedKey:  preSharedKey,
 			ManagementUrl: managementURL,
 		}
 		client := proto.NewDaemonServiceClient(conn)

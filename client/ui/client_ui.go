@@ -69,40 +69,82 @@ var iconConnected []byte
 var iconDisconnected []byte
 
 type serviceClient struct {
-	ctx       context.Context
-	addr      string
-	conn      proto.DaemonServiceClient
-	mStatus   *systray.MenuItem
-	mUp       *systray.MenuItem
-	mDown     *systray.MenuItem
-	mSettings *systray.MenuItem
+	ctx  context.Context
+	addr string
+	conn proto.DaemonServiceClient
 
-	iMngURL     *widget.Entry
-	iConfigFile *widget.Entry
-	iLogFile    *widget.Entry
+	// systray menu itmes
+	mStatus     *systray.MenuItem
+	mUp         *systray.MenuItem
+	mDown       *systray.MenuItem
+	mAdminPanel *systray.MenuItem
+	mSettings   *systray.MenuItem
+	mQuit       *systray.MenuItem
 
+	// application with main windows.
 	app       fyne.App
 	wSettings fyne.Window
 
+	// input elements for settings form
+	iMngURL       *widget.Entry
+	iConfigFile   *widget.Entry
+	iLogFile      *widget.Entry
+	iPreSharedKey *widget.Entry
+
+	// observable settings over correspondign iMngURL and iPreSharedKey values.
 	managementURL string
+	preSharedKey  string
 }
 
+// newServiceClient instance constructor
+//
+// This constructor olso build UI elements for settings window.
 func newServiceClient(addr string, a fyne.App) *serviceClient {
 	s := &serviceClient{
 		ctx:  context.Background(),
 		addr: addr,
 		app:  a,
 	}
-	s.wSettings = s.app.NewWindow("Settings")
 
+	// add settings window UI elements.
+	s.wSettings = s.app.NewWindow("Settings")
 	s.iMngURL = widget.NewEntry()
 	s.iConfigFile = widget.NewEntry()
 	s.iConfigFile.Disable()
 	s.iLogFile = widget.NewEntry()
 	s.iLogFile.Disable()
-	form := &widget.Form{
+	s.iPreSharedKey = widget.NewPasswordEntry()
+	s.wSettings.SetContent(s.getSettingsForm())
+	// we hide main window instead close it, to avoid application termination.
+	s.wSettings.SetCloseIntercept(func() {
+		s.wSettings.Hide()
+		s.mSettings.Enable()
+	})
+	s.wSettings.Resize(fyne.NewSize(600, 100))
+	systray.SetTemplateIcon(iconDisconnected, iconDisconnected)
+
+	// setup systray menu items
+	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
+	s.mStatus.Disable()
+	systray.AddSeparator()
+	s.mUp = systray.AddMenuItem("Connect", "Connect")
+	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
+	s.mDown.Disable()
+	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Wiretrustee Admin Panel")
+	systray.AddSeparator()
+	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
+	systray.AddSeparator()
+	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
+
+	return s
+}
+
+// getSettingsForm to embed it into settings window.
+func (s *serviceClient) getSettingsForm() *widget.Form {
+	return &widget.Form{
 		Items: []*widget.FormItem{
 			{Text: "Management URL", Widget: s.iMngURL},
+			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Config File", Widget: s.iConfigFile},
 			{Text: "Log File", Widget: s.iLogFile},
 		},
@@ -110,9 +152,10 @@ func newServiceClient(addr string, a fyne.App) *serviceClient {
 			s.wSettings.Hide()
 
 			s.mSettings.Enable()
-			// If managementURL changed, we try to re-login with new URL
-			if s.managementURL != s.iMngURL.Text {
+			// if management URL or Pre-shared key changed, we try to re-login with new settings.
+			if s.managementURL != s.iMngURL.Text || s.preSharedKey != s.iPreSharedKey.Text {
 				s.managementURL = s.iMngURL.Text
+				s.preSharedKey = s.iPreSharedKey.Text
 				client, err := s.getSrvClient(fastFailTimeout)
 				if err != nil {
 					log.Errorf("get daemon client: %v", err)
@@ -121,6 +164,7 @@ func newServiceClient(addr string, a fyne.App) *serviceClient {
 
 				_, err = client.Login(s.ctx, &proto.LoginRequest{
 					ManagementUrl: s.iMngURL.Text,
+					PreSharedKey:  s.iPreSharedKey.Text,
 				})
 				if err != nil {
 					log.Errorf("login to management URL: %v", err)
@@ -139,18 +183,9 @@ func newServiceClient(addr string, a fyne.App) *serviceClient {
 			s.mSettings.Enable()
 		},
 	}
-
-	s.wSettings.SetContent(form)
-	s.wSettings.SetCloseIntercept(func() {
-		s.wSettings.Hide()
-		s.mSettings.Enable()
-	})
-	s.wSettings.Resize(fyne.NewSize(600, 100))
-
-	return s
 }
 
-func (s *serviceClient) up() error {
+func (s *serviceClient) menuUpClick() error {
 	conn, err := s.getSrvClient(defaulFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
@@ -176,7 +211,7 @@ func (s *serviceClient) up() error {
 	return nil
 }
 
-func (s *serviceClient) down() error {
+func (s *serviceClient) menuDownClick() error {
 	conn, err := s.getSrvClient(defaulFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
@@ -229,28 +264,6 @@ func (s *serviceClient) updateStatus() {
 }
 
 func (s *serviceClient) onTrayReady() {
-	systray.SetTemplateIcon(iconDisconnected, iconDisconnected)
-
-	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
-	s.mStatus.Disable()
-
-	systray.AddSeparator()
-
-	s.mUp = systray.AddMenuItem("Connect", "Connect")
-
-	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
-	s.mDown.Disable()
-
-	mURL := systray.AddMenuItem("Admin Panel", "Wiretrustee Admin Panel")
-
-	systray.AddSeparator()
-
-	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
-
-	systray.AddSeparator()
-
-	mQuit := systray.AddMenuItem("Quit", "Quit the client app")
-
 	go func() {
 		s.getSrvConfig()
 		for {
@@ -263,23 +276,23 @@ func (s *serviceClient) onTrayReady() {
 		var err error
 		for {
 			select {
-			case <-mURL.ClickedCh:
+			case <-s.mAdminPanel.ClickedCh:
 				err = open.Run("https://app.wiretrustee.com")
 			case <-s.mUp.ClickedCh:
 				s.mUp.Disable()
-				if err = s.up(); err != nil {
+				if err = s.menuUpClick(); err != nil {
 					s.mUp.Enable()
 				}
 			case <-s.mDown.ClickedCh:
 				s.mDown.Disable()
-				if err = s.down(); err != nil {
+				if err = s.menuDownClick(); err != nil {
 					s.mDown.Enable()
 				}
 			case <-s.mSettings.ClickedCh:
 				s.iMngURL.SetText(s.managementURL)
 				s.mSettings.Disable()
 				s.wSettings.Show()
-			case <-mQuit.ClickedCh:
+			case <-s.mQuit.ClickedCh:
 				systray.Quit()
 				return
 			}
@@ -336,8 +349,11 @@ func (s *serviceClient) getSrvConfig() {
 	if cfg.ManagementUrl != "" {
 		s.managementURL = cfg.ManagementUrl
 	}
+	s.preSharedKey = cfg.PreSharedKey
+
 	s.iConfigFile.SetText(cfg.ConfigFile)
 	s.iLogFile.SetText(cfg.LogFile)
+	s.iPreSharedKey.SetText(cfg.PreSharedKey)
 }
 
 // checkPIDFile exists and return error, or write new.

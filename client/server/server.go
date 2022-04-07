@@ -54,7 +54,7 @@ func (s *Server) Start() error {
 	s.actCancel = cancel
 
 	// if configuration exists, we just start connections.
-	config, err := internal.ReadConfig(s.managementURL, s.configPath)
+	config, err := internal.ReadConfig(s.managementURL, s.configPath, nil)
 	if err != nil {
 		log.Warnf("no config file, skip connection stage: %v", err)
 		return nil
@@ -92,7 +92,7 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	}
 	s.mutex.Unlock()
 
-	config, err := internal.GetConfig(managementURL, s.configPath, msg.PresharedKey)
+	config, err := internal.GetConfig(managementURL, s.configPath, msg.PreSharedKey)
 	if err != nil {
 		return nil, err
 	}
@@ -190,5 +190,6 @@ func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*p
 		ManagementUrl: managementURL,
 		ConfigFile:    s.configPath,
 		LogFile:       s.logFile,
+		PreSharedKey:  s.config.PreSharedKey,
 	}, nil
 }

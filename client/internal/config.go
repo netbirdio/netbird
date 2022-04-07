@@ -2,12 +2,13 @@ package internal
 
 import (
 	"fmt"
+	"net/url"
+	"os"
+
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"net/url"
-	"os"
 )
 
 var managementURLDefault *url.URL
@@ -34,7 +35,7 @@ type Config struct {
 	IFaceBlackList []string
 }
 
-//createNewConfig creates a new config generating a new Wireguard key and saving to file
+// createNewConfig creates a new config generating a new Wireguard key and saving to file
 func createNewConfig(managementURL string, configPath string, preSharedKey string) (*Config, error) {
 	wgKey := generateKey()
 	config := &Config{PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
@@ -63,7 +64,6 @@ func createNewConfig(managementURL string, configPath string, preSharedKey strin
 }
 
 func parseManagementURL(managementURL string) (*url.URL, error) {
-
 	parsedMgmtURL, err := url.ParseRequestURI(managementURL)
 	if err != nil {
 		log.Errorf("failed parsing management URL %s: [%s]", managementURL, err.Error())
@@ -75,29 +75,41 @@ func parseManagementURL(managementURL string) (*url.URL, error) {
 	}
 
 	return parsedMgmtURL, err
-
 }
 
 // ReadConfig reads existing config. In case provided managementURL is not empty overrides the read property
-func ReadConfig(managementURL string, configPath string) (*Config, error) {
+func ReadConfig(managementURL string, configPath string, preSharedKey *string) (*Config, error) {
 	config := &Config{}
 	_, err := util.ReadJson(configPath, config)
 	if err != nil {
 		return nil, err
 	}
 
+	refresh := false
+
 	if managementURL != "" && config.ManagementURL.String() != managementURL {
-		URL, err := parseManagementURL(managementURL)
-		if err != nil {
+		log.Infof("new Management URL provided, updated to %s (old value %s)",
+			managementURL, config.ManagementURL)
+		var newURL *url.URL
+		if newURL, err = parseManagementURL(managementURL); err != nil {
 			return nil, err
 		}
-		config.ManagementURL = URL
+		config.ManagementURL = newURL
+		refresh = true
+	}
+
+	if preSharedKey != nil && config.PreSharedKey != *preSharedKey {
+		log.Infof("new pre-shared key provided, updated to %s (old value %s)",
+			*preSharedKey, config.PreSharedKey)
+		config.PreSharedKey = *preSharedKey
+		refresh = true
+	}
+
+	if refresh {
 		// since we have new management URL, we need to update config file
-		err = util.WriteJson(configPath, config)
-		if err != nil {
+		if err = util.WriteJson(configPath, config); err != nil {
 			return nil, err
 		}
-		log.Infof("new Management URL provided, updated to %s (old value %s)", managementURL, config.ManagementURL)
 	}
 
 	return config, err
@@ -105,12 +117,11 @@ func ReadConfig(managementURL string, configPath string) (*Config, error) {
 
 // GetConfig reads existing config or generates a new one
 func GetConfig(managementURL string, configPath string, preSharedKey string) (*Config, error) {
-
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		log.Infof("generating new config %s", configPath)
 		return createNewConfig(managementURL, configPath, preSharedKey)
 	} else {
-		return ReadConfig(managementURL, configPath)
+		return ReadConfig(managementURL, configPath, &preSharedKey)
 	}
 }
 

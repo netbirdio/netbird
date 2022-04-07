@@ -28,6 +28,7 @@ require (
 )
 
 require (
+	fyne.io/fyne/v2 v2.1.4
 	github.com/99designs/keyring v1.2.1
 	github.com/getlantern/systray v1.2.1
 	github.com/magiconair/properties v1.8.5
@@ -37,7 +38,6 @@ require (
 )
 
 require (
-	fyne.io/fyne/v2 v2.1.4 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/BurntSushi/toml v0.4.1 // indirect
 	github.com/danieljoos/wincred v1.1.2 // indirect
