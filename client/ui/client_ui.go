@@ -63,10 +63,16 @@ func main() {
 }
 
 //go:embed connected.ico
-var iconConnected []byte
+var iconConnectedICO []byte
+
+//go:embed connected.png
+var iconConnectedPNG []byte
 
 //go:embed disconnected.ico
-var iconDisconnected []byte
+var iconDisconnectedICO []byte
+
+//go:embed disconnected.png
+var iconDisconnectedPNG []byte
 
 type serviceClient struct {
 	ctx  context.Context
@@ -121,7 +127,11 @@ func newServiceClient(addr string, a fyne.App) *serviceClient {
 		s.mSettings.Enable()
 	})
 	s.wSettings.Resize(fyne.NewSize(600, 100))
-	systray.SetTemplateIcon(iconDisconnected, iconDisconnected)
+	if runtime.GOOS == "windows" {
+		systray.SetTemplateIcon(iconDisconnectedICO, iconDisconnectedICO)
+	} else {
+		systray.SetTemplateIcon(iconDisconnectedPNG, iconDisconnectedPNG)
+	}
 
 	// setup systray menu items
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
@@ -251,12 +261,20 @@ func (s *serviceClient) updateStatus() {
 	}
 
 	if status.Status == string(internal.StatusConnected) {
-		systray.SetTemplateIcon(iconConnected, iconConnected)
+		if runtime.GOOS == "windows" {
+			systray.SetTemplateIcon(iconConnectedICO, iconConnectedICO)
+		} else {
+			systray.SetTemplateIcon(iconConnectedPNG, iconConnectedPNG)
+		}
 		s.mStatus.SetTitle("Connected")
 		s.mUp.Disable()
 		s.mDown.Enable()
 	} else {
-		systray.SetTemplateIcon(iconDisconnected, iconDisconnected)
+		if runtime.GOOS == "windows" {
+			systray.SetTemplateIcon(iconDisconnectedICO, iconDisconnectedICO)
+		} else {
+			systray.SetTemplateIcon(iconDisconnectedPNG, iconDisconnectedPNG)
+		}
 		s.mStatus.SetTitle("Disconnected")
 		s.mDown.Disable()
 		s.mUp.Enable()
