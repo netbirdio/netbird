@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/exec"
 	"path"
 	"runtime"
 	"strconv"
@@ -20,11 +21,13 @@ import (
 	"github.com/netbirdio/netbird/client/proto"
 	log "github.com/sirupsen/logrus"
 	"github.com/skratchdot/open-golang/open"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -36,11 +39,6 @@ const (
 func main() {
 	var daemonAddr string
 
-	if err := checkPIDFile(); err != nil {
-		fmt.Println(err)
-		return
-	}
-
 	defaultDaemonAddr := "unix:///var/run/wiretrustee.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
@@ -51,15 +49,22 @@ func main() {
 		defaultDaemonAddr,
 		"Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 
+	var showSettings bool
+	flag.BoolVar(&showSettings, "settings", false, "run settings windows")
+
 	flag.Parse()
 
 	a := app.New()
-	client := newServiceClient(daemonAddr, a)
-	go func() {
+	client := newServiceClient(daemonAddr, a, showSettings)
+	if showSettings {
+		a.Run()
+	} else {
+		if err := checkPIDFile(); err != nil {
+			fmt.Println(err)
+			return
+		}
 		systray.Run(client.onTrayReady, client.onTrayExit)
-	}()
-
-	a.Run()
+	}
 }
 
 //go:embed connected.ico
@@ -79,6 +84,9 @@ type serviceClient struct {
 	addr string
 	conn proto.DaemonServiceClient
 
+	icConnected    []byte
+	icDisconnected []byte
+
 	// systray menu itmes
 	mStatus     *systray.MenuItem
 	mUp         *systray.MenuItem
@@ -88,11 +96,13 @@ type serviceClient struct {
 	mQuit       *systray.MenuItem
 
 	// application with main windows.
-	app       fyne.App
-	wSettings fyne.Window
+	app          fyne.App
+	wSettings    fyne.Window
+	showSettings bool
 
 	// input elements for settings form
 	iMngURL       *widget.Entry
+	iAdminURL     *widget.Entry
 	iConfigFile   *widget.Entry
 	iLogFile      *widget.Entry
 	iPreSharedKey *widget.Entry
@@ -100,53 +110,53 @@ type serviceClient struct {
 	// observable settings over correspondign iMngURL and iPreSharedKey values.
 	managementURL string
 	preSharedKey  string
+	adminURL      string
 }
 
 // newServiceClient instance constructor
 //
 // This constructor olso build UI elements for settings window.
-func newServiceClient(addr string, a fyne.App) *serviceClient {
+func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient {
 	s := &serviceClient{
 		ctx:  context.Background(),
 		addr: addr,
 		app:  a,
+
+		showSettings: showSettings,
 	}
 
+	if runtime.GOOS == "windows" {
+		s.icConnected = iconConnectedICO
+		s.icDisconnected = iconDisconnectedICO
+	} else {
+		s.icConnected = iconConnectedPNG
+		s.icDisconnected = iconDisconnectedPNG
+	}
+
+	if showSettings {
+		s.showUIElements()
+		return s
+	}
+
+	return s
+}
+
+func (s *serviceClient) showUIElements() {
 	// add settings window UI elements.
 	s.wSettings = s.app.NewWindow("Settings")
 	s.iMngURL = widget.NewEntry()
+	s.iAdminURL = widget.NewEntry()
 	s.iConfigFile = widget.NewEntry()
 	s.iConfigFile.Disable()
 	s.iLogFile = widget.NewEntry()
 	s.iLogFile.Disable()
 	s.iPreSharedKey = widget.NewPasswordEntry()
 	s.wSettings.SetContent(s.getSettingsForm())
-	// we hide main window instead close it, to avoid application termination.
-	s.wSettings.SetCloseIntercept(func() {
-		s.wSettings.Hide()
-		s.mSettings.Enable()
-	})
 	s.wSettings.Resize(fyne.NewSize(600, 100))
-	if runtime.GOOS == "windows" {
-		systray.SetTemplateIcon(iconDisconnectedICO, iconDisconnectedICO)
-	} else {
-		systray.SetTemplateIcon(iconDisconnectedPNG, iconDisconnectedPNG)
-	}
 
-	// setup systray menu items
-	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
-	s.mStatus.Disable()
-	systray.AddSeparator()
-	s.mUp = systray.AddMenuItem("Connect", "Connect")
-	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
-	s.mDown.Disable()
-	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Wiretrustee Admin Panel")
-	systray.AddSeparator()
-	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
-	systray.AddSeparator()
-	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
+	s.getSrvConfig()
 
-	return s
+	s.wSettings.Show()
 }
 
 // getSettingsForm to embed it into settings window.
@@ -154,18 +164,30 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 	return &widget.Form{
 		Items: []*widget.FormItem{
 			{Text: "Management URL", Widget: s.iMngURL},
+			{Text: "Admin URL", Widget: s.iAdminURL},
 			{Text: "Pre-shared Key", Widget: s.iPreSharedKey},
 			{Text: "Config File", Widget: s.iConfigFile},
 			{Text: "Log File", Widget: s.iLogFile},
 		},
+		SubmitText: "Save",
 		OnSubmit: func() {
-			s.wSettings.Hide()
+			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != "**********" {
+				// validate preSharedKey if it added
+				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
+					dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
+					return
+				}
+			}
 
-			s.mSettings.Enable()
+			defer s.wSettings.Close()
 			// if management URL or Pre-shared key changed, we try to re-login with new settings.
-			if s.managementURL != s.iMngURL.Text || s.preSharedKey != s.iPreSharedKey.Text {
+			if s.managementURL != s.iMngURL.Text || s.preSharedKey != s.iPreSharedKey.Text ||
+				s.adminURL != s.iAdminURL.Text {
+
 				s.managementURL = s.iMngURL.Text
 				s.preSharedKey = s.iPreSharedKey.Text
+				s.adminURL = s.iAdminURL.Text
+
 				client, err := s.getSrvClient(fastFailTimeout)
 				if err != nil {
 					log.Errorf("get daemon client: %v", err)
@@ -174,6 +196,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 
 				_, err = client.Login(s.ctx, &proto.LoginRequest{
 					ManagementUrl: s.iMngURL.Text,
+					AdminURL:      s.iAdminURL.Text,
 					PreSharedKey:  s.iPreSharedKey.Text,
 				})
 				if err != nil {
@@ -187,10 +210,10 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					return
 				}
 			}
+			s.wSettings.Close()
 		},
 		OnCancel: func() {
-			s.wSettings.Hide()
-			s.mSettings.Enable()
+			s.wSettings.Close()
 		},
 	}
 }
@@ -261,20 +284,12 @@ func (s *serviceClient) updateStatus() {
 	}
 
 	if status.Status == string(internal.StatusConnected) {
-		if runtime.GOOS == "windows" {
-			systray.SetTemplateIcon(iconConnectedICO, iconConnectedICO)
-		} else {
-			systray.SetTemplateIcon(iconConnectedPNG, iconConnectedPNG)
-		}
+		systray.SetIcon(s.icConnected)
 		s.mStatus.SetTitle("Connected")
 		s.mUp.Disable()
 		s.mDown.Enable()
 	} else {
-		if runtime.GOOS == "windows" {
-			systray.SetTemplateIcon(iconDisconnectedICO, iconDisconnectedICO)
-		} else {
-			systray.SetTemplateIcon(iconDisconnectedPNG, iconDisconnectedPNG)
-		}
+		systray.SetIcon(s.icDisconnected)
 		s.mStatus.SetTitle("Disconnected")
 		s.mDown.Disable()
 		s.mUp.Enable()
@@ -282,6 +297,21 @@ func (s *serviceClient) updateStatus() {
 }
 
 func (s *serviceClient) onTrayReady() {
+	systray.SetIcon(s.icDisconnected)
+
+	// setup systray menu items
+	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
+	s.mStatus.Disable()
+	systray.AddSeparator()
+	s.mUp = systray.AddMenuItem("Connect", "Connect")
+	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
+	s.mDown.Disable()
+	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Wiretrustee Admin Panel")
+	systray.AddSeparator()
+	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
+	systray.AddSeparator()
+	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
+
 	go func() {
 		s.getSrvConfig()
 		for {
@@ -295,7 +325,7 @@ func (s *serviceClient) onTrayReady() {
 		for {
 			select {
 			case <-s.mAdminPanel.ClickedCh:
-				err = open.Run("https://app.wiretrustee.com")
+				err = open.Run(s.adminURL)
 			case <-s.mUp.ClickedCh:
 				s.mUp.Disable()
 				if err = s.menuUpClick(); err != nil {
@@ -307,9 +337,28 @@ func (s *serviceClient) onTrayReady() {
 					s.mDown.Enable()
 				}
 			case <-s.mSettings.ClickedCh:
-				s.iMngURL.SetText(s.managementURL)
 				s.mSettings.Disable()
-				s.wSettings.Show()
+				go func() {
+					defer s.mSettings.Enable()
+					proc, err := os.Executable()
+					if err != nil {
+						log.Errorf("show settings: %v", err)
+						return
+					}
+
+					cmd := exec.Command(proc, "--settings=true")
+					out, err := cmd.CombinedOutput()
+					if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+						log.Errorf("start settings UI: %v, %s", err, string(out))
+						return
+					}
+					if len(out) != 0 {
+						log.Info("settings change:", string(out))
+					}
+
+					// update config in systray when settings windows closed
+					s.getSrvConfig()
+				}()
 			case <-s.mQuit.ClickedCh:
 				systray.Quit()
 				return
@@ -321,9 +370,7 @@ func (s *serviceClient) onTrayReady() {
 	}()
 }
 
-func (s *serviceClient) onTrayExit() {
-	s.app.Quit()
-}
+func (s *serviceClient) onTrayExit() {}
 
 // getSrvClient connection to the service.
 func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonServiceClient, error) {
@@ -350,7 +397,8 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 
 // getSrvConfig from the service to show it in the settings window.
 func (s *serviceClient) getSrvConfig() {
-	s.managementURL = "https://api.netbird.io:33073"
+	s.managementURL = "https://api.wiretrustee.com:33073"
+	s.adminURL = "https://app.netbird.io"
 
 	conn, err := s.getSrvClient(fastFailTimeout)
 	if err != nil {
@@ -367,11 +415,18 @@ func (s *serviceClient) getSrvConfig() {
 	if cfg.ManagementUrl != "" {
 		s.managementURL = cfg.ManagementUrl
 	}
+	if cfg.AdminURL != "" {
+		s.adminURL = cfg.AdminURL
+	}
 	s.preSharedKey = cfg.PreSharedKey
 
-	s.iConfigFile.SetText(cfg.ConfigFile)
-	s.iLogFile.SetText(cfg.LogFile)
-	s.iPreSharedKey.SetText(cfg.PreSharedKey)
+	if s.showSettings {
+		s.iMngURL.SetText(s.managementURL)
+		s.iAdminURL.SetText(s.adminURL)
+		s.iConfigFile.SetText(cfg.ConfigFile)
+		s.iLogFile.SetText(cfg.LogFile)
+		s.iPreSharedKey.SetText(cfg.PreSharedKey)
+	}
 }
 
 // checkPIDFile exists and return error, or write new.

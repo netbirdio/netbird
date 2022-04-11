@@ -1,8 +1,8 @@
 [Desktop Entry]
-Name=Wiretrustee UI
+Name=Netbird Agent
 Exec=/usr/bin/wiretrustee-ui
-Icon=wiretrustee
+Icon=netbird
 Type=Application
 Terminal=false
 Categories=Utility;
-Keywords=wiretrustee;
+Keywords=netbird;

@@ -32,6 +32,9 @@ message LoginRequest {
 
   // managementUrl to authenticate.
   string managementUrl = 3;
+
+  // adminUrl to manage keys.
+  string adminURL = 4;
 }
 
 message LoginResponse {}
@@ -65,4 +68,7 @@ message GetConfigResponse {
 
   // preSharedKey settings value.
   string preSharedKey = 4;
+
+  // adminURL settings value.
+  string adminURL = 5;
 }

@@ -54,7 +54,7 @@ func (p *program) Start(svc service.Service) error {
 			}
 		}
 
-		serverInstance := server.New(p.ctx, managementURL, configPath, logFile)
+		serverInstance := server.New(p.ctx, managementURL, adminURL, configPath, logFile)
 		if err := serverInstance.Start(); err != nil {
 			log.Fatalf("failed start daemon: %v", err)
 		}

@@ -17,6 +17,7 @@ type Server struct {
 	actCancel context.CancelFunc
 
 	managementURL string
+	adminURL      string
 	configPath    string
 	logFile       string
 
@@ -26,10 +27,11 @@ type Server struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, managementURL, configPath, logFile string) *Server {
+func New(ctx context.Context, managementURL, adminURL, configPath, logFile string) *Server {
 	return &Server{
 		rootCtx:       ctx,
 		managementURL: managementURL,
+		adminURL:      adminURL,
 		configPath:    configPath,
 		logFile:       logFile,
 	}
@@ -54,7 +56,7 @@ func (s *Server) Start() error {
 	s.actCancel = cancel
 
 	// if configuration exists, we just start connections.
-	config, err := internal.ReadConfig(s.managementURL, s.configPath, nil)
+	config, err := internal.ReadConfig(s.managementURL, s.adminURL, s.configPath, nil)
 	if err != nil {
 		log.Warnf("no config file, skip connection stage: %v", err)
 		return nil
@@ -90,9 +92,14 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	if msg.ManagementUrl != "" {
 		managementURL = msg.ManagementUrl
 	}
+
+	adminURL := s.adminURL
+	if msg.AdminURL != "" {
+		adminURL = msg.AdminURL
+	}
 	s.mutex.Unlock()
 
-	config, err := internal.GetConfig(managementURL, s.configPath, msg.PreSharedKey)
+	config, err := internal.GetConfig(managementURL, adminURL, s.configPath, msg.PreSharedKey)
 	if err != nil {
 		return nil, err
 	}
@@ -186,10 +193,21 @@ func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*p
 		managementURL = s.config.ManagementURL.String()
 	}
 
+	adminURL := s.adminURL
+	if s.config.AdminURL != nil {
+		adminURL = s.config.AdminURL.String()
+	}
+
+	preSharedKey := s.config.PreSharedKey
+	if preSharedKey != "" {
+		preSharedKey = "**********"
+	}
+
 	return &proto.GetConfigResponse{
 		ManagementUrl: managementURL,
+		AdminURL:      adminURL,
 		ConfigFile:    s.configPath,
 		LogFile:       s.logFile,
-		PreSharedKey:  s.config.PreSharedKey,
+		PreSharedKey:  preSharedKey,
 	}, nil
 }
