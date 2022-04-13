@@ -3,14 +3,15 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt"
+	log "github.com/sirupsen/logrus"
 )
 
 // Auth0Manager auth0 manager client instance

@@ -79,6 +79,9 @@ func (s *Server) Start() error {
 	r.HandleFunc("/api/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/peers/{id}", peersHandler.HandlePeer).Methods("GET", "PUT", "DELETE", "OPTIONS")
 
+	userHandler := handler.NewUserHandler(s.accountManager, s.config.AuthAudience)
+	r.HandleFunc("/api/users", userHandler.GetUsers).Methods("GET", "OPTIONS")
+
 	r.HandleFunc("/api/setup-keys", keysHandler.GetKeys).Methods("GET", "POST", "OPTIONS")
 	r.HandleFunc("/api/setup-keys/{id}", keysHandler.HandleKey).Methods("GET", "PUT", "OPTIONS")
 	http.Handle("/", r)
