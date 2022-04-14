@@ -1,6 +1,9 @@
 package server
 
 import (
+	"strings"
+	"sync"
+
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/util"
@@ -8,8 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"strings"
-	"sync"
 )
 
 const (
@@ -93,7 +94,7 @@ func (a *Account) Copy() *Account {
 }
 
 // NewManager creates a new DefaultAccountManager with a provided Store
-func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) *DefaultAccountManager {
+func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) AccountManager {
 	return &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},

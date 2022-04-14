@@ -184,6 +184,53 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	return c.jwtToken, nil
 }
 
+func (am *Auth0Manager) GetUserData(userId string, appMetadata AppMetadata) error {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	url := am.authIssuer + "/api/v2/users/" + userId
+
+	data, err := am.helper.Marshal(appMetadata)
+	if err != nil {
+		return err
+	}
+
+	payloadString := fmt.Sprintf("{\"app_metadata\": %s}", string(data))
+
+	payload := strings.NewReader(payloadString)
+
+	req, err := http.NewRequest(http.MethodGet, url, payload)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	log.Infof("requesting user information; %v", req)
+
+	res, err := am.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+
+	log.Infof("user information; %v", res.Body)
+
+	defer func() {
+		err = res.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing update user app metadata response body: %v", err)
+		}
+	}()
+
+	if res.StatusCode != 200 {
+		return fmt.Errorf("unable to update the appMetadata, statusCode %d", res.StatusCode)
+	}
+
+	return nil
+}
+
 // UpdateUserAppMetadata updates user app metadata based on userId and metadata map
 func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
 

@@ -46,7 +46,6 @@ func (u *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "", http.StatusBadRequest)
 	}
-
 	userIDs, err := u.getUserIds(r)
 	if err != nil {
 		log.Error(err)
@@ -55,8 +54,9 @@ func (u *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respBody := []*UserResponse{}
-	for _, id := range userIDs {
-		respBody = append(respBody, toUserResponse(id))
+	for _, user := range userIDs {
+		// GetUserData(user.Id, idp.AppMetadata{WTAccountId: user.Id})
+		respBody = append(respBody, toUserResponse(user))
 	}
 
 	for _, value := range respBody {
