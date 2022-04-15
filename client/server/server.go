@@ -17,7 +17,9 @@ type Server struct {
 	actCancel context.CancelFunc
 
 	managementURL string
+	adminURL      string
 	configPath    string
+	logFile       string
 
 	mutex  sync.Mutex
 	config *internal.Config
@@ -25,11 +27,13 @@ type Server struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, managementURL, configPath string) *Server {
+func New(ctx context.Context, managementURL, adminURL, configPath, logFile string) *Server {
 	return &Server{
 		rootCtx:       ctx,
 		managementURL: managementURL,
+		adminURL:      adminURL,
 		configPath:    configPath,
+		logFile:       logFile,
 	}
 }
 
@@ -52,7 +56,7 @@ func (s *Server) Start() error {
 	s.actCancel = cancel
 
 	// if configuration exists, we just start connections.
-	config, err := internal.ReadConfig(s.managementURL, s.configPath)
+	config, err := internal.ReadConfig(s.managementURL, s.adminURL, s.configPath, nil)
 	if err != nil {
 		log.Warnf("no config file, skip connection stage: %v", err)
 		return nil
@@ -71,22 +75,42 @@ func (s *Server) Start() error {
 // Login uses setup key to prepare configuration for the daemon.
 func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
 	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	if s.actCancel != nil {
+		s.actCancel()
+	}
+	ctx, cancel := context.WithCancel(s.rootCtx)
+	s.actCancel = cancel
+	s.mutex.Unlock()
 
+	state := internal.CtxGetState(ctx)
+	defer state.Set(internal.StatusIdle)
+
+	state.Set(internal.StatusConnecting)
+
+	s.mutex.Lock()
 	managementURL := s.managementURL
 	if msg.ManagementUrl != "" {
 		managementURL = msg.ManagementUrl
 	}
 
-	config, err := internal.GetConfig(managementURL, s.configPath, msg.PresharedKey)
+	adminURL := s.adminURL
+	if msg.AdminURL != "" {
+		adminURL = msg.AdminURL
+	}
+	s.mutex.Unlock()
+
+	config, err := internal.GetConfig(managementURL, adminURL, s.configPath, msg.PreSharedKey)
 	if err != nil {
 		return nil, err
 	}
+
+	s.mutex.Lock()
 	s.config = config
+	s.mutex.Unlock()
 
 	// login operation uses backoff scheme to connect to management API
 	// we don't wait for result and return response immediately.
-	if err := internal.Login(s.rootCtx, s.config, msg.SetupKey); err != nil {
+	if err := internal.Login(ctx, s.config, msg.SetupKey); err != nil {
 		log.Errorf("failed login: %v", err)
 		return nil, err
 	}
@@ -157,4 +181,33 @@ func (s *Server) Status(ctx context.Context, msg *proto.StatusRequest) (*proto.S
 	}
 
 	return &proto.StatusResponse{Status: string(status)}, nil
+}
+
+// GetConfig of the daemon.
+func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*proto.GetConfigResponse, error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	managementURL := s.managementURL
+	if managementURL == "" && s.config.ManagementURL != nil {
+		managementURL = s.config.ManagementURL.String()
+	}
+
+	adminURL := s.adminURL
+	if s.config.AdminURL != nil {
+		adminURL = s.config.AdminURL.String()
+	}
+
+	preSharedKey := s.config.PreSharedKey
+	if preSharedKey != "" {
+		preSharedKey = "**********"
+	}
+
+	return &proto.GetConfigResponse{
+		ManagementUrl: managementURL,
+		AdminURL:      adminURL,
+		ConfigFile:    s.configPath,
+		LogFile:       s.logFile,
+		PreSharedKey:  preSharedKey,
+	}, nil
 }

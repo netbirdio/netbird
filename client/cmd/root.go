@@ -28,6 +28,7 @@ var (
 	logFile           string
 	daemonAddr        string
 	managementURL     string
+	adminURL          string
 	setupKey          string
 	preSharedKey      string
 	rootCmd           = &cobra.Command{
@@ -56,6 +57,7 @@ func init() {
 	}
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	rootCmd.PersistentFlags().StringVar(&managementURL, "management-url", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.ManagementURLDefault().String()))
+	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "https://app.netbird.io", "Admin Panel URL [http|https]://[host]:[port]")
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location")
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "sets Wiretrustee log level")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Wiretrustee log path. If console is specified the the log will be output to stdout")

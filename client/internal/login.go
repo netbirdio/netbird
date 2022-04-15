@@ -2,9 +2,7 @@ package internal
 
 import (
 	"context"
-	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/google/uuid"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -16,16 +14,6 @@ import (
 )
 
 func Login(ctx context.Context, config *Config, setupKey string) error {
-	backOff := &backoff.ExponentialBackOff{
-		InitialInterval:     time.Second,
-		RandomizationFactor: backoff.DefaultRandomizationFactor,
-		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         2 * time.Second,
-		MaxElapsedTime:      time.Second * 10,
-		Stop:                backoff.Stop,
-		Clock:               backoff.SystemClock,
-	}
-
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
@@ -38,41 +26,29 @@ func Login(ctx context.Context, config *Config, setupKey string) error {
 		mgmTlsEnabled = true
 	}
 
-	loginOp := func() error {
-		log.Debugf("connecting to Management Service %s", config.ManagementURL.String())
-		mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
-		if err != nil {
-			log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
-			return err
-		}
-		log.Debugf("connected to management Service %s", config.ManagementURL.String())
+	log.Debugf("connecting to Management Service %s", config.ManagementURL.String())
+	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+	if err != nil {
+		log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
+		return err
+	}
+	log.Debugf("connected to management Service %s", config.ManagementURL.String())
 
-		serverKey, err := mgmClient.GetServerPublicKey()
-		if err != nil {
-			log.Errorf("failed while getting Management Service public key: %v", err)
-			return err
-		}
-
-		_, err = loginPeer(*serverKey, mgmClient, setupKey)
-		if err != nil {
-			log.Errorf("failed logging-in peer on Management Service : %v", err)
-			return err
-		}
-
-		err = mgmClient.Close()
-		if err != nil {
-			log.Errorf("failed closing Management Service client: %v", err)
-			return err
-		}
-
-		return nil
+	serverKey, err := mgmClient.GetServerPublicKey()
+	if err != nil {
+		log.Errorf("failed while getting Management Service public key: %v", err)
+		return err
 	}
 
-	err = backoff.RetryNotify(loginOp, backOff, func(err error, duration time.Duration) {
-		log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
-	})
+	_, err = loginPeer(*serverKey, mgmClient, setupKey)
 	if err != nil {
-		log.Errorf("exiting login retry loop due to unrecoverable error: %v", err)
+		log.Errorf("failed logging-in peer on Management Service : %v", err)
+		return err
+	}
+
+	err = mgmClient.Close()
+	if err != nil {
+		log.Errorf("failed closing Management Service client: %v", err)
 		return err
 	}
 

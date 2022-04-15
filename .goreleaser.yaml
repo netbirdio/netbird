@@ -58,10 +58,24 @@ builds:
   - id: wiretrustee-ui
     dir: client/ui
     binary: wiretrustee-ui
-    env: [CGO_ENABLED=1]
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - linux
+    goarch:
+      - amd64
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/client/ui/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: '{{ .CommitTimestamp }}'
+
+  - id: wiretrustee-ui-windows
+    dir: client/ui
+    binary: wiretrustee-ui-windows
+    env:
+      - CGO_ENABLED=1
+      - CC=x86_64-w64-mingw32-gcc
     goos:
       - windows
-      - linux
     goarch:
       - amd64
     ldflags:
@@ -85,10 +99,10 @@ nfpms:
       - deb
       - rpm
     contents:
-      - src: client/ui/wiretrustee.desktop
-        dst: /usr/share/applications/wiretrustee.desktop
-      - src: client/ui/wiretrustee.png
-        dst: /usr/share/icons/hicolor/256x256/wiretrustee.png
+      - src: client/ui/netbird.desktop
+        dst: /usr/share/applications/netbird.desktop
+      - src: client/ui/disconnected.png
+        dst: /usr/share/pixmaps/netbird.png
     dependencies:
       - libayatana-appindicator3-1
       - libgtk-3-dev

@@ -2,24 +2,25 @@ package internal
 
 import (
 	"errors"
-	"github.com/netbirdio/netbird/util"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/netbirdio/netbird/util"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestReadConfig(t *testing.T) {
-
 }
-func TestGetConfig(t *testing.T) {
 
+func TestGetConfig(t *testing.T) {
 	managementURL := "https://test.management.url:33071"
+	adminURL := "https://app.admin.url"
 	path := filepath.Join(t.TempDir(), "config.json")
 	preSharedKey := "preSharedKey"
 
 	// case 1: new config has to be generated
-	config, err := GetConfig(managementURL, path, preSharedKey)
+	config, err := GetConfig(managementURL, adminURL, path, preSharedKey)
 	if err != nil {
 		return
 	}
@@ -32,7 +33,7 @@ func TestGetConfig(t *testing.T) {
 	}
 
 	// case 2: existing config -> fetch it
-	config, err = GetConfig(managementURL, path, preSharedKey)
+	config, err = GetConfig(managementURL, adminURL, path, preSharedKey)
 	if err != nil {
 		return
 	}
@@ -42,7 +43,7 @@ func TestGetConfig(t *testing.T) {
 
 	// case 3: existing config, but new managementURL has been provided -> update config
 	newManagementURL := "https://test.newManagement.url:33071"
-	config, err = GetConfig(newManagementURL, path, preSharedKey)
+	config, err = GetConfig(newManagementURL, adminURL, path, preSharedKey)
 	if err != nil {
 		return
 	}
@@ -56,5 +57,4 @@ func TestGetConfig(t *testing.T) {
 		return
 	}
 	assert.Equal(t, readConf.(*Config).ManagementURL.String(), newManagementURL)
-
 }
