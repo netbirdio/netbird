@@ -1,6 +1,7 @@
 .idea
 *.iml
 dist/
+bin/
 .env
 conf.json
 http-cmds.sh
