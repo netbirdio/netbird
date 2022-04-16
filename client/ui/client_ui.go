@@ -271,11 +271,10 @@ func (s *serviceClient) menuDownClick() error {
 	return nil
 }
 
-func (s *serviceClient) updateStatus() {
+func (s *serviceClient) updateStatus() error {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
-		log.Errorf("get client: %v", err)
-		return
+		return err
 	}
 	err = backoff.Retry(func() error {
 		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
@@ -305,6 +304,12 @@ func (s *serviceClient) updateStatus() {
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	})
+
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *serviceClient) onTrayReady() {
@@ -326,7 +331,10 @@ func (s *serviceClient) onTrayReady() {
 	go func() {
 		s.getSrvConfig()
 		for {
-			s.updateStatus()
+			err := s.updateStatus()
+			if err != nil {
+				log.Errorf("error while updating status: %v", err)
+			}
 			time.Sleep(2 * time.Second)
 		}
 	}()
