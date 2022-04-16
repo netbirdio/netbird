@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/cenkalti/backoff/v4"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -32,8 +33,8 @@ import (
 )
 
 const (
-	defaulFailTimeout = time.Duration(3 * time.Second)
-	fastFailTimeout   = time.Second
+	defaultFailTimeout = 3 * time.Second
+	failFastTimeout    = time.Second
 )
 
 func main() {
@@ -188,7 +189,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 				s.preSharedKey = s.iPreSharedKey.Text
 				s.adminURL = s.iAdminURL.Text
 
-				client, err := s.getSrvClient(fastFailTimeout)
+				client, err := s.getSrvClient(failFastTimeout)
 				if err != nil {
 					log.Errorf("get daemon client: %v", err)
 					return
@@ -219,7 +220,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 }
 
 func (s *serviceClient) menuUpClick() error {
-	conn, err := s.getSrvClient(defaulFailTimeout)
+	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -245,7 +246,7 @@ func (s *serviceClient) menuUpClick() error {
 }
 
 func (s *serviceClient) menuDownClick() error {
-	conn, err := s.getSrvClient(defaulFailTimeout)
+	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return err
@@ -271,29 +272,39 @@ func (s *serviceClient) menuDownClick() error {
 }
 
 func (s *serviceClient) updateStatus() {
-	conn, err := s.getSrvClient(defaulFailTimeout)
+	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return
 	}
+	err = backoff.Retry(func() error {
+		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
+		if err != nil {
+			log.Errorf("get service status: %v", err)
+			return err
+		}
 
-	status, err := conn.Status(s.ctx, &proto.StatusRequest{})
-	if err != nil {
-		log.Errorf("get service status: %v", err)
-		return
-	}
-
-	if status.Status == string(internal.StatusConnected) {
-		systray.SetIcon(s.icConnected)
-		s.mStatus.SetTitle("Connected")
-		s.mUp.Disable()
-		s.mDown.Enable()
-	} else {
-		systray.SetIcon(s.icDisconnected)
-		s.mStatus.SetTitle("Disconnected")
-		s.mDown.Disable()
-		s.mUp.Enable()
-	}
+		if status.Status == string(internal.StatusConnected) {
+			systray.SetIcon(s.icConnected)
+			s.mStatus.SetTitle("Connected")
+			s.mUp.Disable()
+			s.mDown.Enable()
+		} else {
+			systray.SetIcon(s.icDisconnected)
+			s.mStatus.SetTitle("Disconnected")
+			s.mDown.Disable()
+			s.mUp.Enable()
+		}
+		return nil
+	}, &backoff.ExponentialBackOff{
+		InitialInterval:     time.Second,
+		RandomizationFactor: backoff.DefaultRandomizationFactor,
+		Multiplier:          backoff.DefaultMultiplier,
+		MaxInterval:         300 * time.Millisecond,
+		MaxElapsedTime:      2 * time.Second,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
+	})
 }
 
 func (s *serviceClient) onTrayReady() {
@@ -316,7 +327,7 @@ func (s *serviceClient) onTrayReady() {
 		s.getSrvConfig()
 		for {
 			s.updateStatus()
-			time.Sleep(time.Second * 3)
+			time.Sleep(2 * time.Second)
 		}
 	}()
 
@@ -400,7 +411,7 @@ func (s *serviceClient) getSrvConfig() {
 	s.managementURL = "https://api.wiretrustee.com:33073"
 	s.adminURL = "https://app.netbird.io"
 
-	conn, err := s.getSrvClient(fastFailTimeout)
+	conn, err := s.getSrvClient(failFastTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
 		return
