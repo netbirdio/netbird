@@ -55,7 +55,8 @@ func (u *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	respBody := []*UserResponse{}
 	for _, user := range userIDs {
-		// GetUserData(user.Id, idp.AppMetadata{WTAccountId: user.Id})
+		// auth0Manager
+		// u.accountManager.GetUserData(user.Id, idp.AppMetadata{WTAccountId: user.Id})
 		respBody = append(respBody, toUserResponse(user))
 	}
 

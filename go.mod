@@ -34,6 +34,7 @@ require (
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.7.0
+	github.com/wiretrustee/wiretrustee v0.5.1
 )
 
 require (

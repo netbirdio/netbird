@@ -10,6 +10,7 @@ import (
 // Manager idp manager interface
 type Manager interface {
 	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
+	GetUserData(userId string, appMetadata AppMetadata) error
 }
 
 // Config an idp configuration struct to be loaded from management server's config file
