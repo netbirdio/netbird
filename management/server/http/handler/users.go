@@ -17,8 +17,8 @@ type UserHandler struct {
 }
 
 type UserResponse struct {
-	Id   string
-	Role string
+	Email string
+	Role  string
 }
 
 func NewUserHandler(accountManager server.AccountManager, authAudience string) *UserHandler {
@@ -29,7 +29,7 @@ func NewUserHandler(accountManager server.AccountManager, authAudience string) *
 	}
 }
 
-func (u *UserHandler) getUserIds(r *http.Request) (map[string]*server.User, error) {
+func (u *UserHandler) getAccountId(r *http.Request) (*server.Account, error) {
 	jwtClaims := u.jwtExtractor.ExtractClaimsFromRequestContext(r, u.authAudience)
 
 	account, err := u.accountManager.GetAccountWithAuthorizationClaims(jwtClaims)
@@ -37,7 +37,7 @@ func (u *UserHandler) getUserIds(r *http.Request) (map[string]*server.User, erro
 		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
 	}
 
-	return account.Users, nil
+	return account, nil
 }
 
 // handle more user details in idp
@@ -46,32 +46,20 @@ func (u *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "", http.StatusBadRequest)
 	}
-	userIDs, err := u.getUserIds(r)
+
+	account, err := u.getAccountId(r)
+	if err != nil {
+		log.Error(err)
+	}
+
+	data, err := u.accountManager.GetUsersFromAccount(account.Id)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	respBody := []*UserResponse{}
-	for _, user := range userIDs {
-		// auth0Manager
-		// u.accountManager.GetUserData(user.Id, idp.AppMetadata{WTAccountId: user.Id})
-		respBody = append(respBody, toUserResponse(user))
-	}
-
-	for _, value := range respBody {
-		log.Info(value)
-	}
-
-	writeJSONObject(w, respBody)
-}
-
-func toUserResponse(user *server.User) *UserResponse {
-	return &UserResponse{
-		Id:   user.Id,
-		Role: string(user.Role),
-	}
+	writeJSONObject(w, data)
 }
 
 // management/server/idp/idp.go needs to be extended, since we only save the userIDs and not extra information

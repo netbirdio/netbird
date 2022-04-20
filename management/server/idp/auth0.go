@@ -184,38 +184,35 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	return c.jwtToken, nil
 }
 
-func (am *Auth0Manager) GetUserData(userId string, appMetadata AppMetadata) error {
+// Requests user data from auth0
+// user data: email
+func (am *Auth0Manager) GetUserData(userId string, appMetadata AppMetadata) (*UserData, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	url := am.authIssuer + "/api/v2/users/" + userId
 
-	data, err := am.helper.Marshal(appMetadata)
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
-		return err
-	}
-
-	payloadString := fmt.Sprintf("{\"app_metadata\": %s}", string(data))
-
-	payload := strings.NewReader(payloadString)
-
-	req, err := http.NewRequest(http.MethodGet, url, payload)
-	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
-	log.Infof("requesting user information; %v", req)
-
 	res, err := am.httpClient.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	log.Infof("user information; %v", res.Body)
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var userData UserData
+	json.Unmarshal(body, &userData)
 
 	defer func() {
 		err = res.Body.Close()
@@ -225,10 +222,10 @@ func (am *Auth0Manager) GetUserData(userId string, appMetadata AppMetadata) erro
 	}()
 
 	if res.StatusCode != 200 {
-		return fmt.Errorf("unable to update the appMetadata, statusCode %d", res.StatusCode)
+		return nil, fmt.Errorf("unable to get UserData, statusCode %d", res.StatusCode)
 	}
 
-	return nil
+	return &userData, nil
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userId and metadata map

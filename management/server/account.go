@@ -38,7 +38,7 @@ type AccountManager interface {
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
 	AddPeer(setupKey string, peer *Peer) (*Peer, error)
-	GetUsersFromAccount(accountId string) error
+	GetUsersFromAccount(accountId string) ([]*idp.UserData, error)
 }
 
 type DefaultAccountManager struct {
@@ -232,17 +232,23 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 	return nil
 }
 
-func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) error {
+func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*idp.UserData, error) {
 	account, err := am.GetAccountById(accountID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	for user := range account.Users {
-		am.idpManager.GetUserData(user, idp.AppMetadata{WTAccountId: accountID})
+	var userDatas []*idp.UserData
+	for id, user := range account.Users {
+		userData, err := am.idpManager.GetUserData(id, idp.AppMetadata{WTAccountId: accountID})
+		if err != nil {
+			return nil, err
+		}
+		userData.Role = string(user.Role)
+		userDatas = append(userDatas, userData)
 	}
 
-	return nil
+	return userDatas, nil
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
