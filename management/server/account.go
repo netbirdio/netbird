@@ -1,6 +1,9 @@
 package server
 
 import (
+	"strings"
+	"sync"
+
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/util"
@@ -8,8 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"strings"
-	"sync"
 )
 
 const (
@@ -21,7 +22,12 @@ const (
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	GetAccountByUser(userId string) (*Account, error)
-	AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn *util.Duration) (*SetupKey, error)
+	AddSetupKey(
+		accountId string,
+		keyName string,
+		keyType SetupKeyType,
+		expiresIn *util.Duration,
+	) (*SetupKey, error)
 	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
@@ -31,7 +37,12 @@ type AccountManager interface {
 	AddAccount(accountId, userId, domain string) (*Account, error)
 	GetPeer(peerKey string) (*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
-	RenamePeer(accountId string, peerKey string, newName string) (*Peer, error)
+	UpdatePeerAttrs(
+		accountId string,
+		peerKey string,
+		newName string,
+		newTags []string,
+	) (*Peer, error)
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
@@ -57,6 +68,7 @@ type Account struct {
 	SetupKeys              map[string]*SetupKey
 	Network                *Network
 	Peers                  map[string]*Peer
+	TaggedPeerKeys         map[string][]string
 	Users                  map[string]*User
 }
 
@@ -93,7 +105,11 @@ func (a *Account) Copy() *Account {
 }
 
 // NewManager creates a new DefaultAccountManager with a provided Store
-func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) *DefaultAccountManager {
+func NewManager(
+	store Store,
+	peersUpdateManager *PeersUpdateManager,
+	idpManager idp.Manager,
+) *DefaultAccountManager {
 	return &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
@@ -102,8 +118,13 @@ func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager 
 	}
 }
 
-//AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
-func (am *DefaultAccountManager) AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn *util.Duration) (*SetupKey, error) {
+// AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
+func (am *DefaultAccountManager) AddSetupKey(
+	accountId string,
+	keyName string,
+	keyType SetupKeyType,
+	expiresIn *util.Duration,
+) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -128,7 +149,7 @@ func (am *DefaultAccountManager) AddSetupKey(accountId string, keyName string, k
 	return setupKey, nil
 }
 
-//RevokeSetupKey marks SetupKey as revoked - becomes not valid anymore
+// RevokeSetupKey marks SetupKey as revoked - becomes not valid anymore
 func (am *DefaultAccountManager) RevokeSetupKey(accountId string, keyId string) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -154,8 +175,12 @@ func (am *DefaultAccountManager) RevokeSetupKey(accountId string, keyId string) 
 	return keyCopy, nil
 }
 
-//RenameSetupKey renames existing setup key of the specified account.
-func (am *DefaultAccountManager) RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error) {
+// RenameSetupKey renames existing setup key of the specified account.
+func (am *DefaultAccountManager) RenameSetupKey(
+	accountId string,
+	keyId string,
+	newName string,
+) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -180,7 +205,7 @@ func (am *DefaultAccountManager) RenameSetupKey(accountId string, keyId string, 
 	return keyCopy, nil
 }
 
-//GetAccountById returns an existing account using its ID or error (NotFound) if doesn't exist
+// GetAccountById returns an existing account using its ID or error (NotFound) if doesn't exist
 func (am *DefaultAccountManager) GetAccountById(accountId string) (*Account, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -193,10 +218,11 @@ func (am *DefaultAccountManager) GetAccountById(accountId string) (*Account, err
 	return account, nil
 }
 
-//GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
+// GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
 // user id doesn't have an account associated with it, one account is created
-func (am *DefaultAccountManager) GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error) {
-
+func (am *DefaultAccountManager) GetAccountByUserOrAccountId(
+	userId, accountId, domain string,
+) (*Account, error) {
 	if accountId != "" {
 		return am.GetAccountById(accountId)
 	} else if userId != "" {
@@ -219,14 +245,22 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 	if am.idpManager != nil {
 		err := am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: accountID})
 		if err != nil {
-			return status.Errorf(codes.Internal, "updating user's app metadata failed with: %v", err)
+			return status.Errorf(
+				codes.Internal,
+				"updating user's app metadata failed with: %v",
+				err,
+			)
 		}
 	}
 	return nil
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
-func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims, primaryDomain bool) error {
+func (am *DefaultAccountManager) updateAccountDomainAttributes(
+	account *Account,
+	claims jwtclaims.AuthorizationClaims,
+	primaryDomain bool,
+) error {
 	account.IsDomainPrimaryAccount = primaryDomain
 	account.Domain = strings.ToLower(claims.Domain)
 	account.DomainCategory = claims.DomainCategory
@@ -245,7 +279,11 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account,
 // non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
 // was previously unclassified or classified as public so N users that logged int that time, has they own account
 // and peers that shouldn't be lost.
-func (am *DefaultAccountManager) handleExistingUserAccount(existingAcc *Account, domainAcc *Account, claims jwtclaims.AuthorizationClaims) error {
+func (am *DefaultAccountManager) handleExistingUserAccount(
+	existingAcc *Account,
+	domainAcc *Account,
+	claims jwtclaims.AuthorizationClaims,
+) error {
 	var err error
 
 	if domainAcc != nil && existingAcc.Id != domainAcc.Id {
@@ -271,7 +309,10 @@ func (am *DefaultAccountManager) handleExistingUserAccount(existingAcc *Account,
 
 // handleNewUserAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
 // otherwise it will create a new account and make it primary account for the domain.
-func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims jwtclaims.AuthorizationClaims) (*Account, error) {
+func (am *DefaultAccountManager) handleNewUserAccount(
+	domainAcc *Account,
+	claims jwtclaims.AuthorizationClaims,
+) (*Account, error) {
 	var (
 		account *Account
 		err     error
@@ -315,7 +356,9 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 // Existing user + Existing account + Existing Indexed Domain -> Nothing changes
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
-func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(
+	claims jwtclaims.AuthorizationClaims,
+) (*Account, error) {
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
 	if claims.DomainCategory != PrivateCategory {
@@ -355,7 +398,7 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(claims jwtcla
 	}
 }
 
-//AccountExists checks whether account exists (returns true) or not (returns false)
+// AccountExists checks whether account exists (returns true) or not (returns false)
 func (am *DefaultAccountManager) AccountExists(accountId string) (*bool, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -377,12 +420,10 @@ func (am *DefaultAccountManager) AccountExists(accountId string) (*bool, error) 
 
 // AddAccount generates a new Account with a provided accountId and userId, saves to the Store
 func (am *DefaultAccountManager) AddAccount(accountId, userId, domain string) (*Account, error) {
-
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	return am.createAccount(accountId, userId, domain)
-
 }
 
 func (am *DefaultAccountManager) createAccount(accountId, userId, domain string) (*Account, error) {
@@ -398,7 +439,6 @@ func (am *DefaultAccountManager) createAccount(accountId, userId, domain string)
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
 func newAccountWithId(accountId, userId, domain string) *Account {
-
 	log.Debugf("creating new account")
 
 	setupKeys := make(map[string]*SetupKey)

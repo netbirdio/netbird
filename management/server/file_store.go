@@ -18,18 +18,18 @@ const storeFileName = "store.json"
 // FileStore represents an account storage backed by a file persisted to disk
 type FileStore struct {
 	Accounts                map[string]*Account
-	SetupKeyId2AccountId    map[string]string `json:"-"`
-	PeerKeyId2AccountId     map[string]string `json:"-"`
-	UserId2AccountId        map[string]string `json:"-"`
-	PrivateDomain2AccountId map[string]string `json:"-"`
+	SetupKeyId2AccountId    map[string]string              `json:"-"`
+	PeerKeyId2AccountId     map[string]string              `json:"-"`
+	AccountTags2PeerKeys    map[string]map[string][]string `json:"-"`
+	UserId2AccountId        map[string]string              `json:"-"`
+	PrivateDomain2AccountId map[string]string              `json:"-"`
 
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
 	storeFile string     `json:"-"`
 }
 
-type StoredAccount struct {
-}
+type StoredAccount struct{}
 
 // NewStore restores a store from the file located in the datadir
 func NewStore(dataDir string) (*FileStore, error) {
@@ -39,7 +39,6 @@ func NewStore(dataDir string) (*FileStore, error) {
 // restore restores the state of the store from the file.
 // Creates a new empty store file if doesn't exist
 func restore(file string) (*FileStore, error) {
-
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		// create a new FileStore if previously didn't exist (e.g. first run)
 		s := &FileStore{
@@ -47,6 +46,7 @@ func restore(file string) (*FileStore, error) {
 			mux:                     sync.Mutex{},
 			SetupKeyId2AccountId:    make(map[string]string),
 			PeerKeyId2AccountId:     make(map[string]string),
+			AccountTags2PeerKeys:    make(map[string]map[string][]string),
 			UserId2AccountId:        make(map[string]string),
 			PrivateDomain2AccountId: make(map[string]string),
 			storeFile:               file,
@@ -69,22 +69,34 @@ func restore(file string) (*FileStore, error) {
 	store.storeFile = file
 	store.SetupKeyId2AccountId = make(map[string]string)
 	store.PeerKeyId2AccountId = make(map[string]string)
+	store.AccountTags2PeerKeys = make(map[string]map[string][]string)
 	store.UserId2AccountId = make(map[string]string)
 	store.PrivateDomain2AccountId = make(map[string]string)
 	for accountId, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyId2AccountId[strings.ToUpper(setupKeyId)] = accountId
 		}
+		tags2peerKeys := make(map[string][]string)
 		for _, peer := range account.Peers {
 			store.PeerKeyId2AccountId[peer.Key] = accountId
+			// create tag -> peers list
+			for _, t := range peer.Tags {
+				peerKeyList, ok := tags2peerKeys[t]
+				if !ok {
+					peerKeyList = make([]string, 0)
+				}
+				tags2peerKeys[t] = append(peerKeyList, peer.Key)
+			}
 		}
+		store.AccountTags2PeerKeys[accountId] = tags2peerKeys
 		for _, user := range account.Users {
 			store.UserId2AccountId[user.Id] = accountId
 		}
 		for _, user := range account.Users {
 			store.UserId2AccountId[user.Id] = accountId
 		}
-		if account.Domain != "" && account.DomainCategory == PrivateCategory && account.IsDomainPrimaryAccount {
+		if account.Domain != "" && account.DomainCategory == PrivateCategory &&
+			account.IsDomainPrimaryAccount {
 			store.PrivateDomain2AccountId[account.Domain] = accountId
 		}
 	}
@@ -200,10 +212,12 @@ func (s *FileStore) SaveAccount(account *Account) error {
 }
 
 func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
-
 	accountId, accountIdFound := s.PrivateDomain2AccountId[strings.ToLower(domain)]
 	if !accountIdFound {
-		return nil, status.Errorf(codes.NotFound, "provided domain is not registered or is not private")
+		return nil, status.Errorf(
+			codes.NotFound,
+			"provided domain is not registered or is not private",
+		)
 	}
 
 	account, err := s.GetAccount(accountId)
@@ -215,7 +229,6 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 }
 
 func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
-
 	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToUpper(setupKey)]
 	if !accountIdFound {
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
@@ -228,6 +241,7 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 
 	return account, nil
 }
+
 func (s *FileStore) GetAccountPeers(accountId string) ([]*Peer, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
@@ -246,10 +260,13 @@ func (s *FileStore) GetAccountPeers(accountId string) ([]*Peer, error) {
 }
 
 func (s *FileStore) GetAccount(accountId string) (*Account, error) {
-
 	account, accountFound := s.Accounts[accountId]
 	if !accountFound {
 		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+	account.TaggedPeerKeys = s.AccountTags2PeerKeys[accountId]
+	if account.TaggedPeerKeys == nil {
+		account.TaggedPeerKeys = make(map[string][]string)
 	}
 
 	return account, nil

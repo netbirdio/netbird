@@ -1,8 +1,9 @@
 package server
 
 import (
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"testing"
+
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 func TestAccountManager_GetNetworkMap(t *testing.T) {
@@ -36,6 +37,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{},
 		Name: "test-peer-2",
+		Tags: PeerDeafultTags[:],
 	})
 
 	if err != nil {
@@ -52,6 +54,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		Key:  peerKey2.PublicKey().String(),
 		Meta: PeerSystemMeta{},
 		Name: "test-peer-2",
+		Tags: PeerDeafultTags[:],
 	})
 
 	if err != nil {
@@ -67,10 +70,14 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 
 	if len(networkMap.Peers) != 1 {
 		t.Errorf("expecting Account NetworkMap to have 1 peers, got %v", len(networkMap.Peers))
+		return
 	}
 
 	if networkMap.Peers[0].Key != peerKey2.PublicKey().String() {
-		t.Errorf("expecting Account NetworkMap to have peer with a key %s, got %s", peerKey2.PublicKey().String(), networkMap.Peers[0].Key)
+		t.Errorf(
+			"expecting Account NetworkMap to have peer with a key %s, got %s",
+			peerKey2.PublicKey().String(),
+			networkMap.Peers[0].Key,
+		)
 	}
-
 }

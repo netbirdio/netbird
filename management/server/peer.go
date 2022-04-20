@@ -1,13 +1,17 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/proto"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/management/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+// PeerDeafultTags to initialize peer.
+var PeerDeafultTags = []string{"all"}
 
 // PeerSystemMeta is a metadata of a Peer machine system
 type PeerSystemMeta struct {
@@ -21,29 +25,32 @@ type PeerSystemMeta struct {
 }
 
 type PeerStatus struct {
-	//LastSeen is the last time peer was connected to the management service
+	// LastSeen is the last time peer was connected to the management service
 	LastSeen time.Time
-	//Connected indicates whether peer is connected to the management service or not
+	// Connected indicates whether peer is connected to the management service or not
 	Connected bool
 }
 
-//Peer represents a machine connected to the network.
-//The Peer is a Wireguard peer identified by a public key
+// Peer represents a machine connected to the network.
+// The Peer is a Wireguard peer identified by a public key
 type Peer struct {
-	//Wireguard public key
+	// Wireguard public key
 	Key string
-	//A setup key this peer was registered with
+	// A setup key this peer was registered with
 	SetupKey string
-	//IP address of the Peer
+	// IP address of the Peer
 	IP net.IP
-	//Meta is a Peer system meta data
+	// Meta is a Peer system meta data
 	Meta PeerSystemMeta
-	//Name is peer's name (machine name)
-	Name   string
+	// Name is peer's name (machine name)
+	Name string
+	// Tags of the Ppeer
+	Tags []string
+	// Status of the Peer
 	Status *PeerStatus
 }
 
-//Copy copies Peer object
+// Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	return &Peer{
 		Key:      p.Key,
@@ -51,11 +58,12 @@ func (p *Peer) Copy() *Peer {
 		IP:       p.IP,
 		Meta:     p.Meta,
 		Name:     p.Name,
+		Tags:     p.Tags,
 		Status:   p.Status,
 	}
 }
 
-//GetPeer returns a peer from a Store
+// GetPeer returns a peer from a Store
 func (am *DefaultAccountManager) GetPeer(peerKey string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -68,7 +76,7 @@ func (am *DefaultAccountManager) GetPeer(peerKey string) (*Peer, error) {
 	return peer, nil
 }
 
-//MarkPeerConnected marks peer as connected (true) or disconnected (false)
+// MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected bool) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -93,8 +101,13 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected boo
 	return nil
 }
 
-//RenamePeer changes peer's name
-func (am *DefaultAccountManager) RenamePeer(accountId string, peerKey string, newName string) (*Peer, error) {
+// UpdatePeerAttrs changes peer's attributes (name, tags)
+func (am *DefaultAccountManager) UpdatePeerAttrs(
+	accountId string,
+	peerKey string,
+	newName string,
+	newTags []string,
+) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -105,6 +118,7 @@ func (am *DefaultAccountManager) RenamePeer(accountId string, peerKey string, ne
 
 	peerCopy := peer.Copy()
 	peerCopy.Name = newName
+	peerCopy.Tags = newTags
 	err = am.Store.SavePeer(accountId, peerCopy)
 	if err != nil {
 		return nil, err
@@ -113,7 +127,7 @@ func (am *DefaultAccountManager) RenamePeer(accountId string, peerKey string, ne
 	return peerCopy, nil
 }
 
-//DeletePeer removes peer from the account by it's IP
+// DeletePeer removes peer from the account by it's IP
 func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -146,12 +160,13 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 					RemotePeers:        []*proto.RemotePeerConfig{},
 					RemotePeersIsEmpty: true,
 				},
-			}})
+			},
+		})
 	if err != nil {
 		return nil, err
 	}
 
-	//notify other peers of the change
+	// notify other peers of the change
 	peers, err := am.Store.GetAccountPeers(accountId)
 	if err != nil {
 		return nil, err
@@ -177,7 +192,8 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 						RemotePeers:        update,
 						RemotePeersIsEmpty: len(update) == 0,
 					},
-				}})
+				},
+			})
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +203,7 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 	return peer, nil
 }
 
-//GetPeerByIP returns peer by it's IP
+// GetPeerByIP returns peer by it's IP
 func (am *DefaultAccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -211,16 +227,28 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
+	peer, err := am.Store.GetPeer(peerKey)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
+	}
+
 	account, err := am.Store.GetPeerAccount(peerKey)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
 	}
 
 	var res []*Peer
-	for _, peer := range account.Peers {
-		// exclude original peer
-		if peer.Key != peerKey {
-			res = append(res, peer.Copy())
+	// return all peers with same tags
+	for _, tag := range peer.Tags {
+		// account TaggedPeerKeys contians index by tage -> peers, fetch peer keys by tag
+		for _, tagPeerKey := range account.TaggedPeerKeys[tag] {
+			tagPeer, ok := account.Peers[tagPeerKey]
+			if ok {
+				// exclude original peer
+				if tagPeer.Key != peerKey {
+					res = append(res, tagPeer.Copy())
+				}
+			}
 		}
 	}
 
@@ -261,7 +289,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, er
 	}
 
 	if !sk.IsValid() {
-		return nil, status.Errorf(codes.FailedPrecondition, "setup key was expired or overused %s", upperKey)
+		return nil, status.Errorf(
+			codes.FailedPrecondition,
+			"setup key was expired or overused %s",
+			upperKey,
+		)
 	}
 
 	var takenIps []net.IP
@@ -278,6 +310,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, er
 		IP:       nextIp,
 		Meta:     peer.Meta,
 		Name:     peer.Name,
+		Tags:     PeerDeafultTags[:],
 		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
 	}
 
@@ -291,5 +324,4 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, er
 	}
 
 	return newPeer, nil
-
 }
