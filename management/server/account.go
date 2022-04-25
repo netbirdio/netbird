@@ -217,7 +217,7 @@ func (am *DefaultAccountManager) GetAccountByUserOrAccountId(userId, accountId, 
 }
 
 func isNil(i idp.Manager) bool {
-	return i == nil || reflect.ValueOf(i).IsNil()
+	return !(i == nil || reflect.ValueOf(i).IsNil())
 }
 
 // updateIDPMetadata update user's  app metadata in idp manager
@@ -232,6 +232,8 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 	return nil
 }
 
+// currently we are quering for every user one by one from auth0
+// but we should batch request and query via wt_account_id
 func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*idp.UserData, error) {
 	account, err := am.GetAccountById(accountID)
 	if err != nil {
