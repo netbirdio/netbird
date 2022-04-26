@@ -26,6 +26,13 @@ type MockAccountManager struct {
 	GetPeerByIPFunc                       func(accountId string, peerIP string) (*server.Peer, error)
 	GetNetworkMapFunc                     func(peerKey string) (*server.NetworkMap, error)
 	AddPeerFunc                           func(setupKey string, peer *server.Peer) (*server.Peer, error)
+	GetGroupFunc                          func(groupID string) (*server.Group, error)
+	UpdateGroupFunc                       func(groupID *server.Group) error
+	DeleteGroupFunc                       func(groupID string) error
+	ListGroupsFunc                        func() ([]*server.Group, error)
+	GroupAddPeerFunc                      func(groupID, peerKey string) error
+	GroupDeletePeerFunc                   func(groupID, peerKey string) error
+	GroupListPeersFunc                    func(groupID string) ([]*server.Peer, error)
 }
 
 func (am *MockAccountManager) GetOrCreateAccountByUser(userId, domain string) (*server.Account, error) {
@@ -145,4 +152,53 @@ func (am *MockAccountManager) AddPeer(setupKey string, peer *server.Peer) (*serv
 		return am.AddPeerFunc(setupKey, peer)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method AddPeer not implemented")
+}
+
+func (am *MockAccountManager) GetGroup(groupID string) (*server.Group, error) {
+	if am.GetGroupFunc != nil {
+		return am.GetGroupFunc(groupID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetGroup not implemented")
+}
+
+func (am *MockAccountManager) UpdateGroup(group *server.Group) error {
+	if am.UpdateGroupFunc != nil {
+		return am.UpdateGroupFunc(group)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdateGroup not implemented")
+}
+
+func (am *MockAccountManager) DeleteGroup(groupID string) error {
+	if am.DeleteGroupFunc != nil {
+		return am.DeleteGroupFunc(groupID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteGroup not implemented")
+}
+
+func (am *MockAccountManager) ListGroups() ([]*server.Group, error) {
+	if am.ListGroupsFunc != nil {
+		return am.ListGroupsFunc()
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListGroups not implemented")
+}
+
+func (am *MockAccountManager) GroupAddPeer(groupID, peerKey string) error {
+	if am.GroupAddPeerFunc != nil {
+		return am.GroupAddPeerFunc(groupID, peerKey)
+	}
+	return status.Errorf(codes.Unimplemented, "method GroupAddPeer not implemented")
+}
+
+func (am *MockAccountManager) GroupDeletePeer(groupID, peerKey string) error {
+	if am.GroupDeletePeerFunc != nil {
+		return am.GroupDeletePeerFunc(groupID, peerKey)
+	}
+	return status.Errorf(codes.Unimplemented, "method GroupDeletePeer not implemented")
+}
+
+func (am *MockAccountManager) GroupListPeers(groupID string) ([]*server.Peer, error) {
+	if am.GroupListPeersFunc != nil {
+		return am.GroupListPeersFunc(groupID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GroupListPeers not implemented")
 }

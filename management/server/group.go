@@ -12,7 +12,7 @@ func (am *DefaultAccountManager) GetGroup(groupID string) (*Group, error) {
 }
 
 // UpdateGroup object of the peers
-func (am *DefaultAccountManager) UpdateGroup(groupID *Group) error {
+func (am *DefaultAccountManager) UpdateGroup(group *Group) error {
 	return nil
 }
 

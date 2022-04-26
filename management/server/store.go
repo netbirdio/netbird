@@ -10,5 +10,9 @@ type Store interface {
 	GetPeerAccount(peerKey string) (*Account, error)
 	GetAccountBySetupKey(setupKey string) (*Account, error)
 	GetAccountByPrivateDomain(domain string) (*Account, error)
+	GetGroup(groupID string) (*Group, error)
 	SaveAccount(account *Account) error
+	SaveGroup(group *Group) error
+	DeleteGroup(groupID string) error
+	ListGroups() ([]*Group, error)
 }
