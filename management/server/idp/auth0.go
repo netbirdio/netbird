@@ -6,6 +6,8 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -184,6 +186,77 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	return c.jwtToken, nil
 }
 
+func batchRequestUsersUrl(authIssuer, accountId string, page int) (string, url.Values, error) {
+	u, err := url.Parse(authIssuer + "/api/v2/users")
+	if err != nil {
+		return "", nil, err
+	}
+	q := u.Query()
+	q.Set("page", strconv.Itoa(page))
+	q.Set("search_engine", "v3")
+	q.Set("q", "app_metadata.wt_account_id:"+accountId)
+	u.RawQuery = q.Encode()
+
+	log.Info(u.String())
+	return u.String(), q, nil
+}
+
+func requestByUserIdUrl(authIssuer, userId string) string {
+	return authIssuer + "/api/v2/users/" + userId
+}
+
+func (am *Auth0Manager) GetBatchedUserData(accountId string, page int) ([]*UserData, error) {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	url, query, err := batchRequestUsersUrl(am.authIssuer, accountId, page)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, url, strings.NewReader(query.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	res, err := am.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var userData []UserData
+	json.Unmarshal(body, &userData)
+
+	log.Info(userData)
+
+	defer func() {
+		err = res.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing update user app metadata response body: %v", err)
+		}
+	}()
+
+	var list []*UserData
+	for user := range userData {
+		list = append(list, &userData[user])
+	}
+
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("unable to get UserData, statusCode %d", res.StatusCode)
+	}
+
+	return list, nil
+}
+
 // Requests user data from auth0
 // user data: email
 func (am *Auth0Manager) GetUserData(userId string, appMetadata AppMetadata) (*UserData, error) {
@@ -192,8 +265,7 @@ func (am *Auth0Manager) GetUserData(userId string, appMetadata AppMetadata) (*Us
 		return nil, err
 	}
 
-	url := am.authIssuer + "/api/v2/users/" + userId
-
+	url := requestByUserIdUrl(am.authIssuer, userId)
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err

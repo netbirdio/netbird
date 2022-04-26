@@ -232,25 +232,52 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 	return nil
 }
 
+func batch() {
+
+}
+
 // currently we are quering for every user one by one from auth0
 // but we should batch request and query via wt_account_id
 func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*idp.UserData, error) {
-	account, err := am.GetAccountById(accountID)
+	_, err := am.GetAccountById(accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	var userDatas []*idp.UserData
-	for id, user := range account.Users {
-		userData, err := am.idpManager.GetUserData(id, idp.AppMetadata{WTAccountId: accountID})
+	result := make([]*idp.UserData, 0)
+
+	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
+	// auth0 limitation of 1000 users via this endpoint
+	for page := 0; page < 20; page++ {
+		batch, err := am.idpManager.GetBatchedUserData(accountID, page)
 		if err != nil {
 			return nil, err
 		}
-		userData.Role = string(user.Role)
-		userDatas = append(userDatas, userData)
-	}
 
-	return userDatas, nil
+		if len(batch) == 0 {
+			break
+		}
+
+		result = append(result, batch...)
+		log.Infof("%v", batch)
+	}
+	// we don't know which users we will get
+	// match existing users with gotten batchdata, add them to the list
+
+	// for _, user := range batch {
+
+	// }
+
+	// var userDatas []*idp.UserData
+	// for id, user := range account.Users {
+	// 	userData, err := am.idpManager.GetUserData(id, idp.AppMetadata{WTAccountId: accountID})
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	userData.Role = string(user.Role)
+	// 	userDatas = append(userDatas, userData)
+	// }
+	return result, nil
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
