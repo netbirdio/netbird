@@ -234,7 +234,10 @@ func (am *Auth0Manager) GetBatchedUserData(accountId string, page int) ([]*UserD
 	}
 
 	var userData []UserData
-	json.Unmarshal(body, &userData)
+	err = json.Unmarshal(body, &userData)
+	if err != nil {
+		return nil, err
+	}
 
 	log.Info(userData)
 
@@ -284,7 +287,10 @@ func (am *Auth0Manager) GetUserData(userId string, appMetadata AppMetadata) (*Us
 	}
 
 	var userData UserData
-	json.Unmarshal(body, &userData)
+	err = json.Unmarshal(body, &userData)
+	if err != nil {
+		return nil, err
+	}
 
 	defer func() {
 		err = res.Body.Close()
