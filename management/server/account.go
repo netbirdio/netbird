@@ -38,7 +38,7 @@ type AccountManager interface {
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
 	AddPeer(setupKey string, peer *Peer) (*Peer, error)
-	GetUsersFromAccount(accountId string) ([]*idp.UserData, error)
+	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
 }
 
 type DefaultAccountManager struct {
@@ -61,6 +61,13 @@ type Account struct {
 	Network                *Network
 	Peers                  map[string]*Peer
 	Users                  map[string]*User
+}
+
+type UserInfo struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+	Role  string `json:"role"`
 }
 
 // NewAccount creates a new Account with a generated ID and generated default setup keys
@@ -232,19 +239,23 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 	return nil
 }
 
-func batch() {
-
+func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
+	return &UserInfo{
+		ID:    queried.ID,
+		Email: queried.Email,
+		Name:  queried.Name,
+		Role:  string(local.Role),
+	}
 }
 
-// currently we are quering for every user one by one from auth0
-// but we should batch request and query via wt_account_id
-func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*idp.UserData, error) {
-	_, err := am.GetAccountById(accountID)
+// batched request for users from auth0
+func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
+	account, err := am.GetAccountById(accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	result := make([]*idp.UserData, 0)
+	queriedUsers := make([]*idp.UserData, 0)
 
 	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
 	// auth0 limitation of 1000 users via this endpoint
@@ -253,31 +264,26 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*idp.U
 		if err != nil {
 			return nil, err
 		}
+		log.Infof("Requested batch; %v", batch)
 
 		if len(batch) == 0 {
+			log.Infof("Breaking out of loop")
 			break
 		}
 
-		result = append(result, batch...)
-		log.Infof("%v", batch)
+		queriedUsers = append(queriedUsers, batch...)
 	}
-	// we don't know which users we will get
-	// match existing users with gotten batchdata, add them to the list
 
-	// for _, user := range batch {
+	userInfo := make([]*UserInfo, 0)
 
-	// }
+	for _, queriedUser := range queriedUsers {
+		if localUser, contains := account.Users[queriedUser.ID]; contains {
+			userInfo = append(userInfo, mergeLocalAndQueryUser(*queriedUser, *localUser))
+			log.Infof("Merged userinfo to send back; %v", userInfo)
+		}
+	}
 
-	// var userDatas []*idp.UserData
-	// for id, user := range account.Users {
-	// 	userData, err := am.idpManager.GetUserData(id, idp.AppMetadata{WTAccountId: accountID})
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	userData.Role = string(user.Role)
-	// 	userDatas = append(userDatas, userData)
-	// }
-	return result, nil
+	return userInfo, nil
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account

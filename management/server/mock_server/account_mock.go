@@ -2,7 +2,6 @@ package mock_server
 
 import (
 	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/util"
 	"google.golang.org/grpc/codes"
@@ -27,10 +26,10 @@ type MockAccountManager struct {
 	GetPeerByIPFunc                       func(accountId string, peerIP string) (*server.Peer, error)
 	GetNetworkMapFunc                     func(peerKey string) (*server.NetworkMap, error)
 	AddPeerFunc                           func(setupKey string, peer *server.Peer) (*server.Peer, error)
-	GetUsersFromAccountFunc               func(accountID string) ([]*idp.UserData, error)
+	GetUsersFromAccountFunc               func(accountID string) ([]*server.UserInfo, error)
 }
 
-func (am *MockAccountManager) GetUsersFromAccount(accountID string) ([]*idp.UserData, error) {
+func (am *MockAccountManager) GetUsersFromAccount(accountID string) ([]*server.UserInfo, error) {
 	if am.GetUsersFromAccountFunc != nil {
 		return am.GetUsersFromAccountFunc(accountID)
 	}
