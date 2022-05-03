@@ -197,7 +197,6 @@ func batchRequestUsersUrl(authIssuer, accountId string, page int) (string, url.V
 	q.Set("q", "app_metadata.wt_account_id:"+accountId)
 	u.RawQuery = q.Encode()
 
-	log.Info(u.String())
 	return u.String(), q, nil
 }
 
@@ -205,56 +204,67 @@ func requestByUserIdUrl(authIssuer, userId string) string {
 	return authIssuer + "/api/v2/users/" + userId
 }
 
-func (am *Auth0Manager) GetBatchedUserData(accountId string, page int) ([]*UserData, error) {
+// Requests users in batches from Auth0
+func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return nil, err
 	}
 
-	url, query, err := batchRequestUsersUrl(am.authIssuer, accountId, page)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, url, strings.NewReader(query.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
-	req.Header.Add("content-type", "application/json")
-
-	res, err := am.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-
-	body, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	var userData []UserData
-	err = json.Unmarshal(body, &userData)
-	if err != nil {
-		return nil, err
-	}
-
-	log.Info(userData)
-
-	defer func() {
-		err = res.Body.Close()
-		if err != nil {
-			log.Errorf("error while closing update user app metadata response body: %v", err)
-		}
-	}()
-
 	var list []*UserData
-	for user := range userData {
-		list = append(list, &userData[user])
-	}
 
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("unable to get UserData, statusCode %d", res.StatusCode)
+	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
+	// auth0 limitation of 1000 users via this endpoint
+	for page := 0; page < 20; page++ {
+		url, query, err := batchRequestUsersUrl(am.authIssuer, accountId, page)
+		if err != nil {
+			return nil, err
+		}
+
+		req, err := http.NewRequest(http.MethodGet, url, strings.NewReader(query.Encode()))
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+		req.Header.Add("content-type", "application/json")
+
+		res, err := am.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		var batch []UserData
+		err = json.Unmarshal(body, &batch)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Debugf("Requested batch; %v", batch)
+
+		defer func() {
+			err = res.Body.Close()
+			if err != nil {
+				log.Errorf("error while closing update user app metadata response body: %v", err)
+			}
+		}()
+
+		if len(batch) == 0 {
+			return list, nil
+		}
+
+		if res.StatusCode != 200 {
+			return nil, fmt.Errorf("Unable to request UserData from auth0, statusCode %d", res.StatusCode)
+		}
+
+		for user := range batch {
+			list = append(list, &batch[user])
+		}
 	}
 
 	return list, nil

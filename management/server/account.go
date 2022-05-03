@@ -224,13 +224,13 @@ func (am *DefaultAccountManager) GetAccountByUserOrAccountId(userId, accountId, 
 }
 
 func isNil(i idp.Manager) bool {
-	return !(i == nil || reflect.ValueOf(i).IsNil())
+	return i == nil || reflect.ValueOf(i).IsNil()
 }
 
 // updateIDPMetadata update user's  app metadata in idp manager
 func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) error {
 	//TODO can't compare interface to nil
-	if isNil(am.idpManager) {
+	if !isNil(am.idpManager) {
 		err := am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: accountID})
 		if err != nil {
 			return status.Errorf(codes.Internal, "updating user's app metadata failed with: %v", err)
@@ -241,45 +241,44 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 
 func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 	return &UserInfo{
-		ID:    queried.ID,
+		ID:    local.Id,
 		Email: queried.Email,
 		Name:  queried.Name,
 		Role:  string(local.Role),
 	}
 }
 
-// batched request for users from auth0
+// batched request for users from auth0 by account
 func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
 	account, err := am.GetAccountById(accountID)
 	if err != nil {
 		return nil, err
 	}
 
-	queriedUsers := make([]*idp.UserData, 0)
-
-	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
-	// auth0 limitation of 1000 users via this endpoint
-	for page := 0; page < 20; page++ {
-		batch, err := am.idpManager.GetBatchedUserData(accountID, page)
-		if err != nil {
-			return nil, err
-		}
-		log.Infof("Requested batch; %v", batch)
-
-		if len(batch) == 0 {
-			log.Infof("Breaking out of loop")
-			break
-		}
-
-		queriedUsers = append(queriedUsers, batch...)
+	queriedUsers, err := am.idpManager.GetBatchedUserData(accountID)
+	if err != nil {
+		return nil, err
 	}
 
 	userInfo := make([]*UserInfo, 0)
 
+	// in case of self-hosted, or auth0 doesn't return anything, we will return the locally stored userInfo
+	if len(queriedUsers) == 0 {
+		for _, user := range account.Users {
+			userInfo = append(userInfo, &UserInfo{
+				ID:    user.Id,
+				Email: "",
+				Name:  "",
+				Role:  string(user.Role),
+			})
+		}
+		return userInfo, nil
+	}
+
 	for _, queriedUser := range queriedUsers {
 		if localUser, contains := account.Users[queriedUser.ID]; contains {
 			userInfo = append(userInfo, mergeLocalAndQueryUser(*queriedUser, *localUser))
-			log.Infof("Merged userinfo to send back; %v", userInfo)
+			log.Debugf("Merged userinfo to send back; %v", userInfo)
 		}
 	}
 
