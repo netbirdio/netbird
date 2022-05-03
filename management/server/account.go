@@ -229,7 +229,6 @@ func isNil(i idp.Manager) bool {
 
 // updateIDPMetadata update user's  app metadata in idp manager
 func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) error {
-	//TODO can't compare interface to nil
 	if !isNil(am.idpManager) {
 		err := am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: accountID})
 		if err != nil {

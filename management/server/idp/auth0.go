@@ -272,7 +272,7 @@ func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error
 
 // Requests user data from auth0
 // user data: email
-func (am *Auth0Manager) GetUserData(userId string, appMetadata AppMetadata) (*UserData, error) {
+func (am *Auth0Manager) GetUserDataByEmail(userId string, appMetadata AppMetadata) (*UserData, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return nil, err
