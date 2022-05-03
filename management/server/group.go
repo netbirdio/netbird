@@ -1,0 +1,163 @@
+package server
+
+import (
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
+
+// Group of the peers for ACL
+type Group struct {
+	// ID of the group
+	ID string
+
+	// Name visible in the UI
+	Name string
+
+	// Peers list of the group
+	Peers []string
+}
+
+// GetGroup object of the peers
+func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	group, ok := account.Groups[groupID]
+	if ok {
+		return group, nil
+	}
+
+	return nil, status.Errorf(codes.NotFound, "group with ID %s not found", groupID)
+}
+
+// SaveGroup object of the peers
+func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "account not found")
+	}
+
+	account.Groups[group.ID] = group
+	return am.Store.SaveAccount(account)
+}
+
+// DeleteGroup object of the peers
+func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "account not found")
+	}
+
+	delete(account.Groups, groupID)
+
+	return am.Store.SaveAccount(account)
+}
+
+// ListGroups objects of the peers
+func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	groups := make([]*Group, 0, len(account.Groups))
+	for _, item := range account.Groups {
+		groups = append(groups, item)
+	}
+
+	return groups, nil
+}
+
+// GroupAddPeer appends peer to the group
+func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string) error {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "account not found")
+	}
+
+	group, ok := account.Groups[groupID]
+	if !ok {
+		return status.Errorf(codes.NotFound, "group with ID %s not found", groupID)
+	}
+
+	add := true
+	for _, itemID := range group.Peers {
+		if itemID == peerKey {
+			add = false
+			break
+		}
+	}
+	if add {
+		group.Peers = append(group.Peers, peerKey)
+	}
+
+	return am.Store.SaveAccount(account)
+}
+
+// GroupDeletePeer removes peer from the group
+func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey string) error {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "account not found")
+	}
+
+	group, ok := account.Groups[groupID]
+	if !ok {
+		return status.Errorf(codes.NotFound, "group with ID %s not found", groupID)
+	}
+
+	for i, itemID := range group.Peers {
+		if itemID == peerKey {
+			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
+			return am.Store.SaveAccount(account)
+		}
+	}
+
+	return nil
+}
+
+// GroupListPeers returns list of the peers from the group
+func (am *DefaultAccountManager) GroupListPeers(accountID, groupID string) ([]*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	group, ok := account.Groups[groupID]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "group with ID %s not found", groupID)
+	}
+
+	peers := make([]*Peer, 0, len(account.Groups))
+	for _, peerID := range group.Peers {
+		p, ok := account.Peers[peerID]
+		if ok {
+			peers = append(peers, p)
+		}
+	}
+
+	return peers, nil
+}
