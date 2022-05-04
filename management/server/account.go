@@ -47,6 +47,10 @@ type AccountManager interface {
 	GroupAddPeer(accountId, groupID, peerKey string) error
 	GroupDeletePeer(accountId, groupID, peerKey string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
+	GetRule(accountId, ruleID string) (*Rule, error)
+	SaveRule(accountID string, rule *Rule) error
+	DeleteRule(accountId, ruleID string) error
+	ListRules(accountId string) ([]*Rule, error)
 }
 
 type DefaultAccountManager struct {
@@ -70,6 +74,7 @@ type Account struct {
 	Peers                  map[string]*Peer
 	Users                  map[string]*User
 	Groups                 map[string]*Group
+	Rules                  map[string]*Rule
 }
 
 type UserInfo struct {
