@@ -33,7 +33,7 @@ var upCmd = &cobra.Command{
 				return err
 			}
 			err = WithBackOff(func() error {
-				return internal.Login(ctx, config, setupKey, "")
+				return internal.Login(ctx, config, setupKey, jwtToken)
 			})
 			if err != nil {
 				log.Errorf("backoff cycle failed: %v", err)
