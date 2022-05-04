@@ -242,6 +242,5 @@ func (m *JWTMiddleware) ValidateAndParse(token string) (*jwt.Token, error) {
 		return nil, errors.New(errorMsg)
 	}
 
-	m.logf("JWT: %v", parsedToken)
 	return parsedToken, nil
 }
