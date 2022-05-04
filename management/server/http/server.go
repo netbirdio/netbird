@@ -25,26 +25,44 @@ type Server struct {
 
 // NewHttpsServer creates a new HTTPs server (with HTTPS support) and a certManager that is responsible for generating and renewing Let's Encrypt certificate
 // The listening address will be :443 no matter what was specified in s.HttpServerConfig.Address
-func NewHttpsServer(config *s.HttpServerConfig, certManager *autocert.Manager, accountManager s.AccountManager) *Server {
+func NewHttpsServer(
+	config *s.HttpServerConfig,
+	certManager *autocert.Manager,
+	accountManager s.AccountManager,
+) *Server {
 	server := &http.Server{
 		Addr:         config.Address,
 		WriteTimeout: time.Second * 15,
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,
 	}
-	return &Server{server: server, config: config, certManager: certManager, accountManager: accountManager}
+	return &Server{
+		server:         server,
+		config:         config,
+		certManager:    certManager,
+		accountManager: accountManager,
+	}
 }
 
 // NewHttpsServerWithTLSConfig creates a new HTTPs server with a provided tls.Config.
 // Usually used when you already have a certificate
-func NewHttpsServerWithTLSConfig(config *s.HttpServerConfig, tlsConfig *tls.Config, accountManager s.AccountManager) *Server {
+func NewHttpsServerWithTLSConfig(
+	config *s.HttpServerConfig,
+	tlsConfig *tls.Config,
+	accountManager s.AccountManager,
+) *Server {
 	server := &http.Server{
 		Addr:         config.Address,
 		WriteTimeout: time.Second * 15,
 		ReadTimeout:  time.Second * 15,
 		IdleTimeout:  time.Second * 60,
 	}
-	return &Server{server: server, config: config, tlsConfig: tlsConfig, accountManager: accountManager}
+	return &Server{
+		server:         server,
+		config:         config,
+		tlsConfig:      tlsConfig,
+		accountManager: accountManager,
+	}
 }
 
 // NewHttpServer creates a new HTTP server (without HTTPS)
@@ -63,8 +81,11 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // Start defines http handlers and starts the http server. Blocks until server is shutdown.
 func (s *Server) Start() error {
-
-	jwtMiddleware, err := middleware.NewJwtMiddleware(s.config.AuthIssuer, s.config.AuthAudience, s.config.AuthKeysLocation)
+	jwtMiddleware, err := middleware.NewJwtMiddleware(
+		s.config.AuthIssuer,
+		s.config.AuthAudience,
+		s.config.AuthKeysLocation,
+	)
 	if err != nil {
 		return err
 	}
@@ -74,22 +95,37 @@ func (s *Server) Start() error {
 	r := mux.NewRouter()
 	r.Use(jwtMiddleware.Handler, corsMiddleware.Handler)
 
+	groupsHandler := handler.NewGroups(s.accountManager, s.config.AuthAudience)
 	peersHandler := handler.NewPeers(s.accountManager, s.config.AuthAudience)
 	keysHandler := handler.NewSetupKeysHandler(s.accountManager, s.config.AuthAudience)
 	r.HandleFunc("/api/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/peers/{id}", peersHandler.HandlePeer).Methods("GET", "PUT", "DELETE", "OPTIONS")
+	r.HandleFunc("/api/peers/{id}", peersHandler.HandlePeer).
+		Methods("GET", "PUT", "DELETE", "OPTIONS")
 
 	userHandler := handler.NewUserHandler(s.accountManager, s.config.AuthAudience)
 	r.HandleFunc("/api/users", userHandler.GetUsers).Methods("GET", "OPTIONS")
 
 	r.HandleFunc("/api/setup-keys", keysHandler.GetKeys).Methods("GET", "POST", "OPTIONS")
 	r.HandleFunc("/api/setup-keys/{id}", keysHandler.HandleKey).Methods("GET", "PUT", "OPTIONS")
+
+	r.HandleFunc("/api/setup-keys", keysHandler.GetKeys).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/setup-keys/{id}", keysHandler.HandleKey).
+		Methods("GET", "PUT", "DELETE", "OPTIONS")
+
+	r.HandleFunc("/api/groups", groupsHandler.GetAllGroupsHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/groups", groupsHandler.CreateOrUpdateGroupHandler).
+		Methods("POST", "PUT", "OPTIONS")
+	r.HandleFunc("/api/groups/{id}", groupsHandler.GetGroupHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/groups/{id}", groupsHandler.DeleteGroupHandler).Methods("DELETE", "OPTIONS")
 	http.Handle("/", r)
 
 	if s.certManager != nil {
 		// if HTTPS is enabled we reuse the listener from the cert manager
 		listener := s.certManager.Listener()
-		log.Infof("HTTPs server listening on %s with Let's Encrypt autocert configured", listener.Addr())
+		log.Infof(
+			"HTTPs server listening on %s with Let's Encrypt autocert configured",
+			listener.Addr(),
+		)
 		if err = http.Serve(listener, s.certManager.HTTPHandler(r)); err != nil {
 			log.Errorf("failed to serve https server: %v", err)
 			return err

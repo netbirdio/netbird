@@ -28,8 +28,7 @@ type FileStore struct {
 	storeFile string     `json:"-"`
 }
 
-type StoredAccount struct {
-}
+type StoredAccount struct{}
 
 // NewStore restores a store from the file located in the datadir
 func NewStore(dataDir string) (*FileStore, error) {
@@ -39,7 +38,6 @@ func NewStore(dataDir string) (*FileStore, error) {
 // restore restores the state of the store from the file.
 // Creates a new empty store file if doesn't exist
 func restore(file string) (*FileStore, error) {
-
 	if _, err := os.Stat(file); os.IsNotExist(err) {
 		// create a new FileStore if previously didn't exist (e.g. first run)
 		s := &FileStore{
@@ -109,12 +107,7 @@ func (s *FileStore) SavePeer(accountId string, peer *Peer) error {
 	}
 
 	account.Peers[peer.Key] = peer
-	err = s.persist(s.storeFile)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return s.persist(s.storeFile)
 }
 
 // DeletePeer deletes peer from the Store
@@ -140,7 +133,7 @@ func (s *FileStore) DeletePeer(accountId string, peerKey string) (*Peer, error) 
 		return nil, err
 	}
 
-	return peer, err
+	return peer, nil
 }
 
 // GetPeer returns a peer from a Store
@@ -191,16 +184,10 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.PrivateDomain2AccountId[account.Domain] = account.Id
 	}
 
-	err := s.persist(s.storeFile)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return s.persist(s.storeFile)
 }
 
 func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
-
 	accountId, accountIdFound := s.PrivateDomain2AccountId[strings.ToLower(domain)]
 	if !accountIdFound {
 		return nil, status.Errorf(codes.NotFound, "provided domain is not registered or is not private")
@@ -215,7 +202,6 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 }
 
 func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
-
 	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToUpper(setupKey)]
 	if !accountIdFound {
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
@@ -228,6 +214,7 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 
 	return account, nil
 }
+
 func (s *FileStore) GetAccountPeers(accountId string) ([]*Peer, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
@@ -246,7 +233,6 @@ func (s *FileStore) GetAccountPeers(accountId string) ([]*Peer, error) {
 }
 
 func (s *FileStore) GetAccount(accountId string) (*Account, error) {
-
 	account, accountFound := s.Accounts[accountId]
 	if !accountFound {
 		return nil, status.Errorf(codes.NotFound, "account not found")
@@ -277,4 +263,20 @@ func (s *FileStore) GetPeerAccount(peerKey string) (*Account, error) {
 	}
 
 	return s.GetAccount(accountId)
+}
+
+func (s *FileStore) GetGroup(groupID string) (*Group, error) {
+	return nil, nil
+}
+
+func (s *FileStore) SaveGroup(group *Group) error {
+	return nil
+}
+
+func (s *FileStore) DeleteGroup(groupID string) error {
+	return nil
+}
+
+func (s *FileStore) ListGroups() ([]*Group, error) {
+	return nil, nil
 }
