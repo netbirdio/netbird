@@ -41,6 +41,8 @@ type Peer struct {
 	//Name is peer's name (machine name)
 	Name   string
 	Status *PeerStatus
+	//The user ID that registered the peer
+	UserId string
 }
 
 //Copy copies Peer object
@@ -235,7 +237,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 // will be returned, meaning the key is invalid
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, error) {
+func (am *DefaultAccountManager) AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -244,24 +246,30 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, er
 	var account *Account
 	var err error
 	var sk *SetupKey
-	if len(upperKey) == 0 {
-		// Empty setup key, fail
-		return nil, status.Errorf(codes.InvalidArgument, "empty setupKey %s", setupKey)
-	} else {
+	if len(upperKey) != 0 {
 		account, err = am.Store.GetAccountBySetupKey(upperKey)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", upperKey)
+			return nil, status.Errorf(codes.NotFound, "unable to register peer, unable to find account with setupKey %s", upperKey)
 		}
 
 		sk = getAccountSetupKeyByKey(account, upperKey)
 		if sk == nil {
 			// shouldn't happen actually
-			return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", upperKey)
+			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown setupKey %s", upperKey)
 		}
-	}
 
-	if !sk.IsValid() {
-		return nil, status.Errorf(codes.FailedPrecondition, "setup key was expired or overused %s", upperKey)
+		if !sk.IsValid() {
+			return nil, status.Errorf(codes.FailedPrecondition, "unable to register peer, setup key was expired or overused %s", upperKey)
+		}
+
+	} else if len(userId) != 0 {
+		account, err = am.Store.GetUserAccount(userId)
+		if err != nil {
+			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown user with ID: %s", userId)
+		}
+	} else {
+		// Empty setup key and jwt fail
+		return nil, status.Errorf(codes.InvalidArgument, "no setup key or user id provided")
 	}
 
 	var takenIps []net.IP
@@ -278,6 +286,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, peer *Peer) (*Peer, er
 		IP:       nextIp,
 		Meta:     peer.Meta,
 		Name:     peer.Name,
+		UserId:   userId,
 		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
 	}
 

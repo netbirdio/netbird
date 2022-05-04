@@ -25,7 +25,7 @@ type MockAccountManager struct {
 	DeletePeerFunc                        func(accountId string, peerKey string) (*server.Peer, error)
 	GetPeerByIPFunc                       func(accountId string, peerIP string) (*server.Peer, error)
 	GetNetworkMapFunc                     func(peerKey string) (*server.NetworkMap, error)
-	AddPeerFunc                           func(setupKey string, peer *server.Peer) (*server.Peer, error)
+	AddPeerFunc                           func(setupKey string, userId string, peer *server.Peer) (*server.Peer, error)
 	GetGroupFunc                          func(accountID, groupID string) (*server.Group, error)
 	SaveGroupFunc                         func(accountID string, group *server.Group) error
 	DeleteGroupFunc                       func(accountID, groupID string) error
@@ -180,9 +180,9 @@ func (am *MockAccountManager) GetNetworkMap(peerKey string) (*server.NetworkMap,
 	return nil, status.Errorf(codes.Unimplemented, "method GetNetworkMap not implemented")
 }
 
-func (am *MockAccountManager) AddPeer(setupKey string, peer *server.Peer) (*server.Peer, error) {
+func (am *MockAccountManager) AddPeer(setupKey string, userId string, peer *server.Peer) (*server.Peer, error) {
 	if am.AddPeerFunc != nil {
-		return am.AddPeerFunc(setupKey, peer)
+		return am.AddPeerFunc(setupKey, userId, peer)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method AddPeer not implemented")
 }

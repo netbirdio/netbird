@@ -41,7 +41,7 @@ type AccountManager interface {
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
-	AddPeer(setupKey string, peer *Peer) (*Peer, error)
+	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
 	DeleteGroup(accountId, groupID string) error
