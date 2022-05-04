@@ -254,12 +254,12 @@ func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error
 			}
 		}()
 
-		if len(batch) == 0 {
-			return list, nil
-		}
-
 		if res.StatusCode != 200 {
 			return nil, fmt.Errorf("Unable to request UserData from auth0, statusCode %d", res.StatusCode)
+		}
+
+		if len(batch) == 0 {
+			return list, nil
 		}
 
 		for user := range batch {
@@ -270,9 +270,8 @@ func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error
 	return list, nil
 }
 
-// Requests user data from auth0
-// user data: email
-func (am *Auth0Manager) GetUserDataByEmail(userId string, appMetadata AppMetadata) (*UserData, error) {
+// Requests user data from auth0 via ID
+func (am *Auth0Manager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return nil, err

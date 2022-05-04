@@ -116,11 +116,7 @@ func (a *Account) Copy() *Account {
 }
 
 // NewManager creates a new DefaultAccountManager with a provided Store
-func NewManager(
-	store Store,
-	peersUpdateManager *PeersUpdateManager,
-	idpManager idp.Manager,
-) *DefaultAccountManager {
+func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) *DefaultAccountManager {
 	return &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
@@ -284,9 +280,12 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 		return nil, err
 	}
 
-	queriedUsers, err := am.idpManager.GetBatchedUserData(accountID)
-	if err != nil {
-		return nil, err
+	queriedUsers := make([]*idp.UserData, 0)
+	if !isNil(am.idpManager) {
+		queriedUsers, err = am.idpManager.GetBatchedUserData(accountID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	userInfo := make([]*UserInfo, 0)

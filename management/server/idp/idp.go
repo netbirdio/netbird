@@ -10,7 +10,7 @@ import (
 // Manager idp manager interface
 type Manager interface {
 	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
-	GetUserDataByEmail(userId string, appMetadata AppMetadata) (*UserData, error)
+	GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error)
 	GetBatchedUserData(accountId string) ([]*UserData, error)
 }
 
