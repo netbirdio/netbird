@@ -282,7 +282,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userId string, peer *P
 
 	newPeer := &Peer{
 		Key:      peer.Key,
-		SetupKey: sk.Key,
+		SetupKey: upperKey,
 		IP:       nextIp,
 		Meta:     peer.Meta,
 		Name:     peer.Name,
@@ -291,7 +291,9 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userId string, peer *P
 	}
 
 	account.Peers[newPeer.Key] = newPeer
-	account.SetupKeys[sk.Key] = sk.IncrementUsage()
+	if len(upperKey) != 0 {
+		account.SetupKeys[sk.Key] = sk.IncrementUsage()
+	}
 	account.Network.IncSerial()
 
 	err = am.Store.SaveAccount(account)

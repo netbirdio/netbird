@@ -421,6 +421,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	}
 	expectedPeerKey := key.PublicKey().String()
 	expectedPeerIP := "100.64.0.1"
+	expectedSetupKey := setupKey.Key
 
 	peer, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  expectedPeerKey,
@@ -442,8 +443,76 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Errorf("expecting just added peer to have key = %s, got %s", expectedPeerKey, peer.Key)
 	}
 
-	if peer.Key != expectedPeerKey {
+	if peer.IP.String() != expectedPeerIP {
 		t.Errorf("expecting just added peer to have IP = %s, got %s", expectedPeerIP, peer.IP.String())
+	}
+
+	if peer.SetupKey != expectedSetupKey {
+		t.Errorf("expecting just added peer to have SetupKey = %s, got %s", expectedSetupKey, peer.SetupKey)
+	}
+
+	if account.Network.CurrentSerial() != 1 {
+		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
+	}
+
+}
+
+func TestAccountManager_AddPeerWithUserID(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	userId := "account_creator"
+
+	account, err := manager.GetOrCreateAccountByUser(userId, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serial := account.Network.CurrentSerial() //should be 0
+
+	if account.Network.Serial != 0 {
+		t.Errorf("expecting account network to have an initial Serial=0")
+		return
+	}
+
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+	expectedPeerKey := key.PublicKey().String()
+	expectedPeerIP := "100.64.0.1"
+	expectedUserId := userId
+
+	peer, err := manager.AddPeer("", userId, &Peer{
+		Key:  expectedPeerKey,
+		Meta: PeerSystemMeta{},
+		Name: expectedPeerKey,
+	})
+	if err != nil {
+		t.Errorf("expecting peer to be added, got failure %v, account users: %v", err, account.CreatedBy)
+		return
+	}
+
+	account, err = manager.GetAccountById(account.Id)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	if peer.Key != expectedPeerKey {
+		t.Errorf("expecting just added peer to have key = %s, got %s", expectedPeerKey, peer.Key)
+	}
+
+	if peer.IP.String() != expectedPeerIP {
+		t.Errorf("expecting just added peer to have IP = %s, got %s", expectedPeerIP, peer.IP.String())
+	}
+
+	if peer.UserId != expectedUserId {
+		t.Errorf("expecting just added peer to have UserID = %s, got %s", expectedUserId, peer.UserId)
 	}
 
 	if account.Network.CurrentSerial() != 1 {
