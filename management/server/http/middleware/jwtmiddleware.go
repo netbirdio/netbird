@@ -95,7 +95,7 @@ func (m *JWTMiddleware) logf(format string, args ...interface{}) {
 
 // HandlerWithNext is a special implementation for Negroni, but could be used elsewhere.
 func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	err := m.CheckJWT(w, r)
+	err := m.CheckJWTFromRequest(w, r)
 
 	// If there was an error, do not call next.
 	if err == nil && next != nil {
@@ -108,7 +108,7 @@ func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Let secure process the request. If it returns an error,
 		// that indicates the request should not continue.
-		err := m.CheckJWT(w, r)
+		err := m.CheckJWTFromRequest(w, r)
 
 		// If there was an error, do not continue.
 		if err != nil {
@@ -161,7 +161,7 @@ func FromFirst(extractors ...TokenExtractor) TokenExtractor {
 	}
 }
 
-func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
+func (m *JWTMiddleware) CheckJWTFromRequest(w http.ResponseWriter, r *http.Request) error {
 	if !m.Options.EnableAuthOnOptions {
 		if r.Method == "OPTIONS" {
 			return nil
