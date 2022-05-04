@@ -513,10 +513,10 @@ func TestGetUsersFromAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	users := []*User{{Id: "1", Role: "admin"}, {Id: "2", Role: "user"}, {Id: "3", Role: "user"}}
+	users := map[string]*User{"1": {Id: "1", Role: "admin"}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
 	accountId := "test_account_id"
 
-	account, err := manager.AddAccount(accountId, users[0].Id, "")
+	account, err := manager.AddAccount(accountId, users["1"].Id, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -531,9 +531,10 @@ func TestGetUsersFromAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i, userInfo := range userInfos {
-		assert.Equal(t, userInfo.ID, users[i].Id)
-		assert.Equal(t, string(userInfo.Role), string(users[i].Role))
+	for _, userInfo := range userInfos {
+		id := userInfo.ID
+		assert.Equal(t, userInfo.ID, users[id].Id)
+		assert.Equal(t, string(userInfo.Role), string(users[id].Role))
 		assert.Equal(t, userInfo.Name, "")
 		assert.Equal(t, userInfo.Email, "")
 	}
