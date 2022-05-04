@@ -45,12 +45,13 @@ jobs:
         uses: docker/setup-buildx-action@v1
       -
         name: Login to Docker hub
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USER }}
           password: ${{ secrets.DOCKER_TOKEN }}
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libappindicator3-dev libayatana-appindicator3-dev
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libappindicator3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-mingw-w64-x86-64
       -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v2
@@ -73,7 +74,14 @@ jobs:
           ref: v0.0.2
           token: ${{ secrets.SIGN_GITHUB_TOKEN }}
           inputs: '{ "tag": "${{ github.ref }}" }'
-
+      - 
+        name: upload non tags for debug purposes
+        uses: actions/upload-artifact@v2
+        with:
+          name: build
+          path: dist/
+          retention-days: 3
+          
   release_ui:
     runs-on: macos-latest
     steps:
@@ -109,3 +117,10 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+      - 
+        name: upload non tags for debug purposes
+        uses: actions/upload-artifact@v2
+        with:
+          name: build-ui-darwin
+          path: dist/
+          retention-days: 3          

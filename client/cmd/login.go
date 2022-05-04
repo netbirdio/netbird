@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+
 	"github.com/netbirdio/netbird/util"
 
 	log "github.com/sirupsen/logrus"
@@ -28,7 +29,7 @@ var loginCmd = &cobra.Command{
 
 		// workaround to run without service
 		if logFile == "console" {
-			config, err := internal.GetConfig(managementURL, configPath, preSharedKey)
+			config, err := internal.GetConfig(managementURL, adminURL, configPath, preSharedKey)
 			if err != nil {
 				log.Errorf("get config file: %v", err)
 				return err
@@ -56,7 +57,7 @@ var loginCmd = &cobra.Command{
 
 		request := proto.LoginRequest{
 			SetupKey:      setupKey,
-			PresharedKey:  preSharedKey,
+			PreSharedKey:  preSharedKey,
 			ManagementUrl: managementURL,
 		}
 		client := proto.NewDaemonServiceClient(conn)

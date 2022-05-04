@@ -18,20 +18,23 @@ service DaemonService {
 
   // Down engine work in the daemon.
   rpc Down(DownRequest) returns (DownResponse) {}
+
+  // GetConfig of the daemon.
+  rpc GetConfig(GetConfigRequest) returns (GetConfigResponse) {}
 };
 
 message LoginRequest {
   // setupKey wiretrustee setup key.
   string setupKey = 1;
 
-  // presharedKey for wireguard setup.
-  string presharedKey = 2;
+  // preSharedKey for wireguard setup.
+  string preSharedKey = 2;
 
   // managementUrl to authenticate.
   string managementUrl = 3;
 
-  // jwtToken sso token to authenticate.
-  string jwtToken = 4;
+  // adminUrl to manage keys.
+  string adminURL = 4;
 }
 
 message LoginResponse {}
@@ -50,3 +53,22 @@ message StatusResponse{
 message DownRequest {}
 
 message DownResponse {}
+
+message GetConfigRequest {}
+
+message GetConfigResponse {
+  // managementUrl settings value.
+  string managementUrl = 1;
+
+  // configFile settings value.
+  string configFile = 2;
+
+  // logFile settings value.
+  string logFile = 3;
+
+  // preSharedKey settings value.
+  string preSharedKey = 4;
+
+  // adminURL settings value.
+  string adminURL = 5;
+}
