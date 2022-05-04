@@ -27,7 +27,7 @@ var upCmd = &cobra.Command{
 
 		// workaround to run without service
 		if logFile == "console" {
-			config, err := internal.GetConfig(managementURL, configPath, preSharedKey)
+			config, err := internal.GetConfig(managementURL, adminURL, configPath, preSharedKey)
 			if err != nil {
 				log.Errorf("get config file: %v", err)
 				return err
@@ -57,7 +57,7 @@ var upCmd = &cobra.Command{
 
 		loginRequest := proto.LoginRequest{
 			SetupKey:      setupKey,
-			PresharedKey:  preSharedKey,
+			PreSharedKey:  preSharedKey,
 			ManagementUrl: managementURL,
 		}
 		err = WithBackOff(func() error {
