@@ -42,7 +42,7 @@ type Peer struct {
 	Name   string
 	Status *PeerStatus
 	//The user ID that registered the peer
-	UserId string
+	UserID string
 }
 
 //Copy copies Peer object
@@ -286,7 +286,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userId string, peer *P
 		IP:       nextIp,
 		Meta:     peer.Meta,
 		Name:     peer.Name,
-		UserId:   userId,
+		UserID:   userId,
 		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
 	}
 

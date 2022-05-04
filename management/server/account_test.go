@@ -511,8 +511,8 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		t.Errorf("expecting just added peer to have IP = %s, got %s", expectedPeerIP, peer.IP.String())
 	}
 
-	if peer.UserId != expectedUserId {
-		t.Errorf("expecting just added peer to have UserID = %s, got %s", expectedUserId, peer.UserId)
+	if peer.UserID != expectedUserId {
+		t.Errorf("expecting just added peer to have UserID = %s, got %s", expectedUserId, peer.UserID)
 	}
 
 	if account.Network.CurrentSerial() != 1 {
