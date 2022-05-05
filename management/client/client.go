@@ -12,6 +12,6 @@ type Client interface {
 	io.Closer
 	Sync(msgHandler func(msg *proto.SyncResponse) error) error
 	GetServerPublicKey() (*wgtypes.Key, error)
-	Register(serverKey wgtypes.Key, setupKey string, info *system.Info) (*proto.LoginResponse, error)
+	Register(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error)
 	Login(serverKey wgtypes.Key) (*proto.LoginResponse, error)
 }

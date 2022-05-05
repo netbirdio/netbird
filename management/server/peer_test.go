@@ -32,7 +32,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		return
 	}
 
-	_, err = manager.AddPeer(setupKey.Key, &Peer{
+	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{},
 		Name: "test-peer-2",
@@ -48,7 +48,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, err = manager.AddPeer(setupKey.Key, &Peer{
+	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: PeerSystemMeta{},
 		Name: "test-peer-2",

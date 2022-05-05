@@ -110,7 +110,7 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 
 	// login operation uses backoff scheme to connect to management API
 	// we don't wait for result and return response immediately.
-	if err := internal.Login(ctx, s.config, msg.SetupKey); err != nil {
+	if err := internal.Login(ctx, s.config, msg.SetupKey, msg.JwtToken); err != nil {
 		log.Errorf("failed login: %v", err)
 		return nil, err
 	}
@@ -127,7 +127,7 @@ func (s *Server) Up(_ context.Context, msg *proto.UpRequest) (*proto.UpResponse,
 
 	// if current state contains any error, return it
 	// in all other cases we can continue execution only if status is idle and up command was
-	// not in the progress or already successfully estabilished connection.
+	// not in the progress or already successfully established connection.
 	status, err := state.Status()
 	if err != nil {
 		return nil, err

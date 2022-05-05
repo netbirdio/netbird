@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"time"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
@@ -22,6 +24,7 @@ type Server struct {
 	peersUpdateManager     *PeersUpdateManager
 	config                 *Config
 	turnCredentialsManager TURNCredentialsManager
+	jwtMiddleware          *middleware.JWTMiddleware
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
@@ -34,6 +37,18 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		return nil, err
 	}
 
+	var jwtMiddleware *middleware.JWTMiddleware
+
+	if config.HttpConfig != nil && config.HttpConfig.AuthIssuer != "" && config.HttpConfig.AuthAudience != "" && validateURL(config.HttpConfig.AuthKeysLocation) {
+		jwtMiddleware, err = middleware.NewJwtMiddleware(
+			config.HttpConfig.AuthIssuer,
+			config.HttpConfig.AuthAudience,
+			config.HttpConfig.AuthKeysLocation)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)
+		}
+	}
+
 	return &Server{
 		wgKey: key,
 		// peerKey -> event channel
@@ -41,6 +56,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		accountManager:         accountManager,
 		config:                 config,
 		turnCredentialsManager: turnCredentialsManager,
+		jwtMiddleware:          jwtMiddleware,
 	}, nil
 }
 
@@ -137,11 +153,40 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 
 func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
 
+	var (
+		reqSetupKey string
+		userId      string
+	)
+
+	if req.GetJwtToken() != "" {
+		log.Debugln("using jwt token to register peer")
+
+		if s.jwtMiddleware == nil {
+			return nil, status.Error(codes.Internal, "no jwt middleware set")
+		}
+
+		token, err := s.jwtMiddleware.ValidateAndParse(req.GetJwtToken())
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "invalid jwt token, err: %v", err)
+		}
+		claims := jwtclaims.ExtractClaimsWithToken(token, s.config.HttpConfig.AuthAudience)
+		_, err = s.accountManager.GetAccountWithAuthorizationClaims(claims)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
+		}
+		userId = claims.UserId
+	} else {
+		log.Debugln("using setup key to register peer")
+
+		reqSetupKey = req.GetSetupKey()
+		userId = ""
+	}
+
 	meta := req.GetMeta()
 	if meta == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "peer meta data was not provided")
 	}
-	peer, err := s.accountManager.AddPeer(req.GetSetupKey(), &Peer{
+	peer, err := s.accountManager.AddPeer(reqSetupKey, userId, &Peer{
 		Key:  peerKey.String(),
 		Name: meta.GetHostname(),
 		Meta: PeerSystemMeta{
@@ -161,7 +206,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 	//todo move to DefaultAccountManager the code below
 	networkMap, err := s.accountManager.GetNetworkMap(peer.Key)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "internal server error")
+		return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
 	}
 
 	// notify other peers of our registration
@@ -177,7 +222,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
-			return nil, err
+			return nil, status.Errorf(codes.Internal, "unable to send update after registering peer, error: %v", err)
 		}
 	}
 
@@ -207,13 +252,12 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid request message")
 			}
-
-			if loginReq.GetSetupKey() == "" {
+			if loginReq.GetJwtToken() == "" && loginReq.GetSetupKey() == "" {
 				//absent setup key -> permission denied
-				return nil, status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered", peerKey.String())
+				return nil, status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered and no setup key or jwt was provided", peerKey.String())
 			}
 
-			//setup key is present -> try normal registration flow
+			//setup key or jwt is present -> try normal registration flow
 			peer, err = s.registerPeer(peerKey, loginReq)
 			if err != nil {
 				return nil, err

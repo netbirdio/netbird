@@ -154,7 +154,7 @@ func TestClient_LoginRegistered(t *testing.T) {
 		t.Error(err)
 	}
 	info := system.GetInfo()
-	resp, err := tested.Register(*key, ValidKey, info)
+	resp, err := tested.Register(*key, ValidKey, "", info)
 	if err != nil {
 		t.Error(err)
 	}
@@ -171,7 +171,7 @@ func TestClient_Sync(t *testing.T) {
 	}
 
 	info := system.GetInfo()
-	_, err = tested.Register(*serverKey, ValidKey, info)
+	_, err = tested.Register(*serverKey, ValidKey, "", info)
 	if err != nil {
 		t.Error(err)
 	}
@@ -187,7 +187,7 @@ func TestClient_Sync(t *testing.T) {
 	}
 
 	info = system.GetInfo()
-	_, err = remoteClient.Register(*serverKey, ValidKey, info)
+	_, err = remoteClient.Register(*serverKey, ValidKey, "", info)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -284,7 +284,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 		}
 
 	info := system.GetInfo()
-	_, err = testClient.Register(*key, ValidKey, info)
+	_, err = testClient.Register(*key, ValidKey, "", info)
 	if err != nil {
 		t.Errorf("error while trying to register client: %v", err)
 	}

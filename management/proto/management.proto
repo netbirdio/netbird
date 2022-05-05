@@ -62,6 +62,8 @@ message LoginRequest {
   string setupKey = 1;
   // Meta data of the peer (e.g. name, os_name, os_version,
   PeerSystemMeta meta = 2;
+  // SSO token (can be empty)
+  string jwtToken = 3;
 }
 
 // Peer machine meta data

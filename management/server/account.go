@@ -23,12 +23,7 @@ const (
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	GetAccountByUser(userId string) (*Account, error)
-	AddSetupKey(
-		accountId string,
-		keyName string,
-		keyType SetupKeyType,
-		expiresIn *util.Duration,
-	) (*SetupKey, error)
+	AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn *util.Duration) (*SetupKey, error)
 	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
@@ -42,7 +37,7 @@ type AccountManager interface {
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
-	AddPeer(setupKey string, peer *Peer) (*Peer, error)
+	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
 	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
