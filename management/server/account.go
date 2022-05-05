@@ -273,7 +273,7 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 	}
 }
 
-// batched request for users from auth0 by account
+// GetUsersFromAccount performs a batched request for users from IDP by account id
 func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
 	account, err := am.GetAccountById(accountID)
 	if err != nil {
@@ -290,7 +290,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 
 	userInfo := make([]*UserInfo, 0)
 
-	// in case of self-hosted, or auth0 doesn't return anything, we will return the locally stored userInfo
+	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
 		for _, user := range account.Users {
 			userInfo = append(userInfo, &UserInfo{

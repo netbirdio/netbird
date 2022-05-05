@@ -40,8 +40,8 @@ func (u *UserHandler) getAccountId(r *http.Request) (*server.Account, error) {
 	return account, nil
 }
 
-// handle more user details in idp
-// we first need to save more details about users in the store
+// GetUsers returns a list of users of the account this user belongs to.
+// It also gathers additional user data (like email and name) from the IDP manager.
 func (u *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "", http.StatusBadRequest)
@@ -61,5 +61,3 @@ func (u *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	writeJSONObject(w, data)
 }
-
-// management/server/idp/idp.go needs to be extended, since we only save the userIDs and not extra information

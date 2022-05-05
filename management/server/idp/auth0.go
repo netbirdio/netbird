@@ -97,7 +97,7 @@ func (c *Auth0Credentials) jwtStillValid() bool {
 // requestJWTToken performs request to get jwt token
 func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 	var res *http.Response
-	url := c.clientConfig.AuthIssuer + "/oauth/token"
+	reqURL := c.clientConfig.AuthIssuer + "/oauth/token"
 
 	p, err := c.helper.Marshal(auth0JWTRequest(c.clientConfig))
 	if err != nil {
@@ -105,7 +105,7 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 	}
 	payload := strings.NewReader(string(p))
 
-	req, err := http.NewRequest("POST", url, payload)
+	req, err := http.NewRequest("POST", reqURL, payload)
 	if err != nil {
 		return res, err
 	}
@@ -204,7 +204,7 @@ func requestByUserIdUrl(authIssuer, userId string) string {
 	return authIssuer + "/api/v2/users/" + userId
 }
 
-// Requests users in batches from Auth0
+// GetBatchedUserData requests users in batches from Auth0
 func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
@@ -216,12 +216,12 @@ func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error
 	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
 	// auth0 limitation of 1000 users via this endpoint
 	for page := 0; page < 20; page++ {
-		url, query, err := batchRequestUsersUrl(am.authIssuer, accountId, page)
+		reqURL, query, err := batchRequestUsersUrl(am.authIssuer, accountId, page)
 		if err != nil {
 			return nil, err
 		}
 
-		req, err := http.NewRequest(http.MethodGet, url, strings.NewReader(query.Encode()))
+		req, err := http.NewRequest(http.MethodGet, reqURL, strings.NewReader(query.Encode()))
 		if err != nil {
 			return nil, err
 		}
@@ -245,17 +245,15 @@ func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error
 			return nil, err
 		}
 
-		log.Debugf("Requested batch; %v", batch)
+		log.Debugf("requested batch; %v", batch)
 
-		defer func() {
-			err = res.Body.Close()
-			if err != nil {
-				log.Errorf("error while closing update user app metadata response body: %v", err)
-			}
-		}()
+		err = res.Body.Close()
+		if err != nil {
+			return nil, err
+		}
 
 		if res.StatusCode != 200 {
-			return nil, fmt.Errorf("Unable to request UserData from auth0, statusCode %d", res.StatusCode)
+			return nil, fmt.Errorf("unable to request UserData from auth0, statusCode %d", res.StatusCode)
 		}
 
 		if len(batch) == 0 {
@@ -270,7 +268,7 @@ func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error
 	return list, nil
 }
 
-// Requests user data from auth0 via ID
+// GetUserDataByID requests user data from auth0 via ID
 func (am *Auth0Manager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
@@ -323,7 +321,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 		return err
 	}
 
-	url := am.authIssuer + "/api/v2/users/" + userId
+	reqURL := am.authIssuer + "/api/v2/users/" + userId
 
 	data, err := am.helper.Marshal(appMetadata)
 	if err != nil {
@@ -334,7 +332,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 
 	payload := strings.NewReader(payloadString)
 
-	req, err := http.NewRequest("PATCH", url, payload)
+	req, err := http.NewRequest("PATCH", reqURL, payload)
 	if err != nil {
 		return err
 	}
