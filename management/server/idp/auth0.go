@@ -3,14 +3,17 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt"
+	log "github.com/sirupsen/logrus"
 )
 
 // Auth0Manager auth0 manager client instance
@@ -94,7 +97,7 @@ func (c *Auth0Credentials) jwtStillValid() bool {
 // requestJWTToken performs request to get jwt token
 func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 	var res *http.Response
-	url := c.clientConfig.AuthIssuer + "/oauth/token"
+	reqURL := c.clientConfig.AuthIssuer + "/oauth/token"
 
 	p, err := c.helper.Marshal(auth0JWTRequest(c.clientConfig))
 	if err != nil {
@@ -102,7 +105,7 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 	}
 	payload := strings.NewReader(string(p))
 
-	req, err := http.NewRequest("POST", url, payload)
+	req, err := http.NewRequest("POST", reqURL, payload)
 	if err != nil {
 		return res, err
 	}
@@ -183,6 +186,133 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	return c.jwtToken, nil
 }
 
+func batchRequestUsersUrl(authIssuer, accountId string, page int) (string, url.Values, error) {
+	u, err := url.Parse(authIssuer + "/api/v2/users")
+	if err != nil {
+		return "", nil, err
+	}
+	q := u.Query()
+	q.Set("page", strconv.Itoa(page))
+	q.Set("search_engine", "v3")
+	q.Set("q", "app_metadata.wt_account_id:"+accountId)
+	u.RawQuery = q.Encode()
+
+	return u.String(), q, nil
+}
+
+func requestByUserIdUrl(authIssuer, userId string) string {
+	return authIssuer + "/api/v2/users/" + userId
+}
+
+// GetBatchedUserData requests users in batches from Auth0
+func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error) {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	var list []*UserData
+
+	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
+	// auth0 limitation of 1000 users via this endpoint
+	for page := 0; page < 20; page++ {
+		reqURL, query, err := batchRequestUsersUrl(am.authIssuer, accountId, page)
+		if err != nil {
+			return nil, err
+		}
+
+		req, err := http.NewRequest(http.MethodGet, reqURL, strings.NewReader(query.Encode()))
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+		req.Header.Add("content-type", "application/json")
+
+		res, err := am.httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, err
+		}
+
+		var batch []UserData
+		err = json.Unmarshal(body, &batch)
+		if err != nil {
+			return nil, err
+		}
+
+		log.Debugf("requested batch; %v", batch)
+
+		err = res.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+
+		if res.StatusCode != 200 {
+			return nil, fmt.Errorf("unable to request UserData from auth0, statusCode %d", res.StatusCode)
+		}
+
+		if len(batch) == 0 {
+			return list, nil
+		}
+
+		for user := range batch {
+			list = append(list, &batch[user])
+		}
+	}
+
+	return list, nil
+}
+
+// GetUserDataByID requests user data from auth0 via ID
+func (am *Auth0Manager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := requestByUserIdUrl(am.authIssuer, userId)
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	res, err := am.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var userData UserData
+	err = json.Unmarshal(body, &userData)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		err = res.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing update user app metadata response body: %v", err)
+		}
+	}()
+
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("unable to get UserData, statusCode %d", res.StatusCode)
+	}
+
+	return &userData, nil
+}
+
 // UpdateUserAppMetadata updates user app metadata based on userId and metadata map
 func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
 
@@ -191,7 +321,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 		return err
 	}
 
-	url := am.authIssuer + "/api/v2/users/" + userId
+	reqURL := am.authIssuer + "/api/v2/users/" + userId
 
 	data, err := am.helper.Marshal(appMetadata)
 	if err != nil {
@@ -202,7 +332,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 
 	payload := strings.NewReader(payloadString)
 
-	req, err := http.NewRequest("PATCH", url, payload)
+	req, err := http.NewRequest("PATCH", reqURL, payload)
 	if err != nil {
 		return err
 	}
