@@ -23,12 +23,7 @@ const (
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	GetAccountByUser(userId string) (*Account, error)
-	AddSetupKey(
-		accountId string,
-		keyName string,
-		keyType SetupKeyType,
-		expiresIn *util.Duration,
-	) (*SetupKey, error)
+	AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn *util.Duration) (*SetupKey, error)
 	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
