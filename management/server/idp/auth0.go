@@ -275,8 +275,8 @@ func (am *Auth0Manager) GetUserDataByID(userId string, appMetadata AppMetadata) 
 		return nil, err
 	}
 
-	url := requestByUserIdUrl(am.authIssuer, userId)
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	reqURL := requestByUserIdUrl(am.authIssuer, userId)
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
 	}
