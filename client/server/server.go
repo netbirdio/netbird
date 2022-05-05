@@ -171,7 +171,10 @@ func (s *Server) Down(ctx context.Context, msg *proto.DownRequest) (*proto.DownR
 }
 
 // Status starts engine work in the daemon.
-func (s *Server) Status(ctx context.Context, msg *proto.StatusRequest) (*proto.StatusResponse, error) {
+func (s *Server) Status(
+	ctx context.Context,
+	msg *proto.StatusRequest,
+) (*proto.StatusResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -184,23 +187,30 @@ func (s *Server) Status(ctx context.Context, msg *proto.StatusRequest) (*proto.S
 }
 
 // GetConfig of the daemon.
-func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*proto.GetConfigResponse, error) {
+func (s *Server) GetConfig(
+	ctx context.Context,
+	msg *proto.GetConfigRequest,
+) (*proto.GetConfigResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
 	managementURL := s.managementURL
-	if managementURL == "" && s.config.ManagementURL != nil {
-		managementURL = s.config.ManagementURL.String()
-	}
-
 	adminURL := s.adminURL
-	if s.config.AdminURL != nil {
-		adminURL = s.config.AdminURL.String()
-	}
+	preSharedKey := ""
 
-	preSharedKey := s.config.PreSharedKey
-	if preSharedKey != "" {
-		preSharedKey = "**********"
+	if s.config != nil {
+		if managementURL == "" && s.config.ManagementURL != nil {
+			managementURL = s.config.ManagementURL.String()
+		}
+
+		if s.config.AdminURL != nil {
+			adminURL = s.config.AdminURL.String()
+		}
+
+		preSharedKey = s.config.PreSharedKey
+		if preSharedKey != "" {
+			preSharedKey = "**********"
+		}
 	}
 
 	return &proto.GetConfigResponse{
