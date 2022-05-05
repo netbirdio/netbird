@@ -95,7 +95,7 @@ func (m *JWTMiddleware) logf(format string, args ...interface{}) {
 
 // HandlerWithNext is a special implementation for Negroni, but could be used elsewhere.
 func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
-	err := m.CheckJWT(w, r)
+	err := m.CheckJWTFromRequest(w, r)
 
 	// If there was an error, do not call next.
 	if err == nil && next != nil {
@@ -108,7 +108,7 @@ func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Let secure process the request. If it returns an error,
 		// that indicates the request should not continue.
-		err := m.CheckJWT(w, r)
+		err := m.CheckJWTFromRequest(w, r)
 
 		// If there was an error, do not continue.
 		if err != nil {
@@ -161,7 +161,7 @@ func FromFirst(extractors ...TokenExtractor) TokenExtractor {
 	}
 }
 
-func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
+func (m *JWTMiddleware) CheckJWTFromRequest(w http.ResponseWriter, r *http.Request) error {
 	if !m.Options.EnableAuthOnOptions {
 		if r.Method == "OPTIONS" {
 			return nil
@@ -184,20 +184,39 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("Error extracting token: %w", err)
 	}
 
+	validatedToken, err := m.ValidateAndParse(token)
+	if err != nil {
+		m.Options.ErrorHandler(w, r, "The token isn't valid")
+		return err
+	}
+
+	if validatedToken == nil {
+		return nil
+	}
+
+	// If we get here, everything worked and we can set the
+	// user property in context.
+	newRequest := r.WithContext(context.WithValue(r.Context(), m.Options.UserProperty, validatedToken)) //nolint
+	// Update the current request with the new context information.
+	*r = *newRequest
+	return nil
+}
+
+// ValidateAndParse validates and parses a given access token against jwt standards and signing methods
+func (m *JWTMiddleware) ValidateAndParse(token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {
 		// Check if it was required
 		if m.Options.CredentialsOptional {
-			m.logf("  No credentials found (CredentialsOptional=true)")
+			m.logf("no credentials found (CredentialsOptional=true)")
 			// No error, just no token (and that is ok given that CredentialsOptional is true)
-			return nil
+			return nil, nil
 		}
 
 		// If we get here, the required token is missing
-		errorMsg := "Required authorization token not found"
-		m.Options.ErrorHandler(w, r, errorMsg)
+		errorMsg := "required authorization token not found"
 		m.logf("  Error: No credentials found (CredentialsOptional=false)")
-		return fmt.Errorf(errorMsg)
+		return nil, fmt.Errorf(errorMsg)
 	}
 
 	// Now parse the token
@@ -206,32 +225,23 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	// Check if there was an error in parsing...
 	if err != nil {
 		m.logf("error parsing token: %v", err)
-		m.Options.ErrorHandler(w, r, err.Error())
-		return fmt.Errorf("Error parsing token: %w", err)
+		return nil, fmt.Errorf("Error parsing token: %w", err)
 	}
 
 	if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
-		message := fmt.Sprintf("Expected %s signing method but token specified %s",
+		errorMsg := fmt.Sprintf("Expected %s signing method but token specified %s",
 			m.Options.SigningMethod.Alg(),
 			parsedToken.Header["alg"])
-		m.logf("Error validating token algorithm: %s", message)
-		m.Options.ErrorHandler(w, r, errors.New(message).Error())
-		return fmt.Errorf("Error validating token algorithm: %s", message)
+		m.logf("error validating token algorithm: %s", errorMsg)
+		return nil, fmt.Errorf("error validating token algorithm: %s", errorMsg)
 	}
 
 	// Check if the parsed token is valid...
 	if !parsedToken.Valid {
-		m.logf("Token is invalid")
-		m.Options.ErrorHandler(w, r, "The token isn't valid")
-		return errors.New("token is invalid")
+		errorMsg := "token is invalid"
+		m.logf(errorMsg)
+		return nil, errors.New(errorMsg)
 	}
 
-	m.logf("JWT: %v", parsedToken)
-
-	// If we get here, everything worked and we can set the
-	// user property in context.
-	newRequest := r.WithContext(context.WithValue(r.Context(), m.Options.UserProperty, parsedToken)) //nolint
-	// Update the current request with the new context information.
-	*r = *newRequest
-	return nil
+	return parsedToken, nil
 }

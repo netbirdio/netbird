@@ -35,20 +35,25 @@ func NewClaimsExtractor(e ExtractClaims) *ClaimsExtractor {
 }
 
 // ExtractClaimsFromRequestContext extracts claims from the request context previously filled by the JWT token (after auth)
-func ExtractClaimsFromRequestContext(r *http.Request, authAudiance string) AuthorizationClaims {
+func ExtractClaimsFromRequestContext(r *http.Request, authAudience string) AuthorizationClaims {
 	token := r.Context().Value(TokenUserProperty).(*jwt.Token)
+	return ExtractClaimsWithToken(token, authAudience)
+}
+
+// ExtractClaimsWithToken extracts claims from the token (after auth)
+func ExtractClaimsWithToken(token *jwt.Token, authAudience string) AuthorizationClaims {
 	claims := token.Claims.(jwt.MapClaims)
 	jwtClaims := AuthorizationClaims{}
 	jwtClaims.UserId = claims[UserIDClaim].(string)
-	accountIdClaim, ok := claims[authAudiance+AccountIDSuffix]
+	accountIdClaim, ok := claims[authAudience+AccountIDSuffix]
 	if ok {
 		jwtClaims.AccountId = accountIdClaim.(string)
 	}
-	domainClaim, ok := claims[authAudiance+DomainIDSuffix]
+	domainClaim, ok := claims[authAudience+DomainIDSuffix]
 	if ok {
 		jwtClaims.Domain = domainClaim.(string)
 	}
-	domainCategoryClaim, ok := claims[authAudiance+DomainCategorySuffix]
+	domainCategoryClaim, ok := claims[authAudience+DomainCategorySuffix]
 	if ok {
 		jwtClaims.DomainCategory = domainCategoryClaim.(string)
 	}

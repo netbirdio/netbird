@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func Login(ctx context.Context, config *Config, setupKey string) error {
+func Login(ctx context.Context, config *Config, setupKey string, jwtToken string) error {
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
@@ -40,7 +40,7 @@ func Login(ctx context.Context, config *Config, setupKey string) error {
 		return err
 	}
 
-	_, err = loginPeer(*serverKey, mgmClient, setupKey)
+	_, err = loginPeer(*serverKey, mgmClient, setupKey, jwtToken)
 	if err != nil {
 		log.Errorf("failed logging-in peer on Management Service : %v", err)
 		return err
@@ -56,12 +56,12 @@ func Login(ctx context.Context, config *Config, setupKey string) error {
 }
 
 // loginPeer attempts to login to Management Service. If peer wasn't registered, tries the registration flow.
-func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string) (*mgmProto.LoginResponse, error) {
+func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
 	loginResp, err := client.Login(serverPublicKey)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			log.Debugf("peer registration required")
-			return registerPeer(serverPublicKey, client, setupKey)
+			return registerPeer(serverPublicKey, client, setupKey, jwtToken)
 		} else {
 			return nil, err
 		}
@@ -74,15 +74,15 @@ func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey str
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
-func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string) (*mgmProto.LoginResponse, error) {
+func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
 	validSetupKey, err := uuid.Parse(setupKey)
-	if err != nil {
+	if err != nil && jwtToken == "" {
 		return nil, err
 	}
 
 	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo()
-	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), info)
+	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info)
 	if err != nil {
 		log.Errorf("failed registering peer %v", err)
 		return nil, err

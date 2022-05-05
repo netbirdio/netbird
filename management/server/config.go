@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/util"
+	"net/url"
 )
 
 type Protocol string
@@ -59,4 +60,13 @@ type Host struct {
 	URI      string
 	Username string
 	Password string
+}
+
+// validateURL validates input http url
+func validateURL(httpURL string) bool {
+	_, err := url.ParseRequestURI(httpURL)
+	if err != nil {
+		return false
+	}
+	return true
 }

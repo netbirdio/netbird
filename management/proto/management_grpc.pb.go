@@ -19,10 +19,12 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type ManagementServiceClient interface {
 	// Login logs in peer. In case server returns codes.PermissionDenied this endpoint can be used to register Peer providing LoginRequest.setupKey
+	// Returns encrypted LoginResponse in EncryptedMessage.Body
 	Login(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 	// Sync enables peer synchronization. Each peer that is connected to this stream will receive updates from the server.
 	// For example, if a new peer has been added to an account all other connected peers will receive this peer's Wireguard public key as an update
 	// The initial SyncResponse contains all of the available peers so the local state can be refreshed
+	// Returns encrypted SyncResponse in EncryptedMessage.Body
 	Sync(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (ManagementService_SyncClient, error)
 	// Exposes a Wireguard public key of the Management service.
 	// This key is used to support message encryption between client and server
@@ -103,10 +105,12 @@ func (c *managementServiceClient) IsHealthy(ctx context.Context, in *Empty, opts
 // for forward compatibility
 type ManagementServiceServer interface {
 	// Login logs in peer. In case server returns codes.PermissionDenied this endpoint can be used to register Peer providing LoginRequest.setupKey
+	// Returns encrypted LoginResponse in EncryptedMessage.Body
 	Login(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	// Sync enables peer synchronization. Each peer that is connected to this stream will receive updates from the server.
 	// For example, if a new peer has been added to an account all other connected peers will receive this peer's Wireguard public key as an update
 	// The initial SyncResponse contains all of the available peers so the local state can be refreshed
+	// Returns encrypted SyncResponse in EncryptedMessage.Body
 	Sync(*EncryptedMessage, ManagementService_SyncServer) error
 	// Exposes a Wireguard public key of the Management service.
 	// This key is used to support message encryption between client and server

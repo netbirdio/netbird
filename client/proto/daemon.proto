@@ -35,6 +35,9 @@ message LoginRequest {
 
   // adminUrl to manage keys.
   string adminURL = 4;
+
+  // jwtToken sso token to authenticate.
+  string jwtToken = 5;
 }
 
 message LoginResponse {}
