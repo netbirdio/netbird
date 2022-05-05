@@ -10,6 +10,8 @@ import (
 // Manager idp manager interface
 type Manager interface {
 	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
+	GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error)
+	GetBatchedUserData(accountId string) ([]*UserData, error)
 }
 
 // Config an idp configuration struct to be loaded from management server's config file
@@ -32,6 +34,12 @@ type ManagerHTTPClient interface {
 type ManagerHelper interface {
 	Marshal(v interface{}) ([]byte, error)
 	Unmarshal(data []byte, v interface{}) error
+}
+
+type UserData struct {
+	Email string `json:"email"`
+	Name  string `json:"name"`
+	ID    string `json:"user_id"`
 }
 
 // AppMetadata user app metadata to associate with a profile

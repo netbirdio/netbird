@@ -1,6 +1,7 @@
 package server
 
 import (
+	"reflect"
 	"strings"
 	"sync"
 
@@ -42,6 +43,7 @@ type AccountManager interface {
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
 	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
+	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
 	DeleteGroup(accountId, groupID string) error
@@ -72,6 +74,13 @@ type Account struct {
 	Peers                  map[string]*Peer
 	Users                  map[string]*User
 	Groups                 map[string]*Group
+}
+
+type UserInfo struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+	Role  string `json:"role"`
 }
 
 // NewAccount creates a new Account with a generated ID and generated default setup keys
@@ -107,11 +116,7 @@ func (a *Account) Copy() *Account {
 }
 
 // NewManager creates a new DefaultAccountManager with a provided Store
-func NewManager(
-	store Store,
-	peersUpdateManager *PeersUpdateManager,
-	idpManager idp.Manager,
-) *DefaultAccountManager {
+func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) *DefaultAccountManager {
 	return &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
@@ -222,9 +227,7 @@ func (am *DefaultAccountManager) GetAccountById(accountId string) (*Account, err
 
 // GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
 // user id doesn't have an account associated with it, one account is created
-func (am *DefaultAccountManager) GetAccountByUserOrAccountId(
-	userId, accountId, domain string,
-) (*Account, error) {
+func (am *DefaultAccountManager) GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error) {
 	if accountId != "" {
 		return am.GetAccountById(accountId)
 	} else if userId != "" {
@@ -242,9 +245,13 @@ func (am *DefaultAccountManager) GetAccountByUserOrAccountId(
 	return nil, status.Errorf(codes.NotFound, "no valid user or account Id provided")
 }
 
+func isNil(i idp.Manager) bool {
+	return i == nil || reflect.ValueOf(i).IsNil()
+}
+
 // updateIDPMetadata update user's  app metadata in idp manager
 func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) error {
-	if am.idpManager != nil {
+	if !isNil(am.idpManager) {
 		err := am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: accountID})
 		if err != nil {
 			return status.Errorf(
@@ -255,6 +262,55 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 		}
 	}
 	return nil
+}
+
+func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
+	return &UserInfo{
+		ID:    local.Id,
+		Email: queried.Email,
+		Name:  queried.Name,
+		Role:  string(local.Role),
+	}
+}
+
+// GetUsersFromAccount performs a batched request for users from IDP by account id
+func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
+	account, err := am.GetAccountById(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	queriedUsers := make([]*idp.UserData, 0)
+	if !isNil(am.idpManager) {
+		queriedUsers, err = am.idpManager.GetBatchedUserData(accountID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	userInfo := make([]*UserInfo, 0)
+
+	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
+	if len(queriedUsers) == 0 {
+		for _, user := range account.Users {
+			userInfo = append(userInfo, &UserInfo{
+				ID:    user.Id,
+				Email: "",
+				Name:  "",
+				Role:  string(user.Role),
+			})
+		}
+		return userInfo, nil
+	}
+
+	for _, queriedUser := range queriedUsers {
+		if localUser, contains := account.Users[queriedUser.ID]; contains {
+			userInfo = append(userInfo, mergeLocalAndQueryUser(*queriedUser, *localUser))
+			log.Debugf("Merged userinfo to send back; %v", userInfo)
+		}
+	}
+
+	return userInfo, nil
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account

@@ -1,11 +1,13 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/stretchr/testify/require"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
 	"testing"
+
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
@@ -190,6 +192,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		})
 	}
 }
+
 func TestAccountManager_PrivateAccount(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -571,6 +574,39 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.CurrentSerial())
 	}
 
+}
+
+func TestGetUsersFromAccount(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	users := map[string]*User{"1": {Id: "1", Role: "admin"}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
+	accountId := "test_account_id"
+
+	account, err := manager.AddAccount(accountId, users["1"].Id, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// add a user to the account
+	for _, user := range users {
+		account.Users[user.Id] = user
+	}
+
+	userInfos, err := manager.GetUsersFromAccount(accountId)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, userInfo := range userInfos {
+		id := userInfo.ID
+		assert.Equal(t, userInfo.ID, users[id].Id)
+		assert.Equal(t, string(userInfo.Role), string(users[id].Role))
+		assert.Equal(t, userInfo.Name, "")
+		assert.Equal(t, userInfo.Email, "")
+	}
 }
 
 func createManager(t *testing.T) (*DefaultAccountManager, error) {

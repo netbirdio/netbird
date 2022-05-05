@@ -33,6 +33,15 @@ type MockAccountManager struct {
 	GroupAddPeerFunc                      func(accountID, groupID, peerKey string) error
 	GroupDeletePeerFunc                   func(accountID, groupID, peerKey string) error
 	GroupListPeersFunc                    func(accountID, groupID string) ([]*server.Peer, error)
+	GetUsersFromAccountFunc               func(accountID string) ([]*server.UserInfo, error)
+}
+
+func (am *MockAccountManager) GetUsersFromAccount(accountID string) ([]*server.UserInfo, error) {
+	if am.GetUsersFromAccountFunc != nil {
+		return am.GetUsersFromAccountFunc(accountID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount not implemented")
+
 }
 
 func (am *MockAccountManager) GetOrCreateAccountByUser(
