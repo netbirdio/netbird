@@ -24,6 +24,7 @@ type Server struct {
 	peersUpdateManager     *PeersUpdateManager
 	config                 *Config
 	turnCredentialsManager TURNCredentialsManager
+	jwtMiddleware          *middleware.JWTMiddleware
 }
 
 // AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
@@ -36,6 +37,18 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		return nil, err
 	}
 
+	var jwtMiddleware *middleware.JWTMiddleware
+
+	if config.HttpConfig != nil && config.HttpConfig.AuthIssuer != "" && config.HttpConfig.AuthAudience != "" && validateURL(config.HttpConfig.AuthKeysLocation) {
+		jwtMiddleware, err = middleware.NewJwtMiddleware(
+			config.HttpConfig.AuthIssuer,
+			config.HttpConfig.AuthAudience,
+			config.HttpConfig.AuthKeysLocation)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)
+		}
+	}
+
 	return &Server{
 		wgKey: key,
 		// peerKey -> event channel
@@ -43,6 +56,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		accountManager:         accountManager,
 		config:                 config,
 		turnCredentialsManager: turnCredentialsManager,
+		jwtMiddleware:          jwtMiddleware,
 	}, nil
 }
 
@@ -146,14 +160,12 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 
 	if req.GetJwtToken() != "" {
 		log.Debugln("using jwt token to register peer")
-		jwtMiddleware, err := middleware.NewJwtMiddleware(
-			s.config.HttpConfig.AuthIssuer,
-			s.config.HttpConfig.AuthAudience,
-			s.config.HttpConfig.AuthKeysLocation)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)
+
+		if s.jwtMiddleware == nil {
+			return nil, status.Error(codes.Internal, "no jwt middleware set")
 		}
-		token, err := jwtMiddleware.ValidateAndParse(req.GetJwtToken())
+
+		token, err := s.jwtMiddleware.ValidateAndParse(req.GetJwtToken())
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "invalid jwt token, err: %v", err)
 		}

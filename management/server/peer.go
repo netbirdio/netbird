@@ -54,6 +54,7 @@ func (p *Peer) Copy() *Peer {
 		Meta:     p.Meta,
 		Name:     p.Name,
 		Status:   p.Status,
+		UserID:   p.UserID,
 	}
 }
 
@@ -235,9 +236,11 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 // AddPeer adds a new peer to the Store.
 // Each Account has a list of pre-authorised SetupKey and if no Account has a given key err wit ha code codes.Unauthenticated
 // will be returned, meaning the key is invalid
+// If a User ID is provided, it means that we passed the authentication using JWT, then we look for account by User ID and register the peer
+// to it. We also add the User ID to the peer metadata to identify registrant.
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error) {
+func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *Peer) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -262,10 +265,10 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userId string, peer *P
 			return nil, status.Errorf(codes.FailedPrecondition, "unable to register peer, setup key was expired or overused %s", upperKey)
 		}
 
-	} else if len(userId) != 0 {
-		account, err = am.Store.GetUserAccount(userId)
+	} else if len(userID) != 0 {
+		account, err = am.Store.GetUserAccount(userID)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown user with ID: %s", userId)
+			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown user with ID: %s", userID)
 		}
 	} else {
 		// Empty setup key and jwt fail
@@ -286,7 +289,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userId string, peer *P
 		IP:       nextIp,
 		Meta:     peer.Meta,
 		Name:     peer.Name,
-		UserID:   userId,
+		UserID:   userID,
 		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
 	}
 

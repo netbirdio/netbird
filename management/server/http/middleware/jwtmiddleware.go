@@ -202,18 +202,19 @@ func (m *JWTMiddleware) CheckJWTFromRequest(w http.ResponseWriter, r *http.Reque
 	return nil
 }
 
+// ValidateAndParse validates and parses a given access token against jwt standards and signing methods
 func (m *JWTMiddleware) ValidateAndParse(token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {
 		// Check if it was required
 		if m.Options.CredentialsOptional {
-			m.logf("  No credentials found (CredentialsOptional=true)")
+			m.logf("no credentials found (CredentialsOptional=true)")
 			// No error, just no token (and that is ok given that CredentialsOptional is true)
 			return nil, nil
 		}
 
 		// If we get here, the required token is missing
-		errorMsg := "Required authorization token not found"
+		errorMsg := "required authorization token not found"
 		m.logf("  Error: No credentials found (CredentialsOptional=false)")
 		return nil, fmt.Errorf(errorMsg)
 	}
