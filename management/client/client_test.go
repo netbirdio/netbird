@@ -112,7 +112,8 @@ func TestClient_GetServerPublicKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, listener := startManagement(t)
+	s, listener := startManagement(t)
+	defer s.GracefulStop()
 	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +134,8 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, listener := startManagement(t)
+	s, listener := startManagement(t)
+	defer s.GracefulStop()
 	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +159,8 @@ func TestClient_LoginRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, listener := startManagement(t)
+	s, listener := startManagement(t)
+	defer s.GracefulStop()
 	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
 	if err != nil {
 		t.Fatal(err)
@@ -184,7 +187,8 @@ func TestClient_Sync(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	_, listener := startManagement(t)
+	s, listener := startManagement(t)
+	defer s.GracefulStop()
 	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
 	if err != nil {
 		t.Fatal(err)
@@ -252,7 +256,8 @@ func TestClient_Sync(t *testing.T) {
 }
 
 func Test_SystemMetaDataFromClient(t *testing.T) {
-	_, lis, mgmtMockServer, serverKey := startMockManagement(t)
+	s, lis, mgmtMockServer, serverKey := startMockManagement(t)
+	defer s.GracefulStop()
 
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
@@ -331,7 +336,8 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 }
 
 func Test_GetDeviceAuthorizationFlow(t *testing.T) {
-	_, lis, mgmtMockServer, serverKey := startMockManagement(t)
+	s, lis, mgmtMockServer, serverKey := startMockManagement(t)
+	defer s.GracefulStop()
 
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {

@@ -184,7 +184,7 @@ message DeviceAuthorizationFlow {
   ProviderConfig ProviderConfig = 2;
 
   enum provider {
-    AUTH0 = 0;
+    HOSTED = 0;
   }
 }
 

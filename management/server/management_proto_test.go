@@ -6,7 +6,6 @@ import (
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/util"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -86,7 +85,7 @@ func Test_SyncProtocol(t *testing.T) {
 		os.Remove(filepath.Join(dir, "store.json")) //nolint
 	}()
 	mport := 33091
-	mgmtServer, _, err := startManagement(mport, &Config{
+	mgmtServer, _, err := startManagement(t, mport, &Config{
 		Stuns: []*Host{{
 			Proto: "udp",
 			URI:   "stun:stun.wiretrustee.com:3468",
@@ -349,7 +348,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 		{
 			name: "Testing Full Device Flow Config",
 			inputFlow: &DeviceAuthorizationFlow{
-				Provider: "auth0",
+				Provider: "hosted",
 				ProviderConfig: ProviderConfig{
 					ClientID: "test",
 				},
@@ -375,7 +374,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 			testConfig.Datadir = dir
 			testConfig.DeviceAuthorizationFlow = testCase.inputFlow
 
-			grpcServer, mgmtServer, err := startManagement(0, &testConfig)
+			grpcServer, mgmtServer, err := startManagement(t, 0, &testConfig)
 			if err != nil {
 				t.Fatal(err)
 				return
@@ -400,7 +399,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 	}
 }
 
-func startManagement(port int, config *Config) (*grpc.Server, *Server, error) {
+func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, *Server, error) {
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
@@ -421,7 +420,7 @@ func startManagement(port int, config *Config) (*grpc.Server, *Server, error) {
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
 		if err = s.Serve(lis); err != nil {
-			log.Fatalf("failed to serve: %v", err)
+			t.Fatalf("failed to serve: %v", err)
 		}
 	}()
 
