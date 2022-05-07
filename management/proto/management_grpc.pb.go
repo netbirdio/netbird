@@ -31,6 +31,10 @@ type ManagementServiceClient interface {
 	GetServerKey(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*ServerKeyResponse, error)
 	// health check endpoint
 	IsHealthy(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
+	// Exposes a device authorization flow information
+	// This is used for initiating a Oauth 2 device authorization grant flow
+	// which will be used by our clients to Login
+	GetDeviceAuthorizationFlow(ctx context.Context, in *DeviceAuthorizationFlowRequest, opts ...grpc.CallOption) (*EncryptedMessage, error)
 }
 
 type managementServiceClient struct {
@@ -100,6 +104,15 @@ func (c *managementServiceClient) IsHealthy(ctx context.Context, in *Empty, opts
 	return out, nil
 }
 
+func (c *managementServiceClient) GetDeviceAuthorizationFlow(ctx context.Context, in *DeviceAuthorizationFlowRequest, opts ...grpc.CallOption) (*EncryptedMessage, error) {
+	out := new(EncryptedMessage)
+	err := c.cc.Invoke(ctx, "/management.ManagementService/GetDeviceAuthorizationFlow", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ManagementServiceServer is the server API for ManagementService service.
 // All implementations must embed UnimplementedManagementServiceServer
 // for forward compatibility
@@ -117,6 +130,10 @@ type ManagementServiceServer interface {
 	GetServerKey(context.Context, *Empty) (*ServerKeyResponse, error)
 	// health check endpoint
 	IsHealthy(context.Context, *Empty) (*Empty, error)
+	// Exposes a device authorization flow information
+	// This is used for initiating a Oauth 2 device authorization grant flow
+	// which will be used by our clients to Login
+	GetDeviceAuthorizationFlow(context.Context, *DeviceAuthorizationFlowRequest) (*EncryptedMessage, error)
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -135,6 +152,9 @@ func (UnimplementedManagementServiceServer) GetServerKey(context.Context, *Empty
 }
 func (UnimplementedManagementServiceServer) IsHealthy(context.Context, *Empty) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IsHealthy not implemented")
+}
+func (UnimplementedManagementServiceServer) GetDeviceAuthorizationFlow(context.Context, *DeviceAuthorizationFlowRequest) (*EncryptedMessage, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceAuthorizationFlow not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}
 
@@ -224,6 +244,24 @@ func _ManagementService_IsHealthy_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ManagementService_GetDeviceAuthorizationFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeviceAuthorizationFlowRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ManagementServiceServer).GetDeviceAuthorizationFlow(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/management.ManagementService/GetDeviceAuthorizationFlow",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ManagementServiceServer).GetDeviceAuthorizationFlow(ctx, req.(*DeviceAuthorizationFlowRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ManagementService_ServiceDesc is the grpc.ServiceDesc for ManagementService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -242,6 +280,10 @@ var ManagementService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "isHealthy",
 			Handler:    _ManagementService_IsHealthy_Handler,
+		},
+		{
+			MethodName: "GetDeviceAuthorizationFlow",
+			Handler:    _ManagementService_GetDeviceAuthorizationFlow_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

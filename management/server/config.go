@@ -7,6 +7,7 @@ import (
 )
 
 type Protocol string
+type Provider string
 
 const (
 	UDP   Protocol = "udp"
@@ -14,6 +15,7 @@ const (
 	TCP   Protocol = "tcp"
 	HTTP  Protocol = "http"
 	HTTPS Protocol = "https"
+	AUTH0 Provider = "auth0"
 )
 
 // Config of the Management service
@@ -27,6 +29,8 @@ type Config struct {
 	HttpConfig *HttpServerConfig
 
 	IdpManagerConfig *idp.Config
+
+	DeviceAuthorizationFlow *DeviceAuthorizationFlow
 }
 
 // TURNConfig is a config of the TURNCredentialsManager
@@ -60,6 +64,26 @@ type Host struct {
 	URI      string
 	Username string
 	Password string
+}
+
+// DeviceAuthorizationFlow represents Device Authorization Flow information
+// that can be used by the client to login initiate a Oauth 2.0 device authorization grant flow
+// see https://datatracker.ietf.org/doc/html/rfc8628
+type DeviceAuthorizationFlow struct {
+	Provider       string
+	ProviderConfig ProviderConfig
+}
+
+// ProviderConfig has all attributes needed to initiate a device authorization flow
+type ProviderConfig struct {
+	// ClientID An IDP application client id
+	ClientID string
+	// ClientSecret An IDP application client secret
+	ClientSecret string
+	// Domain An IDP API domain
+	Domain string
+	// Audience An Audience for to authorization validation
+	Audience string
 }
 
 // validateURL validates input http url

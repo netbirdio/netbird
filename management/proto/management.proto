@@ -24,6 +24,11 @@ service ManagementService {
 
   // health check endpoint
   rpc isHealthy(Empty) returns (Empty) {}
+
+  // Exposes a device authorization flow information
+  // This is used for initiating a Oauth 2 device authorization grant flow
+  // which will be used by our clients to Login
+  rpc GetDeviceAuthorizationFlow(DeviceAuthorizationFlowRequest) returns (EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -164,4 +169,33 @@ message RemotePeerConfig {
 
   // Wireguard allowed IPs of a remote peer e.g. [10.30.30.1/32]
   repeated string allowedIps = 2;
+}
+
+message DeviceAuthorizationFlowRequest {
+  // A Wireguard public key of a remote peer
+  string wgPubKey = 1;
+}
+// DeviceAuthorizationFlow represents Device Authorization Flow information
+// that can be used by the client to login initiate a Oauth 2.0 device authorization grant flow
+// see https://datatracker.ietf.org/doc/html/rfc8628
+message DeviceAuthorizationFlow {
+  // An IDP provider , (eg. Auth0)
+  provider Provider = 1;
+  ProviderConfig ProviderConfig = 2;
+
+  enum provider {
+    AUTH0 = 0;
+  }
+}
+
+// ProviderConfig has all attributes needed to initiate a device authorization flow
+message ProviderConfig {
+  // An IDP application client id
+  string ClientID = 1;
+  // An IDP application client secret
+  string ClientSecret = 2;
+  // An IDP API domain
+  string Domain =3;
+  // An Audience for validation
+  string Audience = 4;
 }

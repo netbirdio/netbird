@@ -425,3 +425,42 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 
 	return nil
 }
+
+// GetDeviceAuthorizationFlow returns a device authorization flow information
+// This is used for initiating an Oauth 2 device authorization grant flow
+// which will be used by our clients to Login
+func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.DeviceAuthorizationFlowRequest) (*proto.EncryptedMessage, error) {
+
+	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
+	if err != nil {
+		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetDeviceAuthorizationFlow request.", req.WgPubKey)
+		log.Warn(errMSG)
+		return nil, status.Error(codes.InvalidArgument, errMSG)
+	}
+
+	if s.config.DeviceAuthorizationFlow == nil {
+		return nil, status.Error(codes.NotFound, "no device authorization flow information available")
+	}
+
+	provider := proto.DeviceAuthorizationFlowProvider_value[s.config.DeviceAuthorizationFlow.Provider]
+
+	flowInfoResp := &proto.DeviceAuthorizationFlow{
+		Provider: proto.DeviceAuthorizationFlowProvider(provider),
+		ProviderConfig: &proto.ProviderConfig{
+			ClientID:     s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
+			ClientSecret: s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
+			Domain:       s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
+			Audience:     s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
+		},
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, flowInfoResp)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to encrypt no device authorization flow information")
+	}
+
+	return &proto.EncryptedMessage{
+		WgPubKey: s.wgKey.PublicKey().String(),
+		Body:     encryptedResp,
+	}, nil
+}
