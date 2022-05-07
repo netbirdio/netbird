@@ -420,7 +420,7 @@ func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, *Ser
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
 		if err = s.Serve(lis); err != nil {
-			t.Fatalf("failed to serve: %v", err)
+			t.Errorf("failed to serve: %v", err)
 		}
 	}()
 
