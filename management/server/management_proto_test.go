@@ -85,7 +85,7 @@ func Test_SyncProtocol(t *testing.T) {
 		os.Remove(filepath.Join(dir, "store.json")) //nolint
 	}()
 	mport := 33091
-	mgmtServer, _, err := startManagement(t, mport, &Config{
+	mgmtServer, err := startManagement(t, mport, &Config{
 		Stuns: []*Host{{
 			Proto: "udp",
 			URI:   "stun:stun.wiretrustee.com:3468",
@@ -302,21 +302,15 @@ func loginPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServ
 }
 
 func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
-	defaultConfig := Config{
-		TURNConfig: &TURNConfig{
-			TimeBasedCredentials: false,
-			CredentialsTTL:       util.Duration{},
-			Secret:               "whatever",
-			Turns: []*Host{{
-				Proto: "udp",
-				URI:   "turn:stun.wiretrustee.com:3468",
-			}},
-		},
+
+	testingServerKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Errorf("unable to generate server wg key for testing GetDeviceAuthorizationFlow, error: %v", err)
 	}
 
 	testingClientKey, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
-		t.Errorf("unable to generate wg key for testing GetDeviceAuthorizationFlow, error: %v", err)
+		t.Errorf("unable to generate client wg key for testing GetDeviceAuthorizationFlow, error: %v", err)
 	}
 
 	testCases := []struct {
@@ -368,18 +362,13 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dir := t.TempDir()
 
-			testConfig := defaultConfig
-			testConfig.Datadir = dir
-			testConfig.DeviceAuthorizationFlow = testCase.inputFlow
-
-			grpcServer, mgmtServer, err := startManagement(t, 0, &testConfig)
-			if err != nil {
-				t.Fatal(err)
-				return
+			mgmtServer := &Server{
+				wgKey: testingServerKey,
+				config: &Config{
+					DeviceAuthorizationFlow: testCase.inputFlow,
+				},
 			}
-			defer grpcServer.GracefulStop()
 
 			resp, err := mgmtServer.GetDeviceAuthorizationFlow(
 				context.TODO(),
@@ -399,32 +388,33 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 	}
 }
 
-func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, *Server, error) {
+func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, error) {
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	store, err := NewStore(config.Datadir)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	peersUpdateManager := NewPeersUpdateManager()
 	accountManager := NewManager(store, peersUpdateManager, nil)
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
+
 	go func() {
 		if err = s.Serve(lis); err != nil {
 			t.Errorf("failed to serve: %v", err)
 		}
 	}()
 
-	return s, mgmtServer, nil
+	return s, nil
 }
 
 func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn, error) {
