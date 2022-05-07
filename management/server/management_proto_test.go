@@ -7,6 +7,7 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -85,7 +86,7 @@ func Test_SyncProtocol(t *testing.T) {
 		os.Remove(filepath.Join(dir, "store.json")) //nolint
 	}()
 	mport := 33091
-	mgmtServer, err := startManagement(mport, &Config{
+	mgmtServer, _, err := startManagement(mport, &Config{
 		Stuns: []*Host{{
 			Proto: "udp",
 			URI:   "stun:stun.wiretrustee.com:3468",
@@ -301,23 +302,121 @@ func loginPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServ
 
 }
 
-func startManagement(port int, config *Config) (*grpc.Server, error) {
+func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
+	defaultConfig := Config{
+		TURNConfig: &TURNConfig{
+			TimeBasedCredentials: false,
+			CredentialsTTL:       util.Duration{},
+			Secret:               "whatever",
+			Turns: []*Host{{
+				Proto: "udp",
+				URI:   "turn:stun.wiretrustee.com:3468",
+			}},
+		},
+	}
+
+	testingClientKey, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Errorf("unable to generate wg key for testing GetDeviceAuthorizationFlow, error: %v", err)
+	}
+
+	testCases := []struct {
+		name                   string
+		inputFlow              *DeviceAuthorizationFlow
+		expectedFlow           *mgmtProto.DeviceAuthorizationFlow
+		expectedErrFunc        require.ErrorAssertionFunc
+		expectedErrMSG         string
+		expectedComparisonFunc require.ComparisonAssertionFunc
+		expectedComparisonMSG  string
+	}{
+		{
+			name:            "Testing No Device Flow Config",
+			inputFlow:       nil,
+			expectedErrFunc: require.Error,
+			expectedErrMSG:  "should return error",
+		},
+		{
+			name: "Testing Invalid Device Flow Provider Config",
+			inputFlow: &DeviceAuthorizationFlow{
+				Provider: "NoNe",
+				ProviderConfig: ProviderConfig{
+					ClientID: "test",
+				},
+			},
+			expectedErrFunc: require.Error,
+			expectedErrMSG:  "should return error",
+		},
+		{
+			name: "Testing Full Device Flow Config",
+			inputFlow: &DeviceAuthorizationFlow{
+				Provider: "auth0",
+				ProviderConfig: ProviderConfig{
+					ClientID: "test",
+				},
+			},
+			expectedFlow: &mgmtProto.DeviceAuthorizationFlow{
+				Provider: 0,
+				ProviderConfig: &mgmtProto.ProviderConfig{
+					ClientID: "test",
+				},
+			},
+			expectedErrFunc:        require.NoError,
+			expectedErrMSG:         "should not return error",
+			expectedComparisonFunc: require.Equal,
+			expectedComparisonMSG:  "should match",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			dir := t.TempDir()
+
+			testConfig := defaultConfig
+			testConfig.Datadir = dir
+			testConfig.DeviceAuthorizationFlow = testCase.inputFlow
+
+			grpcServer, mgmtServer, err := startManagement(0, &testConfig)
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+			defer grpcServer.GracefulStop()
+
+			resp, err := mgmtServer.GetDeviceAuthorizationFlow(
+				context.TODO(),
+				&mgmtProto.DeviceAuthorizationFlowRequest{WgPubKey: testingClientKey.PublicKey().String()},
+			)
+			testCase.expectedErrFunc(t, err, testCase.expectedErrMSG)
+			if testCase.expectedComparisonFunc != nil {
+				flowInfoResp := &mgmtProto.DeviceAuthorizationFlow{}
+
+				err = encryption.DecryptMessage(mgmtServer.wgKey.PublicKey(), testingClientKey, resp.Body, flowInfoResp)
+				require.NoError(t, err, "should be able to decrypt")
+
+				testCase.expectedComparisonFunc(t, testCase.expectedFlow.Provider, flowInfoResp.Provider, testCase.expectedComparisonMSG)
+				testCase.expectedComparisonFunc(t, testCase.expectedFlow.ProviderConfig.ClientID, flowInfoResp.ProviderConfig.ClientID, testCase.expectedComparisonMSG)
+			}
+		})
+	}
+}
+
+func startManagement(port int, config *Config) (*grpc.Server, *Server, error) {
 
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	store, err := NewStore(config.Datadir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	peersUpdateManager := NewPeersUpdateManager()
 	accountManager := NewManager(store, peersUpdateManager, nil)
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
@@ -326,7 +425,7 @@ func startManagement(port int, config *Config) (*grpc.Server, error) {
 		}
 	}()
 
-	return s, nil
+	return s, mgmtServer, nil
 }
 
 func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn, error) {

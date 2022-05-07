@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"strings"
 	"time"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
@@ -47,6 +48,8 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)
 		}
+	} else {
+		log.Debug("unable to use http config to create new jwt middleware")
 	}
 
 	return &Server{
@@ -442,7 +445,10 @@ func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.Devi
 		return nil, status.Error(codes.NotFound, "no device authorization flow information available")
 	}
 
-	provider := proto.DeviceAuthorizationFlowProvider_value[s.config.DeviceAuthorizationFlow.Provider]
+	provider, ok := proto.DeviceAuthorizationFlowProvider_value[strings.ToUpper(s.config.DeviceAuthorizationFlow.Provider)]
+	if !ok {
+		return nil, status.Errorf(codes.InvalidArgument, "no provider found in the protocol for %s", s.config.DeviceAuthorizationFlow.Provider)
+	}
 
 	flowInfoResp := &proto.DeviceAuthorizationFlow{
 		Provider: proto.DeviceAuthorizationFlowProvider(provider),
