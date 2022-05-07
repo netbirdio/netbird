@@ -264,8 +264,9 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 	flowInfoResp := &proto.DeviceAuthorizationFlow{}
 	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, flowInfoResp)
 	if err != nil {
-		log.Errorf("failed to decrypt device authorization flow message: %s", err)
-		return nil, err
+		errWithMSG := fmt.Errorf("failed to decrypt device authorization flow message: %s", err)
+		log.Error(errWithMSG)
+		return nil, errWithMSG
 	}
 
 	return flowInfoResp, nil

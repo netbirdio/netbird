@@ -11,10 +11,11 @@ import (
 type ManagementServiceServerMock struct {
 	proto.UnimplementedManagementServiceServer
 
-	LoginFunc        func(context.Context, *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
-	SyncFunc         func(*proto.EncryptedMessage, proto.ManagementService_SyncServer)
-	GetServerKeyFunc func(context.Context, *proto.Empty) (*proto.ServerKeyResponse, error)
-	IsHealthyFunc    func(context.Context, *proto.Empty) (*proto.Empty, error)
+	LoginFunc                      func(context.Context, *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
+	SyncFunc                       func(*proto.EncryptedMessage, proto.ManagementService_SyncServer)
+	GetServerKeyFunc               func(context.Context, *proto.Empty) (*proto.ServerKeyResponse, error)
+	IsHealthyFunc                  func(context.Context, *proto.Empty) (*proto.Empty, error)
+	GetDeviceAuthorizationFlowFunc func(ctx context.Context, req *proto.DeviceAuthorizationFlowRequest) (*proto.EncryptedMessage, error)
 }
 
 func (m ManagementServiceServerMock) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
@@ -43,4 +44,11 @@ func (m ManagementServiceServerMock) IsHealthy(ctx context.Context, empty *proto
 		return m.IsHealthyFunc(ctx, empty)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method IsHealthy not implemented")
+}
+
+func (m ManagementServiceServerMock) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.DeviceAuthorizationFlowRequest) (*proto.EncryptedMessage, error) {
+	if m.GetDeviceAuthorizationFlowFunc != nil {
+		return m.GetDeviceAuthorizationFlowFunc(ctx, req)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceAuthorizationFlow not implemented")
 }
