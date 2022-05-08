@@ -76,6 +76,49 @@ func (HostConfig_Protocol) EnumDescriptor() ([]byte, []int) {
 	return file_management_proto_rawDescGZIP(), []int{9, 0}
 }
 
+type DeviceAuthorizationFlowProvider int32
+
+const (
+	DeviceAuthorizationFlow_HOSTED DeviceAuthorizationFlowProvider = 0
+)
+
+// Enum value maps for DeviceAuthorizationFlowProvider.
+var (
+	DeviceAuthorizationFlowProvider_name = map[int32]string{
+		0: "HOSTED",
+	}
+	DeviceAuthorizationFlowProvider_value = map[string]int32{
+		"HOSTED": 0,
+	}
+)
+
+func (x DeviceAuthorizationFlowProvider) Enum() *DeviceAuthorizationFlowProvider {
+	p := new(DeviceAuthorizationFlowProvider)
+	*p = x
+	return p
+}
+
+func (x DeviceAuthorizationFlowProvider) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DeviceAuthorizationFlowProvider) Descriptor() protoreflect.EnumDescriptor {
+	return file_management_proto_enumTypes[1].Descriptor()
+}
+
+func (DeviceAuthorizationFlowProvider) Type() protoreflect.EnumType {
+	return &file_management_proto_enumTypes[1]
+}
+
+func (x DeviceAuthorizationFlowProvider) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DeviceAuthorizationFlowProvider.Descriptor instead.
+func (DeviceAuthorizationFlowProvider) EnumDescriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{15, 0}
+}
+
 type EncryptedMessage struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -973,6 +1016,180 @@ func (x *RemotePeerConfig) GetAllowedIps() []string {
 	return nil
 }
 
+// DeviceAuthorizationFlowRequest empty struct for future expansion
+type DeviceAuthorizationFlowRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+}
+
+func (x *DeviceAuthorizationFlowRequest) Reset() {
+	*x = DeviceAuthorizationFlowRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_management_proto_msgTypes[14]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DeviceAuthorizationFlowRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceAuthorizationFlowRequest) ProtoMessage() {}
+
+func (x *DeviceAuthorizationFlowRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[14]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceAuthorizationFlowRequest.ProtoReflect.Descriptor instead.
+func (*DeviceAuthorizationFlowRequest) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{14}
+}
+
+// DeviceAuthorizationFlow represents Device Authorization Flow information
+// that can be used by the client to login initiate a Oauth 2.0 device authorization grant flow
+// see https://datatracker.ietf.org/doc/html/rfc8628
+type DeviceAuthorizationFlow struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// An IDP provider , (eg. Auth0)
+	Provider       DeviceAuthorizationFlowProvider `protobuf:"varint,1,opt,name=Provider,proto3,enum=management.DeviceAuthorizationFlowProvider" json:"Provider,omitempty"`
+	ProviderConfig *ProviderConfig                 `protobuf:"bytes,2,opt,name=ProviderConfig,proto3" json:"ProviderConfig,omitempty"`
+}
+
+func (x *DeviceAuthorizationFlow) Reset() {
+	*x = DeviceAuthorizationFlow{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_management_proto_msgTypes[15]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *DeviceAuthorizationFlow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeviceAuthorizationFlow) ProtoMessage() {}
+
+func (x *DeviceAuthorizationFlow) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[15]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeviceAuthorizationFlow.ProtoReflect.Descriptor instead.
+func (*DeviceAuthorizationFlow) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *DeviceAuthorizationFlow) GetProvider() DeviceAuthorizationFlowProvider {
+	if x != nil {
+		return x.Provider
+	}
+	return DeviceAuthorizationFlow_HOSTED
+}
+
+func (x *DeviceAuthorizationFlow) GetProviderConfig() *ProviderConfig {
+	if x != nil {
+		return x.ProviderConfig
+	}
+	return nil
+}
+
+// ProviderConfig has all attributes needed to initiate a device authorization flow
+type ProviderConfig struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// An IDP application client id
+	ClientID string `protobuf:"bytes,1,opt,name=ClientID,proto3" json:"ClientID,omitempty"`
+	// An IDP application client secret
+	ClientSecret string `protobuf:"bytes,2,opt,name=ClientSecret,proto3" json:"ClientSecret,omitempty"`
+	// An IDP API domain
+	Domain string `protobuf:"bytes,3,opt,name=Domain,proto3" json:"Domain,omitempty"`
+	// An Audience for validation
+	Audience string `protobuf:"bytes,4,opt,name=Audience,proto3" json:"Audience,omitempty"`
+}
+
+func (x *ProviderConfig) Reset() {
+	*x = ProviderConfig{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_management_proto_msgTypes[16]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ProviderConfig) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProviderConfig) ProtoMessage() {}
+
+func (x *ProviderConfig) ProtoReflect() protoreflect.Message {
+	mi := &file_management_proto_msgTypes[16]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProviderConfig.ProtoReflect.Descriptor instead.
+func (*ProviderConfig) Descriptor() ([]byte, []int) {
+	return file_management_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ProviderConfig) GetClientID() string {
+	if x != nil {
+		return x.ClientID
+	}
+	return ""
+}
+
+func (x *ProviderConfig) GetClientSecret() string {
+	if x != nil {
+		return x.ClientSecret
+	}
+	return ""
+}
+
+func (x *ProviderConfig) GetDomain() string {
+	if x != nil {
+		return x.Domain
+	}
+	return ""
+}
+
+func (x *ProviderConfig) GetAudience() string {
+	if x != nil {
+		return x.Audience
+	}
+	return ""
+}
+
 var File_management_proto protoreflect.FileDescriptor
 
 var file_management_proto_rawDesc = []byte{
@@ -1094,26 +1311,54 @@ var file_management_proto_rawDesc = []byte{
 	0x50, 0x75, 0x62, 0x4b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x77, 0x67,
 	0x50, 0x75, 0x62, 0x4b, 0x65, 0x79, 0x12, 0x1e, 0x0a, 0x0a, 0x61, 0x6c, 0x6c, 0x6f, 0x77, 0x65,
 	0x64, 0x49, 0x70, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x09, 0x52, 0x0a, 0x61, 0x6c, 0x6c, 0x6f,
-	0x77, 0x65, 0x64, 0x49, 0x70, 0x73, 0x32, 0x9b, 0x02, 0x0a, 0x11, 0x4d, 0x61, 0x6e, 0x61, 0x67,
-	0x65, 0x6d, 0x65, 0x6e, 0x74, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x45, 0x0a, 0x05,
-	0x4c, 0x6f, 0x67, 0x69, 0x6e, 0x12, 0x1c, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65,
-	0x6e, 0x74, 0x2e, 0x45, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x4d, 0x65, 0x73, 0x73,
-	0x61, 0x67, 0x65, 0x1a, 0x1c, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74,
-	0x2e, 0x45, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67,
-	0x65, 0x22, 0x00, 0x12, 0x46, 0x0a, 0x04, 0x53, 0x79, 0x6e, 0x63, 0x12, 0x1c, 0x2e, 0x6d, 0x61,
+	0x77, 0x65, 0x64, 0x49, 0x70, 0x73, 0x22, 0x20, 0x0a, 0x1e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65,
+	0x41, 0x75, 0x74, 0x68, 0x6f, 0x72, 0x69, 0x7a, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x46, 0x6c, 0x6f,
+	0x77, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x22, 0xbf, 0x01, 0x0a, 0x17, 0x44, 0x65, 0x76,
+	0x69, 0x63, 0x65, 0x41, 0x75, 0x74, 0x68, 0x6f, 0x72, 0x69, 0x7a, 0x61, 0x74, 0x69, 0x6f, 0x6e,
+	0x46, 0x6c, 0x6f, 0x77, 0x12, 0x48, 0x0a, 0x08, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72,
+	0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x2c, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d,
+	0x65, 0x6e, 0x74, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x41, 0x75, 0x74, 0x68, 0x6f, 0x72,
+	0x69, 0x7a, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x46, 0x6c, 0x6f, 0x77, 0x2e, 0x70, 0x72, 0x6f, 0x76,
+	0x69, 0x64, 0x65, 0x72, 0x52, 0x08, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x12, 0x42,
+	0x0a, 0x0e, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67,
+	0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d,
+	0x65, 0x6e, 0x74, 0x2e, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x43, 0x6f, 0x6e, 0x66,
+	0x69, 0x67, 0x52, 0x0e, 0x50, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x43, 0x6f, 0x6e, 0x66,
+	0x69, 0x67, 0x22, 0x16, 0x0a, 0x08, 0x70, 0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x12, 0x0a,
+	0x0a, 0x06, 0x48, 0x4f, 0x53, 0x54, 0x45, 0x44, 0x10, 0x00, 0x22, 0x84, 0x01, 0x0a, 0x0e, 0x50,
+	0x72, 0x6f, 0x76, 0x69, 0x64, 0x65, 0x72, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x1a, 0x0a,
+	0x08, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x49, 0x44, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x08, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x49, 0x44, 0x12, 0x22, 0x0a, 0x0c, 0x43, 0x6c, 0x69,
+	0x65, 0x6e, 0x74, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x0c, 0x43, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x53, 0x65, 0x63, 0x72, 0x65, 0x74, 0x12, 0x16, 0x0a,
+	0x06, 0x44, 0x6f, 0x6d, 0x61, 0x69, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x44,
+	0x6f, 0x6d, 0x61, 0x69, 0x6e, 0x12, 0x1a, 0x0a, 0x08, 0x41, 0x75, 0x64, 0x69, 0x65, 0x6e, 0x63,
+	0x65, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x41, 0x75, 0x64, 0x69, 0x65, 0x6e, 0x63,
+	0x65, 0x32, 0xf7, 0x02, 0x0a, 0x11, 0x4d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74,
+	0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x12, 0x45, 0x0a, 0x05, 0x4c, 0x6f, 0x67, 0x69, 0x6e,
+	0x12, 0x1c, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6e,
+	0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x1a, 0x1c,
+	0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6e, 0x63, 0x72,
+	0x79, 0x70, 0x74, 0x65, 0x64, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x22, 0x00, 0x12, 0x46,
+	0x0a, 0x04, 0x53, 0x79, 0x6e, 0x63, 0x12, 0x1c, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d,
+	0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x4d, 0x65, 0x73,
+	0x73, 0x61, 0x67, 0x65, 0x1a, 0x1c, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e,
+	0x74, 0x2e, 0x45, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64, 0x4d, 0x65, 0x73, 0x73, 0x61,
+	0x67, 0x65, 0x22, 0x00, 0x30, 0x01, 0x12, 0x42, 0x0a, 0x0c, 0x47, 0x65, 0x74, 0x53, 0x65, 0x72,
+	0x76, 0x65, 0x72, 0x4b, 0x65, 0x79, 0x12, 0x11, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d,
+	0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x1a, 0x1d, 0x2e, 0x6d, 0x61, 0x6e, 0x61,
+	0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x4b, 0x65, 0x79,
+	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12, 0x33, 0x0a, 0x09, 0x69, 0x73,
+	0x48, 0x65, 0x61, 0x6c, 0x74, 0x68, 0x79, 0x12, 0x11, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65,
+	0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x1a, 0x11, 0x2e, 0x6d, 0x61, 0x6e,
+	0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x22, 0x00, 0x12,
+	0x5a, 0x0a, 0x1a, 0x47, 0x65, 0x74, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x41, 0x75, 0x74, 0x68,
+	0x6f, 0x72, 0x69, 0x7a, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x46, 0x6c, 0x6f, 0x77, 0x12, 0x1c, 0x2e,
+	0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6e, 0x63, 0x72, 0x79,
+	0x70, 0x74, 0x65, 0x64, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x1a, 0x1c, 0x2e, 0x6d, 0x61,
 	0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74,
-	0x65, 0x64, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x1a, 0x1c, 0x2e, 0x6d, 0x61, 0x6e, 0x61,
-	0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6e, 0x63, 0x72, 0x79, 0x70, 0x74, 0x65, 0x64,
-	0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x22, 0x00, 0x30, 0x01, 0x12, 0x42, 0x0a, 0x0c, 0x47,
-	0x65, 0x74, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x4b, 0x65, 0x79, 0x12, 0x11, 0x2e, 0x6d, 0x61,
-	0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x1a, 0x1d,
-	0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x53, 0x65, 0x72, 0x76,
-	0x65, 0x72, 0x4b, 0x65, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x12,
-	0x33, 0x0a, 0x09, 0x69, 0x73, 0x48, 0x65, 0x61, 0x6c, 0x74, 0x68, 0x79, 0x12, 0x11, 0x2e, 0x6d,
-	0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x1a,
-	0x11, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x45, 0x6d, 0x70,
-	0x74, 0x79, 0x22, 0x00, 0x42, 0x08, 0x5a, 0x06, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x65, 0x64, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x22, 0x00, 0x42, 0x08, 0x5a, 0x06, 0x2f,
+	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1128,55 +1373,63 @@ func file_management_proto_rawDescGZIP() []byte {
 	return file_management_proto_rawDescData
 }
 
-var file_management_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_management_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_management_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_management_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_management_proto_goTypes = []interface{}{
-	(HostConfig_Protocol)(0),      // 0: management.HostConfig.Protocol
-	(*EncryptedMessage)(nil),      // 1: management.EncryptedMessage
-	(*SyncRequest)(nil),           // 2: management.SyncRequest
-	(*SyncResponse)(nil),          // 3: management.SyncResponse
-	(*LoginRequest)(nil),          // 4: management.LoginRequest
-	(*PeerSystemMeta)(nil),        // 5: management.PeerSystemMeta
-	(*LoginResponse)(nil),         // 6: management.LoginResponse
-	(*ServerKeyResponse)(nil),     // 7: management.ServerKeyResponse
-	(*Empty)(nil),                 // 8: management.Empty
-	(*WiretrusteeConfig)(nil),     // 9: management.WiretrusteeConfig
-	(*HostConfig)(nil),            // 10: management.HostConfig
-	(*ProtectedHostConfig)(nil),   // 11: management.ProtectedHostConfig
-	(*PeerConfig)(nil),            // 12: management.PeerConfig
-	(*NetworkMap)(nil),            // 13: management.NetworkMap
-	(*RemotePeerConfig)(nil),      // 14: management.RemotePeerConfig
-	(*timestamppb.Timestamp)(nil), // 15: google.protobuf.Timestamp
+	(HostConfig_Protocol)(0),               // 0: management.HostConfig.Protocol
+	(DeviceAuthorizationFlowProvider)(0),   // 1: management.DeviceAuthorizationFlow.provider
+	(*EncryptedMessage)(nil),               // 2: management.EncryptedMessage
+	(*SyncRequest)(nil),                    // 3: management.SyncRequest
+	(*SyncResponse)(nil),                   // 4: management.SyncResponse
+	(*LoginRequest)(nil),                   // 5: management.LoginRequest
+	(*PeerSystemMeta)(nil),                 // 6: management.PeerSystemMeta
+	(*LoginResponse)(nil),                  // 7: management.LoginResponse
+	(*ServerKeyResponse)(nil),              // 8: management.ServerKeyResponse
+	(*Empty)(nil),                          // 9: management.Empty
+	(*WiretrusteeConfig)(nil),              // 10: management.WiretrusteeConfig
+	(*HostConfig)(nil),                     // 11: management.HostConfig
+	(*ProtectedHostConfig)(nil),            // 12: management.ProtectedHostConfig
+	(*PeerConfig)(nil),                     // 13: management.PeerConfig
+	(*NetworkMap)(nil),                     // 14: management.NetworkMap
+	(*RemotePeerConfig)(nil),               // 15: management.RemotePeerConfig
+	(*DeviceAuthorizationFlowRequest)(nil), // 16: management.DeviceAuthorizationFlowRequest
+	(*DeviceAuthorizationFlow)(nil),        // 17: management.DeviceAuthorizationFlow
+	(*ProviderConfig)(nil),                 // 18: management.ProviderConfig
+	(*timestamppb.Timestamp)(nil),          // 19: google.protobuf.Timestamp
 }
 var file_management_proto_depIdxs = []int32{
-	9,  // 0: management.SyncResponse.wiretrusteeConfig:type_name -> management.WiretrusteeConfig
-	12, // 1: management.SyncResponse.peerConfig:type_name -> management.PeerConfig
-	14, // 2: management.SyncResponse.remotePeers:type_name -> management.RemotePeerConfig
-	13, // 3: management.SyncResponse.NetworkMap:type_name -> management.NetworkMap
-	5,  // 4: management.LoginRequest.meta:type_name -> management.PeerSystemMeta
-	9,  // 5: management.LoginResponse.wiretrusteeConfig:type_name -> management.WiretrusteeConfig
-	12, // 6: management.LoginResponse.peerConfig:type_name -> management.PeerConfig
-	15, // 7: management.ServerKeyResponse.expiresAt:type_name -> google.protobuf.Timestamp
-	10, // 8: management.WiretrusteeConfig.stuns:type_name -> management.HostConfig
-	11, // 9: management.WiretrusteeConfig.turns:type_name -> management.ProtectedHostConfig
-	10, // 10: management.WiretrusteeConfig.signal:type_name -> management.HostConfig
+	10, // 0: management.SyncResponse.wiretrusteeConfig:type_name -> management.WiretrusteeConfig
+	13, // 1: management.SyncResponse.peerConfig:type_name -> management.PeerConfig
+	15, // 2: management.SyncResponse.remotePeers:type_name -> management.RemotePeerConfig
+	14, // 3: management.SyncResponse.NetworkMap:type_name -> management.NetworkMap
+	6,  // 4: management.LoginRequest.meta:type_name -> management.PeerSystemMeta
+	10, // 5: management.LoginResponse.wiretrusteeConfig:type_name -> management.WiretrusteeConfig
+	13, // 6: management.LoginResponse.peerConfig:type_name -> management.PeerConfig
+	19, // 7: management.ServerKeyResponse.expiresAt:type_name -> google.protobuf.Timestamp
+	11, // 8: management.WiretrusteeConfig.stuns:type_name -> management.HostConfig
+	12, // 9: management.WiretrusteeConfig.turns:type_name -> management.ProtectedHostConfig
+	11, // 10: management.WiretrusteeConfig.signal:type_name -> management.HostConfig
 	0,  // 11: management.HostConfig.protocol:type_name -> management.HostConfig.Protocol
-	10, // 12: management.ProtectedHostConfig.hostConfig:type_name -> management.HostConfig
-	12, // 13: management.NetworkMap.peerConfig:type_name -> management.PeerConfig
-	14, // 14: management.NetworkMap.remotePeers:type_name -> management.RemotePeerConfig
-	1,  // 15: management.ManagementService.Login:input_type -> management.EncryptedMessage
-	1,  // 16: management.ManagementService.Sync:input_type -> management.EncryptedMessage
-	8,  // 17: management.ManagementService.GetServerKey:input_type -> management.Empty
-	8,  // 18: management.ManagementService.isHealthy:input_type -> management.Empty
-	1,  // 19: management.ManagementService.Login:output_type -> management.EncryptedMessage
-	1,  // 20: management.ManagementService.Sync:output_type -> management.EncryptedMessage
-	7,  // 21: management.ManagementService.GetServerKey:output_type -> management.ServerKeyResponse
-	8,  // 22: management.ManagementService.isHealthy:output_type -> management.Empty
-	19, // [19:23] is the sub-list for method output_type
-	15, // [15:19] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	11, // 12: management.ProtectedHostConfig.hostConfig:type_name -> management.HostConfig
+	13, // 13: management.NetworkMap.peerConfig:type_name -> management.PeerConfig
+	15, // 14: management.NetworkMap.remotePeers:type_name -> management.RemotePeerConfig
+	1,  // 15: management.DeviceAuthorizationFlow.Provider:type_name -> management.DeviceAuthorizationFlow.provider
+	18, // 16: management.DeviceAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
+	2,  // 17: management.ManagementService.Login:input_type -> management.EncryptedMessage
+	2,  // 18: management.ManagementService.Sync:input_type -> management.EncryptedMessage
+	9,  // 19: management.ManagementService.GetServerKey:input_type -> management.Empty
+	9,  // 20: management.ManagementService.isHealthy:input_type -> management.Empty
+	2,  // 21: management.ManagementService.GetDeviceAuthorizationFlow:input_type -> management.EncryptedMessage
+	2,  // 22: management.ManagementService.Login:output_type -> management.EncryptedMessage
+	2,  // 23: management.ManagementService.Sync:output_type -> management.EncryptedMessage
+	8,  // 24: management.ManagementService.GetServerKey:output_type -> management.ServerKeyResponse
+	9,  // 25: management.ManagementService.isHealthy:output_type -> management.Empty
+	2,  // 26: management.ManagementService.GetDeviceAuthorizationFlow:output_type -> management.EncryptedMessage
+	22, // [22:27] is the sub-list for method output_type
+	17, // [17:22] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_management_proto_init() }
@@ -1353,14 +1606,50 @@ func file_management_proto_init() {
 				return nil
 			}
 		}
+		file_management_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DeviceAuthorizationFlowRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_management_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*DeviceAuthorizationFlow); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_management_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ProviderConfig); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_management_proto_rawDesc,
-			NumEnums:      1,
-			NumMessages:   14,
+			NumEnums:      2,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

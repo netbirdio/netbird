@@ -245,3 +245,37 @@ func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken s
 func (c *GrpcClient) Login(serverKey wgtypes.Key) (*proto.LoginResponse, error) {
 	return c.login(serverKey, &proto.LoginRequest{})
 }
+
+// GetDeviceAuthorizationFlow returns a device authorization flow information.
+// It also takes care of encrypting and decrypting messages.
+func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error) {
+	if !c.ready() {
+		return nil, fmt.Errorf("no connection to management in order to get device authorization flow")
+	}
+	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
+	defer cancel()
+
+	message := &proto.DeviceAuthorizationFlowRequest{}
+	encryptedMSG, err := encryption.EncryptMessage(serverKey, c.key, message)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.realClient.GetDeviceAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encryptedMSG},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	flowInfoResp := &proto.DeviceAuthorizationFlow{}
+	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, flowInfoResp)
+	if err != nil {
+		errWithMSG := fmt.Errorf("failed to decrypt device authorization flow message: %s", err)
+		log.Error(errWithMSG)
+		return nil, errWithMSG
+	}
+
+	return flowInfoResp, nil
+}

@@ -25,25 +25,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var tested *GrpcClient
-var serverAddr string
-var mgmtMockServer *mock_server.ManagementServiceServerMock
-var serverKey wgtypes.Key
-
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
-func Test_Start(t *testing.T) {
+func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
+
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
-	testKey, err := wgtypes.GenerateKey()
-	if err != nil {
-		t.Fatal(err)
-	}
 	testDir := t.TempDir()
-	ctx := context.Background()
+
 	config := &mgmt.Config{}
-	_, err = util.ReadJson("../server/testdata/management.json", config)
+	_, err := util.ReadJson("../server/testdata/management.json", config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,15 +44,7 @@ func Test_Start(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, listener := startManagement(config, t)
-	serverAddr = listener.Addr().String()
-	tested, err = NewClient(ctx, serverAddr, testKey, false)
-	if err != nil {
-		t.Fatal(err)
-	}
-}
 
-func startManagement(config *mgmt.Config, t *testing.T) (*grpc.Server, net.Listener) {
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +73,7 @@ func startManagement(config *mgmt.Config, t *testing.T) (*grpc.Server, net.Liste
 	return s, lis
 }
 
-func startMockManagement(t *testing.T) (*grpc.Server, net.Listener) {
+func startMockManagement(t *testing.T) (*grpc.Server, net.Listener, *mock_server.ManagementServiceServerMock, wgtypes.Key) {
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -97,12 +81,12 @@ func startMockManagement(t *testing.T) (*grpc.Server, net.Listener) {
 
 	s := grpc.NewServer()
 
-	serverKey, err = wgtypes.GenerateKey()
+	serverKey, err := wgtypes.GenerateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	mgmtMockServer = &mock_server.ManagementServiceServerMock{
+	mgmtMockServer := &mock_server.ManagementServiceServerMock{
 		GetServerKeyFunc: func(context.Context, *proto.Empty) (*proto.ServerKeyResponse, error) {
 			response := &proto.ServerKeyResponse{
 				Key: serverKey.PublicKey().String(),
@@ -119,27 +103,59 @@ func startMockManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		}
 	}()
 
-	return s, lis
+	return s, lis, mgmtMockServer, serverKey
+}
+
+func closeManagementSilently(s *grpc.Server, listener net.Listener) {
+	s.GracefulStop()
+	err := listener.Close()
+	if err != nil {
+		log.Warnf("error while closing management listener %v", err)
+		return
+	}
 }
 
 func TestClient_GetServerPublicKey(t *testing.T) {
-
-	key, err := tested.GetServerPublicKey()
+	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
-		t.Error(err)
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	s, listener := startManagement(t)
+	defer closeManagementSilently(s, listener)
+
+	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
+	if err != nil {
+		t.Fatal(err)
 	}
 
+	key, err := client.GetServerPublicKey()
+	if err != nil {
+		t.Error("couldn't retrieve management public key")
+	}
 	if key == nil {
-		t.Error("expecting non nil server key got nil")
+		t.Error("got an empty management public key")
 	}
 }
 
 func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
-	key, err := tested.GetServerPublicKey()
+	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = tested.Login(*key)
+	ctx := context.Background()
+	s, listener := startManagement(t)
+	defer closeManagementSilently(s, listener)
+
+	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key, err := client.GetServerPublicKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Login(*key)
 	if err == nil {
 		t.Error("expecting err on unregistered login, got nil")
 	}
@@ -149,12 +165,25 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 }
 
 func TestClient_LoginRegistered(t *testing.T) {
-	key, err := tested.GetServerPublicKey()
+	testKey, err := wgtypes.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	s, listener := startManagement(t)
+	defer closeManagementSilently(s, listener)
+
+	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	key, err := client.GetServerPublicKey()
 	if err != nil {
 		t.Error(err)
 	}
 	info := system.GetInfo()
-	resp, err := tested.Register(*key, ValidKey, "", info)
+	resp, err := client.Register(*key, ValidKey, "", info)
 	if err != nil {
 		t.Error(err)
 	}
@@ -165,13 +194,26 @@ func TestClient_LoginRegistered(t *testing.T) {
 }
 
 func TestClient_Sync(t *testing.T) {
-	serverKey, err := tested.GetServerPublicKey()
+	testKey, err := wgtypes.GenerateKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	s, listener := startManagement(t)
+	defer closeManagementSilently(s, listener)
+
+	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serverKey, err := client.GetServerPublicKey()
 	if err != nil {
 		t.Error(err)
 	}
 
 	info := system.GetInfo()
-	_, err = tested.Register(*serverKey, ValidKey, "", info)
+	_, err = client.Register(*serverKey, ValidKey, "", info)
 	if err != nil {
 		t.Error(err)
 	}
@@ -181,7 +223,7 @@ func TestClient_Sync(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	remoteClient, err := NewClient(context.TODO(), serverAddr, remoteKey, false)
+	remoteClient, err := NewClient(context.TODO(), listener.Addr().String(), remoteKey, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +237,7 @@ func TestClient_Sync(t *testing.T) {
 	ch := make(chan *mgmtProto.SyncResponse, 1)
 
 	go func() {
-		err = tested.Sync(func(msg *mgmtProto.SyncResponse) error {
+		err = client.Sync(func(msg *mgmtProto.SyncResponse) error {
 			ch <- msg
 			return nil
 		})
@@ -227,7 +269,8 @@ func TestClient_Sync(t *testing.T) {
 }
 
 func Test_SystemMetaDataFromClient(t *testing.T) {
-	_, lis := startMockManagement(t)
+	s, lis, mgmtMockServer, serverKey := startMockManagement(t)
+	defer s.GracefulStop()
 
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
@@ -303,4 +346,50 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 
 	assert.Equal(t, ValidKey, actualValidKey)
 	assert.Equal(t, expectedMeta, actualMeta)
+}
+
+func Test_GetDeviceAuthorizationFlow(t *testing.T) {
+	s, lis, mgmtMockServer, serverKey := startMockManagement(t)
+	defer s.GracefulStop()
+
+	testKey, err := wgtypes.GenerateKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	serverAddr := lis.Addr().String()
+	ctx := context.Background()
+
+	client, err := NewClient(ctx, serverAddr, testKey, false)
+	if err != nil {
+		log.Fatalf("error while creating testClient: %v", err)
+	}
+
+	expectedFlowInfo := &proto.DeviceAuthorizationFlow{
+		Provider:       0,
+		ProviderConfig: &proto.ProviderConfig{ClientID: "client"},
+	}
+
+	mgmtMockServer.GetDeviceAuthorizationFlowFunc =
+		func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+
+			encryptedResp, err := encryption.EncryptMessage(serverKey, client.key, expectedFlowInfo)
+			if err != nil {
+				return nil, err
+			}
+
+			return &mgmtProto.EncryptedMessage{
+				WgPubKey: serverKey.PublicKey().String(),
+				Body:     encryptedResp,
+				Version:  0,
+			}, nil
+		}
+
+	flowInfo, err := client.GetDeviceAuthorizationFlow(serverKey)
+	if err != nil {
+		t.Error("error while retrieving device auth flow information")
+	}
+
+	assert.Equal(t, expectedFlowInfo.Provider, flowInfo.Provider, "provider should match")
+	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientID, flowInfo.ProviderConfig.ClientID, "provider configured client ID should match")
 }
