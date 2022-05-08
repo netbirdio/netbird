@@ -432,11 +432,18 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 // GetDeviceAuthorizationFlow returns a device authorization flow information
 // This is used for initiating an Oauth 2 device authorization grant flow
 // which will be used by our clients to Login
-func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.DeviceAuthorizationFlowRequest) (*proto.EncryptedMessage, error) {
+func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetDeviceAuthorizationFlow request.", req.WgPubKey)
+		log.Warn(errMSG)
+		return nil, status.Error(codes.InvalidArgument, errMSG)
+	}
+
+	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, &proto.DeviceAuthorizationFlowRequest{})
+	if err != nil {
+		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
 		log.Warn(errMSG)
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}

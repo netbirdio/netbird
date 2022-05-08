@@ -370,9 +370,16 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 				},
 			}
 
+			message := &mgmtProto.DeviceAuthorizationFlowRequest{}
+
+			encryptedMSG, err := encryption.EncryptMessage(testingClientKey.PublicKey(), mgmtServer.wgKey, message)
+
 			resp, err := mgmtServer.GetDeviceAuthorizationFlow(
 				context.TODO(),
-				&mgmtProto.DeviceAuthorizationFlowRequest{WgPubKey: testingClientKey.PublicKey().String()},
+				&mgmtProto.EncryptedMessage{
+					WgPubKey: testingClientKey.PublicKey().String(),
+					Body:     encryptedMSG,
+				},
 			)
 			testCase.expectedErrFunc(t, err, testCase.expectedErrMSG)
 			if testCase.expectedComparisonFunc != nil {

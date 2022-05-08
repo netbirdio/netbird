@@ -34,7 +34,7 @@ type ManagementServiceClient interface {
 	// Exposes a device authorization flow information
 	// This is used for initiating a Oauth 2 device authorization grant flow
 	// which will be used by our clients to Login
-	GetDeviceAuthorizationFlow(ctx context.Context, in *DeviceAuthorizationFlowRequest, opts ...grpc.CallOption) (*EncryptedMessage, error)
+	GetDeviceAuthorizationFlow(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 }
 
 type managementServiceClient struct {
@@ -104,7 +104,7 @@ func (c *managementServiceClient) IsHealthy(ctx context.Context, in *Empty, opts
 	return out, nil
 }
 
-func (c *managementServiceClient) GetDeviceAuthorizationFlow(ctx context.Context, in *DeviceAuthorizationFlowRequest, opts ...grpc.CallOption) (*EncryptedMessage, error) {
+func (c *managementServiceClient) GetDeviceAuthorizationFlow(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error) {
 	out := new(EncryptedMessage)
 	err := c.cc.Invoke(ctx, "/management.ManagementService/GetDeviceAuthorizationFlow", in, out, opts...)
 	if err != nil {
@@ -133,7 +133,7 @@ type ManagementServiceServer interface {
 	// Exposes a device authorization flow information
 	// This is used for initiating a Oauth 2 device authorization grant flow
 	// which will be used by our clients to Login
-	GetDeviceAuthorizationFlow(context.Context, *DeviceAuthorizationFlowRequest) (*EncryptedMessage, error)
+	GetDeviceAuthorizationFlow(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	mustEmbedUnimplementedManagementServiceServer()
 }
 
@@ -153,7 +153,7 @@ func (UnimplementedManagementServiceServer) GetServerKey(context.Context, *Empty
 func (UnimplementedManagementServiceServer) IsHealthy(context.Context, *Empty) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method IsHealthy not implemented")
 }
-func (UnimplementedManagementServiceServer) GetDeviceAuthorizationFlow(context.Context, *DeviceAuthorizationFlowRequest) (*EncryptedMessage, error) {
+func (UnimplementedManagementServiceServer) GetDeviceAuthorizationFlow(context.Context, *EncryptedMessage) (*EncryptedMessage, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceAuthorizationFlow not implemented")
 }
 func (UnimplementedManagementServiceServer) mustEmbedUnimplementedManagementServiceServer() {}
@@ -245,7 +245,7 @@ func _ManagementService_IsHealthy_Handler(srv interface{}, ctx context.Context, 
 }
 
 func _ManagementService_GetDeviceAuthorizationFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(DeviceAuthorizationFlowRequest)
+	in := new(EncryptedMessage)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -257,7 +257,7 @@ func _ManagementService_GetDeviceAuthorizationFlow_Handler(srv interface{}, ctx 
 		FullMethod: "/management.ManagementService/GetDeviceAuthorizationFlow",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ManagementServiceServer).GetDeviceAuthorizationFlow(ctx, req.(*DeviceAuthorizationFlowRequest))
+		return srv.(ManagementServiceServer).GetDeviceAuthorizationFlow(ctx, req.(*EncryptedMessage))
 	}
 	return interceptor(ctx, in, info, handler)
 }

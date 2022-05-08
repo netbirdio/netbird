@@ -15,7 +15,7 @@ type ManagementServiceServerMock struct {
 	SyncFunc                       func(*proto.EncryptedMessage, proto.ManagementService_SyncServer)
 	GetServerKeyFunc               func(context.Context, *proto.Empty) (*proto.ServerKeyResponse, error)
 	IsHealthyFunc                  func(context.Context, *proto.Empty) (*proto.Empty, error)
-	GetDeviceAuthorizationFlowFunc func(ctx context.Context, req *proto.DeviceAuthorizationFlowRequest) (*proto.EncryptedMessage, error)
+	GetDeviceAuthorizationFlowFunc func(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
 }
 
 func (m ManagementServiceServerMock) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
@@ -46,7 +46,7 @@ func (m ManagementServiceServerMock) IsHealthy(ctx context.Context, empty *proto
 	return nil, status.Errorf(codes.Unimplemented, "method IsHealthy not implemented")
 }
 
-func (m ManagementServiceServerMock) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.DeviceAuthorizationFlowRequest) (*proto.EncryptedMessage, error) {
+func (m ManagementServiceServerMock) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	if m.GetDeviceAuthorizationFlowFunc != nil {
 		return m.GetDeviceAuthorizationFlowFunc(ctx, req)
 	}

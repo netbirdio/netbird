@@ -28,7 +28,7 @@ service ManagementService {
   // Exposes a device authorization flow information
   // This is used for initiating a Oauth 2 device authorization grant flow
   // which will be used by our clients to Login
-  rpc GetDeviceAuthorizationFlow(DeviceAuthorizationFlowRequest) returns (EncryptedMessage) {}
+  rpc GetDeviceAuthorizationFlow(EncryptedMessage) returns (EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -170,11 +170,8 @@ message RemotePeerConfig {
   // Wireguard allowed IPs of a remote peer e.g. [10.30.30.1/32]
   repeated string allowedIps = 2;
 }
-
-message DeviceAuthorizationFlowRequest {
-  // A Wireguard public key of a remote peer
-  string wgPubKey = 1;
-}
+// DeviceAuthorizationFlowRequest empty struct for future expansion
+message DeviceAuthorizationFlowRequest {}
 // DeviceAuthorizationFlow represents Device Authorization Flow information
 // that can be used by the client to login initiate a Oauth 2.0 device authorization grant flow
 // see https://datatracker.ietf.org/doc/html/rfc8628

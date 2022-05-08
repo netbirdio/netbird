@@ -254,8 +254,16 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 	}
 	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
 	defer cancel()
-	resp, err := c.realClient.GetDeviceAuthorizationFlow(mgmCtx, &proto.DeviceAuthorizationFlowRequest{
-		WgPubKey: c.key.PublicKey().String()},
+
+	message := &proto.DeviceAuthorizationFlowRequest{}
+	encryptedMSG, err := encryption.EncryptMessage(serverKey, c.key, message)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.realClient.GetDeviceAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encryptedMSG},
 	)
 	if err != nil {
 		return nil, err

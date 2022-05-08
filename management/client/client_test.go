@@ -371,7 +371,7 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 	}
 
 	mgmtMockServer.GetDeviceAuthorizationFlowFunc =
-		func(ctx context.Context, req *proto.DeviceAuthorizationFlowRequest) (*proto.EncryptedMessage, error) {
+		func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 
 			encryptedResp, err := encryption.EncryptMessage(serverKey, client.key, expectedFlowInfo)
 			if err != nil {
