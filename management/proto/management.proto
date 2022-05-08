@@ -27,7 +27,9 @@ service ManagementService {
 
   // Exposes a device authorization flow information
   // This is used for initiating a Oauth 2 device authorization grant flow
-  // which will be used by our clients to Login
+  // which will be used by our clients to Login.
+  // EncryptedMessage of the request has a body of DeviceAuthorizationFlowRequest.
+  // EncryptedMessage of the response has a body of DeviceAuthorizationFlow.
   rpc GetDeviceAuthorizationFlow(EncryptedMessage) returns (EncryptedMessage) {}
 }
 
