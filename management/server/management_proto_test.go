@@ -373,6 +373,7 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 			message := &mgmtProto.DeviceAuthorizationFlowRequest{}
 
 			encryptedMSG, err := encryption.EncryptMessage(testingClientKey.PublicKey(), mgmtServer.wgKey, message)
+			require.NoError(t, err, "should be able to encrypt message")
 
 			resp, err := mgmtServer.GetDeviceAuthorizationFlow(
 				context.TODO(),
