@@ -107,7 +107,7 @@ func TestAuth0_RequestDeviceCode(t *testing.T) {
 				err:     testCase.inputReqError,
 			}
 
-			auth0 := Auth0{
+			auth0 := Hosted{
 				Audience:   testCase.expectPayload.Audience,
 				ClientID:   testCase.expectPayload.ClientID,
 				Domain:     "test.auth0.com",
@@ -267,7 +267,7 @@ func TestAuth0_WaitToken(t *testing.T) {
 				countResBody: testCase.inputCountResBody,
 			}
 
-			auth0 := Auth0{
+			auth0 := Hosted{
 				Audience:   testCase.inputAudience,
 				ClientID:   testCase.expectPayload.ClientID,
 				Domain:     "test.auth0.com",
@@ -391,7 +391,7 @@ func TestAuth0_RotateAccessToken(t *testing.T) {
 				MaxReqs: testCase.inputMaxReqs,
 			}
 
-			auth0 := Auth0{
+			auth0 := Hosted{
 				Audience:   testCase.inputAudience,
 				ClientID:   testCase.expectPayload.ClientID,
 				Domain:     "test.auth0.com",

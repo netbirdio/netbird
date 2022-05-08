@@ -35,19 +35,19 @@ type TokenInfo struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
-// auth0GrantType grant type for device flow on Auth0
+// auth0GrantType grant type for device flow on Hosted
 const (
 	auth0GrantType    = "urn:ietf:params:oauth:grant-type:device_code"
 	auth0RefreshGrant = "refresh_token"
 )
 
-// Auth0 client
-type Auth0 struct {
-	// Auth0 API Audience for validation
+// Hosted client
+type Hosted struct {
+	// Hosted API Audience for validation
 	Audience string
-	// Auth0 Native application client id
+	// Hosted Native application client id
 	ClientID string
-	// Auth0 domain
+	// Hosted domain
 	Domain string
 
 	HTTPClient HTTPClient
@@ -67,7 +67,7 @@ type TokenRequestPayload struct {
 	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
-// TokenRequestResponse used for parsing Auth0 token's response
+// TokenRequestResponse used for parsing Hosted token's response
 type TokenRequestResponse struct {
 	Error            string `json:"error"`
 	ErrorDescription string `json:"error_description"`
@@ -79,8 +79,8 @@ type Claims struct {
 	Audience string `json:"aud"`
 }
 
-// NewAuth0DeviceFlow returns an Auth0 OAuth client
-func NewAuth0DeviceFlow(audience string, clientID string, domain string) *Auth0 {
+// NewAuth0DeviceFlow returns an Hosted OAuth client
+func NewAuth0DeviceFlow(audience string, clientID string, domain string) *Hosted {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -89,7 +89,7 @@ func NewAuth0DeviceFlow(audience string, clientID string, domain string) *Auth0 
 		Transport: httpTransport,
 	}
 
-	return &Auth0{
+	return &Hosted{
 		Audience:   audience,
 		ClientID:   clientID,
 		Domain:     domain,
@@ -97,12 +97,12 @@ func NewAuth0DeviceFlow(audience string, clientID string, domain string) *Auth0 
 	}
 }
 
-// RequestDeviceCode requests a device code login flow information from Auth0
-func (a *Auth0) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
-	url := "https://" + a.Domain + "/oauth/device/code"
+// RequestDeviceCode requests a device code login flow information from Hosted
+func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
+	url := "https://" + h.Domain + "/oauth/device/code"
 	codePayload := RequestDeviceCodePayload{
-		Audience: a.Audience,
-		ClientID: a.ClientID,
+		Audience: h.Audience,
+		ClientID: h.ClientID,
 	}
 	p, err := json.Marshal(codePayload)
 	if err != nil {
@@ -116,7 +116,7 @@ func (a *Auth0) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
 
 	req.Header.Add("content-type", "application/json")
 
-	res, err := a.HTTPClient.Do(req)
+	res, err := h.HTTPClient.Do(req)
 	if err != nil {
 		return DeviceAuthInfo{}, fmt.Errorf("doing request failed with error: %v", err)
 	}
@@ -141,22 +141,22 @@ func (a *Auth0) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
 }
 
 // WaitToken waits user's login and authorize the app. Once the user's authorize
-// it retrieves the access token from Auth0's endpoint and validates it before returning
-func (a *Auth0) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error) {
+// it retrieves the access token from Hosted's endpoint and validates it before returning
+func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error) {
 	ticker := time.NewTicker(time.Duration(info.Interval) * time.Second)
 	for {
 		select {
 		case <-ctx.Done():
 			return TokenInfo{}, ctx.Err()
 		case <-ticker.C:
-			url := "https://" + a.Domain + "/oauth/token"
+			url := "https://" + h.Domain + "/oauth/token"
 			tokenReqPayload := TokenRequestPayload{
 				GrantType:  auth0GrantType,
 				DeviceCode: info.DeviceCode,
-				ClientID:   a.ClientID,
+				ClientID:   h.ClientID,
 			}
 
-			body, statusCode, err := requestToken(a.HTTPClient, url, tokenReqPayload)
+			body, statusCode, err := requestToken(h.HTTPClient, url, tokenReqPayload)
 			if err != nil {
 				return TokenInfo{}, fmt.Errorf("wait for token: %v", err)
 			}
@@ -178,7 +178,7 @@ func (a *Auth0) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, 
 				return TokenInfo{}, fmt.Errorf(tokenResponse.ErrorDescription)
 			}
 
-			err = isValidAccessToken(tokenResponse.AccessToken, a.Audience)
+			err = isValidAccessToken(tokenResponse.AccessToken, h.Audience)
 			if err != nil {
 				return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
 			}
@@ -196,15 +196,15 @@ func (a *Auth0) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, 
 }
 
 // RotateAccessToken requests a new token using an existing refresh token
-func (a *Auth0) RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error) {
-	url := "https://" + a.Domain + "/oauth/token"
+func (h *Hosted) RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error) {
+	url := "https://" + h.Domain + "/oauth/token"
 	tokenReqPayload := TokenRequestPayload{
 		GrantType:    auth0RefreshGrant,
-		ClientID:     a.ClientID,
+		ClientID:     h.ClientID,
 		RefreshToken: refreshToken,
 	}
 
-	body, statusCode, err := requestToken(a.HTTPClient, url, tokenReqPayload)
+	body, statusCode, err := requestToken(h.HTTPClient, url, tokenReqPayload)
 	if err != nil {
 		return TokenInfo{}, fmt.Errorf("rotate access token: %v", err)
 	}
@@ -219,7 +219,7 @@ func (a *Auth0) RotateAccessToken(ctx context.Context, refreshToken string) (Tok
 		return TokenInfo{}, fmt.Errorf("parsing token response failed with error: %v", err)
 	}
 
-	err = isValidAccessToken(tokenResponse.AccessToken, a.Audience)
+	err = isValidAccessToken(tokenResponse.AccessToken, h.Audience)
 	if err != nil {
 		return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
 	}
