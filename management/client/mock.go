@@ -7,11 +7,12 @@ import (
 )
 
 type MockClient struct {
-	CloseFunc              func() error
-	SyncFunc               func(msgHandler func(msg *proto.SyncResponse) error) error
-	GetServerPublicKeyFunc func() (*wgtypes.Key, error)
-	RegisterFunc           func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error)
-	LoginFunc              func(serverKey wgtypes.Key) (*proto.LoginResponse, error)
+	CloseFunc                      func() error
+	SyncFunc                       func(msgHandler func(msg *proto.SyncResponse) error) error
+	GetServerPublicKeyFunc         func() (*wgtypes.Key, error)
+	RegisterFunc                   func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error)
+	LoginFunc                      func(serverKey wgtypes.Key) (*proto.LoginResponse, error)
+	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 }
 
 func (m *MockClient) Close() error {
@@ -47,4 +48,11 @@ func (m *MockClient) Login(serverKey wgtypes.Key) (*proto.LoginResponse, error) 
 		return nil, nil
 	}
 	return m.LoginFunc(serverKey)
+}
+
+func (m *MockClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error) {
+	if m.GetDeviceAuthorizationFlowFunc == nil {
+		return nil, nil
+	}
+	return m.GetDeviceAuthorizationFlowFunc(serverKey)
 }

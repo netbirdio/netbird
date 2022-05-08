@@ -8,7 +8,7 @@ import (
 )
 
 const (
-	DefaultMTU = 1280
+	DefaultMTU    = 1280
 	DefaultWgPort = 51820
 )
 
