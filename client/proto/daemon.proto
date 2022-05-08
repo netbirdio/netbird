@@ -74,4 +74,32 @@ message GetConfigResponse {
 
   // adminURL settings value.
   string adminURL = 5;
+
+  // DeviceAuthorizationFlow represents Device Authorization Flow information
+  DeviceAuthorizationFlow deviceAuthorizationFlow = 6;
+}
+
+// DeviceAuthorizationFlow represents Device Authorization Flow information
+// that can be used by the client to login initiate a Oauth 2.0 device authorization grant flow
+// see https://datatracker.ietf.org/doc/html/rfc8628
+message DeviceAuthorizationFlow {
+  // An IDP provider , (eg. Hosted)
+  provider Provider = 1;
+  ProviderConfig ProviderConfig = 2;
+
+  enum provider {
+    HOSTED = 0;
+  }
+}
+
+// ProviderConfig has all attributes needed to initiate a device authorization flow
+message ProviderConfig {
+  // An IDP application client id
+  string ClientID = 1;
+  // An IDP application client secret
+  string ClientSecret = 2;
+  // An IDP API domain
+  string Domain = 3;
+  // An Audience for validation
+  string Audience = 4;
 }
