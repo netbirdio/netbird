@@ -35,10 +35,10 @@ type TokenInfo struct {
 	ExpiresIn    int    `json:"expires_in"`
 }
 
-// auth0GrantType grant type for device flow on Hosted
+// HostedGrantType grant type for device flow on Hosted
 const (
-	auth0GrantType    = "urn:ietf:params:oauth:grant-type:device_code"
-	auth0RefreshGrant = "refresh_token"
+	HostedGrantType    = "urn:ietf:params:oauth:grant-type:device_code"
+	HostedRefreshGrant = "refresh_token"
 )
 
 // Hosted client
@@ -79,8 +79,8 @@ type Claims struct {
 	Audience string `json:"aud"`
 }
 
-// NewAuth0DeviceFlow returns an Hosted OAuth client
-func NewAuth0DeviceFlow(audience string, clientID string, domain string) *Hosted {
+// NewHostedDeviceFlow returns an Hosted OAuth client
+func NewHostedDeviceFlow(audience string, clientID string, domain string) *Hosted {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -151,7 +151,7 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 		case <-ticker.C:
 			url := "https://" + h.Domain + "/oauth/token"
 			tokenReqPayload := TokenRequestPayload{
-				GrantType:  auth0GrantType,
+				GrantType:  HostedGrantType,
 				DeviceCode: info.DeviceCode,
 				ClientID:   h.ClientID,
 			}
@@ -199,7 +199,7 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 func (h *Hosted) RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error) {
 	url := "https://" + h.Domain + "/oauth/token"
 	tokenReqPayload := TokenRequestPayload{
-		GrantType:    auth0RefreshGrant,
+		GrantType:    HostedRefreshGrant,
 		ClientID:     h.ClientID,
 		RefreshToken: refreshToken,
 	}
