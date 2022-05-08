@@ -106,6 +106,15 @@ func startMockManagement(t *testing.T) (*grpc.Server, net.Listener, *mock_server
 	return s, lis, mgmtMockServer, serverKey
 }
 
+func closeManagementSilently(s *grpc.Server, listener net.Listener) {
+	s.GracefulStop()
+	err := listener.Close()
+	if err != nil {
+		log.Warnf("error while closing management listener %v", err)
+		return
+	}
+}
+
 func TestClient_GetServerPublicKey(t *testing.T) {
 	testKey, err := wgtypes.GenerateKey()
 	if err != nil {
@@ -113,7 +122,8 @@ func TestClient_GetServerPublicKey(t *testing.T) {
 	}
 	ctx := context.Background()
 	s, listener := startManagement(t)
-	defer s.GracefulStop()
+	defer closeManagementSilently(s, listener)
+
 	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +145,8 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 	}
 	ctx := context.Background()
 	s, listener := startManagement(t)
-	defer s.GracefulStop()
+	defer closeManagementSilently(s, listener)
+
 	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +171,8 @@ func TestClient_LoginRegistered(t *testing.T) {
 	}
 	ctx := context.Background()
 	s, listener := startManagement(t)
-	defer s.GracefulStop()
+	defer closeManagementSilently(s, listener)
+
 	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +200,8 @@ func TestClient_Sync(t *testing.T) {
 	}
 	ctx := context.Background()
 	s, listener := startManagement(t)
-	defer s.GracefulStop()
+	defer closeManagementSilently(s, listener)
+
 	client, err := NewClient(ctx, listener.Addr().String(), testKey, false)
 	if err != nil {
 		t.Fatal(err)
