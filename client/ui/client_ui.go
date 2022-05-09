@@ -90,6 +90,7 @@ type serviceClient struct {
 
 	// systray menu itmes
 	mStatus     *systray.MenuItem
+	mLogin      *systray.MenuItem
 	mUp         *systray.MenuItem
 	mDown       *systray.MenuItem
 	mAdminPanel *systray.MenuItem
@@ -195,20 +196,23 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					return
 				}
 
-				_, err = client.Login(s.ctx, &proto.LoginRequest{
-					ManagementUrl: s.iMngURL.Text,
-					AdminURL:      s.iAdminURL.Text,
-					PreSharedKey:  s.iPreSharedKey.Text,
-				})
-				if err != nil {
-					log.Errorf("login to management URL: %v", err)
-					return
-				}
+				if !s.mUp.Disabled() {
 
-				_, err = client.Up(s.ctx, &proto.UpRequest{})
-				if err != nil {
-					log.Errorf("login to management URL: %v", err)
-					return
+					_, err = client.Login(s.ctx, &proto.LoginRequest{
+						ManagementUrl: s.iMngURL.Text,
+						AdminURL:      s.iAdminURL.Text,
+						PreSharedKey:  s.iPreSharedKey.Text,
+					})
+					if err != nil {
+						log.Errorf("login to management URL: %v", err)
+						return
+					}
+
+					_, err = client.Up(s.ctx, &proto.UpRequest{})
+					if err != nil {
+						log.Errorf("login to management URL: %v", err)
+						return
+					}
 				}
 			}
 			s.wSettings.Close()
@@ -217,6 +221,63 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			s.wSettings.Close()
 		},
 	}
+}
+
+func (s *serviceClient) menuLoginClick() error {
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		log.Errorf("get client: %v", err)
+		return err
+	}
+
+	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
+	if err != nil {
+		log.Errorf("get config settings from server: %v", err)
+		return err
+	}
+
+	providerConfig := cfg.DeviceAuthorizationFlow.GetProviderConfig()
+
+	hostedClient := internal.NewHostedDeviceFlow(
+		providerConfig.Audience,
+		providerConfig.ClientID,
+		providerConfig.Domain,
+	)
+
+	flowInfo, err := hostedClient.RequestDeviceCode(context.TODO())
+	if err != nil {
+		log.Errorf("getting a request device code failed: %v", err)
+		return err
+	}
+
+	err = open.Run(flowInfo.VerificationURIComplete)
+	if err != nil {
+		log.Errorf("opening the verification uri in the browser failed: %v", err)
+		return err
+	}
+
+	waitTimeout := time.Duration(flowInfo.ExpiresIn)
+	waitCTX, c := context.WithTimeout(context.TODO(), waitTimeout*time.Second)
+	defer c()
+
+	tokenInfo, err := hostedClient.WaitToken(waitCTX, flowInfo)
+	if err != nil {
+		log.Errorf("waiting for browser login failed: %v", err)
+		return err
+	}
+
+	_, err = conn.Login(s.ctx, &proto.LoginRequest{JwtToken: tokenInfo.AccessToken})
+	if err != nil {
+		log.Errorf("login to management URL: %v", err)
+		return err
+	}
+
+	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
+		log.Errorf("up service: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 func (s *serviceClient) menuUpClick() error {
@@ -280,8 +341,16 @@ func (s *serviceClient) updateStatus() error {
 		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 		if err != nil {
 			log.Errorf("get service status: %v", err)
+			s.mLogin.Enable()
+			s.mLogin.SetTitle("Login")
+			s.mLogin.SetTooltip("Login")
 			return err
 		}
+
+		// if we got here, the peer is already logged in
+		s.mLogin.Disable()
+		s.mLogin.SetTitle("Logged In")
+		s.mLogin.SetTooltip("Logged In")
 
 		if status.Status == string(internal.StatusConnected) {
 			systray.SetIcon(s.icConnected)
@@ -319,6 +388,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
 	s.mStatus.Disable()
 	systray.AddSeparator()
+	s.mLogin = systray.AddMenuItem("Login", "Login")
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
 	s.mDown.Disable()
@@ -345,6 +415,14 @@ func (s *serviceClient) onTrayReady() {
 			select {
 			case <-s.mAdminPanel.ClickedCh:
 				err = open.Run(s.adminURL)
+			case <-s.mLogin.ClickedCh:
+				s.mLogin.Disable()
+				if err = s.menuLoginClick(); err != nil {
+					s.mLogin.Enable()
+				} else {
+					s.mLogin.SetTitle("Logged In")
+					s.mLogin.SetTooltip("Logged In")
+				}
 			case <-s.mUp.ClickedCh:
 				s.mUp.Disable()
 				if err = s.menuUpClick(); err != nil {
