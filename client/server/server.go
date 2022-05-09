@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"strings"
 	"sync"
 
 	log "github.com/sirupsen/logrus"
@@ -42,7 +45,7 @@ func (s *Server) Start() error {
 
 	// if current state contains any error, return it
 	// in all other cases we can continue execution only if status is idle and up command was
-	// not in the progress or already successfully estabilished connection.
+	// not in the progress or already successfully established connection.
 	status, err := state.Status()
 	if err != nil {
 		return err
@@ -56,7 +59,7 @@ func (s *Server) Start() error {
 	s.actCancel = cancel
 
 	// if configuration exists, we just start connections.
-	config, err := internal.ReadConfig(s.managementURL, s.adminURL, s.configPath, nil)
+	config, err := internal.GetConfig(s.managementURL, s.adminURL, s.configPath, "")
 	if err != nil {
 		log.Warnf("no config file, skip connection stage: %v", err)
 		return nil
@@ -213,11 +216,49 @@ func (s *Server) GetConfig(
 		}
 	}
 
+	var deviceAuthorizationFlow *proto.DeviceAuthorizationFlow
+
+	flowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, s.config)
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+			log.Warnf("server couldn't find device flow, contact admin: %v", err)
+		} else {
+			return nil, err
+		}
+	} else {
+
+		provider, err := toDeviceFlowProvider(flowInfo.Provider)
+		if err != nil {
+			return nil, fmt.Errorf("provided provider name \"%s\" is not in the Provider map", flowInfo.Provider)
+		}
+
+		deviceAuthorizationFlow = &proto.DeviceAuthorizationFlow{
+			Provider: provider,
+			ProviderConfig: &proto.ProviderConfig{
+				Audience:     flowInfo.ProviderConfig.Audience,
+				ClientID:     flowInfo.ProviderConfig.ClientID,
+				ClientSecret: flowInfo.ProviderConfig.ClientSecret,
+				Domain:       flowInfo.ProviderConfig.Domain,
+			},
+		}
+	}
+
 	return &proto.GetConfigResponse{
-		ManagementUrl: managementURL,
-		AdminURL:      adminURL,
-		ConfigFile:    s.configPath,
-		LogFile:       s.logFile,
-		PreSharedKey:  preSharedKey,
+		ManagementUrl:           managementURL,
+		AdminURL:                adminURL,
+		ConfigFile:              s.configPath,
+		LogFile:                 s.logFile,
+		PreSharedKey:            preSharedKey,
+		DeviceAuthorizationFlow: deviceAuthorizationFlow,
 	}, nil
+}
+
+func toDeviceFlowProvider(provider string) (proto.DeviceAuthorizationFlowProvider, error) {
+	switch strings.ToUpper(provider) {
+	case proto.DeviceAuthorizationFlow_HOSTED.String():
+		return proto.DeviceAuthorizationFlow_HOSTED, nil
+	default:
+		var p proto.DeviceAuthorizationFlowProvider
+		return p, fmt.Errorf("no provider found for %s", provider)
+	}
 }
