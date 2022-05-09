@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-
 	"github.com/google/uuid"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -75,6 +74,11 @@ func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey str
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
 func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
+
+	if setupKey == "" && jwtToken == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "no setup-key or sso information provided")
+	}
+
 	validSetupKey, err := uuid.Parse(setupKey)
 	if err != nil && jwtToken == "" {
 		return nil, err

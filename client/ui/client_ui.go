@@ -90,7 +90,6 @@ type serviceClient struct {
 
 	// systray menu itmes
 	mStatus     *systray.MenuItem
-	mLogin      *systray.MenuItem
 	mUp         *systray.MenuItem
 	mDown       *systray.MenuItem
 	mAdminPanel *systray.MenuItem

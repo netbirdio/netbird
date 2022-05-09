@@ -86,7 +86,12 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	s.mutex.Unlock()
 
 	state := internal.CtxGetState(ctx)
-	defer state.Set(internal.StatusIdle)
+	defer func() {
+		s, err := state.Status()
+		if err != nil || s != internal.StatusNeedsLogin {
+			state.Set(internal.StatusIdle)
+		}
+	}()
 
 	state.Set(internal.StatusConnecting)
 
@@ -114,8 +119,13 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	// login operation uses backoff scheme to connect to management API
 	// we don't wait for result and return response immediately.
 	if err := internal.Login(ctx, s.config, msg.SetupKey, msg.JwtToken); err != nil {
-		log.Errorf("failed login: %v", err)
-		state.Set(internal.StatusIdle)
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.InvalidArgument {
+			log.Warnf("failed login: %v", err)
+			state.Set(internal.StatusNeedsLogin)
+		} else {
+			log.Errorf("failed login: %v", err)
+			state.Set(internal.StatusIdle)
+		}
 		return nil, err
 	}
 

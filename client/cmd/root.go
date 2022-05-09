@@ -30,7 +30,7 @@ var (
 	managementURL     string
 	adminURL          string
 	setupKey          string
-	jwtToken          string
+	ssoLogin          bool
 	preSharedKey      string
 	rootCmd           = &cobra.Command{
 		Use:   "wiretrustee",
@@ -64,6 +64,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Wiretrustee log path. If console is specified the the log will be output to stdout")
 	rootCmd.PersistentFlags().StringVar(&setupKey, "setup-key", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, "preshared-key", "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
+	rootCmd.PersistentFlags().BoolVar(&ssoLogin, "sso", false, "Uses the SSO login with provider set in the management server.")
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)

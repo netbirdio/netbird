@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-
 	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -24,6 +23,7 @@ var upCmd = &cobra.Command{
 		}
 
 		ctx := internal.CtxInitState(cmd.Context())
+		jwtToken := ""
 
 		// workaround to run without service
 		if logFile == "console" {
@@ -32,6 +32,16 @@ var upCmd = &cobra.Command{
 				log.Errorf("get config file: %v", err)
 				return err
 			}
+
+			if ssoLogin {
+				tokenInfo, err := interactiveSSOLogin(ctx, config)
+				if err != nil {
+					log.Errorf("interactive sso login failed: %v", err)
+					return err
+				}
+				jwtToken = tokenInfo.AccessToken
+			}
+
 			err = WithBackOff(func() error {
 				return internal.Login(ctx, config, setupKey, jwtToken)
 			})
@@ -55,11 +65,28 @@ var upCmd = &cobra.Command{
 
 		daemonClient := proto.NewDaemonServiceClient(conn)
 
+		status, err := daemonClient.Status(ctx, &proto.StatusRequest{})
+		if err != nil {
+			log.Errorf("unable to get daemon status: %v", err)
+			return err
+		}
+
+		if ssoLogin && status.Status == string(internal.StatusNeedsLogin) {
+			tokenInfo, err := nonInteractiveSSOLogin(ctx, daemonClient)
+			if err != nil {
+				log.Errorf("interactive sso login failed: %v", err)
+				return err
+			}
+			jwtToken = tokenInfo.AccessToken
+		}
+
 		loginRequest := proto.LoginRequest{
 			SetupKey:      setupKey,
 			PreSharedKey:  preSharedKey,
 			ManagementUrl: managementURL,
+			JwtToken:      jwtToken,
 		}
+
 		err = WithBackOff(func() error {
 			_, err := daemonClient.Login(ctx, &loginRequest)
 			return err
@@ -69,7 +96,7 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
-		status, err := daemonClient.Status(ctx, &proto.StatusRequest{})
+		status, err = daemonClient.Status(ctx, &proto.StatusRequest{})
 		if err != nil {
 			log.Errorf("get status: %v", err)
 			return err
