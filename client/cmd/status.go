@@ -40,6 +40,12 @@ var statusCmd = &cobra.Command{
 		}
 
 		log.Infof("status: %v", resp.Status)
+
+		if resp.GetStatus() == string(internal.StatusNeedsLogin) {
+			// todo: update login doc url
+			log.Info("run the login command with a valid setup key or initiate a SSO login, see https://www.netbird.io/docs/overview/setup-keys for more info")
+		}
+
 		return nil
 	},
 }

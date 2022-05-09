@@ -29,7 +29,12 @@ func RunClient(ctx context.Context, config *Config) error {
 	}
 
 	state := CtxGetState(ctx)
-	defer state.Set(StatusIdle)
+	defer func() {
+		s, err := state.Status()
+		if err != nil || s != StatusNeedsLogin {
+			state.Set(StatusIdle)
+		}
+	}()
 
 	wrapErr := state.Wrap
 	operation := func() error {
@@ -56,10 +61,11 @@ func RunClient(ctx context.Context, config *Config) error {
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
 		mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
+			log.Warn(err)
 			if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
 				state.Set(StatusNeedsLogin)
+				return nil
 			}
-			log.Warn(err)
 			return wrapErr(err)
 		}
 

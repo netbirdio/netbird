@@ -293,6 +293,14 @@ func (s *serviceClient) menuUpClick() error {
 		return err
 	}
 
+	if status.Status == string(internal.StatusNeedsLogin) {
+		err = s.login()
+		if err != nil {
+			log.Errorf("get service status: %v", err)
+			return err
+		}
+	}
+
 	if status.Status != string(internal.StatusIdle) {
 		log.Warnf("already connected")
 		return nil
@@ -330,29 +338,6 @@ func (s *serviceClient) menuDownClick() error {
 	}
 
 	return nil
-}
-
-func (s *serviceClient) checkLoginStatus() {
-	s.mLogin.Disable()
-	conn, err := s.getSrvClient(defaultFailTimeout)
-	if err != nil {
-		s.mLogin.Enable()
-		s.mLogin.SetTitle(LoginTittle)
-		s.mLogin.SetTooltip(LoginTittle)
-		return
-	}
-	// todo: this call creates a config file if doesn't exist
-	// maybe we should find alternatives for it
-	_, err = conn.Login(s.ctx, &proto.LoginRequest{})
-	if err != nil {
-		log.Errorf("login to management URL: %v", err)
-		s.mLogin.Enable()
-		s.mLogin.SetTitle(LoginTittle)
-		s.mLogin.SetTooltip(LoginTittle)
-		return
-	}
-	s.mLogin.SetTitle(LoggedInTittle)
-	s.mLogin.SetTooltip(LoggedInTittle)
 }
 
 func (s *serviceClient) updateStatus() error {
@@ -414,7 +399,6 @@ func (s *serviceClient) onTrayReady() {
 
 	go func() {
 		s.getSrvConfig()
-		s.checkLoginStatus()
 		for {
 			err := s.updateStatus()
 			if err != nil {

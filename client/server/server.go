@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	gstatus "google.golang.org/grpc/status"
 	"strings"
 	"sync"
 
@@ -140,7 +140,7 @@ func (s *Server) Up(_ context.Context, msg *proto.UpRequest) (*proto.UpResponse,
 		return nil, fmt.Errorf("up already in progress: current status %s", status)
 	}
 
-	// it should be nill here, but .
+	// it should be nil here, but .
 	if s.actCancel != nil {
 		s.actCancel()
 	}
@@ -161,7 +161,7 @@ func (s *Server) Up(_ context.Context, msg *proto.UpRequest) (*proto.UpResponse,
 	return &proto.UpResponse{}, nil
 }
 
-// Down dengine work in the daemon.
+// Down engine work in the daemon.
 func (s *Server) Down(ctx context.Context, msg *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
@@ -217,7 +217,7 @@ func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*p
 
 		flowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, s.config)
 		if err != nil {
-			if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
 				log.Warnf("server couldn't find device flow, contact admin: %v", err)
 			} else {
 				return nil, err
