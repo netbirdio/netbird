@@ -89,8 +89,6 @@ type ProviderConfig struct {
 // validateURL validates input http url
 func validateURL(httpURL string) bool {
 	_, err := url.ParseRequestURI(httpURL)
-	if err != nil {
-		return false
-	}
-	return true
+
+	return err == nil
 }
