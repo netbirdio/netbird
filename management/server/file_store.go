@@ -1,11 +1,13 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/rs/xid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -18,10 +20,12 @@ const storeFileName = "store.json"
 // FileStore represents an account storage backed by a file persisted to disk
 type FileStore struct {
 	Accounts                map[string]*Account
-	SetupKeyId2AccountId    map[string]string `json:"-"`
-	PeerKeyId2AccountId     map[string]string `json:"-"`
-	UserId2AccountId        map[string]string `json:"-"`
-	PrivateDomain2AccountId map[string]string `json:"-"`
+	SetupKeyId2AccountId    map[string]string   `json:"-"`
+	PeerKeyId2AccountId     map[string]string   `json:"-"`
+	UserId2AccountId        map[string]string   `json:"-"`
+	PrivateDomain2AccountId map[string]string   `json:"-"`
+	PeerKeyId2SrcRulesId    map[string][]string `json:"-"`
+	PeerKeyId2DstRulesId    map[string][]string `json:"-"`
 
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
@@ -47,6 +51,8 @@ func restore(file string) (*FileStore, error) {
 			PeerKeyId2AccountId:     make(map[string]string),
 			UserId2AccountId:        make(map[string]string),
 			PrivateDomain2AccountId: make(map[string]string),
+			PeerKeyId2SrcRulesId:    make(map[string][]string),
+			PeerKeyId2DstRulesId:    make(map[string][]string),
 			storeFile:               file,
 		}
 
@@ -69,9 +75,52 @@ func restore(file string) (*FileStore, error) {
 	store.PeerKeyId2AccountId = make(map[string]string)
 	store.UserId2AccountId = make(map[string]string)
 	store.PrivateDomain2AccountId = make(map[string]string)
+	store.PeerKeyId2SrcRulesId = map[string][]string{}
+	store.PeerKeyId2DstRulesId = map[string][]string{}
+
 	for accountId, account := range store.Accounts {
+		// if account has not default account
+		// we build 'all' group and add all peers into it
+		// also we create default rule with source an destination
+		// groups 'all'
+		if len(account.Groups) == 0 {
+			allGroup := &Group{
+				ID:   xid.New().String(),
+				Name: "All",
+			}
+			for _, peer := range account.Peers {
+				allGroup.Peers = append(allGroup.Peers, peer.Key)
+			}
+			account.Groups = map[string]*Group{allGroup.ID: allGroup}
+
+			defaultRule := &Rule{
+				ID:          xid.New().String(),
+				Name:        "Default",
+				Source:      []string{allGroup.ID},
+				Destination: []string{allGroup.ID},
+			}
+			account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
+		}
 		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyId2AccountId[strings.ToUpper(setupKeyId)] = accountId
+		}
+		for _, rule := range account.Rules {
+			for _, groupID := range rule.Source {
+				if group, ok := account.Groups[groupID]; ok {
+					for _, peerID := range group.Peers {
+						rules := store.PeerKeyId2SrcRulesId[peerID]
+						store.PeerKeyId2SrcRulesId[peerID] = append(rules, rule.ID)
+					}
+				}
+			}
+			for _, groupID := range rule.Destination {
+				if group, ok := account.Groups[groupID]; ok {
+					for _, peerID := range group.Peers {
+						rules := store.PeerKeyId2DstRulesId[peerID]
+						store.PeerKeyId2DstRulesId[peerID] = append(rules, rule.ID)
+					}
+				}
+			}
 		}
 		for _, peer := range account.Peers {
 			store.PeerKeyId2AccountId[peer.Key] = accountId
@@ -104,6 +153,24 @@ func (s *FileStore) SavePeer(accountId string, peer *Peer) error {
 	account, err := s.GetAccount(accountId)
 	if err != nil {
 		return err
+	}
+
+	// if it is new peer, add it to default 'All' group
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		return err
+	}
+
+	ind := -1
+	for i, pid := range allGroup.Peers {
+		if pid == peer.Key {
+			ind = i
+			break
+		}
+	}
+
+	if ind < 0 {
+		allGroup.Peers = append(allGroup.Peers, peer.Key)
 	}
 
 	account.Peers[peer.Key] = peer
@@ -163,6 +230,25 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
+	if len(account.Groups) == 0 {
+		allGroup := &Group{
+			ID:   xid.New().String(),
+			Name: "All",
+		}
+		for _, peer := range account.Peers {
+			allGroup.Peers = append(allGroup.Peers, peer.Key)
+		}
+		account.Groups = map[string]*Group{allGroup.ID: allGroup}
+
+		defaultRule := &Rule{
+			ID:          xid.New().String(),
+			Name:        "Default",
+			Source:      []string{allGroup.ID},
+			Destination: []string{allGroup.ID},
+		}
+		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
+	}
+
 	// todo will override, handle existing keys
 	s.Accounts[account.Id] = account
 
@@ -174,6 +260,21 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	for _, peer := range account.Peers {
 		s.PeerKeyId2AccountId[peer.Key] = account.Id
+	}
+
+	for _, rule := range account.Rules {
+		for _, gid := range rule.Source {
+			for _, pid := range account.Groups[gid].Peers {
+				rules := s.PeerKeyId2SrcRulesId[pid]
+				s.PeerKeyId2SrcRulesId[pid] = append(rules, rule.ID)
+			}
+		}
+		for _, gid := range rule.Destination {
+			for _, pid := range account.Groups[gid].Peers {
+				rules := s.PeerKeyId2DstRulesId[pid]
+				s.PeerKeyId2DstRulesId[pid] = append(rules, rule.ID)
+			}
+		}
 	}
 
 	for _, user := range account.Users {
@@ -265,18 +366,27 @@ func (s *FileStore) GetPeerAccount(peerKey string) (*Account, error) {
 	return s.GetAccount(accountId)
 }
 
-func (s *FileStore) GetGroup(groupID string) (*Group, error) {
-	return nil, nil
-}
+func (s *FileStore) GetPeerSrcRules(accountId, peerKey string) ([]*Rule, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 
-func (s *FileStore) SaveGroup(group *Group) error {
-	return nil
-}
+	account, err := s.GetAccount(accountId)
+	if err != nil {
+		return nil, err
+	}
 
-func (s *FileStore) DeleteGroup(groupID string) error {
-	return nil
-}
+	ruleIDs, ok := s.PeerKeyId2SrcRulesId[peerKey]
+	if !ok {
+		return nil, fmt.Errorf("no rules for peer: %v", ruleIDs)
+	}
 
-func (s *FileStore) ListGroups() ([]*Group, error) {
-	return nil, nil
+	rules := []*Rule{}
+	for _, id := range ruleIDs {
+		rule, ok := account.Rules[id]
+		if ok {
+			rules = append(rules, rule)
+		}
+	}
+
+	return rules, nil
 }

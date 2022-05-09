@@ -13,15 +13,15 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Rules is a handler that returns rules of the account
-type Rules struct {
+// ACLs is a handler that returns rules of the account
+type ACLs struct {
 	accountManager server.AccountManager
 	authAudience   string
 	jwtExtractor   jwtclaims.ClaimsExtractor
 }
 
-func NewRules(accountManager server.AccountManager, authAudience string) *Rules {
-	return &Rules{
+func NewRules(accountManager server.AccountManager, authAudience string) *ACLs {
+	return &ACLs{
 		accountManager: accountManager,
 		authAudience:   authAudience,
 		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
@@ -29,7 +29,7 @@ func NewRules(accountManager server.AccountManager, authAudience string) *Rules 
 }
 
 // GetAllRulesHandler list for the account
-func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
+func (h *ACLs) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getRuleAccount(r)
 	if err != nil {
 		log.Error(err)
@@ -40,7 +40,7 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, account.Rules)
 }
 
-func (h *Rules) CreateOrUpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
+func (h *ACLs) CreateOrUpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getRuleAccount(r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -66,7 +66,7 @@ func (h *Rules) CreateOrUpdateRuleHandler(w http.ResponseWriter, r *http.Request
 	writeJSONObject(w, &req)
 }
 
-func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
+func (h *ACLs) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getRuleAccount(r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -89,7 +89,7 @@ func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, "")
 }
 
-func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
+func (h *ACLs) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getRuleAccount(r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -116,7 +116,7 @@ func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Rules) getRuleAccount(r *http.Request) (*server.Account, error) {
+func (h *ACLs) getRuleAccount(r *http.Request) (*server.Account, error) {
 	jwtClaims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 
 	account, err := h.accountManager.GetAccountWithAuthorizationClaims(jwtClaims)

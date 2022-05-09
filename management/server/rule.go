@@ -31,6 +31,16 @@ type Rule struct {
 	Flow TrafficFlowType
 }
 
+func (r *Rule) Copy() *Rule {
+	return &Rule{
+		ID:          r.ID,
+		Name:        r.Name,
+		Source:      r.Source[:],
+		Destination: r.Destination[:],
+		Flow:        r.Flow,
+	}
+}
+
 // GetRule of ACL from the store
 func (am *DefaultAccountManager) GetRule(accountID, ruleID string) (*Rule, error) {
 	am.mux.Lock()

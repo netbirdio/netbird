@@ -106,6 +106,16 @@ func (a *Account) Copy() *Account {
 		setupKeys[id] = key.Copy()
 	}
 
+	groups := map[string]*Group{}
+	for id, group := range a.Groups {
+		groups[id] = group.Copy()
+	}
+
+	rules := map[string]*Rule{}
+	for id, rule := range a.Rules {
+		rules[id] = rule.Copy()
+	}
+
 	return &Account{
 		Id:        a.Id,
 		CreatedBy: a.CreatedBy,
@@ -113,7 +123,18 @@ func (a *Account) Copy() *Account {
 		Network:   a.Network.Copy(),
 		Peers:     peers,
 		Users:     users,
+		Groups:    groups,
+		Rules:     rules,
 	}
+}
+
+func (a *Account) GetGroupAll() (*Group, error) {
+	for _, g := range a.Groups {
+		if g.Name == "All" {
+			return g, nil
+		}
+	}
+	return nil, fmt.Errorf("no group ALL found")
 }
 
 // NewManager creates a new DefaultAccountManager with a provided Store

@@ -28,7 +28,6 @@ import (
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
 
 func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
-
 	level, _ := log.ParseLevel("debug")
 	log.SetLevel(level)
 
@@ -256,6 +255,7 @@ func TestClient_Sync(t *testing.T) {
 		}
 		if len(resp.GetRemotePeers()) != 1 {
 			t.Errorf("expecting RemotePeers size %d got %d", 1, len(resp.GetRemotePeers()))
+			return
 		}
 		if resp.GetRemotePeersIsEmpty() == true {
 			t.Error("expecting RemotePeers property to be false, got true")
@@ -295,36 +295,35 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	mgmtMockServer.LoginFunc =
-		func(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-			peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
-			if err != nil {
-				log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", msg.WgPubKey)
-				return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", msg.WgPubKey)
-			}
-
-			loginReq := &proto.LoginRequest{}
-			err = encryption.DecryptMessage(peerKey, serverKey, msg.Body, loginReq)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			actualMeta = loginReq.GetMeta()
-			actualValidKey = loginReq.GetSetupKey()
-			wg.Done()
-
-			loginResp := &proto.LoginResponse{}
-			encryptedResp, err := encryption.EncryptMessage(peerKey, serverKey, loginResp)
-			if err != nil {
-				return nil, err
-			}
-
-			return &mgmtProto.EncryptedMessage{
-				WgPubKey: serverKey.PublicKey().String(),
-				Body:     encryptedResp,
-				Version:  0,
-			}, nil
+	mgmtMockServer.LoginFunc = func(ctx context.Context, msg *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+		peerKey, err := wgtypes.ParseKey(msg.GetWgPubKey())
+		if err != nil {
+			log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", msg.WgPubKey)
+			return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", msg.WgPubKey)
 		}
+
+		loginReq := &proto.LoginRequest{}
+		err = encryption.DecryptMessage(peerKey, serverKey, msg.Body, loginReq)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		actualMeta = loginReq.GetMeta()
+		actualValidKey = loginReq.GetSetupKey()
+		wg.Done()
+
+		loginResp := &proto.LoginResponse{}
+		encryptedResp, err := encryption.EncryptMessage(peerKey, serverKey, loginResp)
+		if err != nil {
+			return nil, err
+		}
+
+		return &mgmtProto.EncryptedMessage{
+			WgPubKey: serverKey.PublicKey().String(),
+			Body:     encryptedResp,
+			Version:  0,
+		}, nil
+	}
 
 	info := system.GetInfo()
 	_, err = testClient.Register(*key, ValidKey, "", info)
@@ -370,20 +369,18 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 		ProviderConfig: &proto.ProviderConfig{ClientID: "client"},
 	}
 
-	mgmtMockServer.GetDeviceAuthorizationFlowFunc =
-		func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-
-			encryptedResp, err := encryption.EncryptMessage(serverKey, client.key, expectedFlowInfo)
-			if err != nil {
-				return nil, err
-			}
-
-			return &mgmtProto.EncryptedMessage{
-				WgPubKey: serverKey.PublicKey().String(),
-				Body:     encryptedResp,
-				Version:  0,
-			}, nil
+	mgmtMockServer.GetDeviceAuthorizationFlowFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+		encryptedResp, err := encryption.EncryptMessage(serverKey, client.key, expectedFlowInfo)
+		if err != nil {
+			return nil, err
 		}
+
+		return &mgmtProto.EncryptedMessage{
+			WgPubKey: serverKey.PublicKey().String(),
+			Body:     encryptedResp,
+			Version:  0,
+		}, nil
+	}
 
 	flowInfo, err := client.GetDeviceAuthorizationFlow(serverKey)
 	if err != nil {

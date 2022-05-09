@@ -2,8 +2,6 @@ package server_test
 
 import (
 	"context"
-	server "github.com/netbirdio/netbird/management/server"
-	"google.golang.org/grpc/credentials/insecure"
 	"io/ioutil"
 	"math/rand"
 	"net"
@@ -12,6 +10,9 @@ import (
 	"runtime"
 	sync2 "sync"
 	"time"
+
+	server "github.com/netbirdio/netbird/management/server"
+	"google.golang.org/grpc/credentials/insecure"
 
 	pb "github.com/golang/protobuf/proto" //nolint
 	"github.com/netbirdio/netbird/encryption"
@@ -31,7 +32,6 @@ const (
 )
 
 var _ = Describe("Management service", func() {
-
 	var (
 		addr         string
 		s            *grpc.Server
@@ -66,7 +66,6 @@ var _ = Describe("Management service", func() {
 		Expect(err).NotTo(HaveOccurred())
 		serverPubKey, err = wgtypes.ParseKey(resp.Key)
 		Expect(err).NotTo(HaveOccurred())
-
 	})
 
 	AfterEach(func() {
@@ -78,7 +77,6 @@ var _ = Describe("Management service", func() {
 
 	Context("when calling IsHealthy endpoint", func() {
 		Specify("a non-error result is returned", func() {
-
 			healthy, err := client.IsHealthy(context.TODO(), &mgmtProto.Empty{})
 
 			Expect(err).NotTo(HaveOccurred())
@@ -87,7 +85,6 @@ var _ = Describe("Management service", func() {
 	})
 
 	Context("when calling Sync endpoint", func() {
-
 		Context("when there is a new peer registered", func() {
 			Specify("a proper configuration is returned", func() {
 				key, _ := wgtypes.GenerateKey()
@@ -168,7 +165,6 @@ var _ = Describe("Management service", func() {
 				Expect(resp.GetRemotePeers()).To(HaveLen(2))
 				peers := []string{resp.GetRemotePeers()[0].WgPubKey, resp.GetRemotePeers()[1].WgPubKey}
 				Expect(peers).To(ContainElements(key1.PublicKey().String(), key2.PublicKey().String()))
-
 			})
 		})
 
@@ -211,7 +207,6 @@ var _ = Describe("Management service", func() {
 					resp = &mgmtProto.SyncResponse{}
 					err = pb.Unmarshal(decryptedBytes, resp)
 					wg.Done()
-
 				}()
 
 				// register a new peer
@@ -229,7 +224,6 @@ var _ = Describe("Management service", func() {
 
 	Context("when calling GetServerKey endpoint", func() {
 		Specify("a public Wireguard key of the service is returned", func() {
-
 			resp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
 
 			Expect(err).NotTo(HaveOccurred())
@@ -237,19 +231,16 @@ var _ = Describe("Management service", func() {
 			Expect(resp.Key).ToNot(BeNil())
 			Expect(resp.ExpiresAt).ToNot(BeNil())
 
-			//check if the key is a valid Wireguard key
+			// check if the key is a valid Wireguard key
 			key, err := wgtypes.ParseKey(resp.Key)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(key).ToNot(BeNil())
-
 		})
 	})
 
 	Context("when calling Login endpoint", func() {
-
 		Context("with an invalid setup key", func() {
 			Specify("an error is returned", func() {
-
 				key, _ := wgtypes.GenerateKey()
 				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: "invalid setup key"})
 				Expect(err).NotTo(HaveOccurred())
@@ -261,24 +252,20 @@ var _ = Describe("Management service", func() {
 
 				Expect(err).To(HaveOccurred())
 				Expect(resp).To(BeNil())
-
 			})
 		})
 
 		Context("with a valid setup key", func() {
 			It("a non error result is returned", func() {
-
 				key, _ := wgtypes.GenerateKey()
 				resp := loginPeerWithValidSetupKey(serverPubKey, key, client)
 
 				Expect(resp).ToNot(BeNil())
-
 			})
 		})
 
 		Context("with a registered peer", func() {
 			It("a non error result is returned", func() {
-
 				key, _ := wgtypes.GenerateKey()
 				regResp := loginPeerWithValidSetupKey(serverPubKey, key, client)
 				Expect(regResp).NotTo(BeNil())
@@ -324,7 +311,6 @@ var _ = Describe("Management service", func() {
 	Context("when there are 50 peers registered under one account", func() {
 		Context("when there are 10 more peers registered under the same account", func() {
 			Specify("all of the 50 peers will get updates of 10 newly registered peers", func() {
-
 				initialPeers := 20
 				additionalPeers := 10
 
@@ -369,7 +355,7 @@ var _ = Describe("Management service", func() {
 							err = pb.Unmarshal(decryptedBytes, resp)
 							Expect(err).NotTo(HaveOccurred())
 							if len(resp.GetRemotePeers()) > 0 {
-								//only consider peer updates
+								// only consider peer updates
 								wg.Done()
 							}
 						}
@@ -397,7 +383,6 @@ var _ = Describe("Management service", func() {
 
 	Context("when there are peers registered under one account concurrently", func() {
 		Specify("then there are no duplicate IPs", func() {
-
 			initialPeers := 30
 
 			ipChannel := make(chan string, 20)
@@ -423,7 +408,6 @@ var _ = Describe("Management service", func() {
 					Expect(err).NotTo(HaveOccurred())
 
 					ipChannel <- resp.GetPeerConfig().Address
-
 				}()
 			}
 
@@ -443,6 +427,7 @@ var _ = Describe("Management service", func() {
 })
 
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
+	defer GinkgoRecover()
 
 	meta := &mgmtProto.PeerSystemMeta{
 		Hostname:           key.PublicKey().String(),
@@ -467,7 +452,6 @@ func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, clien
 	err = encryption.DecryptMessage(serverPubKey, key, resp.Body, loginResp)
 	Expect(err).NotTo(HaveOccurred())
 	return loginResp
-
 }
 
 func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn) {
