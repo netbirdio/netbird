@@ -59,7 +59,7 @@ func (s *Server) Start() error {
 	s.actCancel = cancel
 
 	// if configuration exists, we just start connections.
-	config, err := internal.GetConfig(s.managementURL, s.adminURL, s.configPath, "")
+	config, err := internal.ReadConfig(s.managementURL, s.adminURL, s.configPath, nil)
 	if err != nil {
 		log.Warnf("no config file, skip connection stage: %v", err)
 		return nil
@@ -115,6 +115,7 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	// we don't wait for result and return response immediately.
 	if err := internal.Login(ctx, s.config, msg.SetupKey, msg.JwtToken); err != nil {
 		log.Errorf("failed login: %v", err)
+		state.Set(internal.StatusIdle)
 		return nil, err
 	}
 
@@ -190,12 +191,11 @@ func (s *Server) Status(
 }
 
 // GetConfig of the daemon.
-func (s *Server) GetConfig(
-	ctx context.Context,
-	msg *proto.GetConfigRequest,
-) (*proto.GetConfigResponse, error) {
+func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*proto.GetConfigResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	var deviceAuthorizationFlow *proto.DeviceAuthorizationFlow
 
 	managementURL := s.managementURL
 	adminURL := s.adminURL
@@ -214,32 +214,29 @@ func (s *Server) GetConfig(
 		if preSharedKey != "" {
 			preSharedKey = "**********"
 		}
-	}
 
-	var deviceAuthorizationFlow *proto.DeviceAuthorizationFlow
-
-	flowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, s.config)
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			log.Warnf("server couldn't find device flow, contact admin: %v", err)
-		} else {
-			return nil, err
-		}
-	} else {
-
-		provider, err := toDeviceFlowProvider(flowInfo.Provider)
+		flowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, s.config)
 		if err != nil {
-			return nil, fmt.Errorf("provided provider name \"%s\" is not in the Provider map", flowInfo.Provider)
-		}
+			if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+				log.Warnf("server couldn't find device flow, contact admin: %v", err)
+			} else {
+				return nil, err
+			}
+		} else {
+			provider, err := toDeviceFlowProvider(flowInfo.Provider)
+			if err != nil {
+				return nil, fmt.Errorf("retrieved provider name \"%s\" is not in the Provider map", flowInfo.Provider)
+			}
 
-		deviceAuthorizationFlow = &proto.DeviceAuthorizationFlow{
-			Provider: provider,
-			ProviderConfig: &proto.ProviderConfig{
-				Audience:     flowInfo.ProviderConfig.Audience,
-				ClientID:     flowInfo.ProviderConfig.ClientID,
-				ClientSecret: flowInfo.ProviderConfig.ClientSecret,
-				Domain:       flowInfo.ProviderConfig.Domain,
-			},
+			deviceAuthorizationFlow = &proto.DeviceAuthorizationFlow{
+				Provider: provider,
+				ProviderConfig: &proto.ProviderConfig{
+					Audience:     flowInfo.ProviderConfig.Audience,
+					ClientID:     flowInfo.ProviderConfig.ClientID,
+					ClientSecret: flowInfo.ProviderConfig.ClientSecret,
+					Domain:       flowInfo.ProviderConfig.Domain,
+				},
+			}
 		}
 	}
 
@@ -259,6 +256,6 @@ func toDeviceFlowProvider(provider string) (proto.DeviceAuthorizationFlowProvide
 		return proto.DeviceAuthorizationFlow_HOSTED, nil
 	default:
 		var p proto.DeviceAuthorizationFlowProvider
-		return p, fmt.Errorf("no provider found for %s", provider)
+		return p, fmt.Errorf("no provider found for %s, consider updating your client", provider)
 	}
 }

@@ -35,6 +35,8 @@ import (
 const (
 	defaultFailTimeout = 3 * time.Second
 	failFastTimeout    = time.Second
+	LoginTittle        = "Login"
+	LoggedInTittle     = "Logged in"
 )
 
 func main() {
@@ -332,6 +334,29 @@ func (s *serviceClient) menuDownClick() error {
 	return nil
 }
 
+func (s *serviceClient) checkLoginStatus() {
+	s.mLogin.Disable()
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		s.mLogin.Enable()
+		s.mLogin.SetTitle(LoginTittle)
+		s.mLogin.SetTooltip(LoginTittle)
+		return
+	}
+	// todo: this call creates a config file if doesn't exist
+	// maybe we should find alternatives for it
+	_, err = conn.Login(s.ctx, &proto.LoginRequest{})
+	if err != nil {
+		log.Errorf("login to management URL: %v", err)
+		s.mLogin.Enable()
+		s.mLogin.SetTitle(LoginTittle)
+		s.mLogin.SetTooltip(LoginTittle)
+		return
+	}
+	s.mLogin.SetTitle(LoggedInTittle)
+	s.mLogin.SetTooltip(LoggedInTittle)
+}
+
 func (s *serviceClient) updateStatus() error {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
@@ -341,16 +366,8 @@ func (s *serviceClient) updateStatus() error {
 		status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 		if err != nil {
 			log.Errorf("get service status: %v", err)
-			s.mLogin.Enable()
-			s.mLogin.SetTitle("Login")
-			s.mLogin.SetTooltip("Login")
 			return err
 		}
-
-		// if we got here, the peer is already logged in
-		s.mLogin.Disable()
-		s.mLogin.SetTitle("Logged In")
-		s.mLogin.SetTooltip("Logged In")
 
 		if status.Status == string(internal.StatusConnected) {
 			systray.SetIcon(s.icConnected)
@@ -388,7 +405,7 @@ func (s *serviceClient) onTrayReady() {
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
 	s.mStatus.Disable()
 	systray.AddSeparator()
-	s.mLogin = systray.AddMenuItem("Login", "Login")
+	s.mLogin = systray.AddMenuItem(LoginTittle, LoginTittle)
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
 	s.mDown.Disable()
@@ -400,6 +417,7 @@ func (s *serviceClient) onTrayReady() {
 
 	go func() {
 		s.getSrvConfig()
+		s.checkLoginStatus()
 		for {
 			err := s.updateStatus()
 			if err != nil {
@@ -420,8 +438,8 @@ func (s *serviceClient) onTrayReady() {
 				if err = s.menuLoginClick(); err != nil {
 					s.mLogin.Enable()
 				} else {
-					s.mLogin.SetTitle("Logged In")
-					s.mLogin.SetTooltip("Logged In")
+					s.mLogin.SetTitle(LoggedInTittle)
+					s.mLogin.SetTooltip(LoggedInTittle)
 				}
 			case <-s.mUp.ClickedCh:
 				s.mUp.Disable()
