@@ -59,7 +59,7 @@ func (s *Server) Start() error {
 	s.actCancel = cancel
 
 	// if configuration exists, we just start connections.
-	config, err := internal.ReadConfig(s.managementURL, s.adminURL, s.configPath, nil)
+	config, err := internal.GetConfig(s.managementURL, s.adminURL, s.configPath, "")
 	if err != nil {
 		log.Warnf("no config file, skip connection stage: %v", err)
 		return nil

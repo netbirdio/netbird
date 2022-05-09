@@ -12,6 +12,7 @@ const (
 
 	StatusConnecting StatusType = "Connecting"
 	StatusConnected  StatusType = "Connected"
+	StatusNeedsLogin StatusType = "NeedsLogin"
 )
 
 // CtxInitState setup context state into the context tree.

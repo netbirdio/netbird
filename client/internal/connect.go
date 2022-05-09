@@ -56,6 +56,9 @@ func RunClient(ctx context.Context, config *Config) error {
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
 		mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
+			if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
+				state.Set(StatusNeedsLogin)
+			}
 			log.Warn(err)
 			return wrapErr(err)
 		}

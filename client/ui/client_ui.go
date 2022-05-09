@@ -35,8 +35,6 @@ import (
 const (
 	defaultFailTimeout = 3 * time.Second
 	failFastTimeout    = time.Second
-	LoginTittle        = "Login"
-	LoggedInTittle     = "Logged in"
 )
 
 func main() {
@@ -225,7 +223,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 	}
 }
 
-func (s *serviceClient) menuLoginClick() error {
+func (s *serviceClient) login() error {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
@@ -405,7 +403,6 @@ func (s *serviceClient) onTrayReady() {
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
 	s.mStatus.Disable()
 	systray.AddSeparator()
-	s.mLogin = systray.AddMenuItem(LoginTittle, LoginTittle)
 	s.mUp = systray.AddMenuItem("Connect", "Connect")
 	s.mDown = systray.AddMenuItem("Disconnect", "Disconnect")
 	s.mDown.Disable()
@@ -433,14 +430,6 @@ func (s *serviceClient) onTrayReady() {
 			select {
 			case <-s.mAdminPanel.ClickedCh:
 				err = open.Run(s.adminURL)
-			case <-s.mLogin.ClickedCh:
-				s.mLogin.Disable()
-				if err = s.menuLoginClick(); err != nil {
-					s.mLogin.Enable()
-				} else {
-					s.mLogin.SetTitle(LoggedInTittle)
-					s.mLogin.SetTooltip(LoggedInTittle)
-				}
 			case <-s.mUp.ClickedCh:
 				s.mUp.Disable()
 				if err = s.menuUpClick(); err != nil {
