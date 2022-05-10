@@ -37,7 +37,7 @@ services:
     volumes:
       - wiretrustee-mgmt:/var/lib/wiretrustee
       - wiretrustee-letsencrypt:/etc/letsencrypt:ro
-      - ./netbird.json:/etc/netbird/management.json
+      - ./management.json:/etc/netbird/management.json
     ports:
       - 33073:33073 #gRPC port
       - $WIRETRUSTEE_MGMT_API_PORT:33071 #API port
