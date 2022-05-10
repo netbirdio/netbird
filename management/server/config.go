@@ -1,9 +1,10 @@
 package server
 
 import (
+	"net/url"
+
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/util"
-	"net/url"
 )
 
 type Protocol string
@@ -89,8 +90,5 @@ type ProviderConfig struct {
 // validateURL validates input http url
 func validateURL(httpURL string) bool {
 	_, err := url.ParseRequestURI(httpURL)
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
