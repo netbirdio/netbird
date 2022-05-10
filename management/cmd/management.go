@@ -48,7 +48,7 @@ var (
 
 	mgmtCmd = &cobra.Command{
 		Use:   "management",
-		Short: "start Wiretrustee Management Server",
+		Short: "start Netbird Management Server",
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
 			err := util.InitLog(logLevel, logFile)
@@ -235,12 +235,12 @@ func cpDir(src string, dst string) error {
 
 		if fd.IsDir() {
 			if err = cpDir(srcfp, dstfp); err != nil {
-				log.Infof("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
+				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
 			}
 		} else {
 			if err = cpFile(srcfp, dstfp); err != nil {
 				log.Info(err)
-				log.Infof("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
+				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
 			}
 		}
 	}
@@ -259,12 +259,12 @@ func initDefault() {
 
 func migrateToNetbird() {
 	if err := cpDir("/var/lib/wiretrustee", "/var/lib/netbird"); err != nil {
-		log.Error(err)
+		log.Fatal(err)
 	}
 
 	cpDir("/etc/wiretrustee/", "/etc/netbird/")
 	if err := cpFile("/etc/wiretrustee/management.json", "/etc/netbird/management.json"); err != nil {
-		log.Error(err)
+		log.Fatal(err)
 	}
 
 }
