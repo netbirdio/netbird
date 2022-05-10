@@ -28,6 +28,8 @@ import (
 
 var (
 	mgmtPort              int
+	defaultMgmtDataDir    string
+	defaultMgmtConfig     string
 	mgmtDataDir           string
 	mgmtConfig            string
 	mgmtLetsencryptDomain string
@@ -56,9 +58,46 @@ var (
 				log.Fatalf("failed initializing log %v", err)
 			}
 
-			config, err := loadConfig()
+			if mgmtDataDir == "" {
+				oldPath := "/var/lib/wiretrustee"
+				newPath := "/var/lib/netbird"
+				if migrateToNetbird(oldPath, newPath) {
+					err := cpDir(oldPath, newPath)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+			}
+
+			var config *server.Config
+			if mgmtConfig == "" {
+				oldPath := "/etc/wiretrustee/management.json"
+				newPath := "/etc/netbird/management.json"
+				if migrateToNetbird(oldPath, newPath) {
+					if err := cpDir("/etc/wiretrustee/", "/etc/netbird/"); err != nil {
+						log.Fatal(err)
+					}
+
+					if err := cpFile(oldPath, newPath); err != nil {
+						log.Fatal(err)
+					}
+				}
+			}
+
+			if mgmtConfig == "" {
+				config, err = loadConfig(defaultMgmtConfig)
+				if err != nil {
+					log.Fatal(err)
+				}
+			} else {
+				config, err = loadConfig(mgmtConfig)
+				if err != nil {
+					log.Fatal(err)
+				}
+			}
+
 			if err != nil {
-				log.Fatalf("failed reading provided config file: %s: %v", mgmtConfig, err)
+				log.Fatalf("failed reading provided config file: %s: %v", defaultMgmtConfig, err)
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
@@ -151,9 +190,9 @@ var (
 	}
 )
 
-func loadConfig() (*server.Config, error) {
+func loadConfig(mgmtConfigPath string) (*server.Config, error) {
 	config := &server.Config{}
-	_, err := util.ReadJson(mgmtConfig, config)
+	_, err := util.ReadJson(mgmtConfigPath, config)
 	if err != nil {
 		return nil, err
 	}
@@ -264,37 +303,24 @@ func cpDir(src string, dst string) error {
 	return nil
 }
 
-func initDefault() {
+func migrateToNetbird(oldPath, newPath string) bool {
+	_, old := os.Stat(oldPath) //"/var/lib/wiretrustee"
+	_, new := os.Stat(newPath) //"/var/lib/netbird"
+
+	if os.IsNotExist(old) || os.IsExist(new) {
+		return false
+	}
+
+	return true
+}
+
+func init() {
 	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 33073, "server port to listen on")
-	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/var/lib/netbird/", "server data directory location")
-	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", "/etc/netbird/management.json", "Netbird config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
+	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
+	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", defaultMgmtConfig, "Netbird config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
 	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	mgmtCmd.Flags().StringVar(&certFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	mgmtCmd.Flags().StringVar(&certKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	rootCmd.MarkFlagRequired("config") //nolint
-}
 
-func migrateToNetbird() {
-	if err := cpDir("/var/lib/wiretrustee", "/var/lib/netbird"); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := cpDir("/etc/wiretrustee/", "/etc/netbird/"); err != nil {
-		log.Fatal(err)
-	}
-
-	if err := cpFile("/etc/wiretrustee/management.json", "/etc/netbird/management.json"); err != nil {
-		log.Fatal(err)
-	}
-}
-
-func init() {
-	_, old := os.Stat("/var/lib/wiretrustee")
-	_, new := os.Stat("/var/lib/netbird")
-	if os.IsNotExist(old) || os.IsExist(new) {
-		initDefault()
-		return
-	}
-	migrateToNetbird()
-	initDefault()
 }
