@@ -262,7 +262,10 @@ func migrateToNetbird() {
 		log.Fatal(err)
 	}
 
-	cpDir("/etc/wiretrustee/", "/etc/netbird/")
+	if err := cpDir("/etc/wiretrustee/", "/etc/netbird/"); err != nil {
+		log.Fatal(err)
+	}
+
 	if err := cpFile("/etc/wiretrustee/management.json", "/etc/netbird/management.json"); err != nil {
 		log.Fatal(err)
 	}
