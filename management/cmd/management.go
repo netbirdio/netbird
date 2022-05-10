@@ -213,6 +213,14 @@ func cpFile(src, dst string) error {
 	return os.Chmod(dst, srcinfo.Mode())
 }
 
+func copySymLink(source, dest string) error {
+	link, err := os.Readlink(source)
+	if err != nil {
+		return err
+	}
+	return os.Symlink(link, dest)
+}
+
 func cpDir(src string, dst string) error {
 	var err error
 	var fds []os.FileInfo
@@ -233,13 +241,22 @@ func cpDir(src string, dst string) error {
 		srcfp := path.Join(src, fd.Name())
 		dstfp := path.Join(dst, fd.Name())
 
-		if fd.IsDir() {
+		fileInfo, err := os.Stat(srcfp)
+		if err != nil {
+			log.Fatalf("Couldn't get fileInfo; %v", err)
+		}
+
+		switch fileInfo.Mode() & os.ModeType {
+		case os.ModeSymlink:
+			if err = copySymLink(srcfp, dstfp); err != nil {
+				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
+			}
+		case os.ModeDir:
 			if err = cpDir(srcfp, dstfp); err != nil {
 				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
 			}
-		} else {
+		default:
 			if err = cpFile(srcfp, dstfp); err != nil {
-				log.Info(err)
 				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
 			}
 		}
