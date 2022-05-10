@@ -1,25 +1,25 @@
 # netbird Management Server
-netbird management server will control and synchronize peers configuration within your wiretrustee account and network.
+netbird management server will control and synchronize peers configuration within your Netbird account and network.
 
 ## Command Options
 The CLI accepts the command **management** with the following options:
 ```shell
-start Wiretrustee Management Server
+start Netbird Management Server
 
 Usage:
-  wiretrustee-mgmt management [flags]
+  netbird-mgmt management [flags]
 
 Flags:
-      --datadir string              server data directory location (default "/var/lib/wiretrustee/")
+      --datadir string              server data directory location (default "/var/lib/netbird/")
   -h, --help                        help for management
       --letsencrypt-domain string   a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS
       --port int                    server port to listen on (default 33073)
       --cert-file string            Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect
       --cert-key string             Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect
 Global Flags:
-      --config string      Wiretrustee config file location to write new config to (default "/etc/wiretrustee/config.json")
+      --config string      Netbird config file location to write new config to (default "/etc/netbird/config.json")
       --log-level string    (default "info")
-      --log-file string    sets Wiretrustee log path. If console is specified the the log will be output to stdout (default "/var/log/wiretrustee/management.log")
+      --log-file string    sets Netbird log path. If console is specified the the log will be output to stdout (default "/var/log/netbird/management.log")
 ```
 ## Run Management service (Docker)
 
@@ -35,14 +35,14 @@ Replace <YOUR-DOMAIN> with your server's public domain (e.g. mydomain.com or sub
 
 ```bash
 # create a volume
-docker volume create wiretrustee-mgmt
+docker volume create netbird-mgmt
 # run the docker container
-docker run -d --name wiretrustee-management \
+docker run -d --name netbird-management \
 -p 33073:33073  \
 -p 443:443  \
--v wiretrustee-mgmt:/var/lib/wiretrustee  \
--v ./config.json:/etc/wiretrustee/config.json  \
-wiretrustee/management:latest \
+-v netbird-mgmt:/var/lib/netbird  \
+-v ./config.json:/etc/netbird/config.json  \
+netbird/management:latest \
 --letsencrypt-domain <YOUR-DOMAIN>
 ```
 > An example of config.json can be found here [management.json](../infrastructure_files/management.json.tmpl)
@@ -52,18 +52,18 @@ Trigger Let's encrypt certificate generation:
 curl https://<YOUR-DOMAIN>
 ```
 
-The certificate will be persisted in the ```datadir/letsencrypt/``` folder (e.g. ```/var/lib/wiretrustee/letsencrypt/```) inside the container.
+The certificate will be persisted in the ```datadir/letsencrypt/``` folder (e.g. ```/var/lib/netbird/letsencrypt/```) inside the container.
 
 Make sure that the ```datadir``` is mapped to some folder on a host machine. In case you used the volume command, you can run the following to retrieve the Mountpoint:
 ```shell
-docker volume inspect wiretrustee-mgmt
+docker volume inspect netbird-mgmt
 [
     {
         "CreatedAt": "2021-07-25T20:45:28Z",
         "Driver": "local",
         "Labels": {},
         "Mountpoint": "/var/lib/docker/volumes/mgmt/_data",
-        "Name": "wiretrustee-mgmt",
+        "Name": "netbird-mgmt",
         "Options": {},
         "Scope": "local"
     }
@@ -75,24 +75,24 @@ Consequent restarts of the container will pick up previously generated certifica
 
 ```bash
 # create a volume
-docker volume create wiretrustee-mgmt
+docker volume create netbird-mgmt
 # run the docker container
-docker run -d --name wiretrustee-management \
+docker run -d --name netbird-management \
 -p 33073:33073  \
--v wiretrustee-mgmt:/var/lib/wiretrustee  \
--v ./config.json:/etc/wiretrustee/config.json  \
-wiretrustee/management:latest
+-v netbird-mgmt:/var/lib/netbird  \
+-v ./config.json:/etc/netbird/config.json  \
+netbird/management:latest
 ```
 ### Debug tag
 We also publish a docker image with the debug tag which has the log-level set to default, plus it uses the ```gcr.io/distroless/base:debug``` image that can be used with docker exec in order to run some commands in the Management container.
 ```shell
-shell $ docker run -d --name wiretrustee-management-debug \
+shell $ docker run -d --name netbird-management-debug \
 -p 33073:33073  \
--v wiretrustee-mgmt:/var/lib/wiretrustee  \
--v ./config.json:/etc/wiretrustee/config.json  \
-wiretrustee/management:debug-latest
+-v netbird-mgmt:/var/lib/netbird  \
+-v ./config.json:/etc/netbird/config.json  \
+netbird/management:debug-latest
 
-shell $ docker exec -ti wiretrustee-management-debug /bin/sh
+shell $ docker exec -ti netbird-management-debug /bin/sh
 container-shell $ 
 ```
 ## For development purposes:
