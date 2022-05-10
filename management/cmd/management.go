@@ -266,7 +266,6 @@ func migrateToNetbird() {
 	if err := cpFile("/etc/wiretrustee/management.json", "/etc/netbird/management.json"); err != nil {
 		log.Fatal(err)
 	}
-
 }
 
 func init() {
