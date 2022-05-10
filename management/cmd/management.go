@@ -5,13 +5,17 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net"
+	"os"
+	"path"
+	"time"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/util"
-	"net"
-	"os"
-	"time"
 
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
@@ -184,14 +188,96 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 	return config, nil
 }
 
-func init() {
+func cpFile(src, dst string) error {
+	var err error
+	var srcfd *os.File
+	var dstfd *os.File
+	var srcinfo os.FileInfo
+
+	if srcfd, err = os.Open(src); err != nil {
+		return err
+	}
+	defer srcfd.Close()
+
+	if dstfd, err = os.Create(dst); err != nil {
+		return err
+	}
+	defer dstfd.Close()
+
+	if _, err = io.Copy(dstfd, srcfd); err != nil {
+		return err
+	}
+	if srcinfo, err = os.Stat(src); err != nil {
+		return err
+	}
+	return os.Chmod(dst, srcinfo.Mode())
+}
+
+func cpDir(src string, dst string) error {
+	var err error
+	var fds []os.FileInfo
+	var srcinfo os.FileInfo
+
+	if srcinfo, err = os.Stat(src); err != nil {
+		return err
+	}
+
+	if err = os.MkdirAll(dst, srcinfo.Mode()); err != nil {
+		return err
+	}
+
+	if fds, err = ioutil.ReadDir(src); err != nil {
+		return err
+	}
+	for _, fd := range fds {
+		srcfp := path.Join(src, fd.Name())
+		dstfp := path.Join(dst, fd.Name())
+
+		if fd.IsDir() {
+			if err = cpFile(srcfp, dstfp); err != nil {
+				log.Infof("Failed to copy from %s to %s", srcfp, dstfp)
+			}
+		} else {
+			if err = cpFile(srcfp, dstfp); err != nil {
+				log.Infof("Failed to copy from %s to %s", srcfp, dstfp)
+			}
+		}
+	}
+	return nil
+}
+
+func initDefault() {
 	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 33073, "server port to listen on")
-	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/var/lib/wiretrustee/", "server data directory location")
-	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", "/etc/wiretrustee/management.json", "Wiretrustee config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
+	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/var/lib/netbird/", "server data directory location")
+	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", "/etc/netbird/management.json", "Netbird config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
 	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 	mgmtCmd.Flags().StringVar(&certFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	mgmtCmd.Flags().StringVar(&certKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 
 	rootCmd.MarkFlagRequired("config") //nolint
+}
 
+func copyFromPrevious() {
+	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 33073, "server port to listen on")
+	if err := cpDir("/var/lib/wiretrustee", "/var/lib/netbird"); err != nil {
+		log.Info(err)
+	}
+	cpFile("/etc/wiretrustee/management.json", "/etc/netbird/management.json")
+	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", "/var/lib/netbird/", "server data directory location")
+	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", "/etc/netbird/management.json", "Netbird config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
+	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+	mgmtCmd.Flags().StringVar(&certFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	mgmtCmd.Flags().StringVar(&certKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+
+	rootCmd.MarkFlagRequired("config") //nolint
+}
+
+func init() {
+	_, err := os.Stat("/var/lib/wiretrustee")
+	_, dst := os.Stat("/var/lib/netbird")
+	if os.IsNotExist(err) || os.IsExist(dst) {
+		initDefault()
+		return
+	}
+	copyFromPrevious()
 }
