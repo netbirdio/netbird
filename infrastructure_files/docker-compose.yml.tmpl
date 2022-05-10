@@ -30,14 +30,14 @@ services:
   #    command: ["--letsencrypt-domain", "$WIRETRUSTEE_DOMAIN", "--log-file", "console"]
   # Management
   management:
-    image: wiretrustee/management:latest
+    image: netbird/management:latest
     restart: unless-stopped
     depends_on:
       - dashboard
     volumes:
       - wiretrustee-mgmt:/var/lib/wiretrustee
       - wiretrustee-letsencrypt:/etc/letsencrypt:ro
-      - ./management.json:/etc/wiretrustee/management.json
+      - ./netbird.json:/etc/netbird/management.json
     ports:
       - 33073:33073 #gRPC port
       - $WIRETRUSTEE_MGMT_API_PORT:33071 #API port
