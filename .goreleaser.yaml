@@ -227,7 +227,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbird/management:{{ .Version }}-amd64
     ids:
@@ -242,7 +242,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbird/management:{{ .Version }}-arm64v8
     ids:
@@ -257,7 +257,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbird/management:{{ .Version }}-arm
     ids:
@@ -273,7 +273,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbird/management:{{ .Version }}-debug-amd64
     ids:
@@ -288,7 +288,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbird/management:{{ .Version }}-debug-arm64v8
     ids:
@@ -303,7 +303,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
 
   - image_templates:
       - netbird/management:{{ .Version }}-debug-arm
@@ -320,7 +320,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
 docker_manifests:
   - name_template: wiretrustee/wiretrustee:{{ .Version }}
     image_templates:
