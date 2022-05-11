@@ -135,16 +135,24 @@ func foregroundLogin(ctx context.Context, config *internal.Config, setupKey stri
 }
 
 func foregroundGetTokenInfo(ctx context.Context, config *internal.Config) (*internal.TokenInfo, error) {
-
 	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config)
 	if err != nil {
-		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
+		s, ok := gstatus.FromError(err)
+		if ok && s.Code() == codes.NotFound {
 			return nil, fmt.Errorf("no SSO provider returned from management. " +
 				"If you are using hosting Netbird see documentation at " +
 				"https://github.com/netbirdio/netbird/tree/main/management for details")
+		} else if ok && s.Code() == codes.Unimplemented {
+			mgmtURL := managementURL
+			if mgmtURL == "" {
+				mgmtURL = internal.ManagementURLDefault().String()
+			}
+			return nil, fmt.Errorf("the management server, %s, does not support SSO providers, "+
+				"please update your servver or use Setup Keys to login", mgmtURL)
+		} else {
+			log.Errorf("getting device authorization flow info failed with error: %v", err)
+			return nil, err
 		}
-		log.Errorf("getting device authorization flow info failed with error: %v", err)
-		return nil, err
 	}
 
 	hostedClient := internal.NewHostedDeviceFlow(
@@ -179,6 +187,15 @@ func daemonGetTokenInfo(ctx context.Context, client proto.DaemonServiceClient) (
 	cfg, err := client.GetConfig(ctx, &proto.GetConfigRequest{})
 	if err != nil {
 		log.Errorf("get config settings from server: %v", err)
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.Unimplemented {
+			mgmtURL := managementURL
+			if mgmtURL == "" {
+				mgmtURL = internal.ManagementURLDefault().String()
+			}
+			return nil, fmt.Errorf("the management server, %s, does not support SSO providers, "+
+				"please update your servver or use Setup Keys to login", mgmtURL)
+		}
+
 		return nil, err
 	}
 
