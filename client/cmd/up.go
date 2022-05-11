@@ -2,12 +2,13 @@ package cmd
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
-
-	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/proto"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 )
 
 var upCmd = &cobra.Command{
@@ -16,14 +17,13 @@ var upCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
-		err := util.InitLog(logLevel, logFile)
+		err := util.InitLog(logLevel, "console")
 		if err != nil {
 			log.Errorf("failed initializing log %v", err)
 			return err
 		}
 
 		ctx := internal.CtxInitState(cmd.Context())
-		jwtToken := ""
 
 		// workaround to run without service
 		if logFile == "console" {
@@ -33,20 +33,9 @@ var upCmd = &cobra.Command{
 				return err
 			}
 
-			if ssoLogin {
-				tokenInfo, err := interactiveSSOLogin(ctx, config)
-				if err != nil {
-					log.Errorf("interactive sso login failed: %v", err)
-					return err
-				}
-				jwtToken = tokenInfo.AccessToken
-			}
-
-			err = WithBackOff(func() error {
-				return internal.Login(ctx, config, setupKey, jwtToken)
-			})
+			err = foregroundLogin(ctx, config, setupKey)
 			if err != nil {
-				log.Errorf("backoff cycle failed: %v", err)
+				log.Errorf("foreground login failed: %v", err)
 				return err
 			}
 
@@ -71,38 +60,41 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
-		if ssoLogin && status.Status == string(internal.StatusNeedsLogin) {
-			tokenInfo, err := nonInteractiveSSOLogin(ctx, daemonClient)
-			if err != nil {
-				log.Errorf("interactive sso login failed: %v", err)
+		var loginRequest proto.LoginRequest
+		if status.Status == string(internal.StatusNeedsLogin) {
+			jwtToken := ""
+
+			if setupKey == "" {
+				tokenInfo, err := daemonGetTokenInfo(ctx, daemonClient)
+				if err != nil {
+					log.Errorf("interactive sso login failed: %v", err)
+					return err
+				}
+				jwtToken = tokenInfo.AccessToken
+			}
+			loginRequest = proto.LoginRequest{
+				SetupKey:      setupKey,
+				PreSharedKey:  preSharedKey,
+				ManagementUrl: managementURL,
+				JwtToken:      jwtToken,
+			}
+
+			var loginErr error
+
+			err = WithBackOff(func() error {
+				_, err := daemonClient.Login(ctx, &loginRequest)
+				if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+					loginErr = err
+					return nil
+				}
+				return err
+			})
+			if err != nil && loginErr != nil {
+				log.Errorf("login backoff cycle failed: %v", err)
 				return err
 			}
-			jwtToken = tokenInfo.AccessToken
-		}
 
-		loginRequest := proto.LoginRequest{
-			SetupKey:      setupKey,
-			PreSharedKey:  preSharedKey,
-			ManagementUrl: managementURL,
-			JwtToken:      jwtToken,
-		}
-
-		err = WithBackOff(func() error {
-			_, err := daemonClient.Login(ctx, &loginRequest)
-			return err
-		})
-		if err != nil {
-			log.Errorf("backoff cycle failed: %v", err)
-			return err
-		}
-
-		status, err = daemonClient.Status(ctx, &proto.StatusRequest{})
-		if err != nil {
-			log.Errorf("get status: %v", err)
-			return err
-		}
-
-		if status.Status != string(internal.StatusIdle) {
+		} else if status.Status != string(internal.StatusIdle) {
 			log.Warnf("already connected")
 			return nil
 		}

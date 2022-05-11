@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/skratchdot/open-golang/open"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 	"time"
 
 	"github.com/netbirdio/netbird/util"
@@ -21,14 +23,13 @@ var loginCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
-		err := util.InitLog(logLevel, logFile)
+		err := util.InitLog(logLevel, "console")
 		if err != nil {
 			log.Errorf("failed initializing log %v", err)
 			return err
 		}
 
 		ctx := internal.CtxInitState(context.Background())
-		jwtToken := ""
 
 		// workaround to run without service
 		if logFile == "console" {
@@ -38,28 +39,15 @@ var loginCmd = &cobra.Command{
 				return err
 			}
 
-			if ssoLogin {
-				tokenInfo, err := interactiveSSOLogin(ctx, config)
-				if err != nil {
-					log.Errorf("interactive sso login failed: %v", err)
-					return err
-				}
-				jwtToken = tokenInfo.AccessToken
-			}
-
-			err = WithBackOff(func() error {
-				return internal.Login(ctx, config, setupKey, jwtToken)
-			})
+			err = foregroundLogin(ctx, config, setupKey)
 			if err != nil {
-				log.Errorf("backoff cycle failed: %v", err)
+				log.Errorf("foreground login failed: %v", err)
+				return err
 			}
-			return err
+			return nil
 		}
 
-		if setupKey == "" && !ssoLogin {
-			log.Error("setup key can't be empty")
-			return fmt.Errorf("empty setup key")
-		}
+		jwtToken := ""
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
@@ -76,8 +64,8 @@ var loginCmd = &cobra.Command{
 			return err
 		}
 
-		if ssoLogin && status.Status == string(internal.StatusNeedsLogin) {
-			tokenInfo, err := nonInteractiveSSOLogin(ctx, client)
+		if setupKey == "" && status.Status == string(internal.StatusNeedsLogin) {
+			tokenInfo, err := daemonGetTokenInfo(ctx, client)
 			if err != nil {
 				log.Errorf("interactive sso login failed: %v", err)
 				return err
@@ -105,10 +93,56 @@ var loginCmd = &cobra.Command{
 	},
 }
 
-func interactiveSSOLogin(ctx context.Context, config *internal.Config) (*internal.TokenInfo, error) {
+func foregroundLogin(ctx context.Context, config *internal.Config, setupKey string) error {
+	needsLogin := false
+
+	err := WithBackOff(func() error {
+		err := internal.Login(ctx, config, "", "")
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+			needsLogin = true
+			return nil
+		}
+		return err
+	})
+	if err != nil {
+		log.Errorf("backoff cycle failed: %v", err)
+		return err
+	}
+
+	jwtToken := ""
+	if setupKey == "" && needsLogin {
+		tokenInfo, err := foregroundGetTokenInfo(ctx, config)
+		if err != nil {
+			log.Errorf("interactive sso login failed: %v", err)
+			return err
+		}
+		jwtToken = tokenInfo.AccessToken
+	}
+
+	err = WithBackOff(func() error {
+		err := internal.Login(ctx, config, setupKey, jwtToken)
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+			return nil
+		}
+		return err
+	})
+	if err != nil {
+		log.Errorf("backoff cycle failed: %v", err)
+		return err
+	}
+
+	return nil
+}
+
+func foregroundGetTokenInfo(ctx context.Context, config *internal.Config) (*internal.TokenInfo, error) {
 
 	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config)
 	if err != nil {
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
+			return nil, fmt.Errorf("no SSO provider returned from management. " +
+				"If you are using hosting Netbird see documentation at " +
+				"https://github.com/netbirdio/netbird/tree/main/management for details")
+		}
 		log.Errorf("getting device authorization flow info failed with error: %v", err)
 		return nil, err
 	}
@@ -140,12 +174,18 @@ func interactiveSSOLogin(ctx context.Context, config *internal.Config) (*interna
 	return &tokenInfo, nil
 }
 
-func nonInteractiveSSOLogin(ctx context.Context, client proto.DaemonServiceClient) (*internal.TokenInfo, error) {
+func daemonGetTokenInfo(ctx context.Context, client proto.DaemonServiceClient) (*internal.TokenInfo, error) {
 
 	cfg, err := client.GetConfig(ctx, &proto.GetConfigRequest{})
 	if err != nil {
 		log.Errorf("get config settings from server: %v", err)
 		return nil, err
+	}
+
+	if cfg.DeviceAuthorizationFlow == nil {
+		return nil, fmt.Errorf("no SSO provider returned from management. " +
+			"If you are using hosting Netbird see documentation at " +
+			"https://github.com/netbirdio/netbird/tree/main/management for details")
 	}
 
 	providerConfig := cfg.DeviceAuthorizationFlow.GetProviderConfig()

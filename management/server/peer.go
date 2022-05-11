@@ -262,7 +262,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 		}
 
 		if !sk.IsValid() {
-			return nil, status.Errorf(codes.FailedPrecondition, "unable to register peer, setup key was expired or overused %s", upperKey)
+			return nil, status.Errorf(codes.FailedPrecondition, "unable to register peer, its setup key is invalid (expired, overused or revoked)")
 		}
 
 	} else if len(userID) != 0 {

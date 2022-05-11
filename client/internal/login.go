@@ -74,21 +74,16 @@ func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey str
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
 func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
-
-	if setupKey == "" && jwtToken == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "no setup-key or sso information provided")
-	}
-
 	validSetupKey, err := uuid.Parse(setupKey)
-	if err != nil && jwtToken == "" {
-		return nil, err
+	if err != nil && setupKey == "" && jwtToken == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "no setup-key or sso information provided, err: %v", err)
 	}
 
 	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo()
 	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info)
 	if err != nil {
-		log.Errorf("failed registering peer %v", err)
+		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())
 		return nil, err
 	}
 

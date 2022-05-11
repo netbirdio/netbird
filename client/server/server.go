@@ -119,7 +119,7 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	// login operation uses backoff scheme to connect to management API
 	// we don't wait for result and return response immediately.
 	if err := internal.Login(ctx, s.config, msg.SetupKey, msg.JwtToken); err != nil {
-		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.InvalidArgument {
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			log.Warnf("failed login: %v", err)
 			state.Set(internal.StatusNeedsLogin)
 		} else {
