@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
@@ -19,8 +19,7 @@ var upCmd = &cobra.Command{
 
 		err := util.InitLog(logLevel, "console")
 		if err != nil {
-			log.Errorf("failed initializing log %v", err)
-			return err
+			return fmt.Errorf("failed initializing log %v", err)
 		}
 
 		ctx := internal.CtxInitState(cmd.Context())
@@ -29,14 +28,12 @@ var upCmd = &cobra.Command{
 		if logFile == "console" {
 			config, err := internal.GetConfig(managementURL, adminURL, configPath, preSharedKey)
 			if err != nil {
-				log.Errorf("get config file: %v", err)
-				return err
+				return fmt.Errorf("get config file: %v", err)
 			}
 
-			err = foregroundLogin(ctx, config, setupKey)
+			err = foregroundLogin(ctx, cmd, config, setupKey)
 			if err != nil {
-				log.Errorf("foreground login failed: %v", err)
-				return err
+				return fmt.Errorf("foreground login failed: %v", err)
 			}
 
 			var cancel context.CancelFunc
@@ -47,63 +44,67 @@ var upCmd = &cobra.Command{
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
-			log.Errorf("failed to connect to service CLI interface %v", err)
-			return err
+			return fmt.Errorf("failed to connect to daemon error: %v\n"+
+				"If the daemon is not running please run: "+
+				"\nnetbird service install \nnetbird service start\n", err)
 		}
 		defer conn.Close()
 
-		daemonClient := proto.NewDaemonServiceClient(conn)
+		client := proto.NewDaemonServiceClient(conn)
 
-		status, err := daemonClient.Status(ctx, &proto.StatusRequest{})
+		status, err := client.Status(ctx, &proto.StatusRequest{})
 		if err != nil {
-			log.Errorf("unable to get daemon status: %v", err)
-			return err
+			return fmt.Errorf("unable to get daemon status: %v", err)
 		}
 
-		var loginRequest proto.LoginRequest
-		if status.Status == string(internal.StatusNeedsLogin) {
-			jwtToken := ""
-
-			if setupKey == "" {
-				tokenInfo, err := daemonGetTokenInfo(ctx, daemonClient)
-				if err != nil {
-					log.Errorf("interactive sso login failed: %v", err)
-					return err
-				}
-				jwtToken = tokenInfo.AccessToken
-			}
-			loginRequest = proto.LoginRequest{
+		if status.Status == string(internal.StatusNeedsLogin) || status.Status == string(internal.StatusLoginFailed) {
+			loginRequest := proto.LoginRequest{
 				SetupKey:      setupKey,
 				PreSharedKey:  preSharedKey,
 				ManagementUrl: managementURL,
-				JwtToken:      jwtToken,
 			}
 
 			var loginErr error
 
+			var loginResp *proto.LoginResponse
+
 			err = WithBackOff(func() error {
-				_, err := daemonClient.Login(ctx, &loginRequest)
-				if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-					loginErr = err
+				var backOffErr error
+				loginResp, backOffErr = client.Login(ctx, &loginRequest)
+				if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
+					s.Code() == codes.PermissionDenied ||
+					s.Code() == codes.NotFound ||
+					s.Code() == codes.Unimplemented) {
+					loginErr = backOffErr
 					return nil
 				}
-				return err
+				return backOffErr
 			})
-			if err != nil && loginErr != nil {
-				log.Errorf("login backoff cycle failed: %v", err)
-				return err
+			if err != nil {
+				return fmt.Errorf("login backoff cycle failed: %v", err)
 			}
 
+			if loginErr != nil {
+				return fmt.Errorf("login failed: %v", loginErr)
+			}
+
+			if loginResp.NeedsSSOLogin {
+				openURL(cmd, loginResp.VerificationURI, loginResp.VerificationURIComplete, loginResp.UserCode)
+
+				_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+				if err != nil {
+					return fmt.Errorf("waiting sso login failed with: %v", err)
+				}
+			}
 		} else if status.Status != string(internal.StatusIdle) {
-			log.Warnf("already connected")
+			cmd.Println("Already connected")
 			return nil
 		}
 
-		if _, err := daemonClient.Up(ctx, &proto.UpRequest{}); err != nil {
-			log.Errorf("call service up method: %v", err)
-			return err
+		if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
+			return fmt.Errorf("call service up method: %v", err)
 		}
-
+		cmd.Println("Connected")
 		return nil
 	},
 }

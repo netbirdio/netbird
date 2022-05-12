@@ -229,46 +229,24 @@ func (s *serviceClient) login() error {
 		return err
 	}
 
-	cfg, err := conn.GetConfig(s.ctx, &proto.GetConfigRequest{})
+	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{})
 	if err != nil {
-		log.Errorf("get config settings from server: %v", err)
+		log.Errorf("login to management URL with: %v", err)
 		return err
 	}
 
-	providerConfig := cfg.DeviceAuthorizationFlow.GetProviderConfig()
+	if loginResp.NeedsSSOLogin {
+		err = open.Run(loginResp.VerificationURIComplete)
+		if err != nil {
+			log.Errorf("opening the verification uri in the browser failed: %v", err)
+			return err
+		}
 
-	hostedClient := internal.NewHostedDeviceFlow(
-		providerConfig.Audience,
-		providerConfig.ClientID,
-		providerConfig.Domain,
-	)
-
-	flowInfo, err := hostedClient.RequestDeviceCode(context.TODO())
-	if err != nil {
-		log.Errorf("getting a request device code failed: %v", err)
-		return err
-	}
-
-	err = open.Run(flowInfo.VerificationURIComplete)
-	if err != nil {
-		log.Errorf("opening the verification uri in the browser failed: %v", err)
-		return err
-	}
-
-	waitTimeout := time.Duration(flowInfo.ExpiresIn)
-	waitCTX, c := context.WithTimeout(context.TODO(), waitTimeout*time.Second)
-	defer c()
-
-	tokenInfo, err := hostedClient.WaitToken(waitCTX, flowInfo)
-	if err != nil {
-		log.Errorf("waiting for browser login failed: %v", err)
-		return err
-	}
-
-	_, err = conn.Login(s.ctx, &proto.LoginRequest{JwtToken: tokenInfo.AccessToken})
-	if err != nil {
-		log.Errorf("login to management URL: %v", err)
-		return err
+		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+		if err != nil {
+			log.Errorf("waiting sso login failed with: %v", err)
+			return err
+		}
 	}
 
 	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
@@ -292,7 +270,7 @@ func (s *serviceClient) menuUpClick() error {
 		return err
 	}
 
-	if status.Status == string(internal.StatusNeedsLogin) {
+	if status.Status == string(internal.StatusNeedsLogin) || status.Status == string(internal.StatusLoginFailed) {
 		err = s.login()
 		if err != nil {
 			log.Errorf("get service status: %v", err)
