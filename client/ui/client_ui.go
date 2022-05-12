@@ -195,24 +195,22 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					return
 				}
 
-				if !s.mUp.Disabled() {
-
-					_, err = client.Login(s.ctx, &proto.LoginRequest{
-						ManagementUrl: s.iMngURL.Text,
-						AdminURL:      s.iAdminURL.Text,
-						PreSharedKey:  s.iPreSharedKey.Text,
-					})
-					if err != nil {
-						log.Errorf("login to management URL: %v", err)
-						return
-					}
-
-					_, err = client.Up(s.ctx, &proto.UpRequest{})
-					if err != nil {
-						log.Errorf("login to management URL: %v", err)
-						return
-					}
+				_, err = client.Login(s.ctx, &proto.LoginRequest{
+					ManagementUrl: s.iMngURL.Text,
+					AdminURL:      s.iAdminURL.Text,
+					PreSharedKey:  s.iPreSharedKey.Text,
+				})
+				if err != nil {
+					log.Errorf("login to management URL: %v", err)
+					return
 				}
+
+				_, err = client.Up(s.ctx, &proto.UpRequest{})
+				if err != nil {
+					log.Errorf("login to management URL: %v", err)
+					return
+				}
+
 			}
 			s.wSettings.Close()
 		},
