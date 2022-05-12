@@ -24,6 +24,11 @@ var installCmd = &cobra.Command{
 			logLevel,
 		}
 
+		if managementURL != "" {
+			svcConfig.Arguments = append(svcConfig.Arguments, "--management-url")
+			svcConfig.Arguments = append(svcConfig.Arguments, managementURL)
+		}
+
 		if runtime.GOOS == "linux" {
 			// Respected only by systemd systems
 			svcConfig.Dependencies = []string{"After=network.target syslog.target"}

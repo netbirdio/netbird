@@ -30,12 +30,12 @@ var (
 	managementURL     string
 	adminURL          string
 	setupKey          string
-	jwtToken          string
 	preSharedKey      string
 	rootCmd           = &cobra.Command{
-		Use:   "wiretrustee",
-		Short: "",
-		Long:  "",
+		Use:          "wiretrustee",
+		Short:        "",
+		Long:         "",
+		SilenceUsage: true,
 	}
 )
 

@@ -47,7 +47,7 @@ func (p *program) Start(svc service.Service) error {
 		defer listen.Close()
 
 		if split[0] == "unix" {
-			err = os.Chmod(split[1], 0o666)
+			err = os.Chmod(split[1], 0666)
 			if err != nil {
 				log.Errorf("failed setting daemon permissions: %v", split[1])
 				return
@@ -56,7 +56,7 @@ func (p *program) Start(svc service.Service) error {
 
 		serverInstance := server.New(p.ctx, managementURL, adminURL, configPath, logFile)
 		if err := serverInstance.Start(); err != nil {
-			log.Fatalf("failed start daemon: %v", err)
+			log.Fatalf("failed to start daemon: %v", err)
 		}
 		proto.RegisterDaemonServiceServer(p.serv, serverInstance)
 

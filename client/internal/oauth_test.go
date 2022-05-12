@@ -1,4 +1,4 @@
-package oauth
+package internal
 
 import (
 	"context"
@@ -43,7 +43,7 @@ func (c *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
 	}, c.err
 }
 
-func TestAuth0_RequestDeviceCode(t *testing.T) {
+func TestHosted_RequestDeviceCode(t *testing.T) {
 	type test struct {
 		name             string
 		inputResBody     string
@@ -107,14 +107,14 @@ func TestAuth0_RequestDeviceCode(t *testing.T) {
 				err:     testCase.inputReqError,
 			}
 
-			auth0 := Auth0{
+			hosted := Hosted{
 				Audience:   testCase.expectPayload.Audience,
 				ClientID:   testCase.expectPayload.ClientID,
-				Domain:     "test.auth0.com",
+				Domain:     "test.hosted.com",
 				HTTPClient: &httpClient,
 			}
 
-			authInfo, err := auth0.RequestDeviceCode(context.TODO())
+			authInfo, err := hosted.RequestDeviceCode(context.TODO())
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
 			payload, _ := json.Marshal(testCase.expectPayload)
@@ -127,7 +127,7 @@ func TestAuth0_RequestDeviceCode(t *testing.T) {
 	}
 }
 
-func TestAuth0_WaitToken(t *testing.T) {
+func TestHosted_WaitToken(t *testing.T) {
 	type test struct {
 		name              string
 		inputResBody      string
@@ -153,7 +153,7 @@ func TestAuth0_WaitToken(t *testing.T) {
 	}
 
 	tokenReqPayload := TokenRequestPayload{
-		GrantType:  auth0GrantType,
+		GrantType:  HostedGrantType,
 		DeviceCode: defaultInfo.DeviceCode,
 		ClientID:   "test",
 	}
@@ -267,16 +267,16 @@ func TestAuth0_WaitToken(t *testing.T) {
 				countResBody: testCase.inputCountResBody,
 			}
 
-			auth0 := Auth0{
+			hosted := Hosted{
 				Audience:   testCase.inputAudience,
 				ClientID:   testCase.expectPayload.ClientID,
-				Domain:     "test.auth0.com",
+				Domain:     "test.hosted.com",
 				HTTPClient: &httpClient,
 			}
 
 			ctx, cancel := context.WithTimeout(context.TODO(), testCase.inputTimeout)
 			defer cancel()
-			tokenInfo, err := auth0.WaitToken(ctx, testCase.inputInfo)
+			tokenInfo, err := hosted.WaitToken(ctx, testCase.inputInfo)
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
 			var payload []byte
@@ -294,7 +294,7 @@ func TestAuth0_WaitToken(t *testing.T) {
 	}
 }
 
-func TestAuth0_RotateAccessToken(t *testing.T) {
+func TestHosted_RotateAccessToken(t *testing.T) {
 	type test struct {
 		name             string
 		inputResBody     string
@@ -318,7 +318,7 @@ func TestAuth0_RotateAccessToken(t *testing.T) {
 	}
 
 	tokenReqPayload := TokenRequestPayload{
-		GrantType:    auth0RefreshGrant,
+		GrantType:    HostedRefreshGrant,
 		ClientID:     "test",
 		RefreshToken: "refresh_test",
 	}
@@ -391,14 +391,14 @@ func TestAuth0_RotateAccessToken(t *testing.T) {
 				MaxReqs: testCase.inputMaxReqs,
 			}
 
-			auth0 := Auth0{
+			hosted := Hosted{
 				Audience:   testCase.inputAudience,
 				ClientID:   testCase.expectPayload.ClientID,
-				Domain:     "test.auth0.com",
+				Domain:     "test.hosted.com",
 				HTTPClient: &httpClient,
 			}
 
-			tokenInfo, err := auth0.RotateAccessToken(context.TODO(), testCase.expectPayload.RefreshToken)
+			tokenInfo, err := hosted.RotateAccessToken(context.TODO(), testCase.expectPayload.RefreshToken)
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
 			var payload []byte
