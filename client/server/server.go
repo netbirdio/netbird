@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
-	"strings"
 	"sync"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -23,6 +23,9 @@ type Server struct {
 	adminURL      string
 	configPath    string
 	logFile       string
+
+	oauthClient    internal.OAuthClient
+	deviceAuthInfo internal.DeviceAuthInfo
 
 	mutex  sync.Mutex
 	config *internal.Config
@@ -88,7 +91,7 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	state := internal.CtxGetState(ctx)
 	defer func() {
 		s, err := state.Status()
-		if err != nil || s != internal.StatusNeedsLogin {
+		if err != nil || (s != internal.StatusNeedsLogin && s != internal.StatusLoginFailed) {
 			state.Set(internal.StatusIdle)
 		}
 	}()
@@ -116,20 +119,122 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	s.config = config
 	s.mutex.Unlock()
 
-	// login operation uses backoff scheme to connect to management API
-	// we don't wait for result and return response immediately.
-	if err := internal.Login(ctx, s.config, msg.SetupKey, msg.JwtToken); err != nil {
+	if msg.SetupKey == "" {
+		providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config)
+		if err != nil {
+			state.Set(internal.StatusLoginFailed)
+			s, ok := gstatus.FromError(err)
+			if ok && s.Code() == codes.NotFound {
+				return nil, gstatus.Errorf(codes.NotFound, "no SSO provider returned from management. "+
+					"If you are using hosting Netbird see documentation at "+
+					"https://github.com/netbirdio/netbird/tree/main/management for details")
+			} else if ok && s.Code() == codes.Unimplemented {
+				return nil, gstatus.Errorf(codes.Unimplemented, "the management server, %s, does not support SSO providers, "+
+					"please update your server or use Setup Keys to login", config.ManagementURL)
+			} else {
+				log.Errorf("getting device authorization flow info failed with error: %v", err)
+				return nil, err
+			}
+		}
+
+		hostedClient := internal.NewHostedDeviceFlow(
+			providerConfig.ProviderConfig.Audience,
+			providerConfig.ProviderConfig.ClientID,
+			providerConfig.ProviderConfig.Domain,
+		)
+
+		deviceAuthInfo, err := hostedClient.RequestDeviceCode(context.TODO())
+		if err != nil {
+			log.Errorf("getting a request device code failed: %v", err)
+			return nil, err
+		}
+
+		s.mutex.Lock()
+		s.oauthClient = hostedClient
+		s.deviceAuthInfo = deviceAuthInfo
+		s.mutex.Unlock()
+
+		state.Set(internal.StatusNeedsLogin)
+
+		return &proto.LoginResponse{
+			NeedsSSOLogin:           true,
+			VerificationURI:         deviceAuthInfo.VerificationURI,
+			VerificationURIComplete: deviceAuthInfo.VerificationURIComplete,
+			UserCode:                deviceAuthInfo.UserCode,
+		}, nil
+	}
+
+	if err := internal.Login(ctx, s.config, msg.SetupKey, ""); err != nil {
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			log.Warnf("failed login: %v", err)
+			log.Warnf("failed login with known status: %v", err)
 			state.Set(internal.StatusNeedsLogin)
 		} else {
 			log.Errorf("failed login: %v", err)
-			state.Set(internal.StatusIdle)
+			state.Set(internal.StatusLoginFailed)
 		}
 		return nil, err
 	}
 
 	return &proto.LoginResponse{}, nil
+}
+
+// WaitSSOLogin uses the userCode to validate the TokenInfo and
+// waits for the user to continue with the login on a browser
+func (s *Server) WaitSSOLogin(_ context.Context, msg *proto.WaitSSOLoginRequest) (*proto.WaitSSOLoginResponse, error) {
+	s.mutex.Lock()
+	if s.actCancel != nil {
+		s.actCancel()
+	}
+	ctx, cancel := context.WithCancel(s.rootCtx)
+	s.actCancel = cancel
+	s.mutex.Unlock()
+
+	if s.oauthClient == nil {
+		return nil, gstatus.Errorf(codes.Internal, "oauth client is not initialized")
+	}
+
+	state := internal.CtxGetState(ctx)
+	defer func() {
+		s, err := state.Status()
+		if err != nil || (s != internal.StatusNeedsLogin && s != internal.StatusLoginFailed) {
+			state.Set(internal.StatusIdle)
+		}
+	}()
+
+	state.Set(internal.StatusConnecting)
+
+	s.mutex.Lock()
+	deviceAuthInfo := s.deviceAuthInfo
+	s.mutex.Unlock()
+
+	if deviceAuthInfo.UserCode != msg.UserCode {
+		state.Set(internal.StatusLoginFailed)
+		return nil, gstatus.Errorf(codes.InvalidArgument, "sso user code is invalid")
+	}
+
+	waitTimeout := time.Duration(deviceAuthInfo.ExpiresIn)
+	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout*time.Second)
+	defer cancel()
+
+	tokenInfo, err := s.oauthClient.WaitToken(waitCTX, deviceAuthInfo)
+	if err != nil {
+		state.Set(internal.StatusLoginFailed)
+		log.Errorf("waiting for browser login failed: %v", err)
+		return nil, err
+	}
+
+	if err := internal.Login(ctx, s.config, "", tokenInfo.AccessToken); err != nil {
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+			log.Warnf("failed login: %v", err)
+			state.Set(internal.StatusNeedsLogin)
+		} else {
+			log.Errorf("failed login: %v", err)
+			state.Set(internal.StatusLoginFailed)
+		}
+		return nil, err
+	}
+
+	return &proto.WaitSSOLoginResponse{}, nil
 }
 
 // Up starts engine work in the daemon.
@@ -205,8 +310,6 @@ func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*p
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	var deviceAuthorizationFlow *proto.DeviceAuthorizationFlow
-
 	managementURL := s.managementURL
 	adminURL := s.adminURL
 	preSharedKey := ""
@@ -225,47 +328,13 @@ func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*p
 			preSharedKey = "**********"
 		}
 
-		flowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, s.config)
-		if err != nil {
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
-				log.Warnf("server couldn't find device flow, contact admin: %v", err)
-			} else {
-				return nil, err
-			}
-		} else {
-			provider, err := toDeviceFlowProvider(flowInfo.Provider)
-			if err != nil {
-				return nil, fmt.Errorf("retrieved provider name \"%s\" is not in the Provider map", flowInfo.Provider)
-			}
-
-			deviceAuthorizationFlow = &proto.DeviceAuthorizationFlow{
-				Provider: provider,
-				ProviderConfig: &proto.ProviderConfig{
-					Audience:     flowInfo.ProviderConfig.Audience,
-					ClientID:     flowInfo.ProviderConfig.ClientID,
-					ClientSecret: flowInfo.ProviderConfig.ClientSecret,
-					Domain:       flowInfo.ProviderConfig.Domain,
-				},
-			}
-		}
 	}
 
 	return &proto.GetConfigResponse{
-		ManagementUrl:           managementURL,
-		AdminURL:                adminURL,
-		ConfigFile:              s.configPath,
-		LogFile:                 s.logFile,
-		PreSharedKey:            preSharedKey,
-		DeviceAuthorizationFlow: deviceAuthorizationFlow,
+		ManagementUrl: managementURL,
+		AdminURL:      adminURL,
+		ConfigFile:    s.configPath,
+		LogFile:       s.logFile,
+		PreSharedKey:  preSharedKey,
 	}, nil
-}
-
-func toDeviceFlowProvider(provider string) (proto.DeviceAuthorizationFlowProvider, error) {
-	switch strings.ToUpper(provider) {
-	case proto.DeviceAuthorizationFlow_HOSTED.String():
-		return proto.DeviceAuthorizationFlow_HOSTED, nil
-	default:
-		var p proto.DeviceAuthorizationFlowProvider
-		return p, fmt.Errorf("no provider found for %s, consider updating your client", provider)
-	}
 }

@@ -20,6 +20,9 @@ const _ = grpc.SupportPackageIsVersion7
 type DaemonServiceClient interface {
 	// Login uses setup key to prepare configuration for the daemon.
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	// WaitSSOLogin uses the userCode to validate the TokenInfo and
+	// waits for the user to continue with the login on a browser
+	WaitSSOLogin(ctx context.Context, in *WaitSSOLoginRequest, opts ...grpc.CallOption) (*WaitSSOLoginResponse, error)
 	// Up starts engine work in the daemon.
 	Up(ctx context.Context, in *UpRequest, opts ...grpc.CallOption) (*UpResponse, error)
 	// Status of the service.
@@ -41,6 +44,15 @@ func NewDaemonServiceClient(cc grpc.ClientConnInterface) DaemonServiceClient {
 func (c *daemonServiceClient) Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error) {
 	out := new(LoginResponse)
 	err := c.cc.Invoke(ctx, "/daemon.DaemonService/Login", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *daemonServiceClient) WaitSSOLogin(ctx context.Context, in *WaitSSOLoginRequest, opts ...grpc.CallOption) (*WaitSSOLoginResponse, error) {
+	out := new(WaitSSOLoginResponse)
+	err := c.cc.Invoke(ctx, "/daemon.DaemonService/WaitSSOLogin", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +101,9 @@ func (c *daemonServiceClient) GetConfig(ctx context.Context, in *GetConfigReques
 type DaemonServiceServer interface {
 	// Login uses setup key to prepare configuration for the daemon.
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
+	// WaitSSOLogin uses the userCode to validate the TokenInfo and
+	// waits for the user to continue with the login on a browser
+	WaitSSOLogin(context.Context, *WaitSSOLoginRequest) (*WaitSSOLoginResponse, error)
 	// Up starts engine work in the daemon.
 	Up(context.Context, *UpRequest) (*UpResponse, error)
 	// Status of the service.
@@ -106,6 +121,9 @@ type UnimplementedDaemonServiceServer struct {
 
 func (UnimplementedDaemonServiceServer) Login(context.Context, *LoginRequest) (*LoginResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Login not implemented")
+}
+func (UnimplementedDaemonServiceServer) WaitSSOLogin(context.Context, *WaitSSOLoginRequest) (*WaitSSOLoginResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method WaitSSOLogin not implemented")
 }
 func (UnimplementedDaemonServiceServer) Up(context.Context, *UpRequest) (*UpResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Up not implemented")
@@ -146,6 +164,24 @@ func _DaemonService_Login_Handler(srv interface{}, ctx context.Context, dec func
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(DaemonServiceServer).Login(ctx, req.(*LoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DaemonService_WaitSSOLogin_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WaitSSOLoginRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DaemonServiceServer).WaitSSOLogin(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/daemon.DaemonService/WaitSSOLogin",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DaemonServiceServer).WaitSSOLogin(ctx, req.(*WaitSSOLoginRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -232,6 +268,10 @@ var DaemonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Login",
 			Handler:    _DaemonService_Login_Handler,
+		},
+		{
+			MethodName: "WaitSSOLogin",
+			Handler:    _DaemonService_WaitSSOLogin_Handler,
 		},
 		{
 			MethodName: "Up",
