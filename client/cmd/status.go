@@ -39,11 +39,11 @@ var statusCmd = &cobra.Command{
 		}
 
 		if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
-			// todo: update login doc url
-			cmd.Printf("run the command \"netbird up\" to login. If no SSO provider has been set " +
-				"in your management server" +
-				"you can use a setup-key, " +
-				"see more at https://www.netbird.io/docs/overview/setup-keys for more info")
+			cmd.Printf("Status: %s\n\n", resp.GetStatus())
+			cmd.Printf("Run the \"netbird up\" command to log in.\n" +
+				"If you are running a self-hosted version and no SSO provider has been configured in your Management Server,\n" +
+				"you can use a setup-key:\n\n netbird up --management-url <YOUR_MANAGEMENT_URL> --setup-key <YOUR_SETUP_KEY>\n\n" +
+				"More info: https://www.netbird.io/docs/overview/setup-keys\n\n")
 		}
 
 		return nil
