@@ -10,6 +10,10 @@ service DaemonService {
   // Login uses setup key to prepare configuration for the daemon.
   rpc Login(LoginRequest) returns (LoginResponse) {}
 
+  // WaitSSOLogin uses the userCode to validate the TokenInfo and
+  // waits for the user to continue with the login on a browser
+  rpc WaitSSOLogin(WaitSSOLoginRequest) returns (WaitSSOLoginResponse) {}
+
   // Up starts engine work in the daemon.
   rpc Up(UpRequest) returns (UpResponse) {}
 
@@ -36,11 +40,20 @@ message LoginRequest {
   // adminUrl to manage keys.
   string adminURL = 4;
 
-  // jwtToken sso token to authenticate.
-  string jwtToken = 5;
 }
 
-message LoginResponse {}
+message LoginResponse {
+  bool   needsSSOLogin = 1;
+  string userCode = 2;
+  string verificationURI = 3;
+  string verificationURIComplete = 4;
+}
+
+message WaitSSOLoginRequest {
+  string userCode = 1;
+}
+
+message WaitSSOLoginResponse {}
 
 message UpRequest {}
 

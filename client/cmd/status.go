@@ -2,9 +2,9 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"github.com/netbirdio/netbird/util"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
 
@@ -20,26 +20,32 @@ var statusCmd = &cobra.Command{
 
 		err := util.InitLog(logLevel, "console")
 		if err != nil {
-			log.Errorf("failed initializing log %v", err)
-			return err
+			return fmt.Errorf("failed initializing log %v", err)
 		}
 
 		ctx := internal.CtxInitState(context.Background())
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
 		if err != nil {
-			log.Errorf("failed to connect to service CLI interface %v", err)
-			return err
+			return fmt.Errorf("failed to connect to daemon error: %v\n"+
+				"If the daemon is not running please run: "+
+				"\nnetbird service install \nnetbird service start\n", err)
 		}
 		defer conn.Close()
 
 		resp, err := proto.NewDaemonServiceClient(conn).Status(cmd.Context(), &proto.StatusRequest{})
 		if err != nil {
-			log.Errorf("status failed: %v", status.Convert(err).Message())
-			return nil
+			return fmt.Errorf("status failed: %v", status.Convert(err).Message())
 		}
 
-		log.Infof("status: %v", resp.Status)
+		if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
+			// todo: update login doc url
+			cmd.Printf("run the command \"netbird up\" to login. If no SSO provider has been set " +
+				"in your management server" +
+				"you can use a setup-key, " +
+				"see more at https://www.netbird.io/docs/overview/setup-keys for more info")
+		}
+
 		return nil
 	},
 }

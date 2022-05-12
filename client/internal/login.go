@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-
 	"github.com/google/uuid"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -77,14 +76,14 @@ func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey str
 func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
 	validSetupKey, err := uuid.Parse(setupKey)
 	if err != nil && jwtToken == "" {
-		return nil, err
+		return nil, status.Errorf(codes.InvalidArgument, "invalid setup-key or no sso information provided, err: %v", err)
 	}
 
 	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo()
 	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info)
 	if err != nil {
-		log.Errorf("failed registering peer %v", err)
+		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())
 		return nil, err
 	}
 

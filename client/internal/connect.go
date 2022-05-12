@@ -29,7 +29,12 @@ func RunClient(ctx context.Context, config *Config) error {
 	}
 
 	state := CtxGetState(ctx)
-	defer state.Set(StatusIdle)
+	defer func() {
+		s, err := state.Status()
+		if err != nil || s != StatusNeedsLogin {
+			state.Set(StatusIdle)
+		}
+	}()
 
 	wrapErr := state.Wrap
 	operation := func() error {
@@ -57,6 +62,10 @@ func RunClient(ctx context.Context, config *Config) error {
 		mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
 			log.Warn(err)
+			if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
+				state.Set(StatusNeedsLogin)
+				return nil
+			}
 			return wrapErr(err)
 		}
 
