@@ -38,8 +38,9 @@ var statusCmd = &cobra.Command{
 			return fmt.Errorf("status failed: %v", status.Convert(err).Message())
 		}
 
+		cmd.Printf("Status: %s\n\n", resp.GetStatus())
 		if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
-			cmd.Printf("Status: %s\n\n", resp.GetStatus())
+
 			cmd.Printf("Run UP command to log in with SSO (interactive login):\n\n" +
 				" netbird up \n\n" +
 				"If you are running a self-hosted version and no SSO provider has been configured in your Management Server,\n" +
