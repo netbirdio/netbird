@@ -61,12 +61,24 @@ func (s *Server) Start() error {
 	ctx, cancel := context.WithCancel(s.rootCtx)
 	s.actCancel = cancel
 
-	// if configuration exists, we just start connections.
-	config, err := internal.GetConfig(s.managementURL, s.adminURL, s.configPath, "")
-	if err != nil {
-		log.Warnf("no config file, skip connection stage: %v", err)
+	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
+	// on failure we return error to retry
+	config, err := internal.ReadConfig(s.managementURL, s.adminURL, s.configPath, nil)
+	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
+		config, err = internal.GetConfig(s.managementURL, s.adminURL, s.configPath, "")
+		if err != nil {
+			log.Warnf("unable to create configuration file: %v", err)
+			return err
+		}
+		state.Set(internal.StatusNeedsLogin)
 		return nil
+	} else if err != nil {
+		log.Warnf("unable to create configuration file: %v", err)
+		return err
 	}
+
+	// if configuration exists, we just start connections.
+
 	s.config = config
 
 	go func() {

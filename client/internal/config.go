@@ -87,6 +87,9 @@ func parseURL(serviceName, managementURL string) (*url.URL, error) {
 // ReadConfig reads existing config. In case provided managementURL is not empty overrides the read property
 func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string) (*Config, error) {
 	config := &Config{}
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
+	}
 
 	if _, err := util.ReadJson(configPath, config); err != nil {
 		return nil, err
