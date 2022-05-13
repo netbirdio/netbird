@@ -1,4 +1,4 @@
 FROM gcr.io/distroless/base
-ENTRYPOINT [ "/go/bin/wiretrustee-mgmt","management"]
+ENTRYPOINT [ "/go/bin/netbird-mgmt","management"]
 CMD ["--log-file", "console"]
-COPY wiretrustee-mgmt /go/bin/wiretrustee-mgmt
+COPY netbird-mgmt /go/bin/netbird-mgmt
