@@ -27,10 +27,10 @@ builds:
     tags:
       - load_wgnt_from_rsrc
 
-  - id: wiretrustee-mgmt
+  - id: netbird-mgmt
     dir: management
     env: [CGO_ENABLED=0]
-    binary: wiretrustee-mgmt
+    binary: netbird-mgmt
     goos:
       - linux
     goarch:
@@ -227,11 +227,11 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - wiretrustee/management:{{ .Version }}-amd64
+      - netbird/management:{{ .Version }}-amd64
     ids:
-      - wiretrustee-mgmt
+      - netbird-mgmt
     goarch: amd64
     use: buildx
     dockerfile: management/Dockerfile
@@ -242,11 +242,11 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - wiretrustee/management:{{ .Version }}-arm64v8
+      - netbird/management:{{ .Version }}-arm64v8
     ids:
-      - wiretrustee-mgmt
+      - netbird-mgmt
     goarch: arm64
     use: buildx
     dockerfile: management/Dockerfile
@@ -257,11 +257,11 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - wiretrustee/management:{{ .Version }}-arm
+      - netbird/management:{{ .Version }}-arm
     ids:
-      - wiretrustee-mgmt
+      - netbird-mgmt
     goarch: arm
     goarm: 6
     use: buildx
@@ -273,11 +273,11 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - wiretrustee/management:{{ .Version }}-debug-amd64
+      - netbird/management:{{ .Version }}-debug-amd64
     ids:
-      - wiretrustee-mgmt
+      - netbird-mgmt
     goarch: amd64
     use: buildx
     dockerfile: management/Dockerfile.debug
@@ -288,11 +288,11 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - wiretrustee/management:{{ .Version }}-debug-arm64v8
+      - netbird/management:{{ .Version }}-debug-arm64v8
     ids:
-      - wiretrustee-mgmt
+      - netbird-mgmt
     goarch: arm64
     use: buildx
     dockerfile: management/Dockerfile.debug
@@ -303,12 +303,12 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
 
   - image_templates:
-      - wiretrustee/management:{{ .Version }}-debug-arm
+      - netbird/management:{{ .Version }}-debug-arm
     ids:
-      - wiretrustee-mgmt
+      - netbird-mgmt
     goarch: arm
     goarm: 6
     use: buildx
@@ -320,7 +320,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
 docker_manifests:
   - name_template: wiretrustee/wiretrustee:{{ .Version }}
     image_templates:
@@ -346,23 +346,23 @@ docker_manifests:
       - wiretrustee/signal:{{ .Version }}-arm
       - wiretrustee/signal:{{ .Version }}-amd64
 
-  - name_template: wiretrustee/management:{{ .Version }}
+  - name_template: netbird/management:{{ .Version }}
     image_templates:
-      - wiretrustee/management:{{ .Version }}-arm64v8
-      - wiretrustee/management:{{ .Version }}-arm
-      - wiretrustee/management:{{ .Version }}-amd64
+      - netbird/management:{{ .Version }}-arm64v8
+      - netbird/management:{{ .Version }}-arm
+      - netbird/management:{{ .Version }}-amd64
 
-  - name_template: wiretrustee/management:latest
+  - name_template: netbird/management:latest
     image_templates:
-      - wiretrustee/management:{{ .Version }}-arm64v8
-      - wiretrustee/management:{{ .Version }}-arm
-      - wiretrustee/management:{{ .Version }}-amd64
+      - netbird/management:{{ .Version }}-arm64v8
+      - netbird/management:{{ .Version }}-arm
+      - netbird/management:{{ .Version }}-amd64
 
-  - name_template: wiretrustee/management:debug-latest
+  - name_template: netbird/management:debug-latest
     image_templates:
-      - wiretrustee/management:{{ .Version }}-debug-arm64v8
-      - wiretrustee/management:{{ .Version }}-debug-arm
-      - wiretrustee/management:{{ .Version }}-debug-amd64
+      - netbird/management:{{ .Version }}-debug-arm64v8
+      - netbird/management:{{ .Version }}-debug-arm
+      - netbird/management:{{ .Version }}-debug-amd64
 
 brews:
   -
