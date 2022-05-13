@@ -24,12 +24,12 @@ fi
 
 # if wiretrustee-mgmt already exists, leave it, else create new mgmt with netbird
 OLD_PREFIX='wiretrustee-'
-if grep -q "${OLD_PREFIX}mgmt" `docker ls`; then 
+if grep -q "${OLD_PREFIX}mgmt" `docker volume ls`; then 
     VOLUME_PREFIX=$OLD_PREFIX
 fi
 
-MGMT_VOLUMENAME="${$VOLUME_PREFIX}mgmt"
-LETSENCRYPT_VOLUMENAME="${$VOLUME_PREFIX}letsencrypt"
+export MGMT_VOLUMENAME="${$VOLUME_PREFIX}mgmt"
+export LETSENCRYPT_VOLUMENAME="${$VOLUME_PREFIX}letsencrypt"
 
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 envsubst < management.json.tmpl > management.json

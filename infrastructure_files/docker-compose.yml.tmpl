@@ -35,7 +35,7 @@ services:
     depends_on:
       - dashboard
     volumes:
-      - $MGMT_VOLUMENAME:/var/lib/wiretrustee
+      - $MGMT_VOLUMENAME:/var/lib/netbird
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt:ro
       - ./management.json:/etc/netbird/management.json
     ports:

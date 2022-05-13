@@ -41,7 +41,7 @@ func init() {
 
 	defaultMgmtDataDir = "/var/lib/netbird/"
 	defaultConfigPath = "/etc/netbird"
-	defaultMgmtConfig = "/etc/netbird/management.json"
+	defaultMgmtConfig = defaultConfigPath + "/management.json"
 	defaultLogFile = "/var/log/netbird/management.log"
 
 	if runtime.GOOS == "windows" {
