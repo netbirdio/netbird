@@ -3,6 +3,14 @@ package cmd
 import (
 	"flag"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"os"
+	"path"
+	"time"
+
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/signal/server"
@@ -12,16 +20,13 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
-	"net"
-	"net/http"
-	"os"
-	"time"
 )
 
 var (
 	signalPort              int
 	signalLetsencryptDomain string
 	signalSSLDir            string
+	defaultSignalSSLDir     string
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -37,12 +42,21 @@ var (
 
 	runCmd = &cobra.Command{
 		Use:   "run",
-		Short: "start Wiretrustee Signal Server daemon",
+		Short: "start Netbird Signal Server daemon",
 		Run: func(cmd *cobra.Command, args []string) {
 			flag.Parse()
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				log.Fatalf("failed initializing log %v", err)
+			}
+
+			if signalSSLDir == "" {
+				oldPath := "/var/lib/wiretrustee"
+				if migrateToNetbird(oldPath, defaultSignalSSLDir) {
+					if err := cpDir(oldPath, defaultSignalSSLDir); err != nil {
+						log.Fatal(err)
+					}
+				}
 			}
 
 			var opts []grpc.ServerOption
@@ -87,8 +101,95 @@ var (
 	}
 )
 
+func cpFile(src, dst string) error {
+	var err error
+	var srcfd *os.File
+	var dstfd *os.File
+	var srcinfo os.FileInfo
+
+	if srcfd, err = os.Open(src); err != nil {
+		return err
+	}
+	defer srcfd.Close()
+
+	if dstfd, err = os.Create(dst); err != nil {
+		return err
+	}
+	defer dstfd.Close()
+
+	if _, err = io.Copy(dstfd, srcfd); err != nil {
+		return err
+	}
+	if srcinfo, err = os.Stat(src); err != nil {
+		return err
+	}
+	return os.Chmod(dst, srcinfo.Mode())
+}
+
+func copySymLink(source, dest string) error {
+	link, err := os.Readlink(source)
+	if err != nil {
+		return err
+	}
+	return os.Symlink(link, dest)
+}
+
+func cpDir(src string, dst string) error {
+	var err error
+	var fds []os.FileInfo
+	var srcinfo os.FileInfo
+
+	if srcinfo, err = os.Stat(src); err != nil {
+		return err
+	}
+
+	if err = os.MkdirAll(dst, srcinfo.Mode()); err != nil {
+		return err
+	}
+
+	if fds, err = ioutil.ReadDir(src); err != nil {
+		return err
+	}
+	for _, fd := range fds {
+		srcfp := path.Join(src, fd.Name())
+		dstfp := path.Join(dst, fd.Name())
+
+		fileInfo, err := os.Stat(srcfp)
+		if err != nil {
+			log.Fatalf("Couldn't get fileInfo; %v", err)
+		}
+
+		switch fileInfo.Mode() & os.ModeType {
+		case os.ModeSymlink:
+			if err = copySymLink(srcfp, dstfp); err != nil {
+				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
+			}
+		case os.ModeDir:
+			if err = cpDir(srcfp, dstfp); err != nil {
+				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
+			}
+		default:
+			if err = cpFile(srcfp, dstfp); err != nil {
+				log.Fatalf("Failed to copy from %s to %s; %v", srcfp, dstfp, err)
+			}
+		}
+	}
+	return nil
+}
+
+func migrateToNetbird(oldPath, newPath string) bool {
+	_, old := os.Stat(oldPath)
+	_, new := os.Stat(newPath)
+
+	if os.IsNotExist(old) || os.IsExist(new) {
+		return false
+	}
+
+	return true
+}
+
 func init() {
 	runCmd.PersistentFlags().IntVar(&signalPort, "port", 10000, "Server port to listen on (e.g. 10000)")
-	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", "/var/lib/wiretrustee/", "server ssl directory location. *Required only for Let's Encrypt certificates.")
+	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", defaultSignalSSLDir, "server ssl directory location. *Required only for Let's Encrypt certificates.")
 	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 }

@@ -60,9 +60,8 @@ var (
 
 			if mgmtDataDir == "" {
 				oldPath := "/var/lib/wiretrustee"
-				newPath := "/var/lib/netbird"
-				if migrateToNetbird(oldPath, newPath) {
-					if err := cpDir(oldPath, newPath); err != nil {
+				if migrateToNetbird(oldPath, defaultMgmtDataDir) {
+					if err := cpDir(oldPath, defaultMgmtDataDir); err != nil {
 						log.Fatal(err)
 					}
 				}
@@ -72,7 +71,7 @@ var (
 			if mgmtConfig == "" {
 				oldPath := "/etc/wiretrustee/management.json"
 				if migrateToNetbird(oldPath, defaultMgmtConfig) {
-					if err := cpDir("/etc/wiretrustee/", "/etc/netbird/"); err != nil {
+					if err := cpDir("/etc/wiretrustee/", defaultConfigPath); err != nil {
 						log.Fatal(err)
 					}
 
