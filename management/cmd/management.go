@@ -62,42 +62,30 @@ var (
 				oldPath := "/var/lib/wiretrustee"
 				newPath := "/var/lib/netbird"
 				if migrateToNetbird(oldPath, newPath) {
-					err := cpDir(oldPath, newPath)
-					if err != nil {
+					if err := cpDir(oldPath, newPath); err != nil {
 						log.Fatal(err)
 					}
 				}
 			}
 
-			var config *server.Config
+			actualMgmtConfigPath := mgmtConfig
 			if mgmtConfig == "" {
 				oldPath := "/etc/wiretrustee/management.json"
-				newPath := "/etc/netbird/management.json"
-				if migrateToNetbird(oldPath, newPath) {
+				if migrateToNetbird(oldPath, defaultMgmtConfig) {
 					if err := cpDir("/etc/wiretrustee/", "/etc/netbird/"); err != nil {
 						log.Fatal(err)
 					}
 
-					if err := cpFile(oldPath, newPath); err != nil {
+					if err := cpFile(oldPath, defaultMgmtConfig); err != nil {
 						log.Fatal(err)
 					}
 				}
+				actualMgmtConfigPath = defaultMgmtConfig
 			}
 
-			if mgmtConfig == "" {
-				config, err = loadConfig(defaultMgmtConfig)
-				if err != nil {
-					log.Fatal(err)
-				}
-			} else {
-				config, err = loadConfig(mgmtConfig)
-				if err != nil {
-					log.Fatal(err)
-				}
-			}
-
+			config, err := loadMgmtConfig(actualMgmtConfigPath)
 			if err != nil {
-				log.Fatalf("failed reading provided config file: %s: %v", defaultMgmtConfig, err)
+				log.Fatalf("failed reading provided config file: %s: %v", actualMgmtConfigPath, err)
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
@@ -190,7 +178,7 @@ var (
 	}
 )
 
-func loadConfig(mgmtConfigPath string) (*server.Config, error) {
+func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 	config := &server.Config{}
 	_, err := util.ReadJson(mgmtConfigPath, config)
 	if err != nil {
@@ -304,8 +292,8 @@ func cpDir(src string, dst string) error {
 }
 
 func migrateToNetbird(oldPath, newPath string) bool {
-	_, old := os.Stat(oldPath) //"/var/lib/wiretrustee"
-	_, new := os.Stat(newPath) //"/var/lib/netbird"
+	_, old := os.Stat(oldPath)
+	_, new := os.Stat(newPath)
 
 	if os.IsNotExist(old) || os.IsExist(new) {
 		return false
