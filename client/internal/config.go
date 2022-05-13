@@ -1,7 +1,11 @@
 package internal
 
 import (
+	"context"
 	"fmt"
+	mgm "github.com/netbirdio/netbird/management/client"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net/url"
 	"os"
 
@@ -83,6 +87,10 @@ func parseURL(serviceName, managementURL string) (*url.URL, error) {
 // ReadConfig reads existing config. In case provided managementURL is not empty overrides the read property
 func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string) (*Config, error) {
 	config := &Config{}
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
+	}
+
 	if _, err := util.ReadJson(configPath, config); err != nil {
 		return nil, err
 	}
@@ -150,4 +158,78 @@ func generateKey() string {
 		panic(err)
 	}
 	return key.String()
+}
+
+// DeviceAuthorizationFlow represents Device Authorization Flow information
+type DeviceAuthorizationFlow struct {
+	Provider       string
+	ProviderConfig ProviderConfig
+}
+
+// ProviderConfig has all attributes needed to initiate a device authorization flow
+type ProviderConfig struct {
+	// ClientID An IDP application client id
+	ClientID string
+	// ClientSecret An IDP application client secret
+	ClientSecret string
+	// Domain An IDP API domain
+	Domain string
+	// Audience An Audience for to authorization validation
+	Audience string
+}
+
+func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (DeviceAuthorizationFlow, error) {
+	// validate our peer's Wireguard PRIVATE key
+	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
+	if err != nil {
+		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
+		return DeviceAuthorizationFlow{}, err
+	}
+
+	var mgmTlsEnabled bool
+	if config.ManagementURL.Scheme == "https" {
+		mgmTlsEnabled = true
+	}
+
+	log.Debugf("connecting to Management Service %s", config.ManagementURL.String())
+	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+	if err != nil {
+		log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
+		return DeviceAuthorizationFlow{}, err
+	}
+	log.Debugf("connected to management Service %s", config.ManagementURL.String())
+
+	serverKey, err := mgmClient.GetServerPublicKey()
+	if err != nil {
+		log.Errorf("failed while getting Management Service public key: %v", err)
+		return DeviceAuthorizationFlow{}, err
+	}
+
+	protoDeviceAuthorizationFlow, err := mgmClient.GetDeviceAuthorizationFlow(*serverKey)
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+			log.Warnf("server couldn't find device flow, contact admin: %v", err)
+			return DeviceAuthorizationFlow{}, err
+		} else {
+			log.Errorf("failed to retrieve device flow: %v", err)
+			return DeviceAuthorizationFlow{}, err
+		}
+	}
+
+	err = mgmClient.Close()
+	if err != nil {
+		log.Errorf("failed closing Management Service client: %v", err)
+		return DeviceAuthorizationFlow{}, err
+	}
+
+	return DeviceAuthorizationFlow{
+		Provider: protoDeviceAuthorizationFlow.Provider.String(),
+
+		ProviderConfig: ProviderConfig{
+			Audience:     protoDeviceAuthorizationFlow.ProviderConfig.Audience,
+			ClientID:     protoDeviceAuthorizationFlow.ProviderConfig.ClientID,
+			ClientSecret: protoDeviceAuthorizationFlow.ProviderConfig.ClientSecret,
+			Domain:       protoDeviceAuthorizationFlow.ProviderConfig.Domain,
+		},
+	}, nil
 }

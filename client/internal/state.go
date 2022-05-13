@@ -10,8 +10,10 @@ type StatusType string
 const (
 	StatusIdle StatusType = "Idle"
 
-	StatusConnecting StatusType = "Connecting"
-	StatusConnected  StatusType = "Connected"
+	StatusConnecting  StatusType = "Connecting"
+	StatusConnected   StatusType = "Connected"
+	StatusNeedsLogin  StatusType = "NeedsLogin"
+	StatusLoginFailed StatusType = "LoginFailed"
 )
 
 // CtxInitState setup context state into the context tree.

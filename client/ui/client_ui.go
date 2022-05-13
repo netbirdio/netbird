@@ -210,6 +210,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					log.Errorf("login to management URL: %v", err)
 					return
 				}
+
 			}
 			s.wSettings.Close()
 		},
@@ -217,6 +218,41 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			s.wSettings.Close()
 		},
 	}
+}
+
+func (s *serviceClient) login() error {
+	conn, err := s.getSrvClient(defaultFailTimeout)
+	if err != nil {
+		log.Errorf("get client: %v", err)
+		return err
+	}
+
+	loginResp, err := conn.Login(s.ctx, &proto.LoginRequest{})
+	if err != nil {
+		log.Errorf("login to management URL with: %v", err)
+		return err
+	}
+
+	if loginResp.NeedsSSOLogin {
+		err = open.Run(loginResp.VerificationURIComplete)
+		if err != nil {
+			log.Errorf("opening the verification uri in the browser failed: %v", err)
+			return err
+		}
+
+		_, err = conn.WaitSSOLogin(s.ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+		if err != nil {
+			log.Errorf("waiting sso login failed with: %v", err)
+			return err
+		}
+	}
+
+	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
+		log.Errorf("up service: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 func (s *serviceClient) menuUpClick() error {
@@ -230,6 +266,14 @@ func (s *serviceClient) menuUpClick() error {
 	if err != nil {
 		log.Errorf("get service status: %v", err)
 		return err
+	}
+
+	if status.Status == string(internal.StatusNeedsLogin) || status.Status == string(internal.StatusLoginFailed) {
+		err = s.login()
+		if err != nil {
+			log.Errorf("get service status: %v", err)
+			return err
+		}
 	}
 
 	if status.Status != string(internal.StatusIdle) {
