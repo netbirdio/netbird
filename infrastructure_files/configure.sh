@@ -24,7 +24,7 @@ fi
 
 # if wiretrustee-mgmt already exists, leave it, else create new mgmt with netbird
 OLD_PREFIX='wiretrustee-'
-if grep -q "${OLD_PREFIX}mgmt" `docker volume ls`; then 
+if docker volume ls | grep -q "${OLD_PREFIX}mgmt"; then 
     VOLUME_PREFIX=$OLD_PREFIX
 fi
 
