@@ -19,10 +19,10 @@ services:
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt/
   # Signal
   signal:
-    image: wiretrustee/signal:latest
+    image: netbird/signal:latest
     restart: unless-stopped
     volumes:
-      - wiretrustee-signal:/var/lib/wiretrustee
+      - $SIGNAL_VOLUMENAME:/var/lib/netbird
     ports:
       - 10000:10000
   #     # port and command for Let's Encrypt validation
@@ -56,5 +56,5 @@ services:
     network_mode: host
 volumes:
   $MGMT_VOLUMENAME:
-  wiretrustee-signal:
+  $SIGNAL_VOLUMENAME:
   $LETSENCRYPT_VOLUMENAME:

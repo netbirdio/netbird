@@ -41,10 +41,10 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
 
-  - id: wiretrustee-signal
+  - id: netbird-signal
     dir: signal
     env: [CGO_ENABLED=0]
-    binary: wiretrustee-signal
+    binary: netbird-signal
     goos:
       - linux
     goarch:
@@ -183,9 +183,9 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=wiretrustee@wiretrustee.com"
   - image_templates:
-      - wiretrustee/signal:{{ .Version }}-amd64
+      - netbirdio/signal:{{ .Version }}-amd64
     ids:
-      - wiretrustee-signal
+      - netbird-signal
     goarch: amd64
     use: buildx
     dockerfile: signal/Dockerfile
@@ -196,11 +196,11 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - wiretrustee/signal:{{ .Version }}-arm64v8
+      - netbird/signal:{{ .Version }}-arm64v8
     ids:
-      - wiretrustee-signal
+      - netbird-signal
     goarch: arm64
     use: buildx
     dockerfile: signal/Dockerfile
@@ -211,11 +211,11 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - wiretrustee/signal:{{ .Version }}-arm
+      - netbird/signal:{{ .Version }}-arm
     ids:
-      - wiretrustee-signal
+      - netbird-signal
     goarch: arm
     goarm: 6
     use: buildx
@@ -334,17 +334,17 @@ docker_manifests:
       - wiretrustee/wiretrustee:{{ .Version }}-arm
       - wiretrustee/wiretrustee:{{ .Version }}-amd64
 
-  - name_template: wiretrustee/signal:{{ .Version }}
+  - name_template: netbird/signal:{{ .Version }}
     image_templates:
-      - wiretrustee/signal:{{ .Version }}-arm64v8
-      - wiretrustee/signal:{{ .Version }}-arm
-      - wiretrustee/signal:{{ .Version }}-amd64
+      - netbird/signal:{{ .Version }}-arm64v8
+      - netbird/signal:{{ .Version }}-arm
+      - netbird/signal:{{ .Version }}-amd64
 
-  - name_template: wiretrustee/signal:latest
+  - name_template: netbird/signal:latest
     image_templates:
-      - wiretrustee/signal:{{ .Version }}-arm64v8
-      - wiretrustee/signal:{{ .Version }}-arm
-      - wiretrustee/signal:{{ .Version }}-amd64
+      - netbird/signal:{{ .Version }}-arm64v8
+      - netbird/signal:{{ .Version }}-arm
+      - netbird/signal:{{ .Version }}-amd64
 
   - name_template: netbird/management:{{ .Version }}
     image_templates:

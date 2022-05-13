@@ -22,14 +22,24 @@ then
   export TURN_PASSWORD=$(openssl rand -base64 32|sed 's/=//g')
 fi
 
-# if wiretrustee-mgmt already exists, leave it, else create new mgmt with netbird
+MGMT_VOLUMENAME="${$VOLUME_PREFIX}${MGMT_VOLUMESUFFIX}"
+SIGNAL_VOLUMENAME="${$VOLUME_PREFIX}${SIGNAL_VOLUMESUFFIX}"
+LETSENCRYPT_VOLUMENAME="${$VOLUME_PREFIX}${LETSENCRYPT_VOLUMESUFFIX}"
+# if volume with wiretrustee- prefix already exists, use it, else create new with netbird-
 OLD_PREFIX='wiretrustee-'
-if docker volume ls | grep -q "${OLD_PREFIX}mgmt"; then 
-    VOLUME_PREFIX=$OLD_PREFIX
+if docker volume ls | grep -q "${OLD_PREFIX}${MGMT_VOLUMESUFFIX}"; then
+    MGMT_VOLUMENAME="${$OLD_PREFIX}${MGMT_VOLUMESUFFIX}"
+fi
+if docker volume ls | grep -q "${OLD_PREFIX}${SIGNAL_VOLUMESUFFIX}"; then
+    SIGNAL_VOLUMENAME="${$OLD_PREFIX}${SIGNAL_VOLUMESUFFIX}"
+fi
+if docker volume ls | grep -q "${OLD_PREFIX}${LETSENCRYPT_VOLUMESUFFIX}"; then
+    LETSENCRYPT_VOLUMENAME="${$OLD_PREFIX}${LETSENCRYPT_VOLUMESUFFIX}"
 fi
 
-export MGMT_VOLUMENAME="${$VOLUME_PREFIX}mgmt"
-export LETSENCRYPT_VOLUMENAME="${$VOLUME_PREFIX}letsencrypt"
+export MGMT_VOLUMENAME
+export SIGNAL_VOLUMENAME
+export LETSENCRYPT_VOLUMENAME
 
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 envsubst < management.json.tmpl > management.json
