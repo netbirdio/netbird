@@ -22,6 +22,15 @@ then
   export TURN_PASSWORD=$(openssl rand -base64 32|sed 's/=//g')
 fi
 
+# if wiretrustee-mgmt already exists, leave it, else create new mgmt with netbird
+OLD_PREFIX='wiretrustee-'
+if grep -q "${OLD_PREFIX}mgmt" `docker ls`; then 
+    VOLUME_PREFIX=$OLD_PREFIX
+fi
+
+MGMT_VOLUMENAME="${$VOLUME_PREFIX}mgmt"
+LETSENCRYPT_VOLUMENAME="${$VOLUME_PREFIX}letsencrypt"
+
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 envsubst < management.json.tmpl > management.json
 envsubst < turnserver.conf.tmpl > turnserver.conf

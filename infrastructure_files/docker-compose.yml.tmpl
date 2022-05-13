@@ -16,7 +16,7 @@ services:
       - LETSENCRYPT_DOMAIN=$WIRETRUSTEE_DOMAIN
       - LETSENCRYPT_EMAIL=$WIRETRUSTEE_LETSENCRYPT_EMAIL
     volumes:
-      - wiretrustee-letsencrypt:/etc/letsencrypt/
+      - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt/
   # Signal
   signal:
     image: wiretrustee/signal:latest
@@ -35,8 +35,8 @@ services:
     depends_on:
       - dashboard
     volumes:
-      - wiretrustee-mgmt:/var/lib/wiretrustee
-      - wiretrustee-letsencrypt:/etc/letsencrypt:ro
+      - $MGMT_VOLUMENAME:/var/lib/wiretrustee
+      - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt:ro
       - ./management.json:/etc/netbird/management.json
     ports:
       - 33073:33073 #gRPC port
@@ -55,6 +55,6 @@ services:
     #      - ./cert.pem:/etc/coturn/certs/cert.pem:ro
     network_mode: host
 volumes:
-  wiretrustee-mgmt:
+  $MGMT_VOLUMENAME:
   wiretrustee-signal:
-  wiretrustee-letsencrypt:
+  $LETSENCRYPT_VOLUMENAME:
