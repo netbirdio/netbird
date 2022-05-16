@@ -42,7 +42,7 @@ type Peer struct {
 	// Name is peer's name (machine name)
 	Name   string
 	Status *PeerStatus
-	//The user ID that registered the peer
+	// The user ID that registered the peer
 	UserID string
 }
 
@@ -98,7 +98,11 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected boo
 }
 
 // RenamePeer changes peer's name
-func (am *DefaultAccountManager) RenamePeer(accountId string, peerKey string, newName string) (*Peer, error) {
+func (am *DefaultAccountManager) RenamePeer(
+	accountId string,
+	peerKey string,
+	newName string,
+) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -223,7 +227,15 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 	}
 
 	var res []*Peer
-	rules, err := am.Store.GetPeerSrcRules(account.Id, peerKey)
+	srcRules, err := am.Store.GetPeerSrcRules(account.Id, peerKey)
+	if err != nil {
+		return &NetworkMap{
+			Peers:   res,
+			Network: account.Network.Copy(),
+		}, nil
+	}
+
+	dstRules, err := am.Store.GetPeerDstRules(account.Id, peerKey)
 	if err != nil {
 		return &NetworkMap{
 			Peers:   res,
@@ -232,9 +244,19 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 	}
 
 	groups := map[string]*Group{}
-	for _, r := range rules {
-		for _, gid := range r.Destination {
-			groups[gid] = account.Groups[gid]
+	for _, r := range srcRules {
+		if r.Flow == TrafficFlowBidirect {
+			for _, gid := range r.Destination {
+				groups[gid] = account.Groups[gid]
+			}
+		}
+	}
+
+	for _, r := range dstRules {
+		if r.Flow == TrafficFlowBidirect {
+			for _, gid := range r.Source {
+				groups[gid] = account.Groups[gid]
+			}
 		}
 	}
 
@@ -261,7 +283,11 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 // to it. We also add the User ID to the peer metadata to identify registrant.
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *Peer) (*Peer, error) {
+func (am *DefaultAccountManager) AddPeer(
+	setupKey string,
+	userID string,
+	peer *Peer,
+) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -273,17 +299,28 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	if len(upperKey) != 0 {
 		account, err = am.Store.GetAccountBySetupKey(upperKey)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "unable to register peer, unable to find account with setupKey %s", upperKey)
+			return nil, status.Errorf(
+				codes.NotFound,
+				"unable to register peer, unable to find account with setupKey %s",
+				upperKey,
+			)
 		}
 
 		sk = getAccountSetupKeyByKey(account, upperKey)
 		if sk == nil {
 			// shouldn't happen actually
-			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown setupKey %s", upperKey)
+			return nil, status.Errorf(
+				codes.NotFound,
+				"unable to register peer, unknown setupKey %s",
+				upperKey,
+			)
 		}
 
 		if !sk.IsValid() {
-			return nil, status.Errorf(codes.FailedPrecondition, "unable to register peer, its setup key is invalid (expired, overused or revoked)")
+			return nil, status.Errorf(
+				codes.FailedPrecondition,
+				"unable to register peer, its setup key is invalid (expired, overused or revoked)",
+			)
 		}
 
 	} else if len(userID) != 0 {

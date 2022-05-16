@@ -3,6 +3,13 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+	"time"
+
 	"github.com/netbirdio/netbird/encryption"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/util"
@@ -11,12 +18,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
-	"net"
-	"os"
-	"path/filepath"
-	"runtime"
-	"testing"
-	"time"
 )
 
 var (
@@ -39,8 +40,7 @@ const (
 
 // registerPeers registers peersNum peers on the management service and returns their Wireguard keys
 func registerPeers(peersNum int, client mgmtProto.ManagementServiceClient) ([]*wgtypes.Key, error) {
-
-	var peers = []*wgtypes.Key{}
+	peers := []*wgtypes.Key{}
 	for i := 0; i < peersNum; i++ {
 		key, err := wgtypes.GeneratePrivateKey()
 		if err != nil {
@@ -60,7 +60,6 @@ func registerPeers(peersNum int, client mgmtProto.ManagementServiceClient) ([]*w
 
 // getServerKey gets Management Service Wireguard public key
 func getServerKey(client mgmtProto.ManagementServiceClient) (*wgtypes.Key, error) {
-
 	keyResp, err := client.GetServerKey(context.TODO(), &mgmtProto.Empty{})
 	if err != nil {
 		return nil, err
@@ -75,7 +74,6 @@ func getServerKey(client mgmtProto.ManagementServiceClient) (*wgtypes.Key, error
 }
 
 func Test_SyncProtocol(t *testing.T) {
-
 	dir := t.TempDir()
 	err := util.CopyFileContents("testdata/store.json", filepath.Join(dir, "store.json"))
 	if err != nil {
@@ -263,7 +261,6 @@ func Test_SyncProtocol(t *testing.T) {
 }
 
 func loginPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServiceClient) (*mgmtProto.LoginResponse, error) {
-
 	serverKey, err := getServerKey(client)
 	if err != nil {
 		return nil, err
@@ -298,11 +295,9 @@ func loginPeerWithValidSetupKey(key wgtypes.Key, client mgmtProto.ManagementServ
 	}
 
 	return loginResp, nil
-
 }
 
 func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
-
 	testingServerKey, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		t.Errorf("unable to generate server wg key for testing GetDeviceAuthorizationFlow, error: %v", err)
@@ -362,7 +357,6 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-
 			mgmtServer := &Server{
 				wgKey: testingServerKey,
 				config: &Config{
@@ -397,7 +391,6 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 }
 
 func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, error) {
-
 	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
 	if err != nil {
 		return nil, err
@@ -408,7 +401,10 @@ func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, erro
 		return nil, err
 	}
 	peersUpdateManager := NewPeersUpdateManager()
-	accountManager := NewManager(store, peersUpdateManager, nil)
+	accountManager, err := BuildManager(store, peersUpdateManager, nil)
+	if err != nil {
+		return nil, err
+	}
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager)
 	if err != nil {
