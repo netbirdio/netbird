@@ -18,8 +18,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initACLsTestData(rules ...*server.Rule) *ACLs {
-	return &ACLs{
+func initRulesTestData(rules ...*server.Rule) *Rules {
+	return &Rules{
 		accountManager: &mock_server.MockAccountManager{
 			SaveRuleFunc: func(_ string, rule *server.Rule) error {
 				if !strings.HasPrefix(rule.ID, "id-") {
@@ -59,7 +59,7 @@ func initACLsTestData(rules ...*server.Rule) *ACLs {
 	}
 }
 
-func TestACLsGetRule(t *testing.T) {
+func TestRulesGetRule(t *testing.T) {
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -88,7 +88,7 @@ func TestACLsGetRule(t *testing.T) {
 		Name: "Rule",
 	}
 
-	p := initACLsTestData(rule)
+	p := initRulesTestData(rule)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -128,7 +128,7 @@ func TestACLsGetRule(t *testing.T) {
 	}
 }
 
-func TestACLsSaveRule(t *testing.T) {
+func TestRulesSaveRule(t *testing.T) {
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -165,7 +165,7 @@ func TestACLsSaveRule(t *testing.T) {
 		},
 	}
 
-	p := initACLsTestData()
+	p := initRulesTestData()
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
