@@ -1,8 +1,8 @@
-project_name: wiretrustee-ui
+project_name: netbird-ui
 builds:
-  - id: wiretrustee-ui-darwin
+  - id: netbird-ui-darwin
     dir: client/ui
-    binary: wiretrustee-ui
+    binary: netbird-ui
     env: [CGO_ENABLED=1]
 
     goos:
@@ -21,18 +21,18 @@ builds:
 
 archives:
   - builds:
-      - wiretrustee-ui-darwin
+      - netbird-ui-darwin
 
-brews:
-  -
-    tap:
-      owner: wiretrustee
-      name: homebrew-client
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    commit_author:
-      name: Wiretrustee
-      email: wiretrustee@wiretrustee.com
-    description: Wiretrustee project.
-    download_strategy: CurlDownloadStrategy
-    homepage: https://wiretrustee.com/
-    license: "BSD3"
+  - id: netbird-app
+    builds:
+      - netbird-ui-darwin
+    format: zip
+    name_template: "{{ .ProjectName }}_app_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    wrap_in_directory: true
+    files:
+      - src: client/ui/Info.plist
+        strip_parent: true
+        dst: ./
+      - src: client/ui/Netbird.icns
+        dst: ./
+        strip_parent: true
