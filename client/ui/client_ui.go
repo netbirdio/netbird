@@ -247,11 +247,6 @@ func (s *serviceClient) login() error {
 		}
 	}
 
-	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
-		log.Errorf("up service: %v", err)
-		return err
-	}
-
 	return nil
 }
 
@@ -274,6 +269,12 @@ func (s *serviceClient) menuUpClick() error {
 			log.Errorf("get service status: %v", err)
 			return err
 		}
+	}
+
+	status, err = conn.Status(s.ctx, &proto.StatusRequest{})
+	if err != nil {
+		log.Errorf("get service status: %v", err)
+		return err
 	}
 
 	if status.Status != string(internal.StatusIdle) {
