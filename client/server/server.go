@@ -102,8 +102,8 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 
 	state := internal.CtxGetState(ctx)
 	defer func() {
-		s, err := state.Status()
-		if err != nil || (s != internal.StatusNeedsLogin && s != internal.StatusLoginFailed) {
+		status, err := state.Status()
+		if err != nil || (status != internal.StatusNeedsLogin && status != internal.StatusLoginFailed) {
 			state.Set(internal.StatusIdle)
 		}
 	}()
@@ -131,7 +131,7 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	s.config = config
 	s.mutex.Unlock()
 
-	if s, _ := state.Status(); s != internal.StatusNeedsLogin && s != internal.StatusLoginFailed {
+	if status, _ := state.Status(); status != internal.StatusNeedsLogin && status != internal.StatusLoginFailed {
 		return &proto.LoginResponse{}, nil
 	}
 
