@@ -90,6 +90,23 @@ func (s *Server) Start() error {
 	return nil
 }
 
+// loginAttempt attempts to login using the provided information. it returns a status in case something fails
+func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
+	var status internal.StatusType
+	err := internal.Login(ctx, s.config, setupKey, jwtToken)
+	if err != nil {
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+			log.Warnf("failed login: %v", err)
+			status = internal.StatusNeedsLogin
+		} else {
+			log.Errorf("failed login: %v", err)
+			status = internal.StatusLoginFailed
+		}
+		return status, err
+	}
+	return "", nil
+}
+
 // Login uses setup key to prepare configuration for the daemon.
 func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
 	s.mutex.Lock()
@@ -102,23 +119,23 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 
 	state := internal.CtxGetState(ctx)
 	defer func() {
-		s, err := state.Status()
-		if err != nil || (s != internal.StatusNeedsLogin && s != internal.StatusLoginFailed) {
+		status, err := state.Status()
+		if err != nil || (status != internal.StatusNeedsLogin && status != internal.StatusLoginFailed) {
 			state.Set(internal.StatusIdle)
 		}
 	}()
-
-	state.Set(internal.StatusConnecting)
 
 	s.mutex.Lock()
 	managementURL := s.managementURL
 	if msg.ManagementUrl != "" {
 		managementURL = msg.ManagementUrl
+		s.managementURL = msg.ManagementUrl
 	}
 
 	adminURL := s.adminURL
 	if msg.AdminURL != "" {
 		adminURL = msg.AdminURL
+		s.adminURL = msg.AdminURL
 	}
 	s.mutex.Unlock()
 
@@ -130,6 +147,13 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	s.mutex.Lock()
 	s.config = config
 	s.mutex.Unlock()
+
+	if _, err := s.loginAttempt(ctx, "", ""); err == nil {
+		state.Set(internal.StatusIdle)
+		return &proto.LoginResponse{}, nil
+	}
+
+	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
 		providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config)
@@ -176,14 +200,8 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 		}, nil
 	}
 
-	if err := internal.Login(ctx, s.config, msg.SetupKey, ""); err != nil {
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			log.Warnf("failed login with known status: %v", err)
-			state.Set(internal.StatusNeedsLogin)
-		} else {
-			log.Errorf("failed login: %v", err)
-			state.Set(internal.StatusLoginFailed)
-		}
+	if loginStatus, err := s.loginAttempt(ctx, msg.SetupKey, ""); err != nil {
+		state.Set(loginStatus)
 		return nil, err
 	}
 
@@ -235,14 +253,8 @@ func (s *Server) WaitSSOLogin(_ context.Context, msg *proto.WaitSSOLoginRequest)
 		return nil, err
 	}
 
-	if err := internal.Login(ctx, s.config, "", tokenInfo.AccessToken); err != nil {
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			log.Warnf("failed login: %v", err)
-			state.Set(internal.StatusNeedsLogin)
-		} else {
-			log.Errorf("failed login: %v", err)
-			state.Set(internal.StatusLoginFailed)
-		}
+	if loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.AccessToken); err != nil {
+		state.Set(loginStatus)
 		return nil, err
 	}
 
