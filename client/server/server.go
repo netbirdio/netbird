@@ -108,17 +108,17 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 		}
 	}()
 
-	state.Set(internal.StatusConnecting)
-
 	s.mutex.Lock()
 	managementURL := s.managementURL
 	if msg.ManagementUrl != "" {
 		managementURL = msg.ManagementUrl
+		s.managementURL = msg.ManagementUrl
 	}
 
 	adminURL := s.adminURL
 	if msg.AdminURL != "" {
 		adminURL = msg.AdminURL
+		s.adminURL = msg.AdminURL
 	}
 	s.mutex.Unlock()
 
@@ -130,6 +130,12 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	s.mutex.Lock()
 	s.config = config
 	s.mutex.Unlock()
+
+	if s, _ := state.Status(); s != internal.StatusNeedsLogin && s != internal.StatusLoginFailed {
+		return &proto.LoginResponse{}, nil
+	}
+
+	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
 		providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config)
