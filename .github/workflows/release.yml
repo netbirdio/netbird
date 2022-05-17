@@ -135,6 +135,7 @@ jobs:
           export AMD=$(ls -1 dist/${PROJECT}*amd64.zip)
           export ARM=$(ls -1 dist/${PROJECT}*amd64.zip)
           export VERSION=$(echo $AMD|egrep -o "${PROJECT}.+zip"|sed -E 's/.+app_(.+)_darwin_amd64.zip/\1/')
+          env | egrep 'AMD|ARM|PROJECT|VERSION'
           gomplate -f client/ui/netbird-ui.rb.tmpl -o template/netbird-ui.rb
 
       - name: Pushes to another repository
