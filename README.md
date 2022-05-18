@@ -1,6 +1,6 @@
 <p align="center">
  <strong>Big News! Wiretrustee becomes Netbird</strong>.
-  <a href="https://blog.netbird.io/wiretrustee-becomes-netbird">
+  <a href="https://netbird.io/blog/wiretrustee-becomes-netbird">
        Learn more
      </a>   
 </p>
@@ -37,7 +37,7 @@
 <strong>
   Start using Netbird at <a href="https://app.netbird.io/">app.netbird.io</a>
   <br/>
-  See <a href="https://docs.netbird.io">Documentation</a>
+  See <a href="https://netbird.io/docs/">Documentation</a>
   <br/>
    Join our <a href="https://join.slack.com/t/wiretrustee/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A">Slack channel</a>
   <br/>
