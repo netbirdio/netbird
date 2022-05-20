@@ -8,79 +8,81 @@ on:
       - main
   pull_request:
 
+env:
+  SIGN_PIPE_VER: main
+
 jobs:
-#  release:
-#    runs-on: ubuntu-latest
-#    steps:
-#      -
-#        name: Checkout
-#        uses: actions/checkout@v2
-#        with:
-#          fetch-depth: 0 # It is required for GoReleaser to work properly
-#
-#      - name: Generate syso with DLL
-#        run: bash -x wireguard_nt.sh
-#        working-directory: client
-#      -
-#        name: Set up Go
-#        uses: actions/setup-go@v2
-#        with:
-#          go-version: 1.18
-#      -
-#        name: Cache Go modules
-#        uses: actions/cache@v1
-#        with:
-#          path: ~/go/pkg/mod
-#          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-#          restore-keys: |
-#            ${{ runner.os }}-go-
-#      -
-#        name: Install modules
-#        run: go mod tidy
-#      -
-#        name: Set up QEMU
-#        uses: docker/setup-qemu-action@v1
-#      -
-#        name: Set up Docker Buildx
-#        uses: docker/setup-buildx-action@v1
-#      -
-#        name: Login to Docker hub
-#        if: github.event_name != 'pull_request'
-#        uses: docker/login-action@v1
-#        with:
-#          username: ${{ secrets.DOCKER_USER }}
-#          password: ${{ secrets.DOCKER_TOKEN }}
-#      - name: Install dependencies
-#        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libappindicator3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-mingw-w64-x86-64
-#      -
-#        name: Run GoReleaser
-#        uses: goreleaser/goreleaser-action@v2
-#        with:
-#          version: v1.6.3
-#          args: release --rm-dist
-#        env:
-#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-#          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-#          UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
-#          UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
-#
-#      -
-#        name: Trigger Windows binaries sign pipeline
-#        uses: benc-uk/workflow-dispatch@v1
-#        if: startsWith(github.ref, 'refs/tags/')
-#        with:
-#          workflow: Sign windows bin and installer
-#          repo: wiretrustee/windows-sign-pipeline
-#          ref: v0.0.2
-#          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
-#          inputs: '{ "tag": "${{ github.ref }}" }'
-#      -
-#        name: upload non tags for debug purposes
-#        uses: actions/upload-artifact@v2
-#        with:
-#          name: build
-#          path: dist/
-#          retention-days: 3
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      -
+        name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0 # It is required for GoReleaser to work properly
+
+      - name: Generate syso with DLL
+        run: bash -x wireguard_nt.sh
+        working-directory: client
+      -
+        name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18
+      -
+        name: Cache Go modules
+        uses: actions/cache@v1
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      -
+        name: Install modules
+        run: go mod tidy
+      -
+        name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+      -
+        name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+      -
+        name: Login to Docker hub
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+      - name: Install dependencies
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libappindicator3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-mingw-w64-x86-64
+      -
+        name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v2
+        with:
+          version: v1.6.3
+          args: release --rm-dist
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+      -
+        name: Trigger Windows binaries sign pipeline
+        uses: benc-uk/workflow-dispatch@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          workflow: Sign windows bin and installer
+          repo: netbirdio/sign-pipelines
+          ref: ${{ env.SIGN_PIPE_VER }}
+          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref }}" }'
+      -
+        name: upload non tags for debug purposes
+        uses: actions/upload-artifact@v2
+        with:
+          name: build
+          path: dist/
+          retention-days: 3
           
   release_ui:
     runs-on: macos-latest
@@ -115,43 +117,22 @@ jobs:
           args: release --config .goreleaser_ui_darwin.yaml --rm-dist
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       -
-        name: Checkout homebrew
-        uses: actions/checkout@v2
+        name: Trigger Darwin App binaries sign pipeline
+        uses: benc-uk/workflow-dispatch@v1
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          repository: mlsmaycon/homebrew-client
-          fetch-depth: 0 # It is required for GoReleaser to work properly
-          path: 'template'
-          clean: false
-          ref: main
+          workflow: Sign darwin ui app
+          repo: netbirdio/sign-pipelines
+          ref: ${{ env.SIGN_PIPE_VER }}
+          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref }}" }'
 
-      - run: rm -fr template/.git
-
-      - run:  brew install gomplate
-      - run: |
-          echo ${{ steps.goreleaser.outputs.metadata}} || true
-          echo ${{ steps.goreleaser.outputs.Metadata}} || true
-          export PROJECT=netbird-ui
-          export AMD=$(ls -1 dist/${PROJECT}*amd64.zip)
-          export ARM=$(ls -1 dist/${PROJECT}*amd64.zip)
-          export VERSION=$(echo $AMD|egrep -o "${PROJECT}.+zip"|sed -E 's/.+app_(.+)_darwin_amd64.zip/\1/')
-          env | egrep 'AMD|ARM|PROJECT|VERSION'
-          gomplate -f client/ui/netbird-ui.rb.tmpl -o template/netbird-ui.rb
-
-      - name: Pushes to another repository
-        uses: cpina/github-action-push-to-another-repository@main
-        env:
-          API_TOKEN_GITHUB: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
-        with:
-          source-directory: 'template'
-          destination-github-username: 'mlsmaycon'
-          destination-repository-name: 'homebrew-client'
-          user-email: ci@netbird.io
-          target-branch: main
-      - 
+      -
         name: upload non tags for debug purposes
         uses: actions/upload-artifact@v2
         with:
           name: build-ui-darwin
           path: dist/
-          retention-days: 3          
+          retention-days: 3
