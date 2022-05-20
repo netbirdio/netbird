@@ -1,5 +1,5 @@
 name: Test Code Linux
-on: [push,pull_request]
+on: [pull_request]
 jobs:
   test:
     strategy:
