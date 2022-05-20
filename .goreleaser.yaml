@@ -1,8 +1,8 @@
-project_name: wiretrustee
+project_name: netbird
 builds:
-  - id: wiretrustee
+  - id: netbird
     dir: client
-    binary: wiretrustee
+    binary: netbird
     env: [CGO_ENABLED=0]
     goos:
       - linux
@@ -55,9 +55,9 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
 
-  - id: wiretrustee-ui
+  - id: netbird-ui
     dir: client/ui
-    binary: wiretrustee-ui
+    binary: netbird-ui
     env:
       - CGO_ENABLED=1
     goos:
@@ -68,9 +68,9 @@ builds:
       - -s -w -X github.com/netbirdio/netbird/client/ui/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
 
-  - id: wiretrustee-ui-windows
+  - id: netbird-ui-windows
     dir: client/ui
-    binary: wiretrustee-ui-windows
+    binary: netbird-ui
     env:
       - CGO_ENABLED=1
       - CC=x86_64-w64-mingw32-gcc
@@ -84,17 +84,19 @@ builds:
 
 archives:
   - builds:
-      - wiretrustee
+      - netbird
+      - netbird-ui
+      - netbird-ui-windows
 
 nfpms:
 
-  - maintainer: Wiretrustee <dev@wiretrustee.com>
-    description: Wiretrustee client UI.
-    homepage: https://wiretrustee.com/
-    id: wiretrustee-ui-deb
-    package_name: wiretrustee-ui
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client UI.
+    homepage: https://netbird.io/
+    id: netbird-ui-deb
+    package_name: netbird-ui
     builds:
-      - wiretrustee-ui
+      - netbird-ui
     formats:
       - deb
       - rpm
@@ -108,13 +110,13 @@ nfpms:
       - libgtk-3-dev
       - libappindicator3-dev
 
-  - maintainer: Wiretrustee <dev@wiretrustee.com>
-    description: Wiretrustee client.
-    homepage: https://wiretrustee.com/
-    id: wiretrustee-deb
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client.
+    homepage: https://netbird.io/
+    id: netbird-deb
     bindir: /usr/bin
     builds:
-      - wiretrustee
+      - netbird
     formats:
       - deb
 
@@ -122,13 +124,13 @@ nfpms:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
 
-  - maintainer: Wiretrustee <dev@wiretrustee.com>
-    description: Wiretrustee client.
-    homepage: https://wiretrustee.com/
-    id: wiretrustee-rpm
+  - maintainer: Netbird <dev@netbird.io>
+    description: Netbird client.
+    homepage: https://netbird.io/
+    id: netbird-rpm
     bindir: /usr/bin
     builds:
-      - wiretrustee
+      - netbird
     formats:
       - rpm
 
@@ -137,9 +139,9 @@ nfpms:
       preremove: "release_files/pre_remove.sh"
 dockers:
   - image_templates:
-      - wiretrustee/wiretrustee:{{ .Version }}-amd64
+      - netbirdio/netbird:{{ .Version }}-amd64
     ids:
-      - wiretrustee
+      - netbird
     goarch: amd64
     use: buildx
     dockerfile: client/Dockerfile
@@ -150,11 +152,11 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - wiretrustee/wiretrustee:{{ .Version }}-arm64v8
+      - netbirdio/netbird:{{ .Version }}-arm64v8
     ids:
-      - wiretrustee
+      - netbird
     goarch: arm64
     use: buildx
     dockerfile: client/Dockerfile
@@ -165,11 +167,11 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - wiretrustee/wiretrustee:{{ .Version }}-arm
+      - netbirdio/netbird:{{ .Version }}-arm
     ids:
-      - wiretrustee
+      - netbird
     goarch: arm
     goarm: 6
     use: buildx
@@ -181,7 +183,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
-      - "--label=maintainer=wiretrustee@wiretrustee.com"
+      - "--label=maintainer=dev@netbird.io"
   - image_templates:
       - netbirdio/signal:{{ .Version }}-amd64
     ids:
@@ -198,7 +200,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbird/signal:{{ .Version }}-arm64v8
+      - netbirdio/signal:{{ .Version }}-arm64v8
     ids:
       - netbird-signal
     goarch: arm64
@@ -213,7 +215,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbird/signal:{{ .Version }}-arm
+      - netbirdio/signal:{{ .Version }}-arm
     ids:
       - netbird-signal
     goarch: arm
@@ -229,7 +231,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbird/management:{{ .Version }}-amd64
+      - netbirdio/management:{{ .Version }}-amd64
     ids:
       - netbird-mgmt
     goarch: amd64
@@ -244,7 +246,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbird/management:{{ .Version }}-arm64v8
+      - netbirdio/management:{{ .Version }}-arm64v8
     ids:
       - netbird-mgmt
     goarch: arm64
@@ -259,7 +261,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbird/management:{{ .Version }}-arm
+      - netbirdio/management:{{ .Version }}-arm
     ids:
       - netbird-mgmt
     goarch: arm
@@ -275,7 +277,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbird/management:{{ .Version }}-debug-amd64
+      - netbirdio/management:{{ .Version }}-debug-amd64
     ids:
       - netbird-mgmt
     goarch: amd64
@@ -290,7 +292,7 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
   - image_templates:
-      - netbird/management:{{ .Version }}-debug-arm64v8
+      - netbirdio/management:{{ .Version }}-debug-arm64v8
     ids:
       - netbird-mgmt
     goarch: arm64
@@ -306,7 +308,7 @@ dockers:
       - "--label=maintainer=dev@netbird.io"
 
   - image_templates:
-      - netbird/management:{{ .Version }}-debug-arm
+      - netbirdio/management:{{ .Version }}-debug-arm
     ids:
       - netbird-mgmt
     goarch: arm
@@ -322,60 +324,60 @@ dockers:
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
 docker_manifests:
-  - name_template: wiretrustee/wiretrustee:{{ .Version }}
+  - name_template: netbirdio/netbird:{{ .Version }}
     image_templates:
-      - wiretrustee/wiretrustee:{{ .Version }}-arm64v8
-      - wiretrustee/wiretrustee:{{ .Version }}-arm
-      - wiretrustee/wiretrustee:{{ .Version }}-amd64
+      - netbirdio/netbird:{{ .Version }}-arm64v8
+      - netbirdio/netbird:{{ .Version }}-arm
+      - netbirdio/netbird:{{ .Version }}-amd64
 
-  - name_template: wiretrustee/wiretrustee:latest
+  - name_template: netbirdio/netbird:latest
     image_templates:
-      - wiretrustee/wiretrustee:{{ .Version }}-arm64v8
-      - wiretrustee/wiretrustee:{{ .Version }}-arm
-      - wiretrustee/wiretrustee:{{ .Version }}-amd64
+      - netbirdio/netbird:{{ .Version }}-arm64v8
+      - netbirdio/netbird:{{ .Version }}-arm
+      - netbirdio/netbird:{{ .Version }}-amd64
 
-  - name_template: netbird/signal:{{ .Version }}
+  - name_template: netbirdio/signal:{{ .Version }}
     image_templates:
-      - netbird/signal:{{ .Version }}-arm64v8
-      - netbird/signal:{{ .Version }}-arm
-      - netbird/signal:{{ .Version }}-amd64
+      - netbirdio/signal:{{ .Version }}-arm64v8
+      - netbirdio/signal:{{ .Version }}-arm
+      - netbirdio/signal:{{ .Version }}-amd64
 
-  - name_template: netbird/signal:latest
+  - name_template: netbirdio/signal:latest
     image_templates:
-      - netbird/signal:{{ .Version }}-arm64v8
-      - netbird/signal:{{ .Version }}-arm
-      - netbird/signal:{{ .Version }}-amd64
+      - netbirdio/signal:{{ .Version }}-arm64v8
+      - netbirdio/signal:{{ .Version }}-arm
+      - netbirdio/signal:{{ .Version }}-amd64
 
-  - name_template: netbird/management:{{ .Version }}
+  - name_template: netbirdio/management:{{ .Version }}
     image_templates:
-      - netbird/management:{{ .Version }}-arm64v8
-      - netbird/management:{{ .Version }}-arm
-      - netbird/management:{{ .Version }}-amd64
+      - netbirdio/management:{{ .Version }}-arm64v8
+      - netbirdio/management:{{ .Version }}-arm
+      - netbirdio/management:{{ .Version }}-amd64
 
-  - name_template: netbird/management:latest
+  - name_template: netbirdio/management:latest
     image_templates:
-      - netbird/management:{{ .Version }}-arm64v8
-      - netbird/management:{{ .Version }}-arm
-      - netbird/management:{{ .Version }}-amd64
+      - netbirdio/management:{{ .Version }}-arm64v8
+      - netbirdio/management:{{ .Version }}-arm
+      - netbirdio/management:{{ .Version }}-amd64
 
-  - name_template: netbird/management:debug-latest
+  - name_template: netbirdio/management:debug-latest
     image_templates:
-      - netbird/management:{{ .Version }}-debug-arm64v8
-      - netbird/management:{{ .Version }}-debug-arm
-      - netbird/management:{{ .Version }}-debug-amd64
+      - netbirdio/management:{{ .Version }}-debug-arm64v8
+      - netbirdio/management:{{ .Version }}-debug-arm
+      - netbirdio/management:{{ .Version }}-debug-amd64
 
 brews:
   -
     tap:
-      owner: wiretrustee
+      owner: netbirdio
       name: homebrew-client
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     commit_author:
-      name: Wiretrustee
-      email: wiretrustee@wiretrustee.com
-    description: Wiretrustee project.
+      name: Netbird
+      email: dev@netbird.io
+    description: Netbird project.
     download_strategy: CurlDownloadStrategy
-    homepage: https://wiretrustee.com/
+    homepage: https://netbird.io/
     license: "BSD3"
     test: |
       system "#{bin}/{{ .ProjectName	}} -h"
