@@ -3,10 +3,10 @@
     <assemblyIdentity
             version="0.0.0.1"
             processorArchitecture="*"
-            name="wiretrustee.exe"
+            name="netbird.exe"
             type="win32"
     />
-    <description>Wiretrustee application</description>
+    <description>Netbird application</description>
     <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
         <security>
             <requestedPrivileges>
