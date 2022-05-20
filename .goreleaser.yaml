@@ -85,7 +85,9 @@ builds:
 archives:
   - builds:
       - netbird
+  - builds:
       - netbird-ui
+  - builds:
       - netbird-ui-windows
 
 nfpms:
