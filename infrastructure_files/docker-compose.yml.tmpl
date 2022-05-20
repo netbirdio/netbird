@@ -19,7 +19,7 @@ services:
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt/
   # Signal
   signal:
-    image: netbird/signal:latest
+    image: netbirdio/signal:latest
     restart: unless-stopped
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
@@ -30,7 +30,7 @@ services:
   #    command: ["--letsencrypt-domain", "$WIRETRUSTEE_DOMAIN", "--log-file", "console"]
   # Management
   management:
-    image: netbird/management:latest
+    image: netbirdio/management:latest
     restart: unless-stopped
     depends_on:
       - dashboard
