@@ -323,54 +323,54 @@ dockers:
       - "--label=org.opencontainers.image.revision={{.FullCommit}}"
       - "--label=org.opencontainers.image.version={{.Version}}"
       - "--label=maintainer=dev@netbird.io"
-docker_manifests:
-  - name_template: netbirdio/netbird:{{ .Version }}
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-      - netbirdio/netbird:{{ .Version }}-arm
-      - netbirdio/netbird:{{ .Version }}-amd64
-
-  - name_template: netbirdio/netbird:latest
-    image_templates:
-      - netbirdio/netbird:{{ .Version }}-arm64v8
-      - netbirdio/netbird:{{ .Version }}-arm
-      - netbirdio/netbird:{{ .Version }}-amd64
-
-  - name_template: netbirdio/signal:{{ .Version }}
-    image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-      - netbirdio/signal:{{ .Version }}-arm
-      - netbirdio/signal:{{ .Version }}-amd64
-
-  - name_template: netbirdio/signal:latest
-    image_templates:
-      - netbirdio/signal:{{ .Version }}-arm64v8
-      - netbirdio/signal:{{ .Version }}-arm
-      - netbirdio/signal:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:{{ .Version }}
-    image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:latest
-    image_templates:
-      - netbirdio/management:{{ .Version }}-arm64v8
-      - netbirdio/management:{{ .Version }}-arm
-      - netbirdio/management:{{ .Version }}-amd64
-
-  - name_template: netbirdio/management:debug-latest
-    image_templates:
-      - netbirdio/management:{{ .Version }}-debug-arm64v8
-      - netbirdio/management:{{ .Version }}-debug-arm
-      - netbirdio/management:{{ .Version }}-debug-amd64
+#docker_manifests:
+#  - name_template: netbirdio/netbird:{{ .Version }}
+#    image_templates:
+#      - netbirdio/netbird:{{ .Version }}-arm64v8
+#      - netbirdio/netbird:{{ .Version }}-arm
+#      - netbirdio/netbird:{{ .Version }}-amd64
+#
+#  - name_template: netbirdio/netbird:latest
+#    image_templates:
+#      - netbirdio/netbird:{{ .Version }}-arm64v8
+#      - netbirdio/netbird:{{ .Version }}-arm
+#      - netbirdio/netbird:{{ .Version }}-amd64
+#
+#  - name_template: netbirdio/signal:{{ .Version }}
+#    image_templates:
+#      - netbirdio/signal:{{ .Version }}-arm64v8
+#      - netbirdio/signal:{{ .Version }}-arm
+#      - netbirdio/signal:{{ .Version }}-amd64
+#
+#  - name_template: netbirdio/signal:latest
+#    image_templates:
+#      - netbirdio/signal:{{ .Version }}-arm64v8
+#      - netbirdio/signal:{{ .Version }}-arm
+#      - netbirdio/signal:{{ .Version }}-amd64
+#
+#  - name_template: netbirdio/management:{{ .Version }}
+#    image_templates:
+#      - netbirdio/management:{{ .Version }}-arm64v8
+#      - netbirdio/management:{{ .Version }}-arm
+#      - netbirdio/management:{{ .Version }}-amd64
+#
+#  - name_template: netbirdio/management:latest
+#    image_templates:
+#      - netbirdio/management:{{ .Version }}-arm64v8
+#      - netbirdio/management:{{ .Version }}-arm
+#      - netbirdio/management:{{ .Version }}-amd64
+#
+#  - name_template: netbirdio/management:debug-latest
+#    image_templates:
+#      - netbirdio/management:{{ .Version }}-debug-arm64v8
+#      - netbirdio/management:{{ .Version }}-debug-arm
+#      - netbirdio/management:{{ .Version }}-debug-amd64
 
 brews:
   -
     tap:
       owner: netbirdio
-      name: homebrew-client
+      name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     commit_author:
       name: Netbird
