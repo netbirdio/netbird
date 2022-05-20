@@ -23,16 +23,5 @@ archives:
   - builds:
       - netbird-ui-darwin
 
-  - id: netbird-app
-    builds:
-      - netbird-ui-darwin
-    format: zip
-    name_template: "{{ .ProjectName }}_app_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    wrap_in_directory: true
-    files:
-      - src: client/ui/Info.plist
-        strip_parent: true
-        dst: ./
-      - src: client/ui/Netbird.icns
-        dst: ./
-        strip_parent: true
+changelog:
+  skip: true
