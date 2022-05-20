@@ -8,14 +8,14 @@ cask "{{ $projectName }}" do
   if Hardware::CPU.intel?
       url "{{ $amdURL }}"
       sha256 "{{ crypto.SHA256 $amdFileBytes }}"
+      app "netbird_ui_darwin_amd64", target: "Netbird UI.app"
   else
       url "{{ $armURL }}"
       sha256 "{{ crypto.SHA256 $armFileBytes }}"
+      app "netbird_ui_darwin_arm64", target: "Netbird UI.app"
   end
 
   name "Netbird UI"
   desc "Netbird UI Client"
   homepage "https://www.netbird.io/"
-
-  app "#{version}", target: "Netbird UI.app"
 end
