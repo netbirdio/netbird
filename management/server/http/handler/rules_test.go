@@ -117,7 +117,7 @@ func TestRulesGetRule(t *testing.T) {
 				t.Fatalf("I don't know what I expected; %v", err)
 			}
 
-			got := &server.Rule{}
+			var got RuleResponse
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
@@ -143,12 +143,13 @@ func TestRulesSaveRule(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/rules",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":"Default POSTed Rule"}`)),
+				[]byte(`{"Name":"Default POSTed Rule","Flow":"bidirect"}`)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRule: &server.Rule{
 				ID:   "id-was-set",
 				Name: "Default POSTed Rule",
+				Flow: server.TrafficFlowBidirect,
 			},
 		},
 		{
@@ -156,11 +157,12 @@ func TestRulesSaveRule(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/rules",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"ID":"id-existed","Name":"Default POSTed Rule"}`)),
+				[]byte(`{"ID":"id-existed","Name":"Default POSTed Rule","Flow":"bidirect"}`)),
 			expectedStatus: http.StatusOK,
 			expectedRule: &server.Rule{
 				ID:   "id-existed",
 				Name: "Default POSTed Rule",
+				Flow: server.TrafficFlowBidirect,
 			},
 		},
 	}
@@ -194,12 +196,16 @@ func TestRulesSaveRule(t *testing.T) {
 				return
 			}
 
-			got := &server.Rule{}
+			got := &RuleRequest{}
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			assert.Equal(t, got, tc.expectedRule)
+			if tc.requestType != http.MethodPost {
+				assert.Equal(t, got.ID, tc.expectedRule.ID)
+			}
+			assert.Equal(t, got.Name, tc.expectedRule.Name)
+			assert.Equal(t, got.Flow, "bidirect")
 		})
 	}
 }

@@ -13,11 +13,38 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const FlowBidirectString = "bidirect"
+
+// RuleResponse is a response sent to the client
+type RuleResponse struct {
+	ID          string
+	Name        string
+	Source      []RuleGroupResponse
+	Destination []RuleGroupResponse
+	Flow        string
+}
+
+// RuleGroupResponse is a response sent to the client
+type RuleGroupResponse struct {
+	ID         string
+	Name       string
+	PeersCount int
+}
+
+// RuleRequest to create or update rule
+type RuleRequest struct {
+	ID          string
+	Name        string
+	Source      []string
+	Destination []string
+	Flow        string
+}
+
 // Rules is a handler that returns rules of the account
 type Rules struct {
+	jwtExtractor   jwtclaims.ClaimsExtractor
 	accountManager server.AccountManager
 	authAudience   string
-	jwtExtractor   jwtclaims.ClaimsExtractor
 }
 
 func NewRules(accountManager server.AccountManager, authAudience string) *Rules {
@@ -37,7 +64,12 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, account.Rules)
+	var rules []*RuleResponse
+	for _, r := range account.Rules {
+		rules = append(rules, toRuleResponse(account, r))
+	}
+
+	writeJSONObject(w, rules)
 }
 
 func (h *Rules) CreateOrUpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +79,7 @@ func (h *Rules) CreateOrUpdateRuleHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var req server.Rule
+	var req RuleRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -57,7 +89,22 @@ func (h *Rules) CreateOrUpdateRuleHandler(w http.ResponseWriter, r *http.Request
 		req.ID = xid.New().String()
 	}
 
-	if err := h.accountManager.SaveRule(account.Id, &req); err != nil {
+	rule := server.Rule{
+		ID:          req.ID,
+		Name:        req.Name,
+		Source:      req.Source,
+		Destination: req.Destination,
+	}
+
+	switch req.Flow {
+	case FlowBidirectString:
+		rule.Flow = server.TrafficFlowBidirect
+	default:
+		http.Error(w, "unknown flow type", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.accountManager.SaveRule(account.Id, &rule); err != nil {
 		log.Errorf("failed updating rule %s under account %s %v", req.ID, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -110,7 +157,7 @@ func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSONObject(w, rule)
+		writeJSONObject(w, toRuleResponse(account, rule))
 	default:
 		http.Error(w, "", http.StatusNotFound)
 	}
@@ -125,4 +172,40 @@ func (h *Rules) getRuleAccount(r *http.Request) (*server.Account, error) {
 	}
 
 	return account, nil
+}
+
+func toRuleResponse(account *server.Account, rule *server.Rule) *RuleResponse {
+	gr := RuleResponse{
+		ID:   rule.ID,
+		Name: rule.Name,
+	}
+
+	switch rule.Flow {
+	case server.TrafficFlowBidirect:
+		gr.Flow = FlowBidirectString
+	default:
+		gr.Flow = "unknown"
+	}
+
+	for _, gid := range rule.Source {
+		if group, ok := account.Groups[gid]; ok {
+			gr.Source = append(gr.Source, RuleGroupResponse{
+				ID:         group.ID,
+				Name:       group.Name,
+				PeersCount: len(group.Peers),
+			})
+		}
+	}
+
+	for _, gid := range rule.Destination {
+		if group, ok := account.Groups[gid]; ok {
+			gr.Destination = append(gr.Destination, RuleGroupResponse{
+				ID:         group.ID,
+				Name:       group.Name,
+				PeersCount: len(group.Peers),
+			})
+		}
+	}
+
+	return &gr
 }
