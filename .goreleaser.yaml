@@ -85,9 +85,11 @@ builds:
 archives:
   - builds:
       - netbird
-  - builds:
+  - id: linux-arch
+    builds:
       - netbird-ui
-  - builds:
+  - id: windows-arch
+    builds:
       - netbird-ui-windows
 
 nfpms:
