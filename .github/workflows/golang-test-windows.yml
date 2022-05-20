@@ -1,5 +1,5 @@
 name: Test Code Windows
-on: [push,pull_request]
+on: [pull_request]
 jobs:
   pre:
     runs-on: ubuntu-latest
