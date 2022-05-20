@@ -392,6 +392,8 @@ dockers:
 
 brews:
   -
+    ids:
+      - default
     tap:
       owner: netbirdio
       name: homebrew-tap
