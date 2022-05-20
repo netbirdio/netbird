@@ -16,6 +16,8 @@ type Info struct {
 	Hostname           string
 	CPUs               int
 	WiretrusteeVersion string
+	Caller             string
+	CallerVersion      string
 }
 
 func WiretrusteeVersion() string {

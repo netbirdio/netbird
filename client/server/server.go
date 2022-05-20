@@ -3,10 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 
 	log "github.com/sirupsen/logrus"
 
@@ -91,7 +92,7 @@ func (s *Server) Start() error {
 }
 
 // Login uses setup key to prepare configuration for the daemon.
-func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
+func (s *Server) Login(ctx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()

@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/cenkalti/backoff/v4"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 
 	_ "embed"
 
@@ -25,6 +26,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -195,6 +197,8 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					return
 				}
 
+				md := metadata.New(map[string]string{"caller": "ui"})
+				s.ctx = metadata.NewOutgoingContext(s.ctx, md)
 				_, err = client.Login(s.ctx, &proto.LoginRequest{
 					ManagementUrl: s.iMngURL.Text,
 					AdminURL:      s.iAdminURL.Text,

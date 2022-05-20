@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+
 	"github.com/google/uuid"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -39,7 +40,7 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		return err
 	}
 
-	_, err = loginPeer(*serverKey, mgmClient, setupKey, jwtToken)
+	_, err = loginPeer(*serverKey, mgmClient, setupKey, jwtToken, ctx)
 	if err != nil {
 		log.Errorf("failed logging-in peer on Management Service : %v", err)
 		return err
@@ -55,12 +56,12 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 }
 
 // loginPeer attempts to login to Management Service. If peer wasn't registered, tries the registration flow.
-func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
-	loginResp, err := client.Login(serverPublicKey)
+func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, ctx context.Context) (*mgmProto.LoginResponse, error) {
+	loginResp, err := client.Login(serverPublicKey, system.GetInfo(ctx))
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			log.Debugf("peer registration required")
-			return registerPeer(serverPublicKey, client, setupKey, jwtToken)
+			return registerPeer(serverPublicKey, client, setupKey, jwtToken, ctx)
 		} else {
 			return nil, err
 		}
@@ -73,14 +74,14 @@ func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey str
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
-func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
+func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, ctx context.Context) (*mgmProto.LoginResponse, error) {
 	validSetupKey, err := uuid.Parse(setupKey)
 	if err != nil && jwtToken == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid setup-key or no sso information provided, err: %v", err)
 	}
 
 	log.Debugf("sending peer registration request to Management Service")
-	info := system.GetInfo()
+	info := system.GetInfo(ctx)
 	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info)
 	if err != nil {
 		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())

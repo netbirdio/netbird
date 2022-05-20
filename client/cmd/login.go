@@ -3,10 +3,12 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/skratchdot/open-golang/open"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
-	"time"
 
 	"github.com/netbirdio/netbird/util"
 
@@ -66,6 +68,10 @@ var loginCmd = &cobra.Command{
 
 		err = WithBackOff(func() error {
 			var backOffErr error
+
+			md := metadata.New(map[string]string{"caller": "cli"})
+			ctx = metadata.NewOutgoingContext(ctx, md)
+
 			loginResp, backOffErr = client.Login(ctx, &loginRequest)
 			if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
 				s.Code() == codes.PermissionDenied ||

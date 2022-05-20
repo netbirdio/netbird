@@ -7,7 +7,7 @@ import (
 )
 
 func Test_LocalVersion(t *testing.T) {
-	got := GetInfo()
+	got := GetInfo(nil)
 	want := "development"
 	assert.Equal(t, want, got.WiretrusteeVersion)
 }
