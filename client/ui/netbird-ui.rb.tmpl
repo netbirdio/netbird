@@ -1,14 +1,15 @@
 {{ $projectName := env.Getenv "PROJECT" }}{{ $amdFilePath := env.Getenv "AMD" }}{{ $armFilePath := env.Getenv "ARM" }}
+{{ $amdURL := env.Getenv "AMD_URL" }}{{ $armURL := env.Getenv "ARM_URL" }}
 {{ $amdFile := filepath.Base $amdFilePath }}{{ $armFile := filepath.Base $armFilePath }}{{ $amdFileBytes := file.Read $amdFilePath }}
 {{ $armFileBytes := file.Read $armFilePath }}# Netbird's UI Client Cask Formula
 cask "{{ $projectName }}" do
   version "{{ env.Getenv "VERSION" }}"
 
   if Hardware::CPU.intel?
-      url "file:////Users/maycon/projects/mls-netbird/dist/{{ $amdFile }}"
+      url "{{ $amdURL }}"
       sha256 "{{ crypto.SHA256 $amdFileBytes }}"
   else
-      url "file:////Users/maycon/projects/mls-netbird/dist/{{ $armFile }}"
+      url "{{ $armURL }}"
       sha256 "{{ crypto.SHA256 $armFileBytes }}"
   end
 
