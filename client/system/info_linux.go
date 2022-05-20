@@ -49,11 +49,13 @@ func GetInfo(ctx context.Context) *Info {
 	gio.Hostname, _ = os.Hostname()
 	gio.WiretrusteeVersion = WiretrusteeVersion()
 
-	metadata, ok := metadata.FromIncomingContext(ctx)
+	if ctx != nil {
+		metadata, ok := metadata.FromIncomingContext(ctx)
 
-	if ok {
-		gio.Caller = metadata["caller"][0]
-		gio.CallerVersion = metadata["callerVersion"][0]
+		if ok {
+			gio.Caller = metadata["caller"][0]
+			gio.CallerVersion = metadata["callerVersion"][0]
+		}
 	}
 
 	return gio
