@@ -83,13 +83,17 @@ func (p *program) Stop(srv service.Service) error {
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "runs Netbird as service",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
-		err := util.InitLog(logLevel, logFile)
+		err := handleRebrand(cmd)
 		if err != nil {
-			log.Errorf("failed initializing log %v", err)
-			return
+			return err
+		}
+
+		err = util.InitLog(logLevel, logFile)
+		if err != nil {
+			return fmt.Errorf("failed initializing log %v", err)
 		}
 
 		ctx, cancel := context.WithCancel(cmd.Context())
@@ -97,15 +101,14 @@ var runCmd = &cobra.Command{
 
 		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
-			cmd.PrintErrln(err)
-			return
+			return err
 		}
 		err = s.Run()
 		if err != nil {
-			cmd.PrintErrln(err)
-			return
+			return err
 		}
 		cmd.Printf("Netbird service is running")
+		return nil
 	},
 }
 
@@ -115,9 +118,13 @@ var startCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
-		err := util.InitLog(logLevel, logFile)
+		err := handleRebrand(cmd)
 		if err != nil {
-			log.Errorf("failed initializing log %v", err)
+			return err
+		}
+
+		err = util.InitLog(logLevel, logFile)
+		if err != nil {
 			return err
 		}
 
@@ -141,53 +148,61 @@ var startCmd = &cobra.Command{
 var stopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "stops Netbird service",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
-		err := util.InitLog(logLevel, logFile)
+		err := handleRebrand(cmd)
 		if err != nil {
-			log.Errorf("failed initializing log %v", err)
+			return err
+		}
+
+		err = util.InitLog(logLevel, logFile)
+		if err != nil {
+			return fmt.Errorf("failed initializing log %v", err)
 		}
 
 		ctx, cancel := context.WithCancel(cmd.Context())
 
 		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
-			cmd.PrintErrln(err)
-			return
+			return err
 		}
 		err = s.Stop()
 		if err != nil {
-			cmd.PrintErrln(err)
-			return
+			return err
 		}
 		cmd.Println("Netbird service has been stopped")
+		return nil
 	},
 }
 
 var restartCmd = &cobra.Command{
 	Use:   "restart",
 	Short: "restarts Netbird service",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
-		err := util.InitLog(logLevel, logFile)
+		err := handleRebrand(cmd)
 		if err != nil {
-			log.Errorf("failed initializing log %v", err)
+			return err
+		}
+
+		err = util.InitLog(logLevel, logFile)
+		if err != nil {
+			return fmt.Errorf("failed initializing log %v", err)
 		}
 
 		ctx, cancel := context.WithCancel(cmd.Context())
 
 		s, err := newSVC(newProgram(ctx, cancel), newSVCConfig())
 		if err != nil {
-			cmd.PrintErrln(err)
-			return
+			return err
 		}
 		err = s.Restart()
 		if err != nil {
-			cmd.PrintErrln(err)
-			return
+			return err
 		}
 		cmd.Println("Netbird service has been restarted")
+		return nil
 	},
 }

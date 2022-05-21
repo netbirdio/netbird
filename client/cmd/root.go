@@ -2,9 +2,14 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
+	"io/ioutil"
 	"os"
 	"os/signal"
+	"path"
 	"runtime"
 	"strings"
 	"syscall"
@@ -21,19 +26,23 @@ import (
 )
 
 var (
-	configPath           string
-	defaultConfigPathDir string
-	defaultConfigPath    string
-	logLevel             string
-	defaultLogFileDir    string
-	defaultLogFile       string
-	logFile              string
-	daemonAddr           string
-	managementURL        string
-	adminURL             string
-	setupKey             string
-	preSharedKey         string
-	rootCmd              = &cobra.Command{
+	configPath              string
+	defaultConfigPathDir    string
+	defaultConfigPath       string
+	oldDefaultConfigPathDir string
+	oldDefaultConfigPath    string
+	logLevel                string
+	defaultLogFileDir       string
+	defaultLogFile          string
+	oldDefaultLogFileDir    string
+	oldDefaultLogFile       string
+	logFile                 string
+	daemonAddr              string
+	managementURL           string
+	adminURL                string
+	setupKey                string
+	preSharedKey            string
+	rootCmd                 = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
 		Long:         "",
@@ -46,16 +55,45 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+var (
+	// todo: remove this before commiting
+	testMigCmd = &cobra.Command{
+		Use:   "testmig",
+		Short: "prints Netbird version",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			SetFlagsFromEnvVars()
+
+			cmd.Println("configPath: ", configPath)
+			cmd.Println("logFile: ", logFile)
+			err := handleRebrand(cmd)
+			if err != nil {
+				return err
+			}
+			return nil
+		},
+	}
+)
+
 func init() {
 	defaultConfigPathDir = "/etc/netbird/"
 	defaultLogFileDir = "/var/log/netbird/"
+
+	oldDefaultConfigPathDir = "/etc/wiretrustee/"
+	oldDefaultLogFileDir = "/var/log/wiretrustee/"
+
 	if runtime.GOOS == "windows" {
 		defaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
 		defaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
+
+		oldDefaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"
+		oldDefaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\"
 	}
 
 	defaultConfigPath = defaultConfigPathDir + "config.json"
 	defaultLogFile = defaultLogFileDir + "client.log"
+
+	oldDefaultConfigPath = oldDefaultConfigPathDir + "config.json"
+	oldDefaultLogFile = oldDefaultLogFileDir + "client.log"
 
 	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
@@ -77,6 +115,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
+	rootCmd.AddCommand(testMigCmd)
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
@@ -156,4 +195,114 @@ var CLIBackOffSettings = &backoff.ExponentialBackOff{
 	MaxElapsedTime:      30 * time.Second,
 	Stop:                backoff.Stop,
 	Clock:               backoff.SystemClock,
+}
+
+func handleRebrand(cmd *cobra.Command) error {
+	var err error
+	if logFile == defaultLogFile {
+		if migrateToNetbird(oldDefaultLogFile, defaultLogFile) {
+			cmd.Printf("will copy Log dir %s and its content to %s\n", oldDefaultLogFileDir, defaultLogFileDir)
+			err = cpDir(oldDefaultLogFileDir, defaultLogFileDir)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if configPath == defaultConfigPath {
+		if migrateToNetbird(oldDefaultConfigPath, defaultConfigPath) {
+			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultConfigPathDir, defaultConfigPathDir)
+			err = cpDir(oldDefaultConfigPathDir, defaultConfigPathDir)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func cpFile(src, dst string) error {
+	var err error
+	var srcfd *os.File
+	var dstfd *os.File
+	var srcinfo os.FileInfo
+
+	if srcfd, err = os.Open(src); err != nil {
+		return err
+	}
+	defer srcfd.Close()
+
+	if dstfd, err = os.Create(dst); err != nil {
+		return err
+	}
+	defer dstfd.Close()
+
+	if _, err = io.Copy(dstfd, srcfd); err != nil {
+		return err
+	}
+	if srcinfo, err = os.Stat(src); err != nil {
+		return err
+	}
+	return os.Chmod(dst, srcinfo.Mode())
+}
+
+func copySymLink(source, dest string) error {
+	link, err := os.Readlink(source)
+	if err != nil {
+		return err
+	}
+	return os.Symlink(link, dest)
+}
+
+func cpDir(src string, dst string) error {
+	var err error
+	var fds []os.FileInfo
+	var srcinfo os.FileInfo
+
+	if srcinfo, err = os.Stat(src); err != nil {
+		return err
+	}
+
+	if err = os.MkdirAll(dst, srcinfo.Mode()); err != nil {
+		return err
+	}
+
+	if fds, err = ioutil.ReadDir(src); err != nil {
+		return err
+	}
+	for _, fd := range fds {
+		srcfp := path.Join(src, fd.Name())
+		dstfp := path.Join(dst, fd.Name())
+
+		fileInfo, err := os.Stat(srcfp)
+		if err != nil {
+			return fmt.Errorf("fouldn't get fileInfo; %v", err)
+		}
+
+		switch fileInfo.Mode() & os.ModeType {
+		case os.ModeSymlink:
+			if err = copySymLink(srcfp, dstfp); err != nil {
+				return fmt.Errorf("failed to copy from %s to %s; %v", srcfp, dstfp, err)
+			}
+		case os.ModeDir:
+			if err = cpDir(srcfp, dstfp); err != nil {
+				return fmt.Errorf("failed to copy from %s to %s; %v", srcfp, dstfp, err)
+			}
+		default:
+			if err = cpFile(srcfp, dstfp); err != nil {
+				return fmt.Errorf("failed to copy from %s to %s; %v", srcfp, dstfp, err)
+			}
+		}
+	}
+	return nil
+}
+
+func migrateToNetbird(oldPath, newPath string) bool {
+	_, errOld := os.Stat(oldPath)
+	_, errNew := os.Stat(newPath)
+
+	if errors.Is(errOld, fs.ErrNotExist) || errNew == nil {
+		return false
+	}
+
+	return true
 }
