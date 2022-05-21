@@ -10,16 +10,17 @@ Usage:
   netbird-mgmt management [flags]
 
 Flags:
-      --datadir string              server data directory location (default "/var/lib/netbird/")
+      --cert-file string            Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect
+      --cert-key string             Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect
+      --datadir string              server data directory location
   -h, --help                        help for management
       --letsencrypt-domain string   a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS
       --port int                    server port to listen on (default 33073)
-      --cert-file string            Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect
-      --cert-key string             Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect
+
 Global Flags:
-      --config string      Netbird config file location to write new config to (default "/etc/netbird/config.json")
-      --log-level string    (default "info")
+      --config string      Netbird config file location to write new config to (default "/etc/netbird")
       --log-file string    sets Netbird log path. If console is specified the the log will be output to stdout (default "/var/log/netbird/management.log")
+      --log-level string    (default "info")
 ```
 ## Run Management service (Docker)
 
@@ -42,7 +43,7 @@ docker run -d --name netbird-management \
 -p 443:443  \
 -v netbird-mgmt:/var/lib/netbird  \
 -v ./config.json:/etc/netbird/config.json  \
-netbird/management:latest \
+netbirdio/management:latest \
 --letsencrypt-domain <YOUR-DOMAIN>
 ```
 > An example of config.json can be found here [management.json](../infrastructure_files/management.json.tmpl)
@@ -81,7 +82,7 @@ docker run -d --name netbird-management \
 -p 33073:33073  \
 -v netbird-mgmt:/var/lib/netbird  \
 -v ./config.json:/etc/netbird/config.json  \
-netbird/management:latest
+netbirdio/management:latest
 ```
 ### Debug tag
 We also publish a docker image with the debug tag which has the log-level set to default, plus it uses the ```gcr.io/distroless/base:debug``` image that can be used with docker exec in order to run some commands in the Management container.
@@ -90,7 +91,7 @@ shell $ docker run -d --name netbird-management-debug \
 -p 33073:33073  \
 -v netbird-mgmt:/var/lib/netbird  \
 -v ./config.json:/etc/netbird/config.json  \
-netbird/management:debug-latest
+netbirdio/management:debug-latest
 
 shell $ docker exec -ti netbird-management-debug /bin/sh
 container-shell $ 
