@@ -55,25 +55,6 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
-var (
-	// todo: remove this before commiting
-	testMigCmd = &cobra.Command{
-		Use:   "testmig",
-		Short: "prints Netbird version",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			SetFlagsFromEnvVars()
-
-			cmd.Println("configPath: ", configPath)
-			cmd.Println("logFile: ", logFile)
-			err := handleRebrand(cmd)
-			if err != nil {
-				return err
-			}
-			return nil
-		},
-	}
-)
-
 func init() {
 	defaultConfigPathDir = "/etc/netbird/"
 	defaultLogFileDir = "/var/log/netbird/"
@@ -115,7 +96,6 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
-	rootCmd.AddCommand(testMigCmd)
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
