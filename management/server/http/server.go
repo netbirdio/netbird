@@ -96,6 +96,7 @@ func (s *Server) Start() error {
 	r.Use(jwtMiddleware.Handler, corsMiddleware.Handler)
 
 	groupsHandler := handler.NewGroups(s.accountManager, s.config.AuthAudience)
+	rulesHandler := handler.NewRules(s.accountManager, s.config.AuthAudience)
 	peersHandler := handler.NewPeers(s.accountManager, s.config.AuthAudience)
 	keysHandler := handler.NewSetupKeysHandler(s.accountManager, s.config.AuthAudience)
 	r.HandleFunc("/api/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
@@ -111,6 +112,12 @@ func (s *Server) Start() error {
 	r.HandleFunc("/api/setup-keys", keysHandler.GetKeys).Methods("POST", "OPTIONS")
 	r.HandleFunc("/api/setup-keys/{id}", keysHandler.HandleKey).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
+
+	r.HandleFunc("/api/rules", rulesHandler.GetAllRulesHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/rules", rulesHandler.CreateOrUpdateRuleHandler).
+		Methods("POST", "PUT", "OPTIONS")
+	r.HandleFunc("/api/rules/{id}", rulesHandler.GetRuleHandler).Methods("GET", "OPTIONS")
+	r.HandleFunc("/api/rules/{id}", rulesHandler.DeleteRuleHandler).Methods("DELETE", "OPTIONS")
 
 	r.HandleFunc("/api/groups", groupsHandler.GetAllGroupsHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/groups", groupsHandler.CreateOrUpdateGroupHandler).

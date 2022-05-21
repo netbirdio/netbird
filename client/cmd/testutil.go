@@ -68,7 +68,10 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 	}
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager()
-	accountManager := mgmt.NewManager(store, peersUpdateManager, nil)
+	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	turnManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 	mgmtServer, err := mgmt.NewServer(config, accountManager, peersUpdateManager, turnManager)
 	if err != nil {

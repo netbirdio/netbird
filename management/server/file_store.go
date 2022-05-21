@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,10 +19,12 @@ const storeFileName = "store.json"
 // FileStore represents an account storage backed by a file persisted to disk
 type FileStore struct {
 	Accounts                map[string]*Account
-	SetupKeyId2AccountId    map[string]string `json:"-"`
-	PeerKeyId2AccountId     map[string]string `json:"-"`
-	UserId2AccountId        map[string]string `json:"-"`
-	PrivateDomain2AccountId map[string]string `json:"-"`
+	SetupKeyId2AccountId    map[string]string              `json:"-"`
+	PeerKeyId2AccountId     map[string]string              `json:"-"`
+	UserId2AccountId        map[string]string              `json:"-"`
+	PrivateDomain2AccountId map[string]string              `json:"-"`
+	PeerKeyId2SrcRulesId    map[string]map[string]struct{} `json:"-"`
+	PeerKeyId2DstRulesId    map[string]map[string]struct{} `json:"-"`
 
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
@@ -47,6 +50,8 @@ func restore(file string) (*FileStore, error) {
 			PeerKeyId2AccountId:     make(map[string]string),
 			UserId2AccountId:        make(map[string]string),
 			PrivateDomain2AccountId: make(map[string]string),
+			PeerKeyId2SrcRulesId:    make(map[string]map[string]struct{}),
+			PeerKeyId2DstRulesId:    make(map[string]map[string]struct{}),
 			storeFile:               file,
 		}
 
@@ -69,9 +74,38 @@ func restore(file string) (*FileStore, error) {
 	store.PeerKeyId2AccountId = make(map[string]string)
 	store.UserId2AccountId = make(map[string]string)
 	store.PrivateDomain2AccountId = make(map[string]string)
+	store.PeerKeyId2SrcRulesId = map[string]map[string]struct{}{}
+	store.PeerKeyId2DstRulesId = map[string]map[string]struct{}{}
+
 	for accountId, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyId2AccountId[strings.ToUpper(setupKeyId)] = accountId
+		}
+		for _, rule := range account.Rules {
+			for _, groupID := range rule.Source {
+				if group, ok := account.Groups[groupID]; ok {
+					for _, peerID := range group.Peers {
+						rules := store.PeerKeyId2SrcRulesId[peerID]
+						if rules == nil {
+							rules = map[string]struct{}{}
+							store.PeerKeyId2SrcRulesId[peerID] = rules
+						}
+						rules[rule.ID] = struct{}{}
+					}
+				}
+			}
+			for _, groupID := range rule.Destination {
+				if group, ok := account.Groups[groupID]; ok {
+					for _, peerID := range group.Peers {
+						rules := store.PeerKeyId2DstRulesId[peerID]
+						if rules == nil {
+							rules = map[string]struct{}{}
+							store.PeerKeyId2DstRulesId[peerID] = rules
+						}
+						rules[rule.ID] = struct{}{}
+					}
+				}
+			}
 		}
 		for _, peer := range account.Peers {
 			store.PeerKeyId2AccountId[peer.Key] = accountId
@@ -82,7 +116,8 @@ func restore(file string) (*FileStore, error) {
 		for _, user := range account.Users {
 			store.UserId2AccountId[user.Id] = accountId
 		}
-		if account.Domain != "" && account.DomainCategory == PrivateCategory && account.IsDomainPrimaryAccount {
+		if account.Domain != "" && account.DomainCategory == PrivateCategory &&
+			account.IsDomainPrimaryAccount {
 			store.PrivateDomain2AccountId[account.Domain] = accountId
 		}
 	}
@@ -104,6 +139,24 @@ func (s *FileStore) SavePeer(accountId string, peer *Peer) error {
 	account, err := s.GetAccount(accountId)
 	if err != nil {
 		return err
+	}
+
+	// if it is new peer, add it to default 'All' group
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		return err
+	}
+
+	ind := -1
+	for i, pid := range allGroup.Peers {
+		if pid == peer.Key {
+			ind = i
+			break
+		}
+	}
+
+	if ind < 0 {
+		allGroup.Peers = append(allGroup.Peers, peer.Key)
 	}
 
 	account.Peers[peer.Key] = peer
@@ -176,6 +229,29 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.PeerKeyId2AccountId[peer.Key] = account.Id
 	}
 
+	for _, rule := range account.Rules {
+		for _, gid := range rule.Source {
+			for _, pid := range account.Groups[gid].Peers {
+				rules := s.PeerKeyId2SrcRulesId[pid]
+				if rules == nil {
+					rules = map[string]struct{}{}
+					s.PeerKeyId2SrcRulesId[pid] = rules
+				}
+				rules[rule.ID] = struct{}{}
+			}
+		}
+		for _, gid := range rule.Destination {
+			for _, pid := range account.Groups[gid].Peers {
+				rules := s.PeerKeyId2DstRulesId[pid]
+				if rules == nil {
+					rules = map[string]struct{}{}
+					s.PeerKeyId2DstRulesId[pid] = rules
+				}
+				rules[rule.ID] = struct{}{}
+			}
+		}
+	}
+
 	for _, user := range account.Users {
 		s.UserId2AccountId[user.Id] = account.Id
 	}
@@ -190,7 +266,10 @@ func (s *FileStore) SaveAccount(account *Account) error {
 func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 	accountId, accountIdFound := s.PrivateDomain2AccountId[strings.ToLower(domain)]
 	if !accountIdFound {
-		return nil, status.Errorf(codes.NotFound, "provided domain is not registered or is not private")
+		return nil, status.Errorf(
+			codes.NotFound,
+			"provided domain is not registered or is not private",
+		)
 	}
 
 	account, err := s.GetAccount(accountId)
@@ -232,6 +311,14 @@ func (s *FileStore) GetAccountPeers(accountId string) ([]*Peer, error) {
 	return peers, nil
 }
 
+func (s *FileStore) GetAllAccounts() (all []*Account) {
+	for _, a := range s.Accounts {
+		all = append(all, a)
+	}
+
+	return all
+}
+
 func (s *FileStore) GetAccount(accountId string) (*Account, error) {
 	account, accountFound := s.Accounts[accountId]
 	if !accountFound {
@@ -265,18 +352,52 @@ func (s *FileStore) GetPeerAccount(peerKey string) (*Account, error) {
 	return s.GetAccount(accountId)
 }
 
-func (s *FileStore) GetGroup(groupID string) (*Group, error) {
-	return nil, nil
+func (s *FileStore) GetPeerSrcRules(accountId, peerKey string) ([]*Rule, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.GetAccount(accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	ruleIDs, ok := s.PeerKeyId2SrcRulesId[peerKey]
+	if !ok {
+		return nil, fmt.Errorf("no rules for peer: %v", ruleIDs)
+	}
+
+	rules := []*Rule{}
+	for id := range ruleIDs {
+		rule, ok := account.Rules[id]
+		if ok {
+			rules = append(rules, rule)
+		}
+	}
+
+	return rules, nil
 }
 
-func (s *FileStore) SaveGroup(group *Group) error {
-	return nil
-}
+func (s *FileStore) GetPeerDstRules(accountId, peerKey string) ([]*Rule, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 
-func (s *FileStore) DeleteGroup(groupID string) error {
-	return nil
-}
+	account, err := s.GetAccount(accountId)
+	if err != nil {
+		return nil, err
+	}
 
-func (s *FileStore) ListGroups() ([]*Group, error) {
-	return nil, nil
+	ruleIDs, ok := s.PeerKeyId2DstRulesId[peerKey]
+	if !ok {
+		return nil, fmt.Errorf("no rules for peer: %v", ruleIDs)
+	}
+
+	rules := []*Rule{}
+	for id := range ruleIDs {
+		rule, ok := account.Rules[id]
+		if ok {
+			rules = append(rules, rule)
+		}
+	}
+
+	return rules, nil
 }

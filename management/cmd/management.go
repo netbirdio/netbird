@@ -108,20 +108,23 @@ var (
 				}
 			}
 
-			accountManager := server.NewManager(store, peersUpdateManager, idpManager)
+			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager)
+			if err != nil {
+				log.Fatalln("failed build default manager: ", err)
+			}
 
 			var opts []grpc.ServerOption
 
 			var httpServer *http.Server
 			if config.HttpConfig.LetsEncryptDomain != "" {
-				//automatically generate a new certificate with Let's Encrypt
+				// automatically generate a new certificate with Let's Encrypt
 				certManager := encryption.CreateCertManager(config.Datadir, config.HttpConfig.LetsEncryptDomain)
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 
 				httpServer = http.NewHttpsServer(config.HttpConfig, certManager, accountManager)
 			} else if config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "" {
-				//use provided certificate
+				// use provided certificate
 				tlsConfig, err := loadTLSConfig(config.HttpConfig.CertFile, config.HttpConfig.CertKey)
 				if err != nil {
 					log.Fatal("cannot load TLS credentials: ", err)
@@ -130,7 +133,7 @@ var (
 				opts = append(opts, grpc.Creds(transportCredentials))
 				httpServer = http.NewHttpsServerWithTLSConfig(config.HttpConfig, tlsConfig, accountManager)
 			} else {
-				//start server without SSL
+				// start server without SSL
 				httpServer = http.NewHttpServer(config.HttpConfig, accountManager)
 			}
 
@@ -309,5 +312,4 @@ func init() {
 	mgmtCmd.Flags().StringVar(&certFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	mgmtCmd.Flags().StringVar(&certKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	rootCmd.MarkFlagRequired("config") //nolint
-
 }

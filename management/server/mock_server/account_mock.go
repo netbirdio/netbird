@@ -33,6 +33,10 @@ type MockAccountManager struct {
 	GroupAddPeerFunc                      func(accountID, groupID, peerKey string) error
 	GroupDeletePeerFunc                   func(accountID, groupID, peerKey string) error
 	GroupListPeersFunc                    func(accountID, groupID string) ([]*server.Peer, error)
+	GetRuleFunc                           func(accountID, ruleID string) (*server.Rule, error)
+	SaveRuleFunc                          func(accountID string, rule *server.Rule) error
+	DeleteRuleFunc                        func(accountID, ruleID string) error
+	ListRulesFunc                         func(accountID string) ([]*server.Rule, error)
 	GetUsersFromAccountFunc               func(accountID string) ([]*server.UserInfo, error)
 }
 
@@ -41,7 +45,6 @@ func (am *MockAccountManager) GetUsersFromAccount(accountID string) ([]*server.U
 		return am.GetUsersFromAccountFunc(accountID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount not implemented")
-
 }
 
 func (am *MockAccountManager) GetOrCreateAccountByUser(
@@ -207,7 +210,7 @@ func (am *MockAccountManager) SaveGroup(accountID string, group *server.Group) e
 	if am.SaveGroupFunc != nil {
 		return am.SaveGroupFunc(accountID, group)
 	}
-	return status.Errorf(codes.Unimplemented, "method UpdateGroup not implemented")
+	return status.Errorf(codes.Unimplemented, "method SaveGroup not implemented")
 }
 
 func (am *MockAccountManager) DeleteGroup(accountID, groupID string) error {
@@ -243,4 +246,32 @@ func (am *MockAccountManager) GroupListPeers(accountID, groupID string) ([]*serv
 		return am.GroupListPeersFunc(accountID, groupID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GroupListPeers not implemented")
+}
+
+func (am *MockAccountManager) GetRule(accountID, ruleID string) (*server.Rule, error) {
+	if am.GetRuleFunc != nil {
+		return am.GetRuleFunc(accountID, ruleID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetRule not implemented")
+}
+
+func (am *MockAccountManager) SaveRule(accountID string, rule *server.Rule) error {
+	if am.SaveRuleFunc != nil {
+		return am.SaveRuleFunc(accountID, rule)
+	}
+	return status.Errorf(codes.Unimplemented, "method SaveRule not implemented")
+}
+
+func (am *MockAccountManager) DeleteRule(accountID, ruleID string) error {
+	if am.DeleteRuleFunc != nil {
+		return am.DeleteRuleFunc(accountID, ruleID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteRule not implemented")
+}
+
+func (am *MockAccountManager) ListRules(accountID string) ([]*server.Rule, error) {
+	if am.ListRulesFunc != nil {
+		return am.ListRulesFunc(accountID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListRules not implemented")
 }

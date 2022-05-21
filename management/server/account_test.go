@@ -37,7 +37,6 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 }
 
 func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
-
 	type initUserParams jwtclaims.AuthorizationClaims
 
 	type test struct {
@@ -165,7 +164,6 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 	}
 	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6} {
 		t.Run(testCase.name, func(t *testing.T) {
-
 			manager, err := createManager(t)
 			require.NoError(t, err, "unable to create account manager")
 
@@ -346,7 +344,6 @@ func TestAccountManager_AccountExists(t *testing.T) {
 	if !*exists {
 		t.Errorf("expected account to exist after creation, got false")
 	}
-
 }
 
 func TestAccountManager_GetAccount(t *testing.T) {
@@ -363,7 +360,7 @@ func TestAccountManager_GetAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	//AddAccount has been already tested so we can assume it is correct and compare results
+	// AddAccount has been already tested so we can assume it is correct and compare results
 	getAccount, err := manager.GetAccountById(expectedId)
 	if err != nil {
 		t.Fatal(err)
@@ -385,7 +382,6 @@ func TestAccountManager_GetAccount(t *testing.T) {
 			t.Errorf("expected account to have setup key %s, not found", key.Key)
 		}
 	}
-
 }
 
 func TestAccountManager_AddPeer(t *testing.T) {
@@ -400,7 +396,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	serial := account.Network.CurrentSerial() //should be 0
+	serial := account.Network.CurrentSerial() // should be 0
 
 	var setupKey *SetupKey
 	for _, key := range account.SetupKeys {
@@ -457,7 +453,6 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	if account.Network.CurrentSerial() != 1 {
 		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
 	}
-
 }
 
 func TestAccountManager_AddPeerWithUserID(t *testing.T) {
@@ -474,7 +469,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	serial := account.Network.CurrentSerial() //should be 0
+	serial := account.Network.CurrentSerial() // should be 0
 
 	if account.Network.Serial != 0 {
 		t.Errorf("expecting account network to have an initial Serial=0")
@@ -521,7 +516,6 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	if account.Network.CurrentSerial() != 1 {
 		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
 	}
-
 }
 
 func TestAccountManager_DeletePeer(t *testing.T) {
@@ -573,7 +567,6 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	if account.Network.CurrentSerial() != 2 {
 		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.CurrentSerial())
 	}
-
 }
 
 func TestGetUsersFromAccount(t *testing.T) {
@@ -614,7 +607,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return NewManager(store, NewPeersUpdateManager(), nil), nil
+	return BuildManager(store, NewPeersUpdateManager(), nil)
 }
 
 func createStore(t *testing.T) (Store, error) {
