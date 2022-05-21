@@ -263,8 +263,8 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 
 	for _, g := range groups {
 		for _, pid := range g.Peers {
-			peer := account.Peers[pid]
-			if peer == nil {
+			peer, ok := account.Peers[pid]
+			if !ok {
 				log.Warnf("peer %s found in group %s but doesn't belong to account %s", pid, g.ID, account.Id)
 				continue
 			}
