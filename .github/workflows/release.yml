@@ -56,6 +56,13 @@ jobs:
 
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y -q libgtk-3-dev libappindicator3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-mingw-w64-x86-64
+
+      - name: Install rsrc
+        run: go install github.com/akavel/rsrc@v0.10.2
+
+      - name: Generate windows rsrc
+        run: rsrc -arch amd64 -ico client/ui/netbird.ico -manifest client/ui/manifest.xml -o client/ui/resources_windows_amd64.syso
+
       -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v2

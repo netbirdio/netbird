@@ -110,6 +110,9 @@ WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
 
+CreateShortCut "${SMPROGRAMS}\${UI_APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+CreateShortCut "${DESKTOP}\${UI_APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service install'
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service start'
 # sleep a bit for visibility
