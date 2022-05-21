@@ -40,7 +40,7 @@ const (
 func main() {
 	var daemonAddr string
 
-	defaultDaemonAddr := "unix:///var/run/wiretrustee.sock"
+	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
