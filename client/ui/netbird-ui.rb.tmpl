@@ -1,0 +1,21 @@
+{{ $projectName := env.Getenv "PROJECT" }}{{ $amdFilePath := env.Getenv "AMD" }}{{ $armFilePath := env.Getenv "ARM" }}
+{{ $amdURL := env.Getenv "AMD_URL" }}{{ $armURL := env.Getenv "ARM_URL" }}
+{{ $amdFile := filepath.Base $amdFilePath }}{{ $armFile := filepath.Base $armFilePath }}{{ $amdFileBytes := file.Read $amdFilePath }}
+{{ $armFileBytes := file.Read $armFilePath }}# Netbird's UI Client Cask Formula
+cask "{{ $projectName }}" do
+  version "{{ env.Getenv "VERSION" }}"
+
+  if Hardware::CPU.intel?
+      url "{{ $amdURL }}"
+      sha256 "{{ crypto.SHA256 $amdFileBytes }}"
+      app "netbird_ui_darwin_amd64", target: "Netbird UI.app"
+  else
+      url "{{ $armURL }}"
+      sha256 "{{ crypto.SHA256 $armFileBytes }}"
+      app "netbird_ui_darwin_arm64", target: "Netbird UI.app"
+  end
+
+  name "Netbird UI"
+  desc "Netbird UI Client"
+  homepage "https://www.netbird.io/"
+end

@@ -3,10 +3,10 @@
     <assemblyIdentity
             version="0.0.0.1"
             processorArchitecture="*"
-            name="netbird.exe"
+            name="netbird-ui.exe"
             type="win32"
     />
-    <description>Netbird application</description>
+    <description>Netbird UI application</description>
     <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
         <security>
             <requestedPrivileges>

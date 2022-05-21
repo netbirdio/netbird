@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=Netbird Agent
-Exec=/usr/bin/wiretrustee-ui
+Exec=/usr/bin/netbird-ui
 Icon=netbird
 Type=Application
 Terminal=false
