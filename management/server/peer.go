@@ -1,6 +1,7 @@
 package server
 
 import (
+	log "github.com/sirupsen/logrus"
 	"net"
 	"strings"
 	"time"
@@ -263,6 +264,10 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 	for _, g := range groups {
 		for _, pid := range g.Peers {
 			peer := account.Peers[pid]
+			if peer == nil {
+				log.Warnf("peer %s found in group %s but doesn't belong to account %s", pid, g.ID, account.Id)
+				continue
+			}
 			// exclude original peer
 			if peer.Key != peerKey {
 				res = append(res, peer.Copy())
