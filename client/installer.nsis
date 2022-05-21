@@ -1,12 +1,12 @@
-!define APP_NAME "Wiretrustee"
-!define COMP_NAME "Wiretrustee"
-!define WEB_SITE "wiretrustee.com"
+!define APP_NAME "Netbird"
+!define COMP_NAME "Netbird"
+!define WEB_SITE "Netbird.io"
 !define VERSION $%APPVER%
-!define COPYRIGHT "Wiretrustee Authors, 2021"
+!define COPYRIGHT "Netbird Authors, 2021"
 !define DESCRIPTION "A WireGuard®-based mesh network that connects your devices into a single private network"
-!define INSTALLER_NAME "wiretrustee-installer.exe"
-!define MAIN_APP_EXE "Wiretrustee"
-!define ICON "ui\\wiretrustee.ico"
+!define INSTALLER_NAME "netbird-installer.exe"
+!define MAIN_APP_EXE "Netbird"
+!define ICON "ui\\netbird.ico"
 !define BANNER "ui\\banner.bmp"
 !define LICENSE_DATA "..\\LICENSE"
 
@@ -16,8 +16,8 @@
 !define REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${MAIN_APP_EXE}"
 !define UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP_NAME}"
 
-!define UI_APP_NAME "Wiretrustee UI"
-!define UI_APP_EXE "Wiretrustee-ui"
+!define UI_APP_NAME "Netbird UI"
+!define UI_APP_EXE "Netbird-ui"
 
 !define UI_REG_APP_PATH "Software\Microsoft\Windows\CurrentVersion\App Paths\${UI_APP_EXE}"
 !define UI_UNINSTALL_PATH "Software\Microsoft\Windows\CurrentVersion\Uninstall\${UI_APP_NAME}"
@@ -83,8 +83,7 @@ Section -MainProgram
 	${INSTALL_TYPE}
 	SetOverwrite ifnewer
 	SetOutPath "$INSTDIR"
-	File /r "..\\dist\\wiretrustee_windows_amd64\\"
-	File /r "..\\dist\\wiretrustee-ui_windows_amd64\\"
+	File /r "..\\dist\\netbird_windows_amd64\\"
 
 SectionEnd
 
@@ -92,24 +91,27 @@ SectionEnd
 
 Section -Icons_Reg
 SetOutPath "$INSTDIR"
-WriteUninstaller "$INSTDIR\wiretrustee_uninstall.exe"
+WriteUninstaller "$INSTDIR\netbird_uninstall.exe"
 
 WriteRegStr ${REG_ROOT} "${REG_APP_PATH}" "" "$INSTDIR\${MAIN_APP_EXE}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayName" "${APP_NAME}"
-WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\wiretrustee_uninstall.exe"
+WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\netbird_uninstall.exe"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${MAIN_APP_EXE}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
 WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "DisplayName" "${UI_APP_NAME}"
-WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\wiretrustee_uninstall.exe"
+WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\netbird_uninstall.exe"
 WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${UI_APP_EXE}"
 WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
 WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
+
+CreateShortCut "${SMPROGRAMS}\${UI_APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+CreateShortCut "${DESKTOP}\${UI_APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
 
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service install'
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service start'
