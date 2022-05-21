@@ -181,6 +181,17 @@ func (s *FileStore) DeletePeer(accountId string, peerKey string) (*Peer, error) 
 	delete(account.Peers, peerKey)
 	delete(s.PeerKeyId2AccountId, peerKey)
 
+	// cleanup groups
+	var peers []string
+	for _, g := range account.Groups {
+		for _, p := range g.Peers {
+			if p != peerKey {
+				peers = append(peers, p)
+			}
+		}
+		g.Peers = peers
+	}
+
 	err = s.persist(s.storeFile)
 	if err != nil {
 		return nil, err
