@@ -9,7 +9,7 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: macos-sign
+  SIGN_PIPE_VER: main
 
 jobs:
   release:
