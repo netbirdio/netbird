@@ -3,10 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/netbirdio/netbird/encryption"
@@ -64,7 +65,6 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 }
 
 func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
-
 	// todo introduce something more meaningful with the key expiration/rotation
 	now := time.Now().Add(24 * time.Hour)
 	secs := int64(now.Second())
@@ -77,10 +77,9 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 	}, nil
 }
 
-//Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
+// Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
-
 	log.Debugf("Sync request from peer %s", req.WgPubKey)
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
@@ -155,7 +154,6 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 }
 
 func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
-
 	var (
 		reqSetupKey string
 		userId      string
@@ -209,7 +207,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
 
-	//todo move to DefaultAccountManager the code below
+	// todo move to DefaultAccountManager the code below
 	networkMap, err := s.accountManager.GetNetworkMap(peer.Key)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
@@ -240,7 +238,6 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-
 	log.Debugf("Login request from peer %s", req.WgPubKey)
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
@@ -252,18 +249,18 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 	peer, err := s.accountManager.GetPeer(peerKey.String())
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.NotFound {
-			//peer doesn't exist -> check if setup key was provided
+			// peer doesn't exist -> check if setup key was provided
 			loginReq := &proto.LoginRequest{}
 			err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, loginReq)
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "invalid request message")
 			}
 			if loginReq.GetJwtToken() == "" && loginReq.GetSetupKey() == "" {
-				//absent setup key -> permission denied
+				// absent setup key -> permission denied
 				return nil, status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered and no setup key or jwt was provided", peerKey.String())
 			}
 
-			//setup key or jwt is present -> try normal registration flow
+			// setup key or jwt is present -> try normal registration flow
 			peer, err = s.registerPeer(peerKey, loginReq)
 			if err != nil {
 				return nil, err
@@ -303,13 +300,12 @@ func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	case TCP:
 		return proto.HostConfig_TCP
 	default:
-		//mbragin: todo something better?
+		// mbragin: todo something better?
 		panic(fmt.Errorf("unexpected config protocol type %v", configProto))
 	}
 }
 
 func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *proto.WiretrusteeConfig {
-
 	var stuns []*proto.HostConfig
 	for _, stun := range config.Stuns {
 		stuns = append(stuns, &proto.HostConfig{
@@ -350,26 +346,23 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 
 func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	return &proto.PeerConfig{
-		Address: peer.IP.String() + "/24", //todo make it explicit
+		Address: peer.IP.String() + "/24", // todo make it explicit
 	}
 }
 
 func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
-
 	remotePeers := []*proto.RemotePeerConfig{}
 	for _, rPeer := range peers {
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
-			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)}, //todo /32
+			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)}, // todo /32
 		})
 	}
 
 	return remotePeers
-
 }
 
 func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials, serial uint64) *proto.SyncResponse {
-
 	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
 	pConfig := toPeerConfig(peer)
@@ -397,7 +390,6 @@ func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty,
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
-
 	networkMap, err := s.accountManager.GetNetworkMap(peer.Key)
 	if err != nil {
 		log.Warnf("error getting a list of peers for a peer %s", peer.Key)
@@ -436,7 +428,6 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 // This is used for initiating an Oauth 2 device authorization grant flow
 // which will be used by our clients to Login
 func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetDeviceAuthorizationFlow request.", req.WgPubKey)

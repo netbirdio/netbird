@@ -17,6 +17,14 @@ type Group struct {
 	Peers []string
 }
 
+func (g *Group) Copy() *Group {
+	return &Group{
+		ID:    g.ID,
+		Name:  g.Name,
+		Peers: g.Peers[:],
+	}
+}
+
 // GetGroup object of the peers
 func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, error) {
 	am.mux.Lock()

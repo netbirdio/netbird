@@ -13,18 +13,31 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Groups is a handler that returns groups of the account
-type Groups struct {
-	accountManager server.AccountManager
-	authAudience   string
-	jwtExtractor   jwtclaims.ClaimsExtractor
-}
-
 // GroupResponse is a response sent to the client
 type GroupResponse struct {
 	ID    string
 	Name  string
+	Peers []GroupPeerResponse `json:",omitempty"`
+}
+
+// GroupPeerResponse is a response sent to the client
+type GroupPeerResponse struct {
+	Key  string
+	Name string
+}
+
+// GroupRequest to create or update group
+type GroupRequest struct {
+	ID    string
+	Name  string
 	Peers []string
+}
+
+// Groups is a handler that returns groups of the account
+type Groups struct {
+	jwtExtractor   jwtclaims.ClaimsExtractor
+	accountManager server.AccountManager
+	authAudience   string
 }
 
 func NewGroups(accountManager server.AccountManager, authAudience string) *Groups {
@@ -44,7 +57,12 @@ func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, account.Groups)
+	var groups []*GroupResponse
+	for _, g := range account.Groups {
+		groups = append(groups, toGroupResponse(account, g))
+	}
+
+	writeJSONObject(w, groups)
 }
 
 func (h *Groups) CreateOrUpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +72,7 @@ func (h *Groups) CreateOrUpdateGroupHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var req server.Group
+	var req GroupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -64,13 +82,19 @@ func (h *Groups) CreateOrUpdateGroupHandler(w http.ResponseWriter, r *http.Reque
 		req.ID = xid.New().String()
 	}
 
-	if err := h.accountManager.SaveGroup(account.Id, &req); err != nil {
+	group := server.Group{
+		ID:    req.ID,
+		Name:  req.Name,
+		Peers: req.Peers,
+	}
+
+	if err := h.accountManager.SaveGroup(account.Id, &group); err != nil {
 		log.Errorf("failed updating group %s under account %s %v", req.ID, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	writeJSONObject(w, &req)
+	writeJSONObject(w, toGroupResponse(account, &group))
 }
 
 func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +141,7 @@ func (h *Groups) GetGroupHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSONObject(w, group)
+		writeJSONObject(w, toGroupResponse(account, group))
 	default:
 		http.Error(w, "", http.StatusNotFound)
 	}
@@ -132,4 +156,30 @@ func (h *Groups) getGroupAccount(r *http.Request) (*server.Account, error) {
 	}
 
 	return account, nil
+}
+
+func toGroupResponse(account *server.Account, group *server.Group) *GroupResponse {
+	cache := make(map[string]GroupPeerResponse)
+	gr := GroupResponse{
+		ID:   group.ID,
+		Name: group.Name,
+	}
+
+	for _, pid := range group.Peers {
+		peerResp, ok := cache[pid]
+		if !ok {
+			peer, ok := account.Peers[pid]
+			if !ok {
+				continue
+			}
+			peerResp = GroupPeerResponse{
+				Key:  peer.Key,
+				Name: peer.Name,
+			}
+			cache[pid] = peerResp
+		}
+		gr.Peers = append(gr.Peers, peerResp)
+	}
+
+	return &gr
 }

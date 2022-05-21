@@ -1,12 +1,13 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/proto"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/management/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // PeerSystemMeta is a metadata of a Peer machine system
@@ -21,31 +22,31 @@ type PeerSystemMeta struct {
 }
 
 type PeerStatus struct {
-	//LastSeen is the last time peer was connected to the management service
+	// LastSeen is the last time peer was connected to the management service
 	LastSeen time.Time
-	//Connected indicates whether peer is connected to the management service or not
+	// Connected indicates whether peer is connected to the management service or not
 	Connected bool
 }
 
-//Peer represents a machine connected to the network.
-//The Peer is a Wireguard peer identified by a public key
+// Peer represents a machine connected to the network.
+// The Peer is a Wireguard peer identified by a public key
 type Peer struct {
-	//Wireguard public key
+	// Wireguard public key
 	Key string
-	//A setup key this peer was registered with
+	// A setup key this peer was registered with
 	SetupKey string
-	//IP address of the Peer
+	// IP address of the Peer
 	IP net.IP
-	//Meta is a Peer system meta data
+	// Meta is a Peer system meta data
 	Meta PeerSystemMeta
-	//Name is peer's name (machine name)
+	// Name is peer's name (machine name)
 	Name   string
 	Status *PeerStatus
-	//The user ID that registered the peer
+	// The user ID that registered the peer
 	UserID string
 }
 
-//Copy copies Peer object
+// Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	return &Peer{
 		Key:      p.Key,
@@ -58,7 +59,7 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
-//GetPeer returns a peer from a Store
+// GetPeer returns a peer from a Store
 func (am *DefaultAccountManager) GetPeer(peerKey string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -71,7 +72,7 @@ func (am *DefaultAccountManager) GetPeer(peerKey string) (*Peer, error) {
 	return peer, nil
 }
 
-//MarkPeerConnected marks peer as connected (true) or disconnected (false)
+// MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected bool) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -96,8 +97,12 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected boo
 	return nil
 }
 
-//RenamePeer changes peer's name
-func (am *DefaultAccountManager) RenamePeer(accountId string, peerKey string, newName string) (*Peer, error) {
+// RenamePeer changes peer's name
+func (am *DefaultAccountManager) RenamePeer(
+	accountId string,
+	peerKey string,
+	newName string,
+) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -116,7 +121,7 @@ func (am *DefaultAccountManager) RenamePeer(accountId string, peerKey string, ne
 	return peerCopy, nil
 }
 
-//DeletePeer removes peer from the account by it's IP
+// DeletePeer removes peer from the account by it's IP
 func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -149,12 +154,13 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 					RemotePeers:        []*proto.RemotePeerConfig{},
 					RemotePeersIsEmpty: true,
 				},
-			}})
+			},
+		})
 	if err != nil {
 		return nil, err
 	}
 
-	//notify other peers of the change
+	// notify other peers of the change
 	peers, err := am.Store.GetAccountPeers(accountId)
 	if err != nil {
 		return nil, err
@@ -180,7 +186,8 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 						RemotePeers:        update,
 						RemotePeersIsEmpty: len(update) == 0,
 					},
-				}})
+				},
+			})
 		if err != nil {
 			return nil, err
 		}
@@ -190,7 +197,7 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 	return peer, nil
 }
 
-//GetPeerByIP returns peer by it's IP
+// GetPeerByIP returns peer by it's IP
 func (am *DefaultAccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -220,10 +227,46 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 	}
 
 	var res []*Peer
-	for _, peer := range account.Peers {
-		// exclude original peer
-		if peer.Key != peerKey {
-			res = append(res, peer.Copy())
+	srcRules, err := am.Store.GetPeerSrcRules(account.Id, peerKey)
+	if err != nil {
+		return &NetworkMap{
+			Peers:   res,
+			Network: account.Network.Copy(),
+		}, nil
+	}
+
+	dstRules, err := am.Store.GetPeerDstRules(account.Id, peerKey)
+	if err != nil {
+		return &NetworkMap{
+			Peers:   res,
+			Network: account.Network.Copy(),
+		}, nil
+	}
+
+	groups := map[string]*Group{}
+	for _, r := range srcRules {
+		if r.Flow == TrafficFlowBidirect {
+			for _, gid := range r.Destination {
+				groups[gid] = account.Groups[gid]
+			}
+		}
+	}
+
+	for _, r := range dstRules {
+		if r.Flow == TrafficFlowBidirect {
+			for _, gid := range r.Source {
+				groups[gid] = account.Groups[gid]
+			}
+		}
+	}
+
+	for _, g := range groups {
+		for _, pid := range g.Peers {
+			peer := account.Peers[pid]
+			// exclude original peer
+			if peer.Key != peerKey {
+				res = append(res, peer.Copy())
+			}
 		}
 	}
 
@@ -240,7 +283,11 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 // to it. We also add the User ID to the peer metadata to identify registrant.
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *Peer) (*Peer, error) {
+func (am *DefaultAccountManager) AddPeer(
+	setupKey string,
+	userID string,
+	peer *Peer,
+) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -252,17 +299,28 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	if len(upperKey) != 0 {
 		account, err = am.Store.GetAccountBySetupKey(upperKey)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "unable to register peer, unable to find account with setupKey %s", upperKey)
+			return nil, status.Errorf(
+				codes.NotFound,
+				"unable to register peer, unable to find account with setupKey %s",
+				upperKey,
+			)
 		}
 
 		sk = getAccountSetupKeyByKey(account, upperKey)
 		if sk == nil {
 			// shouldn't happen actually
-			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown setupKey %s", upperKey)
+			return nil, status.Errorf(
+				codes.NotFound,
+				"unable to register peer, unknown setupKey %s",
+				upperKey,
+			)
 		}
 
 		if !sk.IsValid() {
-			return nil, status.Errorf(codes.FailedPrecondition, "unable to register peer, its setup key is invalid (expired, overused or revoked)")
+			return nil, status.Errorf(
+				codes.FailedPrecondition,
+				"unable to register peer, its setup key is invalid (expired, overused or revoked)",
+			)
 		}
 
 	} else if len(userID) != 0 {
@@ -293,6 +351,13 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
 	}
 
+	// add peer to 'All' group
+	group, err := account.GetGroupAll()
+	if err != nil {
+		return nil, err
+	}
+	group.Peers = append(group.Peers, newPeer.Key)
+
 	account.Peers[newPeer.Key] = newPeer
 	if len(upperKey) != 0 {
 		account.SetupKeys[sk.Key] = sk.IncrementUsage()
@@ -305,5 +370,4 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	}
 
 	return newPeer, nil
-
 }

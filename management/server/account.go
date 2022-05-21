@@ -24,7 +24,12 @@ const (
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	GetAccountByUser(userId string) (*Account, error)
-	AddSetupKey(accountId string, keyName string, keyType SetupKeyType, expiresIn *util.Duration) (*SetupKey, error)
+	AddSetupKey(
+		accountId string,
+		keyName string,
+		keyType SetupKeyType,
+		expiresIn *util.Duration,
+	) (*SetupKey, error)
 	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
@@ -47,6 +52,10 @@ type AccountManager interface {
 	GroupAddPeer(accountId, groupID, peerKey string) error
 	GroupDeletePeer(accountId, groupID, peerKey string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
+	GetRule(accountId, ruleID string) (*Rule, error)
+	SaveRule(accountID string, rule *Rule) error
+	DeleteRule(accountId, ruleID string) error
+	ListRules(accountId string) ([]*Rule, error)
 }
 
 type DefaultAccountManager struct {
@@ -70,6 +79,7 @@ type Account struct {
 	Peers                  map[string]*Peer
 	Users                  map[string]*User
 	Groups                 map[string]*Group
+	Rules                  map[string]*Rule
 }
 
 type UserInfo struct {
@@ -101,6 +111,16 @@ func (a *Account) Copy() *Account {
 		setupKeys[id] = key.Copy()
 	}
 
+	groups := map[string]*Group{}
+	for id, group := range a.Groups {
+		groups[id] = group.Copy()
+	}
+
+	rules := map[string]*Rule{}
+	for id, rule := range a.Rules {
+		rules[id] = rule.Copy()
+	}
+
 	return &Account{
 		Id:        a.Id,
 		CreatedBy: a.CreatedBy,
@@ -108,17 +128,43 @@ func (a *Account) Copy() *Account {
 		Network:   a.Network.Copy(),
 		Peers:     peers,
 		Users:     users,
+		Groups:    groups,
+		Rules:     rules,
 	}
 }
 
-// NewManager creates a new DefaultAccountManager with a provided Store
-func NewManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager) *DefaultAccountManager {
-	return &DefaultAccountManager{
+func (a *Account) GetGroupAll() (*Group, error) {
+	for _, g := range a.Groups {
+		if g.Name == "All" {
+			return g, nil
+		}
+	}
+	return nil, fmt.Errorf("no group ALL found")
+}
+
+// BuildManager creates a new DefaultAccountManager with a provided Store
+func BuildManager(
+	store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
+) (*DefaultAccountManager, error) {
+	dam := &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
 		peersUpdateManager: peersUpdateManager,
 		idpManager:         idpManager,
 	}
+
+	// if account has not default account
+	// we build 'all' group and add all peers into it
+	// also we create default rule with source an destination
+	// groups 'all'
+	for _, account := range store.GetAllAccounts() {
+		dam.addAllGroup(account)
+		if err := store.SaveAccount(account); err != nil {
+			return nil, err
+		}
+	}
+
+	return dam, nil
 }
 
 // AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
@@ -223,7 +269,9 @@ func (am *DefaultAccountManager) GetAccountById(accountId string) (*Account, err
 
 // GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
 // user id doesn't have an account associated with it, one account is created
-func (am *DefaultAccountManager) GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error) {
+func (am *DefaultAccountManager) GetAccountByUserOrAccountId(
+	userId, accountId, domain string,
+) (*Account, error) {
 	if accountId != "" {
 		return am.GetAccountById(accountId)
 	} else if userId != "" {
@@ -490,12 +538,36 @@ func (am *DefaultAccountManager) AddAccount(accountId, userId, domain string) (*
 func (am *DefaultAccountManager) createAccount(accountId, userId, domain string) (*Account, error) {
 	account := newAccountWithId(accountId, userId, domain)
 
+	am.addAllGroup(account)
+
 	err := am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed creating account")
 	}
 
 	return account, nil
+}
+
+// addAllGroup to account object it it doesn't exists
+func (am *DefaultAccountManager) addAllGroup(account *Account) {
+	if len(account.Groups) == 0 {
+		allGroup := &Group{
+			ID:   xid.New().String(),
+			Name: "All",
+		}
+		for _, peer := range account.Peers {
+			allGroup.Peers = append(allGroup.Peers, peer.Key)
+		}
+		account.Groups = map[string]*Group{allGroup.ID: allGroup}
+
+		defaultRule := &Rule{
+			ID:          xid.New().String(),
+			Name:        "Default",
+			Source:      []string{allGroup.ID},
+			Destination: []string{allGroup.ID},
+		}
+		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
+	}
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
