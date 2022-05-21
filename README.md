@@ -181,7 +181,7 @@ Simply run:
 ```shell
   netbird up
 ```
-> You will be prompt for email and password
+> It will open your browser, and you will be prompt for email and password
 
 Check connection status:
 ```shell
@@ -205,7 +205,7 @@ docker run --network host --privileged --rm -d -e NB_SETUP_KEY=<SETUP KEY> -v ne
 
 Alternatively, if you are hosting your own Management Service provide `--management-url` property pointing to your Management Service:
   ```shell
-  sudo wiretrustee up --setup-key <SETUP KEY> --management-url https://localhost:33073
+  sudo netbird up --setup-key <SETUP KEY> --management-url http://localhost:33073
   ```
 
 > You could also omit the `--setup-key` property. In this case, the tool will prompt for the key.
