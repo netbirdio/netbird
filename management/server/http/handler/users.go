@@ -17,8 +17,10 @@ type UserHandler struct {
 }
 
 type UserResponse struct {
-	Email string
-	Role  string
+	ID    string `json:"id"`
+	Email string `json:"email"`
+	Name  string `json:"name"`
+	Role  string `json:"role"`
 }
 
 func NewUserHandler(accountManager server.AccountManager, authAudience string) *UserHandler {
@@ -59,5 +61,19 @@ func (u *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, data)
+	users := []*UserResponse{}
+	for _, r := range data {
+		users = append(users, toUserResponse(r))
+	}
+
+	writeJSONObject(w, users)
+}
+
+func toUserResponse(user *server.UserInfo) *UserResponse {
+	return &UserResponse{
+		ID:    user.ID,
+		Name:  user.Name,
+		Email: user.Email,
+		Role:  user.Role,
+	}
 }

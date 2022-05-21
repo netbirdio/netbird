@@ -64,7 +64,7 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var rules []*RuleResponse
+	rules := []*RuleResponse{}
 	for _, r := range account.Rules {
 		rules = append(rules, toRuleResponse(account, r))
 	}
