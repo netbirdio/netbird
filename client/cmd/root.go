@@ -21,18 +21,20 @@ import (
 )
 
 var (
-	configPath        string
-	defaultConfigPath string
-	logLevel          string
-	defaultLogFile    string
-	logFile           string
-	daemonAddr        string
-	managementURL     string
-	adminURL          string
-	setupKey          string
-	preSharedKey      string
-	rootCmd           = &cobra.Command{
-		Use:          "wiretrustee",
+	configPath           string
+	defaultConfigPathDir string
+	defaultConfigPath    string
+	logLevel             string
+	defaultLogFileDir    string
+	defaultLogFile       string
+	logFile              string
+	daemonAddr           string
+	managementURL        string
+	adminURL             string
+	setupKey             string
+	preSharedKey         string
+	rootCmd              = &cobra.Command{
+		Use:          "netbird",
 		Short:        "",
 		Long:         "",
 		SilenceUsage: true,
@@ -45,23 +47,26 @@ func Execute() error {
 }
 
 func init() {
-	defaultConfigPath = "/etc/wiretrustee/config.json"
-	defaultLogFile = "/var/log/wiretrustee/client.log"
+	defaultConfigPathDir = "/etc/netbird/"
+	defaultLogFileDir = "/var/log/netbird/"
 	if runtime.GOOS == "windows" {
-		defaultConfigPath = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "config.json"
-		defaultLogFile = os.Getenv("PROGRAMDATA") + "\\Wiretrustee\\" + "client.log"
+		defaultConfigPathDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
+		defaultLogFileDir = os.Getenv("PROGRAMDATA") + "\\Netbird\\"
 	}
 
-	defaultDaemonAddr := "unix:///var/run/wiretrustee.sock"
+	defaultConfigPath = defaultConfigPathDir + "config.json"
+	defaultLogFile = defaultLogFileDir + "client.log"
+
+	defaultDaemonAddr := "unix:///var/run/netbird.sock"
 	if runtime.GOOS == "windows" {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
 	rootCmd.PersistentFlags().StringVar(&managementURL, "management-url", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.ManagementURLDefault().String()))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "https://app.netbird.io", "Admin Panel URL [http|https]://[host]:[port]")
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Wiretrustee config file location")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "sets Wiretrustee log level")
-	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Wiretrustee log path. If console is specified the the log will be output to stdout")
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Netbird config file location")
+	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "sets Netbird log level")
+	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the the log will be output to stdout")
 	rootCmd.PersistentFlags().StringVar(&setupKey, "setup-key", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
 	rootCmd.PersistentFlags().StringVar(&preSharedKey, "preshared-key", "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.AddCommand(serviceCmd)
@@ -94,22 +99,30 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 func SetFlagsFromEnvVars() {
 	flags := rootCmd.PersistentFlags()
 	flags.VisitAll(func(f *pflag.Flag) {
-		envVar := FlagNameToEnvVar(f.Name)
+		oldEnvVar := FlagNameToEnvVar(f.Name, "WT_")
 
-		if value, present := os.LookupEnv(envVar); present {
+		if value, present := os.LookupEnv(oldEnvVar); present {
 			err := flags.Set(f.Name, value)
 			if err != nil {
-				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, envVar, err)
+				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, oldEnvVar, err)
+			}
+		}
+
+		newEnvVar := FlagNameToEnvVar(f.Name, "NB_")
+
+		if value, present := os.LookupEnv(newEnvVar); present {
+			err := flags.Set(f.Name, value)
+			if err != nil {
+				log.Infof("unable to configure flag %s using variable %s, err: %v", f.Name, newEnvVar, err)
 			}
 		}
 	})
 }
 
 // FlagNameToEnvVar converts flag name to environment var name adding a prefix,
-// replacing dashes and making all uppercase (e.g. setup-keys is converted to WT_SETUP_KEYS)
-func FlagNameToEnvVar(f string) string {
-	prefix := "WT_"
-	parsed := strings.ReplaceAll(f, "-", "_")
+// replacing dashes and making all uppercase (e.g. setup-keys is converted to NB_SETUP_KEYS according to the input prefix)
+func FlagNameToEnvVar(cmdFlag string, prefix string) string {
+	parsed := strings.ReplaceAll(cmdFlag, "-", "_")
 	upper := strings.ToUpper(parsed)
 	return prefix + upper
 }

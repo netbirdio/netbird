@@ -24,8 +24,8 @@ func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
 
 func newSVCConfig() *service.Config {
 	return &service.Config{
-		Name:        "wiretrustee",
-		DisplayName: "Wiretrustee",
+		Name:        "netbird",
+		DisplayName: "Netbird",
 		Description: "A WireGuard-based mesh network that connects your devices into a single private network.",
 	}
 }
@@ -41,5 +41,5 @@ func newSVC(prg *program, conf *service.Config) (service.Service, error) {
 
 var serviceCmd = &cobra.Command{
 	Use:   "service",
-	Short: "manages wiretrustee service",
+	Short: "manages Netbird service",
 }

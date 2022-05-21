@@ -8,7 +8,7 @@ import (
 var (
 	versionCmd = &cobra.Command{
 		Use:   "version",
-		Short: "prints wiretrustee version",
+		Short: "prints Netbird version",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.Println(system.WiretrusteeVersion())
 		},

@@ -18,7 +18,7 @@ import (
 
 var loginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "login to the Wiretrustee Management Service (first run)",
+	Short: "login to the Netbird Management Service (first run)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 

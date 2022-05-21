@@ -13,7 +13,7 @@ import (
 
 var downCmd = &cobra.Command{
 	Use:   "down",
-	Short: "down wiretrustee connections",
+	Short: "down netbird connections",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 

@@ -13,7 +13,7 @@ import (
 
 var upCmd = &cobra.Command{
 	Use:   "up",
-	Short: "install, login and start wiretrustee client",
+	Short: "install, login and start Netbird client",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 

@@ -9,7 +9,7 @@ import (
 
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "installs wiretrustee service",
+	Short: "installs Netbird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
@@ -47,14 +47,14 @@ var installCmd = &cobra.Command{
 			cmd.PrintErrln(err)
 			return err
 		}
-		cmd.Println("Wiretrustee service has been installed")
+		cmd.Println("Netbird service has been installed")
 		return nil
 	},
 }
 
 var uninstallCmd = &cobra.Command{
 	Use:   "uninstall",
-	Short: "uninstalls wiretrustee service from system",
+	Short: "uninstalls Netbird service from system",
 	Run: func(cmd *cobra.Command, args []string) {
 		SetFlagsFromEnvVars()
 
@@ -71,6 +71,6 @@ var uninstallCmd = &cobra.Command{
 			cmd.PrintErrln(err)
 			return
 		}
-		cmd.Println("Wiretrustee has been uninstalled")
+		cmd.Println("Netbird has been uninstalled")
 	},
 }

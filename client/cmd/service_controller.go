@@ -76,13 +76,13 @@ func (p *program) Stop(srv service.Service) error {
 	}
 
 	time.Sleep(time.Second * 2)
-	log.Info("stopped Wiretrustee service") //nolint
+	log.Info("stopped Netbird service") //nolint
 	return nil
 }
 
 var runCmd = &cobra.Command{
 	Use:   "run",
-	Short: "runs wiretrustee as service",
+	Short: "runs Netbird as service",
 	Run: func(cmd *cobra.Command, args []string) {
 		SetFlagsFromEnvVars()
 
@@ -105,13 +105,13 @@ var runCmd = &cobra.Command{
 			cmd.PrintErrln(err)
 			return
 		}
-		cmd.Printf("Wiretrustee service is running")
+		cmd.Printf("Netbird service is running")
 	},
 }
 
 var startCmd = &cobra.Command{
 	Use:   "start",
-	Short: "starts wiretrustee service",
+	Short: "starts Netbird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
@@ -133,14 +133,14 @@ var startCmd = &cobra.Command{
 			cmd.PrintErrln(err)
 			return err
 		}
-		cmd.Println("Wiretrustee service has been started")
+		cmd.Println("Netbird service has been started")
 		return nil
 	},
 }
 
 var stopCmd = &cobra.Command{
 	Use:   "stop",
-	Short: "stops wiretrustee service",
+	Short: "stops Netbird service",
 	Run: func(cmd *cobra.Command, args []string) {
 		SetFlagsFromEnvVars()
 
@@ -161,13 +161,13 @@ var stopCmd = &cobra.Command{
 			cmd.PrintErrln(err)
 			return
 		}
-		cmd.Println("Wiretrustee service has been stopped")
+		cmd.Println("Netbird service has been stopped")
 	},
 }
 
 var restartCmd = &cobra.Command{
 	Use:   "restart",
-	Short: "restarts wiretrustee service",
+	Short: "restarts Netbird service",
 	Run: func(cmd *cobra.Command, args []string) {
 		SetFlagsFromEnvVars()
 
@@ -188,6 +188,6 @@ var restartCmd = &cobra.Command{
 			cmd.PrintErrln(err)
 			return
 		}
-		cmd.Println("Wiretrustee service has been restarted")
+		cmd.Println("Netbird service has been restarted")
 	},
 }
