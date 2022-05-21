@@ -6,5 +6,7 @@
   <string>netbird-ui</string>
   <key>CFBundleIconFile</key>
   <string>Netbird</string>
+  <key>LSUIElement</key>
+  <string>1</string>
 </dict>
 </plist>
