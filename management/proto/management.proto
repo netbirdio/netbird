@@ -83,7 +83,6 @@ message PeerSystemMeta {
   string OS = 6;
   string wiretrusteeVersion = 7;
   string caller = 8;
-  string callerVersion = 9;
 }
 
 message LoginResponse {

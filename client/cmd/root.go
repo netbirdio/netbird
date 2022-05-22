@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/system"
 	"os"
 	"os/signal"
 	"runtime"
@@ -124,6 +125,7 @@ func DialClientGRPCServer(ctx context.Context, addr string) (*grpc.ClientConn, e
 		strings.TrimPrefix(addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
+		grpc.WithUserAgent(system.NetBirdCmdUserAgent()),
 	)
 }
 

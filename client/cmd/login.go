@@ -3,11 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/system"
 	"time"
 
 	"github.com/skratchdot/open-golang/open"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/util"
@@ -69,9 +69,6 @@ var loginCmd = &cobra.Command{
 		err = WithBackOff(func() error {
 			var backOffErr error
 
-			md := metadata.New(map[string]string{"caller": "cli"})
-			ctx = metadata.NewOutgoingContext(ctx, md)
-
 			loginResp, backOffErr = client.Login(ctx, &loginRequest)
 			if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
 				s.Code() == codes.PermissionDenied ||
@@ -108,8 +105,10 @@ var loginCmd = &cobra.Command{
 func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.Config, setupKey string) error {
 	needsLogin := false
 
+	info := system.GetInfo()
+
 	err := WithBackOff(func() error {
-		err := internal.Login(ctx, config, "", "")
+		err := internal.Login(ctx, config, "", "", info)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			needsLogin = true
 			return nil
@@ -130,7 +129,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 	}
 
 	err = WithBackOff(func() error {
-		err := internal.Login(ctx, config, setupKey, jwtToken)
+		err := internal.Login(ctx, config, setupKey, jwtToken, info)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			return nil
 		}

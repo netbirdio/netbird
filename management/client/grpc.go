@@ -243,6 +243,9 @@ func (c *GrpcClient) Login(serverKey wgtypes.Key, info *system.Info) (*proto.Log
 }
 
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
+	if info == nil {
+		return nil
+	}
 	return &proto.PeerSystemMeta{
 		Hostname:           info.Hostname,
 		GoOS:               info.GoOS,
@@ -252,7 +255,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		Kernel:             info.Kernel,
 		WiretrusteeVersion: info.WiretrusteeVersion,
 		Caller:             info.Caller,
-		// CallerVersion:      info.CallerVersion,
 	}
 }
 

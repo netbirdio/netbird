@@ -23,3 +23,11 @@ type Info struct {
 func WiretrusteeVersion() string {
 	return version
 }
+
+func NetBirdDesktopUIUserAgent() string {
+	return "netbird-desktop-ui/" + WiretrusteeVersion()
+}
+
+func NetBirdCmdUserAgent() string {
+	return "netbird-cmd/" + WiretrusteeVersion()
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"github.com/cenkalti/backoff/v4"
+	"github.com/netbirdio/netbird/client/system"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -14,10 +16,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
-
 	_ "embed"
 
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 	"github.com/getlantern/systray"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
@@ -26,12 +30,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
-
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/widget"
 )
 
 const (
@@ -197,8 +195,6 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 					return
 				}
 
-				md := metadata.New(map[string]string{"caller": "ui"})
-				s.ctx = metadata.NewOutgoingContext(s.ctx, md)
 				_, err = client.Login(s.ctx, &proto.LoginRequest{
 					ManagementUrl: s.iMngURL.Text,
 					AdminURL:      s.iAdminURL.Text,
@@ -453,6 +449,7 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		strings.TrimPrefix(s.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
+		grpc.WithUserAgent(system.NetBirdDesktopUIUserAgent()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial service: %w", err)

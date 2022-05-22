@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/system"
+	"google.golang.org/grpc/metadata"
 	"sync"
 	"time"
 
@@ -91,6 +93,18 @@ func (s *Server) Start() error {
 	return nil
 }
 
+func extractUserAgent(ctx context.Context) string {
+	mD, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		agent, ok := mD["user-agent"]
+		if ok {
+			return agent[0]
+		}
+
+	}
+	return ""
+}
+
 // Login uses setup key to prepare configuration for the daemon.
 func (s *Server) Login(ctx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
 	s.mutex.Lock()
@@ -145,7 +159,7 @@ func (s *Server) Login(ctx context.Context, msg *proto.LoginRequest) (*proto.Log
 				return nil, gstatus.Errorf(codes.Unimplemented, "the management server, %s, does not support SSO providers, "+
 					"please update your server or use Setup Keys to login", config.ManagementURL)
 			} else {
-				log.Errorf("getting device authorization flow info failed with error: %v", err)
+				log.Errorf("getting device authorization flow sysInfo failed with error: %v", err)
 				return nil, err
 			}
 		}
@@ -177,7 +191,13 @@ func (s *Server) Login(ctx context.Context, msg *proto.LoginRequest) (*proto.Log
 		}, nil
 	}
 
-	if err := internal.Login(ctx, s.config, msg.SetupKey, ""); err != nil {
+	sysInfo := system.GetInfo()
+	agent := extractUserAgent(ctx)
+	if agent != "" {
+		sysInfo.Caller = agent
+	}
+
+	if err := internal.Login(ctx, s.config, msg.SetupKey, "", sysInfo); err != nil {
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			log.Warnf("failed login with known status: %v", err)
 			state.Set(internal.StatusNeedsLogin)
@@ -236,7 +256,12 @@ func (s *Server) WaitSSOLogin(_ context.Context, msg *proto.WaitSSOLoginRequest)
 		return nil, err
 	}
 
-	if err := internal.Login(ctx, s.config, "", tokenInfo.AccessToken); err != nil {
+	sysInfo := system.GetInfo()
+	agent := extractUserAgent(ctx)
+	if agent != "" {
+		sysInfo.Caller = agent
+	}
+	if err := internal.Login(ctx, s.config, "", tokenInfo.AccessToken, sysInfo); err != nil {
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			log.Warnf("failed login: %v", err)
 			state.Set(internal.StatusNeedsLogin)

@@ -391,7 +391,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	//todo
-	info := system.GetInfo(ctx)
+	info := system.GetInfo()
 	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info)
 	if err != nil {
 		return nil, err
