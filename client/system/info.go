@@ -29,5 +29,5 @@ func NetBirdDesktopUIUserAgent() string {
 }
 
 func NetBirdCmdUserAgent() string {
-	return "netbird-cmd/" + WiretrusteeVersion()
+	return "netbird-cli/" + WiretrusteeVersion()
 }
