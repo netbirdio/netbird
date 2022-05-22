@@ -47,32 +47,34 @@ For this tutorial we will be using domain ```test.netbird.io``` which points to 
    The [setup.env](../infrastructure_files/setup.env) file contains the following properties that have to be filled:
    
    ```bash
-   # e.g. app.mydomain.com
-   WIRETRUSTEE_DOMAIN=""
+   # Dashboard domain. e.g. app.mydomain.com
+   NETBIRD_DOMAIN=""
    # e.g. dev-24vkclam.us.auth0.com
-   WIRETRUSTEE_AUTH0_DOMAIN=""
+   NETBIRD_AUTH0_DOMAIN=""
    # e.g. 61u3JMXRO0oOevc7gCkZLCwePQvT4lL0
-   WIRETRUSTEE_AUTH0_CLIENT_ID=""
-   # e.g. https://app.mydomain.com/
-   WIRETRUSTEE_AUTH0_AUDIENCE=""
+   NETBIRD_AUTH0_CLIENT_ID=""
+   # e.g. https://app.mydomain.com/ or https://app.mydomain.com,
+   # Make sure you used the exact same value for Identifier
+   # you used when creating your Auth0 API
+   NETBIRD_AUTH0_AUDIENCE=""
    # e.g. hello@mydomain.com
-   WIRETRUSTEE_LETSENCRYPT_EMAIL=""
+   NETBIRD_LETSENCRYPT_EMAIL=""
    ```
    > Other options are available, but they are automatically updated.
    
    Please follow the steps to get the values. 
 
-4. Configure ```WIRETRUSTEE_AUTH0_DOMAIN``` ```WIRETRUSTEE_AUTH0_CLIENT_ID``` ```WIRETRUSTEE_AUTH0_AUDIENCE``` properties.          
+4. Configure ```NETBIRD_AUTH0_DOMAIN``` ```NETBIRD_AUTH0_CLIENT_ID``` ```NETBIRD_AUTH0_AUDIENCE``` properties.          
    
    * To obtain these, please use [Auth0 React SDK Guide](https://auth0.com/docs/quickstart/spa/react/01-login#configure-auth0) up until "Install the Auth0 React SDK".
    
       :grey_exclamation: Use ```https://YOUR DOMAIN``` as ````Allowed Callback URLs````, ```Allowed Logout URLs```, ```Allowed Web Origins``` and ```Allowed Origins (CORS)```
    * set the variables in the ```setup.env```
-5. Configure ```WIRETRUSTEE_AUTH0_AUDIENCE``` property. 
+5. Configure ```NETBIRD_AUTH0_AUDIENCE``` property. 
    
    * Check [Auth0 Golang API Guide](https://auth0.com/docs/quickstart/backend/golang) to obtain AuthAudience.
    * set the property in the ```setup.env``` file.
-6. Configure ```WIRETRUSTEE_LETSENCRYPT_EMAIL``` property.
+6. Configure ```NETBIRD_LETSENCRYPT_EMAIL``` property.
    
    This can be any email address. [Let's Encrypt](https://letsencrypt.org/) will create an account while generating a new certificate.    
 
@@ -97,8 +99,8 @@ For this tutorial we will be using domain ```test.netbird.io``` which points to 
     docker-compose logs coturn
     docker-compose logs dashboard
 
-10. Once the server is running, you can access the dashboard by https://$WIRETRUSTEE_DOMAIN
-11. Adding a peer will require you to enter the management URL by following the steps in the page https://$WIRETRUSTEE_DOMAIN/add-peer and in the 3rd step:
+10. Once the server is running, you can access the dashboard by https://$NETBIRD_DOMAIN
+11. Adding a peer will require you to enter the management URL by following the steps in the page https://$NETBIRD_DOMAIN/add-peer and in the 3rd step:
 ```shell
-sudo wiretrustee up --setup-key <PASTE-SETUP-KEY> --management-url https://$WIRETRUSTEE_DOMAIN:33073
+sudo netbird up --setup-key <PASTE-SETUP-KEY> --management-url https://$NETBIRD_DOMAIN:33073
 ```

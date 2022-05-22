@@ -13,16 +13,16 @@ remove() {
 
   if [ "${use_systemctl}" = "True" ]; then
     printf "\033[32m Stopping the service\033[0m\n"
-    systemctl stop wiretrustee || true
+    systemctl stop netbird || true
 
-    if [ -e /lib/systemd/system/wiretrustee.service ]; then
-      rm -f /lib/systemd/system/wiretrustee.service
+    if [ -e /lib/systemd/system/netbird.service ]; then
+      rm -f /lib/systemd/system/netbird.service
       systemctl daemon-reload || true
     fi
 
   fi
   printf "\033[32m Uninstalling the service\033[0m\n"
-  /usr/bin/wiretrustee service uninstall || true
+  /usr/bin/netbird service uninstall || true
 
 
   if [ "${use_systemctl}" = "True" ]; then

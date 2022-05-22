@@ -8,13 +8,13 @@ services:
       - 80:80
       - 443:443
     environment:
-      - AUTH0_DOMAIN=$WIRETRUSTEE_AUTH0_DOMAIN
-      - AUTH0_CLIENT_ID=$WIRETRUSTEE_AUTH0_CLIENT_ID
-      - AUTH0_AUDIENCE=$WIRETRUSTEE_AUTH0_AUDIENCE
-      - WIRETRUSTEE_MGMT_API_ENDPOINT=$WIRETRUSTEE_MGMT_API_ENDPOINT
+      - AUTH0_DOMAIN=$NETBIRD_AUTH0_DOMAIN
+      - AUTH0_CLIENT_ID=$NETBIRD_AUTH0_CLIENT_ID
+      - AUTH0_AUDIENCE=$NETBIRD_AUTH0_AUDIENCE
+      - NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_MGMT_API_ENDPOINT
       - NGINX_SSL_PORT=443
-      - LETSENCRYPT_DOMAIN=$WIRETRUSTEE_DOMAIN
-      - LETSENCRYPT_EMAIL=$WIRETRUSTEE_LETSENCRYPT_EMAIL
+      - LETSENCRYPT_DOMAIN=$NETBIRD_DOMAIN
+      - LETSENCRYPT_EMAIL=$NETBIRD_LETSENCRYPT_EMAIL
     volumes:
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt/
   # Signal
@@ -27,7 +27,7 @@ services:
       - 10000:10000
   #     # port and command for Let's Encrypt validation
   #      - 443:443
-  #    command: ["--letsencrypt-domain", "$WIRETRUSTEE_DOMAIN", "--log-file", "console"]
+  #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
   # Management
   management:
     image: netbirdio/management:latest
@@ -40,15 +40,15 @@ services:
       - ./management.json:/etc/netbird/management.json
     ports:
       - 33073:33073 #gRPC port
-      - $WIRETRUSTEE_MGMT_API_PORT:33071 #API port
+      - $NETBIRD_MGMT_API_PORT:33071 #API port
   #     # port and command for Let's Encrypt validation
   #      - 443:443
-  #    command: ["--letsencrypt-domain", "$WIRETRUSTEE_DOMAIN", "--log-file", "console"]
+  #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
   # Coturn
   coturn:
     image: coturn/coturn
     restart: unless-stopped
-    domainname: $WIRETRUSTEE_DOMAIN
+    domainname: $NETBIRD_DOMAIN
     volumes:
       - ./turnserver.conf:/etc/turnserver.conf:ro
     #      - ./privkey.pem:/etc/coturn/private/privkey.pem:ro

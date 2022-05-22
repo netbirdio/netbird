@@ -3,9 +3,11 @@ package cmd
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"io/ioutil"
 	"net"
 	"os"
@@ -294,10 +296,10 @@ func cpDir(src string, dst string) error {
 }
 
 func migrateToNetbird(oldPath, newPath string) bool {
-	_, old := os.Stat(oldPath)
-	_, new := os.Stat(newPath)
+	_, errOld := os.Stat(oldPath)
+	_, errNew := os.Stat(newPath)
 
-	if os.IsNotExist(old) || os.IsExist(new) {
+	if errors.Is(errOld, fs.ErrNotExist) || errNew == nil {
 		return false
 	}
 

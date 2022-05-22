@@ -2,7 +2,7 @@
     "Stuns": [
         {
             "Proto": "udp",
-            "URI": "stun:$WIRETRUSTEE_DOMAIN:3478",
+            "URI": "stun:$NETBIRD_DOMAIN:3478",
             "Username": "",
             "Password": null
         }
@@ -11,7 +11,7 @@
         "Turns": [
             {
                 "Proto": "udp",
-                "URI": "turn:$WIRETRUSTEE_DOMAIN:3478",
+                "URI": "turn:$NETBIRD_DOMAIN:3478",
                 "Username": "$TURN_USER",
                 "Password": "$TURN_PASSWORD"
             }
@@ -22,18 +22,18 @@
     },
     "Signal": {
         "Proto": "http",
-        "URI": "$WIRETRUSTEE_DOMAIN:10000",
+        "URI": "$NETBIRD_DOMAIN:10000",
         "Username": "",
         "Password": null
     },
     "Datadir": "",
     "HttpConfig": {
-        "Address": "0.0.0.0:$WIRETRUSTEE_MGMT_API_PORT",
-        "AuthIssuer": "https://$WIRETRUSTEE_AUTH0_DOMAIN/",
-        "AuthAudience": "$WIRETRUSTEE_AUTH0_AUDIENCE",
-        "AuthKeysLocation": "https://$WIRETRUSTEE_AUTH0_DOMAIN/.well-known/jwks.json",
-        "CertFile":"$WIRETRUSTEE_MGMT_API_CERT_FILE",
-        "CertKey":"$WIRETRUSTEE_MGMT_API_CERT_KEY_FILE"
+        "Address": "0.0.0.0:$NETBIRD_MGMT_API_PORT",
+        "AuthIssuer": "https://$NETBIRD_AUTH0_DOMAIN/",
+        "AuthAudience": "$NETBIRD_AUTH0_AUDIENCE",
+        "AuthKeysLocation": "https://$NETBIRD_AUTH0_DOMAIN/.well-known/jwks.json",
+        "CertFile":"$NETBIRD_MGMT_API_CERT_FILE",
+        "CertKey":"$NETBIRD_MGMT_API_CERT_KEY_FILE"
     },
     "IdpManagerConfig": {
         "Manager": "none"

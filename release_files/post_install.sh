@@ -12,24 +12,24 @@ fi
 cleanInstall() {
     printf "\033[32m Post Install of an clean install\033[0m\n"
     # Step 3 (clean install), enable the service in the proper way for this platform
-    /usr/bin/wiretrustee service install
-    /usr/bin/wiretrustee service start
+    /usr/bin/netbird service install
+    /usr/bin/netbird service start
 }
 
 upgrade() {
     printf "\033[32m Post Install of an upgrade\033[0m\n"
     if [ "${use_systemctl}" = "True" ]; then
       printf "\033[32m Stopping the service\033[0m\n"
-      systemctl stop wiretrustee 2> /dev/null || true
+      systemctl stop netbird 2> /dev/null || true
     fi
-    if [ -e /lib/systemd/system/wiretrustee.service ]; then
-      rm -f /lib/systemd/system/wiretrustee.service
+    if [ -e /lib/systemd/system/netbird.service ]; then
+      rm -f /lib/systemd/system/netbird.service
       systemctl daemon-reload
     fi
     # will trow an error until everyone upgrade
-    /usr/bin/wiretrustee service uninstall 2> /dev/null || true
-    /usr/bin/wiretrustee service install
-    /usr/bin/wiretrustee service start
+    /usr/bin/netbird service uninstall 2> /dev/null || true
+    /usr/bin/netbird service install
+    /usr/bin/netbird service start
 }
 
 # Check if this is a clean install or an upgrade

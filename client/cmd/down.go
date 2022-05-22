@@ -13,11 +13,16 @@ import (
 
 var downCmd = &cobra.Command{
 	Use:   "down",
-	Short: "down wiretrustee connections",
+	Short: "down netbird connections",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
-		err := util.InitLog(logLevel, "console")
+		err := handleRebrand(cmd)
+		if err != nil {
+			return err
+		}
+
+		err = util.InitLog(logLevel, "console")
 		if err != nil {
 			log.Errorf("failed initializing log %v", err)
 			return err

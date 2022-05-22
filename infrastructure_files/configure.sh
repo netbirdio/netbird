@@ -2,18 +2,18 @@
 
 source setup.env
 
-if [[ "x-$WIRETRUSTEE_DOMAIN" == "x-" ]]
+if [[ "x-$NETBIRD_DOMAIN" == "x-" ]]
 then
-  echo WIRETRUSTEE_DOMAIN is not set, please update your setup.env file
+  echo NETBIRD_DOMAIN is not set, please update your setup.env file
   exit 1
 fi
 
 # local development or tests
-if [[ $WIRETRUSTEE_DOMAIN == "localhost" || $WIRETRUSTEE_DOMAIN == "127.0.0.1" ]]
+if [[ $NETBIRD_DOMAIN == "localhost" || $NETBIRD_DOMAIN == "127.0.0.1" ]]
 then
-  export WIRETRUSTEE_MGMT_API_ENDPOINT=http://$WIRETRUSTEE_DOMAIN:$WIRETRUSTEE_MGMT_API_PORT
-  unset WIRETRUSTEE_MGMT_API_CERT_FILE
-  unset WIRETRUSTEE_MGMT_API_CERT_KEY_FILE
+  export NETBIRD_MGMT_API_ENDPOINT=http://$NETBIRD_DOMAIN:$NETBIRD_MGMT_API_PORT
+  unset NETBIRD_MGMT_API_CERT_FILE
+  unset NETBIRD_MGMT_API_CERT_KEY_FILE
 fi
 
 # if not provided, we generate a turn password
@@ -28,13 +28,13 @@ LETSENCRYPT_VOLUMENAME="${VOLUME_PREFIX}${LETSENCRYPT_VOLUMESUFFIX}"
 # if volume with wiretrustee- prefix already exists, use it, else create new with netbird-
 OLD_PREFIX='wiretrustee-'
 if docker volume ls | grep -q "${OLD_PREFIX}${MGMT_VOLUMESUFFIX}"; then
-    MGMT_VOLUMENAME="${$OLD_PREFIX}${MGMT_VOLUMESUFFIX}"
+    MGMT_VOLUMENAME="${OLD_PREFIX}${MGMT_VOLUMESUFFIX}"
 fi
 if docker volume ls | grep -q "${OLD_PREFIX}${SIGNAL_VOLUMESUFFIX}"; then
-    SIGNAL_VOLUMENAME="${$OLD_PREFIX}${SIGNAL_VOLUMESUFFIX}"
+    SIGNAL_VOLUMENAME="${OLD_PREFIX}${SIGNAL_VOLUMESUFFIX}"
 fi
 if docker volume ls | grep -q "${OLD_PREFIX}${LETSENCRYPT_VOLUMESUFFIX}"; then
-    LETSENCRYPT_VOLUMENAME="${$OLD_PREFIX}${LETSENCRYPT_VOLUMESUFFIX}"
+    LETSENCRYPT_VOLUMENAME="${OLD_PREFIX}${LETSENCRYPT_VOLUMESUFFIX}"
 fi
 
 export MGMT_VOLUMENAME
