@@ -146,6 +146,11 @@ Hosted version:
   # for GUI package
   brew install --cask netbirdio/tap/netbird-ui
   ```
+3. As homebrew doesn't allow sudo exec, we need to install and start the client daemon:
+  ```shell
+  sudo netbird service install
+  sudo netbird service start
+  ```
 **Installation from binary (CLI only)**
 1. Checkout Netbird [releases](https://github.com/netbirdio/netbird/releases/latest)
 2. Download the latest release (**Switch VERSION to the latest**):
@@ -177,6 +182,9 @@ Hosted version:
 > To uninstall the client and service, you can use Add/Remove programs
 
 ### Client Configuration
+If you installed the UI client, you can launch it and click on Connect
+> It will open your browser, and you will be prompt for email and password
+
 Simply run:
 ```shell
   netbird up
