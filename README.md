@@ -86,7 +86,7 @@ Hosted version:
 * Occasionally, the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT). When this occurs the system falls back to the relay server (TURN), and a secure Wireguard tunnel is established via the TURN server. [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Netbird setups.
 
 <p float="left" align="middle">
-  <img src="https://docs.netbird.io/img/architecture/high-level-dia.png" width="700"/>
+  <img src="https://netbird.io/docs/img/architecture/high-level-dia.png" width="700"/>
 </p>
 
 
@@ -221,7 +221,7 @@ For **Windows** systems:
     To override it see solution #1 above.
 
 ### Running Dashboard, Management, Signal and Coturn
-See [Self-Hosting Guide](https://docs.netbird.io/getting-started/self-hosting)
+See [Self-Hosting Guide](https://netbird.io/docs/getting-started/self-hosting)
 
 
 ### Legal
