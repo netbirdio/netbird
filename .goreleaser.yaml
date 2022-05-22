@@ -145,6 +145,9 @@ nfpms:
     formats:
       - deb
 
+    replaces:
+      - wiretrustee
+
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
@@ -158,6 +161,9 @@ nfpms:
       - netbird
     formats:
       - rpm
+
+    replaces:
+      - wiretrustee
 
     scripts:
       postinstall: "release_files/post_install.sh"

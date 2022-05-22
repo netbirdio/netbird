@@ -105,11 +105,17 @@ Hosted version:
     curl -L https://pkgs.wiretrustee.com/debian/public.key | sudo apt-key add -
     echo 'deb https://pkgs.wiretrustee.com/debian stable main' | sudo tee /etc/apt/sources.list.d/wiretrustee.list
     ```
-2. Install the package
+2. Update APT's cache
     ```shell
     sudo apt-get update
-    sudo apt-get install wiretrustee
     ```
+3. Install the package
+    ```shell
+    # for CLI only
+    sudo apt-get install netbird
+    # for GUI package
+    sudo apt-get install netbird-ui
+    ```   
 **RPM/Red hat**
 1. Add the repository:
     ```shell
@@ -125,26 +131,37 @@ Hosted version:
     ```
 2. Install the package
     ```shell
-    sudo yum install wiretrustee
+    # for CLI only
+    sudo yum install netbird
+    # for GUI package
+    sudo yum install netbird-ui
     ```
 #### MACOS
 **Brew install**
 1. Download and install Brew at https://brew.sh/
 2. Install the client
   ```shell
-  brew install wiretrustee/client/wiretrustee
+  # for CLI only
+  brew install netbirdio/tap/netbird
+  # for GUI package
+  brew install --cask netbirdio/tap/netbird-ui
   ```
-**Installation from binary**
+3. As homebrew doesn't allow sudo exec, we need to install and start the client daemon:
+  ```shell
+  sudo netbird service install
+  sudo netbird service start
+  ```
+**Installation from binary (CLI only)**
 1. Checkout Netbird [releases](https://github.com/netbirdio/netbird/releases/latest)
 2. Download the latest release (**Switch VERSION to the latest**):
   ```shell
-  curl -o ./wiretrustee_<VERSION>_darwin_amd64.tar.gz https://github.com/netbirdio/netbird/releases/download/v<VERSION>/wiretrustee_<VERSION>_darwin_amd64.tar.gz
+  curl -o ./netbird_<VERSION>_darwin_amd64.tar.gz https://github.com/netbirdio/netbird/releases/download/v<VERSION>/wiretrustee_<VERSION>_darwin_amd64.tar.gz
   ```
 3. Decompress
   ```shell
-  tar xcf ./wiretrustee_<VERSION>_darwin_amd64.tar.gz
-  sudo mv wiretrusee /usr/bin/wiretrustee
-  chmod +x /usr/bin/wiretrustee
+  tar xcf ./netbird_<VERSION>_darwin_amd64.tar.gz
+  sudo mv netbird /usr/bin/netbird
+  chmod +x /usr/bin/netbird
   ```
   After that you may need to add /usr/bin in your PATH environment variable:
   ````shell
@@ -152,47 +169,64 @@ Hosted version:
   ````
 4. Install and run the service
   ```shell
-  sudo wiretrustee service install
-  sudo wiretrustee service start
+  sudo netbird service install
+  sudo netbird service start
   ```
 
 #### Windows
 1. Checkout Netbird [releases](https://github.com/netbirdio/netbird/releases/latest)
-2. Download the latest Windows release installer ```wiretrustee_installer_<VERSION>_windows_amd64.exe``` (**Switch VERSION to the latest**):
+2. Download the latest Windows release installer ```netbird_installer_<VERSION>_windows_amd64.exe``` (**Switch VERSION to the latest**):
 3. Proceed with installation steps
-4. This will install the client in the C:\\Program Files\\Wiretrustee and add the client service
+4. This will install the client in the C:\\Program Files\\Netbird and add the client service
 5. After installing, you can follow the [Client Configuration](#Client-Configuration) steps.
 > To uninstall the client and service, you can use Add/Remove programs
 
 ### Client Configuration
+If you installed the UI client, you can launch it and click on Connect
+> It will open your browser, and you will be prompt for email and password
+
+Simply run:
+```shell
+  netbird up
+```
+> It will open your browser, and you will be prompt for email and password
+
+Check connection status:
+```shell
+  netbird status
+```
+In case you are activating a server peer, you can use a setup-key as described in the steps below:
+
+
 1. Login to the Management Service. You need to have a `setup key` in hand (see ).
 
-For **Unix** systems:
+For all systems:
   ```shell
-  sudo wiretrustee up --setup-key <SETUP KEY>
+  netbird up --setup-key <SETUP KEY>
   ```
-For  **Windows** systems, start powershell as administrator and:
-  ```shell
-  wiretrustee up --setup-key <SETUP KEY>
-   ```
+
 For **Docker**, you can run with the following command:
 ```shell
-docker run --network host --privileged --rm -d -e WT_SETUP_KEY=<SETUP KEY> -v wiretrustee-client:/etc/wiretrustee wiretrustee/wiretrustee:<TAG>
+docker run --network host --privileged --rm -d -e NB_SETUP_KEY=<SETUP KEY> -v netbird-client:/etc/netbird netbirdio/netbird:<TAG>
 ```
-> TAG > 0.3.0 version
+> TAG > 0.6.0 version
 
 Alternatively, if you are hosting your own Management Service provide `--management-url` property pointing to your Management Service:
   ```shell
-  sudo wiretrustee up --setup-key <SETUP KEY> --management-url https://localhost:33073
+  sudo netbird up --setup-key <SETUP KEY> --management-url http://localhost:33073
   ```
 
 > You could also omit the `--setup-key` property. In this case, the tool will prompt for the key.
 
+2. Check connection status:
+```shell
+  netbird status
+```
 
-2. Check your IP:
+3. Check your IP:
   For **MACOS** you will just start the service:
   ````shell
-  sudo ipconfig getifaddr utun100
+  sudo ifconfig utun100
   ````   
 For **Linux** systems:
   ```shell
@@ -203,20 +237,19 @@ For **Windows** systems:
   netsh interface ip show config name="wt0"
   ```
 
-3. Repeat on other machines.  
+4. Repeat on other machines.  
 
 ### Troubleshooting
+1. If you are using self-hosted version and haven't specified `--management-url`, the client app will use the default URL
+   which is ```https://api.wiretrustee.com:33073```.
 
-1.  If you have specified a wrong `--management-url` (e.g., just by mistake when self-hosting)
+2. If you have specified a wrong `--management-url` (e.g., just by mistake when self-hosting)
     to override it you can do the following:
 
     ```shell
-    sudo wiretrustee down
-    sudo wiretrustee up --management-url https://<CORRECT HOST:PORT>/
+    netbird down
+    netbird up --management-url https://<CORRECT HOST:PORT>/
     ```
-
-2.  If you are using self-hosted version and haven't specified `--management-url`, the client app will use the default URL
-    which is ```https://api.wiretrustee.com:33073```.
     
     To override it see solution #1 above.
 

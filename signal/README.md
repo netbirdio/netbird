@@ -5,31 +5,31 @@ This is a netbird signal-exchange server and client library to exchange connecti
 ## Command Options
 The CLI accepts the command **management** with the following options:
 ```shell
-start Wiretrustee Signal Server daemon
+start Netbird Signal Server daemon
 
 Usage:
-  wiretrustee-signal run [flags]
+  netbird-signal run [flags]
 
 Flags:
   -h, --help                        help for run
       --letsencrypt-domain string   a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS
       --port int                    Server port to listen on (e.g. 10000) (default 10000)
-      --ssl-dir string              server ssl directory location. *Required only for Let's Encrypt certificates. (default "/var/lib/wiretrustee/")
+      --ssl-dir string              server ssl directory location. *Required only for Let's Encrypt certificates. (default "/var/lib/netbird/")
 
 Global Flags:
+      --log-file string    sets Netbird log path. If console is specified the the log will be output to stdout (default "/var/log/netbird/signal.log")
       --log-level string    (default "info")
-      --log-file string    sets Wiretrustee log path. If console is specified the the log will be output to stdout (default "/var/log/wiretrustee/management.log")
 ```
 ## Running the Signal service (Docker)
 
 We have packed the Signal server into docker image. You can pull the image from Docker Hub and execute it with the following commands:
 ````shell
-docker pull wiretrustee/signal:latest
-docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/signal:latest
+docker pull netbirdio/signal:latest
+docker run -d --name netbird-signal -p 10000:10000 netbirdio/signal:latest
 ````
 The default log-level is set to INFO, if you need you can change it using by updating the docker cmd as followed:
 ````shell
-docker run -d --name wiretrustee-signal -p 10000:10000 wiretrustee/signal:latest --log-level DEBUG
+docker run -d --name netbird-signal -p 10000:10000 netbirdio/signal:latest --log-level DEBUG
 ````
 ### Run with TLS (Let's Encrypt).
 By specifying the **--letsencrypt-domain** the daemon will handle SSL certificate request and configuration.
@@ -43,11 +43,11 @@ Replace <YOUR-DOMAIN> with your server's public domain (e.g. mydomain.com or sub
 # create a volume
 docker volume create wiretrustee-signal
 # run the docker container
-docker run -d --name wiretrustee-management \
+docker run -d --name netbird-signal \
 -p 10000:10000  \
 -p 443:443  \
--v wiretrustee-signal:/var/lib/wiretrustee  \
-wiretrustee/signal:latest \
+-v netbird-signal:/var/lib/netbird  \
+netbirdio/signal:latest \
 --letsencrypt-domain <YOUR-DOMAIN>
 ```
 ## For development purposes:
