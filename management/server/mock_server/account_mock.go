@@ -38,6 +38,7 @@ type MockAccountManager struct {
 	DeleteRuleFunc                        func(accountID, ruleID string) error
 	ListRulesFunc                         func(accountID string) ([]*server.Rule, error)
 	GetUsersFromAccountFunc               func(accountID string) ([]*server.UserInfo, error)
+	UpdatePeerMetaFunc                    func(peerKey string, meta server.PeerSystemMeta) error
 }
 
 func (am *MockAccountManager) GetUsersFromAccount(accountID string) ([]*server.UserInfo, error) {
@@ -274,4 +275,11 @@ func (am *MockAccountManager) ListRules(accountID string) ([]*server.Rule, error
 		return am.ListRulesFunc(accountID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListRules not implemented")
+}
+
+func (am *MockAccountManager) UpdatePeerMeta(peerKey string, meta server.PeerSystemMeta) error {
+	if am.UpdatePeerMetaFunc != nil {
+		return am.UpdatePeerMetaFunc(peerKey, meta)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdatePeerMetaFunc not implemented")
 }
