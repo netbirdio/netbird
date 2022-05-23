@@ -147,6 +147,8 @@ nfpms:
 
     replaces:
       - wiretrustee
+    conflicts:
+      - wiretrustee
 
     scripts:
       postinstall: "release_files/post_install.sh"
@@ -163,6 +165,9 @@ nfpms:
       - rpm
 
     replaces:
+      - wiretrustee
+
+    conflicts:
       - wiretrustee
 
     scripts:
