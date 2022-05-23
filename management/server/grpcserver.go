@@ -270,10 +270,8 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		} else {
 			return nil, status.Error(codes.Internal, "internal server error")
 		}
-	}
-
-	if loginReq.GetMeta() != nil {
-
+	} else if loginReq.GetMeta() != nil {
+		// update peer's system meta data on Login
 		err = s.accountManager.UpdatePeerMeta(peerKey.String(), PeerSystemMeta{
 			Hostname:  loginReq.GetMeta().GetHostname(),
 			GoOS:      loginReq.GetMeta().GetGoOS(),
