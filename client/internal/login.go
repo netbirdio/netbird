@@ -56,7 +56,8 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 
 // loginPeer attempts to login to Management Service. If peer wasn't registered, tries the registration flow.
 func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
-	loginResp, err := client.Login(serverPublicKey)
+	sysInfo := system.GetInfo()
+	loginResp, err := client.Login(serverPublicKey, sysInfo)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			log.Debugf("peer registration required")

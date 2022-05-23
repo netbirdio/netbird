@@ -376,3 +376,27 @@ func (am *DefaultAccountManager) AddPeer(
 
 	return newPeer, nil
 }
+
+// UpdatePeerMeta updates peer's system metadata
+func (am *DefaultAccountManager) UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	peer, err := am.Store.GetPeer(peerKey)
+	if err != nil {
+		return err
+	}
+
+	account, err := am.Store.GetPeerAccount(peerKey)
+	if err != nil {
+		return err
+	}
+
+	peerCopy := peer.Copy()
+	peerCopy.Meta = meta
+	err = am.Store.SavePeer(account.Id, peerCopy)
+	if err != nil {
+		return err
+	}
+	return nil
+}
