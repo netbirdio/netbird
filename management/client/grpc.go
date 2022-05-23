@@ -228,22 +228,13 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 // Register registers peer on Management Server. It actually calls a Login endpoint with a provided setup key
 // Takes care of encrypting and decrypting messages.
 // This method will also collect system info and send it with the request (e.g. hostname, os, etc)
-func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error) {
-	meta := &proto.PeerSystemMeta{
-		Hostname:           info.Hostname,
-		GoOS:               info.GoOS,
-		OS:                 info.OS,
-		Core:               info.OSVersion,
-		Platform:           info.Platform,
-		Kernel:             info.Kernel,
-		WiretrusteeVersion: info.WiretrusteeVersion,
-	}
-	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: meta, JwtToken: jwtToken})
+func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, sysInfo *system.Info) (*proto.LoginResponse, error) {
+	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: infoToMetaData(sysInfo), JwtToken: jwtToken})
 }
 
 // Login attempts login to Management Server. Takes care of encrypting and decrypting messages.
-func (c *GrpcClient) Login(serverKey wgtypes.Key) (*proto.LoginResponse, error) {
-	return c.login(serverKey, &proto.LoginRequest{})
+func (c *GrpcClient) Login(serverKey wgtypes.Key, sysInfo *system.Info) (*proto.LoginResponse, error) {
+	return c.login(serverKey, &proto.LoginRequest{Meta: infoToMetaData(sysInfo)})
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information.
@@ -278,4 +269,19 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 	}
 
 	return flowInfoResp, nil
+}
+
+func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
+	if info == nil {
+		return nil
+	}
+	return &proto.PeerSystemMeta{
+		Hostname:           info.Hostname,
+		GoOS:               info.GoOS,
+		OS:                 info.OS,
+		Core:               info.OSVersion,
+		Platform:           info.Platform,
+		Kernel:             info.Kernel,
+		WiretrusteeVersion: info.WiretrusteeVersion,
+	}
 }
