@@ -51,7 +51,9 @@ ShowInstDetails Show
 !define MUI_UNICON "${ICON}"
 !define MUI_WELCOMEFINISHPAGE_BITMAP "${BANNER}"
 !define MUI_UNWELCOMEFINISHPAGE_BITMAP "${BANNER}"
-
+!define MUI_FINISHPAGE_RUN
+!define MUI_FINISHPAGE_RUN_TEXT "Start ${UI_APP_NAME}"
+!define MUI_FINISHPAGE_RUN_FUNCTION "LaunchLink"
 ######################################################################
 
 !include "MUI2.nsh"
@@ -101,17 +103,14 @@ WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
 WriteRegStr ${REG_ROOT} "${UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 WriteRegStr ${REG_ROOT} "${UI_REG_APP_PATH}" "" "$INSTDIR\${UI_APP_EXE}"
-WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "DisplayName" "${UI_APP_NAME}"
-WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "UninstallString" "$INSTDIR\netbird_uninstall.exe"
-WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "DisplayIcon" "$INSTDIR\${UI_APP_EXE}"
-WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "DisplayVersion" "${VERSION}"
-WriteRegStr ${REG_ROOT} "${UI_UNINSTALL_PATH}"  "Publisher" "${COMP_NAME}"
 
 EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
 
+SetShellVarContext current
 CreateShortCut "${SMPROGRAMS}\${UI_APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
 CreateShortCut "${DESKTOP}\${UI_APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+SetShellVarContext all
 
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service install'
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service start'
@@ -135,3 +134,10 @@ DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
 EnVar::SetHKLM
 EnVar::DeleteValue "path" "$INSTDIR"
 SectionEnd
+
+
+Function LaunchLink
+SetShellVarContext current
+  ExecShell "" "${DESKTOP}\${UI_APP_NAME}.lnk"
+SetShellVarContext all
+FunctionEnd
