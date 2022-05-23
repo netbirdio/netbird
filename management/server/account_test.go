@@ -602,6 +602,76 @@ func TestGetUsersFromAccount(t *testing.T) {
 	}
 }
 
+func TestAccountManager_UpdatePeerMeta(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	account, err := manager.AddAccount("test_account", "account_creator", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var setupKey *SetupKey
+	for _, key := range account.SetupKeys {
+		setupKey = key
+	}
+
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	peer, err := manager.AddPeer(setupKey.Key, "", &Peer{
+		Key: key.PublicKey().String(),
+		Meta: PeerSystemMeta{
+			Hostname:  "Hostname",
+			GoOS:      "GoOS",
+			Kernel:    "Kernel",
+			Core:      "Core",
+			Platform:  "Platform",
+			OS:        "OS",
+			WtVersion: "WtVersion",
+		},
+		Name: key.PublicKey().String(),
+	})
+	if err != nil {
+		t.Errorf("expecting peer to be added, got failure %v", err)
+		return
+	}
+
+	newMeta := PeerSystemMeta{
+		Hostname:  "new-Hostname",
+		GoOS:      "new-GoOS",
+		Kernel:    "new-Kernel",
+		Core:      "new-Core",
+		Platform:  "new-Platform",
+		OS:        "new-OS",
+		WtVersion: "new-WtVersion",
+	}
+	err = manager.UpdatePeerMeta(peer.Key, newMeta)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	p, err := manager.GetPeer(peer.Key)
+	if err != nil {
+		return
+	}
+
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	assert.Equal(t, newMeta, p.Meta)
+
+}
+
 func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	store, err := createStore(t)
 	if err != nil {

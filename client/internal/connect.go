@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/client/system"
 	"time"
 
 	"github.com/netbirdio/netbird/iface"
@@ -193,7 +194,8 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
 	}
 
-	loginResp, err := client.Login(*serverPublicKey)
+	sysInfo := system.GetInfo()
+	loginResp, err := client.Login(*serverPublicKey, sysInfo)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			log.Error("peer registration required. Please run wiretrustee login command first")

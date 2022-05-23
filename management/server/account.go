@@ -44,6 +44,7 @@ type AccountManager interface {
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
 	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
+	UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error
 	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
