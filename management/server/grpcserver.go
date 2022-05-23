@@ -246,15 +246,16 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
 	}
 
+	loginReq := &proto.LoginRequest{}
+	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, loginReq)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "invalid request message")
+	}
+
 	peer, err := s.accountManager.GetPeer(peerKey.String())
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.NotFound {
 			// peer doesn't exist -> check if setup key was provided
-			loginReq := &proto.LoginRequest{}
-			err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, loginReq)
-			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "invalid request message")
-			}
 			if loginReq.GetJwtToken() == "" && loginReq.GetSetupKey() == "" {
 				// absent setup key -> permission denied
 				return nil, status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered and no setup key or jwt was provided", peerKey.String())
@@ -271,6 +272,21 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		}
 	}
 
+	if loginReq.GetMeta() != nil {
+
+		err = s.accountManager.UpdatePeerMeta(peerKey.String(), PeerSystemMeta{
+			Hostname:  loginReq.GetMeta().GetHostname(),
+			GoOS:      loginReq.GetMeta().GetGoOS(),
+			Kernel:    loginReq.GetMeta().GetKernel(),
+			Core:      loginReq.GetMeta().GetCore(),
+			Platform:  loginReq.GetMeta().GetPlatform(),
+			OS:        loginReq.GetMeta().GetOS(),
+			WtVersion: loginReq.GetMeta().GetWiretrusteeVersion()})
+		if err != nil {
+			log.Errorf("failed updating peer system meta data %s", peerKey.String())
+			return nil, status.Error(codes.Internal, "internal server error")
+		}
+	}
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
