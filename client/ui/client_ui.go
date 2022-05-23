@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
+	"github.com/netbirdio/netbird/client/system"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -175,7 +176,7 @@ func (s *serviceClient) getSettingsForm() *widget.Form {
 			if s.iPreSharedKey.Text != "" && s.iPreSharedKey.Text != "**********" {
 				// validate preSharedKey if it added
 				if _, err := wgtypes.ParseKey(s.iPreSharedKey.Text); err != nil {
-					dialog.ShowError(fmt.Errorf("Invalid Pre-shared Key Value"), s.wSettings)
+					dialog.ShowError(fmt.Errorf("invalid Pre-shared Key Value"), s.wSettings)
 					return
 				}
 			}
@@ -450,6 +451,7 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		strings.TrimPrefix(s.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
+		grpc.WithUserAgent(system.NetBirdDesktopUIUserAgent()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial service: %w", err)

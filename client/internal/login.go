@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func Login(ctx context.Context, config *Config, setupKey string, jwtToken string) error {
+func Login(ctx context.Context, config *Config, setupKey string, jwtToken string, sysInfo *system.Info) error {
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
@@ -39,7 +39,7 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		return err
 	}
 
-	_, err = loginPeer(*serverKey, mgmClient, setupKey, jwtToken)
+	_, err = loginPeer(*serverKey, mgmClient, setupKey, jwtToken, sysInfo)
 	if err != nil {
 		log.Errorf("failed logging-in peer on Management Service : %v", err)
 		return err
@@ -55,8 +55,8 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 }
 
 // loginPeer attempts to login to Management Service. If peer wasn't registered, tries the registration flow.
-func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
-	loginResp, err := client.Login(serverPublicKey)
+func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, sysInfo *system.Info) (*mgmProto.LoginResponse, error) {
+	loginResp, err := client.Login(serverPublicKey, sysInfo)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			log.Debugf("peer registration required")

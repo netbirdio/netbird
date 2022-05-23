@@ -43,7 +43,7 @@ func (m *MockClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken s
 	return m.RegisterFunc(serverKey, setupKey, jwtToken, info)
 }
 
-func (m *MockClient) Login(serverKey wgtypes.Key) (*proto.LoginResponse, error) {
+func (m *MockClient) Login(serverKey wgtypes.Key, info *system.Info) (*proto.LoginResponse, error) {
 	if m.LoginFunc == nil {
 		return nil, nil
 	}

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/skratchdot/open-golang/open"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
@@ -107,8 +108,11 @@ var loginCmd = &cobra.Command{
 func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.Config, setupKey string) error {
 	needsLogin := false
 
+	sysInfo := system.GetInfo()
+	sysInfo.Caller = system.NetBirdCLIUserAgent()
+
 	err := WithBackOff(func() error {
-		err := internal.Login(ctx, config, "", "")
+		err := internal.Login(ctx, config, "", "", sysInfo)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			needsLogin = true
 			return nil
@@ -129,7 +133,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 	}
 
 	err = WithBackOff(func() error {
-		err := internal.Login(ctx, config, setupKey, jwtToken)
+		err := internal.Login(ctx, config, setupKey, jwtToken, sysInfo)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			return nil
 		}

@@ -16,8 +16,18 @@ type Info struct {
 	Hostname           string
 	CPUs               int
 	WiretrusteeVersion string
+	Caller             string
+	CallerVersion      string
 }
 
 func WiretrusteeVersion() string {
 	return version
+}
+
+func NetBirdDesktopUIUserAgent() string {
+	return "netbird-desktop-ui/" + WiretrusteeVersion()
+}
+
+func NetBirdCLIUserAgent() string {
+	return "netbird-cli/" + WiretrusteeVersion()
 }

@@ -157,7 +157,7 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = client.Login(*key)
+	_, err = client.Login(*key, nil)
 	if err == nil {
 		t.Error("expecting err on unregistered login, got nil")
 	}

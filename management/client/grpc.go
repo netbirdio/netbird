@@ -229,21 +229,17 @@ func (c *GrpcClient) login(serverKey wgtypes.Key, req *proto.LoginRequest) (*pro
 // Takes care of encrypting and decrypting messages.
 // This method will also collect system info and send it with the request (e.g. hostname, os, etc)
 func (c *GrpcClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error) {
-	meta := &proto.PeerSystemMeta{
-		Hostname:           info.Hostname,
-		GoOS:               info.GoOS,
-		OS:                 info.OS,
-		Core:               info.OSVersion,
-		Platform:           info.Platform,
-		Kernel:             info.Kernel,
-		WiretrusteeVersion: info.WiretrusteeVersion,
-	}
-	return c.login(serverKey, &proto.LoginRequest{SetupKey: setupKey, Meta: meta, JwtToken: jwtToken})
+	return c.login(serverKey,
+		&proto.LoginRequest{
+			SetupKey: setupKey,
+			Meta:     infoToMetaData(info),
+			JwtToken: jwtToken,
+		})
 }
 
 // Login attempts login to Management Server. Takes care of encrypting and decrypting messages.
-func (c *GrpcClient) Login(serverKey wgtypes.Key) (*proto.LoginResponse, error) {
-	return c.login(serverKey, &proto.LoginRequest{})
+func (c *GrpcClient) Login(serverKey wgtypes.Key, info *system.Info) (*proto.LoginResponse, error) {
+	return c.login(serverKey, &proto.LoginRequest{Meta: infoToMetaData(info)})
 }
 
 // GetDeviceAuthorizationFlow returns a device authorization flow information.
@@ -278,4 +274,20 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 	}
 
 	return flowInfoResp, nil
+}
+
+func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
+	if info == nil {
+		return nil
+	}
+	return &proto.PeerSystemMeta{
+		Hostname:           info.Hostname,
+		GoOS:               info.GoOS,
+		OS:                 info.OS,
+		Core:               info.OSVersion,
+		Platform:           info.Platform,
+		Kernel:             info.Kernel,
+		WiretrusteeVersion: info.WiretrusteeVersion,
+		Caller:             info.Caller,
+	}
 }

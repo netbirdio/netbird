@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/system"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
 	"sync"
 	"time"
@@ -91,9 +93,9 @@ func (s *Server) Start() error {
 }
 
 // loginAttempt attempts to login using the provided information. it returns a status in case something fails
-func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (internal.StatusType, error) {
+func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string, sysInfo *system.Info) (internal.StatusType, error) {
 	var status internal.StatusType
-	err := internal.Login(ctx, s.config, setupKey, jwtToken)
+	err := internal.Login(ctx, s.config, setupKey, jwtToken, sysInfo)
 	if err != nil {
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			log.Warnf("failed login: %v", err)
@@ -148,7 +150,13 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 	s.config = config
 	s.mutex.Unlock()
 
-	if _, err := s.loginAttempt(ctx, "", ""); err == nil {
+	sysInfo := system.GetInfo()
+	agent := extractUserAgent(ctx)
+	if agent != "" {
+		sysInfo.Caller = agent
+	}
+
+	if _, err := s.loginAttempt(ctx, "", "", sysInfo); err == nil {
 		state.Set(internal.StatusIdle)
 		return &proto.LoginResponse{}, nil
 	}
@@ -200,7 +208,7 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 		}, nil
 	}
 
-	if loginStatus, err := s.loginAttempt(ctx, msg.SetupKey, ""); err != nil {
+	if loginStatus, err := s.loginAttempt(ctx, msg.SetupKey, "", sysInfo); err != nil {
 		state.Set(loginStatus)
 		return nil, err
 	}
@@ -253,7 +261,13 @@ func (s *Server) WaitSSOLogin(_ context.Context, msg *proto.WaitSSOLoginRequest)
 		return nil, err
 	}
 
-	if loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.AccessToken); err != nil {
+	sysInfo := system.GetInfo()
+	agent := extractUserAgent(ctx)
+	if agent != "" {
+		sysInfo.Caller = agent
+	}
+
+	if loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.AccessToken, sysInfo); err != nil {
 		state.Set(loginStatus)
 		return nil, err
 	}
@@ -361,4 +375,15 @@ func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*p
 		LogFile:       s.logFile,
 		PreSharedKey:  preSharedKey,
 	}, nil
+}
+
+func extractUserAgent(ctx context.Context) string {
+	mD, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		agent, ok := mD["user-agent"]
+		if ok {
+			return agent[0]
+		}
+	}
+	return ""
 }
