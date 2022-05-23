@@ -119,6 +119,12 @@ Sleep 1000
 SectionEnd
 
 ######################################################################
+Function .onInit
+
+         Exec $INSTDIR\netbird_uninstall.exe
+
+FunctionEnd
+######################################################################
 
 Section Uninstall
 ${INSTALL_TYPE}
