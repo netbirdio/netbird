@@ -11,7 +11,7 @@ type MockClient struct {
 	SyncFunc                       func(msgHandler func(msg *proto.SyncResponse) error) error
 	GetServerPublicKeyFunc         func() (*wgtypes.Key, error)
 	RegisterFunc                   func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error)
-	LoginFunc                      func(serverKey wgtypes.Key) (*proto.LoginResponse, error)
+	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info) (*proto.LoginResponse, error)
 	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 }
 
@@ -47,7 +47,7 @@ func (m *MockClient) Login(serverKey wgtypes.Key, info *system.Info) (*proto.Log
 	if m.LoginFunc == nil {
 		return nil, nil
 	}
-	return m.LoginFunc(serverKey)
+	return m.LoginFunc(serverKey, info)
 }
 
 func (m *MockClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error) {
