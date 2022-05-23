@@ -119,11 +119,12 @@ Sleep 1000
 SectionEnd
 
 ######################################################################
-Function .onInit
+; The "" makes the section hidden.
+Section "" SecUninstallPrevious
 
-         Exec $INSTDIR\netbird_uninstall.exe
+    Call UninstallPrevious
 
-FunctionEnd
+SectionEnd
 ######################################################################
 
 Section Uninstall
@@ -146,4 +147,25 @@ Function LaunchLink
 SetShellVarContext current
   ExecShell "" "$DESKTOP\${UI_APP_NAME}.lnk"
 SetShellVarContext all
+FunctionEnd
+
+
+
+
+Function UninstallPrevious
+
+    ; Check for uninstaller.
+    ReadRegStr $R0 HKLM "${HKLM_REG_KEY}" "InstallDir"
+
+    ${If} $R0 == ""
+        Goto Done
+    ${EndIf}
+
+    DetailPrint "Removing previous installation."
+
+    ; Run the uninstaller silently.
+    ExecWait '"$R0\netbird_uninstall.exe /S"'
+
+    Done:
+
 FunctionEnd
