@@ -155,7 +155,7 @@ FunctionEnd
 Function UninstallPrevious
 
     ; Check for uninstaller.
-    ReadRegStr $R0 HKLM "${HKLM_REG_KEY}" "InstallDir"
+    ReadRegStr $R0 HKLM "${UNINSTALL_PATH}" "UninstallString"
 
     ${If} $R0 == ""
         Goto Done
