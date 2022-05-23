@@ -74,6 +74,8 @@ jobs:
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          UPLOAD_DEBIAN-UI_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
+          UPLOAD_YUM-UI_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
       -
         name: Trigger Windows binaries sign pipeline
         uses: benc-uk/workflow-dispatch@v1
