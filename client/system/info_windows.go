@@ -2,13 +2,16 @@ package system
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"google.golang.org/grpc/metadata"
 )
 
-func GetInfo() *Info {
+func GetInfo(ctx context.Context) *Info {
 	cmd := exec.Command("cmd", "ver")
 	cmd.Stdin = strings.NewReader("some")
 	var out bytes.Buffer
@@ -32,6 +35,18 @@ func GetInfo() *Info {
 	gio := &Info{Kernel: "windows", OSVersion: ver, Core: ver, Platform: "unknown", OS: "windows", GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
 	gio.WiretrusteeVersion = WiretrusteeVersion()
+	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
+}
+
+func extractUserAgent(ctx context.Context) string {
+	mD, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		agent, ok := mD["user-agent"]
+		if ok {
+			return agent[0]
+		}
+	}
+	return ""
 }

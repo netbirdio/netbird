@@ -2,15 +2,18 @@ package system
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
+
+	"google.golang.org/grpc/metadata"
 )
 
-func GetInfo() *Info {
+func GetInfo(ctx context.Context) *Info {
 	out := _getInfo()
 	for strings.Contains(out, "broken pipe") {
 		out = _getInfo()
@@ -22,6 +25,8 @@ func GetInfo() *Info {
 	gio := &Info{Kernel: osInfo[0], OSVersion: osInfo[1], Core: osInfo[1], Platform: osInfo[2], OS: osInfo[0], GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
 	gio.WiretrusteeVersion = WiretrusteeVersion()
+	gio.UIVersion = extractUserAgent(ctx)
+
 	return gio
 }
 
@@ -37,4 +42,15 @@ func _getInfo() string {
 		fmt.Println("getInfo:", err)
 	}
 	return out.String()
+}
+
+func extractUserAgent(ctx context.Context) string {
+	mD, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		agent, ok := mD["user-agent"]
+		if ok {
+			return agent[0]
+		}
+	}
+	return ""
 }
