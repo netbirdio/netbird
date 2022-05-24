@@ -169,8 +169,8 @@ EnVar::SetHKLM
 EnVar::AddValueEx "path" "$INSTDIR"
 
 SetShellVarContext current
-CreateShortCut "$SMPROGRAMS\${UI_APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
-CreateShortCut "$DESKTOP\${UI_APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+CreateShortCut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
+CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
 SetShellVarContext all
 
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service install'
