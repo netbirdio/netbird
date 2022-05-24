@@ -17,6 +17,16 @@ cask "{{ $projectName }}" do
 
   depends_on formula: "netbird"
 
+  installer script: {
+    executable: "installer.sh",
+    sudo: true,
+    must_succeed: false,
+  }
+
+  uninstall script: {
+    executable: "uninstaller.sh",
+    args: ["service","stop"],
+  }
 
   name "Netbird UI"
   desc "Netbird UI Client"
