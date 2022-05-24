@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+
 	"github.com/google/uuid"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -39,7 +40,7 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		return err
 	}
 
-	_, err = loginPeer(*serverKey, mgmClient, setupKey, jwtToken)
+	_, err = loginPeer(*serverKey, mgmClient, setupKey, jwtToken, ctx)
 	if err != nil {
 		log.Errorf("failed logging-in peer on Management Service : %v", err)
 		return err
@@ -55,8 +56,8 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 }
 
 // loginPeer attempts to login to Management Service. If peer wasn't registered, tries the registration flow.
-func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
-	sysInfo := system.GetInfo()
+func loginPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, ctx context.Context) (*mgmProto.LoginResponse, error) {
+	sysInfo := system.GetInfo(ctx)
 	loginResp, err := client.Login(serverPublicKey, sysInfo)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
@@ -81,7 +82,7 @@ func registerPeer(serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey 
 	}
 
 	log.Debugf("sending peer registration request to Management Service")
-	info := system.GetInfo()
+	info := system.GetInfo(context.TODO())
 	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info)
 	if err != nil {
 		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())

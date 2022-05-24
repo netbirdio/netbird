@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	gstatus "google.golang.org/grpc/status"
 
 	log "github.com/sirupsen/logrus"
 
@@ -108,12 +110,19 @@ func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (i
 }
 
 // Login uses setup key to prepare configuration for the daemon.
-func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
+func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
+
+	md, ok := metadata.FromIncomingContext(callerCtx)
+	if ok {
+		log.Debugf("Endpoint not called by UI")
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
 	s.actCancel = cancel
 	s.mutex.Unlock()
 

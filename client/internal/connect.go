@@ -2,8 +2,9 @@ package internal
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/client/system"
 	"time"
+
+	"github.com/netbirdio/netbird/client/system"
 
 	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -194,7 +195,7 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
 	}
 
-	sysInfo := system.GetInfo()
+	sysInfo := system.GetInfo(context.TODO())
 	loginResp, err := client.Login(*serverPublicKey, sysInfo)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {

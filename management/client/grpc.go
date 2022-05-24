@@ -283,5 +283,6 @@ func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
 		Platform:           info.Platform,
 		Kernel:             info.Kernel,
 		WiretrusteeVersion: info.WiretrusteeVersion,
+		UiVersion:          info.UIVersion,
 	}
 }

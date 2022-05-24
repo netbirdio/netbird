@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/cenkalti/backoff/v4"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 
 	_ "embed"
 
@@ -36,6 +37,8 @@ const (
 	defaultFailTimeout = 3 * time.Second
 	failFastTimeout    = time.Second
 )
+
+var version = "development"
 
 func main() {
 	var daemonAddr string
@@ -450,6 +453,7 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		strings.TrimPrefix(s.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
+		grpc.WithUserAgent("netbird-desktop-ui/"+version),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial service: %w", err)
