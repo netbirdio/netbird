@@ -57,6 +57,7 @@ ShowInstDetails Show
 ######################################################################
 
 !include "MUI2.nsh"
+!include LogicLib.nsh
 
 !define MUI_ABORTWARNING
 !define MUI_UNABORTWARNING
@@ -81,6 +82,66 @@ ShowInstDetails Show
 
 ######################################################################
 
+Function GetAppFromCommand
+Exch $1
+Push $2
+StrCpy $2 $1 1 0
+StrCmp $2 '"' 0 done
+Push $3
+StrCpy $3 ""
+loop:
+    IntOp $3 $3 + 1
+    StrCpy $2 $1 1 $3
+    StrCmp $2 '' +2
+    StrCmp $2 '"' 0 loop
+    StrCpy $1 $1 $3
+    StrCpy $1 $1 "" 1 ; Remove starting quote
+Pop $3
+done:
+Pop $2
+Exch $1
+FunctionEnd
+!macro GetAppFromCommand in out
+Push "${in}"
+Call GetAppFromCommand
+Pop ${out}
+!macroend
+
+!macro UninstallPreviousNSIS UninstCommand CustomParameters
+Push $0
+Push $1
+Push $2
+Push '${CustomParameters}'
+Push '${UninstCommand}'
+Call GetAppFromCommand ; Remove quotes and parameters from UninstCommand
+Pop $0
+Pop $1
+GetFullPathName $2 "$0\.."
+ExecWait '"$0" $1 _?=$2'
+Delete "$0" ; Extra cleanup because we used _?=
+RMDir "$2"
+Pop $2
+Pop $1
+Pop $0
+!macroend
+
+Function .onInit
+
+ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\Wiretrustee" "UninstallString"
+${If} $R0 != ""
+    MessageBox MB_YESNO|MB_ICONQUESTION "Wiretrustee is installed. We must remove it before installing Netbird. Procced?" IDNO noWTUninstOld
+    !insertmacro UninstallPreviousNSIS $R0 "/NoMsgBox"
+    noWTUninstOld:
+${EndIf}
+
+ReadRegStr $R0 HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\$(^NAME)" "UninstallString"
+${If} $R0 != ""
+    MessageBox MB_YESNO|MB_ICONQUESTION "$(^NAME) is already installed. Do you want to remove the previous version?" IDNO noUninstOld
+    !insertmacro UninstallPreviousNSIS $R0 "/NoMsgBox"
+    noUninstOld:
+${EndIf}
+FunctionEnd
+######################################################################
 Section -MainProgram
 	${INSTALL_TYPE}
 	SetOverwrite ifnewer
@@ -119,19 +180,14 @@ Sleep 1000
 SectionEnd
 
 ######################################################################
-; The "" makes the section hidden.
-Section "" SecUninstallPrevious
-
-    Call UninstallPrevious
-
-SectionEnd
-######################################################################
 
 Section Uninstall
 ${INSTALL_TYPE}
 
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service stop'
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
+# kill ui client
+ExecWait `taskkill /im ${UI_APP_EXE}.exe`
 # wait the service uninstall take unblock the executable
 Sleep 3000
 RmDir /r "$INSTDIR"
@@ -145,27 +201,7 @@ SectionEnd
 
 Function LaunchLink
 SetShellVarContext current
-  ExecShell "" "$DESKTOP\${UI_APP_NAME}.lnk"
+   SetOutPath $INSTDIR
+   ShellExecAsUser::ShellExecAsUser "" "$DESKTOP\${UI_APP_NAME}.lnk"
 SetShellVarContext all
-FunctionEnd
-
-
-
-
-Function UninstallPrevious
-
-    ; Check for uninstaller.
-    ReadRegStr $R0 HKLM "${UNINSTALL_PATH}" "UninstallString"
-
-    ${If} $R0 == ""
-        Goto Done
-    ${EndIf}
-
-    DetailPrint "Removing previous installation."
-
-    ; Run the uninstaller silently.
-    ExecWait '"$R0\netbird_uninstall.exe /S"'
-
-    Done:
-
 FunctionEnd
