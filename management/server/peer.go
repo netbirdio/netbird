@@ -395,7 +395,13 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerKey string, meta PeerSystemM
 	}
 
 	peerCopy := peer.Copy()
+	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
+	if meta.UIVersion == "" {
+		meta.UIVersion = peerCopy.Meta.UIVersion
+	}
+
 	peerCopy.Meta = meta
+
 	err = am.Store.SavePeer(account.Id, peerCopy)
 	if err != nil {
 		return err

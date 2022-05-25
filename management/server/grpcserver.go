@@ -188,12 +188,6 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		return nil, status.Errorf(codes.InvalidArgument, "peer meta data was not provided")
 	}
 
-	peerExists, err := s.accountManager.GetPeer(peerKey.String())
-	uiVersion := meta.GetUiVersion()
-	if err == nil {
-		uiVersion = peerExists.Meta.UIVersion
-	}
-
 	peer, err := s.accountManager.AddPeer(reqSetupKey, userId, &Peer{
 		Key:  peerKey.String(),
 		Name: meta.GetHostname(),
@@ -205,7 +199,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 			Platform:  meta.GetPlatform(),
 			OS:        meta.GetOS(),
 			WtVersion: meta.GetWiretrusteeVersion(),
-			UIVersion: uiVersion,
+			UIVersion: meta.GetUiVersion(),
 		},
 	})
 	if err != nil {
