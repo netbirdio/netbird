@@ -24,6 +24,7 @@ cask "{{ $projectName }}" do
 
   postflight do
     system_command "#{appdir}/Netbird UI.app/installer.sh",
+                   args: ["#{version}"],
                    sudo: true
   end
 
