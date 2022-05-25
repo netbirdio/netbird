@@ -16,9 +16,9 @@ func Test_LocalWTVersion(t *testing.T) {
 
 func Test_UIVersion(t *testing.T) {
 	ctx := context.Background()
-	want := "development"
-	ctx = metadata.NewIncomingContext(ctx, map[string][]string{
-		"netbird-desktop-ui": {want},
+	want := "netbird-desktop-ui/development"
+	ctx = metadata.NewOutgoingContext(ctx, map[string][]string{
+		"user-agent": {want},
 	})
 
 	got := GetInfo(ctx)

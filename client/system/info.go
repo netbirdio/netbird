@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 	"google.golang.org/grpc/metadata"
+	"strings"
 )
 
 // this is the wiretrustee version
@@ -28,12 +29,17 @@ func WiretrusteeVersion() string {
 	return version
 }
 
+// extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
 func extractUserAgent(ctx context.Context) string {
-	md, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		agent, ok := md["netbird-desktop-ui"]
+	md, hasMeta := metadata.FromOutgoingContext(ctx)
+	if hasMeta {
+		agent, ok := md["user-agent"]
 		if ok {
-			return agent[0]
+			nbAgent := strings.Split(agent[0], " ")[0]
+			if strings.HasPrefix(nbAgent, "netbird") {
+				return nbAgent
+			}
+			return ""
 		}
 	}
 	return ""
