@@ -7,8 +7,8 @@ WT_BIN=$(which wiretrustee)
 if [ -n "$WT_BIN" ]
 then
   echo "Stopping and uninstalling Wiretrustee daemon"
-  wiretrustee service stop
-  wiretrustee service uninstall
+  wiretrustee service stop || true
+  wiretrustee service uninstall || true
 fi
 # check if netbird is installed
 NB_BIN=$(which netbird)
