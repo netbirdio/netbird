@@ -2,13 +2,15 @@ package system
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 )
 
-func GetInfo() *Info {
+// GetInfo retrieves and parses the system information
+func GetInfo(ctx context.Context) *Info {
 	cmd := exec.Command("cmd", "ver")
 	cmd.Stdin = strings.NewReader("some")
 	var out bytes.Buffer
@@ -31,7 +33,8 @@ func GetInfo() *Info {
 	}
 	gio := &Info{Kernel: "windows", OSVersion: ver, Core: ver, Platform: "unknown", OS: "windows", GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
-	gio.WiretrusteeVersion = WiretrusteeVersion()
+	gio.WiretrusteeVersion = NetbirdVersion()
+	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
 }

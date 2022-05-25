@@ -1,10 +1,11 @@
 package server
 
 import (
-	log "github.com/sirupsen/logrus"
 	"net"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"google.golang.org/grpc/codes"
@@ -20,6 +21,7 @@ type PeerSystemMeta struct {
 	Platform  string
 	OS        string
 	WtVersion string
+	UIVersion string
 }
 
 type PeerStatus struct {
@@ -393,7 +395,13 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerKey string, meta PeerSystemM
 	}
 
 	peerCopy := peer.Copy()
+	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
+	if meta.UIVersion == "" {
+		meta.UIVersion = peerCopy.Meta.UIVersion
+	}
+
 	peerCopy.Meta = meta
+
 	err = am.Store.SavePeer(account.Id, peerCopy)
 	if err != nil {
 		return err

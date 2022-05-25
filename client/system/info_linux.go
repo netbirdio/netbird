@@ -2,6 +2,7 @@ package system
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,7 +11,8 @@ import (
 	"time"
 )
 
-func GetInfo() *Info {
+// GetInfo retrieves and parses the system information
+func GetInfo(ctx context.Context) *Info {
 	info := _getInfo()
 	for strings.Contains(info, "broken pipe") {
 		info = _getInfo()
@@ -44,7 +46,8 @@ func GetInfo() *Info {
 	}
 	gio := &Info{Kernel: osInfo[0], Core: osInfo[1], Platform: osInfo[2], OS: osName, OSVersion: osVer, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
-	gio.WiretrusteeVersion = WiretrusteeVersion()
+	gio.WiretrusteeVersion = NetbirdVersion()
+	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
 }
