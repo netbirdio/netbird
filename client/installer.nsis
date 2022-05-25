@@ -2,7 +2,7 @@
 !define COMP_NAME "Netbird"
 !define WEB_SITE "Netbird.io"
 !define VERSION $%APPVER%
-!define COPYRIGHT "Netbird Authors, 2021"
+!define COPYRIGHT "Netbird Authors, 2022"
 !define DESCRIPTION "A WireGuard®-based mesh network that connects your devices into a single private network"
 !define INSTALLER_NAME "netbird-installer.exe"
 !define MAIN_APP_EXE "Netbird"
@@ -173,7 +173,7 @@ CreateShortCut "$SMPROGRAMS\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
 CreateShortCut "$DESKTOP\${APP_NAME}.lnk" "$INSTDIR\${UI_APP_EXE}"
 SetShellVarContext all
 
-Exec '"$INSTDIR\${MAIN_APP_EXE}" service install'
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service install'
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service start'
 # sleep a bit for visibility
 Sleep 1000
@@ -184,13 +184,18 @@ SectionEnd
 Section Uninstall
 ${INSTALL_TYPE}
 
-Exec '"$INSTDIR\${MAIN_APP_EXE}" service stop'
+ExecWait '"$INSTDIR\${MAIN_APP_EXE}" service stop'
 Exec '"$INSTDIR\${MAIN_APP_EXE}" service uninstall'
 # kill ui client
 ExecWait `taskkill /im ${UI_APP_EXE}.exe`
 # wait the service uninstall take unblock the executable
 Sleep 3000
 RmDir /r "$INSTDIR"
+
+SetShellVarContext current
+Delete "$DESKTOP\${APP_NAME}.lnk"
+Delete "$SMPROGRAMS\${APP_NAME}.lnk"
+SetShellVarContext all
 
 DeleteRegKey ${REG_ROOT} "${REG_APP_PATH}"
 DeleteRegKey ${REG_ROOT} "${UNINSTALL_PATH}"
@@ -202,6 +207,6 @@ SectionEnd
 Function LaunchLink
 SetShellVarContext current
    SetOutPath $INSTDIR
-   ShellExecAsUser::ShellExecAsUser "" "$DESKTOP\${UI_APP_NAME}.lnk"
+   ShellExecAsUser::ShellExecAsUser "" "$DESKTOP\${APP_NAME}.lnk"
 SetShellVarContext all
 FunctionEnd
