@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 	"sync"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	gstatus "google.golang.org/grpc/status"
 
 	log "github.com/sirupsen/logrus"
 
@@ -108,12 +110,18 @@ func (s *Server) loginAttempt(ctx context.Context, setupKey, jwtToken string) (i
 }
 
 // Login uses setup key to prepare configuration for the daemon.
-func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
+func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*proto.LoginResponse, error) {
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
+
+	md, ok := metadata.FromIncomingContext(callerCtx)
+	if ok {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
@@ -210,12 +218,18 @@ func (s *Server) Login(_ context.Context, msg *proto.LoginRequest) (*proto.Login
 
 // WaitSSOLogin uses the userCode to validate the TokenInfo and
 // waits for the user to continue with the login on a browser
-func (s *Server) WaitSSOLogin(_ context.Context, msg *proto.WaitSSOLoginRequest) (*proto.WaitSSOLoginResponse, error) {
+func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLoginRequest) (*proto.WaitSSOLoginResponse, error) {
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
+
+	md, ok := metadata.FromIncomingContext(callerCtx)
+	if ok {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
@@ -262,7 +276,7 @@ func (s *Server) WaitSSOLogin(_ context.Context, msg *proto.WaitSSOLoginRequest)
 }
 
 // Up starts engine work in the daemon.
-func (s *Server) Up(_ context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
+func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -284,6 +298,12 @@ func (s *Server) Up(_ context.Context, msg *proto.UpRequest) (*proto.UpResponse,
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
+
+	md, ok := metadata.FromIncomingContext(callerCtx)
+	if ok {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
 	s.actCancel = cancel
 
 	if s.config == nil {

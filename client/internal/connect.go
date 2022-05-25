@@ -2,8 +2,9 @@ package internal
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/client/system"
 	"time"
+
+	"github.com/netbirdio/netbird/client/system"
 
 	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -85,10 +86,10 @@ func RunClient(ctx context.Context, config *Config) error {
 			return wrapErr(err)
 		}
 
-		ctx, cancel := context.WithCancel(ctx)
+		engineCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
-		engine := NewEngine(ctx, cancel, signalClient, mgmClient, engineConfig)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
@@ -98,7 +99,7 @@ func RunClient(ctx context.Context, config *Config) error {
 		log.Print("Wiretrustee engine started, my IP is: ", peerConfig.Address)
 		state.Set(StatusConnected)
 
-		<-ctx.Done()
+		<-engineCtx.Done()
 
 		backOff.Reset()
 
@@ -194,7 +195,7 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
 	}
 
-	sysInfo := system.GetInfo()
+	sysInfo := system.GetInfo(ctx)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {

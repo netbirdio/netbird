@@ -82,6 +82,7 @@ message PeerSystemMeta {
   string platform = 5;
   string OS = 6;
   string wiretrusteeVersion = 7;
+  string uiVersion = 8;
 }
 
 message LoginResponse {

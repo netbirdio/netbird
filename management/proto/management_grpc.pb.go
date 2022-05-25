@@ -33,7 +33,9 @@ type ManagementServiceClient interface {
 	IsHealthy(ctx context.Context, in *Empty, opts ...grpc.CallOption) (*Empty, error)
 	// Exposes a device authorization flow information
 	// This is used for initiating a Oauth 2 device authorization grant flow
-	// which will be used by our clients to Login
+	// which will be used by our clients to Login.
+	// EncryptedMessage of the request has a body of DeviceAuthorizationFlowRequest.
+	// EncryptedMessage of the response has a body of DeviceAuthorizationFlow.
 	GetDeviceAuthorizationFlow(ctx context.Context, in *EncryptedMessage, opts ...grpc.CallOption) (*EncryptedMessage, error)
 }
 
@@ -132,7 +134,9 @@ type ManagementServiceServer interface {
 	IsHealthy(context.Context, *Empty) (*Empty, error)
 	// Exposes a device authorization flow information
 	// This is used for initiating a Oauth 2 device authorization grant flow
-	// which will be used by our clients to Login
+	// which will be used by our clients to Login.
+	// EncryptedMessage of the request has a body of DeviceAuthorizationFlowRequest.
+	// EncryptedMessage of the response has a body of DeviceAuthorizationFlow.
 	GetDeviceAuthorizationFlow(context.Context, *EncryptedMessage) (*EncryptedMessage, error)
 	mustEmbedUnimplementedManagementServiceServer()
 }

@@ -187,6 +187,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 	if meta == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "peer meta data was not provided")
 	}
+
 	peer, err := s.accountManager.AddPeer(reqSetupKey, userId, &Peer{
 		Key:  peerKey.String(),
 		Name: meta.GetHostname(),
@@ -198,6 +199,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 			Platform:  meta.GetPlatform(),
 			OS:        meta.GetOS(),
 			WtVersion: meta.GetWiretrusteeVersion(),
+			UIVersion: meta.GetUiVersion(),
 		},
 	})
 	if err != nil {
@@ -279,7 +281,10 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			Core:      loginReq.GetMeta().GetCore(),
 			Platform:  loginReq.GetMeta().GetPlatform(),
 			OS:        loginReq.GetMeta().GetOS(),
-			WtVersion: loginReq.GetMeta().GetWiretrusteeVersion()})
+			WtVersion: loginReq.GetMeta().GetWiretrusteeVersion(),
+			UIVersion: loginReq.GetMeta().GetUiVersion(),
+		},
+		)
 		if err != nil {
 			log.Errorf("failed updating peer system meta data %s", peerKey.String())
 			return nil, status.Error(codes.Internal, "internal server error")
