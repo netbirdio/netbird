@@ -13,6 +13,8 @@ var installCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
+		cmd.SetOut(cmd.OutOrStdout())
+
 		err := handleRebrand(cmd)
 		if err != nil {
 			return err
@@ -62,6 +64,8 @@ var uninstallCmd = &cobra.Command{
 	Short: "uninstalls Netbird service from system",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
+
+		cmd.SetOut(cmd.OutOrStdout())
 
 		err := handleRebrand(cmd)
 		if err != nil {

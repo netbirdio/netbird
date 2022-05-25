@@ -17,12 +17,9 @@ var upCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
-		err := handleRebrand(cmd)
-		if err != nil {
-			return err
-		}
+		cmd.SetOut(cmd.OutOrStdout())
 
-		err = util.InitLog(logLevel, "console")
+		err := util.InitLog(logLevel, "console")
 		if err != nil {
 			return fmt.Errorf("failed initializing log %v", err)
 		}
@@ -31,6 +28,11 @@ var upCmd = &cobra.Command{
 
 		// workaround to run without service
 		if logFile == "console" {
+			err = handleRebrand(cmd)
+			if err != nil {
+				return err
+			}
+
 			config, err := internal.GetConfig(managementURL, adminURL, configPath, preSharedKey)
 			if err != nil {
 				return fmt.Errorf("get config file: %v", err)

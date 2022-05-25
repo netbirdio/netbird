@@ -17,6 +17,22 @@ cask "{{ $projectName }}" do
 
   depends_on formula: "netbird"
 
+  postflight do
+    set_permissions "/Applications/Netbird UI.app/installer.sh", '0755'
+    set_permissions "/Applications/Netbird UI.app/uninstaller.sh", '0755'
+  end
+
+  postflight do
+    system_command "#{appdir}/Netbird UI.app/installer.sh",
+                   args: ["#{version}"],
+                   sudo: true
+  end
+
+  uninstall_preflight do
+    system_command "#{appdir}/Netbird UI.app/uninstaller.sh",
+                   sudo: false
+  end
+
   name "Netbird UI"
   desc "Netbird UI Client"
   homepage "https://www.netbird.io/"

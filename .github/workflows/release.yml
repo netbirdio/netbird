@@ -9,7 +9,7 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: main
+  SIGN_PIPE_VER: "v0.0.3"
 
 jobs:
   release:
@@ -131,7 +131,7 @@ jobs:
         uses: benc-uk/workflow-dispatch@v1
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          workflow: Sign darwin ui app
+          workflow: Sign darwin ui app with dispatch
           repo: netbirdio/sign-pipelines
           ref: ${{ env.SIGN_PIPE_VER }}
           token: ${{ secrets.SIGN_GITHUB_TOKEN }}
