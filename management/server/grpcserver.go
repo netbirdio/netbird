@@ -281,7 +281,10 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			Core:      loginReq.GetMeta().GetCore(),
 			Platform:  loginReq.GetMeta().GetPlatform(),
 			OS:        loginReq.GetMeta().GetOS(),
-			WtVersion: loginReq.GetMeta().GetWiretrusteeVersion()})
+			WtVersion: loginReq.GetMeta().GetWiretrusteeVersion(),
+			UIVersion: loginReq.GetMeta().GetUiVersion(),
+		},
+		)
 		if err != nil {
 			log.Errorf("failed updating peer system meta data %s", peerKey.String())
 			return nil, status.Error(codes.Internal, "internal server error")
