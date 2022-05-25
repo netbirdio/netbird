@@ -18,7 +18,7 @@ func Test_UIVersion(t *testing.T) {
 	ctx := context.Background()
 	want := "development"
 	ctx = metadata.NewIncomingContext(ctx, map[string][]string{
-		"user-agent": {want},
+		"netbird-desktop-ui/": {want},
 	})
 
 	got := GetInfo(ctx)
