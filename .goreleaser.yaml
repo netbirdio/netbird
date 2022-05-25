@@ -418,7 +418,9 @@ brews:
     homepage: https://netbird.io/
     license: "BSD3"
     test: |
-      system "#{bin}/{{ .ProjectName	}} -h"
+      system "#{bin}/{{ .ProjectName	}} version"
+    conflicts:
+      - wiretrustee
 
 uploads:
   - name: debian
