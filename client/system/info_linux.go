@@ -64,3 +64,17 @@ func _getInfo() string {
 	}
 	return out.String()
 }
+
+func _getReleaseInfo() string {
+	cmd := exec.Command("cat", "/etc/os-release")
+	cmd.Stdin = strings.NewReader("some")
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("getReleaseInfo:", err)
+	}
+	return out.String()
+}
