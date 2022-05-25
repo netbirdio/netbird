@@ -44,3 +44,7 @@ func extractUserAgent(ctx context.Context) string {
 	}
 	return ""
 }
+
+func GetDesktopUIUserAgent() string {
+	return "netbird-desktop-ui/" + WiretrusteeVersion()
+}
