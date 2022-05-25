@@ -15,19 +15,22 @@ cask "{{ $projectName }}" do
       app "netbird_ui_darwin_arm64", target: "Netbird UI.app"
   end
 
+  depends_on formula: "netbird"
+
   postflight do
-    set_permissions "/Applications/netclient", '0755'
+    set_permissions "/Applications/Netbird UI.app/installer.sh", '0755'
+    set_permissions "/Applications/Netbird UI.app/uninstaller.sh", '0755'
   end
 
-  installer script: {
-    executable: "#{staged_path}/netbird_ui_darwin_amd64/installer.sh",
-    sudo: true,
-    must_succeed: false,
-  }
+  postflight do
+    system_command "#{appdir}/Netbird UI.app/installer.sh",
+                   sudo: true
+  end
 
-  uninstall script: {
-    executable: "#{staged_path}/netbird_ui_darwin_amd64/uninstaller.sh",
-  }
+  uninstall_preflight do
+    system_command "#{appdir}/Netbird UI.app/uninstaller.sh",
+                   sudo: false
+  end
 
   name "Netbird UI"
   desc "Netbird UI Client"
