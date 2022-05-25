@@ -25,7 +25,7 @@ type Info struct {
 	UIVersion          string
 }
 
-func WiretrusteeVersion() string {
+func NetbirdVersion() string {
 	return version
 }
 
@@ -46,5 +46,5 @@ func extractUserAgent(ctx context.Context) string {
 }
 
 func GetDesktopUIUserAgent() string {
-	return "netbird-desktop-ui/" + WiretrusteeVersion()
+	return "netbird-desktop-ui/" + NetbirdVersion()
 }

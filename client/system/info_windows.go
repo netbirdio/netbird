@@ -32,7 +32,7 @@ func GetInfo(ctx context.Context) *Info {
 	}
 	gio := &Info{Kernel: "windows", OSVersion: ver, Core: ver, Platform: "unknown", OS: "windows", GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
-	gio.WiretrusteeVersion = WiretrusteeVersion()
+	gio.WiretrusteeVersion = NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
