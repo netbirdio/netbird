@@ -119,7 +119,6 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 	md, ok := metadata.FromIncomingContext(callerCtx)
 	if ok {
-		log.Debugf("Endpoint not called by UI")
 		ctx = metadata.NewOutgoingContext(ctx, md)
 	}
 
@@ -219,12 +218,18 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 // WaitSSOLogin uses the userCode to validate the TokenInfo and
 // waits for the user to continue with the login on a browser
-func (s *Server) WaitSSOLogin(_ context.Context, msg *proto.WaitSSOLoginRequest) (*proto.WaitSSOLoginResponse, error) {
+func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLoginRequest) (*proto.WaitSSOLoginResponse, error) {
 	s.mutex.Lock()
 	if s.actCancel != nil {
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
+
+	md, ok := metadata.FromIncomingContext(callerCtx)
+	if ok {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
@@ -271,7 +276,7 @@ func (s *Server) WaitSSOLogin(_ context.Context, msg *proto.WaitSSOLoginRequest)
 }
 
 // Up starts engine work in the daemon.
-func (s *Server) Up(_ context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
+func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -293,6 +298,12 @@ func (s *Server) Up(_ context.Context, msg *proto.UpRequest) (*proto.UpResponse,
 		s.actCancel()
 	}
 	ctx, cancel := context.WithCancel(s.rootCtx)
+
+	md, ok := metadata.FromIncomingContext(callerCtx)
+	if ok {
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
 	s.actCancel = cancel
 
 	if s.config == nil {
