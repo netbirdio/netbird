@@ -137,16 +137,25 @@ Hosted version:
     sudo yum install netbird-ui
     ```
 #### MACOS
-**Brew install**
-1. Download and install Brew at https://brew.sh/
-2. Install the client
+**Homebrew install**
+1. Download and install homebrew at https://brew.sh/
+2. If wiretrustee was previously installed with homebrew, you will need to run:
+```shell
+# Stop and uninstall daemon service:
+sudo wiretrustee service stop
+sudo wiretrustee service uninstall 
+# unlik the app
+brew unlink wiretrustee
+```
+> netbird will copy any existing configuration from the Wiretrustee's default configuration paths to the new Netbird's default location
+3. Install the client
   ```shell
   # for CLI only
   brew install netbirdio/tap/netbird
   # for GUI package
   brew install --cask netbirdio/tap/netbird-ui
   ```
-3. As homebrew doesn't allow sudo exec, we need to install and start the client daemon:
+4. If you are install CLI only, you need to install and start the client daemon service:
   ```shell
   sudo netbird service install
   sudo netbird service start
