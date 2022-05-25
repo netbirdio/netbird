@@ -452,7 +452,7 @@ func (s *serviceClient) getSrvClient(timeout time.Duration) (proto.DaemonService
 		strings.TrimPrefix(s.addr, "tcp://"),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithBlock(),
-		grpc.WithUserAgent("netbird-desktop-ui/"+system.GetDesktopUIUserAgent()),
+		grpc.WithUserAgent(system.GetDesktopUIUserAgent()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial service: %w", err)
