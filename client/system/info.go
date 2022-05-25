@@ -25,6 +25,7 @@ type Info struct {
 	UIVersion          string
 }
 
+// NetbirdVersion returns the Netbird version
 func NetbirdVersion() string {
 	return version
 }
@@ -45,6 +46,7 @@ func extractUserAgent(ctx context.Context) string {
 	return ""
 }
 
+// GetDesktopUIUserAgent returns the Desktop ui user agent
 func GetDesktopUIUserAgent() string {
 	return "netbird-desktop-ui/" + NetbirdVersion()
 }

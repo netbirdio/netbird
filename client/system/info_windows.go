@@ -9,6 +9,7 @@ import (
 	"strings"
 )
 
+// GetInfo retrieves and parses the system information
 func GetInfo(ctx context.Context) *Info {
 	cmd := exec.Command("cmd", "ver")
 	cmd.Stdin = strings.NewReader("some")
