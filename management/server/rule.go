@@ -70,7 +70,13 @@ func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
 	}
 
 	account.Rules[rule.ID] = rule
-	return am.Store.SaveAccount(account)
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	return am.updateAccountPeers(account)
 }
 
 // DeleteRule of ACL from the store
@@ -85,7 +91,12 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
 
 	delete(account.Rules, ruleID)
 
-	return am.Store.SaveAccount(account)
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	return am.updateAccountPeers(account)
 }
 
 // ListRules of ACL from the store

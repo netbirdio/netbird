@@ -54,7 +54,13 @@ func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error
 	}
 
 	account.Groups[group.ID] = group
-	return am.Store.SaveAccount(account)
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	return am.updateAccountPeers(account)
 }
 
 // DeleteGroup object of the peers
@@ -69,7 +75,12 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 
 	delete(account.Groups, groupID)
 
-	return am.Store.SaveAccount(account)
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	return am.updateAccountPeers(account)
 }
 
 // ListGroups objects of the peers
@@ -116,7 +127,12 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string
 		group.Peers = append(group.Peers, peerKey)
 	}
 
-	return am.Store.SaveAccount(account)
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	return am.updateAccountPeers(account)
 }
 
 // GroupDeletePeer removes peer from the group
@@ -134,6 +150,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 		return status.Errorf(codes.NotFound, "group with ID %s not found", groupID)
 	}
 
+	account.Network.IncSerial()
 	for i, itemID := range group.Peers {
 		if itemID == peerKey {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
@@ -141,7 +158,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 		}
 	}
 
-	return nil
+	return am.updateAccountPeers(account)
 }
 
 // GroupListPeers returns list of the peers from the group
