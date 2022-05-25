@@ -9,7 +9,7 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: test-release
+  SIGN_PIPE_VER: main
 
 jobs:
   release:
