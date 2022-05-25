@@ -47,7 +47,7 @@ func _getInfo() string {
 func extractUserAgent(ctx context.Context) string {
 	mD, ok := metadata.FromIncomingContext(ctx)
 	if ok {
-		agent, ok := mD["user-agent"]
+		agent, ok := mD["netbird-desktop-ui"]
 		if ok {
 			return agent[0]
 		}
