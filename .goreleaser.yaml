@@ -147,6 +147,8 @@ nfpms:
 
     replaces:
       - wiretrustee
+    conflicts:
+      - wiretrustee
 
     scripts:
       postinstall: "release_files/post_install.sh"
@@ -163,6 +165,9 @@ nfpms:
       - rpm
 
     replaces:
+      - wiretrustee
+
+    conflicts:
       - wiretrustee
 
     scripts:
@@ -413,20 +418,23 @@ brews:
     homepage: https://netbird.io/
     license: "BSD3"
     test: |
-      system "#{bin}/{{ .ProjectName	}} -h"
+      system "#{bin}/{{ .ProjectName	}} version"
+    conflicts:
+      - wiretrustee
 
 uploads:
   - name: debian
     ids:
-    - deb
+    - netbird-deb
     - netbird-ui-deb
     mode: archive
     target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
     username: dev@wiretrustee.com
     method: PUT
+
   - name: yum
     ids:
-      - rpm
+      - netbird-rpm
       - netbird-ui-rpm
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
