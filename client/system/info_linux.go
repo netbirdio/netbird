@@ -53,10 +53,6 @@ func GetInfo(ctx context.Context) *Info {
 	return gio
 }
 
-// func NetBirdCLIUserAgent() string {
-// 	return "netbird-cli/" + WiretrusteeVersion()
-// }
-
 func extractUserAgent(ctx context.Context) string {
 	mD, ok := metadata.FromIncomingContext(ctx)
 	if ok {
