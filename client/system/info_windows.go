@@ -7,8 +7,6 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-
-	"google.golang.org/grpc/metadata"
 )
 
 func GetInfo(ctx context.Context) *Info {
@@ -38,15 +36,4 @@ func GetInfo(ctx context.Context) *Info {
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
-}
-
-func extractUserAgent(ctx context.Context) string {
-	mD, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		agent, ok := mD["netbird-desktop-ui"]
-		if ok {
-			return agent[0]
-		}
-	}
-	return ""
 }

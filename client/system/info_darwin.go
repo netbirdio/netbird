@@ -9,8 +9,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"google.golang.org/grpc/metadata"
 )
 
 func GetInfo(ctx context.Context) *Info {
@@ -42,15 +40,4 @@ func _getInfo() string {
 		fmt.Println("getInfo:", err)
 	}
 	return out.String()
-}
-
-func extractUserAgent(ctx context.Context) string {
-	mD, ok := metadata.FromIncomingContext(ctx)
-	if ok {
-		agent, ok := mD["netbird-desktop-ui"]
-		if ok {
-			return agent[0]
-		}
-	}
-	return ""
 }

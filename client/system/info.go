@@ -1,5 +1,10 @@
 package system
 
+import (
+	"context"
+	"google.golang.org/grpc/metadata"
+)
+
 // this is the wiretrustee version
 // will be replaced with the release version when using goreleaser
 var version = "development"
@@ -21,4 +26,15 @@ type Info struct {
 
 func WiretrusteeVersion() string {
 	return version
+}
+
+func extractUserAgent(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		agent, ok := md["netbird-desktop-ui"]
+		if ok {
+			return agent[0]
+		}
+	}
+	return ""
 }
