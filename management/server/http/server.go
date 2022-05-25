@@ -92,8 +92,12 @@ func (s *Server) Start() error {
 
 	corsMiddleware := cors.AllowAll()
 
+	acMiddleware := middleware.NewAccessControll(
+		s.config.AuthAudience,
+		s.accountManager.IsUserAdmin)
+
 	r := mux.NewRouter()
-	r.Use(jwtMiddleware.Handler, corsMiddleware.Handler)
+	r.Use(jwtMiddleware.Handler, corsMiddleware.Handler, acMiddleware.Handler)
 
 	groupsHandler := handler.NewGroups(s.accountManager, s.config.AuthAudience)
 	rulesHandler := handler.NewRules(s.accountManager, s.config.AuthAudience)
