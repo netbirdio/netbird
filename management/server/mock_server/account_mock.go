@@ -17,6 +17,7 @@ type MockAccountManager struct {
 	GetAccountByIdFunc                    func(accountId string) (*server.Account, error)
 	GetAccountByUserOrAccountIdFunc       func(userId, accountId, domain string) (*server.Account, error)
 	GetAccountWithAuthorizationClaimsFunc func(claims jwtclaims.AuthorizationClaims) (*server.Account, error)
+	IsUserAdminFunc                       func(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExistsFunc                     func(accountId string) (*bool, error)
 	AddAccountFunc                        func(accountId, userId, domain string) (*server.Account, error)
 	GetPeerFunc                           func(peerKey string) (*server.Peer, error)
@@ -193,7 +194,11 @@ func (am *MockAccountManager) GetNetworkMap(peerKey string) (*server.NetworkMap,
 	return nil, status.Errorf(codes.Unimplemented, "method GetNetworkMap not implemented")
 }
 
-func (am *MockAccountManager) AddPeer(setupKey string, userId string, peer *server.Peer) (*server.Peer, error) {
+func (am *MockAccountManager) AddPeer(
+	setupKey string,
+	userId string,
+	peer *server.Peer,
+) (*server.Peer, error) {
 	if am.AddPeerFunc != nil {
 		return am.AddPeerFunc(setupKey, userId, peer)
 	}
@@ -282,4 +287,11 @@ func (am *MockAccountManager) UpdatePeerMeta(peerKey string, meta server.PeerSys
 		return am.UpdatePeerMetaFunc(peerKey, meta)
 	}
 	return status.Errorf(codes.Unimplemented, "method UpdatePeerMetaFunc not implemented")
+}
+
+func (am *MockAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
+	if am.IsUserAdminFunc != nil {
+		return am.IsUserAdminFunc(claims)
+	}
+	return false, status.Errorf(codes.Unimplemented, "method IsUserAdmin not implemented")
 }

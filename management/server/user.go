@@ -1,10 +1,13 @@
 package server
 
 import (
+	"fmt"
 	"strings"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
 const (
@@ -86,4 +89,19 @@ func (am *DefaultAccountManager) GetAccountByUser(userId string) (*Account, erro
 	defer am.mux.Unlock()
 
 	return am.Store.GetUserAccount(userId)
+}
+
+// IsUserAdmin flag for current user authenticated by JWT token
+func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
+	account, err := am.GetAccountWithAuthorizationClaims(claims)
+	if err != nil {
+		return false, fmt.Errorf("get account: %v", err)
+	}
+
+	user, ok := account.Users[claims.UserId]
+	if !ok {
+		return false, fmt.Errorf("no such user")
+	}
+
+	return user.Role == UserRoleAdmin, nil
 }
