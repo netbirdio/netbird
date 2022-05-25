@@ -86,6 +86,8 @@ var runCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
+		cmd.SetOut(cmd.OutOrStdout())
+
 		err := handleRebrand(cmd)
 		if err != nil {
 			return err
@@ -117,6 +119,8 @@ var startCmd = &cobra.Command{
 	Short: "starts Netbird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
+
+		cmd.SetOut(cmd.OutOrStdout())
 
 		err := handleRebrand(cmd)
 		if err != nil {
@@ -151,6 +155,8 @@ var stopCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
 
+		cmd.SetOut(cmd.OutOrStdout())
+
 		err := handleRebrand(cmd)
 		if err != nil {
 			return err
@@ -181,6 +187,8 @@ var restartCmd = &cobra.Command{
 	Short: "restarts Netbird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
+
+		cmd.SetOut(cmd.OutOrStdout())
 
 		err := handleRebrand(cmd)
 		if err != nil {
