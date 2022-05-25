@@ -10,6 +10,7 @@ var (
 		Use:   "version",
 		Short: "prints Netbird version",
 		Run: func(cmd *cobra.Command, args []string) {
+			cmd.SetOut(cmd.OutOrStdout())
 			cmd.Println(system.WiretrusteeVersion())
 		},
 	}
