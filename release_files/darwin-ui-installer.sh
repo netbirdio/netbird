@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/sh
 
 # check if wiretrustee is installed
 WT_BIN=$(which wiretrustee)

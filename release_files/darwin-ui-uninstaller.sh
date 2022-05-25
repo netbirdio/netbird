@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/bin/sh
 
 # check if netbird is installed
 NB_BIN=$(which netbird)
