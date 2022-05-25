@@ -1,5 +1,7 @@
 #!/bin/sh
 
+export PATH=$PATH:/usr/local/bin
+
 # check if netbird is installed
 NB_BIN=$(which netbird)
 if [ -z "$NB_BIN" ]
