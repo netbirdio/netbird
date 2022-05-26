@@ -38,7 +38,7 @@ type EngineConfig struct {
 	WgPort      int
 	WgIfaceName string
 
-	// WgAddr is a Wireguard local address (Wiretrustee Network IP)
+	// WgAddr is a Wireguard local address (Netbird Network IP)
 	WgAddr string
 
 	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
@@ -127,11 +127,11 @@ func (e *Engine) Stop() error {
 	// Removing peers happens in the conn.CLose() asynchronously
 	time.Sleep(500 * time.Millisecond)
 
-	log.Debugf("removing Wiretrustee interface %s", e.config.WgIfaceName)
+	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface.Interface != nil {
 		err = e.wgInterface.Close()
 		if err != nil {
-			log.Errorf("failed closing Wiretrustee interface %s %v", e.config.WgIfaceName, err)
+			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
 			return err
 		}
 	}
@@ -160,7 +160,7 @@ func (e *Engine) Stop() error {
 		}
 	}
 
-	log.Infof("stopped Wiretrustee Engine")
+	log.Infof("stopped Netbird Engine")
 
 	return nil
 }
