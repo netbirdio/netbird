@@ -98,6 +98,8 @@ Hosted version: [https://app.netbird.io/](https://app.netbird.io/)
 
 See a complete [architecture overview](https://netbird.io/docs/overview/architecture) for details.
 
+**Testimonials:** We use open-source technologies like [WireGuard®](https://www.wireguard.com/), [Pion ICE (WebRTC)](https://github.com/pion/ice), and [Coturn](https://github.com/coturn/coturn). We very much appreciate the work these guys are doing and we'd greatly appreciate if you could support them in any way (e.g. giving a star or a contribution).
+
 ### Product Roadmap
 - [Public Roadmap](https://github.com/netbirdio/netbird/projects/2)
 
