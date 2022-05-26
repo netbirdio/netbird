@@ -84,13 +84,17 @@ Hosted version: [https://app.netbird.io/](https://app.netbird.io/)
 
 
 ### A bit on Netbird internals
-* Every machine in the network runs Netbird Agent (or Client).
-* Netbird features a Management Service that offers peer IP management and network updates distribution (e.g. when a new peer joins the network).
-* Netbird uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between devices.
-* Peers negotiate connection through [Signal Service](signal/).
+* Every machine in the network runs [Netbird Agent (or Client)](client/) that manages WireGuard.
+* Netbird features a [Management Service](management/) that offers peer IP management and network updates distribution (e.g. when a new machine joins the network others are getting notified if allowed by access controls). Simply put, this service holds the state of the network.
+* Every agent is connected to Management Service.
+* Netbird agent uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between machines.
+* Connection candidates are discovered with a help of [STUN](https://en.wikipedia.org/wiki/STUN) server. 
+* Agents negotiate a connection through [Signal Service](signal/).
 * Signal Service uses public Wireguard keys to route messages between peers.
   Contents of the messages sent between peers through the signaling server are encrypted with Wireguard keys, making it impossible to inspect them.
-* Occasionally, the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT). When this occurs the system falls back to the relay server (TURN), and a secure Wireguard tunnel is established via the TURN server. [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Netbird setups.
+* Sometimes the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT) and p2p connection isn't possible. When this occurs the system falls back to a relay server called [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT), and a secure Wireguard tunnel is established via the TURN server. 
+ 
+[Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Netbird setups.
 
 <p float="left" align="middle">
   <img src="https://netbird.io/docs/img/architecture/high-level-dia.png" width="700"/>
