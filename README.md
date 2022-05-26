@@ -69,7 +69,7 @@ Netbird creates an overlay peer-to-peer network connecting machines automaticall
 * Mobile clients (coming soon).
 * Network Activity Monitoring (coming soon).
 
-### Secure peer-to-peer VPN in minutes
+### Secure peer-to-peer VPN with SSO and MFA in minutes
 <p float="left" align="middle">
   <img src="docs/media/peerA.gif" width="400"/> 
   <img src="docs/media/peerB.gif" width="400"/>
