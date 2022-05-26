@@ -20,7 +20,7 @@ import (
 
 func (p *program) Start(svc service.Service) error {
 	// Start should not block. Do the actual work async.
-	log.Info("starting service") //nolint
+	log.Info("starting Netbird service") //nolint
 	// in any case, even if configuration does not exists we run daemon to serve CLI gRPC API.
 	p.serv = grpc.NewServer()
 
