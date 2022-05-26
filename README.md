@@ -47,21 +47,27 @@
 
 <br>
 
-**Netbird is an open-source VPN platform built on top of WireGuard® making it easy to create secure private networks for your organization or home.**
+**Netbird is an open-source VPN management platform built on top of WireGuard® making it easy to create secure private networks for your organization or home.**
 
 It requires zero configuration effort leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
-**Netbird automates Wireguard-based networks, offering a management layer with:**
-* Centralized Peer IP management with a UI dashboard.
-* Encrypted peer-to-peer connections without a centralized VPN gateway.
-* Automatic Peer discovery and configuration.
-* UDP hole punching to establish peer-to-peer connections behind NAT, firewall, and without a public static IP.
+Netbird creates an overlay peer-to-peer network connecting machines automatically regardless of their location (home, office, datacenter, container, cloud or edge environments) unifying virtual private network management experience.
+
+**Key features:**
+* Automatic IP allocation and management.
+* Automatic peer (machine) discovery and configuration.
+* Encrypted peer-to-peer connections without a central VPN gateway.
 * Connection relay fallback in case a peer-to-peer connection is not possible.
-* Multitenancy (coming soon).
-* Client application SSO with MFA (coming soon).
-* Access Controls (coming soon).
-* Activity Monitoring (coming soon).
-* Private DNS (coming soon)
+* Network management layer with a neat Web UI panel ([separate repo](https://github.com/netbirdio/dashboard))
+* Desktop client applications for Linux, MacOS, and Windows.
+* Multiuser support - sharing network between multiple users.
+* SSO and MFA support. 
+* Multicloud and hybrid-cloud support.
+* Kernel WireGuard usage when possible.
+* Access Controls - groups & rules (coming soon).
+* Private DNS (coming soon).
+* Mobile clients (coming soon).
+* Network Activity Monitoring (coming soon).
 
 ### Secure peer-to-peer VPN in minutes
 <p float="left" align="middle">
@@ -69,30 +75,37 @@ It requires zero configuration effort leaving behind the hassle of opening ports
   <img src="docs/media/peerB.gif" width="400"/>
 </p>
 
-**Note**: The `main` branch may be in an *unstable or even broken state* during development. For stable versions, see [releases](https://github.com/netbirdio/netbird).
+**Note**: The `main` branch may be in an *unstable or even broken state* during development. 
+For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).
 
-Hosted version: 
-[https://app.netbird.io/](https://app.netbird.io/). 
+Hosted version: [https://app.netbird.io/](https://app.netbird.io/)
 
-[UI Dashboard Repo](https://github.com/netbirdio/dashboard)
+[Web UI repository](https://github.com/netbirdio/dashboard)
 
 
 ### A bit on Netbird internals
-* Netbird features a Management Service that offers peer IP management and network updates distribution (e.g. when a new peer joins the network).
-* Netbird uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between devices.
-* Peers negotiate connection through [Signal Service](signal/).
+* Every machine in the network runs [Netbird Agent (or Client)](client/) that manages WireGuard.
+* Netbird features a [Management Service](management/) that offers peer IP management and network updates distribution (e.g. when a new machine joins the network others are getting notified if allowed by access controls). Simply put, this service holds the state of the network.
+* Every agent is connected to Management Service.
+* Netbird agent uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between machines.
+* Connection candidates are discovered with a help of [STUN](https://en.wikipedia.org/wiki/STUN) server. 
+* Agents negotiate a connection through [Signal Service](signal/).
 * Signal Service uses public Wireguard keys to route messages between peers.
   Contents of the messages sent between peers through the signaling server are encrypted with Wireguard keys, making it impossible to inspect them.
-* Occasionally, the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT). When this occurs the system falls back to the relay server (TURN), and a secure Wireguard tunnel is established via the TURN server. [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Netbird setups.
+* Sometimes the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT) and p2p connection isn't possible. When this occurs the system falls back to a relay server called [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT), and a secure Wireguard tunnel is established via the TURN server. 
+ 
+[Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Netbird setups.
 
 <p float="left" align="middle">
   <img src="https://netbird.io/docs/img/architecture/high-level-dia.png" width="700"/>
 </p>
 
+See a complete [architecture overview](https://netbird.io/docs/overview/architecture) for details.
+
+**Testimonials:** We use open-source technologies like [WireGuard®](https://www.wireguard.com/), [Pion ICE (WebRTC)](https://github.com/pion/ice), and [Coturn](https://github.com/coturn/coturn). We very much appreciate the work these guys are doing and we'd greatly appreciate if you could support them in any way (e.g. giving a star or a contribution).
 
 ### Product Roadmap
 - [Public Roadmap](https://github.com/netbirdio/netbird/projects/2)
-- [Public Roadmap Progress Tracking](https://github.com/netbirdio/netbird/projects/1)
 
 ### Client Installation
 #### Linux
