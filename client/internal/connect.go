@@ -63,8 +63,9 @@ func RunClient(ctx context.Context, config *Config) error {
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
 		mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
-			log.Warn(err)
+			log.Debug(err)
 			if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
+				log.Info("peer registration required. Please run `netbird status` for details")
 				state.Set(StatusNeedsLogin)
 				return nil
 			}
@@ -92,11 +93,11 @@ func RunClient(ctx context.Context, config *Config) error {
 		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig)
 		err = engine.Start()
 		if err != nil {
-			log.Errorf("error while starting Wiretrustee Connection Engine: %s", err)
+			log.Errorf("error while starting Netbird Connection Engine: %s", err)
 			return wrapErr(err)
 		}
 
-		log.Print("Wiretrustee engine started, my IP is: ", peerConfig.Address)
+		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)
 		state.Set(StatusConnected)
 
 		<-engineCtx.Done()
@@ -120,7 +121,7 @@ func RunClient(ctx context.Context, config *Config) error {
 			return wrapErr(err)
 		}
 
-		log.Info("stopped Wiretrustee client")
+		log.Info("stopped Netbird client")
 
 		if _, err := state.Status(); err == ErrResetConnection {
 			return err
@@ -183,7 +184,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 
 // connectToManagement creates Management Services client, establishes a connection, logs-in and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
 func connectToManagement(ctx context.Context, managementAddr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*mgm.GrpcClient, *mgmProto.LoginResponse, error) {
-	log.Debugf("connecting to management server %s", managementAddr)
+	log.Debugf("connecting to Management Service %s", managementAddr)
 	client, err := mgm.NewClient(ctx, managementAddr, ourPrivateKey, tlsEnabled)
 	if err != nil {
 		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err)
@@ -198,12 +199,7 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 	sysInfo := system.GetInfo(ctx)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo)
 	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
-			log.Error("peer registration required. Please run wiretrustee login command first")
-			return nil, nil, err
-		} else {
-			return nil, nil, err
-		}
+		return nil, nil, err
 	}
 
 	log.Debugf("peer logged in to Management Service %s", managementAddr)
