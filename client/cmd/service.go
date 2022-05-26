@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"runtime"
 
 	"github.com/kardianos/service"
 	log "github.com/sirupsen/logrus"
@@ -23,8 +24,12 @@ func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
 }
 
 func newSVCConfig() *service.Config {
+	name := "netbird"
+	if runtime.GOOS == "windows" {
+		name = "Netbird"
+	}
 	return &service.Config{
-		Name:        "netbird",
+		Name:        name,
 		DisplayName: "Netbird",
 		Description: "A WireGuard-based mesh network that connects your devices into a single private network.",
 	}
