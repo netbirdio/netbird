@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=Netbird Agent
+Name=Netbird
 Exec=/usr/bin/netbird-ui
 Icon=netbird
 Type=Application
