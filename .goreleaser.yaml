@@ -115,6 +115,7 @@ nfpms:
       - libayatana-appindicator3-1
       - libgtk-3-dev
       - libappindicator3-dev
+      - netbird
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client UI.
@@ -134,6 +135,7 @@ nfpms:
       - libayatana-appindicator3-1
       - libgtk-3-dev
       - libappindicator3-dev
+      - netbird
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
