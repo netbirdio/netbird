@@ -30,10 +30,6 @@ import (
 
 var (
 	mgmtPort              int
-	defaultMgmtDataDir    string
-	defaultMgmtConfig     string
-	mgmtDataDir           string
-	mgmtConfig            string
 	mgmtLetsencryptDomain string
 	certFile              string
 	certKey               string
@@ -60,33 +56,14 @@ var (
 				log.Fatalf("failed initializing log %v", err)
 			}
 
-			if mgmtDataDir == "" {
-				oldPath := "/var/lib/wiretrustee"
-				if migrateToNetbird(oldPath, defaultMgmtDataDir) {
-					if err := cpDir(oldPath, defaultMgmtDataDir); err != nil {
-						log.Fatal(err)
-					}
-				}
-			}
-
-			actualMgmtConfigPath := mgmtConfig
-			if mgmtConfig == "" {
-				oldPath := "/etc/wiretrustee/management.json"
-				if migrateToNetbird(oldPath, defaultMgmtConfig) {
-					if err := cpDir("/etc/wiretrustee/", defaultConfigPath); err != nil {
-						log.Fatal(err)
-					}
-
-					if err := cpFile(oldPath, defaultMgmtConfig); err != nil {
-						log.Fatal(err)
-					}
-				}
-				actualMgmtConfigPath = defaultMgmtConfig
-			}
-
-			config, err := loadMgmtConfig(actualMgmtConfigPath)
+			err = handleRebrand(cmd)
 			if err != nil {
-				log.Fatalf("failed reading provided config file: %s: %v", actualMgmtConfigPath, err)
+				log.Fatalf("failed to migrate files %v", err)
+			}
+
+			config, err := loadMgmtConfig(mgmtConfig)
+			if err != nil {
+				log.Fatalf("failed reading provided config file: %s: %v", mgmtConfig, err)
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
@@ -219,6 +196,38 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 	return config, nil
 }
 
+func handleRebrand(cmd *cobra.Command) error {
+	var err error
+	if logFile == defaultLogFile {
+		if migrateToNetbird(oldDefaultLogFile, defaultLogFile) {
+			cmd.Printf("will copy Log dir %s and its content to %s\n", oldDefaultLogDir, defaultLogDir)
+			err = cpDir(oldDefaultLogDir, defaultLogDir)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if mgmtConfig == defaultMgmtConfig {
+		if migrateToNetbird(oldDefaultMgmtConfig, defaultMgmtConfig) {
+			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
+			err = cpDir(oldDefaultMgmtConfigDir, defaultMgmtConfigDir)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	if mgmtDataDir == defaultMgmtDataDir {
+		if migrateToNetbird(oldDefaultMgmtDataDir, defaultMgmtDataDir) {
+			cmd.Printf("will copy Config dir %s and its content to %s\n", oldDefaultMgmtDataDir, defaultMgmtDataDir)
+			err = cpDir(oldDefaultMgmtDataDir, defaultMgmtDataDir)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func cpFile(src, dst string) error {
 	var err error
 	var srcfd *os.File
@@ -304,14 +313,4 @@ func migrateToNetbird(oldPath, newPath string) bool {
 	}
 
 	return true
-}
-
-func init() {
-	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 33073, "server port to listen on")
-	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
-	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", defaultMgmtConfig, "Netbird config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
-	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
-	mgmtCmd.Flags().StringVar(&certFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
-	mgmtCmd.Flags().StringVar(&certKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
-	rootCmd.MarkFlagRequired("config") //nolint
 }

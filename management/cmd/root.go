@@ -2,11 +2,9 @@ package cmd
 
 import (
 	"fmt"
+	"github.com/spf13/cobra"
 	"os"
 	"os/signal"
-	"runtime"
-
-	"github.com/spf13/cobra"
 )
 
 const (
@@ -15,11 +13,20 @@ const (
 )
 
 var (
-	configPath        string
-	defaultConfigPath string
-	logLevel          string
-	defaultLogFile    string
-	logFile           string
+	defaultMgmtConfigDir    string
+	defaultMgmtDataDir      string
+	defaultMgmtConfig       string
+	defaultLogDir           string
+	defaultLogFile          string
+	oldDefaultMgmtConfigDir string
+	oldDefaultMgmtDataDir   string
+	oldDefaultMgmtConfig    string
+	oldDefaultLogDir        string
+	oldDefaultLogFile       string
+	mgmtDataDir             string
+	mgmtConfig              string
+	logLevel                string
+	logFile                 string
 
 	rootCmd = &cobra.Command{
 		Use:   "netbird-mgmt",
@@ -40,16 +47,27 @@ func init() {
 	stopCh = make(chan int)
 
 	defaultMgmtDataDir = "/var/lib/netbird/"
-	defaultConfigPath = "/etc/netbird"
-	defaultMgmtConfig = defaultConfigPath + "/management.json"
-	defaultLogFile = "/var/log/netbird/management.log"
+	defaultMgmtConfigDir = "/etc/netbird"
+	defaultLogDir = "/var/log/netbird"
 
-	if runtime.GOOS == "windows" {
-		defaultConfigPath = os.Getenv("PROGRAMDATA") + "\\Netbird\\" + "management.json"
-		defaultLogFile = os.Getenv("PROGRAMDATA") + "\\Netbird\\" + "management.log"
-	}
+	oldDefaultMgmtDataDir = "/var/lib/wiretrustee/"
+	oldDefaultMgmtConfigDir = "/etc/wiretrustee"
+	oldDefaultLogDir = "/var/log/wiretrustee"
 
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Netbird config file location to write new config to")
+	defaultMgmtConfig = defaultMgmtConfigDir + "/management.json"
+	defaultLogFile = defaultLogDir + "/management.log"
+
+	oldDefaultMgmtConfig = oldDefaultMgmtConfigDir + "/management.json"
+	oldDefaultLogFile = oldDefaultLogDir + "/management.log"
+
+	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 33073, "server port to listen on")
+	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
+	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", defaultMgmtConfig, "Netbird config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
+	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+	mgmtCmd.Flags().StringVar(&certFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	mgmtCmd.Flags().StringVar(&certKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
+	rootCmd.MarkFlagRequired("config") //nolint
+
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the the log will be output to stdout")
 	rootCmd.AddCommand(mgmtCmd)
