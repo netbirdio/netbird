@@ -24,7 +24,7 @@ func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
 
 func newSVCConfig() *service.Config {
 	return &service.Config{
-		Name:        "Netbird",
+		Name:        "netbird",
 		DisplayName: "Netbird",
 		Description: "A WireGuard-based mesh network that connects your devices into a single private network.",
 	}
