@@ -47,21 +47,25 @@
 
 <br>
 
-**Netbird is an open-source VPN platform built on top of WireGuard® making it easy to create secure private networks for your organization or home.**
+**Netbird is an open-source VPN management platform built on top of WireGuard® making it easy to create secure private networks for your organization or home.**
 
 It requires zero configuration effort leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
-**Netbird automates Wireguard-based networks, offering a management layer with:**
-* Centralized Peer IP management with a UI dashboard.
-* Encrypted peer-to-peer connections without a centralized VPN gateway.
-* Automatic Peer discovery and configuration.
-* UDP hole punching to establish peer-to-peer connections behind NAT, firewall, and without a public static IP.
+Netbird creates an overlay peer-to-peer network connecting machines automatically regardless of their location (home, office, datacenter, cloud or edge environments) unifying virtual private network management experience.
+
+**Key features:**
+* Automatic IP allocation and management.
+* Automatic peer discovery and configuration.
+* Encrypted peer-to-peer connections without a central VPN gateway.
 * Connection relay fallback in case a peer-to-peer connection is not possible.
-* Multitenancy (coming soon).
-* Client application SSO with MFA (coming soon).
+* Network management layer with a neat Web UI panel ([separate repo](https://github.com/netbirdio/dashboard))
+* Desktop client applications for Linux, MacOS, and Windows.
+* Multiuser support - sharing network between multiple users.
+* SSO and MFA support. 
 * Access Controls (coming soon).
-* Activity Monitoring (coming soon).
-* Private DNS (coming soon)
+* Private DNS (coming soon).
+* Mobile clients (coming soon).
+* Network Activity Monitoring (coming soon).
 
 ### Secure peer-to-peer VPN in minutes
 <p float="left" align="middle">
