@@ -72,11 +72,11 @@ Netbird creates an overlay peer-to-peer network connecting machines automaticall
   <img src="docs/media/peerA.gif" width="400"/> 
   <img src="docs/media/peerB.gif" width="400"/>
 </p>
-<br/>
+
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. 
 For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).
-<br/>
-Hosted version: [https://app.netbird.io/](https://app.netbird.io/). 
+
+Hosted version: [https://app.netbird.io/](https://app.netbird.io/)
 
 [Web UI repository](https://github.com/netbirdio/dashboard)
 
