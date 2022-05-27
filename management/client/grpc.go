@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
 	"io"
 	"time"
 
@@ -115,6 +117,9 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
+			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
+				return backoff.Permanent(err)
+			}
 			backOff.Reset()
 			return err
 		}
@@ -124,7 +129,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 
 	err := backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Warnf("exiting Management Service connection retry loop due to unrecoverable error: %s", err)
+		log.Warnf("exiting Management Service connection retry loop due to Permanent error: %s", err)
 		return err
 	}
 
