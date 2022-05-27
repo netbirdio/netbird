@@ -6,6 +6,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/util"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
@@ -55,7 +56,13 @@ var upCmd = &cobra.Command{
 				"If the daemon is not running please run: "+
 				"\nnetbird service install \nnetbird service start\n", err)
 		}
-		defer conn.Close()
+		defer func() {
+			err := conn.Close()
+			if err != nil {
+				log.Warnf("failed closing dameon gRPC client connection %v", err)
+				return
+			}
+		}()
 
 		client := proto.NewDaemonServiceClient(conn)
 
