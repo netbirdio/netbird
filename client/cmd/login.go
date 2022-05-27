@@ -195,6 +195,6 @@ func openURL(cmd *cobra.Command, verificationURIComplete string) {
 		"If your browser didn't open automatically, use this URL to log in:\n\n" +
 		" " + verificationURIComplete + " \n\n")
 	if err != nil {
-		cmd.Println("Alternatively, you may want to use a setup key, see:\n\n https://www.netbird.io/docs/overview/setup-keys\n")
+		cmd.Printf("Alternatively, you may want to use a setup key, see:\n\n https://www.netbird.io/docs/overview/setup-keys\n")
 	}
 }
