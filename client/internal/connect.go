@@ -60,8 +60,11 @@ func RunClient(ctx context.Context, config *Config) error {
 			mgmTlsEnabled = true
 		}
 
+		engineCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
-		mgmClient, loginResp, err := connectToManagement(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+		mgmClient, loginResp, err := connectToManagement(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 		if err != nil {
 			log.Debug(err)
 			if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
@@ -73,7 +76,7 @@ func RunClient(ctx context.Context, config *Config) error {
 		}
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
-		signalClient, err := connectToSignal(ctx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
+		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -86,9 +89,6 @@ func RunClient(ctx context.Context, config *Config) error {
 			log.Error(err)
 			return wrapErr(err)
 		}
-
-		engineCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
 
 		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig)
 		err = engine.Start()
