@@ -90,7 +90,7 @@ type serviceClient struct {
 	icConnected    []byte
 	icDisconnected []byte
 
-	// systray menu itmes
+	// systray menu items
 	mStatus     *systray.MenuItem
 	mUp         *systray.MenuItem
 	mDown       *systray.MenuItem
@@ -372,6 +372,9 @@ func (s *serviceClient) onTrayReady() {
 	s.mAdminPanel = systray.AddMenuItem("Admin Panel", "Wiretrustee Admin Panel")
 	systray.AddSeparator()
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
+	systray.AddSeparator()
+	v := systray.AddMenuItem("v"+system.NetbirdVersion(), "Client Version: "+system.NetbirdVersion())
+	v.Disable()
 	systray.AddSeparator()
 	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")
 
