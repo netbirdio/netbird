@@ -97,11 +97,7 @@ var upCmd = &cobra.Command{
 
 			if loginResp.NeedsSSOLogin {
 
-				openURL(cmd, loginResp.VerificationURI, loginResp.VerificationURIComplete, loginResp.UserCode)
-
-				cmd.Printf("Please do the SSO login in your browser. \n" +
-					"If your browser didn't open automatically, use this URL to log in:\n\n" +
-					" " + loginResp.VerificationURIComplete + " \n\n")
+				openURL(cmd, loginResp.VerificationURIComplete)
 
 				_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 				if err != nil {

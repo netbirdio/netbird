@@ -92,7 +92,7 @@ var loginCmd = &cobra.Command{
 		}
 
 		if loginResp.NeedsSSOLogin {
-			openURL(cmd, loginResp.VerificationURI, loginResp.VerificationURIComplete, loginResp.UserCode)
+			openURL(cmd, loginResp.VerificationURIComplete)
 
 			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 			if err != nil {
@@ -175,7 +175,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 		return nil, fmt.Errorf("getting a request device code failed: %v", err)
 	}
 
-	openURL(cmd, flowInfo.VerificationURI, flowInfo.VerificationURIComplete, flowInfo.UserCode)
+	openURL(cmd, flowInfo.VerificationURIComplete)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn)
 	waitCTX, c := context.WithTimeout(context.TODO(), waitTimeout*time.Second)
@@ -189,13 +189,12 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 	return &tokenInfo, nil
 }
 
-func openURL(cmd *cobra.Command, verificationURI, verificationURIComplete, userCode string) {
+func openURL(cmd *cobra.Command, verificationURIComplete string) {
 	err := open.Run(verificationURIComplete)
 	if err != nil {
 		cmd.Println("Unable to open the default browser.")
-		cmd.Println("If this is not an interactive shell, you may want to use the setup key, see https://www.netbird.io/docs/overview/setup-keys")
-		cmd.Printf("Otherwise, you can continue the login flow by accessing the url below:\n\t%s\n", verificationURI)
-		cmd.Printf("Use the access code: %s\n", userCode)
-		cmd.Println("Or press CTRL + C or COMMAND + C")
 	}
+	cmd.Printf("Please do the SSO login in your browser. \n" +
+		"If your browser didn't open automatically, use this URL to log in:\n\n" +
+		" " + verificationURIComplete + " \n\n")
 }
