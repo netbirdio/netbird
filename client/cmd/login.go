@@ -191,10 +191,10 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 
 func openURL(cmd *cobra.Command, verificationURIComplete string) {
 	err := open.Run(verificationURIComplete)
-	if err != nil {
-		cmd.Println("Unable to open the default browser.")
-	}
 	cmd.Printf("Please do the SSO login in your browser. \n" +
 		"If your browser didn't open automatically, use this URL to log in:\n\n" +
 		" " + verificationURIComplete + " \n\n")
+	if err != nil {
+		cmd.Println("Alternatively, you may want to use a setup key, see:\n\n https://www.netbird.io/docs/overview/setup-keys\n")
+	}
 }
