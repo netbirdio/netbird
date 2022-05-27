@@ -265,12 +265,10 @@ func (s *serviceClient) menuUpClick() error {
 		return err
 	}
 
-	if status.Status == string(internal.StatusNeedsLogin) || status.Status == string(internal.StatusLoginFailed) {
-		err = s.login()
-		if err != nil {
-			log.Errorf("get service status: %v", err)
-			return err
-		}
+	err = s.login()
+	if err != nil {
+		log.Errorf("get service status: %v", err)
+		return err
 	}
 
 	status, err = conn.Status(s.ctx, &proto.StatusRequest{})

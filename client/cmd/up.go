@@ -64,49 +64,49 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("unable to get daemon status: %v", err)
 		}
 
-		if status.Status == string(internal.StatusNeedsLogin) || status.Status == string(internal.StatusLoginFailed) {
-			loginRequest := proto.LoginRequest{
-				SetupKey:      setupKey,
-				PreSharedKey:  preSharedKey,
-				ManagementUrl: managementURL,
-			}
-
-			var loginErr error
-
-			var loginResp *proto.LoginResponse
-
-			err = WithBackOff(func() error {
-				var backOffErr error
-				loginResp, backOffErr = client.Login(ctx, &loginRequest)
-				if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-					s.Code() == codes.PermissionDenied ||
-					s.Code() == codes.NotFound ||
-					s.Code() == codes.Unimplemented) {
-					loginErr = backOffErr
-					return nil
-				}
-				return backOffErr
-			})
-			if err != nil {
-				return fmt.Errorf("login backoff cycle failed: %v", err)
-			}
-
-			if loginErr != nil {
-				return fmt.Errorf("login failed: %v", loginErr)
-			}
-
-			if loginResp.NeedsSSOLogin {
-
-				openURL(cmd, loginResp.VerificationURIComplete)
-
-				_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
-				if err != nil {
-					return fmt.Errorf("waiting sso login failed with: %v", err)
-				}
-			}
-		} else if status.Status != string(internal.StatusIdle) {
+		if status.Status == string(internal.StatusConnected) {
 			cmd.Println("Already connected")
 			return nil
+		}
+
+		loginRequest := proto.LoginRequest{
+			SetupKey:      setupKey,
+			PreSharedKey:  preSharedKey,
+			ManagementUrl: managementURL,
+		}
+
+		var loginErr error
+
+		var loginResp *proto.LoginResponse
+
+		err = WithBackOff(func() error {
+			var backOffErr error
+			loginResp, backOffErr = client.Login(ctx, &loginRequest)
+			if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
+				s.Code() == codes.PermissionDenied ||
+				s.Code() == codes.NotFound ||
+				s.Code() == codes.Unimplemented) {
+				loginErr = backOffErr
+				return nil
+			}
+			return backOffErr
+		})
+		if err != nil {
+			return fmt.Errorf("login backoff cycle failed: %v", err)
+		}
+
+		if loginErr != nil {
+			return fmt.Errorf("login failed: %v", loginErr)
+		}
+
+		if loginResp.NeedsSSOLogin {
+
+			openURL(cmd, loginResp.VerificationURIComplete)
+
+			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
+			if err != nil {
+				return fmt.Errorf("waiting sso login failed with: %v", err)
+			}
 		}
 
 		if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
