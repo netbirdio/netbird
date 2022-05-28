@@ -267,7 +267,7 @@ func TestAccountManager_AddAccount(t *testing.T) {
 	expectedSetupKeysSize := 2
 	expectedNetwork := net.IPNet{
 		IP:   net.IP{100, 64, 0, 0},
-		Mask: net.IPMask{255, 192, 0, 0},
+		Mask: net.IPMask{255, 255, 0, 0},
 	}
 
 	account, err := manager.AddAccount(expectedId, userId, "")

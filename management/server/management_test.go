@@ -107,7 +107,7 @@ var _ = Describe("Management service", func() {
 				err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(resp.PeerConfig.Address).To(BeEquivalentTo("100.64.0.1/24"))
+				Expect(resp.PeerConfig.Address).To(BeEquivalentTo("100.64.0.1/16"))
 
 				expectedSignalConfig := &mgmtProto.HostConfig{
 					Uri:      "signal.wiretrustee.com:10000",
