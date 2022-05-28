@@ -193,7 +193,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			providerConfig.ProviderConfig.Domain,
 		)
 
-		if s.oauthAuthFlow.client != nil && s.oauthAuthFlow.client.GetClientID(context.TODO()) == hostedClient.GetClientID(context.TODO()) {
+		if s.oauthAuthFlow.client != nil && s.oauthAuthFlow.client.GetClientID(ctx) == hostedClient.GetClientID(context.TODO()) {
 			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
 				log.Debugf("using previous device flow info")
 				return &proto.LoginResponse{

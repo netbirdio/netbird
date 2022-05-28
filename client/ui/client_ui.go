@@ -252,34 +252,35 @@ func (s *serviceClient) login() error {
 	return nil
 }
 
-func (s *serviceClient) menuUpClick() {
+func (s *serviceClient) menuUpClick() error {
 	conn, err := s.getSrvClient(defaultFailTimeout)
 	if err != nil {
 		log.Errorf("get client: %v", err)
-		return
+		return err
 	}
 
 	err = s.login()
 	if err != nil {
 		log.Errorf("login failed with: %v", err)
-		return
+		return err
 	}
 
 	status, err := conn.Status(s.ctx, &proto.StatusRequest{})
 	if err != nil {
 		log.Errorf("get service status: %v", err)
-		return
+		return err
 	}
 
 	if status.Status == string(internal.StatusConnected) {
 		log.Warnf("already connected")
-		return
+		return err
 	}
 
 	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
 		log.Errorf("up service: %v", err)
-		return
+		return err
 	}
+	return nil
 }
 
 func (s *serviceClient) menuDownClick() error {
@@ -386,12 +387,19 @@ func (s *serviceClient) onTrayReady() {
 			case <-s.mAdminPanel.ClickedCh:
 				err = open.Run(s.adminURL)
 			case <-s.mUp.ClickedCh:
-				go s.menuUpClick()
+				go func() {
+					err := s.menuUpClick()
+					if err != nil {
+						return
+					}
+				}()
 			case <-s.mDown.ClickedCh:
-				s.mDown.Disable()
-				if err = s.menuDownClick(); err != nil {
-					s.mDown.Enable()
-				}
+				go func() {
+					err := s.menuDownClick()
+					if err != nil {
+						return
+					}
+				}()
 			case <-s.mSettings.ClickedCh:
 				s.mSettings.Disable()
 				go func() {
