@@ -16,6 +16,7 @@ type OAuthClient interface {
 	RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error)
 	RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error)
 	WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error)
+	GetClientID(ctx context.Context) string
 }
 
 // HTTPClient http client interface for API calls
@@ -104,6 +105,11 @@ func NewHostedDeviceFlow(audience string, clientID string, domain string) *Hoste
 	}
 }
 
+// GetClientID returns the provider client id
+func (h *Hosted) GetClientID(ctx context.Context) string {
+	return h.ClientID
+}
+
 // RequestDeviceCode requests a device code login flow information from Hosted
 func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
 	url := "https://" + h.Domain + "/oauth/device/code"
@@ -150,7 +156,8 @@ func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) 
 // WaitToken waits user's login and authorize the app. Once the user's authorize
 // it retrieves the access token from Hosted's endpoint and validates it before returning
 func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error) {
-	ticker := time.NewTicker(time.Duration(info.Interval) * time.Second)
+	interval := time.Duration(info.Interval) * time.Second
+	ticker := time.NewTicker(interval)
 	for {
 		select {
 		case <-ctx.Done():
@@ -181,7 +188,12 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 			if tokenResponse.Error != "" {
 				if tokenResponse.Error == "authorization_pending" {
 					continue
+				} else if tokenResponse.Error == "slow_down" {
+					interval = interval + (3 * time.Second)
+					ticker.Reset(interval)
+					continue
 				}
+
 				return TokenInfo{}, fmt.Errorf(tokenResponse.ErrorDescription)
 			}
 

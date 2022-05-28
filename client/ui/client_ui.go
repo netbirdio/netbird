@@ -261,7 +261,7 @@ func (s *serviceClient) menuUpClick() error {
 
 	err = s.login()
 	if err != nil {
-		log.Errorf("get service status: %v", err)
+		log.Errorf("login failed with: %v", err)
 		return err
 	}
 
@@ -271,16 +271,15 @@ func (s *serviceClient) menuUpClick() error {
 		return err
 	}
 
-	if status.Status != string(internal.StatusIdle) {
+	if status.Status == string(internal.StatusConnected) {
 		log.Warnf("already connected")
-		return nil
+		return err
 	}
 
 	if _, err := s.conn.Up(s.ctx, &proto.UpRequest{}); err != nil {
 		log.Errorf("up service: %v", err)
 		return err
 	}
-
 	return nil
 }
 
@@ -388,15 +387,19 @@ func (s *serviceClient) onTrayReady() {
 			case <-s.mAdminPanel.ClickedCh:
 				err = open.Run(s.adminURL)
 			case <-s.mUp.ClickedCh:
-				s.mUp.Disable()
-				if err = s.menuUpClick(); err != nil {
-					s.mUp.Enable()
-				}
+				go func() {
+					err := s.menuUpClick()
+					if err != nil {
+						return
+					}
+				}()
 			case <-s.mDown.ClickedCh:
-				s.mDown.Disable()
-				if err = s.menuDownClick(); err != nil {
-					s.mDown.Enable()
-				}
+				go func() {
+					err := s.menuDownClick()
+					if err != nil {
+						return
+					}
+				}()
 			case <-s.mSettings.ClickedCh:
 				s.mSettings.Disable()
 				go func() {
