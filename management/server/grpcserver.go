@@ -365,7 +365,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 
 func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	return &proto.PeerConfig{
-		Address: peer.IP.String() + "/24", // todo make it explicit
+		Address: peer.IP.String() + "/16", // todo make it explicit
 	}
 }
 

@@ -33,7 +33,7 @@ type Network struct {
 func NewNetwork() *Network {
 	return &Network{
 		Id:     xid.New().String(),
-		Net:    net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}},
+		Net:    net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 255, 0, 0}},
 		Dns:    "",
 		Serial: 0}
 }
