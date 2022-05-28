@@ -282,7 +282,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		s.oauthAuthFlow.waitCancel()
 	}
 
-	waitTimeout := s.oauthAuthFlow.expiresAt.Sub(time.Now())
+	waitTimeout := time.Until(s.oauthAuthFlow.expiresAt)
 	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
 	defer cancel()
 
