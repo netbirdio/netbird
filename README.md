@@ -1,6 +1,6 @@
 <p align="center">
- <strong>Big News! Wiretrustee becomes Netbird</strong>.
-  <a href="https://netbird.io/blog/wiretrustee-becomes-netbird">
+ <strong>:hatching_chick: New release! Beta Update May 2022</strong>.
+  <a href="https://github.com/netbirdio/netbird/releases/tag/v0.6.0">
        Learn more
      </a>   
 </p>
