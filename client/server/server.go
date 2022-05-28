@@ -26,12 +26,18 @@ type Server struct {
 	configPath    string
 	logFile       string
 
-	oauthClient    internal.OAuthClient
-	deviceAuthInfo internal.DeviceAuthInfo
+	oauthAuthFlow oauthAuthFlow
 
 	mutex  sync.Mutex
 	config *internal.Config
 	proto.UnimplementedDaemonServiceServer
+}
+
+type oauthAuthFlow struct {
+	expiresAt  time.Time
+	client     internal.OAuthClient
+	info       internal.DeviceAuthInfo
+	waitCancel context.CancelFunc
 }
 
 // New server instance constructor.
@@ -187,6 +193,21 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			providerConfig.ProviderConfig.Domain,
 		)
 
+		if s.oauthAuthFlow.client != nil && s.oauthAuthFlow.client.GetClientID(context.TODO()) == hostedClient.GetClientID(context.TODO()) {
+			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
+				log.Debugf("using previous device flow info")
+				return &proto.LoginResponse{
+					NeedsSSOLogin:           true,
+					VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
+					VerificationURIComplete: s.oauthAuthFlow.info.VerificationURIComplete,
+					UserCode:                s.oauthAuthFlow.info.UserCode,
+				}, nil
+			} else {
+				log.Warnf("canceling previous waiting execution")
+				s.oauthAuthFlow.waitCancel()
+			}
+		}
+
 		deviceAuthInfo, err := hostedClient.RequestDeviceCode(context.TODO())
 		if err != nil {
 			log.Errorf("getting a request device code failed: %v", err)
@@ -194,8 +215,9 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		}
 
 		s.mutex.Lock()
-		s.oauthClient = hostedClient
-		s.deviceAuthInfo = deviceAuthInfo
+		s.oauthAuthFlow.client = hostedClient
+		s.oauthAuthFlow.info = deviceAuthInfo
+		s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(deviceAuthInfo.ExpiresIn) * time.Second)
 		s.mutex.Unlock()
 
 		state.Set(internal.StatusNeedsLogin)
@@ -233,7 +255,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
-	if s.oauthClient == nil {
+	if s.oauthAuthFlow.client == nil {
 		return nil, gstatus.Errorf(codes.Internal, "oauth client is not initialized")
 	}
 
@@ -248,7 +270,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	state.Set(internal.StatusConnecting)
 
 	s.mutex.Lock()
-	deviceAuthInfo := s.deviceAuthInfo
+	deviceAuthInfo := s.oauthAuthFlow.info
 	s.mutex.Unlock()
 
 	if deviceAuthInfo.UserCode != msg.UserCode {
@@ -256,12 +278,26 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, gstatus.Errorf(codes.InvalidArgument, "sso user code is invalid")
 	}
 
-	waitTimeout := time.Duration(deviceAuthInfo.ExpiresIn)
-	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout*time.Second)
+	if s.oauthAuthFlow.waitCancel != nil {
+		s.oauthAuthFlow.waitCancel()
+	}
+
+	waitTimeout := s.oauthAuthFlow.expiresAt.Sub(time.Now())
+	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout)
 	defer cancel()
 
-	tokenInfo, err := s.oauthClient.WaitToken(waitCTX, deviceAuthInfo)
+	s.mutex.Lock()
+	s.oauthAuthFlow.waitCancel = cancel
+	s.mutex.Unlock()
+
+	tokenInfo, err := s.oauthAuthFlow.client.WaitToken(waitCTX, deviceAuthInfo)
 	if err != nil {
+		if err == context.Canceled {
+			return nil, nil
+		}
+		s.mutex.Lock()
+		s.oauthAuthFlow.expiresAt = time.Now()
+		s.mutex.Unlock()
 		state.Set(internal.StatusLoginFailed)
 		log.Errorf("waiting for browser login failed: %v", err)
 		return nil, err
