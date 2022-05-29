@@ -4,8 +4,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/rs/xid"
+	"math/rand"
 	"net"
 	"sync"
+	"time"
 )
 
 var (
@@ -63,20 +65,29 @@ func (n *Network) Copy() *Network {
 
 // AllocatePeerIP pics an available IP from an net.IPNet.
 // This method considers already taken IPs and reuses IPs if there are gaps in takenIps
-// E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.5] then the result would be 100.30.0.2
+// E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3
 func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
-	takenIpMap := make(map[string]net.IP)
-	takenIpMap[ipNet.IP.String()] = ipNet.IP
+	takenIpMap := make(map[string]struct{})
+	takenIpMap[ipNet.IP.String()] = struct{}{}
 	for _, ip := range takenIps {
-		takenIpMap[ip.String()] = ip
-	}
-	for ip := ipNet.IP.Mask(ipNet.Mask); ipNet.Contains(ip); ip = GetNextIP(ip) {
-		if _, ok := takenIpMap[ip.String()]; !ok {
-			return ip, nil
-		}
+		takenIpMap[ip.String()] = struct{}{}
 	}
 
-	return nil, fmt.Errorf("failed allocating new IP for the ipNet %s and takenIps %s", ipNet.String(), takenIps)
+	ips, _, err := GenerateIPs(&ipNet, takenIpMap)
+	if err != nil {
+		return nil, fmt.Errorf("failed allocating new IP for the ipNet %s and takenIps %s", ipNet.String(), takenIps)
+	}
+
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("failed allocating new IP for the ipNet %s - network is out of IPs", ipNet.String())
+	}
+
+	// pick a random IP
+	s := rand.NewSource(time.Now().Unix())
+	r := rand.New(s)
+	intn := r.Intn(len(ips))
+
+	return ips[intn], nil
 }
 
 // GetNextIP returns the next IP from the given IP address. If the given IP is
@@ -109,5 +120,41 @@ func GetNextIP(ip net.IP) net.IP {
 		return nextIP
 	default:
 		return ip
+	}
+}
+
+// GenerateIPs generates a list of all possible IPs of the given network excluding IPs specified in the exclusion list
+func GenerateIPs(ipNet *net.IPNet, exclusions map[string]struct{}) ([]net.IP, int, error) {
+
+	var ips []net.IP
+	for ip := ipNet.IP.Mask(ipNet.Mask); ipNet.Contains(ip); incIP(ip) {
+		if _, ok := exclusions[ip.String()]; !ok && ip[3] != 0 {
+			ips = append(ips, copyIP(ip))
+		}
+	}
+
+	// remove network address and broadcast address
+	lenIPs := len(ips)
+	switch {
+	case lenIPs < 2:
+		return ips, lenIPs, nil
+
+	default:
+		return ips[1 : len(ips)-1], lenIPs - 2, nil
+	}
+}
+
+func copyIP(ip net.IP) net.IP {
+	dup := make(net.IP, len(ip))
+	copy(dup, ip)
+	return dup
+}
+
+func incIP(ip net.IP) {
+	for j := len(ip) - 1; j >= 0; j-- {
+		ip[j]++
+		if ip[j] > 0 {
+			break
+		}
 	}
 }
