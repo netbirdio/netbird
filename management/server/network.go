@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/binary"
 	"fmt"
 	"github.com/rs/xid"
 	"math/rand"
@@ -88,39 +87,6 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	intn := r.Intn(len(ips))
 
 	return ips[intn], nil
-}
-
-// GetNextIP returns the next IP from the given IP address. If the given IP is
-// the last IP of a v4 or v6 range, the same IP is returned.
-// Credits to Cilium team.
-// Copyright 2017-2020 Authors of Cilium
-func GetNextIP(ip net.IP) net.IP {
-	if ip.Equal(upperIPv4) || ip.Equal(upperIPv6) {
-		return ip
-	}
-
-	nextIP := make(net.IP, len(ip))
-	switch len(ip) {
-	case net.IPv4len:
-		ipU32 := binary.BigEndian.Uint32(ip)
-		ipU32++
-		binary.BigEndian.PutUint32(nextIP, ipU32)
-		return nextIP
-	case net.IPv6len:
-		ipU64 := binary.BigEndian.Uint64(ip[net.IPv6len/2:])
-		ipU64++
-		binary.BigEndian.PutUint64(nextIP[net.IPv6len/2:], ipU64)
-		if ipU64 == 0 {
-			ipU64 = binary.BigEndian.Uint64(ip[:net.IPv6len/2])
-			ipU64++
-			binary.BigEndian.PutUint64(nextIP[:net.IPv6len/2], ipU64)
-		} else {
-			copy(nextIP[:net.IPv6len/2], ip[:net.IPv6len/2])
-		}
-		return nextIP
-	default:
-		return ip
-	}
 }
 
 // generateIPs generates a list of all possible IPs of the given network excluding IPs specified in the exclusion list
