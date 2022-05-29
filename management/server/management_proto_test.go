@@ -251,8 +251,10 @@ func Test_SyncProtocol(t *testing.T) {
 		t.Fatal("expecting SyncResponse to have NetworkMap with a non-nil PeerConfig")
 	}
 
-	if networkMap.GetPeerConfig().GetAddress() != "100.64.0.1/16" {
-		t.Fatal("expecting SyncResponse to have NetworkMap with a PeerConfig having valid Address")
+	expectedIPNet := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 255, 0, 0}}
+	ip, _, _ := net.ParseCIDR(networkMap.GetPeerConfig().GetAddress())
+	if !expectedIPNet.Contains(ip) {
+		t.Fatalf("expecting SyncResponse to have NetworkMap with a PeerConfig having valid IP address %s", networkMap.GetPeerConfig().GetAddress())
 	}
 
 	if networkMap.GetSerial() <= 0 {
