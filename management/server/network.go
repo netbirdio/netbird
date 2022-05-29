@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"github.com/c-robinson/iplib"
 	"github.com/rs/xid"
 	"math/rand"
 	"net"
@@ -26,10 +27,19 @@ type Network struct {
 }
 
 // NewNetwork creates a new Network initializing it with a Serial=0
+// It takes a random /16 subnet from 100.64.0.0/10 (64 different subnets)
 func NewNetwork() *Network {
+
+	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), 10)
+	sub, _ := n.Subnet(16)
+
+	s := rand.NewSource(time.Now().Unix())
+	r := rand.New(s)
+	intn := r.Intn(len(sub))
+
 	return &Network{
 		Id:     xid.New().String(),
-		Net:    net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 255, 0, 0}},
+		Net:    sub[intn].IPNet,
 		Dns:    "",
 		Serial: 0}
 }
