@@ -242,7 +242,11 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	for _, rule := range account.Rules {
 		for _, gid := range rule.Source {
-			for _, pid := range account.Groups[gid].Peers {
+			g, ok := account.Groups[gid]
+			if !ok {
+				break
+			}
+			for _, pid := range g.Peers {
 				rules := s.PeerKeyId2SrcRulesId[pid]
 				if rules == nil {
 					rules = map[string]struct{}{}
@@ -252,7 +256,11 @@ func (s *FileStore) SaveAccount(account *Account) error {
 			}
 		}
 		for _, gid := range rule.Destination {
-			for _, pid := range account.Groups[gid].Peers {
+			g, ok := account.Groups[gid]
+			if !ok {
+				break
+			}
+			for _, pid := range g.Peers {
 				rules := s.PeerKeyId2DstRulesId[pid]
 				if rules == nil {
 					rules = map[string]struct{}{}

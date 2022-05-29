@@ -133,6 +133,16 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
+	// delete peer from groups
+	for _, g := range account.Groups {
+		for i, pk := range g.Peers {
+			if pk == peerKey {
+				g.Peers = append(g.Peers[:i], g.Peers[i+1:]...)
+				break
+			}
+		}
+	}
+
 	peer, err := am.Store.DeletePeer(accountId, peerKey)
 	if err != nil {
 		return nil, err
@@ -342,7 +352,9 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 	for _, r := range srcRules {
 		if r.Flow == TrafficFlowBidirect {
 			for _, gid := range r.Destination {
-				groups[gid] = account.Groups[gid]
+				if group, ok := account.Groups[gid]; ok {
+					groups[gid] = group
+				}
 			}
 		}
 	}
@@ -350,11 +362,14 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 	for _, r := range dstRules {
 		if r.Flow == TrafficFlowBidirect {
 			for _, gid := range r.Source {
-				groups[gid] = account.Groups[gid]
+				if group, ok := account.Groups[gid]; ok {
+					groups[gid] = group
+				}
 			}
 		}
 	}
 
+	peersSet := make(map[string]struct{})
 	for _, g := range groups {
 		for _, pid := range g.Peers {
 			peer, ok := account.Peers[pid]
@@ -363,7 +378,8 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 				continue
 			}
 			// exclude original peer
-			if peer.Key != peerKey {
+			if _, ok := peersSet[peer.Key]; peer.Key != peerKey && !ok {
+				peersSet[peer.Key] = struct{}{}
 				peers = append(peers, peer.Copy())
 			}
 		}

@@ -154,7 +154,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 	for i, itemID := range group.Peers {
 		if itemID == peerKey {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
-			return am.Store.SaveAccount(account)
+			if err := am.Store.SaveAccount(account); err != nil {
+				return status.Errorf(codes.Internal, "can't save account")
+			}
 		}
 	}
 
