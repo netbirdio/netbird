@@ -29,6 +29,7 @@ require (
 
 require (
 	fyne.io/fyne/v2 v2.1.4
+	github.com/c-robinson/iplib v1.0.3
 	github.com/getlantern/systray v1.2.1
 	github.com/magiconair/properties v1.8.5
 	github.com/rs/xid v1.3.0
