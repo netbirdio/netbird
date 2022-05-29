@@ -73,7 +73,7 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 		takenIpMap[ip.String()] = struct{}{}
 	}
 
-	ips, _, err := GenerateIPs(&ipNet, takenIpMap)
+	ips, _, err := generateIPs(&ipNet, takenIpMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed allocating new IP for the ipNet %s and takenIps %s", ipNet.String(), takenIps)
 	}
@@ -123,8 +123,8 @@ func GetNextIP(ip net.IP) net.IP {
 	}
 }
 
-// GenerateIPs generates a list of all possible IPs of the given network excluding IPs specified in the exclusion list
-func GenerateIPs(ipNet *net.IPNet, exclusions map[string]struct{}) ([]net.IP, int, error) {
+// generateIPs generates a list of all possible IPs of the given network excluding IPs specified in the exclusion list
+func generateIPs(ipNet *net.IPNet, exclusions map[string]struct{}) ([]net.IP, int, error) {
 
 	var ips []net.IP
 	for ip := ipNet.IP.Mask(ipNet.Mask); ipNet.Contains(ip); incIP(ip) {
