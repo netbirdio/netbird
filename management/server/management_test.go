@@ -107,8 +107,6 @@ var _ = Describe("Management service", func() {
 				err = encryption.DecryptMessage(serverPubKey, key, encryptedResponse.Body, resp)
 				Expect(err).NotTo(HaveOccurred())
 
-				Expect(resp.PeerConfig.Address).To(BeEquivalentTo("100.64.0.1/16"))
-
 				expectedSignalConfig := &mgmtProto.HostConfig{
 					Uri:      "signal.wiretrustee.com:10000",
 					Protocol: mgmtProto.HostConfig_HTTP,
@@ -367,7 +365,7 @@ var _ = Describe("Management service", func() {
 					key, _ := wgtypes.GenerateKey()
 					loginPeerWithValidSetupKey(serverPubKey, key, client)
 					rand.Seed(time.Now().UnixNano())
-					n := rand.Intn(500)
+					n := rand.Intn(200)
 					time.Sleep(time.Duration(n) * time.Millisecond)
 				}
 
