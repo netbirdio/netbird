@@ -71,13 +71,13 @@ func (n *Network) Copy() *Network {
 // This method considers already taken IPs and reuses IPs if there are gaps in takenIps
 // E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3
 func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
-	takenIpMap := make(map[string]struct{})
-	takenIpMap[ipNet.IP.String()] = struct{}{}
+	takenIPMap := make(map[string]struct{})
+	takenIPMap[ipNet.IP.String()] = struct{}{}
 	for _, ip := range takenIps {
-		takenIpMap[ip.String()] = struct{}{}
+		takenIPMap[ip.String()] = struct{}{}
 	}
 
-	ips, _, err := generateIPs(&ipNet, takenIpMap)
+	ips, _, err := generateIPs(&ipNet, takenIPMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed allocating new IP for the ipNet %s and takenIps %s", ipNet.String(), takenIps)
 	}
