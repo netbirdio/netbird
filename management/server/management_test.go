@@ -306,10 +306,10 @@ var _ = Describe("Management service", func() {
 		})
 	})
 
-	Context("when there are 50 peers registered under one account", func() {
+	Context("when there are 10 peers registered under one account", func() {
 		Context("when there are 10 more peers registered under the same account", func() {
-			Specify("all of the 50 peers will get updates of 10 newly registered peers", func() {
-				initialPeers := 20
+			Specify("all of the 10 peers will get updates of 10 newly registered peers", func() {
+				initialPeers := 10
 				additionalPeers := 10
 
 				var peers []wgtypes.Key
