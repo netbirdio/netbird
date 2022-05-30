@@ -38,9 +38,10 @@ func WireguardModExists() bool {
 func (w *WGIface) Create() error {
 
 	if WireguardModExists() {
-		log.Debug("using kernel Wireguard module")
+		log.Info("using kernel WireGuard")
 		return w.CreateWithKernel()
 	} else {
+		log.Info("using userspace WireGuard")
 		return w.CreateWithUserspace()
 	}
 }
