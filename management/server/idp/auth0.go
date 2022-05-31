@@ -1,6 +1,9 @@
 package idp
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +25,7 @@ type Auth0Manager struct {
 	httpClient  ManagerHTTPClient
 	credentials ManagerCredentials
 	helper      ManagerHelper
+	cachedUsers map[string]Auth0Profile
 }
 
 // Auth0ClientConfig auth0 manager client configurations
@@ -49,6 +53,36 @@ type Auth0Credentials struct {
 	httpClient   ManagerHTTPClient
 	jwtToken     JWTToken
 	mux          sync.Mutex
+}
+
+type Auth0Profile struct {
+	UserID    string `json:"user_id"`
+	Email     string `json:"email"`
+	CreatedAt string `json:"created_at"`
+	LastLogin string `json:"last_login"`
+}
+
+type UserExportJobResponse struct {
+	Type         string    `json:"type"`
+	Status       string    `json:"status"`
+	ConnectionId string    `json:"connection_id"`
+	Format       string    `json:"format"`
+	Limit        int       `json:"limit"`
+	Connection   string    `json:"connection"`
+	CreatedAt    time.Time `json:"created_at"`
+	Id           string    `json:"id"`
+}
+
+type ExportJobStatusResponse struct {
+	Type         string    `json:"type"`
+	Status       string    `json:"status"`
+	ConnectionId string    `json:"connection_id"`
+	Format       string    `json:"format"`
+	Limit        int       `json:"limit"`
+	Location     string    `json:"location"`
+	Connection   string    `json:"connection"`
+	CreatedAt    time.Time `json:"created_at"`
+	Id           string    `json:"id"`
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
@@ -86,6 +120,7 @@ func NewAuth0Manager(config Auth0ClientConfig) (*Auth0Manager, error) {
 		credentials: credentials,
 		httpClient:  httpClient,
 		helper:      helper,
+		cachedUsers: make(map[string]Auth0Profile),
 	}, nil
 }
 
@@ -202,6 +237,170 @@ func batchRequestUsersUrl(authIssuer, accountId string, page int) (string, url.V
 
 func requestByUserIdUrl(authIssuer, userId string) string {
 	return authIssuer + "/api/v2/users/" + userId
+}
+
+// Boilerplate implementation for Get Requests.
+func doGetReq(client ManagerHTTPClient, url, accessToken string) ([]byte, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if accessToken != "" {
+		req.Header.Add("authorization", "Bearer "+accessToken)
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		err = res.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing body for url %s: %v", url, err)
+		}
+	}()
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("unable to get %s, statusCode %d", url, res.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
+}
+
+// This creates an export job on auth0 for all users.
+func (am *Auth0Manager) CreateExportUsersJob(accountId string) error {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	reqURL := am.authIssuer + "/api/v2/jobs/users-exports"
+
+	payloadString := fmt.Sprintf("{\"format\": \"json\"}")
+
+	payload := strings.NewReader(payloadString)
+
+	exportJobReq, err := http.NewRequest("POST", reqURL, payload)
+	if err != nil {
+		return err
+	}
+	exportJobReq.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	exportJobReq.Header.Add("content-type", "application/json")
+
+	jobResp, err := am.httpClient.Do(exportJobReq)
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		err = jobResp.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing update user app metadata response body: %v", err)
+		}
+	}()
+	if jobResp.StatusCode != 200 {
+		return fmt.Errorf("unable to update the appMetadata, statusCode %d", jobResp.StatusCode)
+	}
+
+	var exportJobResp UserExportJobResponse
+
+	body, err := ioutil.ReadAll(jobResp.Body)
+	if err != nil {
+		return err
+	}
+
+	err = am.helper.Unmarshal(body, &exportJobResp)
+	if err != nil {
+		return err
+	}
+
+	if exportJobResp.Id == "" {
+		return fmt.Errorf("couldn't get an batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
+	}
+
+	ctx, cancel := context.WithTimeout(context.TODO(), 90*time.Second)
+	defer cancel()
+
+	done, downloadLink, err := am.checkExportJobStatus(ctx, exportJobResp.Id)
+	if err != nil {
+		return err
+	}
+
+	if done {
+		am.cacheUsers(downloadLink)
+	}
+
+	return nil
+}
+
+// Downloads the users from auth0 and caches it in memory
+// We don't need
+func (am *Auth0Manager) cacheUsers(location string) error {
+	body, err := doGetReq(am.httpClient, location, "")
+	if err != nil {
+		return err
+	}
+
+	bodyReader := bytes.NewReader(body)
+
+	gzipReader, err := gzip.NewReader(bodyReader)
+	if err != nil {
+		return err
+	}
+
+	decoder := json.NewDecoder(gzipReader)
+
+	for decoder.More() {
+		profile := Auth0Profile{}
+		err = decoder.Decode(&profile)
+		if err != nil {
+			log.Errorf("Couldn't decode profile; %v", err)
+			return err
+		}
+		am.cachedUsers[profile.UserID] = profile
+	}
+
+	return nil
+}
+
+// This checks the status of the job created at CreateExportUsersJob.
+// If the status is "completed", then return the downloadLink
+func (am *Auth0Manager) checkExportJobStatus(ctx context.Context, jobId string) (bool, string, error) {
+	retry := time.NewTicker(5 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			return false, "", ctx.Err()
+		case <-retry.C:
+			jwtToken, err := am.credentials.Authenticate()
+			if err != nil {
+				return false, "", err
+			}
+
+			statusUrl := am.authIssuer + "api/v2/jobs/" + jobId
+			body, err := doGetReq(am.httpClient, statusUrl, jwtToken.AccessToken)
+			if err != nil {
+				return false, "", err
+			}
+
+			var status ExportJobStatusResponse
+			err = am.helper.Unmarshal(body, &status)
+			if err != nil {
+				return false, "", err
+			}
+
+			if status.Status != "completed" {
+				continue
+			}
+
+			return true, status.Location, nil
+		}
+	}
 }
 
 // GetBatchedUserData requests users in batches from Auth0
