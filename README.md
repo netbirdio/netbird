@@ -79,15 +79,12 @@ Netbird creates an overlay peer-to-peer network connecting machines automaticall
 For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).
 
 ### Start using NetBird
-See our documentation for [Quickstart Guide](https://netbird.io/docs/getting-started/quickstart).
-
-If you are looking to self-host NetBird, check our [Self-Hosting Guide](https://netbird.io/docs/getting-started/self-hosting).
-
-Step-by-step [Installation Guide](https://netbird.io/docs/getting-started/installation) for different platforms.
-
-Hosted version: [https://app.netbird.io/](https://app.netbird.io/).
-
-[Web UI repository](https://github.com/netbirdio/dashboard).
+* Hosted version: [https://app.netbird.io/](https://app.netbird.io/).
+* See our documentation for [Quickstart Guide](https://netbird.io/docs/getting-started/quickstart).
+* If you are looking to self-host NetBird, check our [Self-Hosting Guide](https://netbird.io/docs/getting-started/self-hosting).
+* Step-by-step [Installation Guide](https://netbird.io/docs/getting-started/installation) for different platforms.
+* Web UI [repository](https://github.com/netbirdio/dashboard).
+* 5 min [demo video](https://youtu.be/Tu9tPsUWaY0) on YouTube.
 
 
 ### A bit on Netbird internals
