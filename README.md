@@ -96,7 +96,7 @@ For stable versions, see [releases](https://github.com/netbirdio/netbird/release
 * Signal Service uses public WireGuard keys to route messages between peers.
 * Sometimes the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT) and p2p connection isn't possible. When this occurs the system falls back to a relay server called [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT), and a secure WireGuard tunnel is established via the TURN server. 
  
-[Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in Netbird setups.
+[Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in NetBird setups.
 
 <p float="left" align="middle">
   <img src="https://netbird.io/docs/img/architecture/high-level-dia.png" width="700"/>
