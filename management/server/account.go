@@ -333,6 +333,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 			return nil, err
 		}
 	}
+	// TODO: we need to check whether we need to refresh our cache or not
 
 	userInfo := make([]*UserInfo, 0)
 
@@ -352,7 +353,6 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 	for _, queriedUser := range queriedUsers {
 		if localUser, contains := account.Users[queriedUser.ID]; contains {
 			userInfo = append(userInfo, mergeLocalAndQueryUser(*queriedUser, *localUser))
-			log.Debugf("Merged userinfo to send back; %v", userInfo)
 		}
 	}
 

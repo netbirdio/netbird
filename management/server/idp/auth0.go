@@ -57,6 +57,7 @@ type Auth0Credentials struct {
 
 type Auth0Profile struct {
 	UserID    string `json:"user_id"`
+	Name      string `json:"name"`
 	Email     string `json:"email"`
 	CreatedAt string `json:"created_at"`
 	LastLogin string `json:"last_login"`
@@ -115,6 +116,7 @@ func NewAuth0Manager(config Auth0ClientConfig) (*Auth0Manager, error) {
 		httpClient:   httpClient,
 		helper:       helper,
 	}
+
 	return &Auth0Manager{
 		authIssuer:  config.AuthIssuer,
 		credentials: credentials,
@@ -294,6 +296,7 @@ func (am *Auth0Manager) CreateExportUsersJob(accountId string) error {
 
 	jobResp, err := am.httpClient.Do(exportJobReq)
 	if err != nil {
+		log.Debug("Couldn't get job response %v", err)
 		return err
 	}
 
@@ -311,11 +314,13 @@ func (am *Auth0Manager) CreateExportUsersJob(accountId string) error {
 
 	body, err := ioutil.ReadAll(jobResp.Body)
 	if err != nil {
+		log.Debug("Coudln't read export job response; %v", err)
 		return err
 	}
 
 	err = am.helper.Unmarshal(body, &exportJobResp)
 	if err != nil {
+		log.Debug("Coudln't unmarshal export job response; %v", err)
 		return err
 	}
 
@@ -323,16 +328,22 @@ func (am *Auth0Manager) CreateExportUsersJob(accountId string) error {
 		return fmt.Errorf("couldn't get an batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
 	}
 
+	log.Debugf("batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 90*time.Second)
 	defer cancel()
 
 	done, downloadLink, err := am.checkExportJobStatus(ctx, exportJobResp.Id)
 	if err != nil {
+		log.Debugf("Failed at getting status checks from exportJob; %v", err)
 		return err
 	}
 
 	if done {
-		am.cacheUsers(downloadLink)
+		err = am.cacheUsers(downloadLink)
+		if err != nil {
+			log.Debugf("Failed to cache users via download link; %v", err)
+		}
 	}
 
 	return nil
@@ -343,6 +354,7 @@ func (am *Auth0Manager) CreateExportUsersJob(accountId string) error {
 func (am *Auth0Manager) cacheUsers(location string) error {
 	body, err := doGetReq(am.httpClient, location, "")
 	if err != nil {
+		log.Debugf("Can't download cached users; %v", err)
 		return err
 	}
 
@@ -371,7 +383,7 @@ func (am *Auth0Manager) cacheUsers(location string) error {
 // This checks the status of the job created at CreateExportUsersJob.
 // If the status is "completed", then return the downloadLink
 func (am *Auth0Manager) checkExportJobStatus(ctx context.Context, jobId string) (bool, string, error) {
-	retry := time.NewTicker(5 * time.Second)
+	retry := time.NewTicker(500 * time.Millisecond)
 	for {
 		select {
 		case <-ctx.Done():
@@ -382,7 +394,7 @@ func (am *Auth0Manager) checkExportJobStatus(ctx context.Context, jobId string) 
 				return false, "", err
 			}
 
-			statusUrl := am.authIssuer + "api/v2/jobs/" + jobId
+			statusUrl := am.authIssuer + "/api/v2/jobs/" + jobId
 			body, err := doGetReq(am.httpClient, statusUrl, jwtToken.AccessToken)
 			if err != nil {
 				return false, "", err
@@ -403,69 +415,93 @@ func (am *Auth0Manager) checkExportJobStatus(ctx context.Context, jobId string) 
 	}
 }
 
-// GetBatchedUserData requests users in batches from Auth0
 func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error) {
-	jwtToken, err := am.credentials.Authenticate()
-	if err != nil {
-		return nil, err
+	// first time calling this
+	// we need to check whether we need to call for users we don't have
+	if len(am.cachedUsers) == 0 {
+		err := am.CreateExportUsersJob(accountId)
+		if err != nil {
+			log.Debugf("Couldn't cache users; %v", err)
+			return nil, err
+		}
 	}
 
 	var list []*UserData
 
-	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
-	// auth0 limitation of 1000 users via this endpoint
-	for page := 0; page < 20; page++ {
-		reqURL, query, err := batchRequestUsersUrl(am.authIssuer, accountId, page)
-		if err != nil {
-			return nil, err
-		}
-
-		req, err := http.NewRequest(http.MethodGet, reqURL, strings.NewReader(query.Encode()))
-		if err != nil {
-			return nil, err
-		}
-
-		req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
-		req.Header.Add("content-type", "application/json")
-
-		res, err := am.httpClient.Do(req)
-		if err != nil {
-			return nil, err
-		}
-
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		var batch []UserData
-		err = json.Unmarshal(body, &batch)
-		if err != nil {
-			return nil, err
-		}
-
-		log.Debugf("requested batch; %v", batch)
-
-		err = res.Body.Close()
-		if err != nil {
-			return nil, err
-		}
-
-		if res.StatusCode != 200 {
-			return nil, fmt.Errorf("unable to request UserData from auth0, statusCode %d", res.StatusCode)
-		}
-
-		if len(batch) == 0 {
-			return list, nil
-		}
-
-		for user := range batch {
-			list = append(list, &batch[user])
-		}
+	for _, val := range am.cachedUsers {
+		list = append(list, &UserData{
+			Name:  val.Name,
+			Email: val.Email,
+			ID:    val.UserID,
+		})
 	}
 
 	return list, nil
 }
+
+// GetBatchedUserData requests users in batches from Auth0
+// func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error) {
+// 	jwtToken, err := am.credentials.Authenticate()
+// 	if err != nil {
+// 		return nil, err
+// 	}
+
+// 	var list []*UserData
+
+// 	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
+// 	// auth0 limitation of 1000 users via this endpoint
+// 	for page := 0; page < 20; page++ {
+// 		reqURL, query, err := batchRequestUsersUrl(am.authIssuer, accountId, page)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		req, err := http.NewRequest(http.MethodGet, reqURL, strings.NewReader(query.Encode()))
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+// 		req.Header.Add("content-type", "application/json")
+
+// 		res, err := am.httpClient.Do(req)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		body, err := io.ReadAll(res.Body)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		var batch []UserData
+// 		err = json.Unmarshal(body, &batch)
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		log.Debugf("requested batch; %v", batch)
+
+// 		err = res.Body.Close()
+// 		if err != nil {
+// 			return nil, err
+// 		}
+
+// 		if res.StatusCode != 200 {
+// 			return nil, fmt.Errorf("unable to request UserData from auth0, statusCode %d", res.StatusCode)
+// 		}
+
+// 		if len(batch) == 0 {
+// 			return list, nil
+// 		}
+
+// 		for user := range batch {
+// 			list = append(list, &batch[user])
+// 		}
+// 	}
+
+// 	return list, nil
+// }
 
 // GetUserDataByID requests user data from auth0 via ID
 func (am *Auth0Manager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
