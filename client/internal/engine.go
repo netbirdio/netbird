@@ -78,7 +78,7 @@ type Engine struct {
 
 	ctx context.Context
 
-	wgInterface iface.WGIface
+	wgInterface *iface.WGIface
 
 	udpMux          ice.UDPMux
 	udpMuxSrflx     ice.UniversalUDPMux
@@ -177,7 +177,7 @@ func (e *Engine) Start() error {
 	myPrivateKey := e.config.WgPrivateKey
 	var err error
 
-	e.wgInterface, err = iface.NewWGIface(wgIfaceName, wgAddr, iface.DefaultMTU)
+	e.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIfaceName, err.Error())
 		return err
@@ -350,6 +350,13 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
+
+	peerConf := update.GetNetworkMap().PeerConfig
+	if update.GetNetworkMap().PeerConfig != nil {
+		if e.wgInterface.Address.String() != peerConf.Address {
+			e.wgInterface.Create()
+		}
+	}
 
 	if update.GetWiretrusteeConfig() != nil {
 		err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())

@@ -2,7 +2,6 @@ package iface
 
 import (
 	"errors"
-	"fmt"
 	"math"
 	"os"
 	"syscall"
@@ -36,19 +35,21 @@ func WireguardModExists() bool {
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
 func (w *WGIface) Create() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	if WireguardModExists() {
 		log.Info("using kernel WireGuard")
-		return w.CreateWithKernel()
+		return w.createWithKernel()
 	} else {
 		log.Info("using userspace WireGuard")
-		return w.CreateWithUserspace()
+		return w.createWithUserspace()
 	}
 }
 
-// CreateWithKernel Creates a new Wireguard interface using kernel Wireguard module.
+// createWithKernel Creates a new Wireguard interface using kernel Wireguard module.
 // Works for Linux and offers much better network performance
-func (w *WGIface) CreateWithKernel() error {
+func (w *WGIface) createWithKernel() error {
 
 	link := newWGLink(w.Name)
 
@@ -106,10 +107,6 @@ func (w *WGIface) CreateWithKernel() error {
 
 // assignAddr Adds IP address to the tunnel interface
 func (w *WGIface) assignAddr() error {
-
-	mask, _ := w.Address.Network.Mask.Size()
-	address := fmt.Sprintf("%s/%d", w.Address.IP.String(), mask)
-
 	link := newWGLink(w.Name)
 
 	//delete existing addresses
@@ -126,11 +123,11 @@ func (w *WGIface) assignAddr() error {
 		}
 	}
 
-	log.Debugf("adding address %s to interface: %s", address, w.Name)
-	addr, _ := netlink.ParseAddr(address)
+	log.Debugf("adding address %s to interface: %s", w.Address.String(), w.Name)
+	addr, _ := netlink.ParseAddr(w.Address.String())
 	err = netlink.AddrAdd(link, addr)
 	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", w.Name, address)
+		log.Infof("interface %s already has the address: %s", w.Name, w.Address.String())
 	} else if err != nil {
 		return err
 	}

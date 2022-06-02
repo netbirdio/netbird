@@ -32,7 +32,7 @@ func init() {
 func Test_CreateInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+1)
 	wgIP := "10.99.99.1/32"
-	iface, err := NewWGIface(ifaceName, wgIP, DefaultMTU)
+	iface, err := NewWGIFace(ifaceName, wgIP, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +61,7 @@ func Test_CreateInterface(t *testing.T) {
 func Test_Close(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+2)
 	wgIP := "10.99.99.2/32"
-	iface, err := NewWGIface(ifaceName, wgIP, DefaultMTU)
+	iface, err := NewWGIFace(ifaceName, wgIP, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func Test_Close(t *testing.T) {
 func Test_ConfigureInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+3)
 	wgIP := "10.99.99.5/30"
-	iface, err := NewWGIface(ifaceName, wgIP, DefaultMTU)
+	iface, err := NewWGIFace(ifaceName, wgIP, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +136,7 @@ func Test_ConfigureInterface(t *testing.T) {
 func Test_UpdatePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.9/30"
-	iface, err := NewWGIface(ifaceName, wgIP, DefaultMTU)
+	iface, err := NewWGIFace(ifaceName, wgIP, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func Test_UpdatePeer(t *testing.T) {
 func Test_RemovePeer(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
 	wgIP := "10.99.99.13/30"
-	iface, err := NewWGIface(ifaceName, wgIP, DefaultMTU)
+	iface, err := NewWGIFace(ifaceName, wgIP, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func Test_ConnectPeers(t *testing.T) {
 
 	keepAlive := 1 * time.Second
 
-	iface1, err := NewWGIface(peer1ifaceName, peer1wgIP, DefaultMTU)
+	iface1, err := NewWGIFace(peer1ifaceName, peer1wgIP, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	iface2, err := NewWGIface(peer2ifaceName, peer2wgIP, DefaultMTU)
+	iface2, err := NewWGIFace(peer2ifaceName, peer2wgIP, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
 	}

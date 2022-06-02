@@ -12,8 +12,8 @@ import (
 	"net"
 )
 
-// CreateWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
-func (w *WGIface) CreateWithUserspace() error {
+// createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
+func (w *WGIface) createWithUserspace() error {
 
 	tunIface, err := tun.CreateTUN(w.Name, w.MTU)
 	if err != nil {
