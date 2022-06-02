@@ -216,8 +216,9 @@ func (e *Engine) Start() error {
 	return nil
 }
 
-// modifyPeers detects peers that have been modified and simply removes them
-// A consequent call to addPeers will add them again but already
+// modifyPeers detects peers that have been modified (e.g. IP address has been changed) and simply removes them
+// A consequent call to addPeers will add them again but already with a new configuration
+// Has to be always called before addPeers.
 func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	var modified []*mgmProto.RemotePeerConfig
 
@@ -249,16 +250,8 @@ func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	}
 
 	newPeers := make([]string, 0, len(peersUpdate))
-	var modifiedPeers []string
 	for _, p := range peersUpdate {
 		newPeers = append(newPeers, p.GetWgPubKey())
-
-		//check if peers have been modified
-		if v, ok := e.peerConns[p.WgPubKey]; ok {
-			if v.GetConf().ProxyConfig.AllowedIps != strings.Join(p.AllowedIps, ",") {
-				modifiedPeers = append(modifiedPeers, p.GetWgPubKey())
-			}
-		}
 	}
 
 	toRemove := util.SliceDiff(currentPeers, newPeers)
