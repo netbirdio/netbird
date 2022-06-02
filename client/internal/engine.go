@@ -353,8 +353,9 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 	peerConf := update.GetNetworkMap().PeerConfig
 	if update.GetNetworkMap().PeerConfig != nil {
-		if e.wgInterface.Address.String() != peerConf.Address {
-			e.wgInterface.Create()
+		err := e.updateConfig(peerConf)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -380,6 +381,18 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		}
 	}
 
+	return nil
+}
+
+func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
+	if e.wgInterface.Address.String() != conf.Address {
+		log.Debugf("updating peer address from %s to %s", e.wgInterface.Address.String(), conf.Address)
+		err := e.wgInterface.UpdateAddr(conf.Address)
+		if err != nil {
+			return err
+		}
+	}
+	log.Infof("updated peer address from %s to %s", e.wgInterface.Address.String(), conf.Address)
 	return nil
 }
 

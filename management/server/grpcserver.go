@@ -224,7 +224,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 				peersToSend = append(peersToSend, p)
 			}
 		}
-		update := toSyncResponse(s.config, peer, peersToSend, nil, networkMap.Network.CurrentSerial())
+		update := toSyncResponse(s.config, remotePeer, peersToSend, nil, networkMap.Network.CurrentSerial())
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return

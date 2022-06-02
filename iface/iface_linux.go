@@ -32,7 +32,7 @@ func WireguardModExists() bool {
 	return errors.Is(err, syscall.EINVAL)
 }
 
-// Create Creates a new Wireguard interface, sets a given IP and brings it up.
+// Create creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
 func (w *WGIface) Create() error {
 	w.mu.Lock()
@@ -162,4 +162,18 @@ func (l *wgLink) Type() string {
 // Close deletes the link interface
 func (l *wgLink) Close() error {
 	return netlink.LinkDel(l)
+}
+
+// UpdateAddr updates address of the interface
+func (w *WGIface) UpdateAddr(newAddr string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	addr, err := parseAddress(newAddr)
+	if err != nil {
+		return err
+	}
+
+	w.Address = addr
+	return w.assignAddr()
 }

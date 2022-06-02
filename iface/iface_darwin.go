@@ -33,3 +33,17 @@ func (w *WGIface) assignAddr() error {
 
 	return nil
 }
+
+// UpdateAddr updates address of the interface
+func (w *WGIface) UpdateAddr(newAddr string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	addr, err := parseAddress(newAddr)
+	if err != nil {
+		return err
+	}
+
+	w.Address = addr
+	return w.assignAddr()
+}
