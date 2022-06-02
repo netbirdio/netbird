@@ -3,6 +3,7 @@ package iface
 import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
@@ -26,6 +27,66 @@ func init() {
 	key = privateKey.String()
 	peerPrivateKey, _ := wgtypes.GeneratePrivateKey()
 	peerPubKey = peerPrivateKey.PublicKey().String()
+}
+
+func TestWGIface_UpdateAddr(t *testing.T) {
+	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
+	addr := "10.99.99.9/30"
+	iface, err := NewWGIFace(ifaceName, addr, DefaultMTU)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = iface.Create()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		err = iface.Close()
+		if err != nil {
+			t.Error(err)
+		}
+	}()
+	port, err := iface.GetListenPort()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = iface.Configure(key, *port)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	addrs, err := getIfaceAddrs(ifaceName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, addrs[0].String(), addr)
+
+	//update WireGuard address
+	addr = "10.99.99.10/24"
+	err = iface.UpdateAddr(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	addrs, err = getIfaceAddrs(ifaceName)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, addrs[0].String(), addr)
+
+}
+
+func getIfaceAddrs(ifaceName string) ([]net.Addr, error) {
+	ief, err := net.InterfaceByName(ifaceName)
+	if err != nil {
+		return nil, err
+	}
+	addrs, err := ief.Addrs()
+	if err != nil {
+		return nil, err
+	}
+	return addrs, nil
 }
 
 //
