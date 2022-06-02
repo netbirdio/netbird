@@ -1,9 +1,10 @@
 package server
 
 import (
-	"fmt"
 	"github.com/c-robinson/iplib"
 	"github.com/rs/xid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"math/rand"
 	"net"
 	"sync"
@@ -77,13 +78,10 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 		takenIPMap[ip.String()] = struct{}{}
 	}
 
-	ips, _, err := generateIPs(&ipNet, takenIPMap)
-	if err != nil {
-		return nil, fmt.Errorf("failed allocating new IP for the ipNet %s and takenIps %s", ipNet.String(), takenIps)
-	}
+	ips, _ := generateIPs(&ipNet, takenIPMap)
 
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("failed allocating new IP for the ipNet %s - network is out of IPs", ipNet.String())
+		return nil, status.Errorf(codes.OutOfRange, "failed allocating new IP for the ipNet %s - network is out of IPs", ipNet.String())
 	}
 
 	// pick a random IP
@@ -95,7 +93,7 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 }
 
 // generateIPs generates a list of all possible IPs of the given network excluding IPs specified in the exclusion list
-func generateIPs(ipNet *net.IPNet, exclusions map[string]struct{}) ([]net.IP, int, error) {
+func generateIPs(ipNet *net.IPNet, exclusions map[string]struct{}) ([]net.IP, int) {
 
 	var ips []net.IP
 	for ip := ipNet.IP.Mask(ipNet.Mask); ipNet.Contains(ip); incIP(ip) {
@@ -108,10 +106,10 @@ func generateIPs(ipNet *net.IPNet, exclusions map[string]struct{}) ([]net.IP, in
 	lenIPs := len(ips)
 	switch {
 	case lenIPs < 2:
-		return ips, lenIPs, nil
+		return ips, lenIPs
 
 	default:
-		return ips[1 : len(ips)-1], lenIPs - 2, nil
+		return ips[1 : len(ips)-1], lenIPs - 2
 	}
 }
 
