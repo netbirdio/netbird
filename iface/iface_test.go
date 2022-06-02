@@ -57,9 +57,9 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 
 	addrs, err := getIfaceAddrs(ifaceName)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
-	assert.Equal(t, addrs[0].String(), addr)
+	assert.Equal(t, addr, addrs[0].String())
 
 	//update WireGuard address
 	addr = "10.99.99.10/24"
@@ -70,10 +70,10 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 
 	addrs, err = getIfaceAddrs(ifaceName)
 	if err != nil {
-		t.Fatal(err)
+		t.Error(err)
 	}
 
-	assert.Equal(t, addrs[0].String(), addr)
+	assert.Equal(t, addr, addrs[0].String())
 
 }
 
