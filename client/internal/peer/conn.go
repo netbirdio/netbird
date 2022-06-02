@@ -66,6 +66,11 @@ type Conn struct {
 	proxy proxy.Proxy
 }
 
+// GetConf returns the connection config
+func (conn *Conn) GetConf() ConnConfig {
+	return conn.config
+}
+
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(config ConnConfig) (*Conn, error) {

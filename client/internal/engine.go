@@ -216,7 +216,32 @@ func (e *Engine) Start() error {
 	return nil
 }
 
-// removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service
+// modifyPeers detects peers that have been modified and simply removes them
+// A consequent call to addPeers will add them again but already
+func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
+	var modified []*mgmProto.RemotePeerConfig
+
+	// first, check if peers have been modified
+	for _, p := range peersUpdate {
+		if peerConn, ok := e.peerConns[p.GetWgPubKey()]; ok {
+			if peerConn.GetConf().ProxyConfig.AllowedIps != strings.Join(p.AllowedIps, ",") {
+				modified = append(modified, p)
+			}
+		}
+	}
+
+	// second, terminate the connection and remove them
+	for _, p := range modified {
+		err := e.removePeer(p.GetWgPubKey())
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service.
+// It also removes peers that have been modified (e.g. change of IP address). They will be added again in addPeers method.
 func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	currentPeers := make([]string, 0, len(e.peerConns))
 	for p := range e.peerConns {
@@ -224,8 +249,16 @@ func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	}
 
 	newPeers := make([]string, 0, len(peersUpdate))
+	var modifiedPeers []string
 	for _, p := range peersUpdate {
 		newPeers = append(newPeers, p.GetWgPubKey())
+
+		//check if peers have been modified
+		if v, ok := e.peerConns[p.WgPubKey]; ok {
+			if v.GetConf().ProxyConfig.AllowedIps != strings.Join(p.AllowedIps, ",") {
+				modifiedPeers = append(modifiedPeers, p.GetWgPubKey())
+			}
+		}
 	}
 
 	toRemove := util.SliceDiff(currentPeers, newPeers)
@@ -351,14 +384,6 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	peerConf := update.GetNetworkMap().PeerConfig
-	if update.GetNetworkMap().PeerConfig != nil {
-		err := e.updateConfig(peerConf)
-		if err != nil {
-			return err
-		}
-	}
-
 	if update.GetWiretrusteeConfig() != nil {
 		err := e.updateTURNs(update.GetWiretrusteeConfig().GetTurns())
 		if err != nil {
@@ -374,6 +399,12 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	if update.GetNetworkMap() != nil {
+		if update.GetNetworkMap().GetPeerConfig() != nil {
+			err := e.updateConfig(update.GetNetworkMap().GetPeerConfig())
+			if err != nil {
+				return err
+			}
+		}
 		// only apply new changes and ignore old ones
 		err := e.updateNetworkMap(update.GetNetworkMap())
 		if err != nil {
@@ -386,13 +417,15 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	if e.wgInterface.Address.String() != conf.Address {
-		log.Debugf("updating peer address from %s to %s", e.wgInterface.Address.String(), conf.Address)
+		oldAddr := e.wgInterface.Address.String()
+		log.Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
 		err := e.wgInterface.UpdateAddr(conf.Address)
 		if err != nil {
 			return err
 		}
+		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
 	}
-	log.Infof("updated peer address from %s to %s", e.wgInterface.Address.String(), conf.Address)
+
 	return nil
 }
 
@@ -470,6 +503,12 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 	} else {
 		err := e.removePeers(networkMap.GetRemotePeers())
+		if err != nil {
+			return err
+		}
+
+		// this should be called before addNewPeers
+		err = e.modifyPeers(networkMap.GetRemotePeers())
 		if err != nil {
 			return err
 		}
