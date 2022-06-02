@@ -340,12 +340,12 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 	var peers []*Peer
 	srcRules, err := am.Store.GetPeerSrcRules(account.Id, peerKey)
 	if err != nil {
-		return []*Peer{}
+		srcRules = []*Rule{}
 	}
 
 	dstRules, err := am.Store.GetPeerDstRules(account.Id, peerKey)
 	if err != nil {
-		return []*Peer{}
+		dstRules = []*Rule{}
 	}
 
 	groups := map[string]*Group{}
@@ -374,7 +374,12 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 		for _, pid := range g.Peers {
 			peer, ok := account.Peers[pid]
 			if !ok {
-				log.Warnf("peer %s found in group %s but doesn't belong to account %s", pid, g.ID, account.Id)
+				log.Warnf(
+					"peer %s found in group %s but doesn't belong to account %s",
+					pid,
+					g.ID,
+					account.Id,
+				)
 				continue
 			}
 			// exclude original peer

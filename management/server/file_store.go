@@ -240,6 +240,9 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.PeerKeyId2AccountId[peer.Key] = account.Id
 	}
 
+	s.PeerKeyId2SrcRulesId = map[string]map[string]struct{}{}
+	s.PeerKeyId2DstRulesId = map[string]map[string]struct{}{}
+
 	for _, rule := range account.Rules {
 		for _, gid := range rule.Source {
 			g, ok := account.Groups[gid]
