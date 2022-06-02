@@ -205,9 +205,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 	if err != nil {
 		s, ok := status.FromError(err)
 		if ok {
-			if s.Code() == codes.FailedPrecondition {
-				return nil, err
-			} else if s.Code() == codes.OutOfRange {
+			if s.Code() == codes.FailedPrecondition || s.Code() == codes.OutOfRange {
 				return nil, err
 			}
 		}
