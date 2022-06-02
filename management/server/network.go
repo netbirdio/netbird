@@ -11,6 +11,16 @@ import (
 	"time"
 )
 
+const (
+	// SubnetSize is a size of the subnet of the global network, e.g.  100.77.0.0/16
+	SubnetSize = 16
+	// NetSize is a global network size 100.64.0.0/10
+	NetSize = 10
+
+	// AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.64.30.1/32)
+	AllowedIPsFormat = "%s/32"
+)
+
 type NetworkMap struct {
 	Peers   []*Peer
 	Network *Network
@@ -31,8 +41,8 @@ type Network struct {
 // It takes a random /16 subnet from 100.64.0.0/10 (64 different subnets)
 func NewNetwork() *Network {
 
-	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), 10)
-	sub, _ := n.Subnet(16)
+	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), NetSize)
+	sub, _ := n.Subnet(SubnetSize)
 
 	s := rand.NewSource(time.Now().Unix())
 	r := rand.New(s)
