@@ -7,7 +7,6 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"net"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -32,7 +31,7 @@ func init() {
 
 func TestWGIface_UpdateAddr(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
-	addr := "10.99.99.9/30"
+	addr := "100.64.0.1/24"
 	iface, err := NewWGIFace(ifaceName, addr, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
@@ -60,16 +59,10 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-
-	if runtime.GOOS == "darwin" {
-		// on mac the first one is CIDR
-		assert.Equal(t, addr, addrs[1].String())
-	} else {
-		assert.Equal(t, addr, addrs[0].String())
-	}
+	assert.Equal(t, addr, addrs[0].String())
 
 	//update WireGuard address
-	addr = "10.99.99.10/24"
+	addr = "100.64.0.2/16"
 	err = iface.UpdateAddr(addr)
 	if err != nil {
 		t.Fatal(err)
@@ -80,11 +73,7 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 		t.Error(err)
 	}
 
-	if runtime.GOOS == "darwin" {
-		assert.Equal(t, addr, addrs[1].String())
-	} else {
-		assert.Equal(t, addr, addrs[0].String())
-	}
+	assert.Equal(t, addr, addrs[0].String())
 
 }
 
