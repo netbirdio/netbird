@@ -346,7 +346,10 @@ func (am *DefaultAccountManager) AddPeer(
 	}
 
 	network := account.Network
-	nextIp, _ := AllocatePeerIP(network.Net, takenIps)
+	nextIp, err := AllocatePeerIP(network.Net, takenIps)
+	if err != nil {
+		return nil, err
+	}
 
 	newPeer := &Peer{
 		Key:      peer.Key,

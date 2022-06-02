@@ -203,8 +203,13 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		},
 	})
 	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.FailedPrecondition {
-			return nil, err
+		s, ok := status.FromError(err)
+		if ok {
+			if s.Code() == codes.FailedPrecondition {
+				return nil, err
+			} else if s.Code() == codes.OutOfRange {
+				return nil, err
+			}
 		}
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
