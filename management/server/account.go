@@ -328,7 +328,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		queriedUsers, err = am.idpManager.GetBatchedUserData(accountID)
+		queriedUsers, err = am.idpManager.GetAllUsers(accountID)
 		if err != nil {
 			return nil, err
 		}

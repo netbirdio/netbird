@@ -11,8 +11,7 @@ import (
 type Manager interface {
 	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
 	GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error)
-	GetBatchedUserData(accountId string) ([]*UserData, error)
-	CreateExportUsersJob(accountId string) error
+	GetAllUsers(accountId string) ([]*UserData, error)
 }
 
 // Config an idp configuration struct to be loaded from management server's config file
