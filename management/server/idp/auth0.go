@@ -21,11 +21,11 @@ import (
 
 // Auth0Manager auth0 manager client instance
 type Auth0Manager struct {
-	authIssuer  string
-	httpClient  ManagerHTTPClient
-	credentials ManagerCredentials
-	helper      ManagerHelper
-	cachedUsers map[string]Auth0Profile
+	authIssuer             string
+	httpClient             ManagerHTTPClient
+	credentials            ManagerCredentials
+	helper                 ManagerHelper
+	cachedUsersByAccountId map[string][]Auth0Profile
 }
 
 // Auth0ClientConfig auth0 manager client configurations
@@ -118,11 +118,11 @@ func NewAuth0Manager(config Auth0ClientConfig) (*Auth0Manager, error) {
 	}
 
 	return &Auth0Manager{
-		authIssuer:  config.AuthIssuer,
-		credentials: credentials,
-		httpClient:  httpClient,
-		helper:      helper,
-		cachedUsers: make(map[string]Auth0Profile),
+		authIssuer:             config.AuthIssuer,
+		credentials:            credentials,
+		httpClient:             httpClient,
+		helper:                 helper,
+		cachedUsersByAccountId: make(map[string][]Auth0Profile),
 	}, nil
 }
 
@@ -296,7 +296,7 @@ func (am *Auth0Manager) CreateExportUsersJob(accountId string) error {
 
 	jobResp, err := am.httpClient.Do(exportJobReq)
 	if err != nil {
-		log.Debug("Couldn't get job response %v", err)
+		log.Debugf("Couldn't get job response %v", err)
 		return err
 	}
 
@@ -314,13 +314,13 @@ func (am *Auth0Manager) CreateExportUsersJob(accountId string) error {
 
 	body, err := ioutil.ReadAll(jobResp.Body)
 	if err != nil {
-		log.Debug("Coudln't read export job response; %v", err)
+		log.Debugf("Coudln't read export job response; %v", err)
 		return err
 	}
 
 	err = am.helper.Unmarshal(body, &exportJobResp)
 	if err != nil {
-		log.Debug("Coudln't unmarshal export job response; %v", err)
+		log.Debugf("Coudln't unmarshal export job response; %v", err)
 		return err
 	}
 
@@ -340,7 +340,7 @@ func (am *Auth0Manager) CreateExportUsersJob(accountId string) error {
 	}
 
 	if done {
-		err = am.cacheUsers(downloadLink)
+		err = am.cacheUsers(accountId, downloadLink)
 		if err != nil {
 			log.Debugf("Failed to cache users via download link; %v", err)
 		}
@@ -351,7 +351,7 @@ func (am *Auth0Manager) CreateExportUsersJob(accountId string) error {
 
 // Downloads the users from auth0 and caches it in memory
 // We don't need
-func (am *Auth0Manager) cacheUsers(location string) error {
+func (am *Auth0Manager) cacheUsers(accountId, location string) error {
 	body, err := doGetReq(am.httpClient, location, "")
 	if err != nil {
 		log.Debugf("Can't download cached users; %v", err)
@@ -374,7 +374,8 @@ func (am *Auth0Manager) cacheUsers(location string) error {
 			log.Errorf("Couldn't decode profile; %v", err)
 			return err
 		}
-		am.cachedUsers[profile.UserID] = profile
+
+		am.cachedUsersByAccountId[accountId] = append(am.cachedUsersByAccountId[accountId], profile)
 	}
 
 	return nil
@@ -383,7 +384,7 @@ func (am *Auth0Manager) cacheUsers(location string) error {
 // This checks the status of the job created at CreateExportUsersJob.
 // If the status is "completed", then return the downloadLink
 func (am *Auth0Manager) checkExportJobStatus(ctx context.Context, jobId string) (bool, string, error) {
-	retry := time.NewTicker(500 * time.Millisecond)
+	retry := time.NewTicker(time.Second)
 	for {
 		select {
 		case <-ctx.Done():
@@ -415,10 +416,15 @@ func (am *Auth0Manager) checkExportJobStatus(ctx context.Context, jobId string) 
 	}
 }
 
+// This recaches every use from account
+func (am *Auth0Manager) ForceUpdateUserCache(accountId string) {
+
+}
+
 func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error) {
 	// first time calling this
 	// we need to check whether we need to call for users we don't have
-	if len(am.cachedUsers) == 0 {
+	if len(am.cachedUsersByAccountId[accountId]) == 0 {
 		err := am.CreateExportUsersJob(accountId)
 		if err != nil {
 			log.Debugf("Couldn't cache users; %v", err)
@@ -428,7 +434,8 @@ func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error
 
 	var list []*UserData
 
-	for _, val := range am.cachedUsers {
+	cachedUsers := am.cachedUsersByAccountId[accountId]
+	for _, val := range cachedUsers {
 		list = append(list, &UserData{
 			Name:  val.Name,
 			Email: val.Email,
