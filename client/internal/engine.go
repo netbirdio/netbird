@@ -238,6 +238,13 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 			return err
 		}
 	}
+	// third, add the peers again
+	for _, p := range modified {
+		err := e.addNewPeer(p)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -516,21 +523,29 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	return nil
 }
 
-// addNewPeers finds and adds peers that were not know before but arrived from the Management service with the update
+// addNewPeers adds peers that were not know before but arrived from the Management service with the update
 func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	for _, p := range peersUpdate {
-		peerKey := p.GetWgPubKey()
-		peerIPs := p.GetAllowedIps()
-		if _, ok := e.peerConns[peerKey]; !ok {
-			conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
-			if err != nil {
-				return err
-			}
-			e.peerConns[peerKey] = conn
-
-			go e.connWorker(conn, peerKey)
+		err := e.addNewPeer(p)
+		if err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
+// addNewPeer add peer if connection doesn't exist
+func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
+	peerKey := peerConfig.GetWgPubKey()
+	peerIPs := peerConfig.GetAllowedIps()
+	if _, ok := e.peerConns[peerKey]; !ok {
+		conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
+		if err != nil {
+			return err
+		}
+		e.peerConns[peerKey] = conn
+
+		go e.connWorker(conn, peerKey)
 	}
 	return nil
 }
