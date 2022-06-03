@@ -31,7 +31,7 @@ func init() {
 
 func TestWGIface_UpdateAddr(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+4)
-	addr := "100.64.0.1/24"
+	addr := "100.64.0.1/8"
 	iface, err := NewWGIFace(ifaceName, addr, DefaultMTU)
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestWGIface_UpdateAddr(t *testing.T) {
 	assert.Equal(t, addr, addrs[0].String())
 
 	//update WireGuard address
-	addr = "100.64.0.2/16"
+	addr = "100.64.0.2/8"
 	err = iface.UpdateAddr(addr)
 	if err != nil {
 		t.Fatal(err)
