@@ -134,6 +134,16 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
+	// delete peer from groups
+	for _, g := range account.Groups {
+		for i, pk := range g.Peers {
+			if pk == peerKey {
+				g.Peers = append(g.Peers[:i], g.Peers[i+1:]...)
+				break
+			}
+		}
+	}
+
 	peer, err := am.Store.DeletePeer(accountId, peerKey)
 	if err != nil {
 		return nil, err
@@ -163,37 +173,8 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 		return nil, err
 	}
 
-	// notify other peers of the change
-	peers, err := am.Store.GetAccountPeers(accountId)
-	if err != nil {
+	if err := am.updateAccountPeers(account); err != nil {
 		return nil, err
-	}
-
-	for _, p := range peers {
-		peersToSend := []*Peer{}
-		for _, remote := range peers {
-			if p.Key != remote.Key {
-				peersToSend = append(peersToSend, remote)
-			}
-		}
-		update := toRemotePeerConfig(peersToSend)
-		err = am.peersUpdateManager.SendUpdate(p.Key,
-			&UpdateMessage{
-				Update: &proto.SyncResponse{
-					// fill those field for backward compatibility
-					RemotePeers:        update,
-					RemotePeersIsEmpty: len(update) == 0,
-					// new field
-					NetworkMap: &proto.NetworkMap{
-						Serial:             account.Network.CurrentSerial(),
-						RemotePeers:        update,
-						RemotePeersIsEmpty: len(update) == 0,
-					},
-				},
-			})
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	am.peersUpdateManager.CloseChannel(peerKey)
@@ -229,56 +210,8 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
 	}
 
-	var res []*Peer
-	srcRules, err := am.Store.GetPeerSrcRules(account.Id, peerKey)
-	if err != nil {
-		return &NetworkMap{
-			Peers:   res,
-			Network: account.Network.Copy(),
-		}, nil
-	}
-
-	dstRules, err := am.Store.GetPeerDstRules(account.Id, peerKey)
-	if err != nil {
-		return &NetworkMap{
-			Peers:   res,
-			Network: account.Network.Copy(),
-		}, nil
-	}
-
-	groups := map[string]*Group{}
-	for _, r := range srcRules {
-		if r.Flow == TrafficFlowBidirect {
-			for _, gid := range r.Destination {
-				groups[gid] = account.Groups[gid]
-			}
-		}
-	}
-
-	for _, r := range dstRules {
-		if r.Flow == TrafficFlowBidirect {
-			for _, gid := range r.Source {
-				groups[gid] = account.Groups[gid]
-			}
-		}
-	}
-
-	for _, g := range groups {
-		for _, pid := range g.Peers {
-			peer, ok := account.Peers[pid]
-			if !ok {
-				log.Warnf("peer %s found in group %s but doesn't belong to account %s", pid, g.ID, account.Id)
-				continue
-			}
-			// exclude original peer
-			if peer.Key != peerKey {
-				res = append(res, peer.Copy())
-			}
-		}
-	}
-
 	return &NetworkMap{
-		Peers:   res,
+		Peers:   am.getPeersByACL(account, peerKey),
 		Network: account.Network.Copy(),
 	}, err
 }
@@ -409,5 +342,95 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerKey string, meta PeerSystemM
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+// getPeersByACL allowed for given peer by ACL
+func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string) []*Peer {
+	var peers []*Peer
+	srcRules, err := am.Store.GetPeerSrcRules(account.Id, peerKey)
+	if err != nil {
+		srcRules = []*Rule{}
+	}
+
+	dstRules, err := am.Store.GetPeerDstRules(account.Id, peerKey)
+	if err != nil {
+		dstRules = []*Rule{}
+	}
+
+	groups := map[string]*Group{}
+	for _, r := range srcRules {
+		if r.Flow == TrafficFlowBidirect {
+			for _, gid := range r.Destination {
+				if group, ok := account.Groups[gid]; ok {
+					groups[gid] = group
+				}
+			}
+		}
+	}
+
+	for _, r := range dstRules {
+		if r.Flow == TrafficFlowBidirect {
+			for _, gid := range r.Source {
+				if group, ok := account.Groups[gid]; ok {
+					groups[gid] = group
+				}
+			}
+		}
+	}
+
+	peersSet := make(map[string]struct{})
+	for _, g := range groups {
+		for _, pid := range g.Peers {
+			peer, ok := account.Peers[pid]
+			if !ok {
+				log.Warnf(
+					"peer %s found in group %s but doesn't belong to account %s",
+					pid,
+					g.ID,
+					account.Id,
+				)
+				continue
+			}
+			// exclude original peer
+			if _, ok := peersSet[peer.Key]; peer.Key != peerKey && !ok {
+				peersSet[peer.Key] = struct{}{}
+				peers = append(peers, peer.Copy())
+			}
+		}
+	}
+
+	return peers
+}
+
+// updateAccountPeers network map constructed by ACL
+func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
+	// notify other peers of the change
+	peers, err := am.Store.GetAccountPeers(account.Id)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range peers {
+		update := toRemotePeerConfig(am.getPeersByACL(account, p.Key))
+		err = am.peersUpdateManager.SendUpdate(p.Key,
+			&UpdateMessage{
+				Update: &proto.SyncResponse{
+					// fill those field for backward compatibility
+					RemotePeers:        update,
+					RemotePeersIsEmpty: len(update) == 0,
+					// new field
+					NetworkMap: &proto.NetworkMap{
+						Serial:             account.Network.CurrentSerial(),
+						RemotePeers:        update,
+						RemotePeersIsEmpty: len(update) == 0,
+					},
+				},
+			})
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

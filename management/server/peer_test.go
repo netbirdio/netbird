@@ -192,6 +192,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 			len(networkMap1.Peers),
 			networkMap1.Peers,
 		)
+		return
 	}
 
 	if networkMap1.Peers[0].Key != peerKey2.PublicKey().String() {
