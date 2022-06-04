@@ -572,6 +572,12 @@ func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
 		err := conn.Open()
 		if err != nil {
 			log.Debugf("connection to peer %s failed: %v", peerKey, err)
+			switch err.(type) {
+			case *peer.ConnectionClosedError:
+				// conn has been forced to close, so we exit the loop
+				return
+			default:
+			}
 		}
 	}
 }

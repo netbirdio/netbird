@@ -442,7 +442,7 @@ func (conn *Conn) Close() error {
 		// before conn.Open() another update from management arrives with peers: [1,2,3,4,5]
 		// engine adds a new Conn for 4 and 5
 		// therefore peer 4 has 2 Conn objects
-		log.Warnf("closing not started coonection %s", conn.config.Key)
+		log.Warnf("connection has been already closed or attempted closing not started coonection %s", conn.config.Key)
 		return NewConnectionAlreadyClosed(conn.config.Key)
 	}
 }
