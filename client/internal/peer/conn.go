@@ -5,6 +5,7 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -86,25 +87,26 @@ func NewConn(config ConnConfig) (*Conn, error) {
 
 // interfaceFilter is a function passed to ICE Agent to filter out blacklisted interfaces
 func interfaceFilter(blackList []string) func(string) bool {
-	var blackListMap map[string]struct{}
-	if blackList != nil {
-		blackListMap = make(map[string]struct{})
-		for _, s := range blackList {
-			blackListMap[s] = struct{}{}
-		}
-	}
-	return func(iFace string) bool {
 
-		_, ok := blackListMap[iFace]
-		if ok {
-			return false
+	return func(iFace string) bool {
+		if blackList != nil {
+			for _, s := range blackList {
+				if strings.HasPrefix(iFace, s) {
+					return false
+				}
+			}
 		}
-		// look for unlisted Wireguard interfaces
+		// look for unlisted WireGuard interfaces
 		wg, err := wgctrl.New()
 		if err != nil {
 			log.Debugf("trying to create a wgctrl client failed with: %v", err)
 		}
-		defer wg.Close()
+		defer func() {
+			err := wg.Close()
+			if err != nil {
+				return
+			}
+		}()
 
 		_, err = wg.Device(iFace)
 		return err != nil
