@@ -90,11 +90,9 @@ func NewConn(config ConnConfig) (*Conn, error) {
 func interfaceFilter(blackList []string) func(string) bool {
 
 	return func(iFace string) bool {
-		if blackList != nil {
-			for _, s := range blackList {
-				if strings.HasPrefix(iFace, s) {
-					return false
-				}
+		for _, s := range blackList {
+			if strings.HasPrefix(iFace, s) {
+				return false
 			}
 		}
 		// look for unlisted WireGuard interfaces
