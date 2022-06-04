@@ -216,13 +216,12 @@ func (e *Engine) Start() error {
 	return nil
 }
 
-// modifyPeers detects peers that have been modified (e.g. IP address has been changed) and simply removes them
-// A consequent call to addPeers will add them again but already with a new configuration
-// Has to be always called before addPeers.
+// modifyPeers updates peers that have been modified (e.g. IP address has been changed).
+// It closes the existing connection, removes it from the peerConns map, and creates a new one.
 func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
-	var modified []*mgmProto.RemotePeerConfig
 
 	// first, check if peers have been modified
+	var modified []*mgmProto.RemotePeerConfig
 	for _, p := range peersUpdate {
 		if peerConn, ok := e.peerConns[p.GetWgPubKey()]; ok {
 			if peerConn.GetConf().ProxyConfig.AllowedIps != strings.Join(p.AllowedIps, ",") {
@@ -231,14 +230,14 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 		}
 	}
 
-	// second, terminate the connection and remove them
+	// second, close all modified connections and remove them from the state map
 	for _, p := range modified {
 		err := e.removePeer(p.GetWgPubKey())
 		if err != nil {
 			return err
 		}
 	}
-	// third, add the peers again
+	// third, add the peer connections again
 	for _, p := range modified {
 		err := e.addNewPeer(p)
 		if err != nil {
@@ -507,7 +506,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			return err
 		}
 
-		// this should be called before addNewPeers
 		err = e.modifyPeers(networkMap.GetRemotePeers())
 		if err != nil {
 			return err
