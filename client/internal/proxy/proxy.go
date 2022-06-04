@@ -21,7 +21,7 @@ const (
 type Config struct {
 	WgListenAddr string
 	RemoteKey    string
-	WgInterface  iface.WGIface
+	WgInterface  *iface.WGIface
 	AllowedIps   string
 	PreSharedKey *wgtypes.Key
 }

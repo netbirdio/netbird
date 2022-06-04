@@ -1,10 +1,11 @@
 package iface
 
 import (
-	"golang.zx2c4.com/wireguard/wgctrl"
+	"fmt"
 	"net"
 	"os"
 	"runtime"
+	"sync"
 )
 
 const (
@@ -19,6 +20,7 @@ type WGIface struct {
 	MTU       int
 	Address   WGAddress
 	Interface NetInterface
+	mu        sync.Mutex
 }
 
 // WGAddress Wireguard parsed address
@@ -27,16 +29,22 @@ type WGAddress struct {
 	Network *net.IPNet
 }
 
+func (addr *WGAddress) String() string {
+	maskSize, _ := addr.Network.Mask.Size()
+	return fmt.Sprintf("%s/%d", addr.IP.String(), maskSize)
+}
+
 // NetInterface represents a generic network tunnel interface
 type NetInterface interface {
 	Close() error
 }
 
-// NewWGIface Creates a new Wireguard interface instance
-func NewWGIface(iface string, address string, mtu int) (WGIface, error) {
-	wgIface := WGIface{
+// NewWGIFace Creates a new Wireguard interface instance
+func NewWGIFace(iface string, address string, mtu int) (*WGIface, error) {
+	wgIface := &WGIface{
 		Name: iface,
 		MTU:  mtu,
+		mu:   sync.Mutex{},
 	}
 
 	wgAddress, err := parseAddress(address)
@@ -47,30 +55,6 @@ func NewWGIface(iface string, address string, mtu int) (WGIface, error) {
 	wgIface.Address = wgAddress
 
 	return wgIface, nil
-}
-
-// Exists checks whether specified Wireguard device exists or not
-func Exists(iface string) (*bool, error) {
-	wg, err := wgctrl.New()
-	if err != nil {
-		return nil, err
-	}
-	defer wg.Close()
-
-	devices, err := wg.Devices()
-	if err != nil {
-		return nil, err
-	}
-
-	var exists bool
-	for _, d := range devices {
-		if d.Name == iface {
-			exists = true
-			return &exists, nil
-		}
-	}
-	exists = false
-	return &exists, nil
 }
 
 // parseAddress parse a string ("1.2.3.4/24") address to WG Address
@@ -85,8 +69,10 @@ func parseAddress(address string) (WGAddress, error) {
 	}, nil
 }
 
-// Closes the tunnel interface
+// Close closes the tunnel interface
 func (w *WGIface) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	err := w.Interface.Close()
 	if err != nil {

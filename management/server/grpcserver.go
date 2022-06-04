@@ -29,9 +29,6 @@ type Server struct {
 	jwtMiddleware          *middleware.JWTMiddleware
 }
 
-// AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.30.30.1/32)
-const AllowedIPsFormat = "%s/32"
-
 // NewServer creates a new Management server
 func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*Server, error) {
 	key, err := wgtypes.GeneratePrivateKey()
@@ -227,7 +224,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 				peersToSend = append(peersToSend, p)
 			}
 		}
-		update := toSyncResponse(s.config, peer, peersToSend, nil, networkMap.Network.CurrentSerial())
+		update := toSyncResponse(s.config, remotePeer, peersToSend, nil, networkMap.Network.CurrentSerial())
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
@@ -368,7 +365,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 
 func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	return &proto.PeerConfig{
-		Address: peer.IP.String() + "/16", // todo make it explicit
+		Address: fmt.Sprintf("%s/%d", peer.IP.String(), SubnetSize), // take it from the network
 	}
 }
 
@@ -377,7 +374,7 @@ func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 	for _, rPeer := range peers {
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
-			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)}, // todo /32
+			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)},
 		})
 	}
 

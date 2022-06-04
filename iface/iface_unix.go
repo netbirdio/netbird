@@ -12,8 +12,8 @@ import (
 	"net"
 )
 
-// CreateWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
-func (w *WGIface) CreateWithUserspace() error {
+// createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
+func (w *WGIface) createWithUserspace() error {
 
 	tunIface, err := tun.CreateTUN(w.Name, w.MTU)
 	if err != nil {
@@ -60,4 +60,18 @@ func getUAPI(iface string) (net.Listener, error) {
 		return nil, err
 	}
 	return ipc.UAPIListen(iface, tunSock)
+}
+
+// UpdateAddr updates address of the interface
+func (w *WGIface) UpdateAddr(newAddr string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	addr, err := parseAddress(newAddr)
+	if err != nil {
+		return err
+	}
+
+	w.Address = addr
+	return w.assignAddr()
 }
