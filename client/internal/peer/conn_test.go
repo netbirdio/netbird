@@ -3,6 +3,7 @@ package peer
 import (
 	"github.com/magiconair/properties/assert"
 	"github.com/netbirdio/netbird/client/internal/proxy"
+	"github.com/netbirdio/netbird/iface"
 	"github.com/pion/ice/v2"
 	"sync"
 	"testing"
@@ -16,6 +17,18 @@ var connConf = ConnConfig{
 	InterfaceBlackList: nil,
 	Timeout:            time.Second,
 	ProxyConfig:        proxy.Config{},
+}
+
+func TestNewConn_interfaceFilter(t *testing.T) {
+	ignore := []string{iface.WgInterfaceDefault, "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
+		"Tailscale", "tailscale"}
+
+	filter := interfaceFilter(ignore)
+
+	for _, s := range ignore {
+		assert.Equal(t, filter(s), false)
+	}
+
 }
 
 func TestConn_GetKey(t *testing.T) {
