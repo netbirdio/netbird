@@ -2,6 +2,7 @@ package server
 
 import (
 	"net"
+	"sync"
 	"testing"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -513,6 +514,189 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	}
 }
 
+func TestAccountManager_NetworkUpdates(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	account, err := manager.AddAccount("test_account", "account_creator", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var setupKey *SetupKey
+	for _, key := range account.SetupKeys {
+		setupKey = key
+		if setupKey.Type == SetupKeyReusable {
+			break
+		}
+	}
+
+	if setupKey == nil {
+		t.Errorf("expecting account to have a default setup key")
+		return
+	}
+
+	if account.Network.Serial != 0 {
+		t.Errorf("expecting account network to have an initial Serial=0")
+		return
+	}
+
+	getPeer := func() *Peer {
+		key, err := wgtypes.GeneratePrivateKey()
+		if err != nil {
+			t.Fatal(err)
+			return nil
+		}
+		expectedPeerKey := key.PublicKey().String()
+
+		peer, err := manager.AddPeer(setupKey.Key, "", &Peer{
+			Key:  expectedPeerKey,
+			Meta: PeerSystemMeta{},
+			Name: expectedPeerKey,
+		})
+		if err != nil {
+			t.Fatalf("expecting peer1 to be added, got failure %v", err)
+			return nil
+		}
+
+		return peer
+	}
+
+	peer1 := getPeer()
+	peer2 := getPeer()
+	peer3 := getPeer()
+
+	account, err = manager.GetAccountById(account.Id)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	updMsg := manager.peersUpdateManager.CreateChannel(peer1.Key)
+	defer manager.peersUpdateManager.CloseChannel(peer1.Key)
+
+	group := Group{
+		ID:    "group-id",
+		Name:  "GroupA",
+		Peers: []string{peer1.Key, peer2.Key, peer3.Key},
+	}
+
+	rule := Rule{
+		Source:      []string{"group-id"},
+		Destination: []string{"group-id"},
+		Flow:        TrafficFlowBidirect,
+	}
+
+	wg := sync.WaitGroup{}
+	t.Run("save group update", func(t *testing.T) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			message := <-updMsg
+			networkMap := message.Update.GetNetworkMap()
+			if len(networkMap.RemotePeers) != 2 {
+				t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
+			}
+		}()
+
+		if err := manager.SaveGroup(account.Id, &group); err != nil {
+			t.Errorf("save group: %v", err)
+			return
+		}
+
+		wg.Wait()
+	})
+
+	t.Run("delete rule update", func(t *testing.T) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			message := <-updMsg
+			networkMap := message.Update.GetNetworkMap()
+			if len(networkMap.RemotePeers) != 0 {
+				t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
+			}
+		}()
+
+		var defaultRule *Rule
+		for _, r := range account.Rules {
+			defaultRule = r
+		}
+
+		if err := manager.DeleteRule(account.Id, defaultRule.ID); err != nil {
+			t.Errorf("delete default rule: %v", err)
+			return
+		}
+
+		wg.Wait()
+	})
+
+	t.Run("save rule update", func(t *testing.T) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			message := <-updMsg
+			networkMap := message.Update.GetNetworkMap()
+			if len(networkMap.RemotePeers) != 2 {
+				t.Errorf("mismatch peers count: 2 expected, got %v", len(networkMap.RemotePeers))
+			}
+		}()
+
+		if err := manager.SaveRule(account.Id, &rule); err != nil {
+			t.Errorf("delete default rule: %v", err)
+			return
+		}
+
+		wg.Wait()
+	})
+
+	t.Run("delete peer update", func(t *testing.T) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			message := <-updMsg
+			networkMap := message.Update.GetNetworkMap()
+			if len(networkMap.RemotePeers) != 1 {
+				t.Errorf("mismatch peers count: 1 expected, got %v", len(networkMap.RemotePeers))
+			}
+		}()
+
+		if _, err := manager.DeletePeer(account.Id, peer3.Key); err != nil {
+			t.Errorf("delete peer: %v", err)
+			return
+		}
+
+		wg.Wait()
+	})
+
+	t.Run("delete group update", func(t *testing.T) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			message := <-updMsg
+			networkMap := message.Update.GetNetworkMap()
+			if len(networkMap.RemotePeers) != 0 {
+				t.Errorf("mismatch peers count: 0 expected, got %v", len(networkMap.RemotePeers))
+			}
+		}()
+
+		if err := manager.DeleteGroup(account.Id, group.ID); err != nil {
+			t.Errorf("delete group rule: %v", err)
+			return
+		}
+
+		wg.Wait()
+	})
+}
+
 func TestAccountManager_DeletePeer(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -664,7 +848,6 @@ func TestAccountManager_UpdatePeerMeta(t *testing.T) {
 	}
 
 	assert.Equal(t, newMeta, p.Meta)
-
 }
 
 func createManager(t *testing.T) (*DefaultAccountManager, error) {

@@ -180,6 +180,8 @@ func (s *FileStore) DeletePeer(accountId string, peerKey string) (*Peer, error) 
 
 	delete(account.Peers, peerKey)
 	delete(s.PeerKeyId2AccountId, peerKey)
+	delete(s.PeerKeyId2DstRulesId, peerKey)
+	delete(s.PeerKeyId2SrcRulesId, peerKey)
 
 	// cleanup groups
 	var peers []string
@@ -240,9 +242,34 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.PeerKeyId2AccountId[peer.Key] = account.Id
 	}
 
+	// remove all peers related to account from rules indexes
+	cleanIDs := make([]string, 0)
+	for key := range s.PeerKeyId2SrcRulesId {
+		if accountID, ok := s.PeerKeyId2AccountId[key]; ok && accountID == account.Id {
+			cleanIDs = append(cleanIDs, key)
+		}
+	}
+	for _, key := range cleanIDs {
+		delete(s.PeerKeyId2SrcRulesId, key)
+	}
+	cleanIDs = cleanIDs[:0]
+	for key := range s.PeerKeyId2DstRulesId {
+		if accountID, ok := s.PeerKeyId2AccountId[key]; ok && accountID == account.Id {
+			cleanIDs = append(cleanIDs, key)
+		}
+	}
+	for _, key := range cleanIDs {
+		delete(s.PeerKeyId2DstRulesId, key)
+	}
+
+	// rebuild rule indexes
 	for _, rule := range account.Rules {
 		for _, gid := range rule.Source {
-			for _, pid := range account.Groups[gid].Peers {
+			g, ok := account.Groups[gid]
+			if !ok {
+				break
+			}
+			for _, pid := range g.Peers {
 				rules := s.PeerKeyId2SrcRulesId[pid]
 				if rules == nil {
 					rules = map[string]struct{}{}
@@ -252,7 +279,11 @@ func (s *FileStore) SaveAccount(account *Account) error {
 			}
 		}
 		for _, gid := range rule.Destination {
-			for _, pid := range account.Groups[gid].Peers {
+			g, ok := account.Groups[gid]
+			if !ok {
+				break
+			}
+			for _, pid := range g.Peers {
 				rules := s.PeerKeyId2DstRulesId[pid]
 				if rules == nil {
 					rules = map[string]struct{}{}
