@@ -85,7 +85,8 @@ func NewConn(config ConnConfig) (*Conn, error) {
 	}, nil
 }
 
-// interfaceFilter is a function passed to ICE Agent to filter out blacklisted interfaces
+// interfaceFilter is a function passed to ICE Agent to filter out not allowed interfaces
+// to avoid building tunnel over them
 func interfaceFilter(blackList []string) func(string) bool {
 
 	return func(iFace string) bool {
