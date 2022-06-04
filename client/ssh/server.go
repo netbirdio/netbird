@@ -8,12 +8,13 @@ import (
 	gossh "golang.org/x/crypto/ssh"
 	"io"
 	"net"
+	"strings"
 	"sync"
 )
 
 type Server struct {
 	listener    net.Listener
-	allowedKeys []ssh.PublicKey
+	allowedKeys map[string]ssh.PublicKey
 	mu          sync.Mutex
 }
 
@@ -21,13 +22,13 @@ func (srv *Server) UpdateKeys(newKeys []string) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
-	srv.allowedKeys = make([]ssh.PublicKey, len(newKeys))
+	srv.allowedKeys = make(map[string]ssh.PublicKey, len(newKeys))
 	for _, strKey := range newKeys {
 		parsedKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(strKey))
 		if err != nil {
 			return err
 		}
-		srv.allowedKeys = append(srv.allowedKeys, parsedKey)
+		srv.allowedKeys[strKey] = parsedKey
 	}
 
 	return nil
@@ -62,7 +63,8 @@ func (srv *Server) Start() error {
 		srv.mu.Lock()
 		defer srv.mu.Unlock()
 
-		for _, allowed := range srv.allowedKeys {
+		k := strings.TrimSpace(string(gossh.MarshalAuthorizedKey(key)))
+		if allowed, ok := srv.allowedKeys[k]; ok {
 			if ssh.KeysEqual(allowed, key) {
 				return true
 			}
