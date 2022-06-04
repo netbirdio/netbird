@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -62,7 +63,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		networkMap *mgmtProto.NetworkMap
 
 		expectedLen    int
-		expectedPeers  []string
+		expectedPeers  []*mgmtProto.RemotePeerConfig
 		expectedSerial uint64
 	}
 
@@ -81,6 +82,11 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		AllowedIps: []string{"100.64.0.12/24"},
 	}
 
+	modifiedPeer3 := &mgmtProto.RemotePeerConfig{
+		WgPubKey:   "GGHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		AllowedIps: []string{"100.64.0.20/24"},
+	}
+
 	case1 := testCase{
 		name: "input with a new peer to add",
 		networkMap: &mgmtProto.NetworkMap{
@@ -92,7 +98,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			RemotePeersIsEmpty: false,
 		},
 		expectedLen:    1,
-		expectedPeers:  []string{peer1.GetWgPubKey()},
+		expectedPeers:  []*mgmtProto.RemotePeerConfig{peer1},
 		expectedSerial: 1,
 	}
 
@@ -108,7 +114,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			RemotePeersIsEmpty: false,
 		},
 		expectedLen:    2,
-		expectedPeers:  []string{peer1.GetWgPubKey(), peer2.GetWgPubKey()},
+		expectedPeers:  []*mgmtProto.RemotePeerConfig{peer1, peer2},
 		expectedSerial: 2,
 	}
 
@@ -123,7 +129,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			RemotePeersIsEmpty: false,
 		},
 		expectedLen:    2,
-		expectedPeers:  []string{peer1.GetWgPubKey(), peer2.GetWgPubKey()},
+		expectedPeers:  []*mgmtProto.RemotePeerConfig{peer1, peer2},
 		expectedSerial: 2,
 	}
 
@@ -138,11 +144,26 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			RemotePeersIsEmpty: false,
 		},
 		expectedLen:    2,
-		expectedPeers:  []string{peer2.GetWgPubKey(), peer3.GetWgPubKey()},
+		expectedPeers:  []*mgmtProto.RemotePeerConfig{peer2, peer3},
 		expectedSerial: 4,
 	}
 
 	case5 := testCase{
+		name: "input with one peer to modify",
+		networkMap: &mgmtProto.NetworkMap{
+			Serial:     4,
+			PeerConfig: nil,
+			RemotePeers: []*mgmtProto.RemotePeerConfig{
+				modifiedPeer3, peer2,
+			},
+			RemotePeersIsEmpty: false,
+		},
+		expectedLen:    2,
+		expectedPeers:  []*mgmtProto.RemotePeerConfig{peer2, modifiedPeer3},
+		expectedSerial: 4,
+	}
+
+	case6 := testCase{
 		name: "input with all peers to remove",
 		networkMap: &mgmtProto.NetworkMap{
 			Serial:             5,
@@ -155,7 +176,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		expectedSerial: 5,
 	}
 
-	for _, c := range []testCase{case1, case2, case3, case4, case5} {
+	for _, c := range []testCase{case1, case2, case3, case4, case5, case6} {
 		t.Run(c.name, func(t *testing.T) {
 			err = engine.updateNetworkMap(c.networkMap)
 			if err != nil {
@@ -172,8 +193,14 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 			}
 
 			for _, p := range c.expectedPeers {
-				if _, ok := engine.peerConns[p]; !ok {
+				conn, ok := engine.peerConns[p.GetWgPubKey()]
+				if !ok {
 					t.Errorf("expecting Engine.peerConns to contain peer %s", p)
+				}
+				expectedAllowedIPs := strings.Join(p.AllowedIps, ",")
+				if conn.GetConf().ProxyConfig.AllowedIps != expectedAllowedIPs {
+					t.Errorf("expecting peer %s to have AllowedIPs= %s, got %s", p.GetWgPubKey(),
+						expectedAllowedIPs, conn.GetConf().ProxyConfig.AllowedIps)
 				}
 			}
 		})

@@ -30,6 +30,8 @@ func (w *WGIface) configureDevice(config wgtypes.Config) error {
 // Configure configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
 func (w *WGIface) Configure(privateKey string, port int) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	log.Debugf("configuring Wireguard interface %s", w.Name)
 
@@ -76,6 +78,8 @@ func (w *WGIface) GetListenPort() (*int, error) {
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
 // Endpoint is optional
 func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	log.Debugf("updating interface %s peer %s: endpoint %s ", w.Name, peerKey, endpoint)
 
@@ -110,6 +114,9 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 
 // RemovePeer removes a Wireguard Peer from the interface iface
 func (w *WGIface) RemovePeer(peerKey string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
 	log.Debugf("Removing peer %s from interface %s ", peerKey, w.Name)
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)

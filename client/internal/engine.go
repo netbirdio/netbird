@@ -78,7 +78,7 @@ type Engine struct {
 
 	ctx context.Context
 
-	wgInterface iface.WGIface
+	wgInterface *iface.WGIface
 
 	udpMux          ice.UDPMux
 	udpMuxSrflx     ice.UniversalUDPMux
@@ -177,7 +177,7 @@ func (e *Engine) Start() error {
 	myPrivateKey := e.config.WgPrivateKey
 	var err error
 
-	e.wgInterface, err = iface.NewWGIface(wgIfaceName, wgAddr, iface.DefaultMTU)
+	e.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIfaceName, err.Error())
 		return err
@@ -216,7 +216,39 @@ func (e *Engine) Start() error {
 	return nil
 }
 
-// removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service
+// modifyPeers updates peers that have been modified (e.g. IP address has been changed).
+// It closes the existing connection, removes it from the peerConns map, and creates a new one.
+func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
+
+	// first, check if peers have been modified
+	var modified []*mgmProto.RemotePeerConfig
+	for _, p := range peersUpdate {
+		if peerConn, ok := e.peerConns[p.GetWgPubKey()]; ok {
+			if peerConn.GetConf().ProxyConfig.AllowedIps != strings.Join(p.AllowedIps, ",") {
+				modified = append(modified, p)
+			}
+		}
+	}
+
+	// second, close all modified connections and remove them from the state map
+	for _, p := range modified {
+		err := e.removePeer(p.GetWgPubKey())
+		if err != nil {
+			return err
+		}
+	}
+	// third, add the peer connections again
+	for _, p := range modified {
+		err := e.addNewPeer(p)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removePeers finds and removes peers that do not exist anymore in the network map received from the Management Service.
+// It also removes peers that have been modified (e.g. change of IP address). They will be added again in addPeers method.
 func (e *Engine) removePeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	currentPeers := make([]string, 0, len(e.peerConns))
 	for p := range e.peerConns {
@@ -366,11 +398,31 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	if update.GetNetworkMap() != nil {
+		if update.GetNetworkMap().GetPeerConfig() != nil {
+			err := e.updateConfig(update.GetNetworkMap().GetPeerConfig())
+			if err != nil {
+				return err
+			}
+		}
 		// only apply new changes and ignore old ones
 		err := e.updateNetworkMap(update.GetNetworkMap())
 		if err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
+	if e.wgInterface.Address.String() != conf.Address {
+		oldAddr := e.wgInterface.Address.String()
+		log.Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
+		err := e.wgInterface.UpdateAddr(conf.Address)
+		if err != nil {
+			return err
+		}
+		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
 	}
 
 	return nil
@@ -454,6 +506,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			return err
 		}
 
+		err = e.modifyPeers(networkMap.GetRemotePeers())
+		if err != nil {
+			return err
+		}
+
 		err = e.addNewPeers(networkMap.GetRemotePeers())
 		if err != nil {
 			return err
@@ -464,21 +521,29 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	return nil
 }
 
-// addNewPeers finds and adds peers that were not know before but arrived from the Management service with the update
+// addNewPeers adds peers that were not know before but arrived from the Management service with the update
 func (e *Engine) addNewPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	for _, p := range peersUpdate {
-		peerKey := p.GetWgPubKey()
-		peerIPs := p.GetAllowedIps()
-		if _, ok := e.peerConns[peerKey]; !ok {
-			conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
-			if err != nil {
-				return err
-			}
-			e.peerConns[peerKey] = conn
-
-			go e.connWorker(conn, peerKey)
+		err := e.addNewPeer(p)
+		if err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
+// addNewPeer add peer if connection doesn't exist
+func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
+	peerKey := peerConfig.GetWgPubKey()
+	peerIPs := peerConfig.GetAllowedIps()
+	if _, ok := e.peerConns[peerKey]; !ok {
+		conn, err := e.createPeerConn(peerKey, strings.Join(peerIPs, ","))
+		if err != nil {
+			return err
+		}
+		e.peerConns[peerKey] = conn
+
+		go e.connWorker(conn, peerKey)
 	}
 	return nil
 }
@@ -505,6 +570,12 @@ func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
 		err := conn.Open()
 		if err != nil {
 			log.Debugf("connection to peer %s failed: %v", peerKey, err)
+			switch err.(type) {
+			case *peer.ConnectionClosedError:
+				// conn has been forced to close, so we exit the loop
+				return
+			default:
+			}
 		}
 	}
 }

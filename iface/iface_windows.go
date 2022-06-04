@@ -11,6 +11,8 @@ import (
 
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
 func (w *WGIface) Create() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	WintunStaticRequestedGUID, _ := windows.GenerateGUID()
 	adapter, err := driver.CreateAdapter(w.Name, "WireGuard", &WintunStaticRequestedGUID)
@@ -39,4 +41,19 @@ func (w *WGIface) assignAddr(luid winipcfg.LUID) error {
 	}
 
 	return nil
+}
+
+// UpdateAddr updates address of the interface
+func (w *WGIface) UpdateAddr(newAddr string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	luid := w.Interface.(*driver.Adapter).LUID()
+	addr, err := parseAddress(newAddr)
+	if err != nil {
+		return err
+	}
+
+	w.Address = addr
+	return w.assignAddr(luid)
 }

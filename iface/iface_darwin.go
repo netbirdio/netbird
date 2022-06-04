@@ -7,7 +7,10 @@ import (
 
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
 func (w *WGIface) Create() error {
-	return w.CreateWithUserspace()
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.createWithUserspace()
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
