@@ -332,6 +332,43 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 	}
 }
 
+func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {
+	data, err := am.cacheManager.Get(accountID)
+	if err != nil {
+		return nil, err
+	}
+	userData := data.([]*idp.UserData)
+
+	userDataMap := make(map[string]struct{})
+	for _, datum := range userData {
+		userDataMap[datum.ID] = struct{}{}
+	}
+
+	// check whether we need to reload the cache
+	// the accountUsers ID list is the source of truth and all the users should be in the cache
+	reload := len(accountUsers) != len(userData)
+	for user := range accountUsers {
+		if _, ok := userDataMap[user]; !ok {
+			reload = true
+		}
+	}
+
+	if reload {
+		// reload cache once avoiding loops
+		err := am.cacheManager.Delete(accountID)
+		if err != nil {
+			return nil, err
+		}
+		data, err = am.cacheManager.Get(accountID)
+		if err != nil {
+			return nil, err
+		}
+		userData = data.([]*idp.UserData)
+	}
+
+	return userData, err
+}
+
 // GetUsersFromAccount performs a batched request for users from IDP by account id
 func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
 	account, err := am.GetAccountById(accountID)
@@ -341,11 +378,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		data, err := am.cacheManager.Get(accountID)
-		if err != nil {
-			return nil, err
-		}
-		queriedUsers = data.([]*idp.UserData)
+		queriedUsers, err = am.lookupCache(account.Users, accountID)
 	}
 
 	userInfo := make([]*UserInfo, 0)
