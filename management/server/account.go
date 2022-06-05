@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -169,7 +170,7 @@ func BuildManager(
 		}
 	}
 
-	gocacheClient := gocache.New(gocache.NoExpiration, gocache.NoExpiration)
+	gocacheClient := gocache.New(24*time.Hour, 10*time.Minute)
 	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
 
 	loadFunction := func(accountId interface{}) (interface{}, error) {
