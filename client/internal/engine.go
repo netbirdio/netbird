@@ -45,7 +45,7 @@ type EngineConfig struct {
 	WgPrivateKey wgtypes.Key
 
 	// IFaceBlackList is a list of network interfaces to ignore when discovering connection candidates (ICE related)
-	IFaceBlackList map[string]struct{}
+	IFaceBlackList []string
 
 	PreSharedKey *wgtypes.Key
 
@@ -592,11 +592,6 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	stunTurn = append(stunTurn, e.STUNs...)
 	stunTurn = append(stunTurn, e.TURNs...)
 
-	interfaceBlacklist := make([]string, 0, len(e.config.IFaceBlackList))
-	for k := range e.config.IFaceBlackList {
-		interfaceBlacklist = append(interfaceBlacklist, k)
-	}
-
 	proxyConfig := proxy.Config{
 		RemoteKey:    pubKey,
 		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.config.WgPort),
@@ -611,7 +606,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		Key:                pubKey,
 		LocalKey:           e.config.WgPrivateKey.PublicKey().String(),
 		StunTurn:           stunTurn,
-		InterfaceBlackList: interfaceBlacklist,
+		InterfaceBlackList: e.config.IFaceBlackList,
 		Timeout:            timeout,
 		UDPMux:             e.udpMux,
 		UDPMuxSrflx:        e.udpMuxSrflx,
