@@ -2,17 +2,19 @@ package server
 
 import (
 	"fmt"
-	"reflect"
-	"strings"
-	"sync"
-
+	"github.com/eko/gocache/cache"
+	cacheStore "github.com/eko/gocache/store"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/util"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"reflect"
+	"strings"
+	"sync"
 )
 
 const (
@@ -66,6 +68,7 @@ type DefaultAccountManager struct {
 	mux                sync.Mutex
 	peersUpdateManager *PeersUpdateManager
 	idpManager         idp.Manager
+	cacheManager       cache.CacheInterface
 }
 
 // Account represents a unique account of the system
@@ -166,7 +169,17 @@ func BuildManager(
 		}
 	}
 
+	gocacheClient := gocache.New(gocache.NoExpiration, gocache.NoExpiration)
+	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
+
+	loadFunction := func(accountId interface{}) (interface{}, error) {
+		return dam.idpManager.GetBatchedUserData(fmt.Sprintf("%v", accountId))
+	}
+
+	dam.cacheManager = cache.NewLoadable(loadFunction, cache.New(gocacheStore))
+
 	return dam, nil
+
 }
 
 // AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
@@ -328,10 +341,11 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		queriedUsers, err = am.idpManager.GetBatchedUserData(accountID)
+		data, err := am.cacheManager.Get(accountID)
 		if err != nil {
 			return nil, err
 		}
+		queriedUsers = data.([]*idp.UserData)
 	}
 
 	userInfo := make([]*UserInfo, 0)
