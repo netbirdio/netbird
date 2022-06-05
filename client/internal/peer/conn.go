@@ -92,6 +92,7 @@ func interfaceFilter(blackList []string) func(string) bool {
 	return func(iFace string) bool {
 		for _, s := range blackList {
 			if strings.HasPrefix(iFace, s) {
+				log.Debugf("ignoring interface %s - it is not allowed", iFace)
 				return false
 			}
 		}
