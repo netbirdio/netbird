@@ -140,15 +140,11 @@ func RunClient(ctx context.Context, config *Config) error {
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
 func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
-	iFaceBlackList := make(map[string]struct{})
-	for i := 0; i < len(config.IFaceBlackList); i += 2 {
-		iFaceBlackList[config.IFaceBlackList[i]] = struct{}{}
-	}
 
 	engineConf := &EngineConfig{
 		WgIfaceName:    config.WgIface,
 		WgAddr:         peerConfig.Address,
-		IFaceBlackList: iFaceBlackList,
+		IFaceBlackList: config.IFaceBlackList,
 		WgPrivateKey:   key,
 		WgPort:         iface.DefaultWgPort,
 	}
