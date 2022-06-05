@@ -170,14 +170,9 @@ func BuildManager(
 		}
 	}
 
-	gocacheClient := gocache.New(24*time.Hour, 10*time.Minute)
+	gocacheClient := gocache.New(24*time.Hour, 30*time.Minute)
 	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
-
-	loadFunction := func(accountId interface{}) (interface{}, error) {
-		return dam.idpManager.GetBatchedUserData(fmt.Sprintf("%v", accountId))
-	}
-
-	dam.cacheManager = cache.NewLoadable(loadFunction, cache.New(gocacheStore))
+	dam.cacheManager = cache.NewLoadable(dam.loadFromCache, cache.New(gocacheStore))
 
 	return dam, nil
 
@@ -331,6 +326,10 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 		Name:  queried.Name,
 		Role:  string(local.Role),
 	}
+}
+
+func (am *DefaultAccountManager) loadFromCache(accountId interface{}) (interface{}, error) {
+	return am.idpManager.GetBatchedUserData(fmt.Sprintf("%v", accountId))
 }
 
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {
