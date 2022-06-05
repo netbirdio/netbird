@@ -1,9 +1,10 @@
 package server
 
 import (
+	"context"
 	"fmt"
-	"github.com/eko/gocache/cache"
-	cacheStore "github.com/eko/gocache/store"
+	"github.com/eko/gocache/v3/cache"
+	cacheStore "github.com/eko/gocache/v3/store"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/util"
@@ -69,7 +70,8 @@ type DefaultAccountManager struct {
 	mux                sync.Mutex
 	peersUpdateManager *PeersUpdateManager
 	idpManager         idp.Manager
-	cacheManager       cache.CacheInterface
+	cacheManager       *cache.LoadableCache[[]*idp.UserData]
+	ctx                context.Context
 }
 
 // Account represents a unique account of the system
@@ -152,11 +154,12 @@ func (a *Account) GetGroupAll() (*Group, error) {
 func BuildManager(
 	store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
 ) (*DefaultAccountManager, error) {
-	dam := &DefaultAccountManager{
+	am := &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
 		peersUpdateManager: peersUpdateManager,
 		idpManager:         idpManager,
+		ctx:                context.Background(),
 	}
 
 	// if account has not default account
@@ -164,7 +167,7 @@ func BuildManager(
 	// also we create default rule with source an destination
 	// groups 'all'
 	for _, account := range store.GetAllAccounts() {
-		dam.addAllGroup(account)
+		am.addAllGroup(account)
 		if err := store.SaveAccount(account); err != nil {
 			return nil, err
 		}
@@ -172,9 +175,9 @@ func BuildManager(
 
 	gocacheClient := gocache.New(24*time.Hour, 30*time.Minute)
 	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
-	dam.cacheManager = cache.NewLoadable(dam.loadFromCache, cache.New(gocacheStore))
 
-	return dam, nil
+	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadFromCache, cache.New[[]*idp.UserData](gocacheStore))
+	return am, nil
 
 }
 
@@ -328,16 +331,15 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 	}
 }
 
-func (am *DefaultAccountManager) loadFromCache(accountId interface{}) (interface{}, error) {
+func (am *DefaultAccountManager) loadFromCache(ctx context.Context, accountId any) ([]*idp.UserData, error) {
 	return am.idpManager.GetBatchedUserData(fmt.Sprintf("%v", accountId))
 }
 
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {
-	data, err := am.cacheManager.Get(accountID)
+	userData, err := am.cacheManager.Get(am.ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
-	userData := data.([]*idp.UserData)
 
 	userDataMap := make(map[string]struct{})
 	for _, datum := range userData {
@@ -355,15 +357,14 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, acco
 
 	if reload {
 		// reload cache once avoiding loops
-		err := am.cacheManager.Delete(accountID)
+		err := am.cacheManager.Delete(am.ctx, accountID)
 		if err != nil {
 			return nil, err
 		}
-		data, err = am.cacheManager.Get(accountID)
+		userData, err = am.cacheManager.Get(am.ctx, accountID)
 		if err != nil {
 			return nil, err
 		}
-		userData = data.([]*idp.UserData)
 	}
 
 	return userData, err
