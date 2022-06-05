@@ -138,7 +138,20 @@ components:
             items:
               $ref: '#/components/schemas/GroupMinimum'
               
-              
+    RulePatchOperation:
+      type: object
+      properties:
+        op: 
+          type: string
+          enum: ["replace","add","remove"]
+        path: 
+          type: string
+          enum: ["name","description","enabled","flow","sources","destinations"]
+        value:
+          type: array
+          items:
+            type: string
+        
 paths:
   /api/users:
     get:
@@ -507,37 +520,20 @@ paths:
             type: string
           description: The Rule ID   
       requestBody:
-        description: Update Rule request
+        description: Update Rule request using a list of json patch objects
         content:
           'application/json':
             schema:
-              allOf:
-              - $ref: '#/components/schemas/RuleMinimum'
-              - type: object
-                properties:
-                  sources_to_add:
-                    type: array
-                    items:
-                      type: string
-                  sources_to_remove:
-                    type: array
-                    items:
-                      type: string                      
-                  destinations_to_add:
-                    type: array
-                    items:
-                      type: string
-                  destinations_to_remove:
-                    type: array
-                    items:
-                      type: string                    
+              type: array
+              items:
+                $ref: '#/components/schemas/RulePatchOperation'
       responses:
         '200':
           description: A Group object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Group' 
+                $ref: '#/components/schemas/Rule' 
     put:
       summary: Update/Replace a Rule
       parameters:
