@@ -128,6 +128,8 @@ github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cu
 github.com/docker/spdystream v0.0.0-20160310174837-449fdfce4d96/go.mod h1:Qh8CwZgvJUkLughtfhJv5dyTYa91l1fOUCrgjqmcifM=
 github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815/go.mod h1:WwZ+bS3ebgob9U8Nd0kOddGdZWjyMGR8Wziv+TBNwSE=
 github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4zYo=
+github.com/eko/gocache/v2 v2.3.1 h1:8MMkfqGJ0KIA9OXT0rXevcEIrU16oghrGDiIDJDFCa0=
+github.com/eko/gocache/v2 v2.3.1/go.mod h1:l2z8OmpZHL0CpuzDJtxm267eF3mZW1NqUsMj+sKrbUs=
 github.com/eko/gocache/v3 v3.0.0 h1:Mfa3Nj6GdrXiBXz+JsvESffxO8BGUYVQ2heiAhEhH1U=
 github.com/eko/gocache/v3 v3.0.0/go.mod h1:2//8SJUJBp0/MKvuPd6mhZuWpL3qTic4N0ssUEaflCk=
 github.com/elazarl/goproxy v0.0.0-20170405201442-c4fc26588b6e/go.mod h1:/Zj4wYkgs4iZTTu3o/KG3Itv/qCCa8VVMlb3i9OVuzc=

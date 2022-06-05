@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/eko/gocache/v3/cache"
-	cacheStore "github.com/eko/gocache/v3/store"
+	"github.com/eko/gocache/v2/cache"
+	cacheStore "github.com/eko/gocache/v2/store"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/util"
@@ -70,7 +70,7 @@ type DefaultAccountManager struct {
 	mux                sync.Mutex
 	peersUpdateManager *PeersUpdateManager
 	idpManager         idp.Manager
-	cacheManager       *cache.LoadableCache[[]*idp.UserData]
+	cacheManager       cache.CacheInterface
 	ctx                context.Context
 }
 
@@ -176,7 +176,7 @@ func BuildManager(
 	gocacheClient := gocache.New(24*time.Hour, 30*time.Minute)
 	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
 
-	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadFromCache, cache.New[[]*idp.UserData](gocacheStore))
+	am.cacheManager = cache.NewLoadable(am.loadFromCache, cache.New(gocacheStore))
 	return am, nil
 
 }
@@ -331,15 +331,17 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 	}
 }
 
-func (am *DefaultAccountManager) loadFromCache(ctx context.Context, accountId any) ([]*idp.UserData, error) {
-	return am.idpManager.GetBatchedUserData(fmt.Sprintf("%v", accountId))
+func (am *DefaultAccountManager) loadFromCache(ctx context.Context, accountID interface{}) (interface{}, error) {
+	return am.idpManager.GetBatchedUserData(fmt.Sprintf("%v", accountID))
 }
 
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {
-	userData, err := am.cacheManager.Get(am.ctx, accountID)
+	data, err := am.cacheManager.Get(am.ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
+
+	userData := data.([]*idp.UserData)
 
 	userDataMap := make(map[string]struct{})
 	for _, datum := range userData {
@@ -361,10 +363,12 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, acco
 		if err != nil {
 			return nil, err
 		}
-		userData, err = am.cacheManager.Get(am.ctx, accountID)
+		data, err = am.cacheManager.Get(am.ctx, accountID)
 		if err != nil {
 			return nil, err
 		}
+
+		userData = data.([]*idp.UserData)
 	}
 
 	return userData, err

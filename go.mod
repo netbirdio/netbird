@@ -30,7 +30,7 @@ require (
 require (
 	fyne.io/fyne/v2 v2.1.4
 	github.com/c-robinson/iplib v1.0.3
-	github.com/eko/gocache/v3 v3.0.0
+	github.com/eko/gocache/v2 v2.3.1
 	github.com/getlantern/systray v1.2.1
 	github.com/magiconair/properties v1.8.5
 	github.com/patrickmn/go-cache v2.1.0+incompatible
@@ -110,3 +110,5 @@ require (
 )
 
 replace github.com/pion/ice/v2 => github.com/wiretrustee/ice/v2 v2.1.21-0.20220218121004-dc81faead4bb
+
+//replace github.com/eko/gocache/v3 => /home/braginini/Documents/projects/my/wiretrustee/gocache
