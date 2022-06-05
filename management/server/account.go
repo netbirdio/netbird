@@ -173,7 +173,7 @@ func BuildManager(
 		}
 	}
 
-	gocacheClient := gocache.New(24*time.Hour, 30*time.Minute)
+	gocacheClient := gocache.New(7*24*time.Hour, 30*time.Minute)
 	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
 
 	am.cacheManager = cache.NewLoadable(am.loadFromCache, cache.New(gocacheStore))
