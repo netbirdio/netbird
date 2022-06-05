@@ -6,107 +6,150 @@ info:
 
 servers:
   - url: https://api.wiretrustee.com
-  
+
 components:
   schemas:
     User:
       type: object
       properties:
         id:
-          type: string      
+          description: User ID
+          type: string
         email:
+          description: User's email address
           type: string
         name:
+          description: User's name from idp provider
           type: string
         role:
-          type: string 
+          description: User's Netbird account role
+          type: string
 
     PeerMinimum:
       type: object
       properties:
         id:
+          description: Peer ID
           type: string
         name:
+          description: Peer's hostname
           type: string
-    
+
     Peer:
-     allOf:
-     - $ref: '#/components/schemas/PeerMinimum'
-     - type: object
-       properties:
-         ip:
-           type: string            
-         connected:
-           type: boolean 
-         lastSeen:
-           type: string
-           format: date-time  
-         os:
-           type: string
-         version:
-           type: string             
-         groups:
-            type: array
-            items:
-              $ref: '#/components/schemas/GroupMinimum'
+      allOf:
+        - $ref: '#/components/schemas/PeerMinimum'
+        - type: object
+          properties:
+            ip:
+              description: Peer's IP address
+              type: string
+            connected:
+              description: Peer to Management connection status
+              type: boolean
+            lastSeen:
+              description: Last time peer connected to Netbird's management service
+              type: string
+              format: date-time
+            os:
+              description: Peer's operating system and version
+              type: string
+            version:
+              description: Peer's daemon or cli version
+              type: string
+            groups:
+              description: Groups that the peer belongs to
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupMinimum'
+            activated_by:
+              description: Provides information of who activated the Peer. User or Setup Key
+              type: object
+              properties:
+                type:
+                  type: string
+                value:
+                  type: string
+            ssh_enabled:
+              description: Is SSH access enabled for the peer
+              type: boolean
 
     SetupKey:
       type: object
       properties:
         id:
+          description: Setup Key ID
           type: string
         key:
+          description: Setup Key value
           type: string
         name:
-          type: string            
+          description: Setup key name identifier
+          type: string
         expires:
+          description: Setup Key expiration date
           type: string
           format: date-time
         type:
+          description: Setup key type, one-off for single time usage and reusable
           type: string
         valid:
-          type: boolean   
+          description: Setup key validity status
+          type: boolean
         revoked:
-          type: boolean             
+          description: Setup key revocation status
+          type: boolean
         used_times:
+          description: Usage count of setup key
           type: integer
         last_used:
+          description: Setup key last usage date
           type: string
-          format: date-time             
+          format: date-time
         state:
+          description: Setup key status, "valid", "overused","expired" or "revoked"
           type: string
 
     SetupKeyRequest:
       type: object
       properties:
         name:
+          description: Setup Key name
           type: string
         type:
+          description: Setup key type, one-off for single time usage and reusable
           type: string
         expires:
+          description: Expiration date
           type: string
           format: date-time
-        
+        revoked:
+          description: Setup key revocation status
+          type: boolean
+
     GroupMinimum:
       type: object
       properties:
         id:
+          description: Group ID
           type: string
         name:
+          description: Group Name identifier
           type: string
         peer_count:
+          description: Count of peers associated to the group
           type: integer
-          
-            
+
+
     Group:
       allOf:
-      - $ref: '#/components/schemas/GroupMinimum'
-      - type: object
-        properties:
-          peers:
-            type: array
-            items:
-              $ref: '#/components/schemas/PeerMinimum'
+        - $ref: '#/components/schemas/GroupMinimum'
+        - type: object
+          properties:
+            peers:
+              description: List of peers object
+              type: array
+              items:
+                $ref: '#/components/schemas/PeerMinimum'
 
     RuleMinimum:
       type: object
@@ -119,39 +162,39 @@ components:
           type: boolean
         flow:
           type: string
-          
+
     Rule:
       allOf:
-      - type: object
-        properties:
-          id:
-            type: string
-      - $ref: '#/components/schemas/RuleMinimum'   
-      - type: object
-        properties:
-          sources:
-            type: array
-            items:
-              $ref: '#/components/schemas/GroupMinimum'
-          destinations:
-            type: array
-            items:
-              $ref: '#/components/schemas/GroupMinimum'
-              
+        - type: object
+          properties:
+            id:
+              type: string
+        - $ref: '#/components/schemas/RuleMinimum'
+        - type: object
+          properties:
+            sources:
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupMinimum'
+            destinations:
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupMinimum'
+
     RulePatchOperation:
       type: object
       properties:
-        op: 
+        op:
           type: string
           enum: ["replace","add","remove"]
-        path: 
+        path:
           type: string
           enum: ["name","description","enabled","flow","sources","destinations"]
         value:
           type: array
           items:
             type: string
-        
+
 paths:
   /api/users:
     get:
@@ -190,7 +233,7 @@ paths:
           required: true
           schema:
             type: string
-          description: The Peer ID   
+          description: The Peer ID
       responses:
         '200':
           description: A Peer object
@@ -206,7 +249,7 @@ paths:
           required: true
           schema:
             type: string
-          description: The Peer ID   
+          description: The Peer ID
       requestBody:
         description: update to peers
         content:
@@ -223,7 +266,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Peer'    
+                $ref: '#/components/schemas/Peer'
     delete:
       summary: Delete a peer
       parameters:
@@ -232,13 +275,13 @@ paths:
           required: true
           schema:
             type: string
-          description: The Peer ID 
+          description: The Peer ID
       responses:
         '200':
           description: Delete status code
-          content: {}    
-          
-          
+          content: {}
+
+
   /api/setup-keys:
     get:
       summary: Returns a list of all Setup Keys
@@ -267,7 +310,7 @@ paths:
           content:
             application/json:
               schema:
-                  $ref: '#/components/schemas/SetupKey'
+                $ref: '#/components/schemas/SetupKey'
 
   /api/setup-keys/{id}:
     get:
@@ -278,7 +321,7 @@ paths:
           required: true
           schema:
             type: string
-          description: The Setup Key ID   
+          description: The Setup Key ID
       responses:
         '200':
           description: A Setup Key object
@@ -294,7 +337,7 @@ paths:
           required: true
           schema:
             type: string
-          description: The Setup Key ID   
+          description: The Setup Key ID
       requestBody:
         description: update to Setup Key
         content:
@@ -308,7 +351,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SetupKey'    
+                $ref: '#/components/schemas/SetupKey'
     delete:
       summary: Delete a Setup Key
       parameters:
@@ -317,12 +360,12 @@ paths:
           required: true
           schema:
             type: string
-          description: The Setup Key ID 
+          description: The Setup Key ID
       responses:
         '200':
           description: Delete status code
           content: {}
-          
+
   /api/groups:
     get:
       summary: Returns a list of all Groups
@@ -354,7 +397,7 @@ paths:
           content:
             application/json:
               schema:
-                  $ref: '#/components/schemas/Group'
+                $ref: '#/components/schemas/Group'
 
   /api/groups/{id}:
     get:
@@ -365,7 +408,7 @@ paths:
           required: true
           schema:
             type: string
-          description: The Group ID   
+          description: The Group ID
       responses:
         '200':
           description: A Group object
@@ -381,7 +424,7 @@ paths:
           required: true
           schema:
             type: string
-          description: The Setup Key ID   
+          description: The Setup Key ID
       requestBody:
         description: Update Group request
         content:
@@ -399,14 +442,14 @@ paths:
                   type: array
                   items:
                     type: string
-                    
+
       responses:
         '200':
           description: A Group object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Group' 
+                $ref: '#/components/schemas/Group'
     put:
       summary: Update/Replace a Group
       parameters:
@@ -415,7 +458,7 @@ paths:
           required: true
           schema:
             type: string
-          description: The Group ID   
+          description: The Group ID
       requestBody:
         description: Update Group request
         content:
@@ -436,8 +479,8 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Group'  
-                
+                $ref: '#/components/schemas/Group'
+
     delete:
       summary: Delete a Group
       parameters:
@@ -446,12 +489,12 @@ paths:
           required: true
           schema:
             type: string
-          description: The Group ID 
+          description: The Group ID
       responses:
         '200':
           description: Delete status code
-          content: {}     
-          
+          content: {}
+
   /api/rules:
     get:
       summary: Returns a list of all Rules
@@ -473,25 +516,25 @@ paths:
           'application/json':
             schema:
               allOf:
-              - $ref: '#/components/schemas/RuleMinimum'
-              - type: object
-                properties:
-                  sources:
-                    type: array
-                    items:
-                      type: string
-                  destinations:
-                    type: array
-                    items:
-                      type: string
-                      
+                - $ref: '#/components/schemas/RuleMinimum'
+                - type: object
+                  properties:
+                    sources:
+                      type: array
+                      items:
+                        type: string
+                    destinations:
+                      type: array
+                      items:
+                        type: string
+
       responses:
         '200':
           description: A Rule Object
           content:
             application/json:
               schema:
-                  $ref: '#/components/schemas/Rule'
+                $ref: '#/components/schemas/Rule'
 
   /api/rules/{id}:
     get:
@@ -502,7 +545,7 @@ paths:
           required: true
           schema:
             type: string
-          description: The Rule ID   
+          description: The Rule ID
       responses:
         '200':
           description: A Rule object
@@ -518,7 +561,7 @@ paths:
           required: true
           schema:
             type: string
-          description: The Rule ID   
+          description: The Rule ID
       requestBody:
         description: Update Rule request using a list of json patch objects
         content:
@@ -533,7 +576,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Rule' 
+                $ref: '#/components/schemas/Rule'
     put:
       summary: Update/Replace a Rule
       parameters:
@@ -542,24 +585,24 @@ paths:
           required: true
           schema:
             type: string
-          description: The Rule ID   
+          description: The Rule ID
       requestBody:
         description: Update Rule request
         content:
           'application/json':
             schema:
               allOf:
-              - $ref: '#/components/schemas/RuleMinimum'
-              - type: object
-                properties:
-                  sources:
-                    type: array
-                    items:
-                      type: string
-                  destinations:
-                    type: array
-                    items:
-                      type: string
+                - $ref: '#/components/schemas/RuleMinimum'
+                - type: object
+                  properties:
+                    sources:
+                      type: array
+                      items:
+                        type: string
+                    destinations:
+                      type: array
+                      items:
+                        type: string
 
       responses:
         '200':
@@ -567,8 +610,8 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Group'  
-                
+                $ref: '#/components/schemas/Group'
+
     delete:
       summary: Delete a Rule
       parameters:
@@ -577,8 +620,8 @@ paths:
           required: true
           schema:
             type: string
-          description: The Rule ID 
+          description: The Rule ID
       responses:
         '200':
           description: Delete status code
-          content: {}                       
+          content: {}
