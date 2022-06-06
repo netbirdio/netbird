@@ -3,10 +3,19 @@ info:
   title: NetBird REST API
   description: API to manipulate groups, rules and retrieve information about peers and users
   version: 0.0.1
-
 servers:
   - url: https://api.wiretrustee.com
-
+tags:
+  - name: Users
+    description: Interact with and view information about users.
+  - name: Peers
+    description: Interact with and view information about peers.
+  - name: Setup Keys
+    description: Interact with and view information about setup keys.
+  - name: Groups
+    description: Interact with and view information about groups.
+  - name: Rules
+    description: Interact with and view information about rules.
 components:
   schemas:
     User:
@@ -24,7 +33,6 @@ components:
         role:
           description: User's Netbird account role
           type: string
-
     PeerMinimum:
       type: object
       properties:
@@ -34,7 +42,6 @@ components:
         name:
           description: Peer's hostname
           type: string
-
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -72,7 +79,6 @@ components:
             ssh_enabled:
               description: Is SSH access enabled for the peer
               type: boolean
-
     SetupKey:
       type: object
       properties:
@@ -108,7 +114,6 @@ components:
         state:
           description: Setup key status, "valid", "overused","expired" or "revoked"
           type: string
-
     SetupKeyRequest:
       type: object
       properties:
@@ -125,7 +130,6 @@ components:
         revoked:
           description: Setup key revocation status
           type: boolean
-
     GroupMinimum:
       type: object
       properties:
@@ -138,8 +142,6 @@ components:
         peer_count:
           description: Count of peers associated to the group
           type: integer
-
-
     Group:
       allOf:
         - $ref: '#/components/schemas/GroupMinimum'
@@ -150,55 +152,84 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/PeerMinimum'
-
     RuleMinimum:
       type: object
       properties:
         name:
+          description: Rule name identifier
           type: string
         description:
+          description: Rule friendly description
           type: string
         enabled:
+          description: Rules status
           type: boolean
         flow:
+          description: Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
           type: string
-
     Rule:
       allOf:
         - type: object
           properties:
             id:
+              description: Rule ID
               type: string
         - $ref: '#/components/schemas/RuleMinimum'
         - type: object
           properties:
             sources:
+              description: Rule source groups
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
             destinations:
+              description: Rule destination groups
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
-
     RulePatchOperation:
       type: object
       properties:
         op:
+          description: Rule operation type
           type: string
           enum: ["replace","add","remove"]
         path:
+          description: Rule field to update in form /<field>
           type: string
           enum: ["name","description","enabled","flow","sources","destinations"]
         value:
+          description: Values to be applied
           type: array
           items:
             type: string
-
+  responses:
+    not_found:
+      description: Resource not found
+      content: {}
+    validation_failed_simple:
+      description: Validation failed
+      content: {}
+    bad_request:
+      description: Bad Request
+      content: {}
+    internal_error:
+      description: Internal Server Error
+      content: { }
+    validation_failed:
+      description: Validation failed
+      content: {}
+    forbidden:
+      description: Forbidden
+      content: {}
+    requires_authentication:
+      description: Requires authentication
+      content: {}
 paths:
   /api/users:
     get:
       summary: Returns a list of all users
+      tags: [Users]
       responses:
         '200':
           description: A JSON array of Users
@@ -208,12 +239,18 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/User'
-
-
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/peers:
     get:
       summary: Returns a list of all peers
+      tags: [Peers]
       responses:
         '200':
           description: A JSON Array of Peers
@@ -223,10 +260,18 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Peer'
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/peers/{id}:
     get:
       summary: Get information about a peer
+      tags: [Peers]
       parameters:
         - in: path
           name: id
@@ -241,8 +286,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Peer'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     put:
       summary: Update information about a peer
+      tags: [Peers]
       parameters:
         - in: path
           name: id
@@ -259,7 +313,6 @@ paths:
               properties:
                 name:
                   type: string
-
       responses:
         '200':
           description: A Peer object
@@ -267,8 +320,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Peer'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a peer
+      tags: [Peers]
       parameters:
         - in: path
           name: id
@@ -280,11 +342,18 @@ paths:
         '200':
           description: Delete status code
           content: {}
-
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/setup-keys:
     get:
       summary: Returns a list of all Setup Keys
+      tags: [Setup Keys]
       responses:
         '200':
           description: A JSON Array of Setup keys
@@ -294,16 +363,23 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/SetupKey'
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     post:
       summary: Creates a Setup Key
+      tags: [Setup Keys]
       requestBody:
         description: New Setup Key request
         content:
           'application/json':
             schema:
               $ref: '#/components/schemas/SetupKeyRequest'
-
       responses:
         '200':
           description: A Setup Keys Object
@@ -311,10 +387,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SetupKey'
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/setup-keys/{id}:
     get:
       summary: Get information about a Setup Key
+      tags: [Setup Keys]
       parameters:
         - in: path
           name: id
@@ -329,8 +413,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SetupKey'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     put:
       summary: Update information about a Setup Key
+      tags: [Setup Keys]
       parameters:
         - in: path
           name: id
@@ -344,7 +437,6 @@ paths:
           'application/json':
             schema:
               $ref: '#/components/schemas/SetupKeyRequest'
-
       responses:
         '200':
           description: A Setup Key object
@@ -352,8 +444,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SetupKey'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Setup Key
+      tags: [Setup Keys]
       parameters:
         - in: path
           name: id
@@ -365,10 +466,18 @@ paths:
         '200':
           description: Delete status code
           content: {}
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/groups:
     get:
       summary: Returns a list of all Groups
+      tags: [Groups]
       responses:
         '200':
           description: A JSON Array of Groups
@@ -378,9 +487,17 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Group'
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     post:
       summary: Creates a Group
+      tags: [Groups]
       requestBody:
         description: New Group request
         content:
@@ -390,7 +507,6 @@ paths:
               properties:
                 name:
                   type: string
-
       responses:
         '200':
           description: A Group Object
@@ -398,10 +514,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Group'
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/groups/{id}:
     get:
       summary: Get information about a Group
+      tags: [Groups]
       parameters:
         - in: path
           name: id
@@ -416,8 +540,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Group'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     patch:
       summary: Update information about a Group
+      tags: [Groups]
       parameters:
         - in: path
           name: id
@@ -442,7 +575,6 @@ paths:
                   type: array
                   items:
                     type: string
-
       responses:
         '200':
           description: A Group object
@@ -450,8 +582,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Group'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     put:
       summary: Update/Replace a Group
+      tags: [Groups]
       parameters:
         - in: path
           name: id
@@ -472,7 +613,6 @@ paths:
                   type: array
                   items:
                     type: string
-
       responses:
         '200':
           description: A Group object
@@ -480,9 +620,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Group'
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Group
+      tags: [Groups]
       parameters:
         - in: path
           name: id
@@ -494,10 +642,18 @@ paths:
         '200':
           description: Delete status code
           content: {}
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/rules:
     get:
       summary: Returns a list of all Rules
+      tags: [Rules]
       responses:
         '200':
           description: A JSON Array of Rules
@@ -507,9 +663,17 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Rule'
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     post:
       summary: Creates a Rule
+      tags: [Rules]
       requestBody:
         description: New Rule request
         content:
@@ -527,7 +691,6 @@ paths:
                       type: array
                       items:
                         type: string
-
       responses:
         '200':
           description: A Rule Object
@@ -535,10 +698,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Rule'
-
   /api/rules/{id}:
     get:
       summary: Get information about a Rules
+      tags: [Rules]
       parameters:
         - in: path
           name: id
@@ -553,8 +716,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Rule'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     patch:
       summary: Update information about a Rule
+      tags: [Rules]
       parameters:
         - in: path
           name: id
@@ -577,8 +749,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Rule'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     put:
       summary: Update/Replace a Rule
+      tags: [Rules]
       parameters:
         - in: path
           name: id
@@ -603,7 +784,6 @@ paths:
                       type: array
                       items:
                         type: string
-
       responses:
         '200':
           description: A Rule object
@@ -611,9 +791,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Group'
-
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Rule
+      tags: [Rules]
       parameters:
         - in: path
           name: id
@@ -625,3 +813,11 @@ paths:
         '200':
           description: Delete status code
           content: {}
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
