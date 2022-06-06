@@ -71,6 +71,9 @@ message LoginRequest {
   PeerSystemMeta meta = 2;
   // SSO token (can be empty)
   string jwtToken = 3;
+
+  // sshPubKey represents a public SSH key of the peer. Can be absent.
+  bytes sshPubKey = 4;
 }
 
 // Peer machine meta data
@@ -143,6 +146,9 @@ message PeerConfig {
   string  address = 1;
   // Wiretrustee DNS server (a Wireguard DNS config)
   string dns = 2;
+
+  // SSHConfig of the peer.
+  SSHConfig sshConfig = 3;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
@@ -172,7 +178,22 @@ message RemotePeerConfig {
 
   // Wireguard allowed IPs of a remote peer e.g. [10.30.30.1/32]
   repeated string allowedIps = 2;
+
+  // SSHConfig is a SSH config of the remote peer. SSHConfig.sshPubKey should be ignored because peer knows it's SSH key.
+  SSHConfig sshConfig = 3;
+
 }
+
+// SSHConfig represents SSH configurations of a peer.
+message SSHConfig {
+  // sshEnabled indicates whether a SSH server is enabled on this peer
+  bool sshEnabled = 1;
+
+  // sshPubKey is a SSH public key of a peer to be added to authorized_hosts.
+  // This property should be ignore if SSHConfig comes from PeerConfig.
+  bytes sshPubKey = 2;
+}
+
 // DeviceAuthorizationFlowRequest empty struct for future expansion
 message DeviceAuthorizationFlowRequest {}
 // DeviceAuthorizationFlow represents Device Authorization Flow information
