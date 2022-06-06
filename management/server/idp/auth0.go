@@ -76,13 +76,13 @@ type userExportJobResponse struct {
 type userExportJobStatusResponse struct {
 	Type         string    `json:"type"`
 	Status       string    `json:"status"`
-	ConnectionId string    `json:"connection_id"`
+	ConnectionID string    `json:"connection_id"`
 	Format       string    `json:"format"`
 	Limit        int       `json:"limit"`
 	Location     string    `json:"location"`
 	Connection   string    `json:"connection"`
 	CreatedAt    time.Time `json:"created_at"`
-	Id           string    `json:"id"`
+	ID           string    `json:"id"`
 }
 
 // auth0Profile represents an Auth0 user profile response
@@ -230,7 +230,7 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	return c.jwtToken, nil
 }
 
-func batchRequestUsersUrl(authIssuer, accountID string, page int) (string, url.Values, error) {
+func batchRequestUsersURL(authIssuer, accountID string, page int) (string, url.Values, error) {
 	u, err := url.Parse(authIssuer + "/api/v2/users")
 	if err != nil {
 		return "", nil, err
@@ -244,8 +244,8 @@ func batchRequestUsersUrl(authIssuer, accountID string, page int) (string, url.V
 	return u.String(), q, nil
 }
 
-func requestByUserIdUrl(authIssuer, userId string) string {
-	return authIssuer + "/api/v2/users/" + userId
+func requestByUserIDURL(authIssuer, userID string) string {
+	return authIssuer + "/api/v2/users/" + userID
 }
 
 // GetAccount returns all the users for a given profile. Calls Auth0 API.
@@ -260,7 +260,7 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
 	// auth0 limitation of 1000 users via this endpoint
 	for page := 0; page < 20; page++ {
-		reqURL, query, err := batchRequestUsersUrl(am.authIssuer, accountID, page)
+		reqURL, query, err := batchRequestUsersURL(am.authIssuer, accountID, page)
 		if err != nil {
 			return nil, err
 		}
@@ -313,13 +313,13 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 }
 
 // GetUserDataByID requests user data from auth0 via ID
-func (am *Auth0Manager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
+func (am *Auth0Manager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return nil, err
 	}
 
-	reqURL := requestByUserIdUrl(am.authIssuer, userId)
+	reqURL := requestByUserIDURL(am.authIssuer, userID)
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
@@ -358,14 +358,14 @@ func (am *Auth0Manager) GetUserDataByID(userId string, appMetadata AppMetadata) 
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userId and metadata map
-func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
+func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return err
 	}
 
-	reqURL := am.authIssuer + "/api/v2/users/" + userId
+	reqURL := am.authIssuer + "/api/v2/users/" + userID
 
 	data, err := am.helper.Marshal(appMetadata)
 	if err != nil {
@@ -383,7 +383,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
-	log.Debugf("updating metadata for user %s", userId)
+	log.Debugf("updating metadata for user %s", userID)
 
 	res, err := am.httpClient.Do(req)
 	if err != nil {
