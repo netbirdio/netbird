@@ -32,6 +32,7 @@ require (
 	github.com/c-robinson/iplib v1.0.3
 	github.com/eko/gocache/v2 v2.3.1
 	github.com/getlantern/systray v1.2.1
+	github.com/gliderlabs/ssh v0.3.4
 	github.com/magiconair/properties v1.8.5
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/rs/xid v1.3.0
@@ -42,6 +43,7 @@ require (
 require (
 	github.com/BurntSushi/toml v0.4.1 // indirect
 	github.com/XiaoMi/pegasus-go-client v0.0.0-20210427083443-f3b6b08bc4c2 // indirect
+	github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bradfitz/gomemcache v0.0.0-20220106215444-fb4bf637b56d // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
@@ -89,7 +91,6 @@ require (
 	github.com/srwiley/rasterx v0.0.0-20200120212402-85cb7272f5e9 // indirect
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
 	github.com/yuin/goldmark v1.4.1 // indirect
-	golang.org/x/exp v0.0.0-20220518171630-0b5c67f07fdf // indirect
 	golang.org/x/image v0.0.0-20200430140353-33d19683fad8 // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220106191415-9b9b3d81d5e3 // indirect
 	golang.org/x/net v0.0.0-20220412020605-290c469a71a5 // indirect
