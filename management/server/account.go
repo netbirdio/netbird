@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"math/rand"
 	"reflect"
 	"strings"
 	"sync"
@@ -20,9 +21,11 @@ import (
 )
 
 const (
-	PublicCategory  = "public"
-	PrivateCategory = "private"
-	UnknownCategory = "unknown"
+	PublicCategory     = "public"
+	PrivateCategory    = "private"
+	UnknownCategory    = "unknown"
+	CacheExpirationMax = 7 * 24 * 3600 * time.Second // 7 days
+	CacheExpirationMin = 3 * 24 * 3600 * time.Second // 3 days
 )
 
 type AccountManager interface {
@@ -173,12 +176,44 @@ func BuildManager(
 		}
 	}
 
-	gocacheClient := gocache.New(7*24*time.Hour, 30*time.Minute)
+	gocacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
 	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
 
 	am.cacheManager = cache.NewLoadable(am.loadFromCache, cache.New(gocacheStore))
+
+	if !isNil(am.idpManager) {
+		go func() {
+			err := am.warmupIDPCache()
+			if err != nil {
+				log.Warnf("failed warming up cache due to error: %v", err)
+				//todo retry?
+				return
+			}
+		}()
+	}
+
 	return am, nil
 
+}
+
+func (am *DefaultAccountManager) warmupIDPCache() error {
+	userData, err := am.idpManager.GetAllAccounts()
+	if err != nil {
+		return err
+	}
+
+	for accountID, users := range userData {
+		rand.Seed(time.Now().UnixNano())
+
+		r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
+		expiration := time.Duration(r) * time.Millisecond
+		err = am.cacheManager.Set(am.ctx, accountID, users, &cacheStore.Options{Expiration: expiration})
+		if err != nil {
+			return err
+		}
+	}
+	log.Infof("warmed up IDP cache with %d entries", len(userData))
+	return nil
 }
 
 // AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
@@ -332,7 +367,7 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 }
 
 func (am *DefaultAccountManager) loadFromCache(ctx context.Context, accountID interface{}) (interface{}, error) {
-	return am.idpManager.GetBatchedUserData(fmt.Sprintf("%v", accountID))
+	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
 }
 
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {
