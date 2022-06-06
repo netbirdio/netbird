@@ -3,11 +3,14 @@ package http
 import (
 	"context"
 	"crypto/tls"
+	"github.com/getkin/kin-openapi/openapi3filter"
 	"net/http"
 	"time"
 
+	oapiMiddleware "github.com/deepmap/oapi-codegen/pkg/chi-middleware"
 	"github.com/gorilla/mux"
 	s "github.com/netbirdio/netbird/management/server"
+	oapi "github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/handler"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/rs/cors"
@@ -96,20 +99,33 @@ func (s *Server) Start() error {
 		s.config.AuthAudience,
 		s.accountManager.IsUserAdmin)
 
+	openAPI, err := oapi.GetSwagger()
+	if err != nil {
+		return err
+	}
+
+	oapiValidator := oapiMiddleware.OapiRequestValidatorWithOptions(
+		openAPI,
+		&oapiMiddleware.Options{
+			Options: openapi3filter.Options{
+				AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+			},
+		},
+	)
+
 	r := mux.NewRouter()
-	r.Use(jwtMiddleware.Handler, corsMiddleware.Handler, acMiddleware.Handler)
+	r.Use(corsMiddleware.Handler, oapiValidator, jwtMiddleware.Handler, acMiddleware.Handler)
 
 	groupsHandler := handler.NewGroups(s.accountManager, s.config.AuthAudience)
 	rulesHandler := handler.NewRules(s.accountManager, s.config.AuthAudience)
 	peersHandler := handler.NewPeers(s.accountManager, s.config.AuthAudience)
 	keysHandler := handler.NewSetupKeysHandler(s.accountManager, s.config.AuthAudience)
+	userHandler := handler.NewUserHandler(s.accountManager, s.config.AuthAudience)
+
 	r.HandleFunc("/api/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/peers/{id}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
-
-	userHandler := handler.NewUserHandler(s.accountManager, s.config.AuthAudience)
 	r.HandleFunc("/api/users", userHandler.GetUsers).Methods("GET", "OPTIONS")
-
 	r.HandleFunc("/api/setup-keys", keysHandler.GetKeys).Methods("GET", "POST", "OPTIONS")
 	r.HandleFunc("/api/setup-keys/{id}", keysHandler.HandleKey).Methods("GET", "PUT", "OPTIONS")
 

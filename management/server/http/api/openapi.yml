@@ -3,8 +3,6 @@ info:
   title: NetBird REST API
   description: API to manipulate groups, rules and retrieve information about peers and users
   version: 0.0.1
-servers:
-  - url: https://api.wiretrustee.com
 tags:
   - name: Users
     description: Interact with and view information about users.
@@ -33,6 +31,11 @@ components:
         role:
           description: User's Netbird account role
           type: string
+      required:
+      - id
+      - email
+      - name
+      - role
     PeerMinimum:
       type: object
       properties:
@@ -42,6 +45,9 @@ components:
         name:
           description: Peer's hostname
           type: string
+      required:
+      - id
+      - name
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -53,7 +59,7 @@ components:
             connected:
               description: Peer to Management connection status
               type: boolean
-            lastSeen:
+            last_seen:
               description: Last time peer connected to Netbird's management service
               type: string
               format: date-time
@@ -76,9 +82,17 @@ components:
                   type: string
                 value:
                   type: string
-            ssh_enabled:
-              description: Is SSH access enabled for the peer
-              type: boolean
+              required:
+              - type
+              - value
+          required:
+          - ip
+          - connected
+          - last_seen
+          - os
+          - version
+          - groups
+          - activated_by
     SetupKey:
       type: object
       properties:
@@ -114,6 +128,17 @@ components:
         state:
           description: Setup key status, "valid", "overused","expired" or "revoked"
           type: string
+      required:
+      - id
+      - key
+      - name
+      - expires
+      - type
+      - valid
+      - revoked
+      - used_times
+      - last_used
+      - state
     SetupKeyRequest:
       type: object
       properties:
@@ -130,6 +155,11 @@ components:
         revoked:
           description: Setup key revocation status
           type: boolean
+      required:
+        - name
+        - type
+        - expires
+        - revoked
     GroupMinimum:
       type: object
       properties:
@@ -139,9 +169,13 @@ components:
         name:
           description: Group Name identifier
           type: string
-        peer_count:
+        peers_count:
           description: Count of peers associated to the group
           type: integer
+      required:
+      - id
+      - name
+      - peers_count
     Group:
       allOf:
         - $ref: '#/components/schemas/GroupMinimum'
@@ -152,6 +186,28 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/PeerMinimum'
+          required:
+          - peers
+    GroupPatchOperation:
+      type: object
+      properties:
+        op:
+          description: Patch operation type
+          type: string
+          enum: ["replace","add","remove"]
+        path:
+          description: Group field to update in form /<field>
+          type: string
+          enum: ["name","peers"]
+        value:
+          description: Values to be applied
+          type: array
+          items:
+            type: string
+      required:
+        - op
+        - path
+        - value
     RuleMinimum:
       type: object
       properties:
@@ -167,6 +223,11 @@ components:
         flow:
           description: Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
           type: string
+      required:
+      - name
+      - description
+      - enabled
+      - flow
     Rule:
       allOf:
         - type: object
@@ -174,6 +235,8 @@ components:
             id:
               description: Rule ID
               type: string
+          required:
+          - id
         - $ref: '#/components/schemas/RuleMinimum'
         - type: object
           properties:
@@ -187,11 +250,14 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
+          required:
+          - sources
+          - destinations
     RulePatchOperation:
       type: object
       properties:
         op:
-          description: Rule operation type
+          description: Patch operation type
           type: string
           enum: ["replace","add","remove"]
         path:
@@ -203,6 +269,10 @@ components:
           type: array
           items:
             type: string
+      required:
+      - op
+      - path
+      - value
   responses:
     not_found:
       description: Resource not found
@@ -225,11 +295,20 @@ components:
     requires_authentication:
       description: Requires authentication
       content: {}
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - BearerAuth: [ ]
 paths:
   /api/users:
     get:
       summary: Returns a list of all users
       tags: [Users]
+      security:
+        - BearerAuth: []
       responses:
         '200':
           description: A JSON array of Users
@@ -251,6 +330,8 @@ paths:
     get:
       summary: Returns a list of all peers
       tags: [Peers]
+      security:
+        - BearerAuth: []
       responses:
         '200':
           description: A JSON Array of Peers
@@ -272,6 +353,8 @@ paths:
     get:
       summary: Get information about a peer
       tags: [Peers]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -297,6 +380,8 @@ paths:
     put:
       summary: Update information about a peer
       tags: [Peers]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -313,6 +398,8 @@ paths:
               properties:
                 name:
                   type: string
+              required:
+                - name
       responses:
         '200':
           description: A Peer object
@@ -331,6 +418,8 @@ paths:
     delete:
       summary: Delete a peer
       tags: [Peers]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -354,6 +443,8 @@ paths:
     get:
       summary: Returns a list of all Setup Keys
       tags: [Setup Keys]
+      security:
+        - BearerAuth: [ ]
       responses:
         '200':
           description: A JSON Array of Setup keys
@@ -374,6 +465,8 @@ paths:
     post:
       summary: Creates a Setup Key
       tags: [Setup Keys]
+      security:
+        - BearerAuth: [ ]
       requestBody:
         description: New Setup Key request
         content:
@@ -399,6 +492,8 @@ paths:
     get:
       summary: Get information about a Setup Key
       tags: [Setup Keys]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -424,6 +519,8 @@ paths:
     put:
       summary: Update information about a Setup Key
       tags: [Setup Keys]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -455,6 +552,8 @@ paths:
     delete:
       summary: Delete a Setup Key
       tags: [Setup Keys]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -478,6 +577,8 @@ paths:
     get:
       summary: Returns a list of all Groups
       tags: [Groups]
+      security:
+        - BearerAuth: [ ]
       responses:
         '200':
           description: A JSON Array of Groups
@@ -498,6 +599,8 @@ paths:
     post:
       summary: Creates a Group
       tags: [Groups]
+      security:
+        - BearerAuth: [ ]
       requestBody:
         description: New Group request
         content:
@@ -507,6 +610,8 @@ paths:
               properties:
                 name:
                   type: string
+              required:
+                - name
       responses:
         '200':
           description: A Group Object
@@ -526,6 +631,8 @@ paths:
     get:
       summary: Get information about a Group
       tags: [Groups]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -551,6 +658,8 @@ paths:
     patch:
       summary: Update information about a Group
       tags: [Groups]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -559,22 +668,13 @@ paths:
             type: string
           description: The Setup Key ID
       requestBody:
-        description: Update Group request
+        description: Update Group request using a list of json patch objects
         content:
           'application/json':
             schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                peers_to_add:
-                  type: array
-                  items:
-                    type: string
-                peers_to_remove:
-                  type: array
-                  items:
-                    type: string
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupPatchOperation'
       responses:
         '200':
           description: A Group object
@@ -593,6 +693,8 @@ paths:
     put:
       summary: Update/Replace a Group
       tags: [Groups]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -631,6 +733,8 @@ paths:
     delete:
       summary: Delete a Group
       tags: [Groups]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -654,6 +758,8 @@ paths:
     get:
       summary: Returns a list of all Rules
       tags: [Rules]
+      security:
+        - BearerAuth: [ ]
       responses:
         '200':
           description: A JSON Array of Rules
@@ -674,6 +780,8 @@ paths:
     post:
       summary: Creates a Rule
       tags: [Rules]
+      security:
+        - BearerAuth: [ ]
       requestBody:
         description: New Rule request
         content:
@@ -702,6 +810,8 @@ paths:
     get:
       summary: Get information about a Rules
       tags: [Rules]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -727,6 +837,8 @@ paths:
     patch:
       summary: Update information about a Rule
       tags: [Rules]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -760,6 +872,8 @@ paths:
     put:
       summary: Update/Replace a Rule
       tags: [Rules]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
@@ -802,6 +916,8 @@ paths:
     delete:
       summary: Delete a Rule
       tags: [Rules]
+      security:
+        - BearerAuth: [ ]
       parameters:
         - in: path
           name: id
