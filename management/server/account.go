@@ -165,14 +165,16 @@ func BuildManager(
 		ctx:                context.Background(),
 	}
 
-	// if account has not default account
-	// we build 'all' group and add all peers into it
-	// also we create default rule with source an destination
-	// groups 'all'
+	// if account has not default group
+	// we create 'all' group and add all peers into it
+	// also we create default rule with source as destination
 	for _, account := range store.GetAllAccounts() {
-		am.addAllGroup(account)
-		if err := store.SaveAccount(account); err != nil {
-			return nil, err
+		_, err := account.GetGroupAll()
+		if err != nil {
+			am.addAllGroup(account)
+			if err := store.SaveAccount(account); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -640,7 +642,7 @@ func (am *DefaultAccountManager) createAccount(accountId, userId, domain string)
 	return account, nil
 }
 
-// addAllGroup to account object it it doesn't exists
+// addAllGroup to account object if it doesn't exists
 func (am *DefaultAccountManager) addAllGroup(account *Account) {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
