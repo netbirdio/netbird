@@ -5,6 +5,7 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	gossh "golang.org/x/crypto/ssh"
 )
 
@@ -25,12 +26,22 @@ func GeneratePrivateKey(bitSize int) (*rsa.PrivateKey, error) {
 
 // GeneratePublicKey takes a rsa.PublicKey and return bytes suitable for writing to .pub file
 // returns the key in format format "ssh-rsa ..."
-func GeneratePublicKey(privateKey *rsa.PublicKey) ([]byte, error) {
-	publicRsaKey, err := gossh.NewPublicKey(privateKey)
+func GeneratePublicKey(key *rsa.PublicKey) ([]byte, error) {
+	publicRsaKey, err := gossh.NewPublicKey(key)
 	if err != nil {
 		return nil, err
 	}
 	return gossh.MarshalAuthorizedKey(publicRsaKey), nil
+}
+
+func DecodePrivateKeyFromPEM(k []byte) (key *rsa.PrivateKey, err error) {
+
+	block, _ := pem.Decode(k)
+	if block == nil {
+		return nil, fmt.Errorf("failed to parse PEM block containing the key")
+	}
+
+	return x509.ParsePKCS1PrivateKey(block.Bytes)
 }
 
 // EncodePrivateKeyToPEM encodes Private Key from RSA to PEM format

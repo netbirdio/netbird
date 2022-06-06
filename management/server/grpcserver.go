@@ -380,7 +380,6 @@ func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 			SshConfig: &proto.SSHConfig{SshPubKey: []byte("dddd")},
 		})
 	}
-
 	return remotePeers
 }
 
