@@ -30,6 +30,7 @@ require (
 require (
 	fyne.io/fyne/v2 v2.1.4
 	github.com/c-robinson/iplib v1.0.3
+	github.com/creack/pty v1.1.18
 	github.com/eko/gocache/v2 v2.3.1
 	github.com/getlantern/systray v1.2.1
 	github.com/gliderlabs/ssh v0.3.4
