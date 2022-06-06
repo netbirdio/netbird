@@ -1,5 +1,5 @@
 package: api
 generate:
   models: true
-  embedded-spec: true
+  embedded-spec: false
 output: types.gen.go
