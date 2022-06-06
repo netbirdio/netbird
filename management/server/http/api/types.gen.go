@@ -11,36 +11,6 @@ const (
 	BearerAuthScopes = "BearerAuth.Scopes"
 )
 
-// Defines values for GroupPatchOperationOp.
-const (
-	GroupPatchOperationOpAdd     GroupPatchOperationOp = "add"
-	GroupPatchOperationOpRemove  GroupPatchOperationOp = "remove"
-	GroupPatchOperationOpReplace GroupPatchOperationOp = "replace"
-)
-
-// Defines values for GroupPatchOperationPath.
-const (
-	GroupPatchOperationPathName  GroupPatchOperationPath = "name"
-	GroupPatchOperationPathPeers GroupPatchOperationPath = "peers"
-)
-
-// Defines values for RulePatchOperationOp.
-const (
-	RulePatchOperationOpAdd     RulePatchOperationOp = "add"
-	RulePatchOperationOpRemove  RulePatchOperationOp = "remove"
-	RulePatchOperationOpReplace RulePatchOperationOp = "replace"
-)
-
-// Defines values for RulePatchOperationPath.
-const (
-	RulePatchOperationPathDescription  RulePatchOperationPath = "description"
-	RulePatchOperationPathDestinations RulePatchOperationPath = "destinations"
-	RulePatchOperationPathEnabled      RulePatchOperationPath = "enabled"
-	RulePatchOperationPathFlow         RulePatchOperationPath = "flow"
-	RulePatchOperationPathName         RulePatchOperationPath = "name"
-	RulePatchOperationPathSources      RulePatchOperationPath = "sources"
-)
-
 // Group defines model for Group.
 type Group struct {
 	// Group ID
@@ -67,24 +37,6 @@ type GroupMinimum struct {
 	// Count of peers associated to the group
 	PeersCount int `json:"peers_count"`
 }
-
-// GroupPatchOperation defines model for GroupPatchOperation.
-type GroupPatchOperation struct {
-	// Patch operation type
-	Op GroupPatchOperationOp `json:"op"`
-
-	// Group field to update in form /<field>
-	Path GroupPatchOperationPath `json:"path"`
-
-	// Values to be applied
-	Value []string `json:"value"`
-}
-
-// Patch operation type
-type GroupPatchOperationOp string
-
-// Group field to update in form /<field>
-type GroupPatchOperationPath string
 
 // Peer defines model for Peer.
 type Peer struct {
@@ -167,24 +119,6 @@ type RuleMinimum struct {
 	Name string `json:"name"`
 }
 
-// RulePatchOperation defines model for RulePatchOperation.
-type RulePatchOperation struct {
-	// Patch operation type
-	Op RulePatchOperationOp `json:"op"`
-
-	// Rule field to update in form /<field>
-	Path RulePatchOperationPath `json:"path"`
-
-	// Values to be applied
-	Value []string `json:"value"`
-}
-
-// Patch operation type
-type RulePatchOperationOp string
-
-// Rule field to update in form /<field>
-type RulePatchOperationPath string
-
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
 	// Setup Key expiration date
@@ -250,11 +184,9 @@ type User struct {
 
 // PostApiGroupsJSONBody defines parameters for PostApiGroups.
 type PostApiGroupsJSONBody struct {
-	Name string `json:"name"`
+	Name  string    `json:"name"`
+	Peers *[]string `json:"peers,omitempty"`
 }
-
-// PatchApiGroupsIdJSONBody defines parameters for PatchApiGroupsId.
-type PatchApiGroupsIdJSONBody = []GroupPatchOperation
 
 // PutApiGroupsIdJSONBody defines parameters for PutApiGroupsId.
 type PutApiGroupsIdJSONBody struct {
@@ -284,9 +216,6 @@ type PostApiRulesJSONBody struct {
 	Sources *[]string `json:"sources,omitempty"`
 }
 
-// PatchApiRulesIdJSONBody defines parameters for PatchApiRulesId.
-type PatchApiRulesIdJSONBody = []RulePatchOperation
-
 // PutApiRulesIdJSONBody defines parameters for PutApiRulesId.
 type PutApiRulesIdJSONBody struct {
 	// Rule friendly description
@@ -313,9 +242,6 @@ type PutApiSetupKeysIdJSONBody = SetupKeyRequest
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody PostApiGroupsJSONBody
 
-// PatchApiGroupsIdJSONRequestBody defines body for PatchApiGroupsId for application/json ContentType.
-type PatchApiGroupsIdJSONRequestBody = PatchApiGroupsIdJSONBody
-
 // PutApiGroupsIdJSONRequestBody defines body for PutApiGroupsId for application/json ContentType.
 type PutApiGroupsIdJSONRequestBody PutApiGroupsIdJSONBody
 
@@ -324,9 +250,6 @@ type PutApiPeersIdJSONRequestBody PutApiPeersIdJSONBody
 
 // PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
 type PostApiRulesJSONRequestBody PostApiRulesJSONBody
-
-// PatchApiRulesIdJSONRequestBody defines body for PatchApiRulesId for application/json ContentType.
-type PatchApiRulesIdJSONRequestBody = PatchApiRulesIdJSONBody
 
 // PutApiRulesIdJSONRequestBody defines body for PutApiRulesId for application/json ContentType.
 type PutApiRulesIdJSONRequestBody PutApiRulesIdJSONBody
