@@ -54,6 +54,11 @@ type Auth0Credentials struct {
 	mux          sync.Mutex
 }
 
+type UserExportJobRequest struct {
+	Format string              `json:"format"`
+	Fields []map[string]string `json:"fields"`
+}
+
 type UserExportJobResponse struct {
 	Type         string    `json:"type"`
 	Status       string    `json:"status"`
@@ -395,6 +400,30 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 	return nil
 }
 
+func buildUserExportRequest() (string, error) {
+	req := &UserExportJobRequest{}
+	fields := make([]map[string]string, 0)
+
+	for _, field := range []string{"created_at", "last_login", "user_id", "email", "name"} {
+		fields = append(fields, map[string]string{"name": field})
+	}
+
+	fields = append(fields, map[string]string{
+		"name":      "app_metadata.wt_account_id",
+		"export_as": "wt_account_id",
+	})
+
+	req.Format = "json"
+	req.Fields = fields
+
+	str, err := json.Marshal(req)
+	if err != nil {
+		return "", err
+	}
+
+	return string(str), nil
+}
+
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
@@ -405,9 +434,10 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	reqURL := am.authIssuer + "/api/v2/jobs/users-exports"
 
-	payloadString := fmt.Sprintf("{\"format\": \"json\"," +
-		"\"fields\": [{\"name\": \"created_at\"}, {\"name\": \"last_login\"},{\"name\": \"user_id\"}, {\"name\": \"email\"}, {\"name\": \"name\"}, {\"name\": \"app_metadata.wt_account_id\", \"export_as\": \"wt_account_id\"}]}")
-
+	payloadString, err := buildUserExportRequest()
+	if err != nil {
+		return nil, err
+	}
 	payload := strings.NewReader(payloadString)
 
 	exportJobReq, err := http.NewRequest("POST", reqURL, payload)
