@@ -11,7 +11,7 @@ import (
 type Manager interface {
 	UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error
 	GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error)
-	GetBatchedUserData(accountId string) ([]*UserData, error)
+	GetAccount(accountId string) ([]*UserData, error)
 	GetAllAccounts() (map[string][]*UserData, error)
 }
 

@@ -240,7 +240,7 @@ func requestByUserIdUrl(authIssuer, userId string) string {
 }
 
 // GetBatchedUserData requests users in batches from Auth0
-func (am *Auth0Manager) GetBatchedUserData(accountId string) ([]*UserData, error) {
+func (am *Auth0Manager) GetAccount(accountId string) ([]*UserData, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return nil, err

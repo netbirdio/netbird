@@ -365,7 +365,7 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 }
 
 func (am *DefaultAccountManager) loadFromCache(ctx context.Context, accountID interface{}) (interface{}, error) {
-	return am.idpManager.GetBatchedUserData(fmt.Sprintf("%v", accountID))
+	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
 }
 
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {
