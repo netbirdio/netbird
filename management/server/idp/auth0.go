@@ -54,26 +54,26 @@ type Auth0Credentials struct {
 	mux          sync.Mutex
 }
 
-// UserExportJobRequest is a user export request struct
-type UserExportJobRequest struct {
+// userExportJobRequest is a user export request struct
+type userExportJobRequest struct {
 	Format string              `json:"format"`
 	Fields []map[string]string `json:"fields"`
 }
 
-// UserExportJobResponse is a user export response struct
-type UserExportJobResponse struct {
+// userExportJobResponse is a user export response struct
+type userExportJobResponse struct {
 	Type         string    `json:"type"`
 	Status       string    `json:"status"`
-	ConnectionId string    `json:"connection_id"`
+	ConnectionID string    `json:"connection_id"`
 	Format       string    `json:"format"`
 	Limit        int       `json:"limit"`
 	Connection   string    `json:"connection"`
 	CreatedAt    time.Time `json:"created_at"`
-	Id           string    `json:"id"`
+	ID           string    `json:"id"`
 }
 
-// UserExportJobStatusResponse is a user export status response struct
-type UserExportJobStatusResponse struct {
+// userExportJobStatusResponse is a user export status response struct
+type userExportJobStatusResponse struct {
 	Type         string    `json:"type"`
 	Status       string    `json:"status"`
 	ConnectionId string    `json:"connection_id"`
@@ -85,9 +85,9 @@ type UserExportJobStatusResponse struct {
 	Id           string    `json:"id"`
 }
 
-// Auth0Profile represents an Auth0 user profile response
-type Auth0Profile struct {
-	AccountId string `json:"wt_account_id"`
+// auth0Profile represents an Auth0 user profile response
+type auth0Profile struct {
+	AccountID string `json:"wt_account_id"`
 	UserID    string `json:"user_id"`
 	Name      string `json:"name"`
 	Email     string `json:"email"`
@@ -230,7 +230,7 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	return c.jwtToken, nil
 }
 
-func batchRequestUsersUrl(authIssuer, accountId string, page int) (string, url.Values, error) {
+func batchRequestUsersUrl(authIssuer, accountID string, page int) (string, url.Values, error) {
 	u, err := url.Parse(authIssuer + "/api/v2/users")
 	if err != nil {
 		return "", nil, err
@@ -238,7 +238,7 @@ func batchRequestUsersUrl(authIssuer, accountId string, page int) (string, url.V
 	q := u.Query()
 	q.Set("page", strconv.Itoa(page))
 	q.Set("search_engine", "v3")
-	q.Set("q", "app_metadata.wt_account_id:"+accountId)
+	q.Set("q", "app_metadata.wt_account_id:"+accountID)
 	u.RawQuery = q.Encode()
 
 	return u.String(), q, nil
@@ -248,8 +248,8 @@ func requestByUserIdUrl(authIssuer, userId string) string {
 	return authIssuer + "/api/v2/users/" + userId
 }
 
-// GetBatchedUserData requests users in batches from Auth0
-func (am *Auth0Manager) GetAccount(accountId string) ([]*UserData, error) {
+// GetAccount returns all the users for a given profile. Calls Auth0 API.
+func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return nil, err
@@ -260,7 +260,7 @@ func (am *Auth0Manager) GetAccount(accountId string) ([]*UserData, error) {
 	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
 	// auth0 limitation of 1000 users via this endpoint
 	for page := 0; page < 20; page++ {
-		reqURL, query, err := batchRequestUsersUrl(am.authIssuer, accountId, page)
+		reqURL, query, err := batchRequestUsersUrl(am.authIssuer, accountID, page)
 		if err != nil {
 			return nil, err
 		}
@@ -405,7 +405,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 }
 
 func buildUserExportRequest() (string, error) {
-	req := &UserExportJobRequest{}
+	req := &userExportJobRequest{}
 	fields := make([]map[string]string, 0)
 
 	for _, field := range []string{"created_at", "last_login", "user_id", "email", "name"} {
@@ -467,7 +467,7 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 		return nil, fmt.Errorf("unable to update the appMetadata, statusCode %d", jobResp.StatusCode)
 	}
 
-	var exportJobResp UserExportJobResponse
+	var exportJobResp userExportJobResponse
 
 	body, err := ioutil.ReadAll(jobResp.Body)
 	if err != nil {
@@ -481,13 +481,13 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 		return nil, err
 	}
 
-	if exportJobResp.Id == "" {
+	if exportJobResp.ID == "" {
 		return nil, fmt.Errorf("couldn't get an batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
 	}
 
 	log.Debugf("batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
 
-	done, downloadLink, err := am.checkExportJobStatus(exportJobResp.Id)
+	done, downloadLink, err := am.checkExportJobStatus(exportJobResp.ID)
 	if err != nil {
 		log.Debugf("Failed at getting status checks from exportJob; %v", err)
 		return nil, err
@@ -502,7 +502,7 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 
 // checkExportJobStatus checks the status of the job created at CreateExportUsersJob.
 // If the status is "completed", then return the downloadLink
-func (am *Auth0Manager) checkExportJobStatus(jobId string) (bool, string, error) {
+func (am *Auth0Manager) checkExportJobStatus(jobID string) (bool, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	retry := time.NewTicker(10 * time.Second)
@@ -517,13 +517,13 @@ func (am *Auth0Manager) checkExportJobStatus(jobId string) (bool, string, error)
 				return false, "", err
 			}
 
-			statusUrl := am.authIssuer + "/api/v2/jobs/" + jobId
-			body, err := doGetReq(am.httpClient, statusUrl, jwtToken.AccessToken)
+			statusURL := am.authIssuer + "/api/v2/jobs/" + jobID
+			body, err := doGetReq(am.httpClient, statusURL, jwtToken.AccessToken)
 			if err != nil {
 				return false, "", err
 			}
 
-			var status UserExportJobStatusResponse
+			var status userExportJobStatusResponse
 			err = am.helper.Unmarshal(body, &status)
 			if err != nil {
 				return false, "", err
@@ -558,16 +558,16 @@ func (am *Auth0Manager) downloadProfileExport(location string) (map[string][]*Us
 
 	res := make(map[string][]*UserData)
 	for decoder.More() {
-		profile := Auth0Profile{}
+		profile := auth0Profile{}
 		err = decoder.Decode(&profile)
 		if err != nil {
 			return nil, err
 		}
-		if profile.AccountId != "" {
-			if _, ok := res[profile.AccountId]; !ok {
-				res[profile.AccountId] = []*UserData{}
+		if profile.AccountID != "" {
+			if _, ok := res[profile.AccountID]; !ok {
+				res[profile.AccountID] = []*UserData{}
 			}
-			res[profile.AccountId] = append(res[profile.AccountId],
+			res[profile.AccountID] = append(res[profile.AccountID],
 				&UserData{
 					ID:    profile.UserID,
 					Name:  profile.Name,
