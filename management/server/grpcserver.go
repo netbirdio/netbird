@@ -365,7 +365,8 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 
 func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	return &proto.PeerConfig{
-		Address: fmt.Sprintf("%s/%d", peer.IP.String(), SubnetSize), // take it from the network
+		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), SubnetSize), // take it from the network
+		SshConfig: &proto.SSHConfig{SshEnabled: true},                 //TODO REMOVE THIS HARDCODED VALUE
 	}
 }
 
@@ -375,6 +376,8 @@ func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
 			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)},
+			//TODO REMOVE THIS HARDCODED VALUE
+			SshConfig: &proto.SSHConfig{SshPubKey: []byte("dddd")},
 		})
 	}
 

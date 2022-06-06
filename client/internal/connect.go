@@ -147,6 +147,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		IFaceBlackList: config.IFaceBlackList,
 		WgPrivateKey:   key,
 		WgPort:         iface.DefaultWgPort,
+		SSHKey:         []byte(config.SSHKey),
 	}
 
 	if config.PreSharedKey != "" {

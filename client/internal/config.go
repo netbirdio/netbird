@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/ssh"
 	mgm "github.com/netbirdio/netbird/management/client"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -38,12 +39,17 @@ type Config struct {
 	AdminURL       *url.URL
 	WgIface        string
 	IFaceBlackList []string
+	SSHKey         string
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
 func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (*Config, error) {
 	wgKey := generateKey()
-	config := &Config{PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
+	pem, err := generateSSHKey()
+	if err != nil {
+		return nil, err
+	}
+	config := &Config{SSHKey: string(pem), PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
 	if managementURL != "" {
 		URL, err := parseURL("Management URL", managementURL)
 		if err != nil {
@@ -61,12 +67,20 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
 		"Tailscale", "tailscale"}
 
-	err := util.WriteJson(configPath, config)
+	err = util.WriteJson(configPath, config)
 	if err != nil {
 		return nil, err
 	}
 
 	return config, nil
+}
+
+func generateSSHKey() ([]byte, error) {
+	sshKey, err := ssh.GeneratePrivateKey(4096)
+	if err != nil {
+		return nil, err
+	}
+	return ssh.EncodePrivateKeyToPEM(sshKey), nil
 }
 
 func parseURL(serviceName, managementURL string) (*url.URL, error) {
@@ -124,6 +138,14 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 		log.Infof("new pre-shared key provided, updated to %s (old value %s)",
 			*preSharedKey, config.PreSharedKey)
 		config.PreSharedKey = *preSharedKey
+		refresh = true
+	}
+	if config.SSHKey == "" {
+		pem, err := generateSSHKey()
+		if err != nil {
+			return nil, err
+		}
+		config.SSHKey = string(pem)
 		refresh = true
 	}
 

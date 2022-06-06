@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/ssh"
 	"math/rand"
 	"net"
 	"strings"
@@ -54,6 +55,8 @@ type EngineConfig struct {
 
 	// UDPMuxSrflxPort default value 0 - the system will pick an available port
 	UDPMuxSrflxPort int
+
+	SSHKey []byte
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -87,6 +90,8 @@ type Engine struct {
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
+
+	sshServer *ssh.Server
 }
 
 // Peer is an instance of the Connection Peer
@@ -422,7 +427,41 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		if err != nil {
 			return err
 		}
+		e.config.WgAddr = conf.Address
 		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
+	}
+
+	if conf.GetSshConfig() != nil {
+		if conf.GetSshConfig().GetSshEnabled() {
+			// start SSH server if it wasn't running
+			if e.sshServer == nil {
+				//nil sshServer means it has not yet been started
+
+				var err error
+				e.sshServer, err = ssh.NewSSHServer(e.config.SSHKey,
+					fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), 2222))
+				if err != nil {
+					log.Warnf("failed creating SSH server %v", err)
+				}
+				go func() {
+					err = e.sshServer.Start()
+					if err != nil {
+					}
+					log.Infof("stopped SSH server")
+				}()
+			} else {
+				log.Debugf("SSH server is already running")
+			}
+		} else {
+			// stop SSH server if it was running
+			if e.sshServer != nil {
+				err := e.sshServer.Stop()
+				if err != nil {
+					log.Warnf("failed stopping SSH server %v", err)
+				}
+				e.sshServer = nil
+			}
+		}
 	}
 
 	return nil
@@ -514,6 +553,18 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		err = e.addNewPeers(networkMap.GetRemotePeers())
 		if err != nil {
 			return err
+		}
+
+		// update SSHServer by adding remote peer SSH keys
+		if e.sshServer != nil {
+			for _, config := range networkMap.GetRemotePeers() {
+				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
+					err := e.sshServer.AddAuthorizedKey(string(config.GetSshConfig().GetSshPubKey()))
+					if err != nil {
+						log.Warnf("failed adding authroized key to SSH Server %v", err)
+					}
+				}
+			}
 		}
 	}
 
