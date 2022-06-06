@@ -1,24 +1,31 @@
 package server
 
 import (
+	"context"
 	"fmt"
-	"reflect"
-	"strings"
-	"sync"
-
+	"github.com/eko/gocache/v2/cache"
+	cacheStore "github.com/eko/gocache/v2/store"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/util"
+	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"math/rand"
+	"reflect"
+	"strings"
+	"sync"
+	"time"
 )
 
 const (
-	PublicCategory  = "public"
-	PrivateCategory = "private"
-	UnknownCategory = "unknown"
+	PublicCategory     = "public"
+	PrivateCategory    = "private"
+	UnknownCategory    = "unknown"
+	CacheExpirationMax = 7 * 24 * 3600 * time.Second // 7 days
+	CacheExpirationMin = 3 * 24 * 3600 * time.Second // 3 days
 )
 
 type AccountManager interface {
@@ -66,6 +73,8 @@ type DefaultAccountManager struct {
 	mux                sync.Mutex
 	peersUpdateManager *PeersUpdateManager
 	idpManager         idp.Manager
+	cacheManager       cache.CacheInterface
+	ctx                context.Context
 }
 
 // Account represents a unique account of the system
@@ -148,11 +157,12 @@ func (a *Account) GetGroupAll() (*Group, error) {
 func BuildManager(
 	store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
 ) (*DefaultAccountManager, error) {
-	dam := &DefaultAccountManager{
+	am := &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
 		peersUpdateManager: peersUpdateManager,
 		idpManager:         idpManager,
+		ctx:                context.Background(),
 	}
 
 	// if account has not default account
@@ -160,13 +170,50 @@ func BuildManager(
 	// also we create default rule with source an destination
 	// groups 'all'
 	for _, account := range store.GetAllAccounts() {
-		dam.addAllGroup(account)
+		am.addAllGroup(account)
 		if err := store.SaveAccount(account); err != nil {
 			return nil, err
 		}
 	}
 
-	return dam, nil
+	gocacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
+	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
+
+	am.cacheManager = cache.NewLoadable(am.loadFromCache, cache.New(gocacheStore))
+
+	if !isNil(am.idpManager) {
+		go func() {
+			err := am.warmupIDPCache()
+			if err != nil {
+				log.Warnf("failed warming up cache due to error: %v", err)
+				//todo retry?
+				return
+			}
+		}()
+	}
+
+	return am, nil
+
+}
+
+func (am *DefaultAccountManager) warmupIDPCache() error {
+	userData, err := am.idpManager.GetAllAccounts()
+	if err != nil {
+		return err
+	}
+
+	for accountID, users := range userData {
+		rand.Seed(time.Now().UnixNano())
+
+		r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
+		expiration := time.Duration(r) * time.Millisecond
+		err = am.cacheManager.Set(am.ctx, accountID, users, &cacheStore.Options{Expiration: expiration})
+		if err != nil {
+			return err
+		}
+	}
+	log.Infof("warmed up IDP cache with %d entries", len(userData))
+	return nil
 }
 
 // AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
@@ -319,6 +366,49 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 	}
 }
 
+func (am *DefaultAccountManager) loadFromCache(ctx context.Context, accountID interface{}) (interface{}, error) {
+	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
+}
+
+func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {
+	data, err := am.cacheManager.Get(am.ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	userData := data.([]*idp.UserData)
+
+	userDataMap := make(map[string]struct{})
+	for _, datum := range userData {
+		userDataMap[datum.ID] = struct{}{}
+	}
+
+	// check whether we need to reload the cache
+	// the accountUsers ID list is the source of truth and all the users should be in the cache
+	reload := len(accountUsers) != len(userData)
+	for user := range accountUsers {
+		if _, ok := userDataMap[user]; !ok {
+			reload = true
+		}
+	}
+
+	if reload {
+		// reload cache once avoiding loops
+		err := am.cacheManager.Delete(am.ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+		data, err = am.cacheManager.Get(am.ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+
+		userData = data.([]*idp.UserData)
+	}
+
+	return userData, err
+}
+
 // GetUsersFromAccount performs a batched request for users from IDP by account id
 func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
 	account, err := am.GetAccountById(accountID)
@@ -328,7 +418,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		queriedUsers, err = am.idpManager.GetBatchedUserData(accountID)
+		queriedUsers, err = am.lookupCache(account.Users, accountID)
 		if err != nil {
 			return nil, err
 		}
