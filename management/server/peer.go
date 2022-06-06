@@ -47,6 +47,8 @@ type Peer struct {
 	Status *PeerStatus
 	// The user ID that registered the peer
 	UserID string
+	// SSHKey is a public SSH key of the peer
+	SSHKey string
 }
 
 // Copy copies Peer object
@@ -59,6 +61,7 @@ func (p *Peer) Copy() *Peer {
 		Name:     p.Name,
 		Status:   p.Status,
 		UserID:   p.UserID,
+		SSHKey:   p.SSHKey,
 	}
 }
 
@@ -313,6 +316,31 @@ func (am *DefaultAccountManager) AddPeer(
 	}
 
 	return newPeer, nil
+}
+
+// UpdatePeerSSHKey updates peer's public SSH key
+func (am *DefaultAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string) error {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	peer, err := am.Store.GetPeer(peerKey)
+	if err != nil {
+		return err
+	}
+
+	account, err := am.Store.GetPeerAccount(peerKey)
+	if err != nil {
+		return err
+	}
+
+	peerCopy := peer.Copy()
+	peerCopy.SSHKey = sshKey
+
+	err = am.Store.SavePeer(account.Id, peerCopy)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // UpdatePeerMeta updates peer's system metadata

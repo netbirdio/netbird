@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/client/ssh"
 	"time"
 
 	"github.com/netbirdio/netbird/client/system"
@@ -62,10 +63,17 @@ func RunClient(ctx context.Context, config *Config) error {
 
 		engineCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-
+		key, err := ssh.DecodePrivateKeyFromPEM([]byte(config.SSHKey))
+		if err != nil {
+			return err
+		}
+		publicKey, err := ssh.GeneratePublicKey(&key.PublicKey)
+		if err != nil {
+			return err
+		}
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
 		mgmClient, loginResp, err := connectToManagement(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
-			[]byte(config.SSHKey))
+			publicKey)
 		if err != nil {
 			log.Debug(err)
 			if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {

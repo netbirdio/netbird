@@ -290,6 +290,14 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			return nil, status.Error(codes.Internal, "internal server error")
 		}
 	}
+
+	if loginReq.GetSshPubKey() != nil {
+		err = s.accountManager.UpdatePeerSSHKey(peerKey.String(), string(loginReq.GetSshPubKey()))
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
@@ -376,8 +384,7 @@ func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
 			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)},
-			//TODO REMOVE THIS HARDCODED VALUE
-			SshConfig: &proto.SSHConfig{SshPubKey: []byte("dddd")},
+			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 		})
 	}
 	return remotePeers
