@@ -54,11 +54,13 @@ type Auth0Credentials struct {
 	mux          sync.Mutex
 }
 
+// UserExportJobRequest is a user export request struct
 type UserExportJobRequest struct {
 	Format string              `json:"format"`
 	Fields []map[string]string `json:"fields"`
 }
 
+// UserExportJobResponse is a user export response struct
 type UserExportJobResponse struct {
 	Type         string    `json:"type"`
 	Status       string    `json:"status"`
@@ -70,7 +72,8 @@ type UserExportJobResponse struct {
 	Id           string    `json:"id"`
 }
 
-type ExportJobStatusResponse struct {
+// UserExportJobStatusResponse is a user export status response struct
+type UserExportJobStatusResponse struct {
 	Type         string    `json:"type"`
 	Status       string    `json:"status"`
 	ConnectionId string    `json:"connection_id"`
@@ -82,6 +85,7 @@ type ExportJobStatusResponse struct {
 	Id           string    `json:"id"`
 }
 
+// Auth0Profile represents an Auth0 user profile response
 type Auth0Profile struct {
 	AccountId string `json:"wt_account_id"`
 	UserID    string `json:"user_id"`
@@ -519,7 +523,7 @@ func (am *Auth0Manager) checkExportJobStatus(jobId string) (bool, string, error)
 				return false, "", err
 			}
 
-			var status ExportJobStatusResponse
+			var status UserExportJobStatusResponse
 			err = am.helper.Unmarshal(body, &status)
 			if err != nil {
 				return false, "", err
