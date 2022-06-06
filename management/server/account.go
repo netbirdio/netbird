@@ -181,14 +181,16 @@ func BuildManager(
 
 	am.cacheManager = cache.NewLoadable(am.loadFromCache, cache.New(gocacheStore))
 
-	go func() {
-		err := am.warmupIDPCache()
-		if err != nil {
-			log.Warnf("failed warming up cache due to error: %v", err)
-			//todo retry?
-			return
-		}
-	}()
+	if !isNil(am.idpManager) {
+		go func() {
+			err := am.warmupIDPCache()
+			if err != nil {
+				log.Warnf("failed warming up cache due to error: %v", err)
+				//todo retry?
+				return
+			}
+		}()
+	}
 
 	return am, nil
 
