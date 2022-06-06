@@ -1,6 +1,9 @@
 package idp
 
 import (
+	"bytes"
+	"compress/gzip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,6 +52,38 @@ type Auth0Credentials struct {
 	httpClient   ManagerHTTPClient
 	jwtToken     JWTToken
 	mux          sync.Mutex
+}
+
+type UserExportJobResponse struct {
+	Type         string    `json:"type"`
+	Status       string    `json:"status"`
+	ConnectionId string    `json:"connection_id"`
+	Format       string    `json:"format"`
+	Limit        int       `json:"limit"`
+	Connection   string    `json:"connection"`
+	CreatedAt    time.Time `json:"created_at"`
+	Id           string    `json:"id"`
+}
+
+type ExportJobStatusResponse struct {
+	Type         string    `json:"type"`
+	Status       string    `json:"status"`
+	ConnectionId string    `json:"connection_id"`
+	Format       string    `json:"format"`
+	Limit        int       `json:"limit"`
+	Location     string    `json:"location"`
+	Connection   string    `json:"connection"`
+	CreatedAt    time.Time `json:"created_at"`
+	Id           string    `json:"id"`
+}
+
+type Auth0Profile struct {
+	AccountId string `json:"wt_account_id"`
+	UserID    string `json:"user_id"`
+	Name      string `json:"name"`
+	Email     string `json:"email"`
+	CreatedAt string `json:"created_at"`
+	LastLogin string `json:"last_login"`
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
@@ -358,4 +393,187 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userId string, appMetadata AppMeta
 	}
 
 	return nil
+}
+
+// GetAllAccounts gets all registered accounts with corresponding user data.
+// It returns a list of users indexed by accountID.
+func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := am.authIssuer + "/api/v2/jobs/users-exports"
+
+	payloadString := fmt.Sprintf("{\"format\": \"json\"," +
+		"\"fields\": [{\"name\": \"created_at\"}, {\"name\": \"last_login\"},{\"name\": \"user_id\"}, {\"name\": \"email\"}, {\"name\": \"name\"}, {\"name\": \"app_metadata.wt_account_id\", \"export_as\": \"wt_account_id\"}]}")
+
+	payload := strings.NewReader(payloadString)
+
+	exportJobReq, err := http.NewRequest("POST", reqURL, payload)
+	if err != nil {
+		return nil, err
+	}
+	exportJobReq.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	exportJobReq.Header.Add("content-type", "application/json")
+
+	jobResp, err := am.httpClient.Do(exportJobReq)
+	if err != nil {
+		log.Debugf("Couldn't get job response %v", err)
+		return nil, err
+	}
+
+	defer func() {
+		err = jobResp.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing update user app metadata response body: %v", err)
+		}
+	}()
+	if jobResp.StatusCode != 200 {
+		return nil, fmt.Errorf("unable to update the appMetadata, statusCode %d", jobResp.StatusCode)
+	}
+
+	var exportJobResp UserExportJobResponse
+
+	body, err := ioutil.ReadAll(jobResp.Body)
+	if err != nil {
+		log.Debugf("Coudln't read export job response; %v", err)
+		return nil, err
+	}
+
+	err = am.helper.Unmarshal(body, &exportJobResp)
+	if err != nil {
+		log.Debugf("Coudln't unmarshal export job response; %v", err)
+		return nil, err
+	}
+
+	if exportJobResp.Id == "" {
+		return nil, fmt.Errorf("couldn't get an batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
+	}
+
+	log.Debugf("batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
+
+	done, downloadLink, err := am.checkExportJobStatus(exportJobResp.Id)
+	if err != nil {
+		log.Debugf("Failed at getting status checks from exportJob; %v", err)
+		return nil, err
+	}
+
+	if done {
+		return am.downloadProfileExport(downloadLink)
+	}
+
+	return nil, fmt.Errorf("failed extracting user profiles from auth0")
+}
+
+// checkExportJobStatus checks the status of the job created at CreateExportUsersJob.
+// If the status is "completed", then return the downloadLink
+func (am *Auth0Manager) checkExportJobStatus(jobId string) (bool, string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	retry := time.NewTicker(10 * time.Second)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debugf("Export job status stopped...\n")
+			return false, "", ctx.Err()
+		case <-retry.C:
+			jwtToken, err := am.credentials.Authenticate()
+			if err != nil {
+				return false, "", err
+			}
+
+			statusUrl := am.authIssuer + "/api/v2/jobs/" + jobId
+			body, err := doGetReq(am.httpClient, statusUrl, jwtToken.AccessToken)
+			if err != nil {
+				return false, "", err
+			}
+
+			var status ExportJobStatusResponse
+			err = am.helper.Unmarshal(body, &status)
+			if err != nil {
+				return false, "", err
+			}
+
+			log.Debugf("current export job status is %v", status.Status)
+
+			if status.Status != "completed" {
+				continue
+			}
+
+			return true, status.Location, nil
+		}
+	}
+}
+
+// downloadProfileExport downloads user profiles from auth0 batch job
+func (am *Auth0Manager) downloadProfileExport(location string) (map[string][]*UserData, error) {
+	body, err := doGetReq(am.httpClient, location, "")
+	if err != nil {
+		return nil, err
+	}
+
+	bodyReader := bytes.NewReader(body)
+
+	gzipReader, err := gzip.NewReader(bodyReader)
+	if err != nil {
+		return nil, err
+	}
+
+	decoder := json.NewDecoder(gzipReader)
+
+	res := make(map[string][]*UserData)
+	for decoder.More() {
+		profile := Auth0Profile{}
+		err = decoder.Decode(&profile)
+		if err != nil {
+			return nil, err
+		}
+		if profile.AccountId != "" {
+			if _, ok := res[profile.AccountId]; !ok {
+				res[profile.AccountId] = []*UserData{}
+			}
+			res[profile.AccountId] = append(res[profile.AccountId],
+				&UserData{
+					ID:    profile.UserID,
+					Name:  profile.Name,
+					Email: profile.Email,
+				})
+		}
+	}
+
+	return res, nil
+}
+
+// Boilerplate implementation for Get Requests.
+func doGetReq(client ManagerHTTPClient, url, accessToken string) ([]byte, error) {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if accessToken != "" {
+		req.Header.Add("authorization", "Bearer "+accessToken)
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+
+	defer func() {
+		err = res.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing body for url %s: %v", url, err)
+		}
+	}()
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("unable to get %s, statusCode %d", url, res.StatusCode)
+	}
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
+	return body, nil
 }
