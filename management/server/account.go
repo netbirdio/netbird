@@ -171,7 +171,7 @@ func BuildManager(
 	for _, account := range store.GetAllAccounts() {
 		_, err := account.GetGroupAll()
 		if err != nil {
-			am.addAllGroup(account)
+			addAllGroup(account)
 			if err := store.SaveAccount(account); err != nil {
 				return nil, err
 			}
@@ -524,8 +524,6 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 		}
 	} else {
 		account = NewAccount(claims.UserId, lowerDomain)
-		am.addAllGroup(account)
-		account.Users[claims.UserId] = NewAdminUser(claims.UserId)
 		err = am.updateAccountDomainAttributes(account, claims, true)
 		if err != nil {
 			return nil, err
@@ -632,19 +630,15 @@ func (am *DefaultAccountManager) AddAccount(accountId, userId, domain string) (*
 
 func (am *DefaultAccountManager) createAccount(accountId, userId, domain string) (*Account, error) {
 	account := newAccountWithId(accountId, userId, domain)
-
-	am.addAllGroup(account)
-
 	err := am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed creating account")
 	}
-
 	return account, nil
 }
 
 // addAllGroup to account object if it doesn't exists
-func (am *DefaultAccountManager) addAllGroup(account *Account) {
+func addAllGroup(account *Account) {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
 			ID:   xid.New().String(),
@@ -677,10 +671,10 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	network := NewNetwork()
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
-
+	users[userId] = NewAdminUser(userId)
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
-	return &Account{
+	acc := &Account{
 		Id:        accountId,
 		SetupKeys: setupKeys,
 		Network:   network,
@@ -689,6 +683,9 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 		CreatedBy: userId,
 		Domain:    domain,
 	}
+
+	addAllGroup(acc)
+	return acc
 }
 
 func getAccountSetupKeyById(acc *Account, keyId string) *SetupKey {
