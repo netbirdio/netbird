@@ -320,8 +320,8 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 	}
 }
 
-func createAccount(am *DefaultAccountManager, accountId, userId, domain string) (*Account, error) {
-	account := newAccountWithId(accountId, userId, domain)
+func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*Account, error) {
+	account := newAccountWithId(accountID, userID, domain)
 	err := am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
