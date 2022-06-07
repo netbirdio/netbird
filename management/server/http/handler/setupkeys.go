@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"net/http"
 	"time"
@@ -18,6 +17,7 @@ import (
 // SetupKeys is a handler that returns a list of setup keys of the account
 type SetupKeys struct {
 	accountManager server.AccountManager
+	jwtExtractor   jwtclaims.ClaimsExtractor
 	authAudience   string
 }
 
@@ -47,6 +47,7 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authAudience stri
 	return &SetupKeys{
 		accountManager: accountManager,
 		authAudience:   authAudience,
+		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
 	}
 }
 
@@ -122,20 +123,8 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 	writeSuccess(w, setupKey)
 }
 
-func (h *SetupKeys) getSetupKeyAccount(r *http.Request) (*server.Account, error) {
-	extractor := jwtclaims.NewClaimsExtractor(nil)
-	jwtClaims := extractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-
-	account, err := h.accountManager.GetAccountWithAuthorizationClaims(jwtClaims)
-	if err != nil {
-		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
-	}
-
-	return account, nil
-}
-
 func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
-	account, err := h.getSetupKeyAccount(r)
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -163,7 +152,7 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 
 func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 
-	account, err := h.getSetupKeyAccount(r)
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)

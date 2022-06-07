@@ -33,7 +33,7 @@ func NewRules(accountManager server.AccountManager, authAudience string) *Rules 
 
 // GetAllRulesHandler list for the account
 func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := h.getRuleAccount(r)
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -50,7 +50,7 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 
 // UpdateRuleHandler handles update to a rule identified by a given ID
 func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := h.getRuleAccount(r)
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -113,7 +113,7 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 // CreateRuleHandler handles rule creation request
 func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := h.getRuleAccount(r)
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -163,7 +163,7 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 // DeleteRuleHandler handles rule deletion request
 func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := h.getRuleAccount(r)
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -187,7 +187,7 @@ func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetRuleHandler handles a group Get request identified by ID
 func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := h.getRuleAccount(r)
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -211,17 +211,6 @@ func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "", http.StatusNotFound)
 	}
-}
-
-func (h *Rules) getRuleAccount(r *http.Request) (*server.Account, error) {
-	jwtClaims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-
-	account, err := h.accountManager.GetAccountWithAuthorizationClaims(jwtClaims)
-	if err != nil {
-		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
-	}
-
-	return account, nil
 }
 
 func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {

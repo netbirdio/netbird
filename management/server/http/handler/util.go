@@ -3,6 +3,9 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"net/http"
 	"time"
 )
@@ -46,4 +49,15 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	default:
 		return errors.New("invalid duration")
 	}
+}
+
+func getJWTAccount(accountManager server.AccountManager, jwtExtractor jwtclaims.ClaimsExtractor, authAudience string, r *http.Request) (*server.Account, error) {
+	jwtClaims := jwtExtractor.ExtractClaimsFromRequestContext(r, authAudience)
+
+	account, err := accountManager.GetAccountWithAuthorizationClaims(jwtClaims)
+	if err != nil {
+		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
+	}
+
+	return account, nil
 }

@@ -53,19 +53,8 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 	writeJSONObject(w, "")
 }
 
-func (h *Peers) getPeerAccount(r *http.Request) (*server.Account, error) {
-	jwtClaims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-
-	account, err := h.accountManager.GetAccountWithAuthorizationClaims(jwtClaims)
-	if err != nil {
-		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
-	}
-
-	return account, nil
-}
-
 func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
-	account, err := h.getPeerAccount(r)
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -104,7 +93,7 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		account, err := h.getPeerAccount(r)
+		account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 		if err != nil {
 			log.Error(err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
