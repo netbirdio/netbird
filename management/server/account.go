@@ -524,6 +524,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 		}
 	} else {
 		account = NewAccount(claims.UserId, lowerDomain)
+		am.addAllGroup(account)
 		account.Users[claims.UserId] = NewAdminUser(claims.UserId)
 		err = am.updateAccountDomainAttributes(account, claims, true)
 		if err != nil {
@@ -626,10 +627,15 @@ func (am *DefaultAccountManager) AddAccount(accountId, userId, domain string) (*
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	return am.createAccount(accountId, userId, domain)
+	return am.createAccountWithID(accountId, userId, domain)
 }
 
-func (am *DefaultAccountManager) createAccount(accountId, userId, domain string) (*Account, error) {
+func (am *DefaultAccountManager) createAccount(userId, domain string) (*Account, error) {
+	accountId := xid.New().String()
+	return am.createAccountWithID(accountId, userId, domain)
+}
+
+func (am *DefaultAccountManager) createAccountWithID(accountId, userId, domain string) (*Account, error) {
 	account := newAccountWithId(accountId, userId, domain)
 
 	am.addAllGroup(account)
