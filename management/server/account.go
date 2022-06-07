@@ -524,6 +524,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 		}
 	} else {
 		account = NewAccount(claims.UserId, lowerDomain)
+		am.addAllGroup(account)
 		account.Users[claims.UserId] = NewAdminUser(claims.UserId)
 		err = am.updateAccountDomainAttributes(account, claims, true)
 		if err != nil {
