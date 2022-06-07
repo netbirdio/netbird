@@ -196,7 +196,7 @@ components:
         Description:
           description: Rule friendly description
           type: string
-        Enabled:
+        Disabled:
           description: Rules status
           type: boolean
         Flow:
@@ -205,7 +205,7 @@ components:
       required:
       - Name
       - Description
-      - Enabled
+      - Disabled
       - Flow
     Rule:
       allOf:

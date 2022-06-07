@@ -89,7 +89,7 @@ type Rule struct {
 	Destination []GroupMinimum `json:"Destination"`
 
 	// Rules status
-	Enabled bool `json:"Enabled"`
+	Disabled bool `json:"Disabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
 	Flow string `json:"Flow"`
@@ -110,7 +110,7 @@ type RuleMinimum struct {
 	Description string `json:"Description"`
 
 	// Rules status
-	Enabled bool `json:"Enabled"`
+	Disabled bool `json:"Disabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
 	Flow string `json:"Flow"`
@@ -206,7 +206,7 @@ type PostApiRulesJSONBody struct {
 	Destination *[]string `json:"Destination,omitempty"`
 
 	// Rules status
-	Enabled bool `json:"Enabled"`
+	Disabled bool `json:"Disabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
 	Flow string `json:"Flow"`
@@ -223,7 +223,7 @@ type PutApiRulesIdJSONBody struct {
 	Destination *[]string `json:"Destination,omitempty"`
 
 	// Rules status
-	Enabled bool `json:"Enabled"`
+	Disabled bool `json:"Disabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
 	Flow string `json:"Flow"`

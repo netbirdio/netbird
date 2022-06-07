@@ -90,7 +90,7 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Source:      reqSources,
 		Destination: reqDestinations,
-		Enabled:     req.Enabled,
+		Disabled:    req.Disabled,
 		Description: req.Description,
 	}
 
@@ -140,7 +140,7 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Source:      reqSources,
 		Destination: reqDestinations,
-		Enabled:     req.Enabled,
+		Disabled:    req.Disabled,
 		Description: req.Description,
 	}
 
