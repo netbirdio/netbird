@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"net/http"
 
 	"github.com/netbirdio/netbird/management/server"
@@ -12,26 +13,6 @@ import (
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 )
-
-// GroupResponse is a response sent to the client
-type GroupResponse struct {
-	ID    string
-	Name  string
-	Peers []GroupPeerResponse `json:",omitempty"`
-}
-
-// GroupPeerResponse is a response sent to the client
-type GroupPeerResponse struct {
-	Key  string
-	Name string
-}
-
-// GroupRequest to create or update group
-type GroupRequest struct {
-	ID    string
-	Name  string
-	Peers []string
-}
 
 // Groups is a handler that returns groups of the account
 type Groups struct {
@@ -57,7 +38,7 @@ func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var groups []*GroupResponse
+	var groups []*api.Group
 	for _, g := range account.Groups {
 		groups = append(groups, toGroupResponse(account, g))
 	}
@@ -65,31 +46,68 @@ func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, groups)
 }
 
-func (h *Groups) CreateOrUpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
+func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getGroupAccount(r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	var req GroupRequest
+	vars := mux.Vars(r)
+	groupId := vars["id"]
+	if len(groupId) == 0 {
+		http.Error(w, "invalid group Id", http.StatusBadRequest)
+		return
+	}
+
+	_, ok := account.Groups[groupId]
+	if !ok {
+		http.Error(w, fmt.Sprintf("couldn't find group id %s", groupId), http.StatusNotFound)
+		return
+	}
+
+	var req api.PutApiGroupsIdJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if r.Method == http.MethodPost {
-		req.ID = xid.New().String()
-	}
-
 	group := server.Group{
-		ID:    req.ID,
-		Name:  req.Name,
-		Peers: req.Peers,
+		ID:    groupId,
+		Name:  *req.Name,
+		Peers: peerIPsToKeys(account, req.Peers),
 	}
 
 	if err := h.accountManager.SaveGroup(account.Id, &group); err != nil {
-		log.Errorf("failed updating group %s under account %s %v", req.ID, account.Id, err)
+		log.Errorf("failed updating group %s under account %s %v", groupId, account.Id, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONObject(w, toGroupResponse(account, &group))
+}
+
+func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
+	account, err := h.getGroupAccount(r)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	var req api.PostApiGroupsJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	group := server.Group{
+		ID:    xid.New().String(),
+		Name:  req.Name,
+		Peers: peerIPsToKeys(account, req.Peers),
+	}
+
+	if err := h.accountManager.SaveGroup(account.Id, &group); err != nil {
+		log.Errorf("failed creating group \"%s\" under account %s %v", req.Name, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
@@ -158,11 +176,27 @@ func (h *Groups) getGroupAccount(r *http.Request) (*server.Account, error) {
 	return account, nil
 }
 
-func toGroupResponse(account *server.Account, group *server.Group) *GroupResponse {
-	cache := make(map[string]GroupPeerResponse)
-	gr := GroupResponse{
-		ID:   group.ID,
-		Name: group.Name,
+func peerIPsToKeys(account *server.Account, peerIPs *[]string) []string {
+	var mappedPeerKeys []string
+	if peerIPs == nil {
+		return mappedPeerKeys
+	}
+	for _, requestPeersIP := range *peerIPs {
+		for _, accountPeer := range account.Peers {
+			if accountPeer.IP.String() == requestPeersIP {
+				mappedPeerKeys = append(mappedPeerKeys, accountPeer.Key)
+			}
+		}
+	}
+	return mappedPeerKeys
+}
+
+func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
+	cache := make(map[string]api.PeerMinimum)
+	gr := api.Group{
+		Id:         group.ID,
+		Name:       group.Name,
+		PeersCount: len(group.Peers),
 	}
 
 	for _, pid := range group.Peers {
@@ -172,8 +206,8 @@ func toGroupResponse(account *server.Account, group *server.Group) *GroupRespons
 			if !ok {
 				continue
 			}
-			peerResp = GroupPeerResponse{
-				Key:  peer.Key,
+			peerResp = api.PeerMinimum{
+				Id:   peer.IP.String(),
 				Name: peer.Name,
 			}
 			cache[pid] = peerResp

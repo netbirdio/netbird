@@ -40,6 +40,7 @@ func initGroupTestData(groups ...*server.Group) *Groups {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
+					Groups: map[string]*server.Group{"id-existed": &server.Group{}},
 				}, nil
 			},
 		},
@@ -151,9 +152,9 @@ func TestSaveGroup(t *testing.T) {
 		{
 			name:        "SaveGroup PUT OK",
 			requestType: http.MethodPut,
-			requestPath: "/api/groups",
+			requestPath: "/api/groups/id-existed",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"ID":"id-existed","Name":"Default POSTed Group"}`)),
+				[]byte(`{"Name":"Default POSTed Group"}`)),
 			expectedStatus: http.StatusOK,
 			expectedGroup: &server.Group{
 				ID:   "id-existed",
@@ -170,7 +171,8 @@ func TestSaveGroup(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups", p.CreateOrUpdateGroupHandler).Methods("PUT", "POST")
+			router.HandleFunc("/api/groups", p.CreateGroupHandler).Methods("POST")
+			router.HandleFunc("/api/groups/{id}", p.UpdateGroupHandler).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
