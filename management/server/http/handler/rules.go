@@ -222,7 +222,7 @@ func (h *Rules) getRuleAccount(r *http.Request) (*server.Account, error) {
 
 func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {
 	gr := api.Rule{
-		Id:   rule.ID,
+		ID:   rule.ID,
 		Name: rule.Name,
 	}
 
@@ -236,7 +236,7 @@ func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {
 	for _, gid := range rule.Source {
 		if group, ok := account.Groups[gid]; ok {
 			gr.Source = append(gr.Source, api.GroupMinimum{
-				Id:         group.ID,
+				ID:         group.ID,
 				Name:       group.Name,
 				PeersCount: len(group.Peers),
 			})
@@ -246,7 +246,7 @@ func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {
 	for _, gid := range rule.Destination {
 		if group, ok := account.Groups[gid]; ok {
 			gr.Destination = append(gr.Destination, api.GroupMinimum{
-				Id:         group.ID,
+				ID:         group.ID,
 				Name:       group.Name,
 				PeersCount: len(group.Peers),
 			})

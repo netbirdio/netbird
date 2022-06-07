@@ -14,223 +14,223 @@ const (
 // Group defines model for Group.
 type Group struct {
 	// Group ID
-	Id string `json:"id"`
+	ID string `json:"ID"`
 
 	// Group Name identifier
-	Name string `json:"name"`
+	Name string `json:"Name"`
 
 	// List of peers object
-	Peers []PeerMinimum `json:"peers"`
+	Peers []PeerMinimum `json:"Peers"`
 
 	// Count of peers associated to the group
-	PeersCount int `json:"peers_count"`
+	PeersCount int `json:"PeersCount"`
 }
 
 // GroupMinimum defines model for GroupMinimum.
 type GroupMinimum struct {
 	// Group ID
-	Id string `json:"id"`
+	ID string `json:"ID"`
 
 	// Group Name identifier
-	Name string `json:"name"`
+	Name string `json:"Name"`
 
 	// Count of peers associated to the group
-	PeersCount int `json:"peers_count"`
+	PeersCount int `json:"PeersCount"`
 }
 
 // Peer defines model for Peer.
 type Peer struct {
 	// Provides information of who activated the Peer. User or Setup Key
 	ActivatedBy struct {
-		Type  string `json:"type"`
-		Value string `json:"value"`
-	} `json:"activated_by"`
+		Type  string `json:"Type"`
+		Value string `json:"Value"`
+	} `json:"ActivatedBy"`
 
 	// Peer to Management connection status
-	Connected bool `json:"connected"`
+	Connected bool `json:"Connected"`
 
 	// Groups that the peer belongs to
-	Groups []GroupMinimum `json:"groups"`
+	Groups []GroupMinimum `json:"Groups"`
 
 	// Peer ID
-	Id string `json:"id"`
+	ID string `json:"ID"`
 
 	// Peer's IP address
-	Ip string `json:"ip"`
+	IP string `json:"IP"`
 
 	// Last time peer connected to Netbird's management service
-	LastSeen time.Time `json:"last_seen"`
+	LastSeen time.Time `json:"LastSeen"`
 
 	// Peer's hostname
-	Name string `json:"name"`
+	Name string `json:"Name"`
 
 	// Peer's operating system and version
-	Os string `json:"os"`
+	OS string `json:"OS"`
 
 	// Peer's daemon or cli version
-	Version string `json:"version"`
+	Version string `json:"Version"`
 }
 
 // PeerMinimum defines model for PeerMinimum.
 type PeerMinimum struct {
 	// Peer ID
-	Id string `json:"id"`
+	ID string `json:"ID"`
 
 	// Peer's hostname
-	Name string `json:"name"`
+	Name string `json:"Name"`
 }
 
 // Rule defines model for Rule.
 type Rule struct {
 	// Rule friendly description
-	Description string `json:"description"`
+	Description string `json:"Description"`
 
 	// Rule destination groups
-	Destination []GroupMinimum `json:"destination"`
+	Destination []GroupMinimum `json:"Destination"`
 
 	// Rules status
-	Enabled bool `json:"enabled"`
+	Enabled bool `json:"Enabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
+	Flow string `json:"Flow"`
 
 	// Rule ID
-	Id string `json:"id"`
+	ID string `json:"ID"`
 
 	// Rule name identifier
-	Name string `json:"name"`
+	Name string `json:"Name"`
 
 	// Rule source groups
-	Source []GroupMinimum `json:"source"`
+	Source []GroupMinimum `json:"Source"`
 }
 
 // RuleMinimum defines model for RuleMinimum.
 type RuleMinimum struct {
 	// Rule friendly description
-	Description string `json:"description"`
+	Description string `json:"Description"`
 
 	// Rules status
-	Enabled bool `json:"enabled"`
+	Enabled bool `json:"Enabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
+	Flow string `json:"Flow"`
 
 	// Rule name identifier
-	Name string `json:"name"`
+	Name string `json:"Name"`
 }
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
 	// Setup Key expiration date
-	Expires time.Time `json:"expires"`
+	Expires time.Time `json:"Expires"`
 
 	// Setup Key ID
-	Id string `json:"id"`
+	ID string `json:"ID"`
 
 	// Setup Key value
-	Key string `json:"key"`
+	Key string `json:"Key"`
 
 	// Setup key last usage date
-	LastUsed time.Time `json:"last_used"`
+	LastUsed time.Time `json:"LastUsed"`
 
 	// Setup key name identifier
-	Name string `json:"name"`
+	Name string `json:"Name"`
 
 	// Setup key revocation status
-	Revoked bool `json:"revoked"`
+	Revoked bool `json:"Revoked"`
 
 	// Setup key status, "valid", "overused","expired" or "revoked"
-	State string `json:"state"`
+	State string `json:"State"`
 
 	// Setup key type, one-off for single time usage and reusable
-	Type string `json:"type"`
+	Type string `json:"Type"`
 
 	// Usage count of setup key
-	UsedTimes int `json:"used_times"`
+	UsedTimes int `json:"UsedTimes"`
 
 	// Setup key validity status
-	Valid bool `json:"valid"`
+	Valid bool `json:"Valid"`
 }
 
 // SetupKeyRequest defines model for SetupKeyRequest.
 type SetupKeyRequest struct {
 	// Expiration date
-	Expires time.Time `json:"expires"`
+	Expires time.Time `json:"Expires"`
 
 	// Setup Key name
-	Name string `json:"name"`
+	Name string `json:"Name"`
 
 	// Setup key revocation status
-	Revoked bool `json:"revoked"`
+	Revoked bool `json:"Revoked"`
 
 	// Setup key type, one-off for single time usage and reusable
-	Type string `json:"type"`
+	Type string `json:"Type"`
 }
 
 // User defines model for User.
 type User struct {
 	// User's email address
-	Email string `json:"email"`
+	Email string `json:"Email"`
 
 	// User ID
-	Id string `json:"id"`
+	ID string `json:"ID"`
 
 	// User's name from idp provider
-	Name string `json:"name"`
+	Name string `json:"Name"`
 
 	// User's Netbird account role
-	Role string `json:"role"`
+	Role string `json:"Role"`
 }
 
 // PostApiGroupsJSONBody defines parameters for PostApiGroups.
 type PostApiGroupsJSONBody struct {
-	Name  string    `json:"name"`
-	Peers *[]string `json:"peers,omitempty"`
+	Name  string    `json:"Name"`
+	Peers *[]string `json:"Peers,omitempty"`
 }
 
 // PutApiGroupsIdJSONBody defines parameters for PutApiGroupsId.
 type PutApiGroupsIdJSONBody struct {
-	Name  *string   `json:"name,omitempty"`
-	Peers *[]string `json:"peers,omitempty"`
+	Name  *string   `json:"Name,omitempty"`
+	Peers *[]string `json:"Peers,omitempty"`
 }
 
 // PutApiPeersIdJSONBody defines parameters for PutApiPeersId.
 type PutApiPeersIdJSONBody struct {
-	Name string `json:"name"`
+	Name string `json:"Name"`
 }
 
 // PostApiRulesJSONBody defines parameters for PostApiRules.
 type PostApiRulesJSONBody struct {
 	// Rule friendly description
-	Description string    `json:"description"`
-	Destination *[]string `json:"destination,omitempty"`
+	Description string    `json:"Description"`
+	Destination *[]string `json:"Destination,omitempty"`
 
 	// Rules status
-	Enabled bool `json:"enabled"`
+	Enabled bool `json:"Enabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
+	Flow string `json:"Flow"`
 
 	// Rule name identifier
-	Name   string    `json:"name"`
-	Source *[]string `json:"source,omitempty"`
+	Name   string    `json:"Name"`
+	Source *[]string `json:"Source,omitempty"`
 }
 
 // PutApiRulesIdJSONBody defines parameters for PutApiRulesId.
 type PutApiRulesIdJSONBody struct {
 	// Rule friendly description
-	Description string    `json:"description"`
-	Destination *[]string `json:"destination,omitempty"`
+	Description string    `json:"Description"`
+	Destination *[]string `json:"Destination,omitempty"`
 
 	// Rules status
-	Enabled bool `json:"enabled"`
+	Enabled bool `json:"Enabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
+	Flow string `json:"Flow"`
 
 	// Rule name identifier
-	Name   string    `json:"name"`
-	Source *[]string `json:"source,omitempty"`
+	Name   string    `json:"Name"`
+	Source *[]string `json:"Source,omitempty"`
 }
 
 // PostApiSetupKeysJSONBody defines parameters for PostApiSetupKeys.

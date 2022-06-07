@@ -124,7 +124,7 @@ func TestRulesGetRule(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			assert.Equal(t, got.Id, rule.ID)
+			assert.Equal(t, got.ID, rule.ID)
 			assert.Equal(t, got.Name, rule.Name)
 		})
 	}
@@ -205,7 +205,7 @@ func TestRulesSaveRule(t *testing.T) {
 			}
 
 			if tc.requestType != http.MethodPost {
-				assert.Equal(t, got.Id, tc.expectedRule.ID)
+				assert.Equal(t, got.ID, tc.expectedRule.ID)
 			}
 			assert.Equal(t, got.Name, tc.expectedRule.Name)
 			assert.Equal(t, got.Flow, "bidirect")

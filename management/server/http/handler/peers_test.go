@@ -108,8 +108,8 @@ func TestGetPeers(t *testing.T) {
 			got := respBody[0]
 			assert.Equal(t, got.Name, peer.Name)
 			assert.Equal(t, got.Version, peer.Meta.WtVersion)
-			assert.Equal(t, got.Ip, peer.IP.String())
-			assert.Equal(t, got.Os, "OS core")
+			assert.Equal(t, got.IP, peer.IP.String())
+			assert.Equal(t, got.OS, "OS core")
 		})
 	}
 }

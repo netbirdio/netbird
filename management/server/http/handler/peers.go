@@ -128,7 +128,7 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 		for _, pk := range group.Peers {
 			if pk == peer.Key {
 				info := api.GroupMinimum{
-					Id:         group.ID,
+					ID:         group.ID,
 					Name:       group.Name,
 					PeersCount: len(group.Peers),
 				}
@@ -137,12 +137,12 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 		}
 	}
 	return &api.Peer{
-		Id:        peer.IP.String(),
+		ID:        peer.IP.String(),
 		Name:      peer.Name,
-		Ip:        peer.IP.String(),
+		IP:        peer.IP.String(),
 		Connected: peer.Status.Connected,
 		LastSeen:  peer.Status.LastSeen,
-		Os:        fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		OS:        fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
 		Version:   peer.Meta.WtVersion,
 		Groups:    groupsInfo,
 	}
