@@ -51,7 +51,10 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	}
 }
 
-func getJWTAccount(accountManager server.AccountManager, jwtExtractor jwtclaims.ClaimsExtractor, authAudience string, r *http.Request) (*server.Account, error) {
+func getJWTAccount(accountManager server.AccountManager,
+	jwtExtractor jwtclaims.ClaimsExtractor,
+	authAudience string, r *http.Request) (*server.Account, error) {
+
 	jwtClaims := jwtExtractor.ExtractClaimsFromRequestContext(r, authAudience)
 
 	account, err := accountManager.GetAccountWithAuthorizationClaims(jwtClaims)
