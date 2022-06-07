@@ -419,6 +419,40 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	return nil
 }
 
+func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
+	if sshConf.GetSshEnabled() {
+		// start SSH server if it wasn't running
+		if e.sshServer == nil {
+			//nil sshServer means it has not yet been started
+			var err error
+			e.sshServer, err = ssh.NewSSHServer(e.config.SSHKey,
+				fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), 2222))
+			if err != nil {
+				return err
+			}
+			go func() {
+				err = e.sshServer.Start()
+				if err != nil {
+					// will throw error when we stop it even if it is a graceful stop
+				}
+				log.Infof("stopped SSH server")
+			}()
+		} else {
+			log.Debugf("SSH server is already running")
+		}
+	} else {
+		// stop SSH server if it was running
+		if e.sshServer != nil {
+			err := e.sshServer.Stop()
+			if err != nil {
+				log.Warnf("failed stopping SSH server %v", err)
+			}
+			e.sshServer = nil
+		}
+	}
+	return nil
+}
+
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	if e.wgInterface.Address.String() != conf.Address {
 		oldAddr := e.wgInterface.Address.String()
@@ -432,35 +466,9 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	}
 
 	if conf.GetSshConfig() != nil {
-		if conf.GetSshConfig().GetSshEnabled() {
-			// start SSH server if it wasn't running
-			if e.sshServer == nil {
-				//nil sshServer means it has not yet been started
-
-				var err error
-				e.sshServer, err = ssh.NewSSHServer(e.config.SSHKey,
-					fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), 2222))
-				if err != nil {
-					log.Warnf("failed creating SSH server %v", err)
-				}
-				go func() {
-					err = e.sshServer.Start()
-					if err != nil {
-					}
-					log.Infof("stopped SSH server")
-				}()
-			} else {
-				log.Debugf("SSH server is already running")
-			}
-		} else {
-			// stop SSH server if it was running
-			if e.sshServer != nil {
-				err := e.sshServer.Stop()
-				if err != nil {
-					log.Warnf("failed stopping SSH server %v", err)
-				}
-				e.sshServer = nil
-			}
+		err := e.updateSSH(conf.GetSshConfig())
+		if err != nil {
+			log.Warnf("failed handling SSH setup %v", e)
 		}
 	}
 
