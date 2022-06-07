@@ -86,7 +86,7 @@ type Rule struct {
 	Description string `json:"description"`
 
 	// Rule destination groups
-	Destinations []GroupMinimum `json:"destinations"`
+	Destination []GroupMinimum `json:"destination"`
 
 	// Rules status
 	Enabled bool `json:"enabled"`
@@ -101,7 +101,7 @@ type Rule struct {
 	Name string `json:"name"`
 
 	// Rule source groups
-	Sources []GroupMinimum `json:"sources"`
+	Source []GroupMinimum `json:"source"`
 }
 
 // RuleMinimum defines model for RuleMinimum.
@@ -202,8 +202,8 @@ type PutApiPeersIdJSONBody struct {
 // PostApiRulesJSONBody defines parameters for PostApiRules.
 type PostApiRulesJSONBody struct {
 	// Rule friendly description
-	Description  string    `json:"description"`
-	Destinations *[]string `json:"destinations,omitempty"`
+	Description string    `json:"description"`
+	Destination *[]string `json:"destination,omitempty"`
 
 	// Rules status
 	Enabled bool `json:"enabled"`
@@ -212,15 +212,15 @@ type PostApiRulesJSONBody struct {
 	Flow string `json:"flow"`
 
 	// Rule name identifier
-	Name    string    `json:"name"`
-	Sources *[]string `json:"sources,omitempty"`
+	Name   string    `json:"name"`
+	Source *[]string `json:"source,omitempty"`
 }
 
 // PutApiRulesIdJSONBody defines parameters for PutApiRulesId.
 type PutApiRulesIdJSONBody struct {
 	// Rule friendly description
-	Description  string    `json:"description"`
-	Destinations *[]string `json:"destinations,omitempty"`
+	Description string    `json:"description"`
+	Destination *[]string `json:"destination,omitempty"`
 
 	// Rules status
 	Enabled bool `json:"enabled"`
@@ -229,8 +229,8 @@ type PutApiRulesIdJSONBody struct {
 	Flow string `json:"flow"`
 
 	// Rule name identifier
-	Name    string    `json:"name"`
-	Sources *[]string `json:"sources,omitempty"`
+	Name   string    `json:"name"`
+	Source *[]string `json:"source,omitempty"`
 }
 
 // PostApiSetupKeysJSONBody defines parameters for PostApiSetupKeys.

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +44,7 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
+					Rules:  map[string]*server.Rule{"id-existed": &server.Rule{}},
 				}, nil
 			},
 		},
@@ -117,12 +119,12 @@ func TestRulesGetRule(t *testing.T) {
 				t.Fatalf("I don't know what I expected; %v", err)
 			}
 
-			var got RuleResponse
+			var got api.Rule
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			assert.Equal(t, got.ID, rule.ID)
+			assert.Equal(t, got.Id, rule.ID)
 			assert.Equal(t, got.Name, rule.Name)
 		})
 	}
@@ -155,9 +157,9 @@ func TestRulesSaveRule(t *testing.T) {
 		{
 			name:        "SaveRule PUT OK",
 			requestType: http.MethodPut,
-			requestPath: "/api/rules",
+			requestPath: "/api/rules/id-existed",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"ID":"id-existed","Name":"Default POSTed Rule","Flow":"bidirect"}`)),
+				[]byte(`{"Name":"Default POSTed Rule","Flow":"bidirect"}`)),
 			expectedStatus: http.StatusOK,
 			expectedRule: &server.Rule{
 				ID:   "id-existed",
@@ -175,7 +177,8 @@ func TestRulesSaveRule(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/rules", p.CreateOrUpdateRuleHandler).Methods("PUT", "POST")
+			router.HandleFunc("/api/rules", p.CreateRuleHandler).Methods("POST")
+			router.HandleFunc("/api/rules/{id}", p.UpdateRuleHandler).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -196,13 +199,13 @@ func TestRulesSaveRule(t *testing.T) {
 				return
 			}
 
-			got := &RuleRequest{}
+			got := &api.Rule{}
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
 			if tc.requestType != http.MethodPost {
-				assert.Equal(t, got.ID, tc.expectedRule.ID)
+				assert.Equal(t, got.Id, tc.expectedRule.ID)
 			}
 			assert.Equal(t, got.Name, tc.expectedRule.Name)
 			assert.Equal(t, got.Flow, "bidirect")

@@ -220,19 +220,19 @@ components:
         - $ref: '#/components/schemas/RuleMinimum'
         - type: object
           properties:
-            sources:
+            source:
               description: Rule source groups
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
-            destinations:
+            destination:
               description: Rule destination groups
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
           required:
-          - sources
-          - destinations
+          - source
+          - destination
   responses:
     not_found:
       description: Resource not found
@@ -720,11 +720,11 @@ paths:
                 - $ref: '#/components/schemas/RuleMinimum'
                 - type: object
                   properties:
-                    sources:
+                    source:
                       type: array
                       items:
                         type: string
-                    destinations:
+                    destination:
                       type: array
                       items:
                         type: string
@@ -784,11 +784,11 @@ paths:
                 - $ref: '#/components/schemas/RuleMinimum'
                 - type: object
                   properties:
-                    sources:
+                    source:
                       type: array
                       items:
                         type: string
-                    destinations:
+                    destination:
                       type: array
                       items:
                         type: string
@@ -798,7 +798,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Group'
+                $ref: '#/components/schemas/Rule'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

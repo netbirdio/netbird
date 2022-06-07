@@ -21,6 +21,12 @@ type Rule struct {
 	// Name of the rule visible in the UI
 	Name string
 
+	// Description of the rule visible in the UI
+	Description string
+
+	// Enabled status of rule in the system
+	Enabled bool
+
 	// Source list of groups IDs of peers
 	Source []string
 
@@ -35,6 +41,8 @@ func (r *Rule) Copy() *Rule {
 	return &Rule{
 		ID:          r.ID,
 		Name:        r.Name,
+		Description: r.Description,
+		Enabled:     r.Enabled,
 		Source:      r.Source[:],
 		Destination: r.Destination[:],
 		Flow:        r.Flow,
