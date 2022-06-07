@@ -620,23 +620,6 @@ func (am *DefaultAccountManager) AccountExists(accountId string) (*bool, error) 
 	return &res, nil
 }
 
-// AddAccount generates a new Account with a provided accountId and userId, saves to the Store
-func (am *DefaultAccountManager) AddAccount(accountId, userId, domain string) (*Account, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	return am.createAccount(accountId, userId, domain)
-}
-
-func (am *DefaultAccountManager) createAccount(accountId, userId, domain string) (*Account, error) {
-	account := newAccountWithId(accountId, userId, domain)
-	err := am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed creating account")
-	}
-	return account, nil
-}
-
 // addAllGroup to account object if it doesn't exists
 func addAllGroup(account *Account) {
 	if len(account.Groups) == 0 {

@@ -267,7 +267,7 @@ func TestAccountManager_AddAccount(t *testing.T) {
 	expectedPeersSize := 0
 	expectedSetupKeysSize := 2
 
-	account, err := manager.AddAccount(expectedId, userId, "")
+	account, err := createAccount(manager, expectedId, userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,6 +320,15 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 	}
 }
 
+func createAccount(am *DefaultAccountManager, accountId, userId, domain string) (*Account, error) {
+	account := newAccountWithId(accountId, userId, domain)
+	err := am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
 func TestAccountManager_AccountExists(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -329,7 +338,7 @@ func TestAccountManager_AccountExists(t *testing.T) {
 
 	expectedId := "test_account"
 	userId := "account_creator"
-	_, err = manager.AddAccount(expectedId, userId, "")
+	_, err = createAccount(manager, expectedId, userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +362,7 @@ func TestAccountManager_GetAccount(t *testing.T) {
 
 	expectedId := "test_account"
 	userId := "account_creator"
-	account, err := manager.AddAccount(expectedId, userId, "")
+	account, err := createAccount(manager, expectedId, userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +398,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator", "")
+	account, err := createAccount(manager, "test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +530,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator", "")
+	account, err := createAccount(manager, "test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -704,7 +713,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator", "")
+	account, err := createAccount(manager, "test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -757,7 +766,7 @@ func TestGetUsersFromAccount(t *testing.T) {
 	users := map[string]*User{"1": {Id: "1", Role: "admin"}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
 	accountId := "test_account_id"
 
-	account, err := manager.AddAccount(accountId, users["1"].Id, "")
+	account, err := createAccount(manager, accountId, users["1"].Id, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -788,7 +797,7 @@ func TestAccountManager_UpdatePeerMeta(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator", "")
+	account, err := createAccount(manager, "test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
