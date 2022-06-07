@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"net/http"
 
 	log "github.com/sirupsen/logrus"
@@ -13,13 +14,6 @@ type UserHandler struct {
 	accountManager server.AccountManager
 	authAudience   string
 	jwtExtractor   jwtclaims.ClaimsExtractor
-}
-
-type UserResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
 }
 
 func NewUserHandler(accountManager server.AccountManager, authAudience string) *UserHandler {
@@ -49,7 +43,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	users := []*UserResponse{}
+	users := []*api.User{}
 	for _, r := range data {
 		users = append(users, toUserResponse(r))
 	}
@@ -57,8 +51,8 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, users)
 }
 
-func toUserResponse(user *server.UserInfo) *UserResponse {
-	return &UserResponse{
+func toUserResponse(user *server.UserInfo) *api.User {
+	return &api.User{
 		ID:    user.ID,
 		Name:  user.Name,
 		Email: user.Email,

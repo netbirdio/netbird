@@ -96,7 +96,7 @@ components:
     SetupKey:
       type: object
       properties:
-        ID:
+        Id:
           description: Setup Key ID
           type: string
         Key:
@@ -129,7 +129,7 @@ components:
           description: Setup key status, "valid", "overused","expired" or "revoked"
           type: string
       required:
-      - ID
+      - Id
       - Key
       - Name
       - Expires
@@ -148,7 +148,7 @@ components:
         Type:
           description: Setup key type, one-off for single time usage and reusable
           type: string
-        Expires:
+        ExpiresIn:
           description: Expiration date
           type: string
           format: date-time

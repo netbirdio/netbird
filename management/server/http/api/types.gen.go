@@ -125,7 +125,7 @@ type SetupKey struct {
 	Expires time.Time `json:"Expires"`
 
 	// Setup Key ID
-	ID string `json:"ID"`
+	Id string `json:"Id"`
 
 	// Setup Key value
 	Key string `json:"Key"`
@@ -155,7 +155,7 @@ type SetupKey struct {
 // SetupKeyRequest defines model for SetupKeyRequest.
 type SetupKeyRequest struct {
 	// Expiration date
-	Expires time.Time `json:"Expires"`
+	ExpiresIn *time.Time `json:"ExpiresIn,omitempty"`
 
 	// Setup Key name
 	Name string `json:"Name"`

@@ -2,16 +2,16 @@ package handler
 
 import (
 	"encoding/json"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"net/http"
-	"time"
-
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"net/http"
+	"time"
 )
 
 // SetupKeys is a handler that returns a list of setup keys of the account
@@ -19,28 +19,6 @@ type SetupKeys struct {
 	accountManager server.AccountManager
 	jwtExtractor   jwtclaims.ClaimsExtractor
 	authAudience   string
-}
-
-// SetupKeyResponse is a response sent to the client
-type SetupKeyResponse struct {
-	Id        string
-	Key       string
-	Name      string
-	Expires   time.Time
-	Type      server.SetupKeyType
-	Valid     bool
-	Revoked   bool
-	UsedTimes int
-	LastUsed  time.Time
-	State     string
-}
-
-// SetupKeyRequest is a request sent by client. This object contains fields that can be modified
-type SetupKeyRequest struct {
-	Name      string
-	Type      server.SetupKeyType
-	ExpiresIn *util.Duration
-	Revoked   bool
 }
 
 func NewSetupKeysHandler(accountManager server.AccountManager, authAudience string) *SetupKeys {
@@ -52,7 +30,7 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authAudience stri
 }
 
 func (h *SetupKeys) updateKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
-	req := &SetupKeyRequest{}
+	req := &api.PutApiSetupKeysIdJSONRequestBody{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -97,19 +75,26 @@ func (h *SetupKeys) getKey(accountId string, keyId string, w http.ResponseWriter
 }
 
 func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.Request) {
-	req := &SetupKeyRequest{}
+	req := &api.PostApiSetupKeysJSONRequestBody{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if !(req.Type == server.SetupKeyReusable || req.Type == server.SetupKeyOneOff) {
+	if !(server.SetupKeyType(req.Type) == server.SetupKeyReusable ||
+		server.SetupKeyType(req.Type) == server.SetupKeyOneOff) {
+
 		http.Error(w, "unknown setup key type "+string(req.Type), http.StatusBadRequest)
 		return
 	}
+	// todo: evaluate if there is a better alternative to util.Duration
+	var expiresIn util.Duration
+	if !req.ExpiresIn.IsZero() {
+		expiresIn.Duration = req.ExpiresIn.Sub(time.Now())
+	}
 
-	setupKey, err := h.accountManager.AddSetupKey(accountId, req.Name, req.Type, req.ExpiresIn)
+	setupKey, err := h.accountManager.AddSetupKey(accountId, req.Name, server.SetupKeyType(req.Type), &expiresIn)
 	if err != nil {
 		errStatus, ok := status.FromError(err)
 		if ok && errStatus.Code() == codes.NotFound {
@@ -167,7 +152,7 @@ func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(200)
 		w.Header().Set("Content-Type", "application/json")
 
-		respBody := []*SetupKeyResponse{}
+		respBody := []*api.SetupKey{}
 		for _, key := range account.SetupKeys {
 			respBody = append(respBody, toResponseBody(key))
 		}
@@ -193,7 +178,7 @@ func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
 	}
 }
 
-func toResponseBody(key *server.SetupKey) *SetupKeyResponse {
+func toResponseBody(key *server.SetupKey) *api.SetupKey {
 	var state string
 	if key.IsExpired() {
 		state = "expired"
@@ -204,12 +189,12 @@ func toResponseBody(key *server.SetupKey) *SetupKeyResponse {
 	} else {
 		state = "valid"
 	}
-	return &SetupKeyResponse{
+	return &api.SetupKey{
 		Id:        key.Id,
 		Key:       key.Key,
 		Name:      key.Name,
 		Expires:   key.ExpiresAt,
-		Type:      key.Type,
+		Type:      string(key.Type),
 		Valid:     key.IsValid(),
 		Revoked:   key.Revoked,
 		UsedTimes: key.UsedTimes,
