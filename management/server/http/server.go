@@ -117,14 +117,14 @@ func (s *Server) Start() error {
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 
 	r.HandleFunc("/api/rules", rulesHandler.GetAllRulesHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/rules", rulesHandler.CreateOrUpdateRuleHandler).
-		Methods("POST", "PUT", "OPTIONS")
+	r.HandleFunc("/api/rules", rulesHandler.CreateRuleHandler).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/rules/{id}", rulesHandler.UpdateRuleHandler).Methods("PUT", "OPTIONS")
 	r.HandleFunc("/api/rules/{id}", rulesHandler.GetRuleHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/rules/{id}", rulesHandler.DeleteRuleHandler).Methods("DELETE", "OPTIONS")
 
 	r.HandleFunc("/api/groups", groupsHandler.GetAllGroupsHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/groups", groupsHandler.CreateOrUpdateGroupHandler).
-		Methods("POST", "PUT", "OPTIONS")
+	r.HandleFunc("/api/groups", groupsHandler.CreateGroupHandler).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/groups/{id}", groupsHandler.UpdateGroupHandler).Methods("PUT", "OPTIONS")
 	r.HandleFunc("/api/groups/{id}", groupsHandler.GetGroupHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/groups/{id}", groupsHandler.DeleteGroupHandler).Methods("DELETE", "OPTIONS")
 	http.Handle("/", r)
