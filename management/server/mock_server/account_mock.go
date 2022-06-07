@@ -3,15 +3,15 @@ package mock_server
 import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/netbirdio/netbird/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"time"
 )
 
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc          func(userId, domain string) (*server.Account, error)
 	GetAccountByUserFunc                  func(userId string) (*server.Account, error)
-	AddSetupKeyFunc                       func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn *util.Duration) (*server.SetupKey, error)
+	AddSetupKeyFunc                       func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn time.Duration) (*server.SetupKey, error)
 	RevokeSetupKeyFunc                    func(accountId string, keyId string) (*server.SetupKey, error)
 	RenameSetupKeyFunc                    func(accountId string, keyId string, newName string) (*server.SetupKey, error)
 	GetAccountByIdFunc                    func(accountId string) (*server.Account, error)
@@ -72,7 +72,7 @@ func (am *MockAccountManager) AddSetupKey(
 	accountId string,
 	keyName string,
 	keyType server.SetupKeyType,
-	expiresIn *util.Duration,
+	expiresIn time.Duration,
 ) (*server.SetupKey, error) {
 	if am.AddSetupKeyFunc != nil {
 		return am.AddSetupKeyFunc(accountId, keyName, keyType, expiresIn)

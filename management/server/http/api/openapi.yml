@@ -149,16 +149,15 @@ components:
           description: Setup key type, one-off for single time usage and reusable
           type: string
         ExpiresIn:
-          description: Expiration date
-          type: string
-          format: date-time
+          description: Expiration time in seconds
+          type: integer
         Revoked:
           description: Setup key revocation status
           type: boolean
       required:
         - Name
         - Type
-        - Expires
+        - ExpiresIn
         - Revoked
     GroupMinimum:
       type: object

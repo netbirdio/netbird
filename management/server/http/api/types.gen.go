@@ -154,8 +154,8 @@ type SetupKey struct {
 
 // SetupKeyRequest defines model for SetupKeyRequest.
 type SetupKeyRequest struct {
-	// Expiration date
-	ExpiresIn *time.Time `json:"ExpiresIn,omitempty"`
+	// Expiration time in seconds
+	ExpiresIn int `json:"ExpiresIn"`
 
 	// Setup Key name
 	Name string `json:"Name"`

@@ -7,7 +7,6 @@ import (
 	cacheStore "github.com/eko/gocache/v2/store"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/netbirdio/netbird/util"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -35,7 +34,7 @@ type AccountManager interface {
 		accountId string,
 		keyName string,
 		keyType SetupKeyType,
-		expiresIn *util.Duration,
+		expiresIn time.Duration,
 	) (*SetupKey, error)
 	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
@@ -221,14 +220,14 @@ func (am *DefaultAccountManager) AddSetupKey(
 	accountId string,
 	keyName string,
 	keyType SetupKeyType,
-	expiresIn *util.Duration,
+	expiresIn time.Duration,
 ) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	keyDuration := DefaultSetupKeyDuration
-	if expiresIn != nil {
-		keyDuration = expiresIn.Duration
+	if expiresIn != 0 {
+		keyDuration = expiresIn
 	}
 
 	account, err := am.Store.GetAccount(accountId)

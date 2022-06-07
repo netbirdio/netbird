@@ -6,7 +6,6 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -88,13 +87,10 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 		http.Error(w, "unknown setup key type "+string(req.Type), http.StatusBadRequest)
 		return
 	}
-	// todo: evaluate if there is a better alternative to util.Duration
-	var expiresIn util.Duration
-	if !req.ExpiresIn.IsZero() {
-		expiresIn.Duration = req.ExpiresIn.Sub(time.Now())
-	}
 
-	setupKey, err := h.accountManager.AddSetupKey(accountId, req.Name, server.SetupKeyType(req.Type), &expiresIn)
+	expiresIn := time.Duration(req.ExpiresIn) * time.Second
+
+	setupKey, err := h.accountManager.AddSetupKey(accountId, req.Name, server.SetupKeyType(req.Type), expiresIn)
 	if err != nil {
 		errStatus, ok := status.FromError(err)
 		if ok && errStatus.Code() == codes.NotFound {
