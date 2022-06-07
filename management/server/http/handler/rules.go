@@ -48,6 +48,7 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, rules)
 }
 
+// UpdateRuleHandler handles update to a rule identified by a given ID
 func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getRuleAccount(r)
 	if err != nil {
@@ -56,15 +57,15 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	ruleId := vars["id"]
-	if len(ruleId) == 0 {
+	ruleID := vars["id"]
+	if len(ruleID) == 0 {
 		http.Error(w, "invalid rule Id", http.StatusBadRequest)
 		return
 	}
 
-	_, ok := account.Rules[ruleId]
+	_, ok := account.Rules[ruleID]
 	if !ok {
-		http.Error(w, fmt.Sprintf("couldn't find rule id %s", ruleId), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("couldn't find rule id %s", ruleID), http.StatusNotFound)
 		return
 	}
 
@@ -85,7 +86,7 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rule := server.Rule{
-		ID:          ruleId,
+		ID:          ruleID,
 		Name:        req.Name,
 		Source:      reqSources,
 		Destination: reqDestinations,
@@ -110,6 +111,7 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, &req)
 }
 
+// CreateRuleHandler handles rule creation request
 func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getRuleAccount(r)
 	if err != nil {
@@ -159,6 +161,7 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, &req)
 }
 
+// DeleteRuleHandler handles rule deletion request
 func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getRuleAccount(r)
 	if err != nil {
@@ -182,6 +185,7 @@ func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, "")
 }
 
+// GetRuleHandler handles a group Get request identified by ID
 func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getRuleAccount(r)
 	if err != nil {

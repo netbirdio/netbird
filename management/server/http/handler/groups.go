@@ -46,6 +46,7 @@ func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, groups)
 }
 
+// UpdateGroupHandler handles update to a group identified by a given ID
 func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getGroupAccount(r)
 	if err != nil {
@@ -54,15 +55,15 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	groupId := vars["id"]
-	if len(groupId) == 0 {
+	groupID := vars["id"]
+	if len(groupID) == 0 {
 		http.Error(w, "invalid group Id", http.StatusBadRequest)
 		return
 	}
 
-	_, ok := account.Groups[groupId]
+	_, ok := account.Groups[groupID]
 	if !ok {
-		http.Error(w, fmt.Sprintf("couldn't find group id %s", groupId), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("couldn't find group id %s", groupID), http.StatusNotFound)
 		return
 	}
 
@@ -73,13 +74,13 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	group := server.Group{
-		ID:    groupId,
+		ID:    groupID,
 		Name:  *req.Name,
 		Peers: peerIPsToKeys(account, req.Peers),
 	}
 
 	if err := h.accountManager.SaveGroup(account.Id, &group); err != nil {
-		log.Errorf("failed updating group %s under account %s %v", groupId, account.Id, err)
+		log.Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
@@ -87,6 +88,7 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, toGroupResponse(account, &group))
 }
 
+// CreateGroupHandler handles group creation request
 func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getGroupAccount(r)
 	if err != nil {
@@ -115,6 +117,7 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, toGroupResponse(account, &group))
 }
 
+// DeleteGroupHandler handles group deletion request
 func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getGroupAccount(r)
 	if err != nil {
@@ -138,6 +141,7 @@ func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, "")
 }
 
+// GetGroupHandler returns a group
 func (h *Groups) GetGroupHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := h.getGroupAccount(r)
 	if err != nil {
