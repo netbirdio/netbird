@@ -44,7 +44,6 @@ type AccountManager interface {
 	GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
-	AddAccount(accountId, userId, domain string) (*Account, error)
 	GetPeer(peerKey string) (*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	RenamePeer(accountId string, peerKey string, newName string) (*Peer, error)
