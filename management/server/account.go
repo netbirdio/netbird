@@ -630,11 +630,6 @@ func (am *DefaultAccountManager) AddAccount(accountId, userId, domain string) (*
 	return am.createAccountWithID(accountId, userId, domain)
 }
 
-func (am *DefaultAccountManager) createAccount(userId, domain string) (*Account, error) {
-	accountId := xid.New().String()
-	return am.createAccountWithID(accountId, userId, domain)
-}
-
 func (am *DefaultAccountManager) createAccountWithID(accountId, userId, domain string) (*Account, error) {
 	account := newAccountWithId(accountId, userId, domain)
 
