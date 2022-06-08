@@ -11,6 +11,67 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+func TestNewAccount(t *testing.T) {
+
+	domain := "netbird.io"
+	userId := "account_creator"
+	expectedPeersSize := 0
+	expectedSetupKeysSize := 2
+
+	account := NewAccount(userId, domain)
+
+	if account == nil {
+		t.Errorf("expected non-nil Account structure when calling NewAccount")
+	}
+
+	if len(account.Peers) != expectedPeersSize {
+		t.Errorf("expected account to have len(Peers) = %v, got %v", expectedPeersSize, len(account.Peers))
+	}
+
+	if len(account.SetupKeys) != expectedSetupKeysSize {
+		t.Errorf("expected account to have len(SetupKeys) = %v, got %v", expectedSetupKeysSize, len(account.SetupKeys))
+	}
+
+	ipNet := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}}
+	if !ipNet.Contains(account.Network.Net.IP) {
+		t.Errorf("expected account's Network to be a subnet of %v, got %v", ipNet.String(), account.Network.Net.String())
+	}
+
+	g, err := account.GetGroupAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Name != "All" {
+		t.Errorf("expecting account to have group ALL added by default")
+	}
+	if len(account.Users) != 1 {
+		t.Errorf("expecting newly created account to have 1 user, got %d", len(account.Users))
+	}
+
+	if account.Users[userId] == nil {
+		t.Errorf("expecting newly created account to have user %s, got nil", userId)
+	}
+
+	if account.CreatedBy != userId {
+		t.Errorf("expecting newly created account to be created by user %s, got %s", userId, account.CreatedBy)
+	}
+
+	if account.Domain != domain {
+		t.Errorf("expecting newly created account to have domain %s, got %s", domain, account.Domain)
+	}
+
+	if len(account.Rules) != 1 {
+		t.Errorf("expecting newly created account to have 1 rule, got %d", len(account.Rules))
+	}
+
+	for _, rule := range account.Rules {
+		if rule.Name != "Default" {
+			t.Errorf("expecting newly created account to have Default rule, got %s", rule.Name)
+		}
+	}
+
+}
+
 func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -252,41 +313,6 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 
 	if account.Domain != domain {
 		t.Errorf("updating domain. expected %s got %s", domain, account.Domain)
-	}
-}
-
-func TestAccountManager_AddAccount(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	expectedId := "test_account"
-	userId := "account_creator"
-	expectedPeersSize := 0
-	expectedSetupKeysSize := 2
-
-	account, err := createAccount(manager, expectedId, userId, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if account.Id != expectedId {
-		t.Errorf("expected account to have Id = %s, got %s", expectedId, account.Id)
-	}
-
-	if len(account.Peers) != expectedPeersSize {
-		t.Errorf("expected account to have len(Peers) = %v, got %v", expectedPeersSize, len(account.Peers))
-	}
-
-	if len(account.SetupKeys) != expectedSetupKeysSize {
-		t.Errorf("expected account to have len(SetupKeys) = %v, got %v", expectedSetupKeysSize, len(account.SetupKeys))
-	}
-
-	ipNet := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}}
-	if !ipNet.Contains(account.Network.Net.IP) {
-		t.Errorf("expected account's Network to be a subnet of %v, got %v", ipNet.String(), account.Network.Net.String())
 	}
 }
 
