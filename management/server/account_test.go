@@ -20,10 +20,6 @@ func TestNewAccount(t *testing.T) {
 
 	account := NewAccount(userId, domain)
 
-	if account == nil {
-		t.Errorf("expected non-nil Account structure when calling NewAccount")
-	}
-
 	if len(account.Peers) != expectedPeersSize {
 		t.Errorf("expected account to have len(Peers) = %v, got %v", expectedPeersSize, len(account.Peers))
 	}
