@@ -220,4 +220,36 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 			networkMap2.Peers[0].Key,
 		)
 	}
+
+	rule.Disabled = true
+	err = manager.SaveRule(account.Id, &rule)
+	if err != nil {
+		t.Errorf("expecting rule to be added, got failure %v", err)
+		return
+	}
+
+	networkMap1, err = manager.GetNetworkMap(peerKey1.PublicKey().String())
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	if len(networkMap1.Peers) != 0 {
+		t.Errorf(
+			"expecting Account NetworkMap to have 0 peers, got %v: %v",
+			len(networkMap1.Peers),
+			networkMap1.Peers,
+		)
+		return
+	}
+
+	networkMap2, err = manager.GetNetworkMap(peerKey2.PublicKey().String())
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	if len(networkMap2.Peers) != 0 {
+		t.Errorf("expecting Account NetworkMap to have 0 peers, got %v", len(networkMap2.Peers))
+	}
 }

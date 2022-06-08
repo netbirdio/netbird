@@ -654,7 +654,7 @@ func (am *DefaultAccountManager) addAllGroup(account *Account) {
 		defaultRule := &Rule{
 			ID:          xid.New().String(),
 			Name:        "Default",
-			Enabled:     true,
+			Disabled:    false,
 			Source:      []string{allGroup.ID},
 			Destination: []string{allGroup.ID},
 		}
