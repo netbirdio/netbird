@@ -60,8 +60,6 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			account = NewAccount(userId, lowerDomain)
-			account.Users[userId] = NewAdminUser(userId)
-			am.addAllGroup(account)
 			err = am.Store.SaveAccount(account)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "failed creating account")

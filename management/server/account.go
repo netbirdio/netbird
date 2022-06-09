@@ -44,7 +44,6 @@ type AccountManager interface {
 	GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
-	AddAccount(accountId, userId, domain string) (*Account, error)
 	GetPeer(peerKey string) (*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	RenamePeer(accountId string, peerKey string, newName string) (*Peer, error)
@@ -171,7 +170,7 @@ func BuildManager(
 	for _, account := range store.GetAllAccounts() {
 		_, err := account.GetGroupAll()
 		if err != nil {
-			am.addAllGroup(account)
+			addAllGroup(account)
 			if err := store.SaveAccount(account); err != nil {
 				return nil, err
 			}
@@ -524,8 +523,6 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 		}
 	} else {
 		account = NewAccount(claims.UserId, lowerDomain)
-		am.addAllGroup(account)
-		account.Users[claims.UserId] = NewAdminUser(claims.UserId)
 		err = am.updateAccountDomainAttributes(account, claims, true)
 		if err != nil {
 			return nil, err
@@ -622,29 +619,8 @@ func (am *DefaultAccountManager) AccountExists(accountId string) (*bool, error) 
 	return &res, nil
 }
 
-// AddAccount generates a new Account with a provided accountId and userId, saves to the Store
-func (am *DefaultAccountManager) AddAccount(accountId, userId, domain string) (*Account, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	return am.createAccount(accountId, userId, domain)
-}
-
-func (am *DefaultAccountManager) createAccount(accountId, userId, domain string) (*Account, error) {
-	account := newAccountWithId(accountId, userId, domain)
-
-	am.addAllGroup(account)
-
-	err := am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed creating account")
-	}
-
-	return account, nil
-}
-
 // addAllGroup to account object if it doesn't exists
-func (am *DefaultAccountManager) addAllGroup(account *Account) {
+func addAllGroup(account *Account) {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
 			ID:   xid.New().String(),
@@ -677,10 +653,10 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	network := NewNetwork()
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
-
+	users[userId] = NewAdminUser(userId)
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
-	return &Account{
+	acc := &Account{
 		Id:        accountId,
 		SetupKeys: setupKeys,
 		Network:   network,
@@ -689,6 +665,9 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 		CreatedBy: userId,
 		Domain:    domain,
 	}
+
+	addAllGroup(acc)
+	return acc
 }
 
 func getAccountSetupKeyById(acc *Account, keyId string) *SetupKey {
