@@ -11,21 +11,40 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
-func TestNewAccount(t *testing.T) {
-
-	domain := "netbird.io"
-	userId := "account_creator"
-	expectedPeersSize := 0
-	expectedSetupKeysSize := 2
-
-	account := NewAccount(userId, domain)
-
-	if len(account.Peers) != expectedPeersSize {
-		t.Errorf("expected account to have len(Peers) = %v, got %v", expectedPeersSize, len(account.Peers))
+func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
+	peer := &Peer{
+		Key:  "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8=",
+		Name: "test-host@netbird.io",
+		Meta: PeerSystemMeta{
+			Hostname:  "test-host@netbird.io",
+			GoOS:      "linux",
+			Kernel:    "Linux",
+			Core:      "21.04",
+			Platform:  "x86_64",
+			OS:        "Ubuntu",
+			WtVersion: "development",
+			UIVersion: "development",
+		},
 	}
 
-	if len(account.SetupKeys) != expectedSetupKeysSize {
-		t.Errorf("expected account to have len(SetupKeys) = %v, got %v", expectedSetupKeysSize, len(account.SetupKeys))
+	var setupKey string
+	for _, key := range account.SetupKeys {
+		setupKey = key.Key
+	}
+
+	_, err := manager.AddPeer(setupKey, userID, peer)
+	if err != nil {
+		t.Error("expected to add new peer successfully after creating new account, but failed", err)
+	}
+}
+
+func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy string, domain string, expectedUsers []string) {
+	if len(account.Peers) != 0 {
+		t.Errorf("expected account to have len(Peers) = %v, got %v", 0, len(account.Peers))
+	}
+
+	if len(account.SetupKeys) != 2 {
+		t.Errorf("expected account to have len(SetupKeys) = %v, got %v", 2, len(account.SetupKeys))
 	}
 
 	ipNet := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}}
@@ -40,16 +59,22 @@ func TestNewAccount(t *testing.T) {
 	if g.Name != "All" {
 		t.Errorf("expecting account to have group ALL added by default")
 	}
-	if len(account.Users) != 1 {
-		t.Errorf("expecting newly created account to have 1 user, got %d", len(account.Users))
+	if len(account.Users) != len(expectedUsers) {
+		t.Errorf("expecting account to have %d users, got %d", len(expectedUsers), len(account.Users))
 	}
 
-	if account.Users[userId] == nil {
-		t.Errorf("expecting newly created account to have user %s, got nil", userId)
+	if account.Users[createdBy] == nil {
+		t.Errorf("expecting account to have createdBy user %s in a user map ", createdBy)
 	}
 
-	if account.CreatedBy != userId {
-		t.Errorf("expecting newly created account to be created by user %s, got %s", userId, account.CreatedBy)
+	for _, expectedUserID := range expectedUsers {
+		if account.Users[expectedUserID] == nil {
+			t.Errorf("expecting account to have a user %s in a user map", expectedUserID)
+		}
+	}
+
+	if account.CreatedBy != createdBy {
+		t.Errorf("expecting newly created account to be created by user %s, got %s", createdBy, account.CreatedBy)
 	}
 
 	if account.Domain != domain {
@@ -65,7 +90,14 @@ func TestNewAccount(t *testing.T) {
 			t.Errorf("expecting newly created account to have Default rule, got %s", rule.Name)
 		}
 	}
+}
 
+func TestNewAccount(t *testing.T) {
+
+	domain := "netbird.io"
+	userId := "account_creator"
+	account := NewAccount(userId, domain)
+	verifyNewAccountHasDefaultFields(t, account, userId, domain, []string{userId})
 }
 
 func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
@@ -108,6 +140,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole            UserRole
 		expectedDomainCategory      string
 		expectedPrimaryDomainStatus bool
+		expectedCreatedBy           string
+		expectedUsers               []string
 	}
 
 	var (
@@ -134,6 +168,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      "",
 		expectedPrimaryDomainStatus: false,
+		expectedCreatedBy:           "pub-domain-user",
+		expectedUsers:               []string{"pub-domain-user"},
 	}
 
 	initUnknown := defaultInitAccount
@@ -153,6 +189,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      "",
 		expectedPrimaryDomainStatus: false,
+		expectedCreatedBy:           "unknown-domain-user",
+		expectedUsers:               []string{"unknown-domain-user"},
 	}
 
 	testCase3 := test{
@@ -168,6 +206,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
+		expectedCreatedBy:           "pvt-domain-user",
+		expectedUsers:               []string{"pvt-domain-user"},
 	}
 
 	privateInitAccount := defaultInitAccount
@@ -178,7 +218,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		name: "New Regular User With Existing Private Domain",
 		inputClaims: jwtclaims.AuthorizationClaims{
 			Domain:         privateDomain,
-			UserId:         "pvt-domain-user",
+			UserId:         "new-pvt-domain-user",
 			DomainCategory: PrivateCategory,
 		},
 		inputUpdateAttrs:            true,
@@ -188,6 +228,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleUser,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
+		expectedCreatedBy:           defaultInitAccount.UserId,
+		expectedUsers:               []string{defaultInitAccount.UserId, "new-pvt-domain-user"},
 	}
 
 	testCase5 := test{
@@ -203,6 +245,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
+		expectedCreatedBy:           defaultInitAccount.UserId,
+		expectedUsers:               []string{defaultInitAccount.UserId},
 	}
 
 	testCase6 := test{
@@ -219,6 +263,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
+		expectedCreatedBy:           defaultInitAccount.UserId,
+		expectedUsers:               []string{defaultInitAccount.UserId},
 	}
 	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -239,6 +285,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 
 			account, err := manager.GetAccountWithAuthorizationClaims(testCase.inputClaims)
 			require.NoError(t, err, "support function failed")
+			verifyNewAccountHasDefaultFields(t, account, testCase.expectedCreatedBy, testCase.inputClaims.Domain, testCase.expectedUsers)
+			verifyCanAddPeerToAccount(t, manager, account, testCase.expectedCreatedBy)
 
 			testCase.testingFunc(t, initAccount.Id, account.Id, testCase.expectedMSG)
 
