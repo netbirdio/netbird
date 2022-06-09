@@ -64,3 +64,19 @@ func getJWTAccount(accountManager server.AccountManager,
 
 	return account, nil
 }
+
+func removeFromList(inputList []string, toRemove []string) []string {
+	toRemoveMap := make(map[string]struct{})
+	for _, item := range toRemove {
+		toRemoveMap[item] = struct{}{}
+	}
+
+	var resultList []string
+	for _, item := range inputList {
+		_, ok := toRemoveMap[item]
+		if !ok {
+			resultList = append(resultList, item)
+		}
+	}
+	return resultList
+}

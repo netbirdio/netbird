@@ -187,6 +187,26 @@ components:
                 $ref: '#/components/schemas/PeerMinimum'
           required:
           - Peers
+    GroupPatchOperation:
+      type: object
+      properties:
+        OP:
+          description: Patch operation type
+          type: string
+          enum: [ "replace","add","remove" ]
+        Path:
+          description: Group field to update in form /<field>
+          type: string
+          enum: [ "name","peers" ]
+        Value:
+          description: Values to be applied
+          type: array
+          items:
+            type: string
+      required:
+        - OP
+        - Path
+        - Value
     RuleMinimum:
       type: object
       properties:
@@ -232,6 +252,26 @@ components:
           required:
           - Source
           - Destination
+    RulePatchOperation:
+      type: object
+      properties:
+        OP:
+          description: Patch operation type
+          type: string
+          enum: [ "replace","add","remove" ]
+        Path:
+          description: Rule field to update in form /<field>
+          type: string
+          enum: [ "name","description","disabled","flow","source","destination" ]
+        Value:
+          description: Values to be applied
+          type: array
+          items:
+            type: string
+      required:
+        - OP
+        - Path
+        - Value
   responses:
     not_found:
       description: Resource not found
@@ -658,6 +698,41 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+    patch:
+      summary: Update information about a Group
+      tags: [ Groups ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Group ID
+      requestBody:
+        description: Update Group request using a list of json patch objects
+        content:
+          'application/json':
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupPatchOperation'
+      responses:
+        '200':
+          description: A Group object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Group'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Group
       tags: [Groups]
@@ -791,6 +866,41 @@ paths:
                       type: array
                       items:
                         type: string
+      responses:
+        '200':
+          description: A Rule object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Rule'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    patch:
+      summary: Update information about a Rule
+      tags: [ Rules ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Rule ID
+      requestBody:
+        description: Update Rule request using a list of json patch objects
+        content:
+          'application/json':
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/RulePatchOperation'
       responses:
         '200':
           description: A Rule object

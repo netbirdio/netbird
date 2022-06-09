@@ -88,6 +88,82 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, toGroupResponse(account, &group))
 }
 
+// PatchGroupHandler handles patch updates to a group identified by a given ID
+func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	groupID := vars["id"]
+	if len(groupID) == 0 {
+		http.Error(w, "invalid group Id", http.StatusBadRequest)
+		return
+	}
+
+	groupToPatch, ok := account.Groups[groupID]
+	if !ok {
+		http.Error(w, fmt.Sprintf("couldn't find group id %s", groupID), http.StatusNotFound)
+		return
+	}
+
+	var req api.PatchApiGroupsIdJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(req) == 0 {
+		http.Error(w, "no patch instruction received", http.StatusBadRequest)
+		return
+	}
+
+	group := groupToPatch.Copy()
+
+	for _, patch := range req {
+		switch patch.Path {
+		case api.GroupPatchOperationPathName:
+			if patch.OP != api.GroupPatchOperationOPReplace {
+				http.Error(w, fmt.Sprintf("Name field only accepts replace operation, got %s", patch.OP),
+					http.StatusBadRequest)
+				return
+			}
+			group.Name = patch.Value[0]
+		case api.GroupPatchOperationPathPeers:
+			switch patch.OP {
+			case api.GroupPatchOperationOPReplace:
+				group.Peers = patch.Value
+			case api.GroupPatchOperationOPRemove:
+				sourceList := group.Peers
+				peerKeys := peerIPsToKeys(account, &patch.Value)
+				resultList := removeFromList(sourceList, peerKeys)
+				group.Peers = resultList
+			case api.GroupPatchOperationOPAdd:
+				sourceList := group.Peers
+				peerKeys := peerIPsToKeys(account, &patch.Value)
+				resultList := removeFromList(sourceList, peerKeys)
+				group.Peers = append(resultList, peerKeys...)
+			default:
+				http.Error(w, "invalid operation, \"%s\", for Peers field", http.StatusBadRequest)
+				return
+			}
+		default:
+			http.Error(w, "invalid patch path", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if err := h.accountManager.SaveGroup(account.Id, group); err != nil {
+		log.Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONObject(w, toGroupResponse(account, group))
+}
+
 // CreateGroupHandler handles group creation request
 func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
