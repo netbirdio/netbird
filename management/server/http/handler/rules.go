@@ -214,9 +214,12 @@ func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {
+	cache := make(map[string]api.GroupMinimum)
 	gr := api.Rule{
-		ID:   rule.ID,
-		Name: rule.Name,
+		ID:          rule.ID,
+		Name:        rule.Name,
+		Description: rule.Description,
+		Disabled:    rule.Disabled,
 	}
 
 	switch rule.Flow {
@@ -227,22 +230,37 @@ func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {
 	}
 
 	for _, gid := range rule.Source {
+		_, ok := cache[gid]
+		if ok {
+			continue
+		}
+
 		if group, ok := account.Groups[gid]; ok {
-			gr.Source = append(gr.Source, api.GroupMinimum{
+			minimum := api.GroupMinimum{
 				ID:         group.ID,
 				Name:       group.Name,
 				PeersCount: len(group.Peers),
-			})
+			}
+
+			gr.Source = append(gr.Source, minimum)
+			cache[gid] = minimum
 		}
 	}
 
 	for _, gid := range rule.Destination {
+		cachedMinimum, ok := cache[gid]
+		if ok {
+			gr.Destination = append(gr.Destination, cachedMinimum)
+			continue
+		}
 		if group, ok := account.Groups[gid]; ok {
-			gr.Destination = append(gr.Destination, api.GroupMinimum{
+			minimum := api.GroupMinimum{
 				ID:         group.ID,
 				Name:       group.Name,
 				PeersCount: len(group.Peers),
-			})
+			}
+			gr.Destination = append(gr.Destination, minimum)
+			cache[gid] = minimum
 		}
 	}
 

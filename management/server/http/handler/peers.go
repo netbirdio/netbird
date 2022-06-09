@@ -113,7 +113,13 @@ func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 
 func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 	var groupsInfo []api.GroupMinimum
+	groupsChecked := make(map[string]struct{})
 	for _, group := range account.Groups {
+		_, ok := groupsChecked[group.ID]
+		if ok {
+			continue
+		}
+		groupsChecked[group.ID] = struct{}{}
 		for _, pk := range group.Peers {
 			if pk == peer.Key {
 				info := api.GroupMinimum{

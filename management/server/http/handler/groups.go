@@ -174,7 +174,15 @@ func peerIPsToKeys(account *server.Account, peerIPs *[]string) []string {
 	if peerIPs == nil {
 		return mappedPeerKeys
 	}
+
+	peersChecked := make(map[string]struct{})
+
 	for _, requestPeersIP := range *peerIPs {
+		_, ok := peersChecked[requestPeersIP]
+		if ok {
+			continue
+		}
+		peersChecked[requestPeersIP] = struct{}{}
 		for _, accountPeer := range account.Peers {
 			if accountPeer.IP.String() == requestPeersIP {
 				mappedPeerKeys = append(mappedPeerKeys, accountPeer.Key)
