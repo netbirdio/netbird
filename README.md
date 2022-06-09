@@ -46,20 +46,21 @@ It requires zero configuration effort leaving behind the hassle of opening ports
 NetBird creates an overlay peer-to-peer network connecting machines automatically regardless of their location (home, office, datacenter, container, cloud or edge environments) unifying virtual private network management experience.
 
 **Key features:**
-*  Automatic IP allocation and management.
-*  Automatic WireGuard peer (machine) discovery and configuration.
-*  Encrypted peer-to-peer connections without a central VPN gateway.
-*  Connection relay fallback in case a peer-to-peer connection is not possible.
-*  Network management layer with a neat Web UI panel ([separate repo](https://github.com/netbirdio/dashboard))
-*  Desktop client applications for Linux, MacOS, and Windows.
-*  Multiuser support - sharing network between multiple users.
-*  SSO and MFA support. 
-*  Multicloud and hybrid-cloud support.
-*  Kernel WireGuard usage when possible.
-*  Access Controls - groups & rules (coming soon).
-*  Private DNS (coming soon).
-*  Mobile clients (coming soon).
-*  Network Activity Monitoring (coming soon).
+-  [x] Automatic IP allocation and network management with a Web UI ([separate repo](https://github.com/netbirdio/dashboard))
+-  [x] Automatic WireGuard peer (machine) discovery and configuration.
+-  [x] Encrypted peer-to-peer connections without a central VPN gateway.
+-  [x] Connection relay fallback in case a peer-to-peer connection is not possible.
+-  [x] Desktop client applications for Linux, MacOS, and Windows (systray).
+-  [x] Multiuser support - sharing network between multiple users.
+-  [x] SSO and MFA support. 
+-  [x] Multicloud and hybrid-cloud support.
+-  [x] Kernel WireGuard usage when possible.
+  
+**Coming soon:**
+-  [ ] Access Controls - groups & rules.
+-  [ ] Private DNS.
+-  [ ] Mobile clients.
+-  [ ] Network Activity Monitoring.
 
 ### Secure peer-to-peer VPN with SSO and MFA in minutes
 <p float="left" align="middle">
