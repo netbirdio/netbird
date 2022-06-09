@@ -4,14 +4,11 @@
        Learn more
      </a>   
 </p>
-
 <br/>
 <div align="center">
-
 <p align="center">
   <img width="234" src="docs/media/logo-full.png"/>
 </p>
-
   <p>
      <a href="https://github.com/netbirdio/netbird/blob/main/LICENSE">
        <img src="https://img.shields.io/badge/license-BSD--3-blue" />
@@ -46,20 +43,21 @@ It requires zero configuration effort leaving behind the hassle of opening ports
 NetBird creates an overlay peer-to-peer network connecting machines automatically regardless of their location (home, office, datacenter, container, cloud or edge environments) unifying virtual private network management experience.
 
 **Key features:**
-* Automatic IP allocation and management.
-* Automatic WireGuard peer (machine) discovery and configuration.
-* Encrypted peer-to-peer connections without a central VPN gateway.
-* Connection relay fallback in case a peer-to-peer connection is not possible.
-* Network management layer with a neat Web UI panel ([separate repo](https://github.com/netbirdio/dashboard))
-* Desktop client applications for Linux, MacOS, and Windows.
-* Multiuser support - sharing network between multiple users.
-* SSO and MFA support. 
-* Multicloud and hybrid-cloud support.
-* Kernel WireGuard usage when possible.
-* Access Controls - groups & rules (coming soon).
-* Private DNS (coming soon).
-* Mobile clients (coming soon).
-* Network Activity Monitoring (coming soon).
+-  \[x] Automatic IP allocation and network management with a Web UI ([separate repo](https://github.com/netbirdio/dashboard))
+-  \[x] Automatic WireGuard peer (machine) discovery and configuration.
+-  \[x] Encrypted peer-to-peer connections without a central VPN gateway.
+-  \[x] Connection relay fallback in case a peer-to-peer connection is not possible.
+-  \[x] Desktop client applications for Linux, MacOS, and Windows (systray).
+-  \[x] Multiuser support - sharing network between multiple users.
+-  \[x] SSO and MFA support. 
+-  \[x] Multicloud and hybrid-cloud support.
+-  \[x] Kernel WireGuard usage when possible.
+  
+**Coming soon:**
+-  \[ ] Access Controls - groups & rules.
+-  \[ ] Private DNS.
+-  \[ ] Mobile clients.
+-  \[ ] Network Activity Monitoring.
 
 ### Secure peer-to-peer VPN with SSO and MFA in minutes
 <p float="left" align="middle">
@@ -71,23 +69,21 @@ NetBird creates an overlay peer-to-peer network connecting machines automaticall
 For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).
 
 ### Start using NetBird
-* Hosted version: [https://app.netbird.io/](https://app.netbird.io/).
-* See our documentation for [Quickstart Guide](https://netbird.io/docs/getting-started/quickstart).
-* If you are looking to self-host NetBird, check our [Self-Hosting Guide](https://netbird.io/docs/getting-started/self-hosting).
-* Step-by-step [Installation Guide](https://netbird.io/docs/getting-started/installation) for different platforms.
-* Web UI [repository](https://github.com/netbirdio/dashboard).
-* 5 min [demo video](https://youtu.be/Tu9tPsUWaY0) on YouTube.
+-  Hosted version: [https://app.netbird.io/](https://app.netbird.io/).
+-  See our documentation for [Quickstart Guide](https://netbird.io/docs/getting-started/quickstart).
+-  If you are looking to self-host NetBird, check our [Self-Hosting Guide](https://netbird.io/docs/getting-started/self-hosting).
+-  Step-by-step [Installation Guide](https://netbird.io/docs/getting-started/installation) for different platforms.
+-  Web UI [repository](https://github.com/netbirdio/dashboard).
+-  5 min [demo video](https://youtu.be/Tu9tPsUWaY0) on YouTube.
 
 
 ### A bit on NetBird internals
-* Every machine in the network runs [NetBird Agent (or Client)](client/) that manages WireGuard.
-* NetBird features [Management Service](management/) that holds network state, manages peer IPs, and distributes network updates to peers.
-* Every agent is connected to Management Service.
-* NetBird agent uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between machines.
-* Connection candidates are discovered with a help of [STUN](https://en.wikipedia.org/wiki/STUN) server. 
-* Agents negotiate a connection through [Signal Service](signal/) passing p2p encrypted messages.
-* Signal Service uses public WireGuard keys to route messages between peers.
-* Sometimes the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT) and p2p connection isn't possible. When this occurs the system falls back to a relay server called [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT), and a secure WireGuard tunnel is established via the TURN server. 
+-  Every machine in the network runs [NetBird Agent (or Client)](client/) that manages WireGuard.
+-  Every agent connects to [Management Service](management/) that holds network state, manages peer IPs, and distributes network updates to agents (peers).
+-  NetBird agent uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between machines.
+-  Connection candidates are discovered with a help of [STUN](https://en.wikipedia.org/wiki/STUN) servers.
+-  Agents negotiate a connection through [Signal Service](signal/) passing p2p encrypted messages with candidates.
+-  Sometimes the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT) and p2p connection isn't possible. When this occurs the system falls back to a relay server called [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT), and a secure WireGuard tunnel is established via the TURN server. 
  
 [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in NetBird setups.
 
@@ -98,10 +94,10 @@ For stable versions, see [releases](https://github.com/netbirdio/netbird/release
 See a complete [architecture overview](https://netbird.io/docs/overview/architecture) for details.
 
 ### Roadmap
-- [Public Roadmap](https://github.com/netbirdio/netbird/projects/2)
+-  [Public Roadmap](https://github.com/netbirdio/netbird/projects/2)
 
 ### Community projects
-- [NetBird on OpenWRT](https://github.com/messense/openwrt-netbird)
+-  [NetBird on OpenWRT](https://github.com/messense/openwrt-netbird)
 
 ### Testimonials
 We use open-source technologies like [WireGuard®](https://www.wireguard.com/), [Pion ICE (WebRTC)](https://github.com/pion/ice), and [Coturn](https://github.com/coturn/coturn). We very much appreciate the work these guys are doing and we'd greatly appreciate if you could support them in any way (e.g. giving a star or a contribution).
