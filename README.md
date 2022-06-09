@@ -4,14 +4,11 @@
        Learn more
      </a>   
 </p>
-
 <br/>
 <div align="center">
-
 <p align="center">
   <img width="234" src="docs/media/logo-full.png"/>
 </p>
-
   <p>
      <a href="https://github.com/netbirdio/netbird/blob/main/LICENSE">
        <img src="https://img.shields.io/badge/license-BSD--3-blue" />
