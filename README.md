@@ -81,12 +81,10 @@ For stable versions, see [releases](https://github.com/netbirdio/netbird/release
 
 ### A bit on NetBird internals
 * Every machine in the network runs [NetBird Agent (or Client)](client/) that manages WireGuard.
-* NetBird features [Management Service](management/) that holds network state, manages peer IPs, and distributes network updates to peers.
-* Every agent is connected to Management Service.
+* Every agent connects to [Management Service](management/) holds network state, manages peer IPs, and distributes network updates to agents (peers).
 * NetBird agent uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between machines.
-* Connection candidates are discovered with a help of [STUN](https://en.wikipedia.org/wiki/STUN) server. 
-* Agents negotiate a connection through [Signal Service](signal/) passing p2p encrypted messages.
-* Signal Service uses public WireGuard keys to route messages between peers.
+* Connection candidates are discovered with a help of [STUN](https://en.wikipedia.org/wiki/STUN) servers.
+* Agents negotiate a connection through [Signal Service](signal/) passing p2p encrypted messages with candidates.
 * Sometimes the NAT traversal is unsuccessful due to strict NATs (e.g. mobile carrier-grade NAT) and p2p connection isn't possible. When this occurs the system falls back to a relay server called [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT), and a secure WireGuard tunnel is established via the TURN server. 
  
 [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in NetBird setups.
@@ -98,10 +96,10 @@ For stable versions, see [releases](https://github.com/netbirdio/netbird/release
 See a complete [architecture overview](https://netbird.io/docs/overview/architecture) for details.
 
 ### Roadmap
-- [Public Roadmap](https://github.com/netbirdio/netbird/projects/2)
+-  [Public Roadmap](https://github.com/netbirdio/netbird/projects/2)
 
 ### Community projects
-- [NetBird on OpenWRT](https://github.com/messense/openwrt-netbird)
+-  [NetBird on OpenWRT](https://github.com/messense/openwrt-netbird)
 
 ### Testimonials
 We use open-source technologies like [WireGuard®](https://www.wireguard.com/), [Pion ICE (WebRTC)](https://github.com/pion/ice), and [Coturn](https://github.com/coturn/coturn). We very much appreciate the work these guys are doing and we'd greatly appreciate if you could support them in any way (e.g. giving a star or a contribution).
