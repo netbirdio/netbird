@@ -79,7 +79,7 @@ For stable versions, see [releases](https://github.com/netbirdio/netbird/release
 
 ### A bit on NetBird internals
 -  Every machine in the network runs [NetBird Agent (or Client)](client/) that manages WireGuard.
--  Every agent connects to [Management Service](management/) holds network state, manages peer IPs, and distributes network updates to agents (peers).
+-  Every agent connects to [Management Service](management/) that holds network state, manages peer IPs, and distributes network updates to agents (peers).
 -  NetBird agent uses WebRTC ICE implemented in [pion/ice library](https://github.com/pion/ice) to discover connection candidates when establishing a peer-to-peer connection between machines.
 -  Connection candidates are discovered with a help of [STUN](https://en.wikipedia.org/wiki/STUN) servers.
 -  Agents negotiate a connection through [Signal Service](signal/) passing p2p encrypted messages with candidates.
