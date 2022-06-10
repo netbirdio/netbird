@@ -17,6 +17,20 @@ type Group struct {
 	Peers []string
 }
 
+const (
+	UpdateGroupName GroupUpdateOperationType = iota
+	InsertPeersToGroup
+	RemovePeersFromGroup
+	UpdateGroupPeers
+)
+
+type GroupUpdateOperationType int
+
+type GroupUpdateOperation struct {
+	Type   GroupUpdateOperationType
+	Values []string
+}
+
 func (g *Group) Copy() *Group {
 	return &Group{
 		ID:    g.ID,
@@ -61,6 +75,56 @@ func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error
 	}
 
 	return am.updateAccountPeers(account)
+}
+
+// UpdateGroup updates a group using a list of operations
+func (am *DefaultAccountManager) UpdateGroup(accountID string,
+	groupID string, operations []GroupUpdateOperation) (*Group, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	groupToUpdate, ok := account.Groups[groupID]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "group %s not found", groupID)
+	}
+
+	group := groupToUpdate.Copy()
+
+	for _, operation := range operations {
+		switch operation.Type {
+		case UpdateGroupName:
+			group.Name = operation.Values[0]
+		case UpdateGroupPeers:
+			group.Peers = operation.Values
+		case InsertPeersToGroup:
+			sourceList := group.Peers
+			resultList := removeFromList(sourceList, operation.Values)
+			group.Peers = append(resultList, operation.Values...)
+		case RemovePeersFromGroup:
+			sourceList := group.Peers
+			resultList := removeFromList(sourceList, operation.Values)
+			group.Peers = resultList
+		}
+	}
+
+	account.Groups[groupID] = group
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return nil, err
+	}
+
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to update account peers")
+	}
+
+	return group, nil
 }
 
 // DeleteGroup object of the peers

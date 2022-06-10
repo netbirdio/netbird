@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net/http"
 
 	"github.com/netbirdio/netbird/management/server"
@@ -103,7 +105,7 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	groupToPatch, ok := account.Groups[groupID]
+	_, ok := account.Groups[groupID]
 	if !ok {
 		http.Error(w, fmt.Sprintf("couldn't find group id %s", groupID), http.StatusNotFound)
 		return
@@ -120,7 +122,7 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	group := groupToPatch.Copy()
+	var operations []server.GroupUpdateOperation
 
 	for _, patch := range req {
 		switch patch.Path {
@@ -130,21 +132,29 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 					http.StatusBadRequest)
 				return
 			}
-			group.Name = patch.Value[0]
+			operations = append(operations, server.GroupUpdateOperation{
+				Type:   server.UpdateGroupName,
+				Values: patch.Value,
+			})
 		case api.GroupPatchOperationPathPeers:
 			switch patch.OP {
 			case api.GroupPatchOperationOPReplace:
-				group.Peers = patch.Value
+				operations = append(operations, server.GroupUpdateOperation{
+					Type:   server.UpdateGroupPeers,
+					Values: patch.Value,
+				})
 			case api.GroupPatchOperationOPRemove:
-				sourceList := group.Peers
 				peerKeys := peerIPsToKeys(account, &patch.Value)
-				resultList := removeFromList(sourceList, peerKeys)
-				group.Peers = resultList
+				operations = append(operations, server.GroupUpdateOperation{
+					Type:   server.RemovePeersFromGroup,
+					Values: peerKeys,
+				})
 			case api.GroupPatchOperationOPAdd:
-				sourceList := group.Peers
 				peerKeys := peerIPsToKeys(account, &patch.Value)
-				resultList := removeFromList(sourceList, peerKeys)
-				group.Peers = append(resultList, peerKeys...)
+				operations = append(operations, server.GroupUpdateOperation{
+					Type:   server.InsertPeersToGroup,
+					Values: peerKeys,
+				})
 			default:
 				http.Error(w, "invalid operation, \"%s\", for Peers field", http.StatusBadRequest)
 				return
@@ -155,7 +165,20 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.accountManager.SaveGroup(account.Id, group); err != nil {
+	group, err := h.accountManager.UpdateGroup(account.Id, groupID, operations)
+
+	if err != nil {
+		errStatus, ok := status.FromError(err)
+		if ok && errStatus.Code() == codes.Internal {
+			http.Error(w, errStatus.String(), http.StatusInternalServerError)
+			return
+		}
+
+		if ok && errStatus.Code() == codes.NotFound {
+			http.Error(w, errStatus.String(), http.StatusNotFound)
+			return
+		}
+
 		log.Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return

@@ -55,6 +55,7 @@ type AccountManager interface {
 	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
+	UpdateGroup(accountID string, groupID string, operations []GroupUpdateOperation) (*Group, error)
 	DeleteGroup(accountId, groupID string) error
 	ListGroups(accountId string) ([]*Group, error)
 	GroupAddPeer(accountId, groupID, peerKey string) error
@@ -704,4 +705,20 @@ func getAccountSetupKeyByKey(acc *Account, key string) *SetupKey {
 		}
 	}
 	return nil
+}
+
+func removeFromList(inputList []string, toRemove []string) []string {
+	toRemoveMap := make(map[string]struct{})
+	for _, item := range toRemove {
+		toRemoveMap[item] = struct{}{}
+	}
+
+	var resultList []string
+	for _, item := range inputList {
+		_, ok := toRemoveMap[item]
+		if !ok {
+			resultList = append(resultList, item)
+		}
+	}
+	return resultList
 }
