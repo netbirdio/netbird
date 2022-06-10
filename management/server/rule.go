@@ -3,6 +3,7 @@ package server
 import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 )
 
 // TrafficFlowType defines allowed direction of the traffic in the rule
@@ -11,6 +12,10 @@ type TrafficFlowType int
 const (
 	// TrafficFlowBidirect allows traffic to both direction
 	TrafficFlowBidirect TrafficFlowType = iota
+)
+const (
+	// TrafficFlowBidirect allows traffic to both direction
+	TrafficFlowBidirectString = "bidirect"
 )
 
 // Rule of ACL for groups
@@ -35,6 +40,26 @@ type Rule struct {
 
 	// Flow of the traffic allowed by the rule
 	Flow TrafficFlowType
+}
+
+const (
+	UpdateRuleName RuleUpdateOperationType = iota
+	UpdateRuleDescription
+	UpdateRuleStatus
+	UpdateRuleFlow
+	InsertGroupsToSource
+	RemoveGroupsFromSource
+	UpdateSourceGroups
+	InsertGroupsToDestination
+	RemoveGroupsFromDestination
+	UpdateDestinationGroups
+)
+
+type RuleUpdateOperationType int
+
+type RuleUpdateOperation struct {
+	Type   RuleUpdateOperationType
+	Values []string
 }
 
 func (r *Rule) Copy() *Rule {
@@ -85,6 +110,81 @@ func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
 	}
 
 	return am.updateAccountPeers(account)
+}
+
+// UpdateRule updates a rule using a list of operations
+func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
+	operations []RuleUpdateOperation) (*Rule, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	ruleToUpdate, ok := account.Rules[ruleID]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "rule %s no longer exists", ruleID)
+	}
+
+	rule := ruleToUpdate.Copy()
+
+	for _, operation := range operations {
+		switch operation.Type {
+		case UpdateRuleName:
+			rule.Name = operation.Values[0]
+		case UpdateRuleDescription:
+			rule.Description = operation.Values[0]
+		case UpdateRuleFlow:
+			if operation.Values[0] != TrafficFlowBidirectString {
+				return nil, status.Errorf(codes.InvalidArgument, "failed to parse flow")
+			}
+			rule.Flow = TrafficFlowBidirect
+		case UpdateRuleStatus:
+			if strings.ToLower(operation.Values[0]) == "true" {
+				rule.Disabled = true
+			} else if strings.ToLower(operation.Values[0]) == "false" {
+				rule.Disabled = false
+			} else {
+				return nil, status.Errorf(codes.InvalidArgument, "failed to parse status")
+			}
+		case UpdateSourceGroups:
+			rule.Source = operation.Values
+		case InsertGroupsToSource:
+			sourceList := rule.Source
+			resultList := removeFromList(sourceList, operation.Values)
+			rule.Source = append(resultList, operation.Values...)
+		case RemoveGroupsFromSource:
+			sourceList := rule.Source
+			resultList := removeFromList(sourceList, operation.Values)
+			rule.Source = resultList
+		case UpdateDestinationGroups:
+			rule.Destination = operation.Values
+		case InsertGroupsToDestination:
+			sourceList := rule.Destination
+			resultList := removeFromList(sourceList, operation.Values)
+			rule.Destination = append(resultList, operation.Values...)
+		case RemoveGroupsFromDestination:
+			sourceList := rule.Destination
+			resultList := removeFromList(sourceList, operation.Values)
+			rule.Destination = resultList
+		}
+	}
+
+	account.Rules[ruleID] = rule
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return nil, err
+	}
+
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to update account peers")
+	}
+
+	return rule, nil
 }
 
 // DeleteRule of ACL from the store

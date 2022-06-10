@@ -3,18 +3,16 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"net/http"
-
+	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/rs/xid"
-
-	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"net/http"
 )
-
-const FlowBidirectString = "bidirect"
 
 // Rules is a handler that returns rules of the account
 type Rules struct {
@@ -95,7 +93,7 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch req.Flow {
-	case FlowBidirectString:
+	case server.TrafficFlowBidirectString:
 		rule.Flow = server.TrafficFlowBidirect
 	default:
 		http.Error(w, "unknown flow type", http.StatusBadRequest)
@@ -103,12 +101,163 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.accountManager.SaveRule(account.Id, &rule); err != nil {
-		log.Errorf("failed updating rule \"%s\" under account %s %v", req.Name, account.Id, err)
+		log.Errorf("failed updating rule \"%s\" under account %s %v", ruleID, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
 	writeJSONObject(w, &req)
+}
+
+// PatchRuleHandler handles patch updates to a rule identified by a given ID
+func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	if err != nil {
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	ruleID := vars["id"]
+	if len(ruleID) == 0 {
+		http.Error(w, "invalid rule Id", http.StatusBadRequest)
+		return
+	}
+
+	_, ok := account.Rules[ruleID]
+	if !ok {
+		http.Error(w, fmt.Sprintf("couldn't find rule id %s", ruleID), http.StatusNotFound)
+		return
+	}
+
+	var req api.PatchApiRulesIdJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if len(req) == 0 {
+		http.Error(w, "no patch instruction received", http.StatusBadRequest)
+		return
+	}
+
+	var operations []server.RuleUpdateOperation
+
+	for _, patch := range req {
+		switch patch.Path {
+		case api.RulePatchOperationPathName:
+			if patch.OP != api.RulePatchOperationOPReplace {
+				http.Error(w, fmt.Sprintf("Name field only accepts replace operation, got %s", patch.OP),
+					http.StatusBadRequest)
+				return
+			}
+			operations = append(operations, server.RuleUpdateOperation{
+				Type:   server.UpdateRuleName,
+				Values: patch.Value,
+			})
+		case api.RulePatchOperationPathDescription:
+			if patch.OP != api.RulePatchOperationOPReplace {
+				http.Error(w, fmt.Sprintf("Description field only accepts replace operation, got %s", patch.OP),
+					http.StatusBadRequest)
+				return
+			}
+			operations = append(operations, server.RuleUpdateOperation{
+				Type:   server.UpdateRuleDescription,
+				Values: patch.Value,
+			})
+		case api.RulePatchOperationPathFlow:
+			if patch.OP != api.RulePatchOperationOPReplace {
+				http.Error(w, fmt.Sprintf("Flow field only accepts replace operation, got %s", patch.OP),
+					http.StatusBadRequest)
+				return
+			}
+			operations = append(operations, server.RuleUpdateOperation{
+				Type:   server.UpdateRuleFlow,
+				Values: patch.Value,
+			})
+		case api.RulePatchOperationPathDisabled:
+			if patch.OP != api.RulePatchOperationOPReplace {
+				http.Error(w, fmt.Sprintf("Disabled field only accepts replace operation, got %s", patch.OP),
+					http.StatusBadRequest)
+				return
+			}
+			operations = append(operations, server.RuleUpdateOperation{
+				Type:   server.UpdateRuleStatus,
+				Values: patch.Value,
+			})
+		case api.RulePatchOperationPathSource:
+			switch patch.OP {
+			case api.RulePatchOperationOPReplace:
+				operations = append(operations, server.RuleUpdateOperation{
+					Type:   server.UpdateSourceGroups,
+					Values: patch.Value,
+				})
+			case api.RulePatchOperationOPRemove:
+				operations = append(operations, server.RuleUpdateOperation{
+					Type:   server.RemoveGroupsFromSource,
+					Values: patch.Value,
+				})
+			case api.RulePatchOperationOPAdd:
+				operations = append(operations, server.RuleUpdateOperation{
+					Type:   server.InsertGroupsToSource,
+					Values: patch.Value,
+				})
+			default:
+				http.Error(w, "invalid operation, \"%s\", for Source field", http.StatusBadRequest)
+				return
+			}
+		case api.RulePatchOperationPathDestination:
+			switch patch.OP {
+			case api.RulePatchOperationOPReplace:
+				operations = append(operations, server.RuleUpdateOperation{
+					Type:   server.UpdateDestinationGroups,
+					Values: patch.Value,
+				})
+			case api.RulePatchOperationOPRemove:
+				operations = append(operations, server.RuleUpdateOperation{
+					Type:   server.RemoveGroupsFromDestination,
+					Values: patch.Value,
+				})
+			case api.RulePatchOperationOPAdd:
+				operations = append(operations, server.RuleUpdateOperation{
+					Type:   server.InsertGroupsToDestination,
+					Values: patch.Value,
+				})
+			default:
+				http.Error(w, "invalid operation, \"%s\", for Destination field", http.StatusBadRequest)
+				return
+			}
+		default:
+			http.Error(w, "invalid patch path", http.StatusBadRequest)
+			return
+		}
+	}
+
+	rule, err := h.accountManager.UpdateRule(account.Id, ruleID, operations)
+
+	if err != nil {
+		errStatus, ok := status.FromError(err)
+		if ok && errStatus.Code() == codes.Internal {
+			http.Error(w, errStatus.String(), http.StatusInternalServerError)
+			return
+		}
+
+		if ok && errStatus.Code() == codes.NotFound {
+			http.Error(w, errStatus.String(), http.StatusNotFound)
+			return
+		}
+
+		if ok && errStatus.Code() == codes.InvalidArgument {
+			http.Error(w, errStatus.String(), http.StatusBadRequest)
+			return
+		}
+
+		log.Errorf("failed updating rule %s under account %s %v", ruleID, account.Id, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	writeJSONObject(w, &rule)
 }
 
 // CreateRuleHandler handles rule creation request
@@ -145,7 +294,7 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch req.Flow {
-	case FlowBidirectString:
+	case server.TrafficFlowBidirectString:
 		rule.Flow = server.TrafficFlowBidirect
 	default:
 		http.Error(w, "unknown flow type", http.StatusBadRequest)
@@ -224,7 +373,7 @@ func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {
 
 	switch rule.Flow {
 	case server.TrafficFlowBidirect:
-		gr.Flow = FlowBidirectString
+		gr.Flow = server.TrafficFlowBidirectString
 	default:
 		gr.Flow = "unknown"
 	}

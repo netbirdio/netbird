@@ -90,7 +90,7 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 
 	groupToUpdate, ok := account.Groups[groupID]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "group %s not found", groupID)
+		return nil, status.Errorf(codes.NotFound, "group %s no longer exists", groupID)
 	}
 
 	group := groupToUpdate.Copy()

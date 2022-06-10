@@ -63,6 +63,7 @@ type AccountManager interface {
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
 	GetRule(accountId, ruleID string) (*Rule, error)
 	SaveRule(accountID string, rule *Rule) error
+	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
 	DeleteRule(accountId, ruleID string) error
 	ListRules(accountId string) ([]*Rule, error)
 }
