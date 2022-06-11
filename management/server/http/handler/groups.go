@@ -69,6 +69,16 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if allGroup.ID == groupID {
+		http.Error(w, "unable to update All group", http.StatusBadRequest)
+		return
+	}
+
 	var req api.PutApiGroupsIdJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -108,6 +118,17 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 	_, ok := account.Groups[groupID]
 	if !ok {
 		http.Error(w, fmt.Sprintf("couldn't find group id %s", groupID), http.StatusNotFound)
+		return
+	}
+
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if allGroup.ID == groupID {
+		http.Error(w, "unable to update All group", http.StatusBadRequest)
 		return
 	}
 
@@ -225,14 +246,25 @@ func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	aID := account.Id
 
-	gID := mux.Vars(r)["id"]
-	if len(gID) == 0 {
+	groupID := mux.Vars(r)["id"]
+	if len(groupID) == 0 {
 		http.Error(w, "invalid group ID", http.StatusBadRequest)
 		return
 	}
 
-	if err := h.accountManager.DeleteGroup(aID, gID); err != nil {
-		log.Errorf("failed delete group %s under account %s %v", gID, aID, err)
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if allGroup.ID == groupID {
+		http.Error(w, "unable to delete All group", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.accountManager.DeleteGroup(aID, groupID); err != nil {
+		log.Errorf("failed delete group %s under account %s %v", groupID, aID, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
