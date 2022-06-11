@@ -12,10 +12,12 @@ type TrafficFlowType int
 const (
 	// TrafficFlowBidirect allows traffic to both direction
 	TrafficFlowBidirect TrafficFlowType = iota
-)
-const (
-	// TrafficFlowBidirect allows traffic to both direction
+	// TrafficFlowBidirectString allows traffic to both direction
 	TrafficFlowBidirectString = "bidirect"
+	// DefaultRuleName is a name for the Default rule that is created for every account
+	DefaultRuleName = "Default"
+	// DefaultRuleDescription is a description for the Default rule that is created for every account
+	DefaultRuleDescription = "This is a default rule that allows connections between all the resources"
 )
 
 // Rule of ACL for groups

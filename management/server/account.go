@@ -641,7 +641,7 @@ func (am *DefaultAccountManager) createAccount(accountId, userId, domain string)
 	return account, nil
 }
 
-// addAllGroup to account object it it doesn't exists
+// addAllGroup adds the Default group to the account if it doesn't exist
 func (am *DefaultAccountManager) addAllGroup(account *Account) {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
@@ -655,7 +655,8 @@ func (am *DefaultAccountManager) addAllGroup(account *Account) {
 
 		defaultRule := &Rule{
 			ID:          xid.New().String(),
-			Name:        "Default",
+			Name:        DefaultRuleName,
+			Description: DefaultRuleDescription,
 			Disabled:    false,
 			Source:      []string{allGroup.ID},
 			Destination: []string{allGroup.ID},
