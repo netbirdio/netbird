@@ -128,6 +128,7 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 					PeersCount: len(group.Peers),
 				}
 				groupsInfo = append(groupsInfo, info)
+				break
 			}
 		}
 	}
