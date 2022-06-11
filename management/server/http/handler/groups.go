@@ -259,7 +259,7 @@ func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if allGroup.ID == groupID {
-		http.Error(w, "updating group ALL is not allowed", http.StatusMethodNotAllowed)
+		http.Error(w, "deleting group ALL is not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
