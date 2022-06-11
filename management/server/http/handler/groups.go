@@ -75,7 +75,7 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if allGroup.ID == groupID {
-		http.Error(w, "unable to update All group", http.StatusBadRequest)
+		http.Error(w, "updating group ALL is not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -128,7 +128,7 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if allGroup.ID == groupID {
-		http.Error(w, "unable to update All group", http.StatusBadRequest)
+		http.Error(w, "updating group ALL is not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
@@ -259,7 +259,7 @@ func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if allGroup.ID == groupID {
-		http.Error(w, "unable to delete All group", http.StatusBadRequest)
+		http.Error(w, "updating group ALL is not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
