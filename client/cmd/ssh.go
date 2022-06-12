@@ -12,12 +12,14 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
 var (
 	port int
 	user = "netbird"
+	host string
 )
 
 var sshCmd = &cobra.Command{
@@ -26,6 +28,15 @@ var sshCmd = &cobra.Command{
 		if len(args) < 1 {
 			return errors.New("requires a host argument")
 		}
+
+		split := strings.Split(args[0], "@")
+		if len(split) == 2 {
+			user = split[0]
+			host = split[1]
+		} else {
+			host = args[0]
+		}
+
 		return nil
 	},
 	Short: "connect to a remote SSH server",
@@ -37,6 +48,12 @@ var sshCmd = &cobra.Command{
 		err := util.InitLog(logLevel, "console")
 		if err != nil {
 			return fmt.Errorf("failed initializing log %v", err)
+		}
+
+		if os.Geteuid() != 0 {
+			//todo make it work on Windows
+			cmd.Printf("Error: you must be root to run this command\n")
+			return nil
 		}
 
 		ctx := internal.CtxInitState(cmd.Context())
@@ -69,12 +86,17 @@ var sshCmd = &cobra.Command{
 			return nil
 		}
 
+		config, err := internal.GetConfig("", "", configPath, "")
+		if err != nil {
+			return err
+		}
+
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT)
 		sshctx, cancel := context.WithCancel(ctx)
 
 		go func() {
-			if err := runSSH(args[0], sshctx); err != nil {
+			if err := runSSH(host, []byte(config.SSHKey), sshctx); err != nil {
 				log.Print(err)
 			}
 			cancel()
@@ -90,8 +112,8 @@ var sshCmd = &cobra.Command{
 	},
 }
 
-func runSSH(addr string, ctx context.Context) error {
-	c, err := nbssh.DialWithKeyFile(fmt.Sprintf("%s:%d", addr, port), user, "")
+func runSSH(addr string, pemKey []byte, ctx context.Context) error {
+	c, err := nbssh.DialWithKey(fmt.Sprintf("%s:%d", addr, port), user, pemKey)
 	if err != nil {
 		return err
 	}

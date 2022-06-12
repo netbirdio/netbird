@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/terminal"
-	"io/ioutil"
 	"net"
 	"os"
 )
@@ -35,7 +34,7 @@ func (c *Client) OpenTerminal() error {
 	fd := int(os.Stdin.Fd())
 	state, err := terminal.MakeRaw(fd)
 	if err != nil {
-		return fmt.Errorf("failed to make terminal raw: %s", err)
+		return fmt.Errorf("failed to run raw terminal: %s", err)
 	}
 	defer func() {
 		err := terminal.Restore(fd, state)
@@ -84,14 +83,10 @@ func (c *Client) OpenTerminal() error {
 	return nil
 }
 
-// DialWithKeyFile reads and parses the provided SSH key file, and connects to the remote SSH server
-func DialWithKeyFile(addr, user, keyfile string) (*Client, error) {
-	key, err := ioutil.ReadFile(keyfile)
-	if err != nil {
-		return nil, err
-	}
+// DialWithKey connects to the remote SSH server with a provided private key file (PEM).
+func DialWithKey(addr, user string, privateKey []byte) (*Client, error) {
 
-	signer, err := ssh.ParsePrivateKey(key)
+	signer, err := ssh.ParsePrivateKey(privateKey)
 	if err != nil {
 		return nil, err
 	}
