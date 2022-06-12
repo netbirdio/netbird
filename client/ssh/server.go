@@ -92,21 +92,41 @@ func (srv *Server) sessionHandler(s ssh.Session) {
 				setWinSize(f, win.Width, win.Height)
 			}
 		}()
-		go func() {
-			io.Copy(f, s) // stdin
-		}()
-		go func() {
-			io.Copy(s, f) // stdout
-		}()
+
+		srv.stdInOut(f, s)
 
 		err = cmd.Wait()
 		if err != nil {
 			return
 		}
 	} else {
-		io.WriteString(s, "Only PTY is supported.\n")
-		s.Exit(1)
+		_, err := io.WriteString(s, "Only PTY is supported.\n")
+		if err != nil {
+			return
+		}
+		err = s.Exit(1)
+		if err != nil {
+			return
+		}
 	}
+}
+
+func (srv *Server) stdInOut(f *os.File, s ssh.Session) {
+	go func() {
+		// stdin
+		_, err := io.Copy(f, s)
+		if err != nil {
+			return
+		}
+	}()
+
+	go func() {
+		// stdout
+		_, err := io.Copy(s, f)
+		if err != nil {
+			return
+		}
+	}()
 }
 
 // Start starts SSH server. Blocking

@@ -3,7 +3,7 @@ package ssh
 import (
 	"fmt"
 	"golang.org/x/crypto/ssh"
-	"golang.org/x/crypto/ssh/terminal"
+	"golang.org/x/term"
 	"net"
 	"os"
 )
@@ -32,18 +32,18 @@ func (c *Client) OpenTerminal() error {
 	}()
 
 	fd := int(os.Stdin.Fd())
-	state, err := terminal.MakeRaw(fd)
+	state, err := term.MakeRaw(fd)
 	if err != nil {
 		return fmt.Errorf("failed to run raw terminal: %s", err)
 	}
 	defer func() {
-		err := terminal.Restore(fd, state)
+		err := term.Restore(fd, state)
 		if err != nil {
 			return
 		}
 	}()
 
-	w, h, err := terminal.GetSize(fd)
+	w, h, err := term.GetSize(fd)
 	if err != nil {
 		return fmt.Errorf("terminal get size: %s", err)
 	}
