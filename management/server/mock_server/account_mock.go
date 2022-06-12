@@ -287,6 +287,7 @@ func (am *MockAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) 
 	return false, status.Errorf(codes.Unimplemented, "method IsUserAdmin is not implemented")
 }
 
+// UpdatePeerSSHKey mocks UpdatePeerSSHKey function of the account manager
 func (am *MockAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string) error {
 	if am.UpdatePeerSSHKeyFunc != nil {
 		return am.UpdatePeerSSHKeyFunc(peerKey, sshKey)
