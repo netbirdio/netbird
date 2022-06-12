@@ -106,7 +106,7 @@ func (srv *Server) sessionHandler(s ssh.Session) {
 			return
 		}
 	} else {
-		io.WriteString(s, "No PTY requested.\n")
+		io.WriteString(s, "Only PTY is supported.\n")
 		s.Exit(1)
 	}
 }
