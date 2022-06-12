@@ -303,6 +303,10 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 		return nil, err
 	}
 
+	s.mutex.Lock()
+	s.oauthAuthFlow.expiresAt = time.Now()
+	s.mutex.Unlock()
+
 	if loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.AccessToken); err != nil {
 		state.Set(loginStatus)
 		return nil, err
