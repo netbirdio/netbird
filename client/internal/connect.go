@@ -63,11 +63,8 @@ func RunClient(ctx context.Context, config *Config) error {
 
 		engineCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-		key, err := ssh.DecodePrivateKeyFromPEM([]byte(config.SSHKey))
-		if err != nil {
-			return err
-		}
-		publicKey, err := ssh.GeneratePublicKey(&key.PublicKey)
+
+		publicKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
 		if err != nil {
 			return err
 		}

@@ -4,16 +4,15 @@ import (
 	"context"
 	"fmt"
 	"github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
+	"github.com/netbirdio/netbird/util"
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/url"
 	"os"
-
-	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/util"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 var managementURLDefault *url.URL
@@ -45,7 +44,7 @@ type Config struct {
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
 func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (*Config, error) {
 	wgKey := generateKey()
-	pem, err := generateSSHKey()
+	pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	if err != nil {
 		return nil, err
 	}
@@ -73,14 +72,6 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 	}
 
 	return config, nil
-}
-
-func generateSSHKey() ([]byte, error) {
-	sshKey, err := ssh.GeneratePrivateKey(4096)
-	if err != nil {
-		return nil, err
-	}
-	return ssh.EncodePrivateKeyToPEM(sshKey), nil
 }
 
 func parseURL(serviceName, managementURL string) (*url.URL, error) {
@@ -141,7 +132,7 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 		refresh = true
 	}
 	if config.SSHKey == "" {
-		pem, err := generateSSHKey()
+		pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
 		if err != nil {
 			return nil, err
 		}

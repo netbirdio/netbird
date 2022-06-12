@@ -40,11 +40,7 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		return err
 	}
 
-	key, err := ssh.DecodePrivateKeyFromPEM([]byte(config.SSHKey))
-	if err != nil {
-		return err
-	}
-	publicKey, err := ssh.GeneratePublicKey(&key.PublicKey)
+	publicKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
 	if err != nil {
 		return err
 	}
