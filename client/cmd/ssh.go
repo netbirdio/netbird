@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
@@ -14,8 +15,19 @@ import (
 	"syscall"
 )
 
+var (
+	port int
+	user = "netbird"
+)
+
 var sshCmd = &cobra.Command{
-	Use:   "ssh",
+	Use: "ssh",
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) < 1 {
+			return errors.New("requires a host argument")
+		}
+		return nil
+	},
 	Short: "connect to a remote SSH server",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars()
@@ -62,7 +74,7 @@ var sshCmd = &cobra.Command{
 		sshctx, cancel := context.WithCancel(ctx)
 
 		go func() {
-			if err := runSSH(sshctx); err != nil {
+			if err := runSSH(args[0], sshctx); err != nil {
 				log.Print(err)
 			}
 			cancel()
@@ -78,8 +90,8 @@ var sshCmd = &cobra.Command{
 	},
 }
 
-func runSSH(ctx context.Context) error {
-	c, err := nbssh.DialWithKeyFile("128.199.61.79:43767", "root", "/home/braginini/.ssh/id_rsa")
+func runSSH(addr string, ctx context.Context) error {
+	c, err := nbssh.DialWithKeyFile(fmt.Sprintf("%s:%d", addr, port), user, "")
 	if err != nil {
 		return err
 	}
@@ -97,4 +109,8 @@ func runSSH(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func init() {
+	sshCmd.PersistentFlags().IntVarP(&port, "port", "p", 2222, "set remote SSH port. Defaults to NetBird's 2222")
 }
