@@ -14,12 +14,19 @@ import (
 	"strings"
 )
 
+// KeyType is a type of SSH key
 type KeyType string
 
+// ED25519 is key of type ed25519
 const ED25519 KeyType = "ed25519"
+
+// ECDSA is key of type ecdsa
 const ECDSA KeyType = "ecdsa"
+
+// RSA is key of type rsa
 const RSA KeyType = "rsa"
 
+// RSAKeySize is a size of newly generated RSA key
 const RSAKeySize = 2048
 
 // GeneratePrivateKey creates RSA Private Key of specified byte size

@@ -96,7 +96,7 @@ var sshCmd = &cobra.Command{
 		sshctx, cancel := context.WithCancel(ctx)
 
 		go func() {
-			if err := runSSH(host, []byte(config.SSHKey), sshctx); err != nil {
+			if err := runSSH(sshctx, host, []byte(config.SSHKey)); err != nil {
 				log.Print(err)
 			}
 			cancel()
@@ -112,7 +112,7 @@ var sshCmd = &cobra.Command{
 	},
 }
 
-func runSSH(addr string, pemKey []byte, ctx context.Context) error {
+func runSSH(ctx context.Context, addr string, pemKey []byte) error {
 	c, err := nbssh.DialWithKey(fmt.Sprintf("%s:%d", addr, port), user, pemKey)
 	if err != nil {
 		return err

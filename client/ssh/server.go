@@ -23,6 +23,7 @@ func init() {
 	}
 }
 
+// Server is the embedded NetBird SSh server
 type Server struct {
 	listener    net.Listener
 	allowedKeys map[string]ssh.PublicKey
