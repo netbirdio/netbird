@@ -43,6 +43,7 @@ type MockAccountManager struct {
 	UpdatePeerMetaFunc                    func(peerKey string, meta server.PeerSystemMeta) error
 }
 
+// GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
 func (am *MockAccountManager) GetUsersFromAccount(accountID string) ([]*server.UserInfo, error) {
 	if am.GetUsersFromAccountFunc != nil {
 		return am.GetUsersFromAccountFunc(accountID)
@@ -50,6 +51,7 @@ func (am *MockAccountManager) GetUsersFromAccount(accountID string) ([]*server.U
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount not implemented")
 }
 
+// GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface
 func (am *MockAccountManager) GetOrCreateAccountByUser(
 	userId, domain string,
 ) (*server.Account, error) {
@@ -62,6 +64,7 @@ func (am *MockAccountManager) GetOrCreateAccountByUser(
 	)
 }
 
+// GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface
 func (am *MockAccountManager) GetAccountByUser(userId string) (*server.Account, error) {
 	if am.GetAccountByUserFunc != nil {
 		return am.GetAccountByUserFunc(userId)
@@ -69,6 +72,7 @@ func (am *MockAccountManager) GetAccountByUser(userId string) (*server.Account, 
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByUser not implemented")
 }
 
+// GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface
 func (am *MockAccountManager) AddSetupKey(
 	accountId string,
 	keyName string,
@@ -81,6 +85,7 @@ func (am *MockAccountManager) AddSetupKey(
 	return nil, status.Errorf(codes.Unimplemented, "method AddSetupKey not implemented")
 }
 
+// RevokeSetupKey mock implementation of RevokeSetupKey from server.AccountManager interface
 func (am *MockAccountManager) RevokeSetupKey(
 	accountId string,
 	keyId string,
@@ -91,6 +96,7 @@ func (am *MockAccountManager) RevokeSetupKey(
 	return nil, status.Errorf(codes.Unimplemented, "method RevokeSetupKey not implemented")
 }
 
+// RenameSetupKey mock implementation of RenameSetupKey from server.AccountManager interface
 func (am *MockAccountManager) RenameSetupKey(
 	accountId string,
 	keyId string,
@@ -102,6 +108,7 @@ func (am *MockAccountManager) RenameSetupKey(
 	return nil, status.Errorf(codes.Unimplemented, "method RenameSetupKey not implemented")
 }
 
+// GetAccountById mock implementation of GetAccountById from server.AccountManager interface
 func (am *MockAccountManager) GetAccountById(accountId string) (*server.Account, error) {
 	if am.GetAccountByIdFunc != nil {
 		return am.GetAccountByIdFunc(accountId)
@@ -109,6 +116,7 @@ func (am *MockAccountManager) GetAccountById(accountId string) (*server.Account,
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountById not implemented")
 }
 
+// GetAccountByUserOrAccountId mock implementation of GetAccountByUserOrAccountId from server.AccountManager interface
 func (am *MockAccountManager) GetAccountByUserOrAccountId(
 	userId, accountId, domain string,
 ) (*server.Account, error) {
@@ -121,6 +129,7 @@ func (am *MockAccountManager) GetAccountByUserOrAccountId(
 	)
 }
 
+// GetAccountWithAuthorizationClaims mock implementation of GetAccountWithAuthorizationClaims from server.AccountManager interface
 func (am *MockAccountManager) GetAccountWithAuthorizationClaims(
 	claims jwtclaims.AuthorizationClaims,
 ) (*server.Account, error) {
@@ -133,6 +142,7 @@ func (am *MockAccountManager) GetAccountWithAuthorizationClaims(
 	)
 }
 
+// AccountExists mock implementation of AccountExists from server.AccountManager interface
 func (am *MockAccountManager) AccountExists(accountId string) (*bool, error) {
 	if am.AccountExistsFunc != nil {
 		return am.AccountExistsFunc(accountId)
@@ -140,6 +150,7 @@ func (am *MockAccountManager) AccountExists(accountId string) (*bool, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AccountExists not implemented")
 }
 
+// GetPeer mock implementation of GetPeer from server.AccountManager interface
 func (am *MockAccountManager) GetPeer(peerKey string) (*server.Peer, error) {
 	if am.GetPeerFunc != nil {
 		return am.GetPeerFunc(peerKey)
@@ -147,6 +158,7 @@ func (am *MockAccountManager) GetPeer(peerKey string) (*server.Peer, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeer not implemented")
 }
 
+// MarkPeerConnected mock implementation of MarkPeerConnected from server.AccountManager interface
 func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool) error {
 	if am.MarkPeerConnectedFunc != nil {
 		return am.MarkPeerConnectedFunc(peerKey, connected)
@@ -154,6 +166,7 @@ func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool) 
 	return status.Errorf(codes.Unimplemented, "method MarkPeerConnected not implemented")
 }
 
+// RenamePeer mock implementation of RenamePeer from server.AccountManager interface
 func (am *MockAccountManager) RenamePeer(
 	accountId string,
 	peerKey string,
@@ -165,6 +178,7 @@ func (am *MockAccountManager) RenamePeer(
 	return nil, status.Errorf(codes.Unimplemented, "method RenamePeer not implemented")
 }
 
+// DeletePeer mock implementation of DeletePeer from server.AccountManager interface
 func (am *MockAccountManager) DeletePeer(accountId string, peerKey string) (*server.Peer, error) {
 	if am.DeletePeerFunc != nil {
 		return am.DeletePeerFunc(accountId, peerKey)
@@ -172,6 +186,7 @@ func (am *MockAccountManager) DeletePeer(accountId string, peerKey string) (*ser
 	return nil, status.Errorf(codes.Unimplemented, "method DeletePeer not implemented")
 }
 
+// GetPeerByIP mock implementation of GetPeerByIP from server.AccountManager interface
 func (am *MockAccountManager) GetPeerByIP(accountId string, peerIP string) (*server.Peer, error) {
 	if am.GetPeerByIPFunc != nil {
 		return am.GetPeerByIPFunc(accountId, peerIP)
@@ -179,6 +194,7 @@ func (am *MockAccountManager) GetPeerByIP(accountId string, peerIP string) (*ser
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerByIP not implemented")
 }
 
+// GetNetworkMap mock implementation of GetNetworkMap from server.AccountManager interface
 func (am *MockAccountManager) GetNetworkMap(peerKey string) (*server.NetworkMap, error) {
 	if am.GetNetworkMapFunc != nil {
 		return am.GetNetworkMapFunc(peerKey)
@@ -186,6 +202,7 @@ func (am *MockAccountManager) GetNetworkMap(peerKey string) (*server.NetworkMap,
 	return nil, status.Errorf(codes.Unimplemented, "method GetNetworkMap not implemented")
 }
 
+// AddPeer mock implementation of AddPeer from server.AccountManager interface
 func (am *MockAccountManager) AddPeer(
 	setupKey string,
 	userId string,
@@ -197,6 +214,7 @@ func (am *MockAccountManager) AddPeer(
 	return nil, status.Errorf(codes.Unimplemented, "method AddPeer not implemented")
 }
 
+// GetGroup mock implementation of GetGroup from server.AccountManager interface
 func (am *MockAccountManager) GetGroup(accountID, groupID string) (*server.Group, error) {
 	if am.GetGroupFunc != nil {
 		return am.GetGroupFunc(accountID, groupID)
@@ -204,6 +222,7 @@ func (am *MockAccountManager) GetGroup(accountID, groupID string) (*server.Group
 	return nil, status.Errorf(codes.Unimplemented, "method GetGroup not implemented")
 }
 
+// SaveGroup mock implementation of SaveGroup from server.AccountManager interface
 func (am *MockAccountManager) SaveGroup(accountID string, group *server.Group) error {
 	if am.SaveGroupFunc != nil {
 		return am.SaveGroupFunc(accountID, group)
@@ -211,6 +230,7 @@ func (am *MockAccountManager) SaveGroup(accountID string, group *server.Group) e
 	return status.Errorf(codes.Unimplemented, "method SaveGroup not implemented")
 }
 
+// UpdateGroup mock implementation of UpdateGroup from server.AccountManager interface
 func (am *MockAccountManager) UpdateGroup(accountID string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error) {
 	if am.UpdateGroupFunc != nil {
 		return am.UpdateGroupFunc(accountID, groupID, operations)
@@ -218,6 +238,7 @@ func (am *MockAccountManager) UpdateGroup(accountID string, groupID string, oper
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateGroup not implemented")
 }
 
+// DeleteGroup mock implementation of DeleteGroup from server.AccountManager interface
 func (am *MockAccountManager) DeleteGroup(accountID, groupID string) error {
 	if am.DeleteGroupFunc != nil {
 		return am.DeleteGroupFunc(accountID, groupID)
@@ -225,6 +246,7 @@ func (am *MockAccountManager) DeleteGroup(accountID, groupID string) error {
 	return status.Errorf(codes.Unimplemented, "method DeleteGroup not implemented")
 }
 
+// ListGroups mock implementation of ListGroups from server.AccountManager interface
 func (am *MockAccountManager) ListGroups(accountID string) ([]*server.Group, error) {
 	if am.ListGroupsFunc != nil {
 		return am.ListGroupsFunc(accountID)
@@ -232,6 +254,7 @@ func (am *MockAccountManager) ListGroups(accountID string) ([]*server.Group, err
 	return nil, status.Errorf(codes.Unimplemented, "method ListGroups not implemented")
 }
 
+// GroupAddPeer mock implementation of GroupAddPeer from server.AccountManager interface
 func (am *MockAccountManager) GroupAddPeer(accountID, groupID, peerKey string) error {
 	if am.GroupAddPeerFunc != nil {
 		return am.GroupAddPeerFunc(accountID, groupID, peerKey)
@@ -239,6 +262,7 @@ func (am *MockAccountManager) GroupAddPeer(accountID, groupID, peerKey string) e
 	return status.Errorf(codes.Unimplemented, "method GroupAddPeer not implemented")
 }
 
+// GroupDeletePeer mock implementation of GroupDeletePeer from server.AccountManager interface
 func (am *MockAccountManager) GroupDeletePeer(accountID, groupID, peerKey string) error {
 	if am.GroupDeletePeerFunc != nil {
 		return am.GroupDeletePeerFunc(accountID, groupID, peerKey)
@@ -246,6 +270,7 @@ func (am *MockAccountManager) GroupDeletePeer(accountID, groupID, peerKey string
 	return status.Errorf(codes.Unimplemented, "method GroupDeletePeer not implemented")
 }
 
+// GroupListPeers mock implementation of GroupListPeers from server.AccountManager interface
 func (am *MockAccountManager) GroupListPeers(accountID, groupID string) ([]*server.Peer, error) {
 	if am.GroupListPeersFunc != nil {
 		return am.GroupListPeersFunc(accountID, groupID)
@@ -253,6 +278,7 @@ func (am *MockAccountManager) GroupListPeers(accountID, groupID string) ([]*serv
 	return nil, status.Errorf(codes.Unimplemented, "method GroupListPeers not implemented")
 }
 
+// GetRule mock implementation of GetRule from server.AccountManager interface
 func (am *MockAccountManager) GetRule(accountID, ruleID string) (*server.Rule, error) {
 	if am.GetRuleFunc != nil {
 		return am.GetRuleFunc(accountID, ruleID)
@@ -260,6 +286,7 @@ func (am *MockAccountManager) GetRule(accountID, ruleID string) (*server.Rule, e
 	return nil, status.Errorf(codes.Unimplemented, "method GetRule not implemented")
 }
 
+// SaveRule mock implementation of SaveRule from server.AccountManager interface
 func (am *MockAccountManager) SaveRule(accountID string, rule *server.Rule) error {
 	if am.SaveRuleFunc != nil {
 		return am.SaveRuleFunc(accountID, rule)
@@ -267,6 +294,7 @@ func (am *MockAccountManager) SaveRule(accountID string, rule *server.Rule) erro
 	return status.Errorf(codes.Unimplemented, "method SaveRule not implemented")
 }
 
+// UpdateRule mock implementation of UpdateRule from server.AccountManager interface
 func (am *MockAccountManager) UpdateRule(accountID string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error) {
 	if am.UpdateRuleFunc != nil {
 		return am.UpdateRuleFunc(accountID, ruleID, operations)
@@ -274,6 +302,7 @@ func (am *MockAccountManager) UpdateRule(accountID string, ruleID string, operat
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateRule not implemented")
 }
 
+// DeleteRule mock implementation of DeleteRule from server.AccountManager interface
 func (am *MockAccountManager) DeleteRule(accountID, ruleID string) error {
 	if am.DeleteRuleFunc != nil {
 		return am.DeleteRuleFunc(accountID, ruleID)
@@ -281,6 +310,7 @@ func (am *MockAccountManager) DeleteRule(accountID, ruleID string) error {
 	return status.Errorf(codes.Unimplemented, "method DeleteRule not implemented")
 }
 
+// ListRules mock implementation of ListRules from server.AccountManager interface
 func (am *MockAccountManager) ListRules(accountID string) ([]*server.Rule, error) {
 	if am.ListRulesFunc != nil {
 		return am.ListRulesFunc(accountID)
@@ -288,6 +318,7 @@ func (am *MockAccountManager) ListRules(accountID string) ([]*server.Rule, error
 	return nil, status.Errorf(codes.Unimplemented, "method ListRules not implemented")
 }
 
+// UpdatePeerMeta mock implementation of UpdatePeerMeta from server.AccountManager interface
 func (am *MockAccountManager) UpdatePeerMeta(peerKey string, meta server.PeerSystemMeta) error {
 	if am.UpdatePeerMetaFunc != nil {
 		return am.UpdatePeerMetaFunc(peerKey, meta)
@@ -295,6 +326,7 @@ func (am *MockAccountManager) UpdatePeerMeta(peerKey string, meta server.PeerSys
 	return status.Errorf(codes.Unimplemented, "method UpdatePeerMetaFunc not implemented")
 }
 
+// IsUserAdmin mock implementation of IsUserAdmin from server.AccountManager interface
 func (am *MockAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
 	if am.IsUserAdminFunc != nil {
 		return am.IsUserAdminFunc(claims)

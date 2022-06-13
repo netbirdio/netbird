@@ -28,8 +28,10 @@ const (
 	UpdateGroupPeers
 )
 
+// GroupUpdateOperationType operation type
 type GroupUpdateOperationType int
 
+// GroupUpdateOperation operation object with type and values to be applied
 type GroupUpdateOperation struct {
 	Type   GroupUpdateOperationType
 	Values []string

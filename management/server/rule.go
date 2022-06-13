@@ -67,8 +67,10 @@ const (
 	UpdateDestinationGroups
 )
 
+// RuleUpdateOperationType operation type
 type RuleUpdateOperationType int
 
+// RuleUpdateOperation operation object with type and values to be applied
 type RuleUpdateOperation struct {
 	Type   RuleUpdateOperationType
 	Values []string
