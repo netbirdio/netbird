@@ -343,8 +343,8 @@ func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 				Name: peer.Name,
 			}
 			cache[pid] = peerResp
+			gr.Peers = append(gr.Peers, peerResp)
 		}
-		gr.Peers = append(gr.Peers, peerResp)
 	}
 
 	return &gr

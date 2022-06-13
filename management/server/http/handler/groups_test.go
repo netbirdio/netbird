@@ -40,7 +40,7 @@ func initGroupTestData(groups ...*server.Group) *Groups {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
-					Groups: map[string]*server.Group{"id-existed": &server.Group{}},
+					Groups: map[string]*server.Group{"id-existed": &server.Group{}, "all": &server.Group{Name: "All"}},
 				}, nil
 			},
 		},
