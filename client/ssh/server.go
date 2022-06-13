@@ -21,11 +21,16 @@ func init() {
 	}
 }
 
-type Srv interface {
+// Server is an interface of a SSH server
+type Server interface {
+	Stop() error
+	Start() error
+	RemoveAuthorizedKey(peer string)
+	AddAuthorizedKey(peer, newKey string) error
 }
 
-// Server is the embedded NetBird SSH server
-type Server struct {
+// DefaultServer is the embedded NetBird SSH server
+type DefaultServer struct {
 	listener net.Listener
 	// authorizedKeys is ssh pub key indexed by peer WireGuard public key
 	authorizedKeys map[string]ssh.PublicKey
@@ -34,17 +39,17 @@ type Server struct {
 }
 
 // NewSSHServer creates new server with provided host key
-func NewSSHServer(hostKeyPEM []byte, addr string) (*Server, error) {
+func NewSSHServer(hostKeyPEM []byte, addr string) (*DefaultServer, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err
 	}
 	allowedKeys := make(map[string]ssh.PublicKey)
-	return &Server{listener: ln, mu: sync.Mutex{}, hostKeyPEM: hostKeyPEM, authorizedKeys: allowedKeys}, nil
+	return &DefaultServer{listener: ln, mu: sync.Mutex{}, hostKeyPEM: hostKeyPEM, authorizedKeys: allowedKeys}, nil
 }
 
 // RemoveAuthorizedKey removes SSH key of a given peer from the authorized keys
-func (srv *Server) RemoveAuthorizedKey(peer string) {
+func (srv *DefaultServer) RemoveAuthorizedKey(peer string) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
@@ -52,7 +57,7 @@ func (srv *Server) RemoveAuthorizedKey(peer string) {
 }
 
 // AddAuthorizedKey add a given peer key to server authorized keys
-func (srv *Server) AddAuthorizedKey(peer, newKey string) error {
+func (srv *DefaultServer) AddAuthorizedKey(peer, newKey string) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
@@ -66,7 +71,7 @@ func (srv *Server) AddAuthorizedKey(peer, newKey string) error {
 }
 
 // Stop stops SSH server.
-func (srv *Server) Stop() error {
+func (srv *DefaultServer) Stop() error {
 	err := srv.listener.Close()
 	if err != nil {
 		return err
@@ -74,7 +79,7 @@ func (srv *Server) Stop() error {
 	return nil
 }
 
-func (srv *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
+func (srv *DefaultServer) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
@@ -88,7 +93,7 @@ func (srv *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 }
 
 // sessionHandler handles SSH session post auth
-func (srv *Server) sessionHandler(s ssh.Session) {
+func (srv *DefaultServer) sessionHandler(s ssh.Session) {
 	ptyReq, winCh, isPty := s.Pty()
 	if isPty {
 		cmd := exec.Command(shell)
@@ -121,7 +126,7 @@ func (srv *Server) sessionHandler(s ssh.Session) {
 	}
 }
 
-func (srv *Server) stdInOut(f *os.File, s ssh.Session) {
+func (srv *DefaultServer) stdInOut(f *os.File, s ssh.Session) {
 	go func() {
 		// stdin
 		_, err := io.Copy(f, s)
@@ -140,7 +145,7 @@ func (srv *Server) stdInOut(f *os.File, s ssh.Session) {
 }
 
 // Start starts SSH server. Blocking
-func (srv *Server) Start() error {
+func (srv *DefaultServer) Start() error {
 	log.Infof("starting SSH server")
 
 	publicKeyOption := ssh.PublicKeyAuth(srv.publicKeyHandler)

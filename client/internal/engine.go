@@ -91,7 +91,7 @@ type Engine struct {
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
-	sshServer *ssh.Server
+	sshServer *ssh.DefaultServer
 }
 
 // Peer is an instance of the Connection Peer
@@ -576,7 +576,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
 					err := e.sshServer.AddAuthorizedKey(config.WgPubKey, string(config.GetSshConfig().GetSshPubKey()))
 					if err != nil {
-						log.Warnf("failed adding authroized key to SSH Server %v", err)
+						log.Warnf("failed adding authroized key to SSH DefaultServer %v", err)
 					}
 				}
 			}
