@@ -332,13 +332,13 @@ func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 	}
 
 	for _, pid := range group.Peers {
-		peerResp, ok := cache[pid]
+		_, ok := cache[pid]
 		if !ok {
 			peer, ok := account.Peers[pid]
 			if !ok {
 				continue
 			}
-			peerResp = api.PeerMinimum{
+			peerResp := api.PeerMinimum{
 				ID:   peer.IP.String(),
 				Name: peer.Name,
 			}
