@@ -422,7 +422,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		if e.sshServer == nil {
 			//nil sshServer means it has not yet been started
 			var err error
-			e.sshServer, err = ssh.NewSSHServer(e.config.SSHKey,
+			e.sshServer, err = ssh.DefaultSSHServer(e.config.SSHKey,
 				fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), 2222))
 			if err != nil {
 				return err

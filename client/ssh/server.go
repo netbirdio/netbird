@@ -23,9 +23,13 @@ func init() {
 
 // Server is an interface of a SSH server
 type Server interface {
+	// Stop stops SSH server.
 	Stop() error
+	// Start starts SSH server. Blocking
 	Start() error
+	// RemoveAuthorizedKey removes SSH key of a given peer from the authorized keys
 	RemoveAuthorizedKey(peer string)
+	// AddAuthorizedKey add a given peer key to server authorized keys
 	AddAuthorizedKey(peer, newKey string) error
 }
 
@@ -38,8 +42,8 @@ type DefaultServer struct {
 	hostKeyPEM     []byte
 }
 
-// NewSSHServer creates new server with provided host key
-func NewSSHServer(hostKeyPEM []byte, addr string) (*DefaultServer, error) {
+// DefaultSSHServer creates new server with provided host key
+func DefaultSSHServer(hostKeyPEM []byte, addr string) (*DefaultServer, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err

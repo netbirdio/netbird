@@ -13,7 +13,7 @@ func TestServer_AddAuthorizedKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewSSHServer(key, "localhost:")
+	server, err := DefaultSSHServer(key, "localhost:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestServer_RemoveAuthorizedKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewSSHServer(key, "localhost:")
+	server, err := DefaultSSHServer(key, "localhost:")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestServer_PubKeyHandler(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := NewSSHServer(key, "localhost:")
+	server, err := DefaultSSHServer(key, "localhost:")
 	if err != nil {
 		t.Fatal(err)
 	}
