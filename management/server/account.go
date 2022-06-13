@@ -34,7 +34,7 @@ type AccountManager interface {
 		accountId string,
 		keyName string,
 		keyType SetupKeyType,
-		expiresIn *util.Duration,
+		expiresIn time.Duration,
 	) (*SetupKey, error)
 	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
