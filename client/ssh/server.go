@@ -21,6 +21,9 @@ func init() {
 	}
 }
 
+type Srv interface {
+}
+
 // Server is the embedded NetBird SSH server
 type Server struct {
 	listener net.Listener

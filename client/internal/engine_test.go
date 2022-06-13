@@ -3,6 +3,8 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/iface"
+	"github.com/stretchr/testify/assert"
 	"net"
 	"os"
 	"path/filepath"
@@ -40,6 +42,87 @@ var (
 	}
 )
 
+func TestEngine_SSH(t *testing.T) {
+
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
+		WgIfaceName:  "utun100",
+		WgAddr:       "100.64.0.1/24",
+		WgPrivateKey: key,
+		WgPort:       33100,
+	})
+	//engine.wgInterface, err = iface.NewWGIFace("utun100", "100.64.0.1/24", iface.DefaultMTU)
+	err = engine.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	peerWithSSH := &mgmtProto.RemotePeerConfig{
+		WgPubKey:   "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		AllowedIps: []string{"100.64.0.21/24"},
+		SshConfig: &mgmtProto.SSHConfig{
+			SshPubKey: []byte("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFATYCqaQw/9id1Qkq3n16JYhDhXraI6Pc1fgB8ynEfQ"),
+		},
+	}
+
+	// SSH server is not enabled so SSH config of a remote peer should be ignored
+	networkMap := &mgmtProto.NetworkMap{
+		Serial:             6,
+		PeerConfig:         nil,
+		RemotePeers:        []*mgmtProto.RemotePeerConfig{peerWithSSH},
+		RemotePeersIsEmpty: false,
+	}
+
+	err = engine.updateNetworkMap(networkMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Nil(t, engine.sshServer)
+
+	// SSH server is enabled, therefore SSH config should be applied
+	networkMap = &mgmtProto.NetworkMap{
+		Serial: 7,
+		PeerConfig: &mgmtProto.PeerConfig{Address: "100.64.0.1/24",
+			SshConfig: &mgmtProto.SSHConfig{SshEnabled: true}},
+		RemotePeers:        []*mgmtProto.RemotePeerConfig{peerWithSSH},
+		RemotePeersIsEmpty: false,
+	}
+
+	err = engine.updateNetworkMap(networkMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(500 * time.Millisecond)
+	assert.NotNil(t, engine.sshServer)
+
+	// now disable SSH server
+	networkMap = &mgmtProto.NetworkMap{
+		Serial: 8,
+		PeerConfig: &mgmtProto.PeerConfig{Address: "100.64.0.1/24",
+			SshConfig: &mgmtProto.SSHConfig{SshEnabled: false}},
+		RemotePeers:        []*mgmtProto.RemotePeerConfig{peerWithSSH},
+		RemotePeersIsEmpty: false,
+	}
+
+	err = engine.updateNetworkMap(networkMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Nil(t, engine.sshServer)
+
+}
+
 func TestEngine_UpdateNetworkMap(t *testing.T) {
 	// test setup
 	key, err := wgtypes.GeneratePrivateKey()
@@ -57,6 +140,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		WgPrivateKey: key,
 		WgPort:       33100,
 	})
+	engine.wgInterface, err = iface.NewWGIFace("utun100", "100.64.0.1/24", iface.DefaultMTU)
 
 	type testCase struct {
 		name       string

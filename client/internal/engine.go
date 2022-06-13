@@ -406,12 +406,6 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	if update.GetNetworkMap() != nil {
-		if update.GetNetworkMap().GetPeerConfig() != nil {
-			err := e.updateConfig(update.GetNetworkMap().GetPeerConfig())
-			if err != nil {
-				return err
-			}
-		}
 		// only apply new changes and ignore old ones
 		err := e.updateNetworkMap(update.GetNetworkMap())
 		if err != nil {
@@ -537,6 +531,15 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
+
+	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
+	if networkMap.GetPeerConfig() != nil {
+		err := e.updateConfig(networkMap.GetPeerConfig())
+		if err != nil {
+			return err
+		}
+	}
+
 	serial := networkMap.GetSerial()
 	if e.networkSerial > serial {
 		log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
