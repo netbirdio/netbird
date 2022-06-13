@@ -73,6 +73,11 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Name == "" {
+		http.Error(w, "Rule name shouldn't be empty", http.StatusUnprocessableEntity)
+		return
+	}
+
 	var reqSources []string
 	if req.Sources != nil {
 		reqSources = *req.Sources
@@ -106,7 +111,9 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, &req)
+	resp := toRuleResponse(account, &rule)
+
+	writeJSONObject(w, &resp)
 }
 
 // PatchRuleHandler handles patch updates to a rule identified by a given ID
@@ -151,6 +158,10 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 					http.StatusBadRequest)
 				return
 			}
+			if len(patch.Value) == 0 || patch.Value[0] == "" {
+				http.Error(w, "Rule name shouldn't be empty", http.StatusUnprocessableEntity)
+				return
+			}
 			operations = append(operations, server.RuleUpdateOperation{
 				Type:   server.UpdateRuleName,
 				Values: patch.Value,
@@ -185,7 +196,7 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 				Type:   server.UpdateRuleStatus,
 				Values: patch.Value,
 			})
-		case api.RulePatchOperationPathSource:
+		case api.RulePatchOperationPathSources:
 			switch patch.Op {
 			case api.RulePatchOperationOpReplace:
 				operations = append(operations, server.RuleUpdateOperation{
@@ -206,7 +217,7 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, "invalid operation, \"%s\", for Source field", http.StatusBadRequest)
 				return
 			}
-		case api.RulePatchOperationPathDestination:
+		case api.RulePatchOperationPathDestinations:
 			switch patch.Op {
 			case api.RulePatchOperationOpReplace:
 				operations = append(operations, server.RuleUpdateOperation{
@@ -257,7 +268,9 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, &rule)
+	resp := toRuleResponse(account, rule)
+
+	writeJSONObject(w, &resp)
 }
 
 // CreateRuleHandler handles rule creation request
@@ -271,6 +284,11 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	var req api.PostApiRulesJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "Rule name shouldn't be empty", http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -307,7 +325,9 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, &req)
+	resp := toRuleResponse(account, &rule)
+
+	writeJSONObject(w, &resp)
 }
 
 // DeleteRuleHandler handles rule deletion request

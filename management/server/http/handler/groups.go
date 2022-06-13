@@ -85,6 +85,11 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if *req.Name == "" {
+		http.Error(w, "Group name shouldn't be empty", http.StatusUnprocessableEntity)
+		return
+	}
+
 	group := server.Group{
 		ID:    groupID,
 		Name:  *req.Name,
@@ -153,6 +158,12 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 					http.StatusBadRequest)
 				return
 			}
+
+			if len(patch.Value) == 0 || patch.Value[0] == "" {
+				http.Error(w, "Group name shouldn't be empty", http.StatusUnprocessableEntity)
+				return
+			}
+
 			operations = append(operations, server.GroupUpdateOperation{
 				Type:   server.UpdateGroupName,
 				Values: patch.Value,
@@ -160,9 +171,10 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 		case api.GroupPatchOperationPathPeers:
 			switch patch.Op {
 			case api.GroupPatchOperationOpReplace:
+				peerKeys := peerIPsToKeys(account, &patch.Value)
 				operations = append(operations, server.GroupUpdateOperation{
 					Type:   server.UpdateGroupPeers,
-					Values: patch.Value,
+					Values: peerKeys,
 				})
 			case api.GroupPatchOperationOpRemove:
 				peerKeys := peerIPsToKeys(account, &patch.Value)
@@ -219,6 +231,11 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	var req api.PostApiGroupsJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, "Group name shouldn't be empty", http.StatusUnprocessableEntity)
 		return
 	}
 
@@ -346,6 +363,5 @@ func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 			gr.Peers = append(gr.Peers, peerResp)
 		}
 	}
-
 	return &gr
 }

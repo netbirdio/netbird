@@ -33,12 +33,12 @@ const (
 
 // Defines values for RulePatchOperationPath.
 const (
-	RulePatchOperationPathDescription RulePatchOperationPath = "description"
-	RulePatchOperationPathDestination RulePatchOperationPath = "destination"
-	RulePatchOperationPathDisabled    RulePatchOperationPath = "disabled"
-	RulePatchOperationPathFlow        RulePatchOperationPath = "flow"
-	RulePatchOperationPathName        RulePatchOperationPath = "name"
-	RulePatchOperationPathSource      RulePatchOperationPath = "source"
+	RulePatchOperationPathDescription  RulePatchOperationPath = "description"
+	RulePatchOperationPathDestinations RulePatchOperationPath = "destinations"
+	RulePatchOperationPathDisabled     RulePatchOperationPath = "disabled"
+	RulePatchOperationPathFlow         RulePatchOperationPath = "flow"
+	RulePatchOperationPathName         RulePatchOperationPath = "name"
+	RulePatchOperationPathSources      RulePatchOperationPath = "sources"
 )
 
 // Group defines model for Group.

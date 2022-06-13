@@ -262,7 +262,7 @@ components:
         path:
           description: Rule field to update in form /<field>
           type: string
-          enum: [ "name","description","disabled","flow","source","destination" ]
+          enum: [ "name","description","disabled","flow","sources","destinations" ]
         value:
           description: Values to be applied
           type: array

@@ -40,11 +40,41 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 					Flow:        server.TrafficFlowBidirect,
 				}, nil
 			},
+			UpdateRuleFunc: func(_ string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error) {
+				var rule server.Rule
+				rule.ID = ruleID
+				for _, operation := range operations {
+					switch operation.Type {
+					case server.UpdateRuleName:
+						rule.Name = operation.Values[0]
+					case server.UpdateRuleDescription:
+						rule.Description = operation.Values[0]
+					case server.UpdateRuleFlow:
+						if server.TrafficFlowBidirectString == operation.Values[0] {
+							rule.Flow = server.TrafficFlowBidirect
+						} else {
+							rule.Flow = 100
+						}
+					case server.UpdateSourceGroups, server.InsertGroupsToSource:
+						rule.Source = operation.Values
+					case server.UpdateDestinationGroups, server.InsertGroupsToDestination:
+						rule.Destination = operation.Values
+					case server.RemoveGroupsFromSource, server.RemoveGroupsFromDestination:
+					default:
+						return nil, fmt.Errorf("no operation")
+					}
+				}
+				return &rule, nil
+			},
 			GetAccountWithAuthorizationClaimsFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
-					Rules:  map[string]*server.Rule{"id-existed": &server.Rule{}},
+					Rules:  map[string]*server.Rule{"id-existed": &server.Rule{ID: "id-existed"}},
+					Groups: map[string]*server.Group{
+						"F": &server.Group{ID: "F"},
+						"G": &server.Group{ID: "G"},
+					},
 				}, nil
 			},
 		},
@@ -130,41 +160,107 @@ func TestRulesGetRule(t *testing.T) {
 	}
 }
 
-func TestRulesSaveRule(t *testing.T) {
+func TestRulesWriteRule(t *testing.T) {
 	tt := []struct {
 		name           string
 		expectedStatus int
 		expectedBody   bool
-		expectedRule   *server.Rule
+		expectedRule   *api.Rule
 		requestType    string
 		requestPath    string
 		requestBody    io.Reader
 	}{
 		{
-			name:        "SaveRule POST OK",
+			name:        "WriteRule POST OK",
 			requestType: http.MethodPost,
 			requestPath: "/api/rules",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{"Name":"Default POSTed Rule","Flow":"bidirect"}`)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
-			expectedRule: &server.Rule{
-				ID:   "id-was-set",
+			expectedRule: &api.Rule{
+				Id:   "id-was-set",
 				Name: "Default POSTed Rule",
-				Flow: server.TrafficFlowBidirect,
+				Flow: server.TrafficFlowBidirectString,
 			},
 		},
 		{
-			name:        "SaveRule PUT OK",
+			name:        "WriteRule POST Invalid Name",
+			requestType: http.MethodPost,
+			requestPath: "/api/rules",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"Name":"","Flow":"bidirect"}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "WriteRule PUT OK",
 			requestType: http.MethodPut,
 			requestPath: "/api/rules/id-existed",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{"Name":"Default POSTed Rule","Flow":"bidirect"}`)),
 			expectedStatus: http.StatusOK,
-			expectedRule: &server.Rule{
-				ID:   "id-existed",
+			expectedBody:   true,
+			expectedRule: &api.Rule{
+				Id:   "id-existed",
 				Name: "Default POSTed Rule",
-				Flow: server.TrafficFlowBidirect,
+				Flow: server.TrafficFlowBidirectString,
+			},
+		},
+		{
+			name:        "WriteRule PUT Invalid Name",
+			requestType: http.MethodPut,
+			requestPath: "/api/rules/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"Name":"","Flow":"bidirect"}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:        "Write Rule PATCH Name OK",
+			requestType: http.MethodPatch,
+			requestPath: "/api/rules/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`[{"op":"replace","path":"name","value":["Default POSTed Rule"]}]`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedRule: &api.Rule{
+				Id:   "id-existed",
+				Name: "Default POSTed Rule",
+				Flow: server.TrafficFlowBidirectString,
+			},
+		},
+		{
+			name:        "Write Rule PATCH Invalid Name OP",
+			requestType: http.MethodPatch,
+			requestPath: "/api/rules/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`[{"op":"insert","path":"name","value":[""]}]`)),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Rule PATCH Invalid Name",
+			requestType: http.MethodPatch,
+			requestPath: "/api/rules/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`[{"op":"replace","path":"name","value":[]}]`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Rule PATCH Sources OK",
+			requestType: http.MethodPatch,
+			requestPath: "/api/rules/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`[{"op":"replace","path":"sources","value":["G","F"]}]`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedRule: &api.Rule{
+				Id:   "id-existed",
+				Flow: server.TrafficFlowBidirectString,
+				Sources: []api.GroupMinimum{
+					{Id: "G"},
+					{Id: "F"}},
 			},
 		},
 	}
@@ -179,6 +275,7 @@ func TestRulesSaveRule(t *testing.T) {
 			router := mux.NewRouter()
 			router.HandleFunc("/api/rules", p.CreateRuleHandler).Methods("POST")
 			router.HandleFunc("/api/rules/{id}", p.UpdateRuleHandler).Methods("PUT")
+			router.HandleFunc("/api/rules/{id}", p.PatchRuleHandler).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -204,11 +301,8 @@ func TestRulesSaveRule(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			if tc.requestType != http.MethodPost {
-				assert.Equal(t, got.Id, tc.expectedRule.ID)
-			}
-			assert.Equal(t, got.Name, tc.expectedRule.Name)
-			assert.Equal(t, got.Flow, "bidirect")
+			assert.Equal(t, got, tc.expectedRule)
+
 		})
 	}
 }

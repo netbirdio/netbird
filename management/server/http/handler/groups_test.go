@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,6 +19,11 @@ import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
+
+var TestPeers = map[string]*server.Peer{
+	"A": &server.Peer{Key: "A", IP: net.ParseIP("100.100.100.100")},
+	"B": &server.Peer{Key: "B", IP: net.ParseIP("200.200.200.200")},
+}
 
 func initGroupTestData(groups ...*server.Group) *Groups {
 	return &Groups{
@@ -36,11 +43,38 @@ func initGroupTestData(groups ...*server.Group) *Groups {
 					Name: "Group",
 				}, nil
 			},
+			UpdateGroupFunc: func(_ string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error) {
+				var group server.Group
+				group.ID = groupID
+				for _, operation := range operations {
+					switch operation.Type {
+					case server.UpdateGroupName:
+						group.Name = operation.Values[0]
+					case server.UpdateGroupPeers, server.InsertPeersToGroup:
+						group.Peers = operation.Values
+					case server.RemovePeersFromGroup:
+					default:
+						return nil, fmt.Errorf("no operation")
+					}
+				}
+				return &group, nil
+			},
+			GetPeerByIPFunc: func(_ string, peerIP string) (*server.Peer, error) {
+				for _, peer := range TestPeers {
+					if peer.IP.String() == peerIP {
+						return peer, nil
+					}
+				}
+				return nil, fmt.Errorf("peer not found")
+			},
 			GetAccountWithAuthorizationClaimsFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
-					Groups: map[string]*server.Group{"id-existed": &server.Group{}, "all": &server.Group{Name: "All"}},
+					Peers:  TestPeers,
+					Groups: map[string]*server.Group{
+						"id-existed": &server.Group{ID: "id-existed", Peers: []string{"A", "B"}},
+						"id-all":     &server.Group{ID: "id-all", Name: "All"}},
 				}, nil
 			},
 		},
@@ -126,39 +160,112 @@ func TestGetGroup(t *testing.T) {
 	}
 }
 
-func TestSaveGroup(t *testing.T) {
+func TestWriteGroup(t *testing.T) {
 	tt := []struct {
 		name           string
 		expectedStatus int
 		expectedBody   bool
-		expectedGroup  *server.Group
+		expectedGroup  *api.Group
 		requestType    string
 		requestPath    string
 		requestBody    io.Reader
 	}{
 		{
-			name:        "SaveGroup POST OK",
+			name:        "Write Group POST OK",
 			requestType: http.MethodPost,
 			requestPath: "/api/groups",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{"Name":"Default POSTed Group"}`)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
-			expectedGroup: &server.Group{
-				ID:   "id-was-set",
+			expectedGroup: &api.Group{
+				Id:   "id-was-set",
 				Name: "Default POSTed Group",
 			},
 		},
 		{
-			name:        "SaveGroup PUT OK",
+			name:        "Write Group POST Invalid Name",
+			requestType: http.MethodPost,
+			requestPath: "/api/groups",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"name":""}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group PUT OK",
 			requestType: http.MethodPut,
 			requestPath: "/api/groups/id-existed",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{"Name":"Default POSTed Group"}`)),
 			expectedStatus: http.StatusOK,
-			expectedGroup: &server.Group{
-				ID:   "id-existed",
+			expectedGroup: &api.Group{
+				Id:   "id-existed",
 				Name: "Default POSTed Group",
+			},
+		},
+		{
+			name:        "Write Group PUT Invalid Name",
+			requestType: http.MethodPut,
+			requestPath: "/api/groups/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"Name":""}`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group PUT All Group Name",
+			requestType: http.MethodPut,
+			requestPath: "/api/groups/id-all",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"Name":"super"}`)),
+			expectedStatus: http.StatusMethodNotAllowed,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group PATCH Name OK",
+			requestType: http.MethodPatch,
+			requestPath: "/api/groups/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`[{"op":"replace","path":"name","value":["Default POSTed Group"]}]`)),
+			expectedStatus: http.StatusOK,
+			expectedGroup: &api.Group{
+				Id:   "id-existed",
+				Name: "Default POSTed Group",
+			},
+		},
+		{
+			name:        "Write Group PATCH Invalid Name OP",
+			requestType: http.MethodPatch,
+			requestPath: "/api/groups/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`[{"op":"insert","path":"name","value":[""]}]`)),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group PATCH Invalid Name",
+			requestType: http.MethodPatch,
+			requestPath: "/api/groups/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`[{"op":"replace","path":"name","value":[]}]`)),
+			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group PATCH Peers OK",
+			requestType: http.MethodPatch,
+			requestPath: "/api/groups/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`[{"op":"replace","path":"peers","value":["100.100.100.100","200.200.200.200"]}]`)),
+			expectedStatus: http.StatusOK,
+			expectedBody:   true,
+			expectedGroup: &api.Group{
+				Id:         "id-existed",
+				PeersCount: 2,
+				Peers: []api.PeerMinimum{
+					{Id: "100.100.100.100"},
+					{Id: "200.200.200.200"}},
 			},
 		},
 	}
@@ -173,6 +280,7 @@ func TestSaveGroup(t *testing.T) {
 			router := mux.NewRouter()
 			router.HandleFunc("/api/groups", p.CreateGroupHandler).Methods("POST")
 			router.HandleFunc("/api/groups/{id}", p.UpdateGroupHandler).Methods("PUT")
+			router.HandleFunc("/api/groups/{id}", p.PatchGroupHandler).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -193,11 +301,10 @@ func TestSaveGroup(t *testing.T) {
 				return
 			}
 
-			got := &server.Group{}
+			got := &api.Group{}
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
-
 			assert.Equal(t, got, tc.expectedGroup)
 		})
 	}

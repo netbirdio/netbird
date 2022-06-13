@@ -81,6 +81,11 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 		return
 	}
 
+	if req.Name == "" {
+		http.Error(w, "Setup key name shouldn't be empty", http.StatusUnprocessableEntity)
+		return
+	}
+
 	if !(server.SetupKeyType(req.Type) == server.SetupKeyReusable ||
 		server.SetupKeyType(req.Type) == server.SetupKeyOneOff) {
 
