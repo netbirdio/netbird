@@ -19,7 +19,6 @@ type MockAccountManager struct {
 	GetAccountWithAuthorizationClaimsFunc func(claims jwtclaims.AuthorizationClaims) (*server.Account, error)
 	IsUserAdminFunc                       func(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExistsFunc                     func(accountId string) (*bool, error)
-	AddAccountFunc                        func(accountId, userId, domain string) (*server.Account, error)
 	GetPeerFunc                           func(peerKey string) (*server.Peer, error)
 	MarkPeerConnectedFunc                 func(peerKey string, connected bool) error
 	RenamePeerFunc                        func(accountId string, peerKey string, newName string) (*server.Peer, error)
@@ -139,15 +138,6 @@ func (am *MockAccountManager) AccountExists(accountId string) (*bool, error) {
 		return am.AccountExistsFunc(accountId)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method AccountExists not implemented")
-}
-
-func (am *MockAccountManager) AddAccount(
-	accountId, userId, domain string,
-) (*server.Account, error) {
-	if am.AddAccountFunc != nil {
-		return am.AddAccountFunc(accountId, userId, domain)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method AddAccount not implemented")
 }
 
 func (am *MockAccountManager) GetPeer(peerKey string) (*server.Peer, error) {

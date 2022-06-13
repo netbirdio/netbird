@@ -11,6 +11,95 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
+func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
+	peer := &Peer{
+		Key:  "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8=",
+		Name: "test-host@netbird.io",
+		Meta: PeerSystemMeta{
+			Hostname:  "test-host@netbird.io",
+			GoOS:      "linux",
+			Kernel:    "Linux",
+			Core:      "21.04",
+			Platform:  "x86_64",
+			OS:        "Ubuntu",
+			WtVersion: "development",
+			UIVersion: "development",
+		},
+	}
+
+	var setupKey string
+	for _, key := range account.SetupKeys {
+		setupKey = key.Key
+	}
+
+	_, err := manager.AddPeer(setupKey, userID, peer)
+	if err != nil {
+		t.Error("expected to add new peer successfully after creating new account, but failed", err)
+	}
+}
+
+func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy string, domain string, expectedUsers []string) {
+	if len(account.Peers) != 0 {
+		t.Errorf("expected account to have len(Peers) = %v, got %v", 0, len(account.Peers))
+	}
+
+	if len(account.SetupKeys) != 2 {
+		t.Errorf("expected account to have len(SetupKeys) = %v, got %v", 2, len(account.SetupKeys))
+	}
+
+	ipNet := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}}
+	if !ipNet.Contains(account.Network.Net.IP) {
+		t.Errorf("expected account's Network to be a subnet of %v, got %v", ipNet.String(), account.Network.Net.String())
+	}
+
+	g, err := account.GetGroupAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Name != "All" {
+		t.Errorf("expecting account to have group ALL added by default")
+	}
+	if len(account.Users) != len(expectedUsers) {
+		t.Errorf("expecting account to have %d users, got %d", len(expectedUsers), len(account.Users))
+	}
+
+	if account.Users[createdBy] == nil {
+		t.Errorf("expecting account to have createdBy user %s in a user map ", createdBy)
+	}
+
+	for _, expectedUserID := range expectedUsers {
+		if account.Users[expectedUserID] == nil {
+			t.Errorf("expecting account to have a user %s in a user map", expectedUserID)
+		}
+	}
+
+	if account.CreatedBy != createdBy {
+		t.Errorf("expecting newly created account to be created by user %s, got %s", createdBy, account.CreatedBy)
+	}
+
+	if account.Domain != domain {
+		t.Errorf("expecting newly created account to have domain %s, got %s", domain, account.Domain)
+	}
+
+	if len(account.Rules) != 1 {
+		t.Errorf("expecting newly created account to have 1 rule, got %d", len(account.Rules))
+	}
+
+	for _, rule := range account.Rules {
+		if rule.Name != "Default" {
+			t.Errorf("expecting newly created account to have Default rule, got %s", rule.Name)
+		}
+	}
+}
+
+func TestNewAccount(t *testing.T) {
+
+	domain := "netbird.io"
+	userId := "account_creator"
+	account := NewAccount(userId, domain)
+	verifyNewAccountHasDefaultFields(t, account, userId, domain, []string{userId})
+}
+
 func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -51,6 +140,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole            UserRole
 		expectedDomainCategory      string
 		expectedPrimaryDomainStatus bool
+		expectedCreatedBy           string
+		expectedUsers               []string
 	}
 
 	var (
@@ -77,6 +168,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      "",
 		expectedPrimaryDomainStatus: false,
+		expectedCreatedBy:           "pub-domain-user",
+		expectedUsers:               []string{"pub-domain-user"},
 	}
 
 	initUnknown := defaultInitAccount
@@ -96,6 +189,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      "",
 		expectedPrimaryDomainStatus: false,
+		expectedCreatedBy:           "unknown-domain-user",
+		expectedUsers:               []string{"unknown-domain-user"},
 	}
 
 	testCase3 := test{
@@ -111,6 +206,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
+		expectedCreatedBy:           "pvt-domain-user",
+		expectedUsers:               []string{"pvt-domain-user"},
 	}
 
 	privateInitAccount := defaultInitAccount
@@ -121,7 +218,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		name: "New Regular User With Existing Private Domain",
 		inputClaims: jwtclaims.AuthorizationClaims{
 			Domain:         privateDomain,
-			UserId:         "pvt-domain-user",
+			UserId:         "new-pvt-domain-user",
 			DomainCategory: PrivateCategory,
 		},
 		inputUpdateAttrs:            true,
@@ -131,6 +228,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleUser,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
+		expectedCreatedBy:           defaultInitAccount.UserId,
+		expectedUsers:               []string{defaultInitAccount.UserId, "new-pvt-domain-user"},
 	}
 
 	testCase5 := test{
@@ -146,6 +245,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
+		expectedCreatedBy:           defaultInitAccount.UserId,
+		expectedUsers:               []string{defaultInitAccount.UserId},
 	}
 
 	testCase6 := test{
@@ -162,6 +263,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
+		expectedCreatedBy:           defaultInitAccount.UserId,
+		expectedUsers:               []string{defaultInitAccount.UserId},
 	}
 	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -182,6 +285,8 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 
 			account, err := manager.GetAccountWithAuthorizationClaims(testCase.inputClaims)
 			require.NoError(t, err, "support function failed")
+			verifyNewAccountHasDefaultFields(t, account, testCase.expectedCreatedBy, testCase.inputClaims.Domain, testCase.expectedUsers)
+			verifyCanAddPeerToAccount(t, manager, account, testCase.expectedCreatedBy)
 
 			testCase.testingFunc(t, initAccount.Id, account.Id, testCase.expectedMSG)
 
@@ -255,41 +360,6 @@ func TestAccountManager_SetOrUpdateDomain(t *testing.T) {
 	}
 }
 
-func TestAccountManager_AddAccount(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	expectedId := "test_account"
-	userId := "account_creator"
-	expectedPeersSize := 0
-	expectedSetupKeysSize := 2
-
-	account, err := manager.AddAccount(expectedId, userId, "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if account.Id != expectedId {
-		t.Errorf("expected account to have Id = %s, got %s", expectedId, account.Id)
-	}
-
-	if len(account.Peers) != expectedPeersSize {
-		t.Errorf("expected account to have len(Peers) = %v, got %v", expectedPeersSize, len(account.Peers))
-	}
-
-	if len(account.SetupKeys) != expectedSetupKeysSize {
-		t.Errorf("expected account to have len(SetupKeys) = %v, got %v", expectedSetupKeysSize, len(account.SetupKeys))
-	}
-
-	ipNet := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}}
-	if !ipNet.Contains(account.Network.Net.IP) {
-		t.Errorf("expected account's Network to be a subnet of %v, got %v", ipNet.String(), account.Network.Net.String())
-	}
-}
-
 func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -320,6 +390,15 @@ func TestAccountManager_GetAccountByUserOrAccountId(t *testing.T) {
 	}
 }
 
+func createAccount(am *DefaultAccountManager, accountID, userID, domain string) (*Account, error) {
+	account := newAccountWithId(accountID, userID, domain)
+	err := am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, err
+	}
+	return account, nil
+}
+
 func TestAccountManager_AccountExists(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -329,7 +408,7 @@ func TestAccountManager_AccountExists(t *testing.T) {
 
 	expectedId := "test_account"
 	userId := "account_creator"
-	_, err = manager.AddAccount(expectedId, userId, "")
+	_, err = createAccount(manager, expectedId, userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +432,7 @@ func TestAccountManager_GetAccount(t *testing.T) {
 
 	expectedId := "test_account"
 	userId := "account_creator"
-	account, err := manager.AddAccount(expectedId, userId, "")
+	account, err := createAccount(manager, expectedId, userId, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -389,7 +468,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator", "")
+	account, err := createAccount(manager, "test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +600,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator", "")
+	account, err := createAccount(manager, "test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -704,7 +783,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator", "")
+	account, err := createAccount(manager, "test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -757,7 +836,7 @@ func TestGetUsersFromAccount(t *testing.T) {
 	users := map[string]*User{"1": {Id: "1", Role: "admin"}, "2": {Id: "2", Role: "user"}, "3": {Id: "3", Role: "user"}}
 	accountId := "test_account_id"
 
-	account, err := manager.AddAccount(accountId, users["1"].Id, "")
+	account, err := createAccount(manager, accountId, users["1"].Id, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -788,7 +867,7 @@ func TestAccountManager_UpdatePeerMeta(t *testing.T) {
 		return
 	}
 
-	account, err := manager.AddAccount("test_account", "account_creator", "")
+	account, err := createAccount(manager, "test_account", "account_creator", "")
 	if err != nil {
 		t.Fatal(err)
 	}
