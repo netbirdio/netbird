@@ -64,7 +64,7 @@ func (am *MockAccountManager) GetOrCreateAccountByUser(
 	)
 }
 
-// GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface
+// GetAccountByUser mock implementation of GetAccountByUser from server.AccountManager interface
 func (am *MockAccountManager) GetAccountByUser(userId string) (*server.Account, error) {
 	if am.GetAccountByUserFunc != nil {
 		return am.GetAccountByUserFunc(userId)
