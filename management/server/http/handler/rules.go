@@ -74,13 +74,13 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var reqSources []string
-	if req.Source != nil {
-		reqSources = *req.Source
+	if req.Sources != nil {
+		reqSources = *req.Sources
 	}
 
 	var reqDestinations []string
-	if req.Destination != nil {
-		reqDestinations = *req.Destination
+	if req.Destinations != nil {
+		reqDestinations = *req.Destinations
 	}
 
 	rule := server.Rule{
@@ -146,8 +146,8 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 	for _, patch := range req {
 		switch patch.Path {
 		case api.RulePatchOperationPathName:
-			if patch.OP != api.RulePatchOperationOPReplace {
-				http.Error(w, fmt.Sprintf("Name field only accepts replace operation, got %s", patch.OP),
+			if patch.Op != api.RulePatchOperationOpReplace {
+				http.Error(w, fmt.Sprintf("Name field only accepts replace operation, got %s", patch.Op),
 					http.StatusBadRequest)
 				return
 			}
@@ -156,8 +156,8 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 				Values: patch.Value,
 			})
 		case api.RulePatchOperationPathDescription:
-			if patch.OP != api.RulePatchOperationOPReplace {
-				http.Error(w, fmt.Sprintf("Description field only accepts replace operation, got %s", patch.OP),
+			if patch.Op != api.RulePatchOperationOpReplace {
+				http.Error(w, fmt.Sprintf("Description field only accepts replace operation, got %s", patch.Op),
 					http.StatusBadRequest)
 				return
 			}
@@ -166,8 +166,8 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 				Values: patch.Value,
 			})
 		case api.RulePatchOperationPathFlow:
-			if patch.OP != api.RulePatchOperationOPReplace {
-				http.Error(w, fmt.Sprintf("Flow field only accepts replace operation, got %s", patch.OP),
+			if patch.Op != api.RulePatchOperationOpReplace {
+				http.Error(w, fmt.Sprintf("Flow field only accepts replace operation, got %s", patch.Op),
 					http.StatusBadRequest)
 				return
 			}
@@ -176,8 +176,8 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 				Values: patch.Value,
 			})
 		case api.RulePatchOperationPathDisabled:
-			if patch.OP != api.RulePatchOperationOPReplace {
-				http.Error(w, fmt.Sprintf("Disabled field only accepts replace operation, got %s", patch.OP),
+			if patch.Op != api.RulePatchOperationOpReplace {
+				http.Error(w, fmt.Sprintf("Disabled field only accepts replace operation, got %s", patch.Op),
 					http.StatusBadRequest)
 				return
 			}
@@ -186,18 +186,18 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 				Values: patch.Value,
 			})
 		case api.RulePatchOperationPathSource:
-			switch patch.OP {
-			case api.RulePatchOperationOPReplace:
+			switch patch.Op {
+			case api.RulePatchOperationOpReplace:
 				operations = append(operations, server.RuleUpdateOperation{
 					Type:   server.UpdateSourceGroups,
 					Values: patch.Value,
 				})
-			case api.RulePatchOperationOPRemove:
+			case api.RulePatchOperationOpRemove:
 				operations = append(operations, server.RuleUpdateOperation{
 					Type:   server.RemoveGroupsFromSource,
 					Values: patch.Value,
 				})
-			case api.RulePatchOperationOPAdd:
+			case api.RulePatchOperationOpAdd:
 				operations = append(operations, server.RuleUpdateOperation{
 					Type:   server.InsertGroupsToSource,
 					Values: patch.Value,
@@ -207,18 +207,18 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case api.RulePatchOperationPathDestination:
-			switch patch.OP {
-			case api.RulePatchOperationOPReplace:
+			switch patch.Op {
+			case api.RulePatchOperationOpReplace:
 				operations = append(operations, server.RuleUpdateOperation{
 					Type:   server.UpdateDestinationGroups,
 					Values: patch.Value,
 				})
-			case api.RulePatchOperationOPRemove:
+			case api.RulePatchOperationOpRemove:
 				operations = append(operations, server.RuleUpdateOperation{
 					Type:   server.RemoveGroupsFromDestination,
 					Values: patch.Value,
 				})
-			case api.RulePatchOperationOPAdd:
+			case api.RulePatchOperationOpAdd:
 				operations = append(operations, server.RuleUpdateOperation{
 					Type:   server.InsertGroupsToDestination,
 					Values: patch.Value,
@@ -275,13 +275,13 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var reqSources []string
-	if req.Source != nil {
-		reqSources = *req.Source
+	if req.Sources != nil {
+		reqSources = *req.Sources
 	}
 
 	var reqDestinations []string
-	if req.Destination != nil {
-		reqDestinations = *req.Destination
+	if req.Destinations != nil {
+		reqDestinations = *req.Destinations
 	}
 
 	rule := server.Rule{
@@ -365,7 +365,7 @@ func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
 func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {
 	cache := make(map[string]api.GroupMinimum)
 	gr := api.Rule{
-		ID:          rule.ID,
+		Id:          rule.ID,
 		Name:        rule.Name,
 		Description: rule.Description,
 		Disabled:    rule.Disabled,
@@ -386,12 +386,12 @@ func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {
 
 		if group, ok := account.Groups[gid]; ok {
 			minimum := api.GroupMinimum{
-				ID:         group.ID,
+				Id:         group.ID,
 				Name:       group.Name,
 				PeersCount: len(group.Peers),
 			}
 
-			gr.Source = append(gr.Source, minimum)
+			gr.Sources = append(gr.Sources, minimum)
 			cache[gid] = minimum
 		}
 	}
@@ -399,16 +399,16 @@ func toRuleResponse(account *server.Account, rule *server.Rule) *api.Rule {
 	for _, gid := range rule.Destination {
 		cachedMinimum, ok := cache[gid]
 		if ok {
-			gr.Destination = append(gr.Destination, cachedMinimum)
+			gr.Destinations = append(gr.Destinations, cachedMinimum)
 			continue
 		}
 		if group, ok := account.Groups[gid]; ok {
 			minimum := api.GroupMinimum{
-				ID:         group.ID,
+				Id:         group.ID,
 				Name:       group.Name,
 				PeersCount: len(group.Peers),
 			}
-			gr.Destination = append(gr.Destination, minimum)
+			gr.Destinations = append(gr.Destinations, minimum)
 			cache[gid] = minimum
 		}
 	}

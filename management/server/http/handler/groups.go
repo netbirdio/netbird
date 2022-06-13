@@ -148,8 +148,8 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 	for _, patch := range req {
 		switch patch.Path {
 		case api.GroupPatchOperationPathName:
-			if patch.OP != api.GroupPatchOperationOPReplace {
-				http.Error(w, fmt.Sprintf("Name field only accepts replace operation, got %s", patch.OP),
+			if patch.Op != api.GroupPatchOperationOpReplace {
+				http.Error(w, fmt.Sprintf("Name field only accepts replace operation, got %s", patch.Op),
 					http.StatusBadRequest)
 				return
 			}
@@ -158,19 +158,19 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 				Values: patch.Value,
 			})
 		case api.GroupPatchOperationPathPeers:
-			switch patch.OP {
-			case api.GroupPatchOperationOPReplace:
+			switch patch.Op {
+			case api.GroupPatchOperationOpReplace:
 				operations = append(operations, server.GroupUpdateOperation{
 					Type:   server.UpdateGroupPeers,
 					Values: patch.Value,
 				})
-			case api.GroupPatchOperationOPRemove:
+			case api.GroupPatchOperationOpRemove:
 				peerKeys := peerIPsToKeys(account, &patch.Value)
 				operations = append(operations, server.GroupUpdateOperation{
 					Type:   server.RemovePeersFromGroup,
 					Values: peerKeys,
 				})
-			case api.GroupPatchOperationOPAdd:
+			case api.GroupPatchOperationOpAdd:
 				peerKeys := peerIPsToKeys(account, &patch.Value)
 				operations = append(operations, server.GroupUpdateOperation{
 					Type:   server.InsertPeersToGroup,
@@ -326,7 +326,7 @@ func peerIPsToKeys(account *server.Account, peerIPs *[]string) []string {
 func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 	cache := make(map[string]api.PeerMinimum)
 	gr := api.Group{
-		ID:         group.ID,
+		Id:         group.ID,
 		Name:       group.Name,
 		PeersCount: len(group.Peers),
 	}
@@ -339,7 +339,7 @@ func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 				continue
 			}
 			peerResp := api.PeerMinimum{
-				ID:   peer.IP.String(),
+				Id:   peer.IP.String(),
 				Name: peer.Name,
 			}
 			cache[pid] = peerResp

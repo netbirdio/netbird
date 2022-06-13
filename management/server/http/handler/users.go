@@ -53,7 +53,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 func toUserResponse(user *server.UserInfo) *api.User {
 	return &api.User{
-		ID:    user.ID,
+		Id:    user.ID,
 		Name:  user.Name,
 		Email: user.Email,
 		Role:  user.Role,

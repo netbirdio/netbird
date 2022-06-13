@@ -11,11 +11,11 @@ const (
 	BearerAuthScopes = "BearerAuth.Scopes"
 )
 
-// Defines values for GroupPatchOperationOP.
+// Defines values for GroupPatchOperationOp.
 const (
-	GroupPatchOperationOPAdd     GroupPatchOperationOP = "add"
-	GroupPatchOperationOPRemove  GroupPatchOperationOP = "remove"
-	GroupPatchOperationOPReplace GroupPatchOperationOP = "replace"
+	GroupPatchOperationOpAdd     GroupPatchOperationOp = "add"
+	GroupPatchOperationOpRemove  GroupPatchOperationOp = "remove"
+	GroupPatchOperationOpReplace GroupPatchOperationOp = "replace"
 )
 
 // Defines values for GroupPatchOperationPath.
@@ -24,11 +24,11 @@ const (
 	GroupPatchOperationPathPeers GroupPatchOperationPath = "peers"
 )
 
-// Defines values for RulePatchOperationOP.
+// Defines values for RulePatchOperationOp.
 const (
-	RulePatchOperationOPAdd     RulePatchOperationOP = "add"
-	RulePatchOperationOPRemove  RulePatchOperationOP = "remove"
-	RulePatchOperationOPReplace RulePatchOperationOP = "replace"
+	RulePatchOperationOpAdd     RulePatchOperationOp = "add"
+	RulePatchOperationOpRemove  RulePatchOperationOp = "remove"
+	RulePatchOperationOpReplace RulePatchOperationOp = "replace"
 )
 
 // Defines values for RulePatchOperationPath.
@@ -44,44 +44,44 @@ const (
 // Group defines model for Group.
 type Group struct {
 	// Group ID
-	ID string `json:"ID"`
+	Id string `json:"id"`
 
 	// Group Name identifier
-	Name string `json:"Name"`
+	Name string `json:"name"`
 
 	// List of peers object
-	Peers []PeerMinimum `json:"Peers"`
+	Peers []PeerMinimum `json:"peers"`
 
 	// Count of peers associated to the group
-	PeersCount int `json:"PeersCount"`
+	PeersCount int `json:"peers_count"`
 }
 
 // GroupMinimum defines model for GroupMinimum.
 type GroupMinimum struct {
 	// Group ID
-	ID string `json:"ID"`
+	Id string `json:"id"`
 
 	// Group Name identifier
-	Name string `json:"Name"`
+	Name string `json:"name"`
 
 	// Count of peers associated to the group
-	PeersCount int `json:"PeersCount"`
+	PeersCount int `json:"peers_count"`
 }
 
 // GroupPatchOperation defines model for GroupPatchOperation.
 type GroupPatchOperation struct {
 	// Patch operation type
-	OP GroupPatchOperationOP `json:"OP"`
+	Op GroupPatchOperationOp `json:"op"`
 
 	// Group field to update in form /<field>
-	Path GroupPatchOperationPath `json:"Path"`
+	Path GroupPatchOperationPath `json:"path"`
 
 	// Values to be applied
-	Value []string `json:"Value"`
+	Value []string `json:"value"`
 }
 
 // Patch operation type
-type GroupPatchOperationOP string
+type GroupPatchOperationOp string
 
 // Group field to update in form /<field>
 type GroupPatchOperationPath string
@@ -90,97 +90,97 @@ type GroupPatchOperationPath string
 type Peer struct {
 	// Provides information of who activated the Peer. User or Setup Key
 	ActivatedBy struct {
-		Type  string `json:"Type"`
-		Value string `json:"Value"`
-	} `json:"ActivatedBy"`
+		Type  string `json:"type"`
+		Value string `json:"value"`
+	} `json:"activated_by"`
 
 	// Peer to Management connection status
-	Connected bool `json:"Connected"`
+	Connected bool `json:"connected"`
 
 	// Groups that the peer belongs to
-	Groups []GroupMinimum `json:"Groups"`
+	Groups []GroupMinimum `json:"groups"`
 
 	// Peer ID
-	ID string `json:"ID"`
+	Id string `json:"id"`
 
 	// Peer's IP address
-	IP string `json:"IP"`
+	Ip string `json:"ip"`
 
 	// Last time peer connected to Netbird's management service
-	LastSeen time.Time `json:"LastSeen"`
+	LastSeen time.Time `json:"last_seen"`
 
 	// Peer's hostname
-	Name string `json:"Name"`
+	Name string `json:"name"`
 
 	// Peer's operating system and version
-	OS string `json:"OS"`
+	Os string `json:"os"`
 
 	// Peer's daemon or cli version
-	Version string `json:"Version"`
+	Version string `json:"version"`
 }
 
 // PeerMinimum defines model for PeerMinimum.
 type PeerMinimum struct {
 	// Peer ID
-	ID string `json:"ID"`
+	Id string `json:"id"`
 
 	// Peer's hostname
-	Name string `json:"Name"`
+	Name string `json:"name"`
 }
 
 // Rule defines model for Rule.
 type Rule struct {
 	// Rule friendly description
-	Description string `json:"Description"`
+	Description string `json:"description"`
 
 	// Rule destination groups
-	Destination []GroupMinimum `json:"Destination"`
+	Destinations []GroupMinimum `json:"destinations"`
 
 	// Rules status
-	Disabled bool `json:"Disabled"`
+	Disabled bool `json:"disabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"Flow"`
+	Flow string `json:"flow"`
 
 	// Rule ID
-	ID string `json:"ID"`
+	Id string `json:"id"`
 
 	// Rule name identifier
-	Name string `json:"Name"`
+	Name string `json:"name"`
 
 	// Rule source groups
-	Source []GroupMinimum `json:"Source"`
+	Sources []GroupMinimum `json:"sources"`
 }
 
 // RuleMinimum defines model for RuleMinimum.
 type RuleMinimum struct {
 	// Rule friendly description
-	Description string `json:"Description"`
+	Description string `json:"description"`
 
 	// Rules status
-	Disabled bool `json:"Disabled"`
+	Disabled bool `json:"disabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"Flow"`
+	Flow string `json:"flow"`
 
 	// Rule name identifier
-	Name string `json:"Name"`
+	Name string `json:"name"`
 }
 
 // RulePatchOperation defines model for RulePatchOperation.
 type RulePatchOperation struct {
 	// Patch operation type
-	OP RulePatchOperationOP `json:"OP"`
+	Op RulePatchOperationOp `json:"op"`
 
 	// Rule field to update in form /<field>
-	Path RulePatchOperationPath `json:"Path"`
+	Path RulePatchOperationPath `json:"path"`
 
 	// Values to be applied
-	Value []string `json:"Value"`
+	Value []string `json:"value"`
 }
 
 // Patch operation type
-type RulePatchOperationOP string
+type RulePatchOperationOp string
 
 // Rule field to update in form /<field>
 type RulePatchOperationPath string
@@ -188,70 +188,70 @@ type RulePatchOperationPath string
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
 	// Setup Key expiration date
-	Expires time.Time `json:"Expires"`
+	Expires time.Time `json:"expires"`
 
 	// Setup Key ID
-	Id string `json:"Id"`
+	Id string `json:"id"`
 
 	// Setup Key value
-	Key string `json:"Key"`
+	Key string `json:"key"`
 
 	// Setup key last usage date
-	LastUsed time.Time `json:"LastUsed"`
+	LastUsed time.Time `json:"last_used"`
 
 	// Setup key name identifier
-	Name string `json:"Name"`
+	Name string `json:"name"`
 
 	// Setup key revocation status
-	Revoked bool `json:"Revoked"`
+	Revoked bool `json:"revoked"`
 
 	// Setup key status, "valid", "overused","expired" or "revoked"
-	State string `json:"State"`
+	State string `json:"state"`
 
 	// Setup key type, one-off for single time usage and reusable
-	Type string `json:"Type"`
+	Type string `json:"type"`
 
 	// Usage count of setup key
-	UsedTimes int `json:"UsedTimes"`
+	UsedTimes int `json:"used_times"`
 
 	// Setup key validity status
-	Valid bool `json:"Valid"`
+	Valid bool `json:"valid"`
 }
 
 // SetupKeyRequest defines model for SetupKeyRequest.
 type SetupKeyRequest struct {
 	// Expiration time in seconds
-	ExpiresIn int `json:"ExpiresIn"`
+	ExpiresIn int `json:"expires_in"`
 
 	// Setup Key name
-	Name string `json:"Name"`
+	Name string `json:"name"`
 
 	// Setup key revocation status
-	Revoked bool `json:"Revoked"`
+	Revoked bool `json:"revoked"`
 
 	// Setup key type, one-off for single time usage and reusable
-	Type string `json:"Type"`
+	Type string `json:"type"`
 }
 
 // User defines model for User.
 type User struct {
 	// User's email address
-	Email string `json:"Email"`
+	Email string `json:"email"`
 
 	// User ID
-	ID string `json:"ID"`
+	Id string `json:"id"`
 
 	// User's name from idp provider
-	Name string `json:"Name"`
+	Name string `json:"name"`
 
 	// User's Netbird account role
-	Role string `json:"Role"`
+	Role string `json:"role"`
 }
 
 // PostApiGroupsJSONBody defines parameters for PostApiGroups.
 type PostApiGroupsJSONBody struct {
-	Name  string    `json:"Name"`
-	Peers *[]string `json:"Peers,omitempty"`
+	Name  string    `json:"name"`
+	Peers *[]string `json:"peers,omitempty"`
 }
 
 // PatchApiGroupsIdJSONBody defines parameters for PatchApiGroupsId.
@@ -265,24 +265,24 @@ type PutApiGroupsIdJSONBody struct {
 
 // PutApiPeersIdJSONBody defines parameters for PutApiPeersId.
 type PutApiPeersIdJSONBody struct {
-	Name string `json:"Name"`
+	Name string `json:"name"`
 }
 
 // PostApiRulesJSONBody defines parameters for PostApiRules.
 type PostApiRulesJSONBody struct {
 	// Rule friendly description
-	Description string    `json:"Description"`
-	Destination *[]string `json:"Destination,omitempty"`
+	Description  string    `json:"description"`
+	Destinations *[]string `json:"destinations,omitempty"`
 
 	// Rules status
-	Disabled bool `json:"Disabled"`
+	Disabled bool `json:"disabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"Flow"`
+	Flow string `json:"flow"`
 
 	// Rule name identifier
-	Name   string    `json:"Name"`
-	Source *[]string `json:"Source,omitempty"`
+	Name    string    `json:"name"`
+	Sources *[]string `json:"sources,omitempty"`
 }
 
 // PatchApiRulesIdJSONBody defines parameters for PatchApiRulesId.
@@ -291,18 +291,18 @@ type PatchApiRulesIdJSONBody = []RulePatchOperation
 // PutApiRulesIdJSONBody defines parameters for PutApiRulesId.
 type PutApiRulesIdJSONBody struct {
 	// Rule friendly description
-	Description string    `json:"Description"`
-	Destination *[]string `json:"Destination,omitempty"`
+	Description  string    `json:"description"`
+	Destinations *[]string `json:"destinations,omitempty"`
 
 	// Rules status
-	Disabled bool `json:"Disabled"`
+	Disabled bool `json:"disabled"`
 
 	// Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"Flow"`
+	Flow string `json:"flow"`
 
 	// Rule name identifier
-	Name   string    `json:"Name"`
-	Source *[]string `json:"Source,omitempty"`
+	Name    string    `json:"name"`
+	Sources *[]string `json:"sources,omitempty"`
 }
 
 // PostApiSetupKeysJSONBody defines parameters for PostApiSetupKeys.

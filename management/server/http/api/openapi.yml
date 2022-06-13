@@ -19,259 +19,259 @@ components:
     User:
       type: object
       properties:
-        ID:
+        id:
           description: User ID
           type: string
-        Email:
+        email:
           description: User's email address
           type: string
-        Name:
+        name:
           description: User's name from idp provider
           type: string
-        Role:
+        role:
           description: User's Netbird account role
           type: string
       required:
-      - ID
-      - Email
-      - Name
-      - Role
+      - id
+      - email
+      - name
+      - role
     PeerMinimum:
       type: object
       properties:
-        ID:
+        id:
           description: Peer ID
           type: string
-        Name:
+        name:
           description: Peer's hostname
           type: string
       required:
-      - ID
-      - Name
+      - id
+      - name
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
         - type: object
           properties:
-            IP:
+            ip:
               description: Peer's IP address
               type: string
-            Connected:
+            connected:
               description: Peer to Management connection status
               type: boolean
-            LastSeen:
+            last_seen:
               description: Last time peer connected to Netbird's management service
               type: string
               format: date-time
-            OS:
+            os:
               description: Peer's operating system and version
               type: string
-            Version:
+            version:
               description: Peer's daemon or cli version
               type: string
-            Groups:
+            groups:
               description: Groups that the peer belongs to
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
-            ActivatedBy:
+            activated_by:
               description: Provides information of who activated the Peer. User or Setup Key
               type: object
               properties:
-                Type:
+                type:
                   type: string
-                Value:
+                value:
                   type: string
               required:
-              - Type
-              - Value
+              - type
+              - value
           required:
-          - IP
-          - Connected
-          - LastSeen
-          - OS
-          - Version
-          - Groups
-          - ActivatedBy
+          - ip
+          - connected
+          - last_seen
+          - os
+          - version
+          - groups
+          - activated_by
     SetupKey:
       type: object
       properties:
-        Id:
+        id:
           description: Setup Key ID
           type: string
-        Key:
+        key:
           description: Setup Key value
           type: string
-        Name:
+        name:
           description: Setup key name identifier
           type: string
-        Expires:
+        expires:
           description: Setup Key expiration date
           type: string
           format: date-time
-        Type:
+        type:
           description: Setup key type, one-off for single time usage and reusable
           type: string
-        Valid:
+        valid:
           description: Setup key validity status
           type: boolean
-        Revoked:
+        revoked:
           description: Setup key revocation status
           type: boolean
-        UsedTimes:
+        used_times:
           description: Usage count of setup key
           type: integer
-        LastUsed:
+        last_used:
           description: Setup key last usage date
           type: string
           format: date-time
-        State:
+        state:
           description: Setup key status, "valid", "overused","expired" or "revoked"
           type: string
       required:
-      - Id
-      - Key
-      - Name
-      - Expires
-      - Type
-      - Valid
-      - Revoked
-      - UsedTimes
-      - LastUsed
-      - State
+      - id
+      - key
+      - name
+      - expires
+      - type
+      - valid
+      - revoked
+      - used_times
+      - last_used
+      - state
     SetupKeyRequest:
       type: object
       properties:
-        Name:
+        name:
           description: Setup Key name
           type: string
-        Type:
+        type:
           description: Setup key type, one-off for single time usage and reusable
           type: string
-        ExpiresIn:
+        expires_in:
           description: Expiration time in seconds
           type: integer
-        Revoked:
+        revoked:
           description: Setup key revocation status
           type: boolean
       required:
-        - Name
-        - Type
-        - ExpiresIn
-        - Revoked
+        - name
+        - type
+        - expires_in
+        - revoked
     GroupMinimum:
       type: object
       properties:
-        ID:
+        id:
           description: Group ID
           type: string
-        Name:
+        name:
           description: Group Name identifier
           type: string
-        PeersCount:
+        peers_count:
           description: Count of peers associated to the group
           type: integer
       required:
-      - ID
-      - Name
-      - PeersCount
+      - id
+      - name
+      - peers_count
     Group:
       allOf:
         - $ref: '#/components/schemas/GroupMinimum'
         - type: object
           properties:
-            Peers:
+            peers:
               description: List of peers object
               type: array
               items:
                 $ref: '#/components/schemas/PeerMinimum'
           required:
-          - Peers
+          - peers
     GroupPatchOperation:
       type: object
       properties:
-        OP:
+        op:
           description: Patch operation type
           type: string
           enum: [ "replace","add","remove" ]
-        Path:
+        path:
           description: Group field to update in form /<field>
           type: string
           enum: [ "name","peers" ]
-        Value:
+        value:
           description: Values to be applied
           type: array
           items:
             type: string
       required:
-        - OP
-        - Path
-        - Value
+        - op
+        - path
+        - value
     RuleMinimum:
       type: object
       properties:
-        Name:
+        name:
           description: Rule name identifier
           type: string
-        Description:
+        description:
           description: Rule friendly description
           type: string
-        Disabled:
+        disabled:
           description: Rules status
           type: boolean
-        Flow:
+        flow:
           description: Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
           type: string
       required:
-      - Name
-      - Description
-      - Disabled
-      - Flow
+      - name
+      - description
+      - disabled
+      - flow
     Rule:
       allOf:
         - type: object
           properties:
-            ID:
+            id:
               description: Rule ID
               type: string
           required:
-          - ID
+          - id
         - $ref: '#/components/schemas/RuleMinimum'
         - type: object
           properties:
-            Source:
+            sources:
               description: Rule source groups
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
-            Destination:
+            destinations:
               description: Rule destination groups
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
           required:
-          - Source
-          - Destination
+          - sources
+          - destinations
     RulePatchOperation:
       type: object
       properties:
-        OP:
+        op:
           description: Patch operation type
           type: string
           enum: [ "replace","add","remove" ]
-        Path:
+        path:
           description: Rule field to update in form /<field>
           type: string
           enum: [ "name","description","disabled","flow","source","destination" ]
-        Value:
+        value:
           description: Values to be applied
           type: array
           items:
             type: string
       required:
-        - OP
-        - Path
-        - Value
+        - op
+        - path
+        - value
   responses:
     not_found:
       description: Resource not found
@@ -395,10 +395,10 @@ paths:
             schema:
               type: object
               properties:
-                Name:
+                name:
                   type: string
               required:
-                - Name
+                - name
       responses:
         '200':
           description: A Peer object
@@ -607,14 +607,14 @@ paths:
             schema:
               type: object
               properties:
-                Name:
+                name:
                   type: string
-                Peers:
+                peers:
                   type: array
                   items:
                     type: string
               required:
-                - Name
+                - name
       responses:
         '200':
           description: A Group Object
@@ -794,11 +794,11 @@ paths:
                 - $ref: '#/components/schemas/RuleMinimum'
                 - type: object
                   properties:
-                    Source:
+                    sources:
                       type: array
                       items:
                         type: string
-                    Destination:
+                    destinations:
                       type: array
                       items:
                         type: string
@@ -858,11 +858,11 @@ paths:
                 - $ref: '#/components/schemas/RuleMinimum'
                 - type: object
                   properties:
-                    Source:
+                    sources:
                       type: array
                       items:
                         type: string
-                    Destination:
+                    destinations:
                       type: array
                       items:
                         type: string
