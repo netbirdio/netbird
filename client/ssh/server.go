@@ -5,12 +5,10 @@ import (
 	"github.com/creack/pty"
 	"github.com/gliderlabs/ssh"
 	log "github.com/sirupsen/logrus"
-	gossh "golang.org/x/crypto/ssh"
 	"io"
 	"net"
 	"os"
 	"os/exec"
-	"strings"
 	"sync"
 )
 
@@ -23,9 +21,10 @@ func init() {
 	}
 }
 
-// Server is the embedded NetBird SSh server
+// Server is the embedded NetBird SSH server
 type Server struct {
-	listener    net.Listener
+	listener net.Listener
+	// allowedKeys is ssh pub key indexed by peer WireGuard public key
 	allowedKeys map[string]ssh.PublicKey
 	mu          sync.Mutex
 	hostKeyPEM  []byte
@@ -41,8 +40,18 @@ func NewSSHServer(hostKeyPEM []byte, addr string) (*Server, error) {
 	return &Server{listener: ln, mu: sync.Mutex{}, hostKeyPEM: hostKeyPEM, allowedKeys: allowedKeys}, nil
 }
 
-// AddAuthorizedKey add given key as authorized key to the server
-func (srv *Server) AddAuthorizedKey(newKey string) error {
+// RemoveAuthorizedKey removes a key of a given peer from the authorized keys
+func (srv *Server) RemoveAuthorizedKey(peer string) error {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	srv.allowedKeys[peer] = nil
+	return nil
+
+}
+
+// AddAuthorizedKey add a given peer key to server authorized keys
+func (srv *Server) AddAuthorizedKey(peer, newKey string) error {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
@@ -50,8 +59,8 @@ func (srv *Server) AddAuthorizedKey(newKey string) error {
 	if err != nil {
 		return err
 	}
-	strKey := strings.TrimSpace(string(gossh.MarshalAuthorizedKey(parsedKey)))
-	srv.allowedKeys[strKey] = parsedKey
+
+	srv.allowedKeys[peer] = parsedKey
 	return nil
 }
 
@@ -68,8 +77,7 @@ func (srv *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
-	k := strings.TrimSpace(string(gossh.MarshalAuthorizedKey(key)))
-	if allowed, ok := srv.allowedKeys[k]; ok {
+	for _, allowed := range srv.allowedKeys {
 		if ssh.KeysEqual(allowed, key) {
 			return true
 		}

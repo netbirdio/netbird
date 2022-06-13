@@ -304,6 +304,9 @@ func (e *Engine) removePeer(peerKey string) error {
 			}
 		}
 	}
+	if e.sshServer != nil {
+		e.sshServer.RemoveAuthorizedKey(peerKey)
+	}
 	return nil
 }
 
@@ -568,7 +571,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		if e.sshServer != nil {
 			for _, config := range networkMap.GetRemotePeers() {
 				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
-					err := e.sshServer.AddAuthorizedKey(string(config.GetSshConfig().GetSshPubKey()))
+					err := e.sshServer.AddAuthorizedKey(config.WgPubKey, string(config.GetSshConfig().GetSshPubKey()))
 					if err != nil {
 						log.Warnf("failed adding authroized key to SSH Server %v", err)
 					}
