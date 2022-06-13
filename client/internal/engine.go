@@ -288,7 +288,7 @@ func (e *Engine) removeAllPeers() error {
 	return nil
 }
 
-// removePeer closes an existing peer connection and removes a peer
+// removePeer closes an existing peer connection, removes a peer, and clears authorized key of the SSH server
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
 	conn, exists := e.peerConns[peerKey]
@@ -445,11 +445,11 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			log.Debugf("SSH server is already running")
 		}
 	} else {
-		// stop SSH server if it was running
+		// Disable SSH server request, so stop it if it was running
 		if e.sshServer != nil {
 			err := e.sshServer.Stop()
 			if err != nil {
-				log.Warnf("failed stopping SSH server %v", err)
+				log.Warnf("failed to stop SSH server %v", err)
 			}
 			e.sshServer = nil
 		}
@@ -472,7 +472,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	if conf.GetSshConfig() != nil {
 		err := e.updateSSH(conf.GetSshConfig())
 		if err != nil {
-			log.Warnf("failed handling SSH setup %v", e)
+			log.Warnf("failed handling SSH server setup %v", e)
 		}
 	}
 

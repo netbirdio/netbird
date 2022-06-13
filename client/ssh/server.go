@@ -40,14 +40,12 @@ func NewSSHServer(hostKeyPEM []byte, addr string) (*Server, error) {
 	return &Server{listener: ln, mu: sync.Mutex{}, hostKeyPEM: hostKeyPEM, allowedKeys: allowedKeys}, nil
 }
 
-// RemoveAuthorizedKey removes a key of a given peer from the authorized keys
-func (srv *Server) RemoveAuthorizedKey(peer string) error {
+// RemoveAuthorizedKey removes SSH key of a given peer from the authorized keys
+func (srv *Server) RemoveAuthorizedKey(peer string) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
-	srv.allowedKeys[peer] = nil
-	return nil
-
+	delete(srv.allowedKeys, peer)
 }
 
 // AddAuthorizedKey add a given peer key to server authorized keys
@@ -64,7 +62,7 @@ func (srv *Server) AddAuthorizedKey(peer, newKey string) error {
 	return nil
 }
 
-// Stop stops SSH server. Blocking
+// Stop stops SSH server.
 func (srv *Server) Stop() error {
 	err := srv.listener.Close()
 	if err != nil {
@@ -109,7 +107,7 @@ func (srv *Server) sessionHandler(s ssh.Session) {
 			return
 		}
 	} else {
-		_, err := io.WriteString(s, "Only PTY is supported.\n")
+		_, err := io.WriteString(s, "only PTY is supported.\n")
 		if err != nil {
 			return
 		}
@@ -140,7 +138,7 @@ func (srv *Server) stdInOut(f *os.File, s ssh.Session) {
 
 // Start starts SSH server. Blocking
 func (srv *Server) Start() error {
-	log.Debugf("starting SSH server")
+	log.Infof("starting SSH server")
 
 	publicKeyOption := ssh.PublicKeyAuth(srv.publicKeyHandler)
 	hostKeyPEM := ssh.HostKeyPEM(srv.hostKeyPEM)
