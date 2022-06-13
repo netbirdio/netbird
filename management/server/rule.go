@@ -45,15 +45,25 @@ type Rule struct {
 }
 
 const (
+	// UpdateRuleName indicates a rule name update operation
 	UpdateRuleName RuleUpdateOperationType = iota
+	// UpdateRuleDescription indicates a rule description update operation
 	UpdateRuleDescription
+	// UpdateRuleStatus indicates a rule status update operation
 	UpdateRuleStatus
+	// UpdateRuleFlow indicates a rule flow update operation
 	UpdateRuleFlow
+	// InsertGroupsToSource indicates an insert groups to source rule operation
 	InsertGroupsToSource
+	// RemoveGroupsFromSource indicates an remove groups from source rule operation
 	RemoveGroupsFromSource
+	// UpdateSourceGroups indicates a replacement of source group list of a rule operation
 	UpdateSourceGroups
+	// InsertGroupsToDestination indicates an insert groups to destination rule operation
 	InsertGroupsToDestination
+	// RemoveGroupsFromDestination indicates an remove groups from destination rule operation
 	RemoveGroupsFromDestination
+	// UpdateDestinationGroups indicates a replacement of destination group list of a rule operation
 	UpdateDestinationGroups
 )
 

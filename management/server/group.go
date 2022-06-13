@@ -18,9 +18,13 @@ type Group struct {
 }
 
 const (
+	// UpdateGroupName indicates a name update operation
 	UpdateGroupName GroupUpdateOperationType = iota
+	// InsertPeersToGroup indicates insert peers to group operation
 	InsertPeersToGroup
+	// RemovePeersFromGroup indicates a remove peers from group operation
 	RemovePeersFromGroup
+	// UpdateGroupPeers indicates a replacement of group peers list
 	UpdateGroupPeers
 )
 
