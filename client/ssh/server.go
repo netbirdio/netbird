@@ -24,10 +24,10 @@ func init() {
 // Server is the embedded NetBird SSH server
 type Server struct {
 	listener net.Listener
-	// allowedKeys is ssh pub key indexed by peer WireGuard public key
-	allowedKeys map[string]ssh.PublicKey
-	mu          sync.Mutex
-	hostKeyPEM  []byte
+	// authorizedKeys is ssh pub key indexed by peer WireGuard public key
+	authorizedKeys map[string]ssh.PublicKey
+	mu             sync.Mutex
+	hostKeyPEM     []byte
 }
 
 // NewSSHServer creates new server with provided host key
@@ -37,7 +37,7 @@ func NewSSHServer(hostKeyPEM []byte, addr string) (*Server, error) {
 		return nil, err
 	}
 	allowedKeys := make(map[string]ssh.PublicKey)
-	return &Server{listener: ln, mu: sync.Mutex{}, hostKeyPEM: hostKeyPEM, allowedKeys: allowedKeys}, nil
+	return &Server{listener: ln, mu: sync.Mutex{}, hostKeyPEM: hostKeyPEM, authorizedKeys: allowedKeys}, nil
 }
 
 // RemoveAuthorizedKey removes SSH key of a given peer from the authorized keys
@@ -45,7 +45,7 @@ func (srv *Server) RemoveAuthorizedKey(peer string) {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
-	delete(srv.allowedKeys, peer)
+	delete(srv.authorizedKeys, peer)
 }
 
 // AddAuthorizedKey add a given peer key to server authorized keys
@@ -58,7 +58,7 @@ func (srv *Server) AddAuthorizedKey(peer, newKey string) error {
 		return err
 	}
 
-	srv.allowedKeys[peer] = parsedKey
+	srv.authorizedKeys[peer] = parsedKey
 	return nil
 }
 
@@ -75,7 +75,7 @@ func (srv *Server) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) bool {
 	srv.mu.Lock()
 	defer srv.mu.Unlock()
 
-	for _, allowed := range srv.allowedKeys {
+	for _, allowed := range srv.authorizedKeys {
 		if ssh.KeysEqual(allowed, key) {
 			return true
 		}
