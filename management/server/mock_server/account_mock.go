@@ -72,7 +72,7 @@ func (am *MockAccountManager) GetAccountByUser(userId string) (*server.Account, 
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByUser not implemented")
 }
 
-// GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface
+// AddSetupKey mock implementation of AddSetupKey from server.AccountManager interface
 func (am *MockAccountManager) AddSetupKey(
 	accountId string,
 	keyName string,
