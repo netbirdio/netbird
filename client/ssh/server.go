@@ -21,7 +21,12 @@ func init() {
 	}
 }
 
-// Server is an interface of a SSH server
+// DefaultSSHServer is a function that creates DefaultServer
+func DefaultSSHServer(hostKeyPEM []byte, addr string) (Server, error) {
+	return newDefaultServer(hostKeyPEM, addr)
+}
+
+// Server is an interface of SSH server
 type Server interface {
 	// Stop stops SSH server.
 	Stop() error
@@ -42,8 +47,8 @@ type DefaultServer struct {
 	hostKeyPEM     []byte
 }
 
-// DefaultSSHServer creates new server with provided host key
-func DefaultSSHServer(hostKeyPEM []byte, addr string) (*DefaultServer, error) {
+// newDefaultServer creates new server with provided host key
+func newDefaultServer(hostKeyPEM []byte, addr string) (*DefaultServer, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, err

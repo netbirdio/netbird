@@ -91,7 +91,8 @@ type Engine struct {
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
-	sshServer *ssh.DefaultServer
+	sshServerFunc func(hostKeyPEM []byte, addr string) (ssh.Server, error)
+	sshServer     ssh.Server
 }
 
 // Peer is an instance of the Connection Peer
@@ -116,6 +117,7 @@ func NewEngine(
 		STUNs:         []*ice.URL{},
 		TURNs:         []*ice.URL{},
 		networkSerial: 0,
+		sshServerFunc: ssh.DefaultSSHServer,
 	}
 }
 
@@ -291,6 +293,11 @@ func (e *Engine) removeAllPeers() error {
 // removePeer closes an existing peer connection, removes a peer, and clears authorized key of the SSH server
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
+
+	if e.sshServer != nil {
+		e.sshServer.RemoveAuthorizedKey(peerKey)
+	}
+
 	conn, exists := e.peerConns[peerKey]
 	if exists {
 		delete(e.peerConns, peerKey)
@@ -303,9 +310,6 @@ func (e *Engine) removePeer(peerKey string) error {
 				return err
 			}
 		}
-	}
-	if e.sshServer != nil {
-		e.sshServer.RemoveAuthorizedKey(peerKey)
 	}
 	return nil
 }
@@ -422,7 +426,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		if e.sshServer == nil {
 			//nil sshServer means it has not yet been started
 			var err error
-			e.sshServer, err = ssh.DefaultSSHServer(e.config.SSHKey,
+			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
 				fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), 2222))
 			if err != nil {
 				return err

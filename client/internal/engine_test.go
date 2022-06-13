@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/stretchr/testify/assert"
 	"net"
@@ -59,7 +60,21 @@ func TestEngine_SSH(t *testing.T) {
 		WgPrivateKey: key,
 		WgPort:       33100,
 	})
-	//engine.wgInterface, err = iface.NewWGIFace("utun100", "100.64.0.1/24", iface.DefaultMTU)
+
+	var sshKeysAdded []string
+	var sshPeersRemoved []string
+
+	engine.sshServerFunc = func(hostKeyPEM []byte, addr string) (ssh.Server, error) {
+		return &ssh.MockServer{
+			AddAuthorizedKeyFunc: func(peer, newKey string) error {
+				sshKeysAdded = append(sshKeysAdded, newKey)
+				return nil
+			},
+			RemoveAuthorizedKeyFunc: func(peer string) {
+				sshPeersRemoved = append(sshPeersRemoved, peer)
+			},
+		}, nil
+	}
 	err = engine.Start()
 	if err != nil {
 		t.Fatal(err)
@@ -102,12 +117,29 @@ func TestEngine_SSH(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(250 * time.Millisecond)
 	assert.NotNil(t, engine.sshServer)
+	assert.Contains(t, sshKeysAdded, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFATYCqaQw/9id1Qkq3n16JYhDhXraI6Pc1fgB8ynEfQ")
+
+	// now remove peer
+	networkMap = &mgmtProto.NetworkMap{
+		Serial:             8,
+		RemotePeers:        []*mgmtProto.RemotePeerConfig{},
+		RemotePeersIsEmpty: false,
+	}
+
+	err = engine.updateNetworkMap(networkMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//time.Sleep(250 * time.Millisecond)
+	assert.NotNil(t, engine.sshServer)
+	assert.Contains(t, sshPeersRemoved, "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=")
 
 	// now disable SSH server
 	networkMap = &mgmtProto.NetworkMap{
-		Serial: 8,
+		Serial: 9,
 		PeerConfig: &mgmtProto.PeerConfig{Address: "100.64.0.1/24",
 			SshConfig: &mgmtProto.SSHConfig{SshEnabled: false}},
 		RemotePeers:        []*mgmtProto.RemotePeerConfig{peerWithSSH},
