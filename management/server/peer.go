@@ -49,19 +49,22 @@ type Peer struct {
 	UserID string
 	// SSHKey is a public SSH key of the peer
 	SSHKey string
+	// SSHEnabled indicated whether SSH server is enabled on the peer
+	SSHEnabled bool
 }
 
 // Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	return &Peer{
-		Key:      p.Key,
-		SetupKey: p.SetupKey,
-		IP:       p.IP,
-		Meta:     p.Meta,
-		Name:     p.Name,
-		Status:   p.Status,
-		UserID:   p.UserID,
-		SSHKey:   p.SSHKey,
+		Key:        p.Key,
+		SetupKey:   p.SetupKey,
+		IP:         p.IP,
+		Meta:       p.Meta,
+		Name:       p.Name,
+		Status:     p.Status,
+		UserID:     p.UserID,
+		SSHKey:     p.SSHKey,
+		SSHEnabled: p.SSHEnabled,
 	}
 }
 
@@ -288,13 +291,15 @@ func (am *DefaultAccountManager) AddPeer(
 	}
 
 	newPeer := &Peer{
-		Key:      peer.Key,
-		SetupKey: upperKey,
-		IP:       nextIp,
-		Meta:     peer.Meta,
-		Name:     peer.Name,
-		UserID:   userID,
-		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
+		Key:        peer.Key,
+		SetupKey:   upperKey,
+		IP:         nextIp,
+		Meta:       peer.Meta,
+		Name:       peer.Name,
+		UserID:     userID,
+		Status:     &PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled: false,
+		SSHKey:     peer.SSHKey,
 	}
 
 	// add peer to 'All' group
@@ -340,7 +345,9 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string)
 	if err != nil {
 		return err
 	}
-	return nil
+
+	// trigger network map update
+	return am.updateAccountPeers(account)
 }
 
 // UpdatePeerMeta updates peer's system metadata
@@ -373,7 +380,7 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerKey string, meta PeerSystemM
 	return nil
 }
 
-// getPeersByACL allowed for given peer by ACL
+// getPeersByACL returns all peers that given peer has access to.
 func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string) []*Peer {
 	var peers []*Peer
 	srcRules, err := am.Store.GetPeerSrcRules(account.Id, peerKey)
@@ -437,7 +444,8 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 	return peers
 }
 
-// updateAccountPeers network map constructed by ACL
+// updateAccountPeers updates all peers that belong to an account.
+// Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	// notify other peers of the change
 	peers, err := am.Store.GetAccountPeers(account.Id)
@@ -450,7 +458,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 		err = am.peersUpdateManager.SendUpdate(p.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
-					// fill those field for backward compatibility
+					// fill deprecated fields for backward compatibility
 					RemotePeers:        update,
 					RemotePeersIsEmpty: len(update) == 0,
 					// new field
@@ -458,6 +466,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 						Serial:             account.Network.CurrentSerial(),
 						RemotePeers:        update,
 						RemotePeersIsEmpty: len(update) == 0,
+						PeerConfig:         toPeerConfig(p),
 					},
 				},
 			})

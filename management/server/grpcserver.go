@@ -186,8 +186,9 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 	}
 
 	peer, err := s.accountManager.AddPeer(reqSetupKey, userId, &Peer{
-		Key:  peerKey.String(),
-		Name: meta.GetHostname(),
+		Key:    peerKey.String(),
+		Name:   meta.GetHostname(),
+		SSHKey: string(req.SshPubKey),
 		Meta: PeerSystemMeta{
 			Hostname:  meta.GetHostname(),
 			GoOS:      meta.GetGoOS(),
