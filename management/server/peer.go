@@ -388,6 +388,9 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 
 	groups := map[string]*Group{}
 	for _, r := range srcRules {
+		if r.Disabled {
+			continue
+		}
 		if r.Flow == TrafficFlowBidirect {
 			for _, gid := range r.Destination {
 				if group, ok := account.Groups[gid]; ok {
@@ -398,6 +401,9 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 	}
 
 	for _, r := range dstRules {
+		if r.Disabled {
+			continue
+		}
 		if r.Flow == TrafficFlowBidirect {
 			for _, gid := range r.Source {
 				if group, ok := account.Groups[gid]; ok {

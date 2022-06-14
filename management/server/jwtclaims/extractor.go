@@ -36,6 +36,9 @@ func NewClaimsExtractor(e ExtractClaims) *ClaimsExtractor {
 
 // ExtractClaimsFromRequestContext extracts claims from the request context previously filled by the JWT token (after auth)
 func ExtractClaimsFromRequestContext(r *http.Request, authAudience string) AuthorizationClaims {
+	if r.Context().Value(TokenUserProperty) == nil {
+		return AuthorizationClaims{}
+	}
 	token := r.Context().Value(TokenUserProperty).(*jwt.Token)
 	return ExtractClaimsWithToken(token, authAudience)
 }
