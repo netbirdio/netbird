@@ -103,13 +103,12 @@ func (s *Server) Start() error {
 	rulesHandler := handler.NewRules(s.accountManager, s.config.AuthAudience)
 	peersHandler := handler.NewPeers(s.accountManager, s.config.AuthAudience)
 	keysHandler := handler.NewSetupKeysHandler(s.accountManager, s.config.AuthAudience)
+	userHandler := handler.NewUserHandler(s.accountManager, s.config.AuthAudience)
+
 	r.HandleFunc("/api/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/peers/{id}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
-
-	userHandler := handler.NewUserHandler(s.accountManager, s.config.AuthAudience)
 	r.HandleFunc("/api/users", userHandler.GetUsers).Methods("GET", "OPTIONS")
-
 	r.HandleFunc("/api/setup-keys", keysHandler.GetKeys).Methods("GET", "POST", "OPTIONS")
 	r.HandleFunc("/api/setup-keys/{id}", keysHandler.HandleKey).Methods("GET", "PUT", "OPTIONS")
 
@@ -118,14 +117,16 @@ func (s *Server) Start() error {
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
 
 	r.HandleFunc("/api/rules", rulesHandler.GetAllRulesHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/rules", rulesHandler.CreateOrUpdateRuleHandler).
-		Methods("POST", "PUT", "OPTIONS")
+	r.HandleFunc("/api/rules", rulesHandler.CreateRuleHandler).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/rules/{id}", rulesHandler.UpdateRuleHandler).Methods("PUT", "OPTIONS")
+	r.HandleFunc("/api/rules/{id}", rulesHandler.PatchRuleHandler).Methods("PATCH", "OPTIONS")
 	r.HandleFunc("/api/rules/{id}", rulesHandler.GetRuleHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/rules/{id}", rulesHandler.DeleteRuleHandler).Methods("DELETE", "OPTIONS")
 
 	r.HandleFunc("/api/groups", groupsHandler.GetAllGroupsHandler).Methods("GET", "OPTIONS")
-	r.HandleFunc("/api/groups", groupsHandler.CreateOrUpdateGroupHandler).
-		Methods("POST", "PUT", "OPTIONS")
+	r.HandleFunc("/api/groups", groupsHandler.CreateGroupHandler).Methods("POST", "OPTIONS")
+	r.HandleFunc("/api/groups/{id}", groupsHandler.UpdateGroupHandler).Methods("PUT", "OPTIONS")
+	r.HandleFunc("/api/groups/{id}", groupsHandler.PatchGroupHandler).Methods("PATCH", "OPTIONS")
 	r.HandleFunc("/api/groups/{id}", groupsHandler.GetGroupHandler).Methods("GET", "OPTIONS")
 	r.HandleFunc("/api/groups/{id}", groupsHandler.DeleteGroupHandler).Methods("DELETE", "OPTIONS")
 	http.Handle("/", r)

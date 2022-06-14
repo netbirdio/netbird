@@ -7,7 +7,6 @@ import (
 	cacheStore "github.com/eko/gocache/v2/store"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/netbirdio/netbird/util"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -35,7 +34,7 @@ type AccountManager interface {
 		accountId string,
 		keyName string,
 		keyType SetupKeyType,
-		expiresIn *util.Duration,
+		expiresIn time.Duration,
 	) (*SetupKey, error)
 	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
@@ -55,6 +54,7 @@ type AccountManager interface {
 	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
+	UpdateGroup(accountID string, groupID string, operations []GroupUpdateOperation) (*Group, error)
 	DeleteGroup(accountId, groupID string) error
 	ListGroups(accountId string) ([]*Group, error)
 	GroupAddPeer(accountId, groupID, peerKey string) error
@@ -62,6 +62,7 @@ type AccountManager interface {
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
 	GetRule(accountId, ruleID string) (*Rule, error)
 	SaveRule(accountID string, rule *Rule) error
+	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
 	DeleteRule(accountId, ruleID string) error
 	ListRules(accountId string) ([]*Rule, error)
 }
@@ -222,14 +223,14 @@ func (am *DefaultAccountManager) AddSetupKey(
 	accountId string,
 	keyName string,
 	keyType SetupKeyType,
-	expiresIn *util.Duration,
+	expiresIn time.Duration,
 ) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	keyDuration := DefaultSetupKeyDuration
-	if expiresIn != nil {
-		keyDuration = expiresIn.Duration
+	if expiresIn != 0 {
+		keyDuration = expiresIn
 	}
 
 	account, err := am.Store.GetAccount(accountId)
@@ -633,7 +634,9 @@ func addAllGroup(account *Account) {
 
 		defaultRule := &Rule{
 			ID:          xid.New().String(),
-			Name:        "Default",
+			Name:        DefaultRuleName,
+			Description: DefaultRuleDescription,
+			Disabled:    false,
 			Source:      []string{allGroup.ID},
 			Destination: []string{allGroup.ID},
 		}
@@ -686,4 +689,20 @@ func getAccountSetupKeyByKey(acc *Account, key string) *SetupKey {
 		}
 	}
 	return nil
+}
+
+func removeFromList(inputList []string, toRemove []string) []string {
+	toRemoveMap := make(map[string]struct{})
+	for _, item := range toRemove {
+		toRemoveMap[item] = struct{}{}
+	}
+
+	var resultList []string
+	for _, item := range inputList {
+		_, ok := toRemoveMap[item]
+		if !ok {
+			resultList = append(resultList, item)
+		}
+	}
+	return resultList
 }

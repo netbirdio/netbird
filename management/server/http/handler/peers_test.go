@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"io"
 	"net"
 	"net/http"
@@ -98,7 +99,7 @@ func TestGetPeers(t *testing.T) {
 				t.Fatalf("I don't know what I expected; %v", err)
 			}
 
-			respBody := []*PeerResponse{}
+			respBody := []*api.Peer{}
 			err = json.Unmarshal(content, &respBody)
 			if err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
@@ -107,8 +108,8 @@ func TestGetPeers(t *testing.T) {
 			got := respBody[0]
 			assert.Equal(t, got.Name, peer.Name)
 			assert.Equal(t, got.Version, peer.Meta.WtVersion)
-			assert.Equal(t, got.IP, peer.IP.String())
-			assert.Equal(t, got.OS, "OS core")
+			assert.Equal(t, got.Ip, peer.IP.String())
+			assert.Equal(t, got.Os, "OS core")
 		})
 	}
 }
