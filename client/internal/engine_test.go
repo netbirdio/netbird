@@ -80,6 +80,13 @@ func TestEngine_SSH(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	defer func() {
+		err := engine.Stop()
+		if err != nil {
+			return
+		}
+	}()
+
 	peerWithSSH := &mgmtProto.RemotePeerConfig{
 		WgPubKey:   "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
 		AllowedIps: []string{"100.64.0.21/24"},
