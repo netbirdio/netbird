@@ -90,7 +90,7 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if *req.Name == "" {
-		http.Error(w, "Group name shouldn't be empty", http.StatusUnprocessableEntity)
+		http.Error(w, "group name shouldn't be empty", http.StatusUnprocessableEntity)
 		return
 	}
 
