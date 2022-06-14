@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"fmt"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"net/http"
 
 	log "github.com/sirupsen/logrus"
@@ -16,13 +16,6 @@ type UserHandler struct {
 	jwtExtractor   jwtclaims.ClaimsExtractor
 }
 
-type UserResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
-}
-
 func NewUserHandler(accountManager server.AccountManager, authAudience string) *UserHandler {
 	return &UserHandler{
 		accountManager: accountManager,
@@ -31,37 +24,26 @@ func NewUserHandler(accountManager server.AccountManager, authAudience string) *
 	}
 }
 
-func (u *UserHandler) getAccountId(r *http.Request) (*server.Account, error) {
-	jwtClaims := u.jwtExtractor.ExtractClaimsFromRequestContext(r, u.authAudience)
-
-	account, err := u.accountManager.GetAccountWithAuthorizationClaims(jwtClaims)
-	if err != nil {
-		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
-	}
-
-	return account, nil
-}
-
 // GetUsers returns a list of users of the account this user belongs to.
 // It also gathers additional user data (like email and name) from the IDP manager.
-func (u *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
+func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "", http.StatusBadRequest)
 	}
 
-	account, err := u.getAccountId(r)
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 	}
 
-	data, err := u.accountManager.GetUsersFromAccount(account.Id)
+	data, err := h.accountManager.GetUsersFromAccount(account.Id)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	users := []*UserResponse{}
+	users := []*api.User{}
 	for _, r := range data {
 		users = append(users, toUserResponse(r))
 	}
@@ -69,9 +51,9 @@ func (u *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	writeJSONObject(w, users)
 }
 
-func toUserResponse(user *server.UserInfo) *UserResponse {
-	return &UserResponse{
-		ID:    user.ID,
+func toUserResponse(user *server.UserInfo) *api.User {
+	return &api.User{
+		Id:    user.ID,
 		Name:  user.Name,
 		Email: user.Email,
 		Role:  user.Role,
