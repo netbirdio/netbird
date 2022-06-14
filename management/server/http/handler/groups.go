@@ -57,15 +57,19 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	groupID := vars["id"]
+	groupID, ok := vars["id"]
+	if !ok {
+		http.Error(w, "group ID field is missing", http.StatusBadRequest)
+		return
+	}
 	if len(groupID) == 0 {
-		http.Error(w, "invalid group Id", http.StatusBadRequest)
+		http.Error(w, "group ID can't be empty", http.StatusUnprocessableEntity)
 		return
 	}
 
-	_, ok := account.Groups[groupID]
+	_, ok = account.Groups[groupID]
 	if !ok {
-		http.Error(w, fmt.Sprintf("couldn't find group id %s", groupID), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("couldn't find group with ID %s", groupID), http.StatusNotFound)
 		return
 	}
 
