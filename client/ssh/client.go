@@ -18,7 +18,7 @@ func (c *Client) Close() error {
 	return c.client.Close()
 }
 
-// OpenTerminal starts interactive terminal session with the remote SSH server
+// OpenTerminal starts an interactive terminal session with the remote SSH server
 func (c *Client) OpenTerminal() error {
 	session, err := c.client.NewSession()
 	if err != nil {
@@ -54,11 +54,11 @@ func (c *Client) OpenTerminal() error {
 		ssh.TTY_OP_OSPEED: 14400,
 	}
 
-	term := os.Getenv("TERM")
-	if term == "" {
-		term = "xterm-256color"
+	terminal := os.Getenv("TERM")
+	if terminal == "" {
+		terminal = "xterm-256color"
 	}
-	if err := session.RequestPty(term, h, w, modes); err != nil {
+	if err := session.RequestPty(terminal, h, w, modes); err != nil {
 		return fmt.Errorf("failed requesting pty session with xterm: %s", err)
 	}
 

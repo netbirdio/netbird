@@ -12,15 +12,6 @@ import (
 	"sync"
 )
 
-var shell string
-
-func init() {
-	shell = os.Getenv("SHELL")
-	if shell == "" {
-		shell = "sh"
-	}
-}
-
 // DefaultSSHServer is a function that creates DefaultServer
 func DefaultSSHServer(hostKeyPEM []byte, addr string) (Server, error) {
 	return newDefaultServer(hostKeyPEM, addr)
@@ -101,11 +92,19 @@ func (srv *DefaultServer) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) b
 	return false
 }
 
+func getShellType() string {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "sh"
+	}
+	return shell
+}
+
 // sessionHandler handles SSH session post auth
 func (srv *DefaultServer) sessionHandler(s ssh.Session) {
 	ptyReq, winCh, isPty := s.Pty()
 	if isPty {
-		cmd := exec.Command(shell)
+		cmd := exec.Command(getShellType())
 		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 		f, err := pty.Start(cmd)
 		if err != nil {
