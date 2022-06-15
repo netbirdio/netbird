@@ -71,12 +71,21 @@ message LoginRequest {
   PeerSystemMeta meta = 2;
   // SSO token (can be empty)
   string jwtToken = 3;
+  // Can be absent for now.
+  PeerKeys peerKeys = 4;
+
+}
+// PeerKeys is additional peer info like SSH pub key and WireGuard public key.
+// This message is sent on Login or register requests, or when a key rotation has to happen.
+message PeerKeys {
 
   // sshPubKey represents a public SSH key of the peer. Can be absent.
-  bytes sshPubKey = 4;
+  bytes sshPubKey = 1;
+  // wgPubKey represents a public WireGuard key of the peer. Can be absent.
+  bytes wgPubKey = 2;
 }
 
-// Peer machine meta data
+// PeerSystemMeta is machine meta data like OS and version.
 message PeerSystemMeta {
   string hostname = 1;
   string goOS = 2;

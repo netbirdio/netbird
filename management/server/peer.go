@@ -328,6 +328,11 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string)
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
+	if sshKey == "" {
+		log.Debugf("empty SSH key provided for peer %s, skipping update", peerKey)
+		return nil
+	}
+
 	peer, err := am.Store.GetPeer(peerKey)
 	if err != nil {
 		return err

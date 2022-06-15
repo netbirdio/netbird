@@ -185,10 +185,15 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		return nil, status.Errorf(codes.InvalidArgument, "peer meta data was not provided")
 	}
 
+	var sshKey []byte
+	if req.GetPeerKeys() != nil {
+		sshKey = req.GetPeerKeys().GetSshPubKey()
+	}
+
 	peer, err := s.accountManager.AddPeer(reqSetupKey, userId, &Peer{
 		Key:    peerKey.String(),
 		Name:   meta.GetHostname(),
-		SSHKey: string(req.SshPubKey),
+		SSHKey: string(sshKey),
 		Meta: PeerSystemMeta{
 			Hostname:  meta.GetHostname(),
 			GoOS:      meta.GetGoOS(),
@@ -292,8 +297,13 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		}
 	}
 
-	if loginReq.GetSshPubKey() != nil {
-		err = s.accountManager.UpdatePeerSSHKey(peerKey.String(), string(loginReq.GetSshPubKey()))
+	var sshKey []byte
+	if loginReq.GetPeerKeys() != nil {
+		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
+	}
+
+	if len(sshKey) > 0 {
+		err = s.accountManager.UpdatePeerSSHKey(peerKey.String(), string(sshKey))
 		if err != nil {
 			return nil, err
 		}
