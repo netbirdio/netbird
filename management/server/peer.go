@@ -106,6 +106,31 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected boo
 	return nil
 }
 
+// UpdatePeer updates peer. Only Peer.Name and Peer.SSHEnabled can be updated.
+func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	peer, err := am.Store.GetPeer(update.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	peerCopy := peer.Copy()
+	if peer.Name != "" {
+		peerCopy.Name = update.Name
+	}
+	peerCopy.SSHEnabled = update.SSHEnabled
+
+	err = am.Store.SavePeer(accountID, peerCopy)
+	if err != nil {
+		return nil, err
+	}
+
+	return peerCopy, nil
+
+}
+
 // RenamePeer changes peer's name
 func (am *DefaultAccountManager) RenamePeer(
 	accountId string,

@@ -34,7 +34,9 @@ func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.Re
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	peer, err = h.accountManager.RenamePeer(account.Id, peer.Key, req.Name)
+
+	update := &server.Peer{Key: peer.Key, SSHEnabled: req.SshEnabled, Name: req.Name}
+	peer, err = h.accountManager.UpdatePeer(account.Id, update)
 	if err != nil {
 		log.Errorf("failed updating peer %s under account %s %v", peerIp, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -133,13 +135,14 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 		}
 	}
 	return &api.Peer{
-		Id:        peer.IP.String(),
-		Name:      peer.Name,
-		Ip:        peer.IP.String(),
-		Connected: peer.Status.Connected,
-		LastSeen:  peer.Status.LastSeen,
-		Os:        fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
-		Version:   peer.Meta.WtVersion,
-		Groups:    groupsInfo,
+		Id:         peer.IP.String(),
+		Name:       peer.Name,
+		Ip:         peer.IP.String(),
+		Connected:  peer.Status.Connected,
+		LastSeen:   peer.Status.LastSeen,
+		Os:         fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		Version:    peer.Meta.WtVersion,
+		Groups:     groupsInfo,
+		SshEnabled: peer.SSHEnabled,
 	}
 }

@@ -66,6 +66,7 @@ type AccountManager interface {
 	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
 	DeleteRule(accountId, ruleID string) error
 	ListRules(accountId string) ([]*Rule, error)
+	UpdatePeer(accountID string, peer *Peer) (*Peer, error)
 }
 
 type DefaultAccountManager struct {
