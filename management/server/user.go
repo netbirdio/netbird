@@ -60,8 +60,8 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			account = NewAccount(userId, lowerDomain)
-			if am.isNewAccountIDUsed(account.Id) {
-				return nil, status.Errorf(codes.Internal, "new account ID is already being used")
+			if am.accountExists(account.Id) {
+				return nil, status.Errorf(codes.Internal, "error while creating new account for new user")
 			}
 			err = am.Store.SaveAccount(account)
 			if err != nil {

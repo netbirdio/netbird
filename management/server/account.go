@@ -198,7 +198,7 @@ func BuildManager(
 
 }
 
-func (am *DefaultAccountManager) isNewAccountIDUsed(id string) bool {
+func (am *DefaultAccountManager) accountExists(id string) bool {
 	_, err := am.Store.GetAccount(id)
 	return err == nil
 }
@@ -538,8 +538,8 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 		}
 	} else {
 		account = NewAccount(claims.UserId, lowerDomain)
-		if am.isNewAccountIDUsed(account.Id) {
-			return nil, status.Errorf(codes.Internal, "new account ID is already being used")
+		if am.accountExists(account.Id) {
+			return nil, status.Errorf(codes.Internal, "error while creating new account while handling new user")
 		}
 		err = am.updateAccountDomainAttributes(account, claims, true)
 		if err != nil {
