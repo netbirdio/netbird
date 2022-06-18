@@ -463,8 +463,17 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(
 	primaryDomain bool,
 ) error {
 	account.IsDomainPrimaryAccount = primaryDomain
-	account.Domain = strings.ToLower(claims.Domain)
-	account.DomainCategory = claims.DomainCategory
+
+	lowerDomain := strings.ToLower(claims.Domain)
+	userObj := account.Users[claims.UserId]
+	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
+		account.Domain = lowerDomain
+	}
+	// prevent updating category for different domain until admin logs in
+	if account.Domain == lowerDomain {
+		account.DomainCategory = claims.DomainCategory
+	}
+
 	err := am.Store.SaveAccount(account)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed saving updated account")

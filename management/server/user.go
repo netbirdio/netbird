@@ -73,7 +73,9 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 		}
 	}
 
-	if account.Domain != lowerDomain {
+	userObj := account.Users[userId]
+
+	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
 		account.Domain = lowerDomain
 		err = am.Store.SaveAccount(account)
 		if err != nil {
