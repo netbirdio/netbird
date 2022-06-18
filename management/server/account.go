@@ -198,6 +198,11 @@ func BuildManager(
 
 }
 
+func (am *DefaultAccountManager) isNewAccountIDUsed(id string) bool {
+	_, err := am.Store.GetAccount(id)
+	return err == nil
+}
+
 func (am *DefaultAccountManager) warmupIDPCache() error {
 	userData, err := am.idpManager.GetAllAccounts()
 	if err != nil {
@@ -368,7 +373,7 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 	}
 }
 
-func (am *DefaultAccountManager) loadFromCache(ctx context.Context, accountID interface{}) (interface{}, error) {
+func (am *DefaultAccountManager) loadFromCache(_ context.Context, accountID interface{}) (interface{}, error) {
 	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
 }
 
@@ -524,6 +529,9 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 		}
 	} else {
 		account = NewAccount(claims.UserId, lowerDomain)
+		if am.isNewAccountIDUsed(account.Id) {
+			return nil, status.Errorf(codes.Internal, "new account ID is already being used")
+		}
 		err = am.updateAccountDomainAttributes(account, claims, true)
 		if err != nil {
 			return nil, err
