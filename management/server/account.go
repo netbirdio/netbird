@@ -100,12 +100,6 @@ type UserInfo struct {
 	Role  string `json:"role"`
 }
 
-// NewAccount creates a new Account with a generated ID and generated default setup keys
-func NewAccount(userId, domain string) *Account {
-	accountId := xid.New().String()
-	return newAccountWithId(accountId, userId, domain)
-}
-
 func (a *Account) Copy() *Account {
 	peers := map[string]*Peer{}
 	for id, peer := range a.Peers {
@@ -196,6 +190,27 @@ func BuildManager(
 
 	return am, nil
 
+}
+
+// newAccount creates a new Account with a generated ID and generated default setup keys.
+// If ID is already in use (due to collision) we try one more time before returning error
+func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, error) {
+	for i := 0; i < 2; i++ {
+		accountId := xid.New().String()
+
+		_, err := am.Store.GetAccount(accountId)
+		statusErr, _ := status.FromError(err)
+		if err == nil {
+			log.Warnf("an account with ID already exists, retrying...")
+			continue
+		} else if statusErr.Code() == codes.NotFound {
+			return newAccountWithId(accountId, userID, domain), nil
+		} else {
+			return nil, err
+		}
+	}
+
+	return nil, status.Errorf(codes.Internal, "error while creating new account")
 }
 
 func (am *DefaultAccountManager) warmupIDPCache() error {
@@ -368,7 +383,7 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 	}
 }
 
-func (am *DefaultAccountManager) loadFromCache(ctx context.Context, accountID interface{}) (interface{}, error) {
+func (am *DefaultAccountManager) loadFromCache(_ context.Context, accountID interface{}) (interface{}, error) {
 	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
 }
 
@@ -458,8 +473,17 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(
 	primaryDomain bool,
 ) error {
 	account.IsDomainPrimaryAccount = primaryDomain
-	account.Domain = strings.ToLower(claims.Domain)
-	account.DomainCategory = claims.DomainCategory
+
+	lowerDomain := strings.ToLower(claims.Domain)
+	userObj := account.Users[claims.UserId]
+	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
+		account.Domain = lowerDomain
+	}
+	// prevent updating category for different domain until admin logs in
+	if account.Domain == lowerDomain {
+		account.DomainCategory = claims.DomainCategory
+	}
+
 	err := am.Store.SaveAccount(account)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed saving updated account")
@@ -523,7 +547,10 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 			return nil, status.Errorf(codes.Internal, "failed saving updated account")
 		}
 	} else {
-		account = NewAccount(claims.UserId, lowerDomain)
+		account, err = am.newAccount(claims.UserId, lowerDomain)
+		if err != nil {
+			return nil, err
+		}
 		err = am.updateAccountDomainAttributes(account, claims, true)
 		if err != nil {
 			return nil, err

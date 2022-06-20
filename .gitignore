@@ -1,4 +1,5 @@
 .idea
+.run
 *.iml
 dist/
 bin/
