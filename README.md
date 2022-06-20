@@ -1,6 +1,6 @@
 <p align="center">
- <strong>:hatching_chick: New release! Beta Update May 2022</strong>.
-  <a href="https://github.com/netbirdio/netbird/releases/tag/v0.6.0">
+ <strong>:hatching_chick: New release! Seamless Access Controls</strong>.
+  <a href="https://github.com/netbirdio/netbird/releases/tag/v0.7.0">
        Learn more
      </a>   
 </p>
@@ -52,9 +52,9 @@ NetBird creates an overlay peer-to-peer network connecting machines automaticall
 -  \[x] SSO and MFA support. 
 -  \[x] Multicloud and hybrid-cloud support.
 -  \[x] Kernel WireGuard usage when possible.
+-  \[x] Access Controls - groups & rules.
   
 **Coming soon:**
--  \[ ] Access Controls - groups & rules.
 -  \[ ] Private DNS.
 -  \[ ] Mobile clients.
 -  \[ ] Network Activity Monitoring.
