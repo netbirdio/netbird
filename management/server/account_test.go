@@ -96,7 +96,8 @@ func TestNewAccount(t *testing.T) {
 
 	domain := "netbird.io"
 	userId := "account_creator"
-	account := NewAccount(userId, domain)
+	accountID := "account_id"
+	account := newAccountWithId(accountID, userId, domain)
 	verifyNewAccountHasDefaultFields(t, account, userId, domain, []string{userId})
 }
 
