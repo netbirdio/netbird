@@ -100,12 +100,6 @@ type UserInfo struct {
 	Role  string `json:"role"`
 }
 
-// NewAccount creates a new Account with a generated ID and generated default setup keys
-func NewAccount(userId, domain string) *Account {
-	accountId := xid.New().String()
-	return newAccountWithId(accountId, userId, domain)
-}
-
 func (a *Account) Copy() *Account {
 	peers := map[string]*Peer{}
 	for id, peer := range a.Peers {
@@ -198,9 +192,25 @@ func BuildManager(
 
 }
 
-func (am *DefaultAccountManager) accountExists(id string) bool {
-	_, err := am.Store.GetAccount(id)
-	return err == nil
+// newAccount creates a new Account with a generated ID and generated default setup keys.
+// If ID is already in use we try one more time before returning error
+func (am *DefaultAccountManager) newAccount(userId, domain string) (*Account, error) {
+	for i := 0; i < 2; i++ {
+		accountId := xid.New().String()
+
+		_, err := am.Store.GetAccount(accountId)
+		statusErr, _ := status.FromError(err)
+		if err == nil {
+			log.Warnf("an account with ID already exists, retrying...")
+			continue
+		} else if statusErr.Code() == codes.NotFound {
+			return newAccountWithId(accountId, userId, domain), nil
+		} else {
+			return nil, err
+		}
+	}
+
+	return nil, status.Errorf(codes.Internal, "error while creating new account")
 }
 
 func (am *DefaultAccountManager) warmupIDPCache() error {
@@ -537,9 +547,9 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 			return nil, status.Errorf(codes.Internal, "failed saving updated account")
 		}
 	} else {
-		account = NewAccount(claims.UserId, lowerDomain)
-		if am.accountExists(account.Id) {
-			return nil, status.Errorf(codes.Internal, "error while creating new account while handling new user")
+		account, err = am.newAccount(claims.UserId, lowerDomain)
+		if err != nil {
+			return nil, err
 		}
 		err = am.updateAccountDomainAttributes(account, claims, true)
 		if err != nil {
