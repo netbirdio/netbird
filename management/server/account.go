@@ -194,7 +194,7 @@ func BuildManager(
 
 // newAccount creates a new Account with a generated ID and generated default setup keys.
 // If ID is already in use we try one more time before returning error
-func (am *DefaultAccountManager) newAccount(userId, domain string) (*Account, error) {
+func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, error) {
 	for i := 0; i < 2; i++ {
 		accountId := xid.New().String()
 
@@ -204,7 +204,7 @@ func (am *DefaultAccountManager) newAccount(userId, domain string) (*Account, er
 			log.Warnf("an account with ID already exists, retrying...")
 			continue
 		} else if statusErr.Code() == codes.NotFound {
-			return newAccountWithId(accountId, userId, domain), nil
+			return newAccountWithId(accountId, userID, domain), nil
 		} else {
 			return nil, err
 		}
