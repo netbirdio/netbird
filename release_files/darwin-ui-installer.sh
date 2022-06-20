@@ -1,6 +1,6 @@
 #!/bin/sh
 
-export PATH=$PATH:/usr/local/bin
+export PATH=$PATH:/usr/local/bin:/opt/homebrew/bin
 
 # check if wiretrustee is installed
 WT_BIN=$(which wiretrustee)
