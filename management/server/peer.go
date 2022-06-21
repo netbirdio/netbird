@@ -127,6 +127,16 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 		return nil, err
 	}
 
+	account, err := am.GetAccountById(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return nil, err
+	}
+
 	return peerCopy, nil
 
 }

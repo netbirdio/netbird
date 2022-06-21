@@ -385,7 +385,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	return &proto.PeerConfig{
 		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), SubnetSize), // take it from the network
-		SshConfig: &proto.SSHConfig{SshEnabled: true},                 //TODO REMOVE THIS HARDCODED VALUE
+		SshConfig: &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
 	}
 }
 
