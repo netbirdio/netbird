@@ -158,7 +158,7 @@ func GetConfig(managementURL, adminURL, configPath, preSharedKey string) (*Confi
 	} else {
 		// don't overwrite pre-shared key if we receive asterisks from UI
 		pk := &preSharedKey
-		if preSharedKey == "**********" || preSharedKey == "" {
+		if preSharedKey == "**********" {
 			pk = nil
 		}
 		return ReadConfig(managementURL, adminURL, configPath, pk)
