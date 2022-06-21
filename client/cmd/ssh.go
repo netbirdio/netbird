@@ -86,7 +86,7 @@ var sshCmd = &cobra.Command{
 			return nil
 		}
 
-		config, err := internal.GetConfig("", "", configPath, "")
+		config, err := internal.ReadConfig("", "", configPath, nil)
 		if err != nil {
 			return err
 		}

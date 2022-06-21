@@ -111,6 +111,11 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
 	peer, err := am.Store.GetPeer(update.Key)
 	if err != nil {
 		return nil, err
@@ -123,11 +128,6 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 	peerCopy.SSHEnabled = update.SSHEnabled
 
 	err = am.Store.SavePeer(accountID, peerCopy)
-	if err != nil {
-		return nil, err
-	}
-
-	account, err := am.GetAccountById(accountID)
 	if err != nil {
 		return nil, err
 	}
