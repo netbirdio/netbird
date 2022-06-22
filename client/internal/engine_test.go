@@ -64,8 +64,21 @@ func TestEngine_SSH(t *testing.T) {
 	var sshKeysAdded []string
 	var sshPeersRemoved []string
 
+	sshCtx, cancel := context.WithCancel(context.Background())
+
 	engine.sshServerFunc = func(hostKeyPEM []byte, addr string) (ssh.Server, error) {
 		return &ssh.MockServer{
+			Ctx: sshCtx,
+			StopFunc: func() error {
+				cancel()
+				return nil
+			},
+			StartFunc: func() error {
+				select {
+				case <-ctx.Done():
+				}
+				return nil
+			},
 			AddAuthorizedKeyFunc: func(peer, newKey string) error {
 				sshKeysAdded = append(sshKeysAdded, newKey)
 				return nil

@@ -1,7 +1,10 @@
 package ssh
 
+import "context"
+
 // MockServer mocks ssh.Server
 type MockServer struct {
+	Ctx                     context.Context
 	StopFunc                func() error
 	StartFunc               func() error
 	AddAuthorizedKeyFunc    func(peer, newKey string) error
