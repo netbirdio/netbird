@@ -12,7 +12,7 @@ import (
 	"sync"
 )
 
-const DefaultSSHPort = 44337
+const DefaultSSHPort = 44338
 
 // DefaultSSHServer is a function that creates DefaultServer
 func DefaultSSHServer(hostKeyPEM []byte, addr string) (Server, error) {
