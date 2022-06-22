@@ -38,7 +38,8 @@ type Config struct {
 	AdminURL       *url.URL
 	WgIface        string
 	IFaceBlackList []string
-	SSHKey         string
+	// SSHKey is a private SSH key in a PEM format
+	SSHKey string
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file

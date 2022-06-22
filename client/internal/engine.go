@@ -56,6 +56,7 @@ type EngineConfig struct {
 	// UDPMuxSrflxPort default value 0 - the system will pick an available port
 	UDPMuxSrflxPort int
 
+	// SSHKey is a private SSH key in a PEM format
 	SSHKey []byte
 }
 
