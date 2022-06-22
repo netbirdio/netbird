@@ -12,6 +12,8 @@ import (
 	"sync"
 )
 
+const DefaultSSHPort = 44337
+
 // DefaultSSHServer is a function that creates DefaultServer
 func DefaultSSHServer(hostKeyPEM []byte, addr string) (Server, error) {
 	return newDefaultServer(hostKeyPEM, addr)
@@ -154,7 +156,7 @@ func (srv *DefaultServer) stdInOut(f *os.File, s ssh.Session) {
 
 // Start starts SSH server. Blocking
 func (srv *DefaultServer) Start() error {
-	log.Infof("starting SSH server")
+	log.Infof("starting SSH server on addr: %s", srv.listener.Addr().String())
 
 	publicKeyOption := ssh.PublicKeyAuth(srv.publicKeyHandler)
 	hostKeyPEM := ssh.HostKeyPEM(srv.hostKeyPEM)

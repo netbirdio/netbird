@@ -134,5 +134,5 @@ func runSSH(ctx context.Context, addr string, pemKey []byte) error {
 }
 
 func init() {
-	sshCmd.PersistentFlags().IntVarP(&port, "port", "p", 2222, "set remote SSH port. Defaults to NetBird's 2222")
+	sshCmd.PersistentFlags().IntVarP(&port, "port", "p", nbssh.DefaultSSHPort, "Sets remote SSH port. Defaults to "+fmt.Sprint(nbssh.DefaultSSHPort))
 }

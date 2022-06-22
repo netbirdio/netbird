@@ -3,7 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/ssh"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"math/rand"
 	"net"
 	"strings"
@@ -92,8 +92,8 @@ type Engine struct {
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
 
-	sshServerFunc func(hostKeyPEM []byte, addr string) (ssh.Server, error)
-	sshServer     ssh.Server
+	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
+	sshServer     nbssh.Server
 }
 
 // Peer is an instance of the Connection Peer
@@ -118,7 +118,7 @@ func NewEngine(
 		STUNs:         []*ice.URL{},
 		TURNs:         []*ice.URL{},
 		networkSerial: 0,
-		sshServerFunc: ssh.DefaultSSHServer,
+		sshServerFunc: nbssh.DefaultSSHServer,
 	}
 }
 
@@ -428,7 +428,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			//nil sshServer means it has not yet been started
 			var err error
 			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
-				fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), 2222))
+				fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), nbssh.DefaultSSHPort))
 			if err != nil {
 				return err
 			}
