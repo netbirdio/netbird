@@ -437,6 +437,9 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 					// will throw error when we stop it even if it is a graceful stop
 					log.Debugf("stopped SSH server with error %v", err)
 				}
+				e.syncMsgMux.Lock()
+				defer e.syncMsgMux.Unlock()
+				e.sshServer = nil
 				log.Infof("stopped SSH server")
 			}()
 		} else {
