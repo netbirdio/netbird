@@ -30,11 +30,11 @@ const RSA KeyType = "rsa"
 const RSAKeySize = 2048
 
 // GeneratePrivateKey creates RSA Private Key of specified byte size
-func GeneratePrivateKey(t KeyType) ([]byte, error) {
+func GeneratePrivateKey(keyType KeyType) ([]byte, error) {
 
 	var key crypto.Signer
 	var err error
-	switch t {
+	switch keyType {
 	case ED25519:
 		_, key, err = ed25519.GenerateKey(rand.Reader)
 	case ECDSA:
@@ -42,7 +42,7 @@ func GeneratePrivateKey(t KeyType) ([]byte, error) {
 	case RSA:
 		key, err = rsa.GenerateKey(rand.Reader, RSAKeySize)
 	default:
-		return nil, fmt.Errorf("unsupported ket type %s", t)
+		return nil, fmt.Errorf("unsupported ket type %s", keyType)
 	}
 	if err != nil {
 		return nil, err
