@@ -55,7 +55,7 @@ func TestEngine_SSH(t *testing.T) {
 	defer cancel()
 
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
-		WgIfaceName:  "utun100",
+		WgIfaceName:  "utun101",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
@@ -174,12 +174,12 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	defer cancel()
 
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
-		WgIfaceName:  "utun100",
+		WgIfaceName:  "utun102",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
 	})
-	engine.wgInterface, err = iface.NewWGIFace("utun100", "100.64.0.1/24", iface.DefaultMTU)
+	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU)
 
 	type testCase struct {
 		name       string
@@ -354,7 +354,7 @@ func TestEngine_Sync(t *testing.T) {
 	}
 
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, &EngineConfig{
-		WgIfaceName:  "utun100",
+		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
