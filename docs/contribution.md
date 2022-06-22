@@ -8,6 +8,8 @@ The codebase is structured in 3 big components:
 * Signal
 * Dashboard (separate [repository](https://github.com/netbirdio/dashboard))
 
+Refer to [architecture documentation](https://netbird.io/docs/overview/architecture) for more information.
+
 ---
 
 ### CLIENT
@@ -32,17 +34,26 @@ client/cmd/root.go  # All commands are registered in root.go
 ##### UI-App
 We use [systray](https://github.com/getlantern/systray) and [fyne](https://github.com/fyne-io/fyne) to write a UI application for the Systemtray.
 ```
-client/ui       #  
+client/ui       # All UI elements implemented here 
 ```
 
 
 ---
 ### MANAGEMENT
 
+```
+management/cmd       # These are the CLI commands for starting the management server 
+management/proto     # Management proto server for client
+management/server    # This is the actual management server, responsible for IDP and managing
+```
 
 
 ---
 ### SIGNAL
+
+```
+signal/server       
+```
 
 
 ---
