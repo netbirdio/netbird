@@ -74,10 +74,8 @@ func TestEngine_SSH(t *testing.T) {
 				return nil
 			},
 			StartFunc: func() error {
-				select {
-				case <-ctx.Done():
-				}
-				return nil
+				<-ctx.Done()
+				return ctx.Err()
 			},
 			AddAuthorizedKeyFunc: func(peer, newKey string) error {
 				sshKeysAdded = append(sshKeysAdded, newKey)
