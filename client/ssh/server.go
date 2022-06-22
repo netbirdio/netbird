@@ -38,6 +38,7 @@ type DefaultServer struct {
 	authorizedKeys map[string]ssh.PublicKey
 	mu             sync.Mutex
 	hostKeyPEM     []byte
+	sessions       []ssh.Session
 }
 
 // newDefaultServer creates new server with provided host key
@@ -47,7 +48,7 @@ func newDefaultServer(hostKeyPEM []byte, addr string) (*DefaultServer, error) {
 		return nil, err
 	}
 	allowedKeys := make(map[string]ssh.PublicKey)
-	return &DefaultServer{listener: ln, mu: sync.Mutex{}, hostKeyPEM: hostKeyPEM, authorizedKeys: allowedKeys}, nil
+	return &DefaultServer{listener: ln, mu: sync.Mutex{}, hostKeyPEM: hostKeyPEM, authorizedKeys: allowedKeys, sessions: make([]ssh.Session, 0)}, nil
 }
 
 // RemoveAuthorizedKey removes SSH key of a given peer from the authorized keys
@@ -74,10 +75,19 @@ func (srv *DefaultServer) AddAuthorizedKey(peer, newKey string) error {
 
 // Stop stops SSH server.
 func (srv *DefaultServer) Stop() error {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
 	err := srv.listener.Close()
 	if err != nil {
 		return err
 	}
+	for _, session := range srv.sessions {
+		err := session.Close()
+		if err != nil {
+			log.Warnf("failed closing SSH session from %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -104,6 +114,9 @@ func getShellType() string {
 
 // sessionHandler handles SSH session post auth
 func (srv *DefaultServer) sessionHandler(s ssh.Session) {
+	srv.mu.Lock()
+	srv.sessions = append(srv.sessions, s)
+	srv.mu.Unlock()
 	ptyReq, winCh, isPty := s.Pty()
 	if isPty {
 		cmd := exec.Command(getShellType())
@@ -160,7 +173,6 @@ func (srv *DefaultServer) Start() error {
 
 	publicKeyOption := ssh.PublicKeyAuth(srv.publicKeyHandler)
 	hostKeyPEM := ssh.HostKeyPEM(srv.hostKeyPEM)
-
 	err := ssh.Serve(srv.listener, srv.sessionHandler, publicKeyOption, hostKeyPEM)
 	if err != nil {
 		return err
