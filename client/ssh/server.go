@@ -12,6 +12,7 @@ import (
 	"sync"
 )
 
+// DefaultSSHPort is the default SSH port of the NetBird's embedded SSH server
 const DefaultSSHPort = 44338
 
 // DefaultSSHServer is a function that creates DefaultServer
