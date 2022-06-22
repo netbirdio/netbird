@@ -1,5 +1,28 @@
 # Contribution
 
+### To start developing Netbird
+**You have a working Go environment**
+
+Clone the project into your preferred path. We recommend just cloning into the GOPATH.
+```
+mkdir -p $GOPATH/src/github.com/netbirdio
+cd $GOPATH/src/github.com/netbirdio
+git clone git@github.com:netbirdio/netbird.git
+cd netbird
+go build ./...
+```
+**_Sidenote_** _`libayatana-appindicator3-dev` might be needed for developing on debian based distros._
+
+
+**To run the tests execute:**
+
+```
+go test -exec sudo ./...
+```
+The tests need to be executed by a superuser,
+because to run the integration tests we need to create network interfaces.
+
+
 ### Code Structure
 
 The codebase is structured in 3 big components:
