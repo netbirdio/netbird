@@ -54,5 +54,5 @@ jobs:
       - name: test running containers
         run: |
           count=$(docker compose ps --format json | jq '.[] | select(.Project | contains("infrastructure_files")) | .State' | grep -c running)
-          test $count -eq 3
+          test $count -eq 4
         working-directory: infrastructure_files
