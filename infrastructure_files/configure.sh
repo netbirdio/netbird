@@ -25,6 +25,8 @@ fi
 if [[ "x-$NETBIRD_DOMAIN" == "x-" ]]
 then
   echo NETBIRD_DOMAIN is not set, please update your setup.env file
+  echo If you are migrating from old versions, you migh need to update your variables prefixes from
+  echo WIRETRUSTEE_.. TO NETBIRD_
   exit 1
 fi
 
