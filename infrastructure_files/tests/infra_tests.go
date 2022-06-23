@@ -22,7 +22,7 @@ func main() {
 
 	err := chromedp.Run(ctx,
 		network.Enable(),
-		chromedp.Navigate("http://localhost:3000/peers"),
+		chromedp.Navigate("http://localhost:80/peers"),
 		chromedp.WaitVisible(`#or-separator-login`),
 		chromedp.Location(&urlstr),
 	)
