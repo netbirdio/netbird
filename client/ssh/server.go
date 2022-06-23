@@ -114,46 +114,46 @@ func getShellType() string {
 }
 
 // sessionHandler handles SSH session post auth
-func (srv *DefaultServer) sessionHandler(s ssh.Session) {
+func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 	srv.mu.Lock()
-	srv.sessions = append(srv.sessions, s)
+	srv.sessions = append(srv.sessions, session)
 	srv.mu.Unlock()
-	ptyReq, winCh, isPty := s.Pty()
+	ptyReq, winCh, isPty := session.Pty()
 	if isPty {
 		cmd := exec.Command(getShellType())
-		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
-		f, err := pty.Start(cmd)
+		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%session", ptyReq.Term))
+		file, err := pty.Start(cmd)
 		if err != nil {
 			log.Errorf("failed starting SSH server %v", err)
 		}
 		go func() {
 			for win := range winCh {
-				setWinSize(f, win.Width, win.Height)
+				setWinSize(file, win.Width, win.Height)
 			}
 		}()
 
-		srv.stdInOut(f, s)
+		srv.stdInOut(file, session)
 
 		err = cmd.Wait()
 		if err != nil {
 			return
 		}
 	} else {
-		_, err := io.WriteString(s, "only PTY is supported.\n")
+		_, err := io.WriteString(session, "only PTY is supported.\n")
 		if err != nil {
 			return
 		}
-		err = s.Exit(1)
+		err = session.Exit(1)
 		if err != nil {
 			return
 		}
 	}
 }
 
-func (srv *DefaultServer) stdInOut(f *os.File, s ssh.Session) {
+func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
 	go func() {
 		// stdin
-		_, err := io.Copy(f, s)
+		_, err := io.Copy(file, session)
 		if err != nil {
 			return
 		}
@@ -161,7 +161,7 @@ func (srv *DefaultServer) stdInOut(f *os.File, s ssh.Session) {
 
 	go func() {
 		// stdout
-		_, err := io.Copy(s, f)
+		_, err := io.Copy(session, file)
 		if err != nil {
 			return
 		}

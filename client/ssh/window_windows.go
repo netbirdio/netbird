@@ -4,6 +4,6 @@ import (
 	"os"
 )
 
-func setWinSize(file *os.File, w, h int) {
+func setWinSize(file *os.File, width, height int) {
 
 }
