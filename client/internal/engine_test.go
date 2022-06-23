@@ -3,6 +3,9 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/iface"
+	"github.com/stretchr/testify/assert"
 	"net"
 	"os"
 	"path/filepath"
@@ -40,6 +43,140 @@ var (
 	}
 )
 
+func TestEngine_SSH(t *testing.T) {
+
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping TestEngine_SSH on Windows")
+	}
+
+	key, err := wgtypes.GeneratePrivateKey()
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
+		WgIfaceName:  "utun101",
+		WgAddr:       "100.64.0.1/24",
+		WgPrivateKey: key,
+		WgPort:       33100,
+	})
+
+	var sshKeysAdded []string
+	var sshPeersRemoved []string
+
+	sshCtx, cancel := context.WithCancel(context.Background())
+
+	engine.sshServerFunc = func(hostKeyPEM []byte, addr string) (ssh.Server, error) {
+		return &ssh.MockServer{
+			Ctx: sshCtx,
+			StopFunc: func() error {
+				cancel()
+				return nil
+			},
+			StartFunc: func() error {
+				<-ctx.Done()
+				return ctx.Err()
+			},
+			AddAuthorizedKeyFunc: func(peer, newKey string) error {
+				sshKeysAdded = append(sshKeysAdded, newKey)
+				return nil
+			},
+			RemoveAuthorizedKeyFunc: func(peer string) {
+				sshPeersRemoved = append(sshPeersRemoved, peer)
+			},
+		}, nil
+	}
+	err = engine.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	defer func() {
+		err := engine.Stop()
+		if err != nil {
+			return
+		}
+	}()
+
+	peerWithSSH := &mgmtProto.RemotePeerConfig{
+		WgPubKey:   "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=",
+		AllowedIps: []string{"100.64.0.21/24"},
+		SshConfig: &mgmtProto.SSHConfig{
+			SshPubKey: []byte("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFATYCqaQw/9id1Qkq3n16JYhDhXraI6Pc1fgB8ynEfQ"),
+		},
+	}
+
+	// SSH server is not enabled so SSH config of a remote peer should be ignored
+	networkMap := &mgmtProto.NetworkMap{
+		Serial:             6,
+		PeerConfig:         nil,
+		RemotePeers:        []*mgmtProto.RemotePeerConfig{peerWithSSH},
+		RemotePeersIsEmpty: false,
+	}
+
+	err = engine.updateNetworkMap(networkMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Nil(t, engine.sshServer)
+
+	// SSH server is enabled, therefore SSH config should be applied
+	networkMap = &mgmtProto.NetworkMap{
+		Serial: 7,
+		PeerConfig: &mgmtProto.PeerConfig{Address: "100.64.0.1/24",
+			SshConfig: &mgmtProto.SSHConfig{SshEnabled: true}},
+		RemotePeers:        []*mgmtProto.RemotePeerConfig{peerWithSSH},
+		RemotePeersIsEmpty: false,
+	}
+
+	err = engine.updateNetworkMap(networkMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+	assert.NotNil(t, engine.sshServer)
+	assert.Contains(t, sshKeysAdded, "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFATYCqaQw/9id1Qkq3n16JYhDhXraI6Pc1fgB8ynEfQ")
+
+	// now remove peer
+	networkMap = &mgmtProto.NetworkMap{
+		Serial:             8,
+		RemotePeers:        []*mgmtProto.RemotePeerConfig{},
+		RemotePeersIsEmpty: false,
+	}
+
+	err = engine.updateNetworkMap(networkMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	//time.Sleep(250 * time.Millisecond)
+	assert.NotNil(t, engine.sshServer)
+	assert.Contains(t, sshPeersRemoved, "MNHf3Ma6z6mdLbriAJbqhX7+nM/B71lgw2+91q3LfhU=")
+
+	// now disable SSH server
+	networkMap = &mgmtProto.NetworkMap{
+		Serial: 9,
+		PeerConfig: &mgmtProto.PeerConfig{Address: "100.64.0.1/24",
+			SshConfig: &mgmtProto.SSHConfig{SshEnabled: false}},
+		RemotePeers:        []*mgmtProto.RemotePeerConfig{peerWithSSH},
+		RemotePeersIsEmpty: false,
+	}
+
+	err = engine.updateNetworkMap(networkMap)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Nil(t, engine.sshServer)
+
+}
+
 func TestEngine_UpdateNetworkMap(t *testing.T) {
 	// test setup
 	key, err := wgtypes.GeneratePrivateKey()
@@ -52,11 +189,12 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	defer cancel()
 
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
-		WgIfaceName:  "utun100",
+		WgIfaceName:  "utun102",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
 	})
+	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU)
 
 	type testCase struct {
 		name       string
@@ -231,7 +369,7 @@ func TestEngine_Sync(t *testing.T) {
 	}
 
 	engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{SyncFunc: syncFunc}, &EngineConfig{
-		WgIfaceName:  "utun100",
+		WgIfaceName:  "utun103",
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
@@ -418,7 +556,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	}
 
 	info := system.GetInfo(ctx)
-	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info)
+	resp, err := mgmtClient.Register(*publicKey, setupKey, "", info, nil)
 	if err != nil {
 		return nil, err
 	}

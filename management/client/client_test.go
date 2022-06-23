@@ -158,7 +158,7 @@ func TestClient_LoginUnregistered_ShouldThrow_401(t *testing.T) {
 		t.Fatal(err)
 	}
 	sysInfo := system.GetInfo(context.TODO())
-	_, err = client.Login(*key, sysInfo)
+	_, err = client.Login(*key, sysInfo, nil)
 	if err == nil {
 		t.Error("expecting err on unregistered login, got nil")
 	}
@@ -186,7 +186,7 @@ func TestClient_LoginRegistered(t *testing.T) {
 		t.Error(err)
 	}
 	info := system.GetInfo(context.TODO())
-	resp, err := client.Register(*key, ValidKey, "", info)
+	resp, err := client.Register(*key, ValidKey, "", info, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -216,7 +216,7 @@ func TestClient_Sync(t *testing.T) {
 	}
 
 	info := system.GetInfo(context.TODO())
-	_, err = client.Register(*serverKey, ValidKey, "", info)
+	_, err = client.Register(*serverKey, ValidKey, "", info, nil)
 	if err != nil {
 		t.Error(err)
 	}
@@ -232,7 +232,7 @@ func TestClient_Sync(t *testing.T) {
 	}
 
 	info = system.GetInfo(context.TODO())
-	_, err = remoteClient.Register(*serverKey, ValidKey, "", info)
+	_, err = remoteClient.Register(*serverKey, ValidKey, "", info, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,7 +330,7 @@ func Test_SystemMetaDataFromClient(t *testing.T) {
 	}
 
 	info := system.GetInfo(context.TODO())
-	_, err = testClient.Register(*key, ValidKey, "", info)
+	_, err = testClient.Register(*key, ValidKey, "", info, nil)
 	if err != nil {
 		t.Errorf("error while trying to register client: %v", err)
 	}

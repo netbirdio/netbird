@@ -2,8 +2,8 @@ package internal
 
 import (
 	"context"
-
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
@@ -40,7 +40,11 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		return err
 	}
 
-	_, err = loginPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken)
+	pubSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
+	if err != nil {
+		return err
+	}
+	_, err = loginPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
 	if err != nil {
 		log.Errorf("failed logging-in peer on Management Service : %v", err)
 		return err
@@ -56,13 +60,13 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 }
 
 // loginPeer attempts to login to Management Service. If peer wasn't registered, tries the registration flow.
-func loginPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
+func loginPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
 	sysInfo := system.GetInfo(ctx)
-	loginResp, err := client.Login(serverPublicKey, sysInfo)
+	loginResp, err := client.Login(serverPublicKey, sysInfo, pubSSHKey)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
 			log.Debugf("peer registration required")
-			return registerPeer(ctx, serverPublicKey, client, setupKey, jwtToken)
+			return registerPeer(ctx, serverPublicKey, client, setupKey, jwtToken, pubSSHKey)
 		} else {
 			return nil, err
 		}
@@ -75,7 +79,7 @@ func loginPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.Grp
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
 // Otherwise tries to register with the provided setupKey via command line.
-func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string) (*mgmProto.LoginResponse, error) {
+func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
 	validSetupKey, err := uuid.Parse(setupKey)
 	if err != nil && jwtToken == "" {
 		return nil, status.Errorf(codes.InvalidArgument, "invalid setup-key or no sso information provided, err: %v", err)
@@ -83,7 +87,7 @@ func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.
 
 	log.Debugf("sending peer registration request to Management Service")
 	info := system.GetInfo(ctx)
-	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info)
+	loginResp, err := client.Register(serverPublicKey, validSetupKey.String(), jwtToken, info, pubSSHKey)
 	if err != nil {
 		log.Errorf("failed registering peer %v,%s", err, validSetupKey.String())
 		return nil, err
