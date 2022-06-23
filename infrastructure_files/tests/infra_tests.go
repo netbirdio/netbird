@@ -15,14 +15,26 @@ func main() {
 	// create context
 	parentCtx, parentCancel := chromedp.NewContext(context.Background(), chromedp.WithLogf(log.Printf))
 	defer parentCancel()
-	ctx, cancel := context.WithTimeout(parentCtx, 300*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Second)
 	defer cancel()
+
+	resp, err := chromedp.RunResponse(ctx,
+		network.Enable(),
+		chromedp.Navigate("http://127.0.0.1:80/peers"),
+		chromedp.WaitVisible(`#or-separator-login`),
+	)
+
+	log.Print(err)
+
+	json, err := resp.MarshalJSON()
+	log.Print(string(json))
+	log.Print(err)
 
 	var urlstr string
 
-	err := chromedp.Run(ctx,
+	err = chromedp.Run(ctx,
 		network.Enable(),
-		chromedp.Navigate("http://localhost:80/peers"),
+		chromedp.Navigate("http://127.0.0.1:80/peers"),
 		chromedp.WaitVisible(`#or-separator-login`),
 		chromedp.Location(&urlstr),
 	)
