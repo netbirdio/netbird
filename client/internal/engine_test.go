@@ -45,6 +45,10 @@ var (
 
 func TestEngine_SSH(t *testing.T) {
 
+	if runtime.GOOS == "windows" {
+		t.Skip("skipping TestEngine_SSH on Windows")
+	}
+
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		t.Fatal(err)
