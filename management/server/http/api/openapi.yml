@@ -85,6 +85,9 @@ components:
               required:
               - type
               - value
+            ssh_enabled:
+              description: Indicates whether SSH server is enabled on this peer
+              type: boolean
           required:
           - ip
           - connected
@@ -93,6 +96,7 @@ components:
           - version
           - groups
           - activated_by
+          - ssh_enabled
     SetupKey:
       type: object
       properties:
@@ -397,8 +401,11 @@ paths:
               properties:
                 name:
                   type: string
+                ssh_enabled:
+                  type: boolean
               required:
                 - name
+                - ssh_enabled
       responses:
         '200':
           description: A Peer object

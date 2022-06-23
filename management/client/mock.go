@@ -10,8 +10,8 @@ type MockClient struct {
 	CloseFunc                      func() error
 	SyncFunc                       func(msgHandler func(msg *proto.SyncResponse) error) error
 	GetServerPublicKeyFunc         func() (*wgtypes.Key, error)
-	RegisterFunc                   func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error)
-	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info) (*proto.LoginResponse, error)
+	RegisterFunc                   func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info, sshKey []byte) (*proto.LoginResponse, error)
+	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info, sshKey []byte) (*proto.LoginResponse, error)
 	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
 }
 
@@ -36,18 +36,18 @@ func (m *MockClient) GetServerPublicKey() (*wgtypes.Key, error) {
 	return m.GetServerPublicKeyFunc()
 }
 
-func (m *MockClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info) (*proto.LoginResponse, error) {
+func (m *MockClient) Register(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info, sshKey []byte) (*proto.LoginResponse, error) {
 	if m.RegisterFunc == nil {
 		return nil, nil
 	}
-	return m.RegisterFunc(serverKey, setupKey, jwtToken, info)
+	return m.RegisterFunc(serverKey, setupKey, jwtToken, info, sshKey)
 }
 
-func (m *MockClient) Login(serverKey wgtypes.Key, info *system.Info) (*proto.LoginResponse, error) {
+func (m *MockClient) Login(serverKey wgtypes.Key, info *system.Info, sshKey []byte) (*proto.LoginResponse, error) {
 	if m.LoginFunc == nil {
 		return nil, nil
 	}
-	return m.LoginFunc(serverKey, info)
+	return m.LoginFunc(serverKey, info, sshKey)
 }
 
 func (m *MockClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error) {
