@@ -45,6 +45,8 @@ jobs:
           sleep 5
           docker-compose ps
 
+      - run: curl -v http://localhost:80/peers
+
       - name: run infra tests
         run: go run infrastructure_files/tests/infra_tests.go
         env:
