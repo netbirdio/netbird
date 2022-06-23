@@ -124,7 +124,7 @@ func (srv *DefaultServer) sessionHandler(s ssh.Session) {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 		f, err := pty.Start(cmd)
 		if err != nil {
-			panic(err)
+			log.Errorf("failed starting SSH server %v", err)
 		}
 		go func() {
 			for win := range winCh {
