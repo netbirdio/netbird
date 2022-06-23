@@ -50,9 +50,8 @@ var sshCmd = &cobra.Command{
 			return fmt.Errorf("failed initializing log %v", err)
 		}
 
-		if os.Geteuid() != 0 {
-			//todo make it work on Windows
-			cmd.Printf("Error: you must be root to run this command\n")
+		if !util.IsAdmin() {
+			cmd.Printf("error: you must have Administrator privileges to run this command\n")
 			return nil
 		}
 
