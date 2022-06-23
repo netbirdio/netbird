@@ -1,0 +1,48 @@
+name: Test Docker Compose Linux
+on: [push,pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        go-version: [1.18.x]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go-version }}
+
+
+      - name: Cache Go modules
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install modules
+        run: go mod tidy
+
+      - name: cp setup.env
+        run: cp infrastructure_files/tests/setup.env
+
+      - name: run configure
+        working-directory: infrastructure_files
+        run: bash -x configure.sh
+        env:
+          CI_NETBIRD_AUTH0_DOMAIN: ${{ secrets.CI_NETBIRD_AUTH0_DOMAIN }}
+          CI_NETBIRD_AUTH0_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH0_CLIENT_ID }}
+          CI_NETBIRD_AUTH0_AUDIENCE: testing.ci
+
+      - name: run docker compose up
+        working-directory: infrastructure_files
+        run: docker-compose up -d
+
+      - name: run infra tests
+        run: go run infrastructure_files/tests/infra_tests.go
+        env:
+          CI_NETBIRD_AUTH0_AUDIENCE: testing.ci
