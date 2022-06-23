@@ -1,6 +1,26 @@
 #!/bin/bash
 
 source setup.env
+source base.setup.env
+
+if ! which envsubst > /dev/null 2>&1
+then
+  echo "envsubst is needed to run this script"
+  if [[ $(uname) == "Darwin" ]]
+  then
+    echo "you can install it with homebrew (https://brew.sh):"
+    echo "brew install gettext"
+  else
+    if which apt-get > /dev/null 2>&1
+    then
+      echo "you can install it by running"
+      echo "apt-get update && apt-get install gettext-base"
+    else
+      echo "you can install it by installing the package gettext with your package manager"
+    fi
+  fi
+  exit 1
+fi
 
 if [[ "x-$NETBIRD_DOMAIN" == "x-" ]]
 then
