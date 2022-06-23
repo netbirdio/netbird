@@ -31,7 +31,7 @@ func (c *Client) OpenTerminal() error {
 		}
 	}()
 
-	fd := int(os.Stdin.Fd())
+	fd := int(os.Stdout.Fd())
 	state, err := term.MakeRaw(fd)
 	if err != nil {
 		return fmt.Errorf("failed to run raw terminal: %s", err)

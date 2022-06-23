@@ -18,7 +18,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/vishvananda/netlink v1.1.0
 	golang.org/x/crypto v0.0.0-20220513210258-46612604a0f9
-	golang.org/x/sys v0.0.0-20220513210249-45d2b4557a2a
+	golang.org/x/sys v0.0.0-20220622161953-175b2fd9d664
 	golang.zx2c4.com/wireguard v0.0.0-20211209221555-9c9e7e272434
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20211215182854-7a385b3431de
 	golang.zx2c4.com/wireguard/windows v0.5.1
@@ -39,7 +39,7 @@ require (
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.7.1
-	golang.org/x/term v0.0.0-20210927222741-03fcf44c2211
+	golang.org/x/term v0.0.0-20220526004731-065cf7ba2467
 )
 
 require (
