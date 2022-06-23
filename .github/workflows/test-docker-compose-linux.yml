@@ -40,7 +40,10 @@ jobs:
 
       - name: run docker compose up
         working-directory: infrastructure_files
-        run: docker-compose up -d
+        run: | 
+          docker-compose up -d
+          sleep 5
+          docker-compose ps
 
       - name: run infra tests
         run: go run infrastructure_files/tests/infra_tests.go
