@@ -15,7 +15,7 @@ func main() {
 	// create context
 	parentCtx, parentCancel := chromedp.NewContext(context.Background(), chromedp.WithLogf(log.Printf))
 	defer parentCancel()
-	ctx, cancel := context.WithTimeout(parentCtx, 45*time.Second)
+	ctx, cancel := context.WithTimeout(parentCtx, 300*time.Second)
 	defer cancel()
 
 	var urlstr string
