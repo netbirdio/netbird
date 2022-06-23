@@ -28,7 +28,7 @@ jobs:
         run: go mod tidy
 
       - name: cp setup.env
-        run: cp infrastructure_files/tests/setup.env
+        run: cp infrastructure_files/tests/setup.env infrastructure_files/
 
       - name: run configure
         working-directory: infrastructure_files
