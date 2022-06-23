@@ -9,6 +9,7 @@ import (
 type UpdateMessage struct {
 	Update *proto.SyncResponse
 }
+
 type PeersUpdateManager struct {
 	peerChannels map[string]chan *UpdateMessage
 	channelsMux  *sync.Mutex
