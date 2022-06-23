@@ -185,9 +185,15 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 		return nil, status.Errorf(codes.InvalidArgument, "peer meta data was not provided")
 	}
 
+	var sshKey []byte
+	if req.GetPeerKeys() != nil {
+		sshKey = req.GetPeerKeys().GetSshPubKey()
+	}
+
 	peer, err := s.accountManager.AddPeer(reqSetupKey, userId, &Peer{
-		Key:  peerKey.String(),
-		Name: meta.GetHostname(),
+		Key:    peerKey.String(),
+		Name:   meta.GetHostname(),
+		SSHKey: string(sshKey),
 		Meta: PeerSystemMeta{
 			Hostname:  meta.GetHostname(),
 			GoOS:      meta.GetGoOS(),
@@ -290,6 +296,19 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 			return nil, status.Error(codes.Internal, "internal server error")
 		}
 	}
+
+	var sshKey []byte
+	if loginReq.GetPeerKeys() != nil {
+		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
+	}
+
+	if len(sshKey) > 0 {
+		err = s.accountManager.UpdatePeerSSHKey(peerKey.String(), string(sshKey))
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
@@ -365,7 +384,8 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 
 func toPeerConfig(peer *Peer) *proto.PeerConfig {
 	return &proto.PeerConfig{
-		Address: fmt.Sprintf("%s/%d", peer.IP.String(), SubnetSize), // take it from the network
+		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), SubnetSize), // take it from the network
+		SshConfig: &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
 	}
 }
 
@@ -375,9 +395,9 @@ func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
 			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)},
+			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
 		})
 	}
-
 	return remotePeers
 }
 

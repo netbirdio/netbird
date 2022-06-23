@@ -47,18 +47,24 @@ type Peer struct {
 	Status *PeerStatus
 	// The user ID that registered the peer
 	UserID string
+	// SSHKey is a public SSH key of the peer
+	SSHKey string
+	// SSHEnabled indicated whether SSH server is enabled on the peer
+	SSHEnabled bool
 }
 
 // Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	return &Peer{
-		Key:      p.Key,
-		SetupKey: p.SetupKey,
-		IP:       p.IP,
-		Meta:     p.Meta,
-		Name:     p.Name,
-		Status:   p.Status,
-		UserID:   p.UserID,
+		Key:        p.Key,
+		SetupKey:   p.SetupKey,
+		IP:         p.IP,
+		Meta:       p.Meta,
+		Name:       p.Name,
+		Status:     p.Status,
+		UserID:     p.UserID,
+		SSHKey:     p.SSHKey,
+		SSHEnabled: p.SSHEnabled,
 	}
 }
 
@@ -98,6 +104,41 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected boo
 		return err
 	}
 	return nil
+}
+
+// UpdatePeer updates peer. Only Peer.Name and Peer.SSHEnabled can be updated.
+func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	peer, err := am.Store.GetPeer(update.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	peerCopy := peer.Copy()
+	if peer.Name != "" {
+		peerCopy.Name = update.Name
+	}
+	peerCopy.SSHEnabled = update.SSHEnabled
+
+	err = am.Store.SavePeer(accountID, peerCopy)
+	if err != nil {
+		return nil, err
+	}
+
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return nil, err
+	}
+
+	return peerCopy, nil
+
 }
 
 // RenamePeer changes peer's name
@@ -285,13 +326,15 @@ func (am *DefaultAccountManager) AddPeer(
 	}
 
 	newPeer := &Peer{
-		Key:      peer.Key,
-		SetupKey: upperKey,
-		IP:       nextIp,
-		Meta:     peer.Meta,
-		Name:     peer.Name,
-		UserID:   userID,
-		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
+		Key:        peer.Key,
+		SetupKey:   upperKey,
+		IP:         nextIp,
+		Meta:       peer.Meta,
+		Name:       peer.Name,
+		UserID:     userID,
+		Status:     &PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled: false,
+		SSHKey:     peer.SSHKey,
 	}
 
 	// add peer to 'All' group
@@ -313,6 +356,38 @@ func (am *DefaultAccountManager) AddPeer(
 	}
 
 	return newPeer, nil
+}
+
+// UpdatePeerSSHKey updates peer's public SSH key
+func (am *DefaultAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string) error {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	if sshKey == "" {
+		log.Debugf("empty SSH key provided for peer %s, skipping update", peerKey)
+		return nil
+	}
+
+	peer, err := am.Store.GetPeer(peerKey)
+	if err != nil {
+		return err
+	}
+
+	account, err := am.Store.GetPeerAccount(peerKey)
+	if err != nil {
+		return err
+	}
+
+	peerCopy := peer.Copy()
+	peerCopy.SSHKey = sshKey
+
+	err = am.Store.SavePeer(account.Id, peerCopy)
+	if err != nil {
+		return err
+	}
+
+	// trigger network map update
+	return am.updateAccountPeers(account)
 }
 
 // UpdatePeerMeta updates peer's system metadata
@@ -345,7 +420,7 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerKey string, meta PeerSystemM
 	return nil
 }
 
-// getPeersByACL allowed for given peer by ACL
+// getPeersByACL returns all peers that given peer has access to.
 func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string) []*Peer {
 	var peers []*Peer
 	srcRules, err := am.Store.GetPeerSrcRules(account.Id, peerKey)
@@ -409,7 +484,8 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 	return peers
 }
 
-// updateAccountPeers network map constructed by ACL
+// updateAccountPeers updates all peers that belong to an account.
+// Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	// notify other peers of the change
 	peers, err := am.Store.GetAccountPeers(account.Id)
@@ -422,7 +498,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 		err = am.peersUpdateManager.SendUpdate(p.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
-					// fill those field for backward compatibility
+					// fill deprecated fields for backward compatibility
 					RemotePeers:        update,
 					RemotePeersIsEmpty: len(update) == 0,
 					// new field
@@ -430,6 +506,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 						Serial:             account.Network.CurrentSerial(),
 						RemotePeers:        update,
 						RemotePeersIsEmpty: len(update) == 0,
+						PeerConfig:         toPeerConfig(p),
 					},
 				},
 			})

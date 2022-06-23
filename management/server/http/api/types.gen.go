@@ -115,6 +115,9 @@ type Peer struct {
 	// Peer's operating system and version
 	Os string `json:"os"`
 
+	// Indicates whether SSH server is enabled on this peer
+	SshEnabled bool `json:"ssh_enabled"`
+
 	// Peer's daemon or cli version
 	Version string `json:"version"`
 }
@@ -265,7 +268,8 @@ type PutApiGroupsIdJSONBody struct {
 
 // PutApiPeersIdJSONBody defines parameters for PutApiPeersId.
 type PutApiPeersIdJSONBody struct {
-	Name string `json:"name"`
+	Name       string `json:"name"`
+	SshEnabled bool   `json:"ssh_enabled"`
 }
 
 // PostApiRulesJSONBody defines parameters for PostApiRules.

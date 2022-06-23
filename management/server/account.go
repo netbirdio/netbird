@@ -51,6 +51,7 @@ type AccountManager interface {
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
 	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
 	UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error
+	UpdatePeerSSHKey(peerKey string, sshKey string) error
 	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
@@ -65,6 +66,7 @@ type AccountManager interface {
 	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
 	DeleteRule(accountId, ruleID string) error
 	ListRules(accountId string) ([]*Rule, error)
+	UpdatePeer(accountID string, peer *Peer) (*Peer, error)
 }
 
 type DefaultAccountManager struct {

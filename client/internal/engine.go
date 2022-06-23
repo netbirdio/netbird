@@ -3,8 +3,10 @@ package internal
 import (
 	"context"
 	"fmt"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"math/rand"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -54,6 +56,9 @@ type EngineConfig struct {
 
 	// UDPMuxSrflxPort default value 0 - the system will pick an available port
 	UDPMuxSrflxPort int
+
+	// SSHKey is a private SSH key in a PEM format
+	SSHKey []byte
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -87,6 +92,9 @@ type Engine struct {
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
+
+	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
+	sshServer     nbssh.Server
 }
 
 // Peer is an instance of the Connection Peer
@@ -111,6 +119,7 @@ func NewEngine(
 		STUNs:         []*ice.URL{},
 		TURNs:         []*ice.URL{},
 		networkSerial: 0,
+		sshServerFunc: nbssh.DefaultSSHServer,
 	}
 }
 
@@ -283,9 +292,14 @@ func (e *Engine) removeAllPeers() error {
 	return nil
 }
 
-// removePeer closes an existing peer connection and removes a peer
+// removePeer closes an existing peer connection, removes a peer, and clears authorized key of the SSH server
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
+
+	if e.sshServer != nil {
+		e.sshServer.RemoveAuthorizedKey(peerKey)
+	}
+
 	conn, exists := e.peerConns[peerKey]
 	if exists {
 		delete(e.peerConns, peerKey)
@@ -398,12 +412,6 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	}
 
 	if update.GetNetworkMap() != nil {
-		if update.GetNetworkMap().GetPeerConfig() != nil {
-			err := e.updateConfig(update.GetNetworkMap().GetPeerConfig())
-			if err != nil {
-				return err
-			}
-		}
 		// only apply new changes and ignore old ones
 		err := e.updateNetworkMap(update.GetNetworkMap())
 		if err != nil {
@@ -411,6 +419,49 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 		}
 	}
 
+	return nil
+}
+
+func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
+	if sshConf.GetSshEnabled() {
+		if runtime.GOOS == "windows" {
+			log.Warnf("running SSH server on Windows is not supported")
+			return nil
+		}
+		// start SSH server if it wasn't running
+		if e.sshServer == nil {
+			//nil sshServer means it has not yet been started
+			var err error
+			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
+				fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), nbssh.DefaultSSHPort))
+			if err != nil {
+				return err
+			}
+			go func() {
+				// blocking
+				err = e.sshServer.Start()
+				if err != nil {
+					// will throw error when we stop it even if it is a graceful stop
+					log.Debugf("stopped SSH server with error %v", err)
+				}
+				e.syncMsgMux.Lock()
+				defer e.syncMsgMux.Unlock()
+				e.sshServer = nil
+				log.Infof("stopped SSH server")
+			}()
+		} else {
+			log.Debugf("SSH server is already running")
+		}
+	} else {
+		// Disable SSH server request, so stop it if it was running
+		if e.sshServer != nil {
+			err := e.sshServer.Stop()
+			if err != nil {
+				log.Warnf("failed to stop SSH server %v", err)
+			}
+			e.sshServer = nil
+		}
+	}
 	return nil
 }
 
@@ -422,7 +473,15 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		if err != nil {
 			return err
 		}
+		e.config.WgAddr = conf.Address
 		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
+	}
+
+	if conf.GetSshConfig() != nil {
+		err := e.updateSSH(conf.GetSshConfig())
+		if err != nil {
+			log.Warnf("failed handling SSH server setup %v", e)
+		}
 	}
 
 	return nil
@@ -486,6 +545,15 @@ func (e *Engine) updateTURNs(turns []*mgmProto.ProtectedHostConfig) error {
 }
 
 func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
+
+	// intentionally leave it before checking serial because for now it can happen that peer IP changed but serial didn't
+	if networkMap.GetPeerConfig() != nil {
+		err := e.updateConfig(networkMap.GetPeerConfig())
+		if err != nil {
+			return err
+		}
+	}
+
 	serial := networkMap.GetSerial()
 	if e.networkSerial > serial {
 		log.Debugf("received outdated NetworkMap with serial %d, ignoring", serial)
@@ -514,6 +582,18 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		err = e.addNewPeers(networkMap.GetRemotePeers())
 		if err != nil {
 			return err
+		}
+
+		// update SSHServer by adding remote peer SSH keys
+		if e.sshServer != nil {
+			for _, config := range networkMap.GetRemotePeers() {
+				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
+					err := e.sshServer.AddAuthorizedKey(config.WgPubKey, string(config.GetSshConfig().GetSshPubKey()))
+					if err != nil {
+						log.Warnf("failed adding authroized key to SSH DefaultServer %v", err)
+					}
+				}
+			}
 		}
 	}
 

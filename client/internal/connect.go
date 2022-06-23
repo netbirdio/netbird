@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/client/ssh"
 	"time"
 
 	"github.com/netbirdio/netbird/client/system"
@@ -63,8 +64,13 @@ func RunClient(ctx context.Context, config *Config) error {
 		engineCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
 
+		publicSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
+		if err != nil {
+			return err
+		}
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
-		mgmClient, loginResp, err := connectToManagement(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+		mgmClient, loginResp, err := connectToManagement(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
+			publicSSHKey)
 		if err != nil {
 			log.Debug(err)
 			if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
@@ -147,6 +153,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		IFaceBlackList: config.IFaceBlackList,
 		WgPrivateKey:   key,
 		WgPort:         iface.DefaultWgPort,
+		SSHKey:         []byte(config.SSHKey),
 	}
 
 	if config.PreSharedKey != "" {
@@ -179,7 +186,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 }
 
 // connectToManagement creates Management Services client, establishes a connection, logs-in and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
-func connectToManagement(ctx context.Context, managementAddr string, ourPrivateKey wgtypes.Key, tlsEnabled bool) (*mgm.GrpcClient, *mgmProto.LoginResponse, error) {
+func connectToManagement(ctx context.Context, managementAddr string, ourPrivateKey wgtypes.Key, tlsEnabled bool, pubSSHKey []byte) (*mgm.GrpcClient, *mgmProto.LoginResponse, error) {
 	log.Debugf("connecting to Management Service %s", managementAddr)
 	client, err := mgm.NewClient(ctx, managementAddr, ourPrivateKey, tlsEnabled)
 	if err != nil {
@@ -193,7 +200,7 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 	}
 
 	sysInfo := system.GetInfo(ctx)
-	loginResp, err := client.Login(*serverPublicKey, sysInfo)
+	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey)
 	if err != nil {
 		return nil, nil, err
 	}

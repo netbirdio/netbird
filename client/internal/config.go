@@ -3,16 +3,16 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
+	"github.com/netbirdio/netbird/util"
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/url"
 	"os"
-
-	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/util"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 var managementURLDefault *url.URL
@@ -38,12 +38,18 @@ type Config struct {
 	AdminURL       *url.URL
 	WgIface        string
 	IFaceBlackList []string
+	// SSHKey is a private SSH key in a PEM format
+	SSHKey string
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
 func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (*Config, error) {
 	wgKey := generateKey()
-	config := &Config{PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
+	pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
+	if err != nil {
+		return nil, err
+	}
+	config := &Config{SSHKey: string(pem), PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
 	if managementURL != "" {
 		URL, err := parseURL("Management URL", managementURL)
 		if err != nil {
@@ -61,7 +67,7 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
 		"Tailscale", "tailscale"}
 
-	err := util.WriteJson(configPath, config)
+	err = util.WriteJson(configPath, config)
 	if err != nil {
 		return nil, err
 	}
@@ -124,6 +130,14 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 		log.Infof("new pre-shared key provided, updated to %s (old value %s)",
 			*preSharedKey, config.PreSharedKey)
 		config.PreSharedKey = *preSharedKey
+		refresh = true
+	}
+	if config.SSHKey == "" {
+		pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
+		if err != nil {
+			return nil, err
+		}
+		config.SSHKey = string(pem)
 		refresh = true
 	}
 
