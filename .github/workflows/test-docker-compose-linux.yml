@@ -1,5 +1,6 @@
 name: Test Docker Compose Linux
 on: [push,pull_request]
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -19,9 +20,6 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v2
-
-      - name: Install modules
-        run: go mod tidy
 
       - name: cp setup.env
         run: cp infrastructure_files/tests/setup.env infrastructure_files/
@@ -52,9 +50,9 @@ jobs:
         run: | 
           docker-compose up -d
           sleep 5
-          docker-compose ps
 
-      - name: run infra tests
-        run: go run infrastructure_files/tests/infra_tests.go
-        env:
-          CI_NETBIRD_AUTH0_AUDIENCE: testing.ci
+      - name: test running containers
+        run: |
+          count=$(docker-compose ps --format json | jq '.[] | select(.Project | contains("infrastructure_files")) | .State' | grep -c running)
+          test $count -eq 3
+        working-directory: infrastructure_files
