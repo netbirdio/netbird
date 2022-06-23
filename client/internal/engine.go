@@ -6,6 +6,7 @@ import (
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"math/rand"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -423,6 +424,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	if sshConf.GetSshEnabled() {
+		if runtime.GOOS == "windows" {
+			log.Warnf("running SSH server on Windows is not supported")
+			return nil
+		}
 		// start SSH server if it wasn't running
 		if e.sshServer == nil {
 			//nil sshServer means it has not yet been started
