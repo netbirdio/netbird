@@ -38,14 +38,25 @@ jobs:
           CI_NETBIRD_AUTH0_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH0_CLIENT_ID }}
           CI_NETBIRD_AUTH0_AUDIENCE: testing.ci
 
+      - name: check values
+        working-directory: infrastructure_files
+        env:
+          CI_NETBIRD_AUTH0_DOMAIN: ${{ secrets.CI_NETBIRD_AUTH0_DOMAIN }}
+          CI_NETBIRD_AUTH0_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH0_CLIENT_ID }}
+          CI_NETBIRD_AUTH0_AUDIENCE: testing.ci
+        run: |
+          grep AUTH0_DOMAIN docker-compose.yml | grep $CI_NETBIRD_AUTH0_DOMAIN
+          grep AUTH0_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH0_CLIENT_ID
+          grep AUTH0_AUDIENCE docker-compose.yml | grep $CI_NETBIRD_AUTH0_AUDIENCE
+          grep NETBIRD_MGMT_API_ENDPOINT docker-compose.yml | grep "http://localhost:33071"  
+          grep NETBIRD_MGMT_GRPC_API_ENDPOINT docker-compose.yml | grep "http://localhost:33073"
+
       - name: run docker compose up
         working-directory: infrastructure_files
         run: | 
           docker-compose up -d
           sleep 5
           docker-compose ps
-
-      - run: curl -v http://localhost:80/peers
 
       - name: run infra tests
         run: go run infrastructure_files/tests/infra_tests.go
