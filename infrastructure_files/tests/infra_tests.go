@@ -21,7 +21,7 @@ func main() {
 	resp, err := chromedp.RunResponse(ctx,
 		network.Enable(),
 		chromedp.Navigate("http://127.0.0.1:80/peers"),
-		chromedp.WaitVisible(`#or-separator-login`),
+		//chromedp.WaitVisible(`#or-separator-login`),
 	)
 
 	log.Print(err)
