@@ -422,6 +422,22 @@ var _ = Describe("Management service", func() {
 			close(ipChannel)
 		})
 	})
+
+	Context("after login two peers", func() {
+		Specify("then they receive the same network", func() {
+			key, _ := wgtypes.GenerateKey()
+			firstLogin := loginPeerWithValidSetupKey(serverPubKey, key, client)
+			key, _ = wgtypes.GenerateKey()
+			secondLogin := loginPeerWithValidSetupKey(serverPubKey, key, client)
+
+			_, firstLoginNetwork, err := net.ParseCIDR(firstLogin.GetPeerConfig().GetAddress())
+			Expect(err).NotTo(HaveOccurred())
+			_, secondLoginNetwork, err := net.ParseCIDR(secondLogin.GetPeerConfig().GetAddress())
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(secondLoginNetwork.String()).To(BeEquivalentTo(firstLoginNetwork.String()))
+		})
+	})
 })
 
 func loginPeerWithValidSetupKey(serverPubKey wgtypes.Key, key wgtypes.Key, client mgmtProto.ManagementServiceClient) *mgmtProto.LoginResponse {
