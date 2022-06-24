@@ -435,7 +435,7 @@ var _ = Describe("Management service", func() {
 			_, secondLoginNetwork, err := net.ParseCIDR(secondLogin.GetPeerConfig().GetAddress())
 			Expect(err).NotTo(HaveOccurred())
 
-			Equal(secondLoginNetwork.String()).Match(firstLoginNetwork.String())
+			Expect(secondLoginNetwork.String()).To(BeEquivalentTo(firstLoginNetwork.String()))
 		})
 	})
 })
