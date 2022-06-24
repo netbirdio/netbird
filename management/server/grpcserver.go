@@ -230,7 +230,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 				peersToSend = append(peersToSend, p)
 			}
 		}
-		update := toSyncResponse(s.config, remotePeer, peersToSend, nil, networkMap.Network.CurrentSerial())
+		update := toSyncResponse(s.config, remotePeer, peersToSend, nil, networkMap.Network.CurrentSerial(), networkMap.Network)
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
@@ -309,10 +309,15 @@ func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto
 		}
 	}
 
+	network, err := s.accountManager.GetPeerNetwork(peer.Key)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed getting peer network on login")
+	}
+
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
-		PeerConfig:        toPeerConfig(peer),
+		PeerConfig:        toPeerConfig(peer, network),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -382,9 +387,10 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 	}
 }
 
-func toPeerConfig(peer *Peer) *proto.PeerConfig {
+func toPeerConfig(peer *Peer, network *Network) *proto.PeerConfig {
+	netmask, _ := network.Net.Mask.Size()
 	return &proto.PeerConfig{
-		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), SubnetSize), // take it from the network
+		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
 		SshConfig: &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
 	}
 }
@@ -401,10 +407,10 @@ func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 	return remotePeers
 }
 
-func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials, serial uint64) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials, serial uint64, network *Network) *proto.SyncResponse {
 	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
-	pConfig := toPeerConfig(peer)
+	pConfig := toPeerConfig(peer, network)
 
 	remotePeers := toRemotePeerConfig(peers)
 
@@ -443,7 +449,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 	} else {
 		turnCredentials = nil
 	}
-	plainResp := toSyncResponse(s.config, peer, networkMap.Peers, turnCredentials, networkMap.Network.CurrentSerial())
+	plainResp := toSyncResponse(s.config, peer, networkMap.Peers, turnCredentials, networkMap.Network.CurrentSerial(), networkMap.Network)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

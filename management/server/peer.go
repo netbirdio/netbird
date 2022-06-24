@@ -257,6 +257,19 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 	}, err
 }
 
+// GetPeerNetwork returns the Network for a given peer
+func (am *DefaultAccountManager) GetPeerNetwork(peerKey string) (*Network, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetPeerAccount(peerKey)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
+	}
+
+	return account.Network.Copy(), err
+}
+
 // AddPeer adds a new peer to the Store.
 // Each Account has a list of pre-authorised SetupKey and if no Account has a given key err wit ha code codes.Unauthenticated
 // will be returned, meaning the key is invalid
@@ -493,6 +506,8 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 		return err
 	}
 
+	network := account.Network.Copy()
+
 	for _, p := range peers {
 		update := toRemotePeerConfig(am.getPeersByACL(account, p.Key))
 		err = am.peersUpdateManager.SendUpdate(p.Key,
@@ -506,7 +521,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 						Serial:             account.Network.CurrentSerial(),
 						RemotePeers:        update,
 						RemotePeersIsEmpty: len(update) == 0,
-						PeerConfig:         toPeerConfig(p),
+						PeerConfig:         toPeerConfig(p, network),
 					},
 				},
 			})
