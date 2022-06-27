@@ -2,20 +2,20 @@ package status
 
 import (
 	"errors"
-	"github.com/pion/ice/v2"
 	"sync"
 	"time"
 )
 
 // PeerState contains the latest state of a peer
 type PeerState struct {
-	IP               string
-	PubKey           string
-	ConnStatus       string
-	ConnStatusUpdate time.Time
-	Relayed          bool
-	Direct           bool
-	IceCandidateType ice.CandidateType
+	IP                     string
+	PubKey                 string
+	ConnStatus             string
+	ConnStatusUpdate       time.Time
+	Relayed                bool
+	Direct                 bool
+	LocalIceCandidateType  string
+	RemoteIceCandidateType string
 }
 
 // SignalState contains the latest state of a signal connection
@@ -61,7 +61,7 @@ func (d *Status) AddPeer(peerPubKey string) error {
 	if ok {
 		return errors.New("peer already exist")
 	}
-	d.peers[peerPubKey] = PeerState{}
+	d.peers[peerPubKey] = PeerState{PubKey: peerPubKey}
 	return nil
 }
 

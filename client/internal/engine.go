@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"math/rand"
 	"net"
 	"runtime"
@@ -95,6 +96,8 @@ type Engine struct {
 
 	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
 	sshServer     nbssh.Server
+
+	statusRecorder *nbstatus.Status
 }
 
 // Peer is an instance of the Connection Peer
@@ -106,20 +109,22 @@ type Peer struct {
 // NewEngine creates a new Connection Engine
 func NewEngine(
 	ctx context.Context, cancel context.CancelFunc,
-	signalClient signal.Client, mgmClient mgm.Client, config *EngineConfig,
+	signalClient signal.Client, mgmClient mgm.Client,
+	config *EngineConfig, statusRecorder *nbstatus.Status,
 ) *Engine {
 	return &Engine{
-		ctx:           ctx,
-		cancel:        cancel,
-		signal:        signalClient,
-		mgmClient:     mgmClient,
-		peerConns:     map[string]*peer.Conn{},
-		syncMsgMux:    &sync.Mutex{},
-		config:        config,
-		STUNs:         []*ice.URL{},
-		TURNs:         []*ice.URL{},
-		networkSerial: 0,
-		sshServerFunc: nbssh.DefaultSSHServer,
+		ctx:            ctx,
+		cancel:         cancel,
+		signal:         signalClient,
+		mgmClient:      mgmClient,
+		peerConns:      map[string]*peer.Conn{},
+		syncMsgMux:     &sync.Mutex{},
+		config:         config,
+		STUNs:          []*ice.URL{},
+		TURNs:          []*ice.URL{},
+		networkSerial:  0,
+		sshServerFunc:  nbssh.DefaultSSHServer,
+		statusRecorder: statusRecorder,
 	}
 }
 
@@ -302,8 +307,13 @@ func (e *Engine) removePeer(peerKey string) error {
 
 	conn, exists := e.peerConns[peerKey]
 	if exists {
+		err := e.statusRecorder.RemovePeer(peerKey)
+		if err != nil {
+			log.Warn("received error when removing peer from status recorder: ", err)
+		}
+
 		delete(e.peerConns, peerKey)
-		err := conn.Close()
+		err = conn.Close()
 		if err != nil {
 			switch err.(type) {
 			case *peer.ConnectionAlreadyClosedError:
@@ -623,6 +633,11 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		}
 		e.peerConns[peerKey] = conn
 
+		err = e.statusRecorder.AddPeer(peerKey)
+		if err != nil {
+			return fmt.Errorf("error adding peer %s to status recorder, got error: %v", peerKey, err)
+		}
+
 		go e.connWorker(conn, peerKey)
 	}
 	return nil
@@ -693,7 +708,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		ProxyConfig:        proxyConfig,
 	}
 
-	peerConn, err := peer.NewConn(config)
+	peerConn, err := peer.NewConn(config, e.statusRecorder)
 	if err != nil {
 		return nil, err
 	}

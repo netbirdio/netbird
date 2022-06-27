@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	nbStatus "github.com/netbirdio/netbird/client/status"
 	"sync"
 	"time"
 
@@ -31,6 +32,8 @@ type Server struct {
 	mutex  sync.Mutex
 	config *internal.Config
 	proto.UnimplementedDaemonServiceServer
+
+	statusRecorder *nbStatus.Status
 }
 
 type oauthAuthFlow struct {
@@ -52,6 +55,8 @@ func New(ctx context.Context, managementURL, adminURL, configPath, logFile strin
 }
 
 func (s *Server) Start() error {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	state := internal.CtxGetState(s.rootCtx)
 
 	// if current state contains any error, return it
@@ -89,8 +94,10 @@ func (s *Server) Start() error {
 
 	s.config = config
 
+	s.statusRecorder = nbStatus.NewStatus()
+
 	go func() {
-		if err := internal.RunClient(ctx, config); err != nil {
+		if err := internal.RunClient(ctx, config, s.statusRecorder); err != nil {
 			log.Errorf("init connections: %v", err)
 		}
 	}()
@@ -350,8 +357,12 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 		return nil, fmt.Errorf("config is not defined, please call login command first")
 	}
 
+	if s.statusRecorder == nil {
+		s.statusRecorder = nbStatus.NewStatus()
+	}
+
 	go func() {
-		if err := internal.RunClient(ctx, s.config); err != nil {
+		if err := internal.RunClient(ctx, s.config, s.statusRecorder); err != nil {
 			log.Errorf("run client connection: %v", state.Wrap(err))
 			return
 		}

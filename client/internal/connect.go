@@ -2,7 +2,10 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"github.com/netbirdio/netbird/client/ssh"
+	nbStatus "github.com/netbirdio/netbird/client/status"
+	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/client/system"
@@ -16,11 +19,11 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	gstatus "google.golang.org/grpc/status"
 )
 
 // RunClient with main logic.
-func RunClient(ctx context.Context, config *Config) error {
+func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Status) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
@@ -68,12 +71,22 @@ func RunClient(ctx context.Context, config *Config) error {
 		if err != nil {
 			return err
 		}
+
+		managementState := nbStatus.ManagementState{
+			URL:       config.ManagementURL.String(),
+			Connected: false,
+		}
+
+		err = statusRecorder.UpdateManagementStatus(managementState)
+		if err != nil {
+			return err
+		}
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
 		mgmClient, loginResp, err := connectToManagement(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
 			publicSSHKey)
 		if err != nil {
 			log.Debug(err)
-			if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
 				log.Info("peer registration required. Please run `netbird status` for details")
 				state.Set(StatusNeedsLogin)
 				return nil
@@ -81,11 +94,57 @@ func RunClient(ctx context.Context, config *Config) error {
 			return wrapErr(err)
 		}
 
+		managementState.Connected = true
+
+		err = statusRecorder.UpdateManagementStatus(managementState)
+		if err != nil {
+			return err
+		}
+
+		signalURL := fmt.Sprintf("%s://%s",
+			strings.ToLower(loginResp.GetWiretrusteeConfig().GetSignal().GetProtocol().String()),
+			loginResp.GetWiretrusteeConfig().GetSignal().GetUri(),
+		)
+
+		signalState := nbStatus.SignalState{
+			URL:       signalURL,
+			Connected: false,
+		}
+
+		err = statusRecorder.UpdateSignalStatus(signalState)
+		if err != nil {
+			return err
+		}
+
+		// set disconnected state for management and signal when exiting
+		defer func() {
+			managementState.Connected = false
+
+			err = statusRecorder.UpdateManagementStatus(managementState)
+			if err != nil {
+				log.Warn(err)
+			}
+
+			signalState.Connected = false
+
+			err = statusRecorder.UpdateSignalStatus(signalState)
+			if err != nil {
+				log.Warn(err)
+			}
+		}()
+
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
+		}
+
+		signalState.Connected = true
+
+		err = statusRecorder.UpdateSignalStatus(signalState)
+		if err != nil {
+			return err
 		}
 
 		peerConfig := loginResp.GetPeerConfig()
@@ -96,7 +155,7 @@ func RunClient(ctx context.Context, config *Config) error {
 			return wrapErr(err)
 		}
 
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, statusRecorder)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
@@ -115,6 +174,7 @@ func RunClient(ctx context.Context, config *Config) error {
 			log.Errorf("failed closing Management Service client %v", err)
 			return wrapErr(err)
 		}
+
 		err = signalClient.Close()
 		if err != nil {
 			log.Errorf("failed closing Signal Service client %v", err)
@@ -179,7 +239,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled)
 	if err != nil {
 		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
-		return nil, status.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)
 	}
 
 	return signalClient, nil
@@ -190,13 +250,13 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 	log.Debugf("connecting to Management Service %s", managementAddr)
 	client, err := mgm.NewClient(ctx, managementAddr, ourPrivateKey, tlsEnabled)
 	if err != nil {
-		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err)
+		return nil, nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err)
 	}
 	log.Debugf("connected to management server %s", managementAddr)
 
 	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {
-		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
+		return nil, nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
 	}
 
 	sysInfo := system.GetInfo(ctx)

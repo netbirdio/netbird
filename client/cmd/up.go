@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
+	nbStatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -47,7 +48,7 @@ var upCmd = &cobra.Command{
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithCancel(ctx)
 			SetupCloseHandler(ctx, cancel)
-			return internal.RunClient(ctx, config)
+			return internal.RunClient(ctx, config, nbStatus.NewStatus())
 		}
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
