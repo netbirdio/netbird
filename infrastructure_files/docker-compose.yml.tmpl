@@ -42,8 +42,8 @@ services:
     ports:
       - $NETBIRD_MGMT_GRPC_API_PORT:33073 #gRPC port
       - $NETBIRD_MGMT_API_PORT:33071 #API port
-  #     # port and command for Let's Encrypt validation
-  #      - 443:443
+  #     # port and command for Let's Encrypt validation without dashboard container
+  #   - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
   # Coturn
   coturn:

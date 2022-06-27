@@ -1,0 +1,58 @@
+name: Test Docker Compose Linux
+on: [push,pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18.x
+
+      - name: Cache Go modules
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: cp setup.env
+        run: cp infrastructure_files/tests/setup.env infrastructure_files/
+
+      - name: run configure
+        working-directory: infrastructure_files
+        run: bash -x configure.sh
+        env:
+          CI_NETBIRD_AUTH0_DOMAIN: ${{ secrets.CI_NETBIRD_AUTH0_DOMAIN }}
+          CI_NETBIRD_AUTH0_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH0_CLIENT_ID }}
+          CI_NETBIRD_AUTH0_AUDIENCE: testing.ci
+
+      - name: check values
+        working-directory: infrastructure_files
+        env:
+          CI_NETBIRD_AUTH0_DOMAIN: ${{ secrets.CI_NETBIRD_AUTH0_DOMAIN }}
+          CI_NETBIRD_AUTH0_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH0_CLIENT_ID }}
+          CI_NETBIRD_AUTH0_AUDIENCE: testing.ci
+        run: |
+          grep AUTH0_DOMAIN docker-compose.yml | grep $CI_NETBIRD_AUTH0_DOMAIN
+          grep AUTH0_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH0_CLIENT_ID
+          grep AUTH0_AUDIENCE docker-compose.yml | grep $CI_NETBIRD_AUTH0_AUDIENCE
+          grep NETBIRD_MGMT_API_ENDPOINT docker-compose.yml | grep "http://localhost:33071"  
+          grep NETBIRD_MGMT_GRPC_API_ENDPOINT docker-compose.yml | grep "http://localhost:33073"
+
+      - name: run docker compose up
+        working-directory: infrastructure_files
+        run: | 
+          docker-compose up -d
+          sleep 5
+
+      - name: test running containers
+        run: |
+          count=$(docker compose ps --format json | jq '.[] | select(.Project | contains("infrastructure_files")) | .State' | grep -c running)
+          test $count -eq 4
+        working-directory: infrastructure_files

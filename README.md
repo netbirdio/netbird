@@ -1,6 +1,6 @@
 <p align="center">
- <strong>:hatching_chick: New release! Seamless Access Controls</strong>.
-  <a href="https://github.com/netbirdio/netbird/releases/tag/v0.7.0">
+ <strong>:hatching_chick: New release! NetBird Easy SSH</strong>.
+  <a href="https://github.com/netbirdio/netbird/releases/tag/v0.8.0">
        Learn more
      </a>   
 </p>
@@ -53,8 +53,10 @@ NetBird creates an overlay peer-to-peer network connecting machines automaticall
 -  \[x] Multicloud and hybrid-cloud support.
 -  \[x] Kernel WireGuard usage when possible.
 -  \[x] Access Controls - groups & rules.
+-  \[x] Remote SSH access without managing SSH keys.
   
 **Coming soon:**
+-  \[ ] Router nodes
 -  \[ ] Private DNS.
 -  \[ ] Mobile clients.
 -  \[ ] Network Activity Monitoring.

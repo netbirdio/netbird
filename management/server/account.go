@@ -49,6 +49,7 @@ type AccountManager interface {
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
+	GetPeerNetwork(peerKey string) (*Network, error)
 	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
 	UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error
 	UpdatePeerSSHKey(peerKey string, sshKey string) error
