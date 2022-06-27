@@ -53,6 +53,7 @@ NetBird creates an overlay peer-to-peer network connecting machines automaticall
 -  \[x] Multicloud and hybrid-cloud support.
 -  \[x] Kernel WireGuard usage when possible.
 -  \[x] Access Controls - groups & rules.
+-  \[x] Remote SSH access without managing SSH keys.
   
 **Coming soon:**
 -  \[ ] Private DNS.
