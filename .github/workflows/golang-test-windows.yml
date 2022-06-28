@@ -18,9 +18,6 @@ jobs:
 
   test:
     needs: pre
-    strategy:
-      matrix:
-        go-version: [1.18.x]
     runs-on: windows-latest
     steps:
       - name: disable defender
@@ -32,7 +29,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: 1.18.x
 
       - uses: actions/cache@v2
         with:
