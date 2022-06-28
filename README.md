@@ -105,3 +105,34 @@ We use open-source technologies like [WireGuard®](https://www.wireguard.com/), 
 ### Legal
  [WireGuard](https://wireguard.com/) is a registered trademark of Jason A. Donenfeld.
 
+
+### Contribution
+
+**You have a working Go environment**
+
+Clone the project into your preferred path. We recommend just cloning into the GOPATH.
+
+```
+mkdir -p $GOPATH/src/github.com/netbirdio
+cd $GOPATH/src/github.com/netbirdio
+git clone git@github.com:netbirdio/netbird.git
+cd netbird
+go build ./...
+```
+**_Sidenote_** 
+_`libayatana-appindicator3-dev` might be needed for developing 
+the client-ui [ui](https://github.com/netbirdio/netbird/tree/main/client/ui) on debian based distros._<br>
+
+**_Sidenote_** 
+_The command won't produce a binary, but only check for working builds.
+If you want to produce a binary, you need to `cd` into the specific subproject and use `go build`._
+
+**To run the tests run**
+
+```
+go test -exec sudo ./...
+```
+
+The tests need to be executed with sudo permissions, as our integration tests need to create network interfaces.
+
+For further information about contributing to the Netbird project, please refer to our [documentation](https://netbird.io/docs/development/contributing).
