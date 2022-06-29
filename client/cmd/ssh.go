@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/proto"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
@@ -57,34 +56,6 @@ var sshCmd = &cobra.Command{
 
 		ctx := internal.CtxInitState(cmd.Context())
 
-		conn, err := DialClientGRPCServer(ctx, daemonAddr)
-		if err != nil {
-			return fmt.Errorf("failed to connect to daemon error: %v\n"+
-				"If the daemon is not running please run: "+
-				"\nnetbird service install \nnetbird service start\n", err)
-		}
-
-		defer func() {
-			err := conn.Close()
-			if err != nil {
-				log.Warnf("failed closing dameon gRPC client connection %v", err)
-				return
-			}
-		}()
-		client := proto.NewDaemonServiceClient(conn)
-
-		status, err := client.Status(ctx, &proto.StatusRequest{})
-		if err != nil {
-			return fmt.Errorf("unable to get daemon status: %v", err)
-		}
-
-		if status.Status != string(internal.StatusConnected) {
-			// todo maybe automatically start it?
-			cmd.Printf("You are disconnected from the NetBird network. Please run the UP command first to connect: \n\n" +
-				" netbird up \n\n")
-			return nil
-		}
-
 		config, err := internal.ReadConfig("", "", configPath, nil)
 		if err != nil {
 			return err
@@ -95,7 +66,8 @@ var sshCmd = &cobra.Command{
 		sshctx, cancel := context.WithCancel(ctx)
 
 		go func() {
-			if err := runSSH(sshctx, host, []byte(config.SSHKey)); err != nil {
+			// blocking
+			if err := runSSH(sshctx, host, []byte(config.SSHKey), cmd); err != nil {
 				log.Print(err)
 			}
 			cancel()
@@ -111,10 +83,15 @@ var sshCmd = &cobra.Command{
 	},
 }
 
-func runSSH(ctx context.Context, addr string, pemKey []byte) error {
+func runSSH(ctx context.Context, addr string, pemKey []byte, cmd *cobra.Command) error {
 	c, err := nbssh.DialWithKey(fmt.Sprintf("%s:%d", addr, port), user, pemKey)
 	if err != nil {
-		return err
+		cmd.Printf("Error: %v\n", err)
+		cmd.Printf("Couldn't connect. " +
+			"You might be disconnected from the NetBird network, or the NetBird agent isn't running.\n" +
+			"Run the status command: \n\n" +
+			" netbird status\n\n")
+		return nil
 	}
 	go func() {
 		<-ctx.Done()

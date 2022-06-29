@@ -6,6 +6,7 @@ import (
 	"golang.org/x/term"
 	"net"
 	"os"
+	"time"
 )
 
 // Client wraps crypto/ssh Client to simplify usage
@@ -92,7 +93,8 @@ func DialWithKey(addr, user string, privateKey []byte) (*Client, error) {
 	}
 
 	config := &ssh.ClientConfig{
-		User: user,
+		User:    user,
+		Timeout: 5 * time.Second,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
