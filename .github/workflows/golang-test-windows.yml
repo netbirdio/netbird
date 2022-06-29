@@ -30,18 +30,24 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.18.x
-      - run: ls ~/go/pkg/mod
+      - run: ls ~\go\pkg\mod
         continue-on-error: true
+      - run: ls ~\AppData\Local\go-build
+        continue-on-error: true
+
       - uses: actions/cache@v2
         with:
           path: |
             %LocalAppData%\go-build
-            ~/go/pkg/mod
+            ~\go\pkg\mod
+            ~\AppData\Local\go-build
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - run: ls ~/go/pkg/mod
+      - run: ls ~\go\pkg\mod
+        continue-on-error: true
+      - run: ls ~\AppData\Local\go-build
         continue-on-error: true
 
 #      - name: enable defender
@@ -57,5 +63,8 @@ jobs:
 
       - name: Test
         run: go test -tags=load_wgnt_from_rsrc -timeout 5m -p 1 ./...
-      - run: ls ~/go/pkg/mod
+
+      - run: ls ~\go\pkg\mod
+        continue-on-error: true
+      - run: ls ~\AppData\Local\go-build
         continue-on-error: true
