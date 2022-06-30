@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/client/ssh"
 	nbStatus "github.com/netbirdio/netbird/client/status"
+	"runtime"
 	"strings"
 	"time"
 
@@ -95,6 +96,26 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		}
 
 		managementState.Connected = true
+
+		err = statusRecorder.UpdateManagementStatus(managementState)
+		if err != nil {
+			return err
+		}
+
+		localPeerState := nbStatus.LocalPeerState{
+			IP:              loginResp.GetPeerConfig().GetAddress(),
+			PubKey:          myPrivateKey.PublicKey().String(),
+			KernelInterface: false,
+		}
+
+		if runtime.GOOS == "linux" {
+			localPeerState.KernelInterface = iface.WireguardModExists()
+		}
+
+		err = statusRecorder.UpdateLocalPeerStatus(localPeerState)
+		if err != nil {
+			return err
+		}
 
 		err = statusRecorder.UpdateManagementStatus(managementState)
 		if err != nil {

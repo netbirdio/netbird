@@ -18,6 +18,13 @@ type PeerState struct {
 	RemoteIceCandidateType string
 }
 
+// LocalPeerState contains the latest state of the local peer
+type LocalPeerState struct {
+	IP              string
+	PubKey          string
+	KernelInterface bool
+}
+
 // SignalState contains the latest state of a signal connection
 type SignalState struct {
 	URL       string
@@ -30,11 +37,12 @@ type ManagementState struct {
 	Connected bool
 }
 
-// FullStatus continas the full state holded by the Status instance
+// FullStatus contains the full state held by the Status instance
 type FullStatus struct {
 	Peers           []PeerState
 	ManagementState ManagementState
 	SignalState     SignalState
+	LocalPeerState  LocalPeerState
 }
 
 // Status a instance to hold state of peers, signal and managment connections
@@ -43,6 +51,7 @@ type Status struct {
 	peers      map[string]PeerState
 	signal     SignalState
 	management ManagementState
+	localPeer  LocalPeerState
 }
 
 // NewStatus returns a new Status instance
@@ -107,6 +116,16 @@ func (d *Status) UpdatePeerStatus(peerState PeerState) error {
 	return nil
 }
 
+// UpdateLocalPeerStatus updates local peer status
+func (d *Status) UpdateLocalPeerStatus(localPeerState LocalPeerState) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	d.localPeer = localPeerState
+
+	return nil
+}
+
 // UpdateSignalStatus updates signal status
 func (d *Status) UpdateSignalStatus(signalState SignalState) error {
 	d.mux.Lock()
@@ -135,6 +154,7 @@ func (d *Status) GetStatus() FullStatus {
 	fullStatus := FullStatus{
 		ManagementState: d.management,
 		SignalState:     d.signal,
+		LocalPeerState:  d.localPeer,
 	}
 
 	for _, status := range d.peers {

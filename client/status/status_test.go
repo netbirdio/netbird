@@ -75,6 +75,20 @@ func TestRemovePeer(t *testing.T) {
 	assert.Error(t, err, "should return error when peer doesn't exist")
 }
 
+func TestUpdateLocalPeerStatus(t *testing.T) {
+	localPeerState := LocalPeerState{
+		IP:              "10.10.10.10",
+		PubKey:          "abc",
+		KernelInterface: false,
+	}
+	status := NewStatus()
+
+	err := status.UpdateLocalPeerStatus(localPeerState)
+	assert.NoError(t, err, "shouldn't return error")
+
+	assert.Equal(t, localPeerState, status.signal, "local peer status should be equal")
+}
+
 func TestUpdateSignalStatus(t *testing.T) {
 	signalState := SignalState{
 		URL:       "https://signal",
