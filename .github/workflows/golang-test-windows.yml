@@ -18,13 +18,8 @@ jobs:
 
   test:
     needs: pre
-    strategy:
-      matrix:
-        go-version: [1.18.x]
     runs-on: windows-latest
     steps:
-      - name: disable defender
-        run: Set-MpPreference -DisableRealtimeMonitoring $true
 
       - name: Checkout code
         uses: actions/checkout@v2
@@ -32,27 +27,22 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v2
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: 1.18.x
 
       - uses: actions/cache@v2
         with:
           path: |
             %LocalAppData%\go-build
-            ~/go/pkg/mod
+            ~\go\pkg\mod
+            ~\AppData\Local\go-build
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
-
-      - name: enable defender
-        run: Set-MpPreference -DisableRealtimeMonitoring $false
 
       - uses: actions/download-artifact@v2
         with:
           name: syso
           path: iface\
-
-#      - name: Install modules
-#        run: go mod tidy
 
       - name: Test
         run: go test -tags=load_wgnt_from_rsrc -timeout 5m -p 1 ./...
