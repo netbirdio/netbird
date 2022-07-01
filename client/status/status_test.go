@@ -86,7 +86,7 @@ func TestUpdateLocalPeerStatus(t *testing.T) {
 	err := status.UpdateLocalPeerStatus(localPeerState)
 	assert.NoError(t, err, "shouldn't return error")
 
-	assert.Equal(t, localPeerState, status.signal, "local peer status should be equal")
+	assert.Equal(t, localPeerState, status.localPeer, "local peer status should be equal")
 }
 
 func TestUpdateSignalStatus(t *testing.T) {
