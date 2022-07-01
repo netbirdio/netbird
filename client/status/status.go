@@ -45,7 +45,7 @@ type FullStatus struct {
 	LocalPeerState  LocalPeerState
 }
 
-// Status a instance to hold state of peers, signal and managment connections
+// Status holds a state of peers, signal and management connections
 type Status struct {
 	mux        sync.Mutex
 	peers      map[string]PeerState

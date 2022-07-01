@@ -397,7 +397,7 @@ func (conn *Conn) cleanup() error {
 		peerState.LocalIceCandidateType = ""
 		err = conn.statusRecorder.UpdatePeerStatus(peerState)
 		if err != nil {
-			log.Warnf("erro while updating the state of peer %s,err: %v", conn.config.Key, err)
+			log.Warnf("error while updating peer's %s state, err: %v", conn.config.Key, err)
 		}
 	} else {
 		log.Warnf("erro while retrieving the state of peer %s for cleanup,err: %v", conn.config.Key, err)
