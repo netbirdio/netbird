@@ -13,6 +13,7 @@ builds:
       - amd64
       - arm64
       - mips
+      - 386
     gomips:
       - hardfloat
       - softfloat
@@ -21,6 +22,8 @@ builds:
         goarch: arm64
       - goos: windows
         goarch: arm
+      - goos: windows
+        goarch: 386
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/client/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'

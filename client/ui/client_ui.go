@@ -1,3 +1,7 @@
+//go:build !(linux && 386)
+// +build !linux !386
+
+// skipping linux 32 bits build and tests
 package main
 
 import (
