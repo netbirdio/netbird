@@ -1,5 +1,5 @@
 name: Test Code Windows
-on: [pull_request]
+on: [push,pull_request]
 
 jobs:
   pre:
@@ -20,8 +20,6 @@ jobs:
     needs: pre
     runs-on: windows-latest
     steps:
-#      - name: disable defender
-#        run: Set-MpPreference -DisableRealtimeMonitoring $true
 
       - name: Checkout code
         uses: actions/checkout@v2
@@ -30,10 +28,6 @@ jobs:
         uses: actions/setup-go@v2
         with:
           go-version: 1.18.x
-      - run: ls ~\go\pkg\mod
-        continue-on-error: true
-      - run: ls ~\AppData\Local\go-build
-        continue-on-error: true
 
       - uses: actions/cache@v2
         with:
@@ -45,26 +39,10 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-go-
 
-      - run: ls ~\go\pkg\mod
-        continue-on-error: true
-      - run: ls ~\AppData\Local\go-build
-        continue-on-error: true
-
-#      - name: enable defender
-#        run: Set-MpPreference -DisableRealtimeMonitoring $false
-
       - uses: actions/download-artifact@v2
         with:
           name: syso
           path: iface\
 
-#      - name: Install modules
-#        run: go mod tidy
-
       - name: Test
         run: go test -tags=load_wgnt_from_rsrc -timeout 5m -p 1 ./...
-
-      - run: ls ~\go\pkg\mod
-        continue-on-error: true
-      - run: ls ~\AppData\Local\go-build
-        continue-on-error: true
