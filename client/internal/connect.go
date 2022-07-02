@@ -2,7 +2,10 @@ package internal
 
 import (
 	"context"
+	"fmt"
 	"github.com/netbirdio/netbird/client/ssh"
+	nbStatus "github.com/netbirdio/netbird/client/status"
+	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/client/system"
@@ -16,11 +19,11 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	gstatus "google.golang.org/grpc/status"
 )
 
 // RunClient with main logic.
-func RunClient(ctx context.Context, config *Config) error {
+func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Status) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
@@ -40,6 +43,26 @@ func RunClient(ctx context.Context, config *Config) error {
 	}()
 
 	wrapErr := state.Wrap
+	// validate our peer's Wireguard PRIVATE key
+	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
+	if err != nil {
+		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
+		return wrapErr(err)
+	}
+
+	var mgmTlsEnabled bool
+	if config.ManagementURL.Scheme == "https" {
+		mgmTlsEnabled = true
+	}
+
+	publicSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
+	if err != nil {
+		return err
+	}
+
+	managementURL := config.ManagementURL.String()
+	statusRecorder.MarkManagementDisconnected(managementURL)
+
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
 		select {
@@ -49,37 +72,42 @@ func RunClient(ctx context.Context, config *Config) error {
 		}
 
 		state.Set(StatusConnecting)
-		// validate our peer's Wireguard PRIVATE key
-		myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
-		if err != nil {
-			log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-			return wrapErr(err)
-		}
-
-		var mgmTlsEnabled bool
-		if config.ManagementURL.Scheme == "https" {
-			mgmTlsEnabled = true
-		}
 
 		engineCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+		defer func() {
+			statusRecorder.MarkManagementDisconnected(managementURL)
+			cancel()
+		}()
 
-		publicSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
-		if err != nil {
-			return err
-		}
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
 		mgmClient, loginResp, err := connectToManagement(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
 			publicSSHKey)
 		if err != nil {
 			log.Debug(err)
-			if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
 				log.Info("peer registration required. Please run `netbird status` for details")
 				state.Set(StatusNeedsLogin)
 				return nil
 			}
 			return wrapErr(err)
 		}
+		statusRecorder.MarkManagementConnected(managementURL)
+
+		localPeerState := nbStatus.LocalPeerState{
+			IP:              loginResp.GetPeerConfig().GetAddress(),
+			PubKey:          myPrivateKey.PublicKey().String(),
+			KernelInterface: iface.WireguardModExists(),
+		}
+
+		statusRecorder.UpdateLocalPeerState(localPeerState)
+
+		signalURL := fmt.Sprintf("%s://%s",
+			strings.ToLower(loginResp.GetWiretrusteeConfig().GetSignal().GetProtocol().String()),
+			loginResp.GetWiretrusteeConfig().GetSignal().GetUri(),
+		)
+
+		statusRecorder.MarkSignalDisconnected(signalURL)
+		defer statusRecorder.MarkSignalDisconnected(signalURL)
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
@@ -87,6 +115,8 @@ func RunClient(ctx context.Context, config *Config) error {
 			log.Error(err)
 			return wrapErr(err)
 		}
+
+		statusRecorder.MarkSignalConnected(signalURL)
 
 		peerConfig := loginResp.GetPeerConfig()
 
@@ -96,7 +126,7 @@ func RunClient(ctx context.Context, config *Config) error {
 			return wrapErr(err)
 		}
 
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, statusRecorder)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
@@ -115,6 +145,7 @@ func RunClient(ctx context.Context, config *Config) error {
 			log.Errorf("failed closing Management Service client %v", err)
 			return wrapErr(err)
 		}
+
 		err = signalClient.Close()
 		if err != nil {
 			log.Errorf("failed closing Signal Service client %v", err)
@@ -136,7 +167,7 @@ func RunClient(ctx context.Context, config *Config) error {
 		return nil
 	}
 
-	err := backoff.Retry(operation, backOff)
+	err = backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Errorf("exiting client retry loop due to unrecoverable error: %s", err)
 		return err
@@ -179,7 +210,7 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 	signalClient, err := signal.NewClient(ctx, wtConfig.Signal.Uri, ourPrivateKey, sigTLSEnabled)
 	if err != nil {
 		log.Errorf("error while connecting to the Signal Exchange Service %s: %s", wtConfig.Signal.Uri, err)
-		return nil, status.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Signal Service : %s", err)
 	}
 
 	return signalClient, nil
@@ -190,13 +221,13 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 	log.Debugf("connecting to Management Service %s", managementAddr)
 	client, err := mgm.NewClient(ctx, managementAddr, ourPrivateKey, tlsEnabled)
 	if err != nil {
-		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err)
+		return nil, nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err)
 	}
 	log.Debugf("connected to management server %s", managementAddr)
 
 	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {
-		return nil, nil, status.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
+		return nil, nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
 	}
 
 	sysInfo := system.GetInfo(ctx)

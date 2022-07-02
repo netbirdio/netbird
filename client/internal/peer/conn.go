@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	nbStatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/iface"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
@@ -64,6 +65,8 @@ type Conn struct {
 	agent  *ice.Agent
 	status ConnStatus
 
+	statusRecorder *nbStatus.Status
+
 	proxy proxy.Proxy
 }
 
@@ -74,7 +77,7 @@ func (conn *Conn) GetConf() ConnConfig {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *nbStatus.Status) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -82,6 +85,7 @@ func NewConn(config ConnConfig) (*Conn, error) {
 		closeCh:        make(chan struct{}),
 		remoteOffersCh: make(chan IceCredentials),
 		remoteAnswerCh: make(chan IceCredentials),
+		statusRecorder: statusRecorder,
 	}, nil
 }
 
@@ -157,6 +161,17 @@ func (conn *Conn) reCreateAgent() error {
 func (conn *Conn) Open() error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
+	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
+
+	peerState.IP = strings.Split(conn.config.ProxyConfig.AllowedIps, "/")[0]
+	peerState.ConnStatusUpdate = time.Now()
+	peerState.ConnStatus = conn.status.String()
+
+	err := conn.statusRecorder.UpdatePeerState(peerState)
+	if err != nil {
+		log.Warnf("erro while updating the state of peer %s,err: %v", conn.config.Key, err)
+	}
+
 	defer func() {
 		err := conn.cleanup()
 		if err != nil {
@@ -165,7 +180,7 @@ func (conn *Conn) Open() error {
 		}
 	}()
 
-	err := conn.reCreateAgent()
+	err = conn.reCreateAgent()
 	if err != nil {
 		return err
 	}
@@ -205,6 +220,15 @@ func (conn *Conn) Open() error {
 	defer conn.notifyDisconnected()
 	conn.mu.Unlock()
 
+	peerState = nbStatus.PeerState{PubKey: conn.config.Key}
+
+	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatusUpdate = time.Now()
+	err = conn.statusRecorder.UpdatePeerState(peerState)
+	if err != nil {
+		log.Warnf("erro while updating the state of peer %s,err: %v", conn.config.Key, err)
+	}
+
 	err = conn.agent.GatherCandidates()
 	if err != nil {
 		return err
@@ -224,7 +248,7 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
-	// the connection has been established successfully so we are ready to start the proxy
+	// the ice connection has been established successfully so we are ready to start the proxy
 	err = conn.startProxy(remoteConn)
 	if err != nil {
 		return err
@@ -296,12 +320,15 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 		return err
 	}
 
+	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
 	useProxy := shouldUseProxy(pair)
 	var p proxy.Proxy
 	if useProxy {
 		p = proxy.NewWireguardProxy(conn.config.ProxyConfig)
+		peerState.Direct = false
 	} else {
 		p = proxy.NewNoProxy(conn.config.ProxyConfig)
+		peerState.Direct = true
 	}
 	conn.proxy = p
 	err = p.Start(remoteConn)
@@ -310,6 +337,19 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 	}
 
 	conn.status = StatusConnected
+
+	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatusUpdate = time.Now()
+	peerState.LocalIceCandidateType = pair.Local.Type().String()
+	peerState.RemoteIceCandidateType = pair.Remote.Type().String()
+	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
+		peerState.Relayed = true
+	}
+
+	err = conn.statusRecorder.UpdatePeerState(peerState)
+	if err != nil {
+		log.Warnf("unable to save peer's state, got error: %v", err)
+	}
 
 	return nil
 }
@@ -342,6 +382,14 @@ func (conn *Conn) cleanup() error {
 	}
 
 	conn.status = StatusDisconnected
+
+	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
+	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatusUpdate = time.Now()
+	err := conn.statusRecorder.UpdatePeerState(peerState)
+	if err != nil {
+		log.Warnf("error while updating peer's %s state, err: %v", conn.config.Key, err)
+	}
 
 	log.Debugf("cleaned up connection to peer %s", conn.config.Key)
 
