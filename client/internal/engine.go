@@ -635,7 +635,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 
 		err = e.statusRecorder.AddPeer(peerKey)
 		if err != nil {
-			return fmt.Errorf("error adding peer %s to status recorder, got error: %v", peerKey, err)
+			log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 		}
 
 		go e.connWorker(conn, peerKey)

@@ -94,7 +94,7 @@ func (s *Server) Start() error {
 
 	s.config = config
 
-	s.statusRecorder = nbStatus.NewStatus()
+	s.statusRecorder = nbStatus.NewRecorder()
 
 	go func() {
 		if err := internal.RunClient(ctx, config, s.statusRecorder); err != nil {
@@ -358,7 +358,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 	}
 
 	if s.statusRecorder == nil {
-		s.statusRecorder = nbStatus.NewStatus()
+		s.statusRecorder = nbStatus.NewRecorder()
 	}
 
 	go func() {

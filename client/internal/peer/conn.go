@@ -161,15 +161,13 @@ func (conn *Conn) reCreateAgent() error {
 func (conn *Conn) Open() error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
-	peerState, err := conn.statusRecorder.GetPeerStatus(conn.config.Key)
-	if err != nil {
-		return err
-	}
+	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
+
 	peerState.IP = strings.Split(conn.config.ProxyConfig.AllowedIps, "/")[0]
 	peerState.ConnStatusUpdate = time.Now()
 	peerState.ConnStatus = conn.status.String()
 
-	err = conn.statusRecorder.UpdatePeerStatus(peerState)
+	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		log.Warnf("erro while updating the state of peer %s,err: %v", conn.config.Key, err)
 	}
@@ -222,9 +220,11 @@ func (conn *Conn) Open() error {
 	defer conn.notifyDisconnected()
 	conn.mu.Unlock()
 
+	peerState = nbStatus.PeerState{PubKey: conn.config.Key}
+
 	peerState.ConnStatus = conn.status.String()
 	peerState.ConnStatusUpdate = time.Now()
-	err = conn.statusRecorder.UpdatePeerStatus(peerState)
+	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		log.Warnf("erro while updating the state of peer %s,err: %v", conn.config.Key, err)
 	}
@@ -314,17 +314,13 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	peerState, err := conn.statusRecorder.GetPeerStatus(conn.config.Key)
-	if err != nil {
-		return err
-	}
-
 	var pair *ice.CandidatePair
-	pair, err = conn.agent.GetSelectedCandidatePair()
+	pair, err := conn.agent.GetSelectedCandidatePair()
 	if err != nil {
 		return err
 	}
 
+	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
 	useProxy := shouldUseProxy(pair)
 	var p proxy.Proxy
 	if useProxy {
@@ -350,7 +346,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 		peerState.Relayed = true
 	}
 
-	err = conn.statusRecorder.UpdatePeerStatus(peerState)
+	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		log.Warnf("unable to save peer's state, got error: %v", err)
 	}
@@ -387,20 +383,12 @@ func (conn *Conn) cleanup() error {
 
 	conn.status = StatusDisconnected
 
-	peerState, err := conn.statusRecorder.GetPeerStatus(conn.config.Key)
-	if err == nil {
-		peerState.ConnStatus = conn.status.String()
-		peerState.ConnStatusUpdate = time.Now()
-		peerState.Direct = false
-		peerState.Relayed = false
-		peerState.RemoteIceCandidateType = ""
-		peerState.LocalIceCandidateType = ""
-		err = conn.statusRecorder.UpdatePeerStatus(peerState)
-		if err != nil {
-			log.Warnf("error while updating peer's %s state, err: %v", conn.config.Key, err)
-		}
-	} else {
-		log.Warnf("erro while retrieving the state of peer %s for cleanup,err: %v", conn.config.Key, err)
+	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
+	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatusUpdate = time.Now()
+	err := conn.statusRecorder.UpdatePeerState(peerState)
+	if err != nil {
+		log.Warnf("error while updating peer's %s state, err: %v", conn.config.Key, err)
 	}
 
 	log.Debugf("cleaned up connection to peer %s", conn.config.Key)

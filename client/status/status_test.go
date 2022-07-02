@@ -7,7 +7,7 @@ import (
 
 func TestAddPeer(t *testing.T) {
 	key := "abc"
-	status := NewStatus()
+	status := NewRecorder()
 	err := status.AddPeer(key)
 	assert.NoError(t, err, "shouldn't return error")
 
@@ -19,27 +19,10 @@ func TestAddPeer(t *testing.T) {
 	assert.Error(t, err, "should return error on duplicate")
 }
 
-func TestGetPeerStatus(t *testing.T) {
+func TestUpdatePeerState(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
-	status := NewStatus()
-	inputPeerState := PeerState{
-		PubKey: key,
-		IP:     ip,
-	}
-
-	status.peers[key] = inputPeerState
-
-	state, err := status.GetPeerStatus(key)
-	assert.NoError(t, err, "shouldn't return error")
-
-	assert.Equal(t, inputPeerState, state, "state should be equal")
-}
-
-func TestUpdatePeerStatus(t *testing.T) {
-	key := "abc"
-	ip := "10.10.10.10"
-	status := NewStatus()
+	status := NewRecorder()
 	peerState := PeerState{
 		PubKey: key,
 	}
@@ -48,7 +31,7 @@ func TestUpdatePeerStatus(t *testing.T) {
 
 	peerState.IP = ip
 
-	err := status.UpdatePeerStatus(peerState)
+	err := status.UpdatePeerState(peerState)
 	assert.NoError(t, err, "shouldn't return error")
 
 	state, exists := status.peers[key]
@@ -58,7 +41,7 @@ func TestUpdatePeerStatus(t *testing.T) {
 
 func TestRemovePeer(t *testing.T) {
 	key := "abc"
-	status := NewStatus()
+	status := NewRecorder()
 	peerState := PeerState{
 		PubKey: key,
 	}
@@ -75,47 +58,47 @@ func TestRemovePeer(t *testing.T) {
 	assert.Error(t, err, "should return error when peer doesn't exist")
 }
 
-func TestUpdateLocalPeerStatus(t *testing.T) {
+func TestUpdateLocalPeerState(t *testing.T) {
 	localPeerState := LocalPeerState{
 		IP:              "10.10.10.10",
 		PubKey:          "abc",
 		KernelInterface: false,
 	}
-	status := NewStatus()
+	status := NewRecorder()
 
-	err := status.UpdateLocalPeerStatus(localPeerState)
+	err := status.UpdateLocalPeerState(localPeerState)
 	assert.NoError(t, err, "shouldn't return error")
 
 	assert.Equal(t, localPeerState, status.localPeer, "local peer status should be equal")
 }
 
-func TestUpdateSignalStatus(t *testing.T) {
+func TestUpdateSignalState(t *testing.T) {
 	signalState := SignalState{
 		URL:       "https://signal",
 		Connected: true,
 	}
-	status := NewStatus()
+	status := NewRecorder()
 
-	err := status.UpdateSignalStatus(signalState)
+	err := status.UpdateSignalState(signalState)
 	assert.NoError(t, err, "shouldn't return error")
 
 	assert.Equal(t, signalState, status.signal, "signal status should be equal")
 }
 
-func TestUpdateManagementStatus(t *testing.T) {
+func TestUpdateManagementState(t *testing.T) {
 	managementState := ManagementState{
 		URL:       "https://signal",
 		Connected: true,
 	}
-	status := NewStatus()
+	status := NewRecorder()
 
-	err := status.UpdateManagementStatus(managementState)
+	err := status.UpdateManagementState(managementState)
 	assert.NoError(t, err, "shouldn't return error")
 
 	assert.Equal(t, managementState, status.management, "management status should be equal")
 }
 
-func TestGetStatus(t *testing.T) {
+func TestGetFullStatus(t *testing.T) {
 	key1 := "abc"
 	key2 := "def"
 	managementState := ManagementState{
@@ -134,14 +117,14 @@ func TestGetStatus(t *testing.T) {
 		PubKey: key2,
 	}
 
-	status := NewStatus()
+	status := NewRecorder()
 
 	status.management = managementState
 	status.signal = signalState
 	status.peers[key1] = peerState1
 	status.peers[key2] = peerState2
 
-	fullStatus := status.GetStatus()
+	fullStatus := status.GetFullStatus()
 
 	assert.Equal(t, managementState, fullStatus.ManagementState, "management status should be equal")
 	assert.Equal(t, signalState, fullStatus.SignalState, "signal status should be equal")

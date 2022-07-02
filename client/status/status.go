@@ -54,8 +54,8 @@ type Status struct {
 	localPeer  LocalPeerState
 }
 
-// NewStatus returns a new Status instance
-func NewStatus() *Status {
+// NewRecorder returns a new Status instance
+func NewRecorder() *Status {
 	return &Status{
 		peers: make(map[string]PeerState),
 	}
@@ -88,36 +88,36 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 	return errors.New("no peer with to remove")
 }
 
-// GetPeerStatus gets peer status
-func (d *Status) GetPeerStatus(peerPubKey string) (PeerState, error) {
+// UpdatePeerState updates peer status
+func (d *Status) UpdatePeerState(receivedState PeerState) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
-	peerState, ok := d.peers[peerPubKey]
-	if !ok {
-		return PeerState{}, errors.New("peer doesn't exist")
-	}
-
-	return peerState, nil
-}
-
-// UpdatePeerStatus updates peer status
-func (d *Status) UpdatePeerStatus(peerState PeerState) error {
-	d.mux.Lock()
-	defer d.mux.Unlock()
-
-	_, ok := d.peers[peerState.PubKey]
+	peerState, ok := d.peers[receivedState.PubKey]
 	if !ok {
 		return errors.New("peer doesn't exist")
 	}
 
-	d.peers[peerState.PubKey] = peerState
+	if receivedState.IP != "" {
+		peerState.IP = receivedState.IP
+	}
+
+	if receivedState.ConnStatus != peerState.ConnStatus {
+		peerState.ConnStatus = receivedState.ConnStatus
+		peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
+		peerState.Direct = receivedState.Direct
+		peerState.Relayed = receivedState.Relayed
+		peerState.LocalIceCandidateType = receivedState.LocalIceCandidateType
+		peerState.RemoteIceCandidateType = receivedState.RemoteIceCandidateType
+	}
+
+	d.peers[receivedState.PubKey] = peerState
 
 	return nil
 }
 
-// UpdateLocalPeerStatus updates local peer status
-func (d *Status) UpdateLocalPeerStatus(localPeerState LocalPeerState) error {
+// UpdateLocalPeerState updates local peer status
+func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -126,8 +126,8 @@ func (d *Status) UpdateLocalPeerStatus(localPeerState LocalPeerState) error {
 	return nil
 }
 
-// UpdateSignalStatus updates signal status
-func (d *Status) UpdateSignalStatus(signalState SignalState) error {
+// UpdateSignalState updates signal status
+func (d *Status) UpdateSignalState(signalState SignalState) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -136,8 +136,8 @@ func (d *Status) UpdateSignalStatus(signalState SignalState) error {
 	return nil
 }
 
-// UpdateManagementStatus updates management status
-func (d *Status) UpdateManagementStatus(managementState ManagementState) error {
+// UpdateManagementState updates management status
+func (d *Status) UpdateManagementState(managementState ManagementState) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -146,8 +146,8 @@ func (d *Status) UpdateManagementStatus(managementState ManagementState) error {
 	return nil
 }
 
-// GetStatus gets full status
-func (d *Status) GetStatus() FullStatus {
+// GetFullStatus gets full status
+func (d *Status) GetFullStatus() FullStatus {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 

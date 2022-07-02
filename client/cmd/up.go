@@ -48,7 +48,7 @@ var upCmd = &cobra.Command{
 			var cancel context.CancelFunc
 			ctx, cancel = context.WithCancel(ctx)
 			SetupCloseHandler(ctx, cancel)
-			return internal.RunClient(ctx, config, nbStatus.NewStatus())
+			return internal.RunClient(ctx, config, nbStatus.NewRecorder())
 		}
 
 		conn, err := DialClientGRPCServer(ctx, daemonAddr)
