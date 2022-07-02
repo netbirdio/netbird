@@ -61,12 +61,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 	}
 
 	managementURL := config.ManagementURL.String()
-	managementState := nbStatus.ManagementState{
-		URL:       managementURL,
-		Connected: false,
-	}
-
-	statusRecorder.UpdateManagementState(managementState)
+	statusRecorder.MarkManagementDisconnected(managementURL)
 
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
@@ -79,7 +74,10 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		state.Set(StatusConnecting)
 
 		engineCtx, cancel := context.WithCancel(ctx)
-		defer cancel()
+		defer func() {
+			statusRecorder.MarkManagementDisconnected(managementURL)
+			cancel()
+		}()
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
 		mgmClient, loginResp, err := connectToManagement(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
@@ -93,31 +91,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			}
 			return wrapErr(err)
 		}
-
-		managementState = nbStatus.ManagementState{
-			URL:       managementURL,
-			Connected: true,
-		}
-
-		statusRecorder.UpdateManagementState(managementState)
-
-		var signalURL string
-		// set disconnected state for management and signal when exiting
-		defer func() {
-			managementState = nbStatus.ManagementState{
-				URL:       managementURL,
-				Connected: false,
-			}
-			statusRecorder.UpdateManagementState(managementState)
-
-			if signalURL != "" {
-				deferSignalState := nbStatus.SignalState{
-					URL:       signalURL,
-					Connected: false,
-				}
-				statusRecorder.UpdateSignalState(deferSignalState)
-			}
-		}()
+		statusRecorder.MarkManagementConnected(managementURL)
 
 		localPeerState := nbStatus.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
@@ -130,19 +104,13 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			return err
 		}
 
-		statusRecorder.UpdateManagementState(managementState)
-
-		signalURL = fmt.Sprintf("%s://%s",
+		signalURL := fmt.Sprintf("%s://%s",
 			strings.ToLower(loginResp.GetWiretrusteeConfig().GetSignal().GetProtocol().String()),
 			loginResp.GetWiretrusteeConfig().GetSignal().GetUri(),
 		)
 
-		signalState := nbStatus.SignalState{
-			URL:       signalURL,
-			Connected: false,
-		}
-
-		statusRecorder.UpdateSignalState(signalState)
+		statusRecorder.MarkSignalDisconnected(signalURL)
+		defer statusRecorder.MarkSignalDisconnected(signalURL)
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
@@ -151,12 +119,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			return wrapErr(err)
 		}
 
-		signalState = nbStatus.SignalState{
-			URL:       signalURL,
-			Connected: true,
-		}
-
-		statusRecorder.UpdateSignalState(signalState)
+		statusRecorder.MarkSignalConnected(signalURL)
 
 		peerConfig := loginResp.GetPeerConfig()
 

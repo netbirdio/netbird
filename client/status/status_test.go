@@ -73,27 +73,67 @@ func TestUpdateLocalPeerState(t *testing.T) {
 }
 
 func TestUpdateSignalState(t *testing.T) {
-	signalState := SignalState{
-		URL:       "https://signal",
-		Connected: true,
+	url := "https://signal"
+	var tests = []struct {
+		name      string
+		connected bool
+		want      SignalState
+	}{
+		{"should mark as connected", true, SignalState{
+
+			URL:       url,
+			Connected: true,
+		}},
+		{"should mark as disconnected", false, SignalState{
+			URL:       url,
+			Connected: false,
+		}},
 	}
+
 	status := NewRecorder()
 
-	status.UpdateSignalState(signalState)
-
-	assert.Equal(t, signalState, status.signal, "signal status should be equal")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.connected {
+				status.MarkSignalConnected(url)
+			} else {
+				status.MarkSignalDisconnected(url)
+			}
+			assert.Equal(t, test.want, status.signal, "signal status should be equal")
+		})
+	}
 }
 
 func TestUpdateManagementState(t *testing.T) {
-	managementState := ManagementState{
-		URL:       "https://signal",
-		Connected: true,
+	url := "https://management"
+	var tests = []struct {
+		name      string
+		connected bool
+		want      ManagementState
+	}{
+		{"should mark as connected", true, ManagementState{
+
+			URL:       url,
+			Connected: true,
+		}},
+		{"should mark as disconnected", false, ManagementState{
+			URL:       url,
+			Connected: false,
+		}},
 	}
+
 	status := NewRecorder()
 
-	status.UpdateManagementState(managementState)
-
-	assert.Equal(t, managementState, status.management, "management status should be equal")
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.connected {
+				status.MarkManagementConnected(url)
+			} else {
+				status.MarkManagementDisconnected(url)
+			}
+			assert.Equal(t, test.want, status.management, "signal status should be equal")
+		})
+	}
 }
 
 func TestGetFullStatus(t *testing.T) {

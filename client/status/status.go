@@ -126,20 +126,40 @@ func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) error {
 	return nil
 }
 
-// UpdateSignalState updates signal status
-func (d *Status) UpdateSignalState(signalState SignalState) {
+func (d *Status) MarkManagementDisconnected(managementURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-
-	d.signal = signalState
+	d.management = ManagementState{
+		URL:       managementURL,
+		Connected: false,
+	}
 }
 
-// UpdateManagementState updates management status
-func (d *Status) UpdateManagementState(managementState ManagementState) {
+func (d *Status) MarkManagementConnected(managementURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+	d.management = ManagementState{
+		URL:       managementURL,
+		Connected: true,
+	}
+}
 
-	d.management = managementState
+func (d *Status) MarkSignalDisconnected(signalURL string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.signal = SignalState{
+		signalURL,
+		false,
+	}
+}
+
+func (d *Status) MarkSignalConnected(signalURL string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.signal = SignalState{
+		signalURL,
+		true,
+	}
 }
 
 // GetFullStatus gets full status
