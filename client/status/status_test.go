@@ -79,8 +79,7 @@ func TestUpdateSignalState(t *testing.T) {
 	}
 	status := NewRecorder()
 
-	err := status.UpdateSignalState(signalState)
-	assert.NoError(t, err, "shouldn't return error")
+	status.UpdateSignalState(signalState)
 
 	assert.Equal(t, signalState, status.signal, "signal status should be equal")
 }
@@ -92,8 +91,7 @@ func TestUpdateManagementState(t *testing.T) {
 	}
 	status := NewRecorder()
 
-	err := status.UpdateManagementState(managementState)
-	assert.NoError(t, err, "shouldn't return error")
+	status.UpdateManagementState(managementState)
 
 	assert.Equal(t, managementState, status.management, "management status should be equal")
 }

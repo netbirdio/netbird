@@ -43,6 +43,31 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 	}()
 
 	wrapErr := state.Wrap
+	// validate our peer's Wireguard PRIVATE key
+	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
+	if err != nil {
+		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
+		return wrapErr(err)
+	}
+
+	var mgmTlsEnabled bool
+	if config.ManagementURL.Scheme == "https" {
+		mgmTlsEnabled = true
+	}
+
+	publicSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
+	if err != nil {
+		return err
+	}
+
+	managementURL := config.ManagementURL.String()
+	managementState := nbStatus.ManagementState{
+		URL:       managementURL,
+		Connected: false,
+	}
+
+	statusRecorder.UpdateManagementState(managementState)
+
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
 		select {
@@ -52,37 +77,9 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		}
 
 		state.Set(StatusConnecting)
-		// validate our peer's Wireguard PRIVATE key
-		myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
-		if err != nil {
-			log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-			return wrapErr(err)
-		}
-
-		var mgmTlsEnabled bool
-		if config.ManagementURL.Scheme == "https" {
-			mgmTlsEnabled = true
-		}
 
 		engineCtx, cancel := context.WithCancel(ctx)
 		defer cancel()
-
-		publicSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
-		if err != nil {
-			return err
-		}
-
-		managementURL := config.ManagementURL.String()
-
-		managementState := nbStatus.ManagementState{
-			URL:       managementURL,
-			Connected: false,
-		}
-
-		err = statusRecorder.UpdateManagementState(managementState)
-		if err != nil {
-			return err
-		}
 
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
 		mgmClient, loginResp, err := connectToManagement(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
@@ -102,10 +99,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			Connected: true,
 		}
 
-		err = statusRecorder.UpdateManagementState(managementState)
-		if err != nil {
-			return err
-		}
+		statusRecorder.UpdateManagementState(managementState)
 
 		var signalURL string
 		// set disconnected state for management and signal when exiting
@@ -114,20 +108,14 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 				URL:       managementURL,
 				Connected: false,
 			}
-			err = statusRecorder.UpdateManagementState(managementState)
-			if err != nil {
-				log.Warnf("unable to update management state, err: %s", err)
-			}
+			statusRecorder.UpdateManagementState(managementState)
 
 			if signalURL != "" {
 				deferSignalState := nbStatus.SignalState{
 					URL:       signalURL,
 					Connected: false,
 				}
-				err = statusRecorder.UpdateSignalState(deferSignalState)
-				if err != nil {
-					log.Warnf("unable to update signal state, err: %s", err)
-				}
+				statusRecorder.UpdateSignalState(deferSignalState)
 			}
 		}()
 
@@ -142,10 +130,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			return err
 		}
 
-		err = statusRecorder.UpdateManagementState(managementState)
-		if err != nil {
-			return err
-		}
+		statusRecorder.UpdateManagementState(managementState)
 
 		signalURL = fmt.Sprintf("%s://%s",
 			strings.ToLower(loginResp.GetWiretrusteeConfig().GetSignal().GetProtocol().String()),
@@ -157,10 +142,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			Connected: false,
 		}
 
-		err = statusRecorder.UpdateSignalState(signalState)
-		if err != nil {
-			return err
-		}
+		statusRecorder.UpdateSignalState(signalState)
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
@@ -174,10 +156,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			Connected: true,
 		}
 
-		err = statusRecorder.UpdateSignalState(signalState)
-		if err != nil {
-			return err
-		}
+		statusRecorder.UpdateSignalState(signalState)
 
 		peerConfig := loginResp.GetPeerConfig()
 
@@ -228,7 +207,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		return nil
 	}
 
-	err := backoff.Retry(operation, backOff)
+	err = backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Errorf("exiting client retry loop due to unrecoverable error: %s", err)
 		return err
