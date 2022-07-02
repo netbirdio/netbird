@@ -167,7 +167,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 
 	err = backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Errorf("exiting client retry loop due to unrecoverable error: %s", err)
+		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		return err
 	}
 	return nil

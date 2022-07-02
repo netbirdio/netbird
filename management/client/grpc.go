@@ -105,13 +105,13 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 
 		serverPubKey, err := c.GetServerPublicKey()
 		if err != nil {
-			log.Errorf("failed getting Management Service public key: %s", err)
+			log.Debugf("failed getting Management Service public key: %s", err)
 			return err
 		}
 
 		stream, err := c.connectToStream(*serverPubKey)
 		if err != nil {
-			log.Errorf("failed to open Management Service stream: %s", err)
+			log.Debugf("failed to open Management Service stream: %s", err)
 			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
 				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 			}
@@ -129,6 +129,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
 			// reset times and next try will start with a long delay
 			backOff.Reset()
+			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 			return err
 		}
 
@@ -164,11 +165,11 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 	for {
 		update, err := stream.Recv()
 		if err == io.EOF {
-			log.Errorf("Management stream has been closed by server: %s", err)
+			log.Debugf("Management stream has been closed by server: %s", err)
 			return err
 		}
 		if err != nil {
-			log.Warnf("disconnected from Management Service sync stream: %v", err)
+			log.Debugf("disconnected from Management Service sync stream: %v", err)
 			return err
 		}
 
