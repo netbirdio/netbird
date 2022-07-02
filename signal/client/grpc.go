@@ -89,14 +89,13 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 func defaultBackoff(ctx context.Context) backoff.BackOff {
 	return backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: backoff.DefaultRandomizationFactor,
-		Multiplier:          backoff.DefaultMultiplier,
+		RandomizationFactor: 1,
+		Multiplier:          1.7,
 		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      12 * time.Hour, //stop after 12 hours of trying, the error will be propagated to the general retry of the client
+		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
-
 }
 
 // Receive Connects to the Signal Exchange message stream and starts receiving messages.
@@ -112,8 +111,12 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 		c.notifyStreamDisconnected()
 
 		log.Debugf("signal connection state %v", c.signalConn.GetState())
-		if !c.Ready() {
-			return fmt.Errorf("no connection to signal")
+		connState := c.signalConn.GetState()
+		if connState == connectivity.Shutdown {
+			return backoff.Permanent(fmt.Errorf("connection to signal has been shut down"))
+		} else if !(connState == connectivity.Ready || connState == connectivity.Idle) {
+			c.signalConn.WaitForStateChange(c.ctx, connState)
+			return fmt.Errorf("connection to signal is not ready and in %s state", connState)
 		}
 
 		// connect to Signal stream identifying ourselves with a public Wireguard key
@@ -131,7 +134,8 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream, msgHandler)
 		if err != nil {
-			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
+			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
+			// reset times and next try will start with a long delay
 			backOff.Reset()
 			return err
 		}

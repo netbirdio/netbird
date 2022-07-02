@@ -26,9 +26,9 @@ import (
 func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Status) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
-		RandomizationFactor: backoff.DefaultRandomizationFactor,
-		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         5 * time.Minute,
+		RandomizationFactor: 1,
+		Multiplier:          1.7,
+		MaxInterval:         15 * time.Second,
 		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
@@ -43,7 +43,6 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 	}()
 
 	wrapErr := state.Wrap
-	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
 		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())

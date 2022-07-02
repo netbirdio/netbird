@@ -72,10 +72,10 @@ func (c *GrpcClient) Close() error {
 func defaultBackoff(ctx context.Context) backoff.BackOff {
 	return backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
-		RandomizationFactor: backoff.DefaultRandomizationFactor,
-		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         5 * time.Minute,
-		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months //todo make indefinite?
+		RandomizationFactor: 1,
+		Multiplier:          1.7,
+		MaxInterval:         10 * time.Second,
+		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}, ctx)
@@ -126,6 +126,9 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
 				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
 			}
+			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
+			// reset times and next try will start with a long delay
+			backOff.Reset()
 			return err
 		}
 
