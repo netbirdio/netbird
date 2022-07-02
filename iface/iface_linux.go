@@ -14,6 +14,7 @@ type NativeLink struct {
 	Link *netlink.Link
 }
 
+// WireguardModExists check if we can load wireguard mod (linux only)
 func WireguardModExists() bool {
 	link := newWGLink("mustnotexist")
 

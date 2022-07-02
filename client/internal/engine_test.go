@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/netbirdio/netbird/client/ssh"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/stretchr/testify/assert"
 	"net"
@@ -63,7 +64,7 @@ func TestEngine_SSH(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	})
+	}, nbstatus.NewRecorder())
 
 	var sshKeysAdded []string
 	var sshPeersRemoved []string
@@ -193,7 +194,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	})
+	}, nbstatus.NewRecorder())
 	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU)
 
 	type testCase struct {
@@ -373,7 +374,7 @@ func TestEngine_Sync(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	})
+	}, nbstatus.NewRecorder())
 
 	defer func() {
 		err := engine.Stop()
@@ -576,7 +577,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgPort:       wgPort,
 	}
 
-	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf), nil
+	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf, nbstatus.NewRecorder()), nil
 }
 
 func startSignal(port int) (*grpc.Server, error) {
