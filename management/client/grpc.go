@@ -138,7 +138,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 
 	err := backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Warnf("exiting Management Service connection retry loop due to Permanent error: %s", err)
+		log.Warnf("exiting the Management service connection retry loop due to the unrecoverable error: %s", err)
 		return err
 	}
 

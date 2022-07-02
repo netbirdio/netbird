@@ -145,7 +145,7 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 
 	err := backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Errorf("exiting Signal Service connection retry loop due to unrecoverable error: %s", err)
+		log.Errorf("exiting the Signal service connection retry loop due to the unrecoverable error: %v", err)
 		return err
 	}
 
@@ -312,13 +312,13 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 	for {
 		msg, err := stream.Recv()
 		if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
-			log.Warnf("stream canceled (usually indicates shutdown)")
+			log.Debugf("stream canceled (usually indicates shutdown)")
 			return err
 		} else if s.Code() == codes.Unavailable {
-			log.Warnf("Signal Service is unavailable")
+			log.Debugf("Signal Service is unavailable")
 			return err
 		} else if err == io.EOF {
-			log.Warnf("Signal Service stream closed by server")
+			log.Debugf("Signal Service stream closed by server")
 			return err
 		} else if err != nil {
 			return err
