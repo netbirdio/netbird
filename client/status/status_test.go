@@ -66,8 +66,7 @@ func TestUpdateLocalPeerState(t *testing.T) {
 	}
 	status := NewRecorder()
 
-	err := status.UpdateLocalPeerState(localPeerState)
-	assert.NoError(t, err, "shouldn't return error")
+	status.UpdateLocalPeerState(localPeerState)
 
 	assert.Equal(t, localPeerState, status.localPeer, "local peer status should be equal")
 }

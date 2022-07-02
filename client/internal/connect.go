@@ -99,10 +99,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			KernelInterface: iface.WireguardModExists(),
 		}
 
-		err = statusRecorder.UpdateLocalPeerState(localPeerState)
-		if err != nil {
-			return err
-		}
+		statusRecorder.UpdateLocalPeerState(localPeerState)
 
 		signalURL := fmt.Sprintf("%s://%s",
 			strings.ToLower(loginResp.GetWiretrusteeConfig().GetSignal().GetProtocol().String()),

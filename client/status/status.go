@@ -117,13 +117,11 @@ func (d *Status) UpdatePeerState(receivedState PeerState) error {
 }
 
 // UpdateLocalPeerState updates local peer status
-func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) error {
+func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
 	d.localPeer = localPeerState
-
-	return nil
 }
 
 // MarkManagementDisconnected sets ManagementState to disconnected
