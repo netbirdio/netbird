@@ -28,8 +28,8 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		InitialInterval:     time.Second,
 		RandomizationFactor: backoff.DefaultRandomizationFactor,
 		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      24 * 3 * time.Hour, // stop the client after 3 days trying (must be a huge problem, e.g permission denied)
+		MaxInterval:         5 * time.Minute,
+		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}
@@ -84,10 +84,9 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			publicSSHKey)
 		if err != nil {
 			log.Debug(err)
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
-				log.Info("peer registration required. Please run `netbird status` for details")
+			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
-				return nil
+				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
 		}
@@ -158,7 +157,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			return wrapErr(err)
 		}
 
-		log.Info("stopped Netbird client")
+		log.Info("stopped NetBird client")
 
 		if _, err := state.Status(); err == ErrResetConnection {
 			return err
