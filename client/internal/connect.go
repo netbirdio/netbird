@@ -26,10 +26,10 @@ import (
 func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Status) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
-		RandomizationFactor: backoff.DefaultRandomizationFactor,
-		Multiplier:          backoff.DefaultMultiplier,
-		MaxInterval:         10 * time.Second,
-		MaxElapsedTime:      24 * 3 * time.Hour, // stop the client after 3 days trying (must be a huge problem, e.g permission denied)
+		RandomizationFactor: 1,
+		Multiplier:          1.7,
+		MaxInterval:         15 * time.Second,
+		MaxElapsedTime:      3 * 30 * 24 * time.Hour, // 3 months
 		Stop:                backoff.Stop,
 		Clock:               backoff.SystemClock,
 	}
@@ -43,7 +43,6 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 	}()
 
 	wrapErr := state.Wrap
-	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
 	if err != nil {
 		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
@@ -84,10 +83,9 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			publicSSHKey)
 		if err != nil {
 			log.Debug(err)
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
-				log.Info("peer registration required. Please run `netbird status` for details")
+			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
 				state.Set(StatusNeedsLogin)
-				return nil
+				return backoff.Permanent(wrapErr(err)) // unrecoverable error
 			}
 			return wrapErr(err)
 		}
@@ -158,7 +156,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			return wrapErr(err)
 		}
 
-		log.Info("stopped Netbird client")
+		log.Info("stopped NetBird client")
 
 		if _, err := state.Status(); err == ErrResetConnection {
 			return err
@@ -169,7 +167,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 
 	err = backoff.Retry(operation, backOff)
 	if err != nil {
-		log.Errorf("exiting client retry loop due to unrecoverable error: %s", err)
+		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
 		return err
 	}
 	return nil
