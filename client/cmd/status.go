@@ -151,13 +151,13 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool) string {
 			peerString := fmt.Sprintf(
 				"\n Peer:\n"+
 					"  NetBird IP: %s\n"+
-					"  Public Key: %s\n"+
+					"  Public key: %s\n"+
 					"  Status: %s\n"+
 					"  -- detail --\n"+
 					"  Connection type: %s\n"+
 					"  Direct: %t\n"+
-					"  ICE Status (Local/Remote): %s/%s\n"+
-					"  Last Connection Update: %s\n",
+					"  ICE candidate (Local/Remote): %s/%s\n"+
+					"  Last connection update: %s\n",
 				peerState.IP,
 				peerState.PubKey,
 				peerState.ConnStatus,
@@ -178,11 +178,12 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool) string {
 
 	peersString := connectedPeersString + disconnectedPeersString + fmt.Sprintf("%d/%d Connected", peersConnected, len(fullStatus.Peers))
 
-	return fmt.Sprintf("Management: %s%s\n"+
-		"Signal:  %s%s\n"+
-		"IP: %s\n"+
-		"Interface Type: %s\n"+
-		"Peers: %s\n",
+	return fmt.Sprintf(
+		"Management: %s%s\n"+
+			"Signal:  %s%s\n"+
+			"IP: %s\n"+
+			"Interface type: %s\n"+
+			"Peers: %s\n",
 		managementConnString,
 		managementStatusURL,
 		signalConnString,
