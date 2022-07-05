@@ -12,9 +12,9 @@ func TestConnStatus_String(t *testing.T) {
 		status ConnStatus
 		want   string
 	}{
-		{"StatusConnected", StatusConnected, "StatusConnected"},
-		{"StatusDisconnected", StatusDisconnected, "StatusDisconnected"},
-		{"StatusConnecting", StatusConnecting, "StatusConnecting"},
+		{"StatusConnected", StatusConnected, "Connected"},
+		{"StatusDisconnected", StatusDisconnected, "Disconnected"},
+		{"StatusConnecting", StatusConnecting, "Connecting"},
 	}
 
 	for _, table := range tables {

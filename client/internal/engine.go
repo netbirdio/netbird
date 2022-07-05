@@ -305,15 +305,17 @@ func (e *Engine) removePeer(peerKey string) error {
 		e.sshServer.RemoveAuthorizedKey(peerKey)
 	}
 
-	conn, exists := e.peerConns[peerKey]
-	if exists {
+	defer func() {
 		err := e.statusRecorder.RemovePeer(peerKey)
 		if err != nil {
-			log.Warn("received error when removing peer from status recorder: ", err)
+			log.Warnf("received error when removing peer %s from status recorder: %v", peerKey, err)
 		}
+	}()
 
+	conn, exists := e.peerConns[peerKey]
+	if exists {
 		delete(e.peerConns, peerKey)
-		err = conn.Close()
+		err := conn.Close()
 		if err != nil {
 			switch err.(type) {
 			case *peer.ConnectionAlreadyClosedError:
