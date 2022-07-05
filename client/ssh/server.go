@@ -108,22 +108,6 @@ func (srv *DefaultServer) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) b
 	return false
 }
 
-func getUserShell(userID string) string {
-	if runtime.GOOS == "linux" {
-		output, _ := exec.Command("getent", "passwd", userID).Output()
-		line := strings.SplitN(string(output), ":", 10)
-		if len(line) > 6 {
-			return strings.TrimSpace(line[6])
-		}
-	}
-
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh"
-	}
-	return shell
-}
-
 func prepareUserEnv(user *user.User, shell string) []string {
 	return []string{
 		fmt.Sprintf("SHELL=" + shell),
@@ -146,6 +130,13 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 	srv.sessions = append(srv.sessions, session)
 	srv.mu.Unlock()
 
+	defer func() {
+		err := session.Close()
+		if err != nil {
+			return
+		}
+	}()
+
 	localUser, err := user.Lookup(session.User())
 	if err != nil {
 		_, err = fmt.Fprintf(session, "remote SSH server couldn't find local user %s\n", session.User()) //nolint
@@ -161,6 +152,19 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 	if isPty {
 		shell := getUserShell(localUser.Uid)
 		cmd := exec.Command(shell)
+
+		go func() {
+			<-session.Context().Done()
+			err := cmd.Process.Kill()
+			if err != nil {
+				return
+			}
+		}()
+
+		err = loadUser(cmd, localUser)
+		if err != nil {
+			return
+		}
 		cmd.Dir = localUser.HomeDir
 		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 		cmd.Env = append(cmd.Env, prepareUserEnv(localUser, shell)...)
@@ -174,6 +178,7 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 		if err != nil {
 			log.Errorf("failed starting SSH server %v", err)
 		}
+
 		go func() {
 			for win := range winCh {
 				setWinSize(file, win.Width, win.Height)
@@ -228,4 +233,20 @@ func (srv *DefaultServer) Start() error {
 	}
 
 	return nil
+}
+
+func getUserShell(userID string) string {
+	if runtime.GOOS == "linux" {
+		output, _ := exec.Command("getent", "passwd", userID).Output()
+		line := strings.SplitN(string(output), ":", 10)
+		if len(line) > 6 {
+			return strings.TrimSpace(line[6])
+		}
+	}
+
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	return shell
 }
