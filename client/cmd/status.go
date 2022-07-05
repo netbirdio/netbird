@@ -3,17 +3,24 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/proto"
 	nbStatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
-
-	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/proto"
+	"net/netip"
+	"sort"
+	"strings"
 )
 
-var detailFlag bool
+var (
+	detailFlag   bool
+	ipsFilter    []string
+	statusFilter string
+	ipsFilterMap map[string]struct{}
+)
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
@@ -23,7 +30,12 @@ var statusCmd = &cobra.Command{
 
 		cmd.SetOut(cmd.OutOrStdout())
 
-		err := util.InitLog(logLevel, "console")
+		err := parseFilters()
+		if err != nil {
+			return err
+		}
+
+		err = util.InitLog(logLevel, "console")
 		if err != nil {
 			return fmt.Errorf("failed initializing log %v", err)
 		}
@@ -64,12 +76,33 @@ var statusCmd = &cobra.Command{
 }
 
 func init() {
-	statusCmd.PersistentFlags().BoolVar(&detailFlag, "detail", false, "display detailed status information")
+	ipsFilterMap = make(map[string]struct{})
+	statusCmd.PersistentFlags().BoolVarP(&detailFlag, "detail", "d", false, "display detailed status information")
+	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g. --filter-by-ips 100.64.0.100,100.64.0.200")
+	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(connected|disconnected), e.g. --filter-by-status connected")
+}
+
+func parseFilters() error {
+	switch strings.ToLower(statusFilter) {
+	case "disconnected", "connected":
+	default:
+		return fmt.Errorf("wrong status filter, should be one of connected|disconnected, got: %s", statusFilter)
+	}
+
+	if len(ipsFilter) > 0 {
+		for _, addr := range ipsFilter {
+			_, err := netip.ParseAddr(addr)
+			if err != nil {
+				return fmt.Errorf("got an invalid IP address in the filter: address %s, error %s", addr, err)
+			}
+			ipsFilterMap[addr] = struct{}{}
+		}
+	}
+	return nil
 }
 
 func fromProtoFullStatus(pbFullStatus *proto.FullStatus) nbStatus.FullStatus {
 	var fullStatus nbStatus.FullStatus
-
 	fullStatus.ManagementState.URL = pbFullStatus.ManagementState.URL
 	fullStatus.ManagementState.Connected = pbFullStatus.ManagementState.Connected
 
@@ -80,32 +113,36 @@ func fromProtoFullStatus(pbFullStatus *proto.FullStatus) nbStatus.FullStatus {
 	fullStatus.LocalPeerState.PubKey = pbFullStatus.LocalPeerState.PubKey
 	fullStatus.LocalPeerState.KernelInterface = pbFullStatus.LocalPeerState.KernelInterface
 
+	var peersState []nbStatus.PeerState
+
 	for _, pbPeerState := range pbFullStatus.Peers {
+		timeLocal := pbPeerState.ConnStatusUpdate.AsTime().Local()
 		peerState := nbStatus.PeerState{
 			IP:                     pbPeerState.IP,
 			PubKey:                 pbPeerState.PubKey,
 			ConnStatus:             pbPeerState.ConnStatus,
-			ConnStatusUpdate:       pbPeerState.ConnStatusUpdate.AsTime(),
+			ConnStatusUpdate:       timeLocal,
 			Relayed:                pbPeerState.Relayed,
 			Direct:                 pbPeerState.Direct,
 			LocalIceCandidateType:  pbPeerState.LocalIceCandidateType,
 			RemoteIceCandidateType: pbPeerState.RemoteIceCandidateType,
 		}
-		fullStatus.Peers = append(fullStatus.Peers, peerState)
+		peersState = append(peersState, peerState)
 	}
+
+	fullStatus.Peers = peersState
+
 	return fullStatus
 }
 
 func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool) string {
 	var (
-		managementStatusURL     = ""
-		signalStatusURL         = ""
-		connectedPeersString    = ""
-		disconnectedPeersString = ""
-		managementConnString    = "Disconnected"
-		signalConnString        = "Disconnected"
-		InterfaceTypeString     = "Userspace"
-		peersConnected          = 0
+		managementStatusURL  = ""
+		signalStatusURL      = ""
+		managementConnString = "Disconnected"
+		signalConnString     = "Disconnected"
+		InterfaceTypeString  = "Userspace"
+		peersConnected       = 0
 	)
 
 	if printDetail {
@@ -125,9 +162,43 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool) string {
 		InterfaceTypeString = "Kernel"
 	}
 
+	parsedPeersString, peersConnected := parsePeers(fullStatus.Peers, printDetail)
+
+	peersString := parsedPeersString + fmt.Sprintf("%d/%d Connected", peersConnected, len(fullStatus.Peers))
+
+	return fmt.Sprintf(
+		"Management: %s%s\n"+
+			"Signal:  %s%s\n"+
+			"IP: %s\n"+
+			"Interface type: %s\n"+
+			"Peers: %s\n",
+		managementConnString,
+		managementStatusURL,
+		signalConnString,
+		signalStatusURL,
+		fullStatus.LocalPeerState.IP,
+		InterfaceTypeString,
+		peersString,
+	)
+}
+
+func parsePeers(peers []nbStatus.PeerState, printDetail bool) (string, int) {
+	var (
+		peersString    = ""
+		peersConnected = 0
+	)
+
+	if len(peers) > 0 {
+		sort.SliceStable(peers, func(i, j int) bool {
+			iAddr, _ := netip.ParseAddr(peers[i].IP)
+			jAddr, _ := netip.ParseAddr(peers[j].IP)
+			return iAddr.Compare(jAddr) == -1
+		})
+	}
+
 	connectedStatusString := peer.StatusConnected.String()
 
-	for _, peerState := range fullStatus.Peers {
+	for _, peerState := range peers {
 		peerConnectionStatus := false
 		if peerState.ConnStatus == connectedStatusString {
 			peersConnected = peersConnected + 1
@@ -135,6 +206,11 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool) string {
 		}
 
 		if printDetail {
+
+			if skipDetailByFilters(peerState, peerConnectionStatus) {
+				continue
+			}
+
 			localICE := "-"
 			remoteICE := "-"
 			connType := "-"
@@ -165,31 +241,33 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool) string {
 				peerState.Direct,
 				localICE,
 				remoteICE,
-				peerState.ConnStatusUpdate,
+				peerState.ConnStatusUpdate.Format("2006-01-02 15:04:05"),
 			)
 
-			if peerConnectionStatus {
-				connectedPeersString = connectedPeersString + peerString
-			} else {
-				disconnectedPeersString = disconnectedPeersString + peerString
-			}
+			peersString = peersString + peerString
+		}
+	}
+	return peersString, peersConnected
+}
+
+func skipDetailByFilters(peerState nbStatus.PeerState, isConnected bool) bool {
+	statusEval := false
+	ipEval := false
+
+	if statusFilter != "" {
+		lowerStatusFilter := strings.ToLower(statusFilter)
+		if lowerStatusFilter == "disconnected" && isConnected {
+			statusEval = true
+		} else if lowerStatusFilter == "connected" && !isConnected {
+			statusEval = true
 		}
 	}
 
-	peersString := connectedPeersString + disconnectedPeersString + fmt.Sprintf("%d/%d Connected", peersConnected, len(fullStatus.Peers))
-
-	return fmt.Sprintf(
-		"Management: %s%s\n"+
-			"Signal:  %s%s\n"+
-			"IP: %s\n"+
-			"Interface type: %s\n"+
-			"Peers: %s\n",
-		managementConnString,
-		managementStatusURL,
-		signalConnString,
-		signalStatusURL,
-		fullStatus.LocalPeerState.IP,
-		InterfaceTypeString,
-		peersString,
-	)
+	if len(ipsFilter) > 0 {
+		_, ok := ipsFilterMap[peerState.IP]
+		if !ok {
+			ipEval = true
+		}
+	}
+	return statusEval || ipEval
 }
