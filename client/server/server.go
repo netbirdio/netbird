@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	nbStatus "github.com/netbirdio/netbird/client/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"sync"
 	"time"
 
@@ -386,7 +387,7 @@ func (s *Server) Down(ctx context.Context, msg *proto.DownRequest) (*proto.DownR
 
 // Status starts engine work in the daemon.
 func (s *Server) Status(
-	ctx context.Context,
+	_ context.Context,
 	msg *proto.StatusRequest,
 ) (*proto.StatusResponse, error) {
 	s.mutex.Lock()
@@ -397,7 +398,15 @@ func (s *Server) Status(
 		return nil, err
 	}
 
-	return &proto.StatusResponse{Status: string(status)}, nil
+	statusResponse := proto.StatusResponse{Status: string(status)}
+
+	if msg.GetFullPeerStatus {
+		fullStatus := s.statusRecorder.GetFullStatus()
+		pbFullStatus := toProtoFullStatus(fullStatus)
+		statusResponse.FullStatus = pbFullStatus
+	}
+
+	return &statusResponse, nil
 }
 
 // GetConfig of the daemon.
@@ -432,4 +441,38 @@ func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*p
 		LogFile:       s.logFile,
 		PreSharedKey:  preSharedKey,
 	}, nil
+}
+
+func toProtoFullStatus(fullStatus nbStatus.FullStatus) *proto.FullStatus {
+	pbFullStatus := proto.FullStatus{
+		ManagementState: &proto.ManagementState{},
+		SignalState:     &proto.SignalState{},
+		LocalPeerState:  &proto.LocalPeerState{},
+		Peers:           []*proto.PeerState{},
+	}
+
+	pbFullStatus.ManagementState.URL = fullStatus.ManagementState.URL
+	pbFullStatus.ManagementState.Connected = fullStatus.ManagementState.Connected
+
+	pbFullStatus.SignalState.URL = fullStatus.SignalState.URL
+	pbFullStatus.SignalState.Connected = fullStatus.SignalState.Connected
+
+	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
+	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
+	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
+
+	for _, peerState := range fullStatus.Peers {
+		pbPeerState := &proto.PeerState{
+			IP:                     peerState.IP,
+			PubKey:                 peerState.PubKey,
+			ConnStatus:             peerState.ConnStatus,
+			ConnStatusUpdate:       timestamppb.New(peerState.ConnStatusUpdate),
+			Relayed:                peerState.Relayed,
+			Direct:                 peerState.Direct,
+			LocalIceCandidateType:  peerState.LocalIceCandidateType,
+			RemoteIceCandidateType: peerState.RemoteIceCandidateType,
+		}
+		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
+	}
+	return &pbFullStatus
 }

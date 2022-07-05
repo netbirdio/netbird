@@ -1,6 +1,7 @@
 syntax = "proto3";
 
 import "google/protobuf/descriptor.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "/proto";
 
@@ -59,11 +60,14 @@ message UpRequest {}
 
 message UpResponse {}
 
-message StatusRequest{}
+message StatusRequest{
+  bool getFullPeerStatus = 1;
+}
 
 message StatusResponse{
   // status of the server.
   string status = 1;
+  FullStatus fullStatus = 2;
 }
 
 message DownRequest {}
@@ -87,4 +91,42 @@ message GetConfigResponse {
 
   // adminURL settings value.
   string adminURL = 5;
+}
+
+// PeerState contains the latest state of a peer
+message PeerState {
+  string IP = 1;
+  string pubKey = 2;
+  string connStatus = 3;
+  google.protobuf.Timestamp connStatusUpdate = 4;
+  bool relayed = 5;
+  bool direct = 6;
+  string localIceCandidateType = 7;
+  string remoteIceCandidateType =8;
+}
+
+// LocalPeerState contains the latest state of the local peer
+message LocalPeerState {
+  string IP = 1;
+  string pubKey = 2;
+  bool  kernelInterface =3;
+}
+
+// SignalState contains the latest state of a signal connection
+message SignalState {
+  string URL = 1;
+  bool connected = 2;
+}
+
+// ManagementState contains the latest state of a management connection
+message ManagementState {
+  string URL = 1;
+  bool connected = 2;
+}
+// FullStatus contains the full state held by the Status instance
+message FullStatus {
+    ManagementState managementState = 1;
+    SignalState     signalState = 2;
+    LocalPeerState  localPeerState = 3;
+    repeated PeerState peers = 4;
 }

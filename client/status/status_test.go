@@ -71,6 +71,22 @@ func TestUpdateLocalPeerState(t *testing.T) {
 	assert.Equal(t, localPeerState, status.localPeer, "local peer status should be equal")
 }
 
+func TestCleanLocalPeerState(t *testing.T) {
+	emptyLocalPeerState := LocalPeerState{}
+	localPeerState := LocalPeerState{
+		IP:              "10.10.10.10",
+		PubKey:          "abc",
+		KernelInterface: false,
+	}
+	status := NewRecorder()
+
+	status.localPeer = localPeerState
+
+	status.CleanLocalPeerState()
+
+	assert.Equal(t, emptyLocalPeerState, status.localPeer, "local peer status should be empty")
+}
+
 func TestUpdateSignalState(t *testing.T) {
 	url := "https://signal"
 	var tests = []struct {
