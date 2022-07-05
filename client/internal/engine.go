@@ -442,11 +442,12 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		if e.sshServer == nil {
 			//nil sshServer means it has not yet been started
 			var err error
-			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
+			sshServer, err := e.sshServerFunc(e.config.SSHKey,
 				fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), nbssh.DefaultSSHPort))
 			if err != nil {
 				return err
 			}
+			e.sshServer = sshServer
 			go func() {
 				// blocking
 				err = e.sshServer.Start()
