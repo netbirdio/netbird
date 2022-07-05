@@ -55,21 +55,24 @@ var statusCmd = &cobra.Command{
 			return fmt.Errorf("status failed: %v", status.Convert(err).Message())
 		}
 
-		cmd.Printf("Status: %s\n\n", resp.GetStatus())
+		daemonStatus := fmt.Sprintf("Daemon status: %s\n", resp.GetStatus())
 		if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
 
-			cmd.Printf("Run UP command to log in with SSO (interactive login):\n\n" +
-				" netbird up \n\n" +
-				"If you are running a self-hosted version and no SSO provider has been configured in your Management Server,\n" +
-				"you can use a setup-key:\n\n netbird up --management-url <YOUR_MANAGEMENT_URL> --setup-key <YOUR_SETUP_KEY>\n\n" +
-				"More info: https://www.netbird.io/docs/overview/setup-keys\n\n")
+			cmd.Printf("%s\n"+
+				"Run UP command to log in with SSO (interactive login):\n\n"+
+				" netbird up \n\n"+
+				"If you are running a self-hosted version and no SSO provider has been configured in your Management Server,\n"+
+				"you can use a setup-key:\n\n netbird up --management-url <YOUR_MANAGEMENT_URL> --setup-key <YOUR_SETUP_KEY>\n\n"+
+				"More info: https://www.netbird.io/docs/overview/setup-keys\n\n",
+				daemonStatus,
+			)
 			return nil
 		}
 
 		pbFullStatus := resp.GetFullStatus()
 		fullStatus := fromProtoFullStatus(pbFullStatus)
 
-		cmd.Print(parseFullStatus(fullStatus, detailFlag))
+		cmd.Print(parseFullStatus(fullStatus, detailFlag, daemonStatus))
 
 		return nil
 	},
@@ -84,7 +87,7 @@ func init() {
 
 func parseFilters() error {
 	switch strings.ToLower(statusFilter) {
-	case "disconnected", "connected":
+	case "", "disconnected", "connected":
 	default:
 		return fmt.Errorf("wrong status filter, should be one of connected|disconnected, got: %s", statusFilter)
 	}
@@ -135,7 +138,7 @@ func fromProtoFullStatus(pbFullStatus *proto.FullStatus) nbStatus.FullStatus {
 	return fullStatus
 }
 
-func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool) string {
+func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonStatus string) string {
 	var (
 		managementStatusURL  = ""
 		signalStatusURL      = ""
@@ -164,22 +167,35 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool) string {
 
 	parsedPeersString, peersConnected := parsePeers(fullStatus.Peers, printDetail)
 
-	peersString := parsedPeersString + fmt.Sprintf("%d/%d Connected", peersConnected, len(fullStatus.Peers))
+	peersCountString := fmt.Sprintf("%d/%d Connected", peersConnected, len(fullStatus.Peers))
 
-	return fmt.Sprintf(
-		"Management: %s%s\n"+
+	summary := fmt.Sprintf(
+		"%s"+ // daemon status
+			"Management: %s%s\n"+
 			"Signal:  %s%s\n"+
 			"IP: %s\n"+
 			"Interface type: %s\n"+
-			"Peers: %s\n",
+			"Peers count: %s\n",
+		daemonStatus,
 		managementConnString,
 		managementStatusURL,
 		signalConnString,
 		signalStatusURL,
 		fullStatus.LocalPeerState.IP,
 		InterfaceTypeString,
-		peersString,
+		peersCountString,
 	)
+
+	if printDetail {
+		return fmt.Sprintf(
+			"Peers detail:"+
+				"%s\n"+
+				"%s",
+			parsedPeersString,
+			summary,
+		)
+	}
+	return summary
 }
 
 func parsePeers(peers []nbStatus.PeerState, printDetail bool) (string, int) {
