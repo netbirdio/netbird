@@ -160,11 +160,6 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 				return
 			}
 		}()
-
-		err = loadUser(cmd, localUser)
-		if err != nil {
-			return
-		}
 		cmd.Dir = localUser.HomeDir
 		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
 		cmd.Env = append(cmd.Env, prepareUserEnv(localUser, shell)...)
@@ -173,6 +168,12 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 				cmd.Env = append(cmd.Env, v)
 			}
 		}
+
+		attr, err := getSysProcAttr(localUser)
+		if err != nil {
+			return
+		}
+		cmd.SysProcAttr = attr
 
 		file, err := pty.Start(cmd)
 		if err != nil {
