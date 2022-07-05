@@ -75,6 +75,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		engineCtx, cancel := context.WithCancel(ctx)
 		defer func() {
 			statusRecorder.MarkManagementDisconnected(managementURL)
+			statusRecorder.CleanLocalPeerState()
 			cancel()
 		}()
 

@@ -144,7 +144,7 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 		signalStatusURL      = ""
 		managementConnString = "Disconnected"
 		signalConnString     = "Disconnected"
-		InterfaceTypeString  = "Userspace"
+		interfaceTypeString  = "Userspace"
 		peersConnected       = 0
 	)
 
@@ -161,8 +161,13 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 		signalConnString = "Connected"
 	}
 
+	interfaceIP := fullStatus.LocalPeerState.IP
+
 	if fullStatus.LocalPeerState.KernelInterface {
-		InterfaceTypeString = "Kernel"
+		interfaceTypeString = "Kernel"
+	} else if fullStatus.LocalPeerState.IP == "" {
+		interfaceTypeString = "N/A"
+		interfaceIP = "N/A"
 	}
 
 	parsedPeersString, peersConnected := parsePeers(fullStatus.Peers, printDetail)
@@ -173,7 +178,7 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 		"%s"+ // daemon status
 			"Management: %s%s\n"+
 			"Signal:  %s%s\n"+
-			"IP: %s\n"+
+			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Peers count: %s\n",
 		daemonStatus,
@@ -181,8 +186,8 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 		managementStatusURL,
 		signalConnString,
 		signalStatusURL,
-		fullStatus.LocalPeerState.IP,
-		InterfaceTypeString,
+		interfaceIP,
+		interfaceTypeString,
 		peersCountString,
 	)
 

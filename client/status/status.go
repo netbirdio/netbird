@@ -124,6 +124,14 @@ func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 	d.localPeer = localPeerState
 }
 
+// CleanLocalPeerState cleans local peer status
+func (d *Status) CleanLocalPeerState() {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	d.localPeer = LocalPeerState{}
+}
+
 // MarkManagementDisconnected sets ManagementState to disconnected
 func (d *Status) MarkManagementDisconnected(managementURL string) {
 	d.mux.Lock()
