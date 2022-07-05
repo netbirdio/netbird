@@ -145,7 +145,6 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 		managementConnString = "Disconnected"
 		signalConnString     = "Disconnected"
 		interfaceTypeString  = "Userspace"
-		peersConnected       = 0
 	)
 
 	if printDetail {
