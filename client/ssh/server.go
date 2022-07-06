@@ -150,9 +150,12 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 
 	ptyReq, winCh, isPty := session.Pty()
 	if isPty {
-		shell := getUserShell(localUser.Uid)
-		cmd := exec.Command(shell)
-
+		loginCmd, loginArgs, err := getLoginCmd(localUser.Username, session.RemoteAddr())
+		if err != nil {
+			log.Warnf("failed logging-in user %s from remote IP %s", localUser.Username, session.RemoteAddr().String())
+			return
+		}
+		cmd := exec.Command(loginCmd, loginArgs...)
 		go func() {
 			<-session.Context().Done()
 			err := cmd.Process.Kill()
@@ -162,18 +165,12 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 		}()
 		cmd.Dir = localUser.HomeDir
 		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
-		cmd.Env = append(cmd.Env, prepareUserEnv(localUser, shell)...)
+		cmd.Env = append(cmd.Env, prepareUserEnv(localUser, getUserShell(localUser.Uid))...)
 		for _, v := range session.Environ() {
 			if acceptEnv(v) {
 				cmd.Env = append(cmd.Env, v)
 			}
 		}
-
-		attr, err := getSysProcAttr(localUser)
-		if err != nil {
-			return
-		}
-		cmd.SysProcAttr = attr
 
 		file, err := pty.Start(cmd)
 		if err != nil {
