@@ -7,6 +7,7 @@ import (
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"math/rand"
 	"net"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -174,6 +175,13 @@ func (e *Engine) Stop() error {
 		}
 	}
 
+	if !isNil(e.sshServer) {
+		err := e.sshServer.Stop()
+		if err != nil {
+			log.Warnf("failed stopping the SSH server: %v", err)
+		}
+	}
+
 	log.Infof("stopped Netbird Engine")
 
 	return nil
@@ -301,7 +309,7 @@ func (e *Engine) removeAllPeers() error {
 func (e *Engine) removePeer(peerKey string) error {
 	log.Debugf("removing peer from engine %s", peerKey)
 
-	if e.sshServer != nil {
+	if !isNil(e.sshServer) {
 		e.sshServer.RemoveAuthorizedKey(peerKey)
 	}
 
@@ -432,6 +440,10 @@ func (e *Engine) handleSync(update *mgmProto.SyncResponse) error {
 	return nil
 }
 
+func isNil(server nbssh.Server) bool {
+	return server == nil || reflect.ValueOf(server).IsNil()
+}
+
 func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 	if sshConf.GetSshEnabled() {
 		if runtime.GOOS == "windows" {
@@ -439,15 +451,14 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			return nil
 		}
 		// start SSH server if it wasn't running
-		if e.sshServer == nil {
+		if isNil(e.sshServer) {
 			//nil sshServer means it has not yet been started
 			var err error
-			sshServer, err := e.sshServerFunc(e.config.SSHKey,
+			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
 				fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), nbssh.DefaultSSHPort))
 			if err != nil {
 				return err
 			}
-			e.sshServer = sshServer
 			go func() {
 				// blocking
 				err = e.sshServer.Start()
@@ -465,7 +476,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		}
 	} else {
 		// Disable SSH server request, so stop it if it was running
-		if e.sshServer != nil {
+		if !isNil(e.sshServer) {
 			err := e.sshServer.Stop()
 			if err != nil {
 				log.Warnf("failed to stop SSH server %v", err)
@@ -596,7 +607,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		}
 
 		// update SSHServer by adding remote peer SSH keys
-		if e.sshServer != nil {
+		if !isNil(e.sshServer) {
 			for _, config := range networkMap.GetRemotePeers() {
 				if config.GetSshConfig() != nil && config.GetSshConfig().GetSshPubKey() != nil {
 					err := e.sshServer.AddAuthorizedKey(config.WgPubKey, string(config.GetSshConfig().GetSshPubKey()))
