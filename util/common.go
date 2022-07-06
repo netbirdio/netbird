@@ -1,5 +1,7 @@
 package util
 
+import "os"
+
 // SliceDiff returns the elements in slice `x` that are not in slice `y`
 func SliceDiff(x, y []string) []string {
 	mapY := make(map[string]struct{}, len(y))
@@ -13,4 +15,10 @@ func SliceDiff(x, y []string) []string {
 		}
 	}
 	return diff
+}
+
+// FileExists returns true if specified file exists
+func FileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
