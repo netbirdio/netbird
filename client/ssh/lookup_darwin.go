@@ -15,7 +15,7 @@ func userNameLookup(username string) (*user.User, error) {
 	var userObject *user.User
 	userObject, err := user.Lookup(username)
 	if err != nil && err.Error() == user.UnknownUserError(username).Error() {
-		return dsUserNameLookup(username)
+		return idUserNameLookup(username)
 	} else if err != nil {
 		return nil, err
 	}
@@ -23,7 +23,7 @@ func userNameLookup(username string) (*user.User, error) {
 	return userObject, nil
 }
 
-func dsUserNameLookup(username string) (*user.User, error) {
+func idUserNameLookup(username string) (*user.User, error) {
 	cmd := exec.Command("id", "-P", username)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
