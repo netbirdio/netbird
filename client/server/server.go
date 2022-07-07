@@ -400,7 +400,7 @@ func (s *Server) Status(
 
 	statusResponse := proto.StatusResponse{Status: string(status)}
 
-	if msg.GetFullPeerStatus {
+	if msg.GetFullPeerStatus && s.statusRecorder != nil {
 		fullStatus := s.statusRecorder.GetFullStatus()
 		pbFullStatus := toProtoFullStatus(fullStatus)
 		statusResponse.FullStatus = pbFullStatus
