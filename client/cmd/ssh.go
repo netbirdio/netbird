@@ -17,7 +17,7 @@ import (
 
 var (
 	port int
-	user = "netbird"
+	user = "root"
 	host string
 )
 
@@ -90,7 +90,8 @@ func runSSH(ctx context.Context, addr string, pemKey []byte, cmd *cobra.Command)
 		cmd.Printf("Couldn't connect. " +
 			"You might be disconnected from the NetBird network, or the NetBird agent isn't running.\n" +
 			"Run the status command: \n\n" +
-			" netbird status\n\n")
+			" netbird status\n\n" +
+			"It might also be that the SSH server is disabled on the agent you are trying to connect to.\n")
 		return nil
 	}
 	go func() {

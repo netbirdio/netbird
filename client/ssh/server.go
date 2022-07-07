@@ -9,6 +9,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
+	"runtime"
+	"strings"
 	"sync"
 )
 
@@ -105,12 +108,20 @@ func (srv *DefaultServer) publicKeyHandler(ctx ssh.Context, key ssh.PublicKey) b
 	return false
 }
 
-func getShellType() string {
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "sh"
+func prepareUserEnv(user *user.User, shell string) []string {
+	return []string{
+		fmt.Sprintf("SHELL=" + shell),
+		fmt.Sprintf("USER=" + user.Username),
+		fmt.Sprintf("HOME=" + user.HomeDir),
 	}
-	return shell
+}
+
+func acceptEnv(s string) bool {
+	split := strings.Split(s, "=")
+	if len(split) != 2 {
+		return false
+	}
+	return split[0] == "TERM" || split[0] == "LANG" || strings.HasPrefix(split[0], "LC_")
 }
 
 // sessionHandler handles SSH session post auth
@@ -118,14 +129,54 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 	srv.mu.Lock()
 	srv.sessions = append(srv.sessions, session)
 	srv.mu.Unlock()
+
+	defer func() {
+		err := session.Close()
+		if err != nil {
+			return
+		}
+	}()
+
+	localUser, err := user.Lookup(session.User())
+	if err != nil {
+		_, err = fmt.Fprintf(session, "remote SSH server couldn't find local user %s\n", session.User()) //nolint
+		err = session.Exit(1)
+		if err != nil {
+			return
+		}
+		log.Warnf("failed SSH session from %v, user %s", session.RemoteAddr(), session.User())
+		return
+	}
+
 	ptyReq, winCh, isPty := session.Pty()
 	if isPty {
-		cmd := exec.Command(getShellType())
-		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%session", ptyReq.Term))
+		loginCmd, loginArgs, err := getLoginCmd(localUser.Username, session.RemoteAddr())
+		if err != nil {
+			log.Warnf("failed logging-in user %s from remote IP %s", localUser.Username, session.RemoteAddr().String())
+			return
+		}
+		cmd := exec.Command(loginCmd, loginArgs...)
+		go func() {
+			<-session.Context().Done()
+			err := cmd.Process.Kill()
+			if err != nil {
+				return
+			}
+		}()
+		cmd.Dir = localUser.HomeDir
+		cmd.Env = append(cmd.Env, fmt.Sprintf("TERM=%s", ptyReq.Term))
+		cmd.Env = append(cmd.Env, prepareUserEnv(localUser, getUserShell(localUser.Uid))...)
+		for _, v := range session.Environ() {
+			if acceptEnv(v) {
+				cmd.Env = append(cmd.Env, v)
+			}
+		}
+
 		file, err := pty.Start(cmd)
 		if err != nil {
 			log.Errorf("failed starting SSH server %v", err)
 		}
+
 		go func() {
 			for win := range winCh {
 				setWinSize(file, win.Width, win.Height)
@@ -180,4 +231,20 @@ func (srv *DefaultServer) Start() error {
 	}
 
 	return nil
+}
+
+func getUserShell(userID string) string {
+	if runtime.GOOS == "linux" {
+		output, _ := exec.Command("getent", "passwd", userID).Output()
+		line := strings.SplitN(string(output), ":", 10)
+		if len(line) > 6 {
+			return strings.TrimSpace(line[6])
+		}
+	}
+
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	return shell
 }
