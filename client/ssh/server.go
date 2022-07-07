@@ -137,7 +137,7 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 		}
 	}()
 
-	localUser, err := user.Lookup(session.User())
+	localUser, err := userNameLookup(session.User())
 	if err != nil {
 		_, err = fmt.Fprintf(session, "remote SSH server couldn't find local user %s\n", session.User()) //nolint
 		err = session.Exit(1)
