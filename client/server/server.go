@@ -95,7 +95,9 @@ func (s *Server) Start() error {
 
 	s.config = config
 
-	s.statusRecorder = nbStatus.NewRecorder()
+	if s.statusRecorder == nil {
+		s.statusRecorder = nbStatus.NewRecorder()
+	}
 
 	go func() {
 		if err := internal.RunClient(ctx, config, s.statusRecorder); err != nil {
@@ -399,6 +401,10 @@ func (s *Server) Status(
 	}
 
 	statusResponse := proto.StatusResponse{Status: string(status)}
+
+	if s.statusRecorder == nil {
+		s.statusRecorder = nbStatus.NewRecorder()
+	}
 
 	if msg.GetFullPeerStatus {
 		fullStatus := s.statusRecorder.GetFullStatus()

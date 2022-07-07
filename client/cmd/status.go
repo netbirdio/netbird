@@ -106,29 +106,32 @@ func parseFilters() error {
 
 func fromProtoFullStatus(pbFullStatus *proto.FullStatus) nbStatus.FullStatus {
 	var fullStatus nbStatus.FullStatus
-	fullStatus.ManagementState.URL = pbFullStatus.ManagementState.URL
-	fullStatus.ManagementState.Connected = pbFullStatus.ManagementState.Connected
+	managementState := pbFullStatus.GetManagementState()
+	fullStatus.ManagementState.URL = managementState.GetURL()
+	fullStatus.ManagementState.Connected = managementState.GetConnected()
 
-	fullStatus.SignalState.URL = pbFullStatus.SignalState.URL
-	fullStatus.SignalState.Connected = pbFullStatus.SignalState.Connected
+	signalState := pbFullStatus.GetSignalState()
+	fullStatus.SignalState.URL = signalState.GetURL()
+	fullStatus.SignalState.Connected = signalState.GetConnected()
 
-	fullStatus.LocalPeerState.IP = pbFullStatus.LocalPeerState.IP
-	fullStatus.LocalPeerState.PubKey = pbFullStatus.LocalPeerState.PubKey
-	fullStatus.LocalPeerState.KernelInterface = pbFullStatus.LocalPeerState.KernelInterface
+	localPeerState := pbFullStatus.GetLocalPeerState()
+	fullStatus.LocalPeerState.IP = localPeerState.GetIP()
+	fullStatus.LocalPeerState.PubKey = localPeerState.GetPubKey()
+	fullStatus.LocalPeerState.KernelInterface = localPeerState.GetKernelInterface()
 
 	var peersState []nbStatus.PeerState
 
-	for _, pbPeerState := range pbFullStatus.Peers {
-		timeLocal := pbPeerState.ConnStatusUpdate.AsTime().Local()
+	for _, pbPeerState := range pbFullStatus.GetPeers() {
+		timeLocal := pbPeerState.GetConnStatusUpdate().AsTime().Local()
 		peerState := nbStatus.PeerState{
-			IP:                     pbPeerState.IP,
-			PubKey:                 pbPeerState.PubKey,
-			ConnStatus:             pbPeerState.ConnStatus,
+			IP:                     pbPeerState.GetIP(),
+			PubKey:                 pbPeerState.GetPubKey(),
+			ConnStatus:             pbPeerState.GetConnStatus(),
 			ConnStatusUpdate:       timeLocal,
-			Relayed:                pbPeerState.Relayed,
-			Direct:                 pbPeerState.Direct,
-			LocalIceCandidateType:  pbPeerState.LocalIceCandidateType,
-			RemoteIceCandidateType: pbPeerState.RemoteIceCandidateType,
+			Relayed:                pbPeerState.GetRelayed(),
+			Direct:                 pbPeerState.GetDirect(),
+			LocalIceCandidateType:  pbPeerState.GetLocalIceCandidateType(),
+			RemoteIceCandidateType: pbPeerState.GetRemoteIceCandidateType(),
 		}
 		peersState = append(peersState, peerState)
 	}
