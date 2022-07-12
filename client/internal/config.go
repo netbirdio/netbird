@@ -64,6 +64,14 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 		config.PreSharedKey = preSharedKey
 	}
 
+	if adminURL != "" {
+		newURL, err := parseURL("Admin Panel URL", adminURL)
+		if err != nil {
+			return nil, err
+		}
+		config.AdminURL = newURL
+	}
+
 	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
 		"Tailscale", "tailscale"}
 
