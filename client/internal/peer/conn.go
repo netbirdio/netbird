@@ -75,6 +75,11 @@ func (conn *Conn) GetConf() ConnConfig {
 	return conn.config
 }
 
+// UpdateConf updates the connection config
+func (conn *Conn) UpdateConf(conf ConnConfig) {
+	conn.config = conf
+}
+
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
 func NewConn(config ConnConfig, statusRecorder *nbStatus.Status) (*Conn, error) {
@@ -415,7 +420,7 @@ func (conn *Conn) SetSignalCandidate(handler func(candidate ice.Candidate) error
 // and then signals them to the remote peer
 func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 	if candidate != nil {
-		// log.Debugf("discovered local candidate %s", candidate.String())
+		log.Debugf("discovered local candidate %s", candidate.String())
 		go func() {
 			err := conn.signalCandidate(candidate)
 			if err != nil {
