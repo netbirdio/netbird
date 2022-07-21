@@ -679,7 +679,7 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 		// we might have received new STUN and TURN servers meanwhile, so update them
 		e.syncMsgMux.Lock()
 		conf := conn.GetConf()
-		conf.StunTurn = append(e.STUNs, e.STUNs...)
+		conf.StunTurn = append(e.STUNs, e.TURNs...)
 		conn.UpdateConf(conf)
 		e.syncMsgMux.Unlock()
 
