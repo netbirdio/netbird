@@ -657,7 +657,7 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 	return nil
 }
 
-func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
+func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 	for {
 
 		// randomize starting time a bit
@@ -675,6 +675,13 @@ func (e Engine) connWorker(conn *peer.Conn, peerKey string) {
 			log.Infof("signal client isn't ready, skipping connection attempt %s", peerKey)
 			continue
 		}
+
+		// we might have received new STUN and TURN servers meanwhile, so update them
+		e.syncMsgMux.Lock()
+		conf := conn.GetConf()
+		conf.StunTurn = append(e.STUNs, e.STUNs...)
+		conn.UpdateConf(conf)
+		e.syncMsgMux.Unlock()
 
 		err := conn.Open()
 		if err != nil {
