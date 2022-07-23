@@ -97,7 +97,10 @@ var (
 			var httpServer *http.Server
 			if config.HttpConfig.LetsEncryptDomain != "" {
 				// automatically generate a new certificate with Let's Encrypt
-				certManager := encryption.CreateCertManager(config.Datadir, config.HttpConfig.LetsEncryptDomain)
+				certManager, err := encryption.CreateCertManager(config.Datadir, config.HttpConfig.LetsEncryptDomain)
+				if err != nil {
+					log.Fatalf("failed creating Let's Encrypt cert manager: %v", err)
+				}
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/soheilhy/cmux"
+	"golang.org/x/crypto/acme/autocert"
 	"io"
 	"io/fs"
 	"io/ioutil"
@@ -11,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -44,8 +47,8 @@ var (
 
 	runCmd = &cobra.Command{
 		Use:   "run",
-		Short: "start Netbird Signal Server daemon",
-		Run: func(cmd *cobra.Command, args []string) {
+		Short: "start NetBird Signal Server daemon",
+		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
@@ -62,46 +65,72 @@ var (
 			}
 
 			var opts []grpc.ServerOption
+			var listener net.Listener
+			var certManager *autocert.Manager
+			// Let's encrypt enabled -> generate certificate automatically
 			if signalLetsencryptDomain != "" {
-				if _, err := os.Stat(signalSSLDir); os.IsNotExist(err) {
-					err = os.MkdirAll(signalSSLDir, os.ModeDir)
-					if err != nil {
-						log.Fatalf("failed creating datadir: %s: %v", signalSSLDir, err)
-					}
+				certManager, err = encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
+				if err != nil {
+					return err
 				}
-				certManager := encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 
-				listener := certManager.Listener()
-				log.Infof("http server listening on %s", listener.Addr())
-				go func() {
-					if err := http.Serve(listener, certManager.HTTPHandler(nil)); err != nil {
-						log.Errorf("failed to serve https server: %v", err)
-					}
-				}()
+				listener = certManager.Listener()
+				log.Infof("HTTP server listening on %s", listener.Addr())
+			} else {
+				listener, err = net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
+				if err != nil {
+					return err
+				}
 			}
+
+			cMux := cmux.New(listener)
+			grpcListener := cMux.MatchWithWriters(
+				cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"),
+				cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc+proto"),
+			)
+			httpListener := cMux.Match(cmux.HTTP1())
 
 			opts = append(opts, signalKaep, signalKasp)
 			grpcServer := grpc.NewServer(opts...)
-
-			lis, err := net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
-			if err != nil {
-				log.Fatalf("failed to listen: %v", err)
-			}
-
 			proto.RegisterSignalExchangeServer(grpcServer, server.NewServer())
-			log.Printf("started server: localhost:%v", signalPort)
-			if err := grpcServer.Serve(lis); err != nil {
-				log.Fatalf("failed to serve: %v", err)
+
+			go grpcServer.Serve(grpcListener)
+			if certManager != nil {
+				go http.Serve(httpListener, certManager.HTTPHandler(nil))
 			}
+
+			log.Infof("started Signal Service: %v", grpcListener.Addr())
 
 			SetupCloseHandler()
+
+			err = cMux.Serve()
+			if err != nil {
+				return err
+			}
+
 			<-stopCh
-			log.Println("Receive signal to stop running the Signal server")
+			_ = listener.Close()
+			log.Infof("stopped Signal Service")
+
+			return nil
 		},
 	}
 )
+
+// grpcHandlerFunc returns a http.Handler that delegates to grpcServer on incoming gRPC
+func grpcHandlerFunc(grpcServer *grpc.Server, otherHandler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// TODO(tamird): point to merged gRPC code rather than a PR.
+		// This is a partial recreation of gRPC's internal checks https://github.com/grpc/grpc-go/pull/514/files#diff-95e9a25b738459a2d3030e1e6fa2a718R61
+		if r.ProtoMajor == 2 && strings.Contains(r.Header.Get("Content-Type"), "application/grpc") {
+			grpcServer.ServeHTTP(w, r)
+		} else {
+			otherHandler.ServeHTTP(w, r)
+		}
+	})
+}
 
 func cpFile(src, dst string) error {
 	var err error
@@ -191,7 +220,7 @@ func migrateToNetbird(oldPath, newPath string) bool {
 }
 
 func init() {
-	runCmd.PersistentFlags().IntVar(&signalPort, "port", 10000, "Server port to listen on (e.g. 10000)")
+	runCmd.PersistentFlags().IntVar(&signalPort, "port", 80, "Server port to listen on (e.g. 80)")
 	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", defaultSignalSSLDir, "server ssl directory location. *Required only for Let's Encrypt certificates.")
 	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 }
