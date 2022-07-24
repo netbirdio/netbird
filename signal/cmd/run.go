@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -32,6 +31,7 @@ var (
 	signalLetsencryptDomain string
 	signalSSLDir            string
 	defaultSignalSSLDir     string
+	tlsEnabled              bool
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -48,8 +48,25 @@ var (
 	runCmd = &cobra.Command{
 		Use:   "run",
 		Short: "start NetBird Signal Server daemon",
+		PreRun: func(cmd *cobra.Command, args []string) {
+			// detect whether user specified a port
+			userPort := cmd.Flag("port").Changed
+			if signalLetsencryptDomain != "" {
+				tlsEnabled = true
+			}
+
+			if !userPort {
+				// different defaults for signalPort
+				if tlsEnabled {
+					signalPort = 443
+				} else {
+					signalPort = 80
+				}
+			}
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
+
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				log.Fatalf("failed initializing log %v", err)
@@ -65,10 +82,13 @@ var (
 			}
 
 			var opts []grpc.ServerOption
-			var listener net.Listener
+			var httpListener net.Listener
+			var grpcListener net.Listener
 			var certManager *autocert.Manager
-			// Let's encrypt enabled -> generate certificate automatically
-			if signalLetsencryptDomain != "" {
+			var cMux cmux.CMux
+			cMux = nil
+			if tlsEnabled {
+				// Let's encrypt enabled -> generate certificate automatically
 				certManager, err = encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 				if err != nil {
 					return err
@@ -76,42 +96,64 @@ var (
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 
-				listener = certManager.Listener()
-				log.Infof("HTTP server listening on %s", listener.Addr())
+				if signalPort == 443 {
+					// the only case when we need multiplexing
+					cMux = cmux.New(certManager.Listener())
+					grpcListener = cMux.MatchWithWriters(
+						cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"),
+						cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc+proto"),
+					)
+					httpListener = cMux.Match(cmux.Any())
+				} else {
+					// separate ports for HTTP and gRPC, no multiplexing required
+					grpcListener, err = net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
+					if err != nil {
+						return err
+					}
+					httpListener = certManager.Listener()
+				}
 			} else {
-				listener, err = net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
+				grpcListener, err = net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
 				if err != nil {
 					return err
 				}
+				httpListener = nil
 			}
-
-			cMux := cmux.New(listener)
-			grpcListener := cMux.MatchWithWriters(
-				cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc"),
-				cmux.HTTP2MatchHeaderFieldSendSettings("content-type", "application/grpc+proto"),
-			)
-			httpListener := cMux.Match(cmux.HTTP1())
 
 			opts = append(opts, signalKaep, signalKasp)
 			grpcServer := grpc.NewServer(opts...)
 			proto.RegisterSignalExchangeServer(grpcServer, server.NewServer())
 
-			go grpcServer.Serve(grpcListener)
-			if certManager != nil {
-				go http.Serve(httpListener, certManager.HTTPHandler(nil))
+			var compatListener net.Listener
+			if signalPort != 10000 {
+				compatListener, err = serveCompatibilityGRPC(grpcServer)
+				if err != nil {
+					return err
+				}
+			}
+			serveGRPC(grpcServer, grpcListener)
+			if httpListener != nil {
+				serveHTTP(httpListener, certManager.HTTPHandler(nil))
+			}
+			if cMux != nil {
+				serveMux(cMux)
 			}
 
-			log.Infof("started Signal Service: %v", grpcListener.Addr())
+			log.Infof("started Signal Service")
 
 			SetupCloseHandler()
 
-			err = cMux.Serve()
-			if err != nil {
-				return err
-			}
-
 			<-stopCh
-			_ = listener.Close()
+			_ = grpcListener.Close()
+			if httpListener != nil {
+				_ = httpListener.Close()
+			}
+			if cMux != nil {
+				cMux.Close()
+			}
+			if compatListener != nil {
+				_ = compatListener.Close()
+			}
 			log.Infof("stopped Signal Service")
 
 			return nil
@@ -119,17 +161,59 @@ var (
 	}
 )
 
-// grpcHandlerFunc returns a http.Handler that delegates to grpcServer on incoming gRPC
-func grpcHandlerFunc(grpcServer *grpc.Server, otherHandler http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// TODO(tamird): point to merged gRPC code rather than a PR.
-		// This is a partial recreation of gRPC's internal checks https://github.com/grpc/grpc-go/pull/514/files#diff-95e9a25b738459a2d3030e1e6fa2a718R61
-		if r.ProtoMajor == 2 && strings.Contains(r.Header.Get("Content-Type"), "application/grpc") {
-			grpcServer.ServeHTTP(w, r)
-		} else {
-			otherHandler.ServeHTTP(w, r)
+func notifyStop(msg string) {
+	select {
+	case stopCh <- 1:
+	default:
+	}
+	log.Error(msg)
+}
+
+func serveMux(cMux cmux.CMux) {
+	log.Infof("running gRPC and HTTP server in a multiplex mode on port 443")
+	go func() {
+		err := cMux.Serve()
+		if err != nil {
+			notifyStop(fmt.Sprintf("failed running HTTP Mux server %v", err))
 		}
-	})
+	}()
+}
+
+func serveHTTP(httpListener net.Listener, handler http.Handler) {
+	log.Infof("running HTTP server: %s", httpListener.Addr().String())
+	go func() {
+		err := http.Serve(httpListener, handler)
+		if err != nil {
+			notifyStop(fmt.Sprintf("failed running HTTP server %v", err))
+		}
+	}()
+}
+
+// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
+// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
+func serveCompatibilityGRPC(grpcServer *grpc.Server) (net.Listener, error) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", 10000))
+	if err != nil {
+		return nil, err
+	}
+	log.Infof("running gRPC backward compatibility server: %s", listener.Addr().String())
+	go func() {
+		err := grpcServer.Serve(listener)
+		if err != nil {
+			notifyStop(fmt.Sprintf("failed running compatibility gRPC server (port 10000) %v", err))
+		}
+	}()
+	return listener, nil
+}
+
+func serveGRPC(grpcServer *grpc.Server, grpcListener net.Listener) {
+	log.Infof("running gRPC server: %s", grpcListener.Addr().String())
+	go func() {
+		err := grpcServer.Serve(grpcListener)
+		if err != nil {
+			notifyStop(fmt.Sprintf("failed running gRPC server %v", err))
+		}
+	}()
 }
 
 func cpFile(src, dst string) error {
@@ -220,7 +304,7 @@ func migrateToNetbird(oldPath, newPath string) bool {
 }
 
 func init() {
-	runCmd.PersistentFlags().IntVar(&signalPort, "port", 80, "Server port to listen on (e.g. 80)")
+	runCmd.PersistentFlags().IntVar(&signalPort, "port", 80, "Server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
 	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", defaultSignalSSLDir, "server ssl directory location. *Required only for Let's Encrypt certificates.")
 	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 }
