@@ -46,6 +46,17 @@ var (
 		Timeout:               2 * time.Second,
 	}
 
+	// TLS enabled:
+	// 		- HTTP 80 for LetsEncrypt
+	//		- if --port not specified gRPC and HTTP servers on 443 (with multiplexing)
+	//		- if --port=X specified then run gRPC and HTTP servers on X (with multiplexing)
+	// 		- if --port=80 forbid this (throw error, otherwise we need to overcomplicate the logic with multiplexing)
+	// TLS disabled:
+	//		- if --port not specified gRPC and HTTP servers on 443 on 80 (with multiplexing)
+	//		- if --port=X specified then run gRPC and HTTP servers on 443 on X (with multiplexing)
+	// Always run gRPC on port 33073 regardless of TLS to be backward compatible
+	// Remove HTTP port 33071 from the configuration.
+
 	mgmtCmd = &cobra.Command{
 		Use:   "management",
 		Short: "start Netbird Management Server",
@@ -97,7 +108,10 @@ var (
 			var httpServer *http.Server
 			if config.HttpConfig.LetsEncryptDomain != "" {
 				// automatically generate a new certificate with Let's Encrypt
-				certManager := encryption.CreateCertManager(config.Datadir, config.HttpConfig.LetsEncryptDomain)
+				certManager, err := encryption.CreateCertManager(config.Datadir, config.HttpConfig.LetsEncryptDomain)
+				if err != nil {
+					log.Fatalf("failed creating Let's Encrypt cert manager: %v", err)
+				}
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
 

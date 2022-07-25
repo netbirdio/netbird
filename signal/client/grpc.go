@@ -75,6 +75,8 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		return nil, err
 	}
 
+	log.Debugf("connected to Signal Service: %v", conn.Target())
+
 	return &GrpcClient{
 		realClient: proto.NewSignalExchangeClient(conn),
 		ctx:        ctx,
