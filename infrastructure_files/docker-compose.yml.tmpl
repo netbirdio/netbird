@@ -25,7 +25,7 @@ services:
     volumes:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
     ports:
-      - 10000:10000
+      - 10000:80
   #     # port and command for Let's Encrypt validation
   #      - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
