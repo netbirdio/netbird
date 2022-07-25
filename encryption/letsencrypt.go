@@ -8,17 +8,17 @@ import (
 )
 
 // CreateCertManager wraps common logic of generating Let's encrypt certificate.
-func CreateCertManager(datadir string, letsencryptDomain string) *autocert.Manager {
+func CreateCertManager(datadir string, letsencryptDomain string) (*autocert.Manager, error) {
 	certDir := filepath.Join(datadir, "letsencrypt")
 
 	if _, err := os.Stat(certDir); os.IsNotExist(err) {
 		err = os.MkdirAll(certDir, os.ModeDir)
 		if err != nil {
-			log.Fatalf("failed creating Let's encrypt certdir: %s: %v", certDir, err)
+			return nil, err
 		}
 	}
 
-	log.Infof("running with Let's encrypt with domain %s. Cert will be stored in %s", letsencryptDomain, certDir)
+	log.Infof("running with LetsEncrypt (%s). Cert will be stored in %s", letsencryptDomain, certDir)
 
 	certManager := &autocert.Manager{
 		Prompt:     autocert.AcceptTOS,
@@ -26,5 +26,5 @@ func CreateCertManager(datadir string, letsencryptDomain string) *autocert.Manag
 		HostPolicy: autocert.HostWhitelist(letsencryptDomain),
 	}
 
-	return certManager
+	return certManager, nil
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"golang.org/x/crypto/acme/autocert"
 	"io"
 	"io/fs"
 	"io/ioutil"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/netbirdio/netbird/encryption"
@@ -29,6 +31,7 @@ var (
 	signalLetsencryptDomain string
 	signalSSLDir            string
 	defaultSignalSSLDir     string
+	tlsEnabled              bool
 
 	signalKaep = grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
 		MinTime:             5 * time.Second,
@@ -44,9 +47,26 @@ var (
 
 	runCmd = &cobra.Command{
 		Use:   "run",
-		Short: "start Netbird Signal Server daemon",
-		Run: func(cmd *cobra.Command, args []string) {
+		Short: "start NetBird Signal Server daemon",
+		PreRun: func(cmd *cobra.Command, args []string) {
+			// detect whether user specified a port
+			userPort := cmd.Flag("port").Changed
+			if signalLetsencryptDomain != "" {
+				tlsEnabled = true
+			}
+
+			if !userPort {
+				// different defaults for signalPort
+				if tlsEnabled {
+					signalPort = 443
+				} else {
+					signalPort = 80
+				}
+			}
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
+
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
 				log.Fatalf("failed initializing log %v", err)
@@ -62,46 +82,119 @@ var (
 			}
 
 			var opts []grpc.ServerOption
-			if signalLetsencryptDomain != "" {
-				if _, err := os.Stat(signalSSLDir); os.IsNotExist(err) {
-					err = os.MkdirAll(signalSSLDir, os.ModeDir)
-					if err != nil {
-						log.Fatalf("failed creating datadir: %s: %v", signalSSLDir, err)
-					}
+			var certManager *autocert.Manager
+			if tlsEnabled {
+				// Let's encrypt enabled -> generate certificate automatically
+				certManager, err = encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
+				if err != nil {
+					return err
 				}
-				certManager := encryption.CreateCertManager(signalSSLDir, signalLetsencryptDomain)
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
-
-				listener := certManager.Listener()
-				log.Infof("http server listening on %s", listener.Addr())
-				go func() {
-					if err := http.Serve(listener, certManager.HTTPHandler(nil)); err != nil {
-						log.Errorf("failed to serve https server: %v", err)
-					}
-				}()
 			}
 
 			opts = append(opts, signalKaep, signalKasp)
 			grpcServer := grpc.NewServer(opts...)
-
-			lis, err := net.Listen("tcp", fmt.Sprintf(":%d", signalPort))
-			if err != nil {
-				log.Fatalf("failed to listen: %v", err)
-			}
-
 			proto.RegisterSignalExchangeServer(grpcServer, server.NewServer())
-			log.Printf("started server: localhost:%v", signalPort)
-			if err := grpcServer.Serve(lis); err != nil {
-				log.Fatalf("failed to serve: %v", err)
+
+			var compatListener net.Listener
+			if signalPort != 10000 {
+				// The Signal gRPC server was running on port 10000 previously. Old agents that are already connected to Signal
+				// are using port 10000. For compatibility purposes we keep running a 2nd gRPC server on port 10000.
+				compatListener, err = serveGRPC(grpcServer, 10000)
+				if err != nil {
+					return err
+				}
+				log.Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
 			}
+
+			var grpcListener net.Listener
+			var httpListener net.Listener
+			if tlsEnabled {
+				httpListener = certManager.Listener()
+				if signalPort == 443 {
+					// running gRPC and HTTP cert manager on the same port
+					serveHTTP(httpListener, certManager.HTTPHandler(grpcHandlerFunc(grpcServer)))
+					log.Infof("running HTTP server (LetsEncrypt challenge handler) and gRPC server on the same port: %s", httpListener.Addr().String())
+				} else {
+					serveHTTP(httpListener, certManager.HTTPHandler(nil))
+					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", httpListener.Addr().String())
+				}
+			}
+
+			if signalPort != 443 || !tlsEnabled {
+				grpcListener, err = serveGRPC(grpcServer, signalPort)
+				if err != nil {
+					return err
+				}
+				log.Infof("running gRPC server: %s", grpcListener.Addr().String())
+			}
+
+			log.Infof("started Signal Service")
 
 			SetupCloseHandler()
+
 			<-stopCh
-			log.Println("Receive signal to stop running the Signal server")
+			if grpcListener != nil {
+				_ = grpcListener.Close()
+				log.Infof("stopped gRPC server")
+			}
+			if httpListener != nil {
+				_ = httpListener.Close()
+				log.Infof("stopped HTTP server")
+			}
+			if compatListener != nil {
+				_ = compatListener.Close()
+				log.Infof("stopped gRPC backward compatibility server")
+			}
+			log.Infof("stopped Signal Service")
+
+			return nil
 		},
 	}
 )
+
+func grpcHandlerFunc(grpcServer *grpc.Server) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		grpcHeader := strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") ||
+			strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc+proto")
+		if r.ProtoMajor == 2 && grpcHeader {
+			grpcServer.ServeHTTP(w, r)
+		}
+	})
+}
+
+func notifyStop(msg string) {
+	select {
+	case stopCh <- 1:
+		log.Error(msg)
+	default:
+		// stop has been already called, nothing to report
+	}
+}
+
+func serveHTTP(httpListener net.Listener, handler http.Handler) {
+	go func() {
+		err := http.Serve(httpListener, handler)
+		if err != nil {
+			notifyStop(fmt.Sprintf("failed running HTTP server %v", err))
+		}
+	}()
+}
+
+func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		err := grpcServer.Serve(listener)
+		if err != nil {
+			notifyStop(fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
+		}
+	}()
+	return listener, nil
+}
 
 func cpFile(src, dst string) error {
 	var err error
@@ -191,7 +284,7 @@ func migrateToNetbird(oldPath, newPath string) bool {
 }
 
 func init() {
-	runCmd.PersistentFlags().IntVar(&signalPort, "port", 10000, "Server port to listen on (e.g. 10000)")
+	runCmd.PersistentFlags().IntVar(&signalPort, "port", 80, "Server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
 	runCmd.Flags().StringVar(&signalSSLDir, "ssl-dir", defaultSignalSSLDir, "server ssl directory location. *Required only for Let's Encrypt certificates.")
 	runCmd.Flags().StringVar(&signalLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
 }
