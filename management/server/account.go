@@ -7,6 +7,7 @@ import (
 	cacheStore "github.com/eko/gocache/v2/store"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/route"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -48,6 +49,7 @@ type AccountManager interface {
 	RenamePeer(accountId string, peerKey string, newName string) (*Peer, error)
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
+	UpdatePeer(accountID string, peer *Peer) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
 	GetPeerNetwork(peerKey string) (*Network, error)
 	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
@@ -67,7 +69,11 @@ type AccountManager interface {
 	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
 	DeleteRule(accountId, ruleID string) error
 	ListRules(accountId string) ([]*Rule, error)
-	UpdatePeer(accountID string, peer *Peer) (*Peer, error)
+	GetRoute(accountID, routeID string) (*route.Route, error)
+	SaveRoute(accountID string, route *route.Route) error
+	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
+	DeleteRoute(accountID, routeID string) error
+	ListRoutes(accountID string) ([]*route.Route, error)
 }
 
 type DefaultAccountManager struct {
@@ -94,6 +100,7 @@ type Account struct {
 	Users                  map[string]*User
 	Groups                 map[string]*Group
 	Rules                  map[string]*Rule
+	Routes                 map[string]*route.Route
 }
 
 type UserInfo struct {
