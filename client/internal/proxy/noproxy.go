@@ -13,11 +13,15 @@ import (
 // NoProxy will just update remote peer with a remote host and fixed Wireguard port (r.g. 51820).
 // In order NoProxy to work, Wireguard port has to be fixed for the time being.
 type NoProxy struct {
-	config Config
+	config  Config
+	relayed bool
 }
 
-func NewNoProxy(config Config) *NoProxy {
-	return &NoProxy{config: config}
+func NewNoProxy(config Config, relayed bool) *NoProxy {
+	return &NoProxy{
+		config:  config,
+		relayed: relayed,
+	}
 }
 
 func (p *NoProxy) Close() error {
@@ -36,7 +40,9 @@ func (p *NoProxy) Start(remoteConn net.Conn) error {
 	if err != nil {
 		return err
 	}
-	addr.Port = iface.DefaultWgPort
+	if !p.relayed {
+		addr.Port = iface.DefaultWgPort
+	}
 	err = p.config.WgInterface.UpdatePeer(p.config.RemoteKey, p.config.AllowedIps, DefaultWgKeepAlive,
 		addr, p.config.PreSharedKey)
 
