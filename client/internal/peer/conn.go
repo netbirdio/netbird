@@ -288,8 +288,12 @@ func shouldUseProxy(pair *ice.CandidatePair) bool {
 	remoteIsPublic := IsPublicIP(remoteIP)
 	myIsPublic := IsPublicIP(myIp)
 
+	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
+		return true
+	}
+
 	//one of the hosts has a public IP
-	if remoteIsPublic && pair.Remote.Type() == ice.CandidateTypeHost && pair.Local.Type() != ice.CandidateTypeRelay {
+	if remoteIsPublic && pair.Remote.Type() == ice.CandidateTypeHost {
 		return false
 	}
 	if myIsPublic && pair.Local.Type() == ice.CandidateTypeHost {
@@ -332,8 +336,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 		p = proxy.NewWireguardProxy(conn.config.ProxyConfig)
 		peerState.Direct = false
 	} else {
-		relayed := pair.Remote.Type() == ice.CandidateTypeRelay
-		p = proxy.NewNoProxy(conn.config.ProxyConfig, relayed)
+		p = proxy.NewNoProxy(conn.config.ProxyConfig)
 		peerState.Direct = true
 	}
 	conn.proxy = p
