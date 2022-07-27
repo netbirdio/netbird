@@ -41,6 +41,9 @@ jobs:
         name: Install modules
         run: go mod tidy
       -
+        name: check git status
+        run: git --no-pager diff --exit-code
+      -
         name: Set up QEMU
         uses: docker/setup-qemu-action@v1
       -
