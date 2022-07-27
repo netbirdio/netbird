@@ -29,6 +29,7 @@ type RouteUpdateOperation struct {
 	Values []string
 }
 
+// GetRoute gets a route object from account and route IDs
 func (am *DefaultAccountManager) GetRoute(accountID, routeID string) (*route.Route, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -88,12 +89,12 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 		case UpdateRouteDescription:
 			newRoute.Description = operation.Values[0]
 		case UpdateRoutePrefix:
-			version, prefix, err := route.ParsePrefix(operation.Values[0])
+			prefixType, prefix, err := route.ParsePrefix(operation.Values[0])
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", operation.Values[0])
 			}
 			newRoute.Prefix = prefix
-			newRoute.Version = version
+			newRoute.PrefixType = prefixType
 		case UpdateRoutePeer:
 			_, peerExist := account.Peers[operation.Values[0]]
 			if !peerExist {

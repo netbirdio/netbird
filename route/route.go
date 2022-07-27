@@ -25,14 +25,16 @@ const (
 	MaxMetric = 9999
 )
 
+// PrefixType route prefix type
 type PrefixType int
 
+// Route represents a route
 type Route struct {
 	Prefix      netip.Prefix
 	ID          string
 	Description string
 	Peer        string
-	Version     PrefixType
+	PrefixType  PrefixType
 	Masquerade  bool
 	Metric      int
 }
@@ -43,7 +45,7 @@ func (r *Route) Copy() *Route {
 		ID:          r.ID,
 		Description: r.Description,
 		Prefix:      r.Prefix,
-		Version:     r.Version,
+		PrefixType:  r.PrefixType,
 		Peer:        r.Peer,
 		Metric:      r.Metric,
 	}
