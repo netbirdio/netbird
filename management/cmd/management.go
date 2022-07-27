@@ -59,34 +59,39 @@ var (
 
 	mgmtCmd = &cobra.Command{
 		Use:   "management",
-		Short: "start Netbird Management Server",
-		Run: func(cmd *cobra.Command, args []string) {
+		Short: "start NetBird Management Server",
+		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
 			err := util.InitLog(logLevel, logFile)
 			if err != nil {
-				log.Fatalf("failed initializing log %v", err)
+				log.Errorf("failed initializing log %v", err)
+				return err
 			}
 
 			err = handleRebrand(cmd)
 			if err != nil {
-				log.Fatalf("failed to migrate files %v", err)
+				log.Errorf("failed to migrate files %v", err)
+				return err
 			}
 
 			config, err := loadMgmtConfig(mgmtConfig)
 			if err != nil {
-				log.Fatalf("failed reading provided config file: %s: %v", mgmtConfig, err)
+				log.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
+				return err
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
 				err = os.MkdirAll(config.Datadir, os.ModeDir)
 				if err != nil {
-					log.Fatalf("failed creating datadir: %s: %v", config.Datadir, err)
+					log.Errorf("failed creating datadir: %s: %v", config.Datadir, err)
+					return err
 				}
 			}
 
 			store, err := server.NewStore(config.Datadir)
 			if err != nil {
-				log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
+				log.Errorf("failed creating a store: %s: %v", config.Datadir, err)
+				return err
 			}
 			peersUpdateManager := server.NewPeersUpdateManager()
 
@@ -94,13 +99,15 @@ var (
 			if config.IdpManagerConfig != nil {
 				idpManager, err = idp.NewManager(*config.IdpManagerConfig)
 				if err != nil {
-					log.Fatalln("failed retrieving a new idp manager with err: ", err)
+					log.Errorf("failed retrieving a new idp manager with err: %v", err)
+					return err
 				}
 			}
 
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager)
 			if err != nil {
-				log.Fatalln("failed build default manager: ", err)
+				log.Errorf("failed build default manager: %v", err)
+				return err
 			}
 
 			var opts []grpc.ServerOption
@@ -110,7 +117,8 @@ var (
 				// automatically generate a new certificate with Let's Encrypt
 				certManager, err := encryption.CreateCertManager(config.Datadir, config.HttpConfig.LetsEncryptDomain)
 				if err != nil {
-					log.Fatalf("failed creating Let's Encrypt cert manager: %v", err)
+					log.Errorf("failed creating Let's Encrypt cert manager: %v", err)
+					return err
 				}
 				transportCredentials := credentials.NewTLS(certManager.TLSConfig())
 				opts = append(opts, grpc.Creds(transportCredentials))
@@ -120,7 +128,8 @@ var (
 				// use provided certificate
 				tlsConfig, err := loadTLSConfig(config.HttpConfig.CertFile, config.HttpConfig.CertKey)
 				if err != nil {
-					log.Fatal("cannot load TLS credentials: ", err)
+					log.Errorf("cannot load TLS credentials: %v", err)
+					return err
 				}
 				transportCredentials := credentials.NewTLS(tlsConfig)
 				opts = append(opts, grpc.Creds(transportCredentials))
@@ -135,26 +144,29 @@ var (
 			turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 			server, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
 			if err != nil {
-				log.Fatalf("failed creating new server: %v", err)
+				log.Errorf("failed creating new server: %v", err)
+				return err
 			}
 			mgmtProto.RegisterManagementServiceServer(grpcServer, server)
 			log.Printf("started server: localhost:%v", mgmtPort)
 
 			lis, err := net.Listen("tcp", fmt.Sprintf(":%d", mgmtPort))
 			if err != nil {
-				log.Fatalf("failed to listen: %v", err)
+				log.Errorf("failed to listen: %v", err)
+				return err
 			}
 
 			go func() {
 				if err = grpcServer.Serve(lis); err != nil {
-					log.Fatalf("failed to serve gRpc server: %v", err)
+					log.Errorf("failed to serve gRpc server: %v", err)
+					return
 				}
 			}()
 
 			go func() {
 				err = httpServer.Start()
 				if err != nil {
-					log.Fatalf("failed to serve http server: %v", err)
+					log.Errorf("failed to serve http server: %v", err)
 				}
 			}()
 
@@ -169,6 +181,8 @@ var (
 			}
 
 			grpcServer.Stop()
+
+			return nil
 		},
 	}
 )
