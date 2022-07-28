@@ -1,4 +1,4 @@
-package handler
+package http
 
 import (
 	"github.com/gorilla/mux"
@@ -8,6 +8,7 @@ import (
 	"net/http"
 )
 
+// APIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience string, authKeysLocation string) (http.Handler, error) {
 	jwtMiddleware, err := middleware.NewJwtMiddleware(
 		authIssuer,
