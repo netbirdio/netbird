@@ -32,6 +32,8 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
+// ManagementLegacyPort is the port that was used before by the Management gRPC server.
+// It is used for backward compatibility now.
 const ManagementLegacyPort = 33073
 
 var (
