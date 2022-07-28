@@ -5,7 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/http/handler"
+	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -121,7 +121,7 @@ var (
 				tlsEnabled = true
 			}
 
-			httpAPIHandler, err := handler.APIHandler(accountManager,
+			httpAPIHandler, err := httpapi.APIHandler(accountManager,
 				config.HttpConfig.AuthIssuer, config.HttpConfig.AuthAudience, config.HttpConfig.AuthKeysLocation)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
