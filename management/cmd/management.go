@@ -32,11 +32,14 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
+const ManagementLegacyPort = 33073
+
 var (
 	mgmtPort              int
 	mgmtLetsencryptDomain string
 	certFile              string
 	certKey               string
+	config                *server.Config
 
 	kaep = keepalive.EnforcementPolicy{
 		MinTime:             15 * time.Second,
@@ -53,6 +56,32 @@ var (
 	mgmtCmd = &cobra.Command{
 		Use:   "management",
 		Short: "start NetBird Management Server",
+		PreRunE: func(cmd *cobra.Command, args []string) error {
+			// detect whether user specified a port
+			userPort := cmd.Flag("port").Changed
+
+			var err error
+			config, err = loadMgmtConfig(mgmtConfig)
+			if err != nil {
+				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
+			}
+
+			tlsEnabled := false
+			if mgmtLetsencryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
+				tlsEnabled = true
+			}
+
+			if !userPort {
+				// different defaults for port when tls enabled/disabled
+				if tlsEnabled {
+					mgmtPort = 443
+				} else {
+					mgmtPort = 80
+				}
+			}
+
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			flag.Parse()
 			err := util.InitLog(logLevel, logFile)
@@ -63,11 +92,6 @@ var (
 			err = handleRebrand(cmd)
 			if err != nil {
 				return fmt.Errorf("failed to migrate files %v", err)
-			}
-
-			config, err := loadMgmtConfig(mgmtConfig)
-			if err != nil {
-				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
 			}
 
 			if _, err = os.Stat(config.Datadir); os.IsNotExist(err) {
@@ -134,12 +158,34 @@ var (
 			}
 			mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
+			var compatListener net.Listener
+			if mgmtPort != ManagementLegacyPort {
+				// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
+				// are using port 33073. For compatibility purposes we keep running a 2nd gRPC server on port 33073.
+				compatListener, err = serveGRPC(gRPCAPIHandler, ManagementLegacyPort)
+				if err != nil {
+					return err
+				}
+				log.Infof("running gRPC backward compatibility server: %s", compatListener.Addr().String())
+			}
+
 			rootHandler := handlerFunc(gRPCAPIHandler, httpAPIHandler)
 			var listener net.Listener
 			if certManager != nil {
-				rootHandler = certManager.HTTPHandler(rootHandler)
-				listener = certManager.Listener()
-				log.Infof("running HTTP (LetsEncrypt challenge handler): %s", listener.Addr().String())
+				// a call to certManager.Listener() always creates a new listener so we do it once
+				cml := certManager.Listener()
+				if mgmtPort == 443 {
+					// CertManager, HTTP and gRPC API all on the same port
+					rootHandler = certManager.HTTPHandler(rootHandler)
+					listener = cml
+				} else {
+					listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", mgmtPort), certManager.TLSConfig())
+					if err != nil {
+						return fmt.Errorf("failed creating TLS listener on port %d: %v", mgmtPort, err)
+					}
+					log.Infof("running HTTP server (LetsEncrypt challenge handler): %s", cml.Addr().String())
+					serveHTTP(cml, certManager.HTTPHandler(nil))
+				}
 			} else if tlsConfig != nil {
 				listener, err = tls.Listen("tcp", fmt.Sprintf(":%d", mgmtPort), tlsConfig)
 				if err != nil {
@@ -152,12 +198,16 @@ var (
 				}
 			}
 
-			serveHTTP(listener, rootHandler, tlsEnabled)
+			log.Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
+			serveGRPCWithHTTP(listener, rootHandler, tlsEnabled)
 
 			SetupCloseHandler()
 
 			<-stopCh
 			_ = listener.Close()
+			if certManager != nil {
+				_ = certManager.Listener().Close()
+			}
 			gRPCAPIHandler.Stop()
 			log.Infof("stopped Management Service")
 
@@ -166,8 +216,39 @@ var (
 	}
 )
 
-func serveHTTP(listener net.Listener, handler http.Handler, tlsEnabled bool) {
-	log.Infof("running HTTP server and gRPC server on the same port: %s", listener.Addr().String())
+func notifyStop(msg string) {
+	select {
+	case stopCh <- 1:
+		log.Error(msg)
+	default:
+		// stop has been already called, nothing to report
+	}
+}
+
+func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
+	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return nil, err
+	}
+	go func() {
+		err := grpcServer.Serve(listener)
+		if err != nil {
+			notifyStop(fmt.Sprintf("failed running gRPC server on port %d: %v", port, err))
+		}
+	}()
+	return listener, nil
+}
+
+func serveHTTP(httpListener net.Listener, handler http.Handler) {
+	go func() {
+		err := http.Serve(httpListener, handler)
+		if err != nil {
+			notifyStop(fmt.Sprintf("failed running HTTP server: %v", err))
+		}
+	}()
+}
+
+func serveGRPCWithHTTP(listener net.Listener, handler http.Handler, tlsEnabled bool) {
 	go func() {
 		var err error
 		if tlsEnabled {
@@ -184,7 +265,7 @@ func serveHTTP(listener net.Listener, handler http.Handler, tlsEnabled bool) {
 		if err != nil {
 			select {
 			case stopCh <- 1:
-				log.Errorf("failed to serve https server: %v", err)
+				log.Errorf("failed to serve HTTP and gRPC server: %v", err)
 			default:
 				// stop has been already called, nothing to report
 			}
