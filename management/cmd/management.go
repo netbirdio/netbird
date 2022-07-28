@@ -275,19 +275,6 @@ func serveGRPCWithHTTP(listener net.Listener, handler http.Handler, tlsEnabled b
 	}()
 }
 
-func createGRPCServer(opts []grpc.ServerOption, peersUpdateManager *server.PeersUpdateManager, config *server.Config,
-	accountManager server.AccountManager) (*grpc.Server, error) {
-	grpcServer := grpc.NewServer(opts...)
-	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
-	if err != nil {
-		log.Errorf("failed creating new server: %v", err)
-		return nil, err
-	}
-	mgmtProto.RegisterManagementServiceServer(grpcServer, srv)
-	return grpcServer, nil
-}
-
 func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		grpcHeader := strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
