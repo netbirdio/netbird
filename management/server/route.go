@@ -2,6 +2,8 @@ package server
 
 import (
 	"github.com/netbirdio/netbird/route"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"strconv"
@@ -45,6 +47,49 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID string) (*route.Rou
 	}
 
 	return nil, status.Errorf(codes.NotFound, "route with ID %s not found", routeID)
+}
+
+// CreateRoute creates and saves a new route
+func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, description string, masquerade bool, metric int) (*route.Route, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	var newRoute *route.Route
+	prefixType, newPrefix, err := route.ParsePrefix(prefix)
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", prefix)
+	}
+	_, peerExist := account.Peers[peer]
+	if !peerExist {
+		return nil, status.Errorf(codes.InvalidArgument, "failed to find Peer %s", peer)
+	}
+
+	newRoute.Peer = peer
+	newRoute.ID = xid.New().String()
+	newRoute.Prefix = newPrefix
+	newRoute.PrefixType = prefixType
+	newRoute.Description = description
+	newRoute.Masquerade = masquerade
+	newRoute.Metric = metric
+
+	account.Routes[newRoute.ID] = newRoute
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return nil, err
+	}
+
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		log.Error(err)
+		return newRoute, status.Errorf(codes.Unavailable, "failed to update peers", prefix)
+	}
+	return newRoute, nil
 }
 
 // SaveRoute saves route

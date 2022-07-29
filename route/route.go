@@ -57,13 +57,16 @@ func ParsePrefix(prefixString string) (PrefixType, netip.Prefix, error) {
 	if err != nil {
 		return InvalidPrefix, netip.Prefix{}, err
 	}
-	// todo: prefix is invalid when range is 0. change it when we support range 0
-	if prefix.IsValid() {
+
+	masked := prefix.Masked()
+
+	if !masked.IsValid() {
 		return InvalidPrefix, netip.Prefix{}, status.Errorf(codes.InvalidArgument, "invalid range %s", prefixString)
 	}
 
-	if prefix.Addr().Is6() {
-		return IPv4Prefix, prefix, nil
+	if masked.Addr().Is6() {
+		return IPv6Prefix, masked, nil
 	}
-	return IPv6Prefix, prefix, nil
+
+	return IPv4Prefix, masked, nil
 }
