@@ -18,8 +18,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Server an instance of a Management server
-type Server struct {
+// GRPCServer an instance of a Management gRPC API server
+type GRPCServer struct {
 	accountManager AccountManager
 	wgKey          wgtypes.Key
 	proto.UnimplementedManagementServiceServer
@@ -30,7 +30,7 @@ type Server struct {
 }
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*Server, error) {
+func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -50,7 +50,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		log.Debug("unable to use http config to create new jwt middleware")
 	}
 
-	return &Server{
+	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
 		peersUpdateManager:     peersUpdateManager,
@@ -61,7 +61,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 	}, nil
 }
 
-func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
+func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
 	// todo introduce something more meaningful with the key expiration/rotation
 	now := time.Now().Add(24 * time.Hour)
 	secs := int64(now.Second())
@@ -76,7 +76,7 @@ func (s *Server) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.Ser
 
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
-func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
 	log.Debugf("Sync request from peer %s", req.WgPubKey)
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
@@ -150,7 +150,7 @@ func (s *Server) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_S
 	}
 }
 
-func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
+func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
 	var (
 		reqSetupKey string
 		userId      string
@@ -245,7 +245,7 @@ func (s *Server) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Pe
 // In case it is, the login is successful
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
-func (s *Server) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	log.Debugf("Login request from peer %s", req.WgPubKey)
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
@@ -429,12 +429,12 @@ func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *
 }
 
 // IsHealthy indicates whether the service is healthy
-func (s *Server) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty, error) {
+func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Empty, error) {
 	return &proto.Empty{}, nil
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
+func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
 	networkMap, err := s.accountManager.GetNetworkMap(peer.Key)
 	if err != nil {
 		log.Warnf("error getting a list of peers for a peer %s", peer.Key)
@@ -472,7 +472,7 @@ func (s *Server) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.Mana
 // GetDeviceAuthorizationFlow returns a device authorization flow information
 // This is used for initiating an Oauth 2 device authorization grant flow
 // which will be used by our clients to Login
-func (s *Server) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetDeviceAuthorizationFlow request.", req.WgPubKey)

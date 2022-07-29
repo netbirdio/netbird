@@ -22,7 +22,7 @@ func ManagementURLDefault() *url.URL {
 }
 
 func init() {
-	managementURL, err := parseURL("Management URL", "https://api.wiretrustee.com:33073")
+	managementURL, err := parseURL("Management URL", "https://api.wiretrustee.com:443")
 	if err != nil {
 		panic(err)
 	}

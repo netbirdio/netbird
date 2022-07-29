@@ -1,4 +1,4 @@
-package handler
+package http
 
 import (
 	"github.com/netbirdio/netbird/management/server/http/api"

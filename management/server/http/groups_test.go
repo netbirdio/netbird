@@ -1,4 +1,4 @@
-package handler
+package http
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -19,62 +20,61 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initRulesTestData(rules ...*server.Rule) *Rules {
-	return &Rules{
+var TestPeers = map[string]*server.Peer{
+	"A": &server.Peer{Key: "A", IP: net.ParseIP("100.100.100.100")},
+	"B": &server.Peer{Key: "B", IP: net.ParseIP("200.200.200.200")},
+}
+
+func initGroupTestData(groups ...*server.Group) *Groups {
+	return &Groups{
 		accountManager: &mock_server.MockAccountManager{
-			SaveRuleFunc: func(_ string, rule *server.Rule) error {
-				if !strings.HasPrefix(rule.ID, "id-") {
-					rule.ID = "id-was-set"
+			SaveGroupFunc: func(accountID string, group *server.Group) error {
+				if !strings.HasPrefix(group.ID, "id-") {
+					group.ID = "id-was-set"
 				}
 				return nil
 			},
-			GetRuleFunc: func(_, ruleID string) (*server.Rule, error) {
-				if ruleID != "idoftherule" {
+			GetGroupFunc: func(_, groupID string) (*server.Group, error) {
+				if groupID != "idofthegroup" {
 					return nil, fmt.Errorf("not found")
 				}
-				return &server.Rule{
-					ID:          "idoftherule",
-					Name:        "Rule",
-					Source:      []string{"idofsrcrule"},
-					Destination: []string{"idofdestrule"},
-					Flow:        server.TrafficFlowBidirect,
+				return &server.Group{
+					ID:   "idofthegroup",
+					Name: "Group",
 				}, nil
 			},
-			UpdateRuleFunc: func(_ string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error) {
-				var rule server.Rule
-				rule.ID = ruleID
+			UpdateGroupFunc: func(_ string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error) {
+				var group server.Group
+				group.ID = groupID
 				for _, operation := range operations {
 					switch operation.Type {
-					case server.UpdateRuleName:
-						rule.Name = operation.Values[0]
-					case server.UpdateRuleDescription:
-						rule.Description = operation.Values[0]
-					case server.UpdateRuleFlow:
-						if server.TrafficFlowBidirectString == operation.Values[0] {
-							rule.Flow = server.TrafficFlowBidirect
-						} else {
-							rule.Flow = 100
-						}
-					case server.UpdateSourceGroups, server.InsertGroupsToSource:
-						rule.Source = operation.Values
-					case server.UpdateDestinationGroups, server.InsertGroupsToDestination:
-						rule.Destination = operation.Values
-					case server.RemoveGroupsFromSource, server.RemoveGroupsFromDestination:
+					case server.UpdateGroupName:
+						group.Name = operation.Values[0]
+					case server.UpdateGroupPeers, server.InsertPeersToGroup:
+						group.Peers = operation.Values
+					case server.RemovePeersFromGroup:
 					default:
 						return nil, fmt.Errorf("no operation")
 					}
 				}
-				return &rule, nil
+				return &group, nil
+			},
+			GetPeerByIPFunc: func(_ string, peerIP string) (*server.Peer, error) {
+				for _, peer := range TestPeers {
+					if peer.IP.String() == peerIP {
+						return peer, nil
+					}
+				}
+				return nil, fmt.Errorf("peer not found")
 			},
 			GetAccountWithAuthorizationClaimsFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
-					Rules:  map[string]*server.Rule{"id-existed": &server.Rule{ID: "id-existed"}},
+					Peers:  TestPeers,
 					Groups: map[string]*server.Group{
-						"F": &server.Group{ID: "F"},
-						"G": &server.Group{ID: "G"},
-					},
+						"id-existed": &server.Group{ID: "id-existed", Peers: []string{"A", "B"}},
+						"id-all":     &server.Group{ID: "id-all", Name: "All"}},
 				}, nil
 			},
 		},
@@ -91,7 +91,7 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 	}
 }
 
-func TestRulesGetRule(t *testing.T) {
+func TestGetGroup(t *testing.T) {
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -101,26 +101,26 @@ func TestRulesGetRule(t *testing.T) {
 		requestBody    io.Reader
 	}{
 		{
-			name:           "GetRule OK",
+			name:           "GetGroup OK",
 			expectedBody:   true,
 			requestType:    http.MethodGet,
-			requestPath:    "/api/rules/idoftherule",
+			requestPath:    "/api/groups/idofthegroup",
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "GetRule not found",
+			name:           "GetGroup not found",
 			requestType:    http.MethodGet,
-			requestPath:    "/api/rules/notexists",
+			requestPath:    "/api/groups/notexists",
 			expectedStatus: http.StatusNotFound,
 		},
 	}
 
-	rule := &server.Rule{
-		ID:   "idoftherule",
-		Name: "Rule",
+	group := &server.Group{
+		ID:   "idofthegroup",
+		Name: "Group",
 	}
 
-	p := initRulesTestData(rule)
+	p := initGroupTestData(group)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -128,7 +128,7 @@ func TestRulesGetRule(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/rules/{id}", p.GetRuleHandler).Methods("GET")
+			router.HandleFunc("/api/groups/{id}", p.GetGroupHandler).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -149,123 +149,128 @@ func TestRulesGetRule(t *testing.T) {
 				t.Fatalf("I don't know what I expected; %v", err)
 			}
 
-			var got api.Rule
+			got := &server.Group{}
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			assert.Equal(t, got.Id, rule.ID)
-			assert.Equal(t, got.Name, rule.Name)
+			assert.Equal(t, got.ID, group.ID)
+			assert.Equal(t, got.Name, group.Name)
 		})
 	}
 }
 
-func TestRulesWriteRule(t *testing.T) {
+func TestWriteGroup(t *testing.T) {
 	tt := []struct {
 		name           string
 		expectedStatus int
 		expectedBody   bool
-		expectedRule   *api.Rule
+		expectedGroup  *api.Group
 		requestType    string
 		requestPath    string
 		requestBody    io.Reader
 	}{
 		{
-			name:        "WriteRule POST OK",
+			name:        "Write Group POST OK",
 			requestType: http.MethodPost,
-			requestPath: "/api/rules",
+			requestPath: "/api/groups",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":"Default POSTed Rule","Flow":"bidirect"}`)),
+				[]byte(`{"Name":"Default POSTed Group"}`)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
-			expectedRule: &api.Rule{
+			expectedGroup: &api.Group{
 				Id:   "id-was-set",
-				Name: "Default POSTed Rule",
-				Flow: server.TrafficFlowBidirectString,
+				Name: "Default POSTed Group",
 			},
 		},
 		{
-			name:        "WriteRule POST Invalid Name",
+			name:        "Write Group POST Invalid Name",
 			requestType: http.MethodPost,
-			requestPath: "/api/rules",
+			requestPath: "/api/groups",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":"","Flow":"bidirect"}`)),
+				[]byte(`{"name":""}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
-			name:        "WriteRule PUT OK",
+			name:        "Write Group PUT OK",
 			requestType: http.MethodPut,
-			requestPath: "/api/rules/id-existed",
+			requestPath: "/api/groups/id-existed",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":"Default POSTed Rule","Flow":"bidirect"}`)),
+				[]byte(`{"Name":"Default POSTed Group"}`)),
 			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedRule: &api.Rule{
+			expectedGroup: &api.Group{
 				Id:   "id-existed",
-				Name: "Default POSTed Rule",
-				Flow: server.TrafficFlowBidirectString,
+				Name: "Default POSTed Group",
 			},
 		},
 		{
-			name:        "WriteRule PUT Invalid Name",
+			name:        "Write Group PUT Invalid Name",
 			requestType: http.MethodPut,
-			requestPath: "/api/rules/id-existed",
+			requestPath: "/api/groups/id-existed",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":"","Flow":"bidirect"}`)),
+				[]byte(`{"Name":""}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
+			expectedBody:   false,
 		},
 		{
-			name:        "Write Rule PATCH Name OK",
-			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
+			name:        "Write Group PUT All Group Name",
+			requestType: http.MethodPut,
+			requestPath: "/api/groups/id-all",
 			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"name","value":["Default POSTed Rule"]}]`)),
+				[]byte(`{"Name":"super"}`)),
+			expectedStatus: http.StatusMethodNotAllowed,
+			expectedBody:   false,
+		},
+		{
+			name:        "Write Group PATCH Name OK",
+			requestType: http.MethodPatch,
+			requestPath: "/api/groups/id-existed",
+			requestBody: bytes.NewBuffer(
+				[]byte(`[{"op":"replace","path":"name","value":["Default POSTed Group"]}]`)),
 			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedRule: &api.Rule{
+			expectedGroup: &api.Group{
 				Id:   "id-existed",
-				Name: "Default POSTed Rule",
-				Flow: server.TrafficFlowBidirectString,
+				Name: "Default POSTed Group",
 			},
 		},
 		{
-			name:        "Write Rule PATCH Invalid Name OP",
+			name:        "Write Group PATCH Invalid Name OP",
 			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
+			requestPath: "/api/groups/id-existed",
 			requestBody: bytes.NewBuffer(
 				[]byte(`[{"op":"insert","path":"name","value":[""]}]`)),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
 		{
-			name:        "Write Rule PATCH Invalid Name",
+			name:        "Write Group PATCH Invalid Name",
 			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
+			requestPath: "/api/groups/id-existed",
 			requestBody: bytes.NewBuffer(
 				[]byte(`[{"op":"replace","path":"name","value":[]}]`)),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
-			name:        "Write Rule PATCH Sources OK",
+			name:        "Write Group PATCH Peers OK",
 			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
+			requestPath: "/api/groups/id-existed",
 			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"sources","value":["G","F"]}]`)),
+				[]byte(`[{"op":"replace","path":"peers","value":["100.100.100.100","200.200.200.200"]}]`)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
-			expectedRule: &api.Rule{
-				Id:   "id-existed",
-				Flow: server.TrafficFlowBidirectString,
-				Sources: []api.GroupMinimum{
-					{Id: "G"},
-					{Id: "F"}},
+			expectedGroup: &api.Group{
+				Id:         "id-existed",
+				PeersCount: 2,
+				Peers: []api.PeerMinimum{
+					{Id: "100.100.100.100"},
+					{Id: "200.200.200.200"}},
 			},
 		},
 	}
 
-	p := initRulesTestData()
+	p := initGroupTestData()
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -273,9 +278,9 @@ func TestRulesWriteRule(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/rules", p.CreateRuleHandler).Methods("POST")
-			router.HandleFunc("/api/rules/{id}", p.UpdateRuleHandler).Methods("PUT")
-			router.HandleFunc("/api/rules/{id}", p.PatchRuleHandler).Methods("PATCH")
+			router.HandleFunc("/api/groups", p.CreateGroupHandler).Methods("POST")
+			router.HandleFunc("/api/groups/{id}", p.UpdateGroupHandler).Methods("PUT")
+			router.HandleFunc("/api/groups/{id}", p.PatchGroupHandler).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -296,13 +301,11 @@ func TestRulesWriteRule(t *testing.T) {
 				return
 			}
 
-			got := &api.Rule{}
+			got := &api.Group{}
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
-
-			assert.Equal(t, got, tc.expectedRule)
-
+			assert.Equal(t, got, tc.expectedGroup)
 		})
 	}
 }
