@@ -49,7 +49,6 @@ type HttpServerConfig struct {
 	CertFile string
 	//CertKey is the location of the certificate private key
 	CertKey string
-	Address string
 	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
 	AuthAudience string
 	// AuthIssuer identifies principal that issued the JWT.
