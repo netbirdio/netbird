@@ -58,87 +58,11 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
 
-  - id: netbird-ui
-    dir: client/ui
-    binary: netbird-ui
-    env:
-      - CGO_ENABLED=1
-    goos:
-      - linux
-    goarch:
-      - amd64
-    ldflags:
-      - -s -w -X github.com/netbirdio/netbird/client/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-    mod_timestamp: '{{ .CommitTimestamp }}'
-
-  - id: netbird-ui-windows
-    dir: client/ui
-    binary: netbird-ui
-    env:
-      - CGO_ENABLED=1
-      - CC=x86_64-w64-mingw32-gcc
-    goos:
-      - windows
-    goarch:
-      - amd64
-    ldflags:
-      - -s -w -X github.com/netbirdio/netbird/client/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
-      - -H windowsgui
-    mod_timestamp: '{{ .CommitTimestamp }}'
-
 archives:
   - builds:
       - netbird
-  - id: linux-arch
-    name_template: "{{ .ProjectName }}-ui-linux_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    builds:
-      - netbird-ui
-  - id: windows-arch
-    name_template: "{{ .ProjectName }}-ui-windows_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
-    builds:
-      - netbird-ui-windows
 
 nfpms:
-
-  - maintainer: Netbird <dev@netbird.io>
-    description: Netbird client UI.
-    homepage: https://netbird.io/
-    id: netbird-ui-deb
-    package_name: netbird-ui
-    builds:
-      - netbird-ui
-    formats:
-      - deb
-    contents:
-      - src: client/ui/netbird.desktop
-        dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/disconnected.png
-        dst: /usr/share/pixmaps/netbird.png
-    dependencies:
-      - libayatana-appindicator3-1
-      - libgtk-3-dev
-      - libappindicator3-dev
-      - netbird
-
-  - maintainer: Netbird <dev@netbird.io>
-    description: Netbird client UI.
-    homepage: https://netbird.io/
-    id: netbird-ui-rpm
-    package_name: netbird-ui
-    builds:
-      - netbird-ui
-    formats:
-      - rpm
-    contents:
-      - src: client/ui/netbird.desktop
-        dst: /usr/share/applications/netbird.desktop
-      - src: client/ui/disconnected.png
-        dst: /usr/share/pixmaps/netbird.png
-    dependencies:
-      - libayatana-appindicator3-1
-      - libgtk-3-dev
-      - libappindicator3-dev
-      - netbird
 
   - maintainer: Netbird <dev@netbird.io>
     description: Netbird client.
@@ -431,7 +355,6 @@ uploads:
   - name: debian
     ids:
     - netbird-deb
-    - netbird-ui-deb
     mode: archive
     target: https://pkgs.wiretrustee.com/debian/pool/{{ .ArtifactName }};deb.distribution=stable;deb.component=main;deb.architecture={{ if .Arm }}armhf{{ else }}{{ .Arch }}{{ end }};deb.package=
     username: dev@wiretrustee.com
@@ -440,7 +363,6 @@ uploads:
   - name: yum
     ids:
       - netbird-rpm
-      - netbird-ui-rpm
     mode: archive
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
