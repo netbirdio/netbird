@@ -282,15 +282,10 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 			log.Infof("couldn't switch to the new Management %s", newURL.String())
 			return config, err
 		}
+		defer client.Close() //nolint
 
 		// gRPC check
 		_, err = client.GetServerPublicKey()
-		if err != nil {
-			log.Infof("couldn't switch to the new Management %s", newURL.String())
-			return nil, err
-		}
-
-		err = client.Close()
 		if err != nil {
 			log.Infof("couldn't switch to the new Management %s", newURL.String())
 			return nil, err
