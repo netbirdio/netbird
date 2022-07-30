@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/client/ssh"
 	nbStatus "github.com/netbirdio/netbird/client/status"
+	mgmtcmd "github.com/netbirdio/netbird/management/cmd"
 	"strings"
 	"time"
 
@@ -238,4 +239,40 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 	log.Debugf("peer logged in to Management Service %s", managementAddr)
 
 	return client, loginResp, nil
+}
+
+// CheckNewManagementPort checks whether client can switch to the new Management port 443.
+// If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
+func CheckNewManagementPort(ctx context.Context, config *Config, configPath string) (*Config, error) {
+	var mgmTlsEnabled bool
+	if config.ManagementURL.Scheme == "https" {
+		mgmTlsEnabled = true
+	}
+
+	if mgmTlsEnabled && config.ManagementURL.Port() == fmt.Sprintf("%d", mgmtcmd.ManagementLegacyPort) {
+		// here we check whether we could switch from the legacy 33073 port to the new 443
+		log.Infof("attempting to switch from the legacy Management port %d to the new port 443",
+			mgmtcmd.ManagementLegacyPort)
+		newURL := fmt.Sprintf("%s:%d", config.ManagementURL.Hostname(), 443)
+		key, err := wgtypes.ParseKey(config.PrivateKey)
+		if err != nil {
+			log.Infof("couldn't switch to the new Management on port 443: %s", newURL)
+			return config, err
+		}
+
+		_, err = mgm.NewClient(ctx, newURL, key, mgmTlsEnabled)
+		if err != nil {
+			log.Infof("couldn't switch to the new Management on port 443 %s", newURL)
+			return config, err
+		}
+
+		config, err = ReadConfig(newURL, "", configPath, nil)
+		if err != nil {
+			log.Infof("couldn't switch to the new Management on port 443 %s", newURL)
+			return config, fmt.Errorf("failed updating config file: %v", err)
+		}
+		log.Infof("successfully switched to the new Management port: %s", newURL)
+	}
+
+	return config, nil
 }
