@@ -40,6 +40,8 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("get config file: %v", err)
 			}
 
+			config, _ = internal.UpdateOldManagementPort(ctx, config, configPath)
+
 			err = foregroundLogin(ctx, cmd, config, setupKey)
 			if err != nil {
 				return fmt.Errorf("foreground login failed: %v", err)

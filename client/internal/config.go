@@ -22,7 +22,7 @@ func ManagementURLDefault() *url.URL {
 }
 
 func init() {
-	managementURL, err := parseURL("Management URL", "https://api.wiretrustee.com:443")
+	managementURL, err := ParseURL("Management URL", "https://api.wiretrustee.com:443")
 	if err != nil {
 		panic(err)
 	}
@@ -51,7 +51,7 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 	}
 	config := &Config{SSHKey: string(pem), PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
 	if managementURL != "" {
-		URL, err := parseURL("Management URL", managementURL)
+		URL, err := ParseURL("Management URL", managementURL)
 		if err != nil {
 			return nil, err
 		}
@@ -65,7 +65,7 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 	}
 
 	if adminURL != "" {
-		newURL, err := parseURL("Admin Panel URL", adminURL)
+		newURL, err := ParseURL("Admin Panel URL", adminURL)
 		if err != nil {
 			return nil, err
 		}
@@ -83,7 +83,8 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 	return config, nil
 }
 
-func parseURL(serviceName, managementURL string) (*url.URL, error) {
+// ParseURL parses and validates management URL
+func ParseURL(serviceName, managementURL string) (*url.URL, error) {
 	parsedMgmtURL, err := url.ParseRequestURI(managementURL)
 	if err != nil {
 		log.Errorf("failed parsing management URL %s: [%s]", managementURL, err.Error())
@@ -115,7 +116,7 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 	if managementURL != "" && config.ManagementURL.String() != managementURL {
 		log.Infof("new Management URL provided, updated to %s (old value %s)",
 			managementURL, config.ManagementURL)
-		newURL, err := parseURL("Management URL", managementURL)
+		newURL, err := ParseURL("Management URL", managementURL)
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +127,7 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 	if adminURL != "" && (config.AdminURL == nil || config.AdminURL.String() != adminURL) {
 		log.Infof("new Admin Panel URL provided, updated to %s (old value %s)",
 			adminURL, config.AdminURL)
-		newURL, err := parseURL("Admin Panel URL", adminURL)
+		newURL, err := ParseURL("Admin Panel URL", adminURL)
 		if err != nil {
 			return nil, err
 		}
