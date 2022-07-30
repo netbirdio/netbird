@@ -40,7 +40,7 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("get config file: %v", err)
 			}
 
-			config, _ = internal.CheckNewManagementPort(ctx, config, configPath)
+			config, _ = internal.UpdateOldManagementPort(ctx, config, configPath)
 
 			err = foregroundLogin(ctx, cmd, config, setupKey)
 			if err != nil {

@@ -241,12 +241,13 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 	return client, loginResp, nil
 }
 
-// CheckNewManagementPort checks whether client can switch to the new Management port 443.
+// UpdateOldManagementPort checks whether client can switch to the new Management port 443.
 // If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
-func CheckNewManagementPort(ctx context.Context, config *Config, configPath string) (*Config, error) {
+// The check is performed only for the NetBird's managed version.
+func UpdateOldManagementPort(ctx context.Context, config *Config, configPath string) (*Config, error) {
 
 	if config.ManagementURL.Hostname() != ManagementURLDefault().Hostname() {
-		// only do the check for the NetBird managed version
+		// only do the check for the NetBird's managed version
 		return config, nil
 	}
 
