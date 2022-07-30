@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/client/ssh"
 	nbStatus "github.com/netbirdio/netbird/client/status"
+	mgmtcmd "github.com/netbirdio/netbird/management/cmd"
 	"strings"
 	"time"
 
@@ -238,4 +239,68 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 	log.Debugf("peer logged in to Management Service %s", managementAddr)
 
 	return client, loginResp, nil
+}
+
+// UpdateOldManagementPort checks whether client can switch to the new Management port 443.
+// If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
+// The check is performed only for the NetBird's managed version.
+func UpdateOldManagementPort(ctx context.Context, config *Config, configPath string) (*Config, error) {
+
+	if config.ManagementURL.Hostname() != ManagementURLDefault().Hostname() {
+		// only do the check for the NetBird's managed version
+		return config, nil
+	}
+
+	var mgmTlsEnabled bool
+	if config.ManagementURL.Scheme == "https" {
+		mgmTlsEnabled = true
+	}
+
+	if !mgmTlsEnabled {
+		// only do the check for HTTPs scheme (the hosted version of the Management service is always HTTPs)
+		return config, nil
+	}
+
+	if mgmTlsEnabled && config.ManagementURL.Port() == fmt.Sprintf("%d", mgmtcmd.ManagementLegacyPort) {
+
+		newURL, err := ParseURL("Management URL", fmt.Sprintf("%s://%s:%d",
+			config.ManagementURL.Scheme, config.ManagementURL.Hostname(), 443))
+		if err != nil {
+			return nil, err
+		}
+		// here we check whether we could switch from the legacy 33073 port to the new 443
+		log.Infof("attempting to switch from the legacy Management URL %s to the new one %s",
+			config.ManagementURL.String(), newURL.String())
+		key, err := wgtypes.ParseKey(config.PrivateKey)
+		if err != nil {
+			log.Infof("couldn't switch to the new Management %s", newURL.String())
+			return config, err
+		}
+
+		client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
+		if err != nil {
+			log.Infof("couldn't switch to the new Management %s", newURL.String())
+			return config, err
+		}
+		defer client.Close() //nolint
+
+		// gRPC check
+		_, err = client.GetServerPublicKey()
+		if err != nil {
+			log.Infof("couldn't switch to the new Management %s", newURL.String())
+			return nil, err
+		}
+
+		// everything is alright => update the config
+		newConfig, err := ReadConfig(newURL.String(), "", configPath, nil)
+		if err != nil {
+			log.Infof("couldn't switch to the new Management %s", newURL.String())
+			return config, fmt.Errorf("failed updating config file: %v", err)
+		}
+		log.Infof("successfully switched to the new Management URL: %s", newURL.String())
+
+		return newConfig, nil
+	}
+
+	return config, nil
 }
