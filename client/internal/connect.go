@@ -277,18 +277,33 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 			return config, err
 		}
 
-		_, err = mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
+		client, err := mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
 		if err != nil {
 			log.Infof("couldn't switch to the new Management %s", newURL.String())
 			return config, err
 		}
 
+		// gRPC check
+		_, err = client.GetServerPublicKey()
+		if err != nil {
+			log.Infof("couldn't switch to the new Management %s", newURL.String())
+			return nil, err
+		}
+
+		err = client.Close()
+		if err != nil {
+			log.Infof("couldn't switch to the new Management %s", newURL.String())
+			return nil, err
+		}
+
+		// everything is alright => update the config
 		newConfig, err := ReadConfig(newURL.String(), "", configPath, nil)
 		if err != nil {
 			log.Infof("couldn't switch to the new Management %s", newURL.String())
 			return config, fmt.Errorf("failed updating config file: %v", err)
 		}
 		log.Infof("successfully switched to the new Management URL: %s", newURL.String())
+
 		return newConfig, nil
 	}
 
