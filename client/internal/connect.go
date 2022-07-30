@@ -244,34 +244,46 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 // CheckNewManagementPort checks whether client can switch to the new Management port 443.
 // If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
 func CheckNewManagementPort(ctx context.Context, config *Config, configPath string) (*Config, error) {
+
+	if config.ManagementURL.Hostname() != ManagementURLDefault().Hostname() {
+		//only do the check for the NetBird managed version
+		return config, nil
+	}
+
 	var mgmTlsEnabled bool
 	if config.ManagementURL.Scheme == "https" {
 		mgmTlsEnabled = true
 	}
 
 	if mgmTlsEnabled && config.ManagementURL.Port() == fmt.Sprintf("%d", mgmtcmd.ManagementLegacyPort) {
+
+		newURL, err := ParseURL("Management URL", fmt.Sprintf("%s://%s:%d",
+			config.ManagementURL.Scheme, config.ManagementURL.Hostname(), 443))
+		if err != nil {
+			return nil, err
+		}
 		// here we check whether we could switch from the legacy 33073 port to the new 443
-		log.Infof("attempting to switch from the legacy Management port %d to the new port 443",
-			mgmtcmd.ManagementLegacyPort)
-		newURL := fmt.Sprintf("%s:%d", config.ManagementURL.Hostname(), 443)
+		log.Infof("attempting to switch from the legacy Management URL %s to the new one %s",
+			config.ManagementURL.String(), newURL.String())
 		key, err := wgtypes.ParseKey(config.PrivateKey)
 		if err != nil {
-			log.Infof("couldn't switch to the new Management on port 443: %s", newURL)
+			log.Infof("couldn't switch to the new Management %s", newURL.String())
 			return config, err
 		}
 
-		_, err = mgm.NewClient(ctx, newURL, key, mgmTlsEnabled)
+		_, err = mgm.NewClient(ctx, newURL.Host, key, mgmTlsEnabled)
 		if err != nil {
-			log.Infof("couldn't switch to the new Management on port 443 %s", newURL)
+			log.Infof("couldn't switch to the new Management %s", newURL.String())
 			return config, err
 		}
 
-		config, err = ReadConfig(newURL, "", configPath, nil)
+		newConfig, err := ReadConfig(newURL.String(), "", configPath, nil)
 		if err != nil {
-			log.Infof("couldn't switch to the new Management on port 443 %s", newURL)
+			log.Infof("couldn't switch to the new Management %s", newURL.String())
 			return config, fmt.Errorf("failed updating config file: %v", err)
 		}
-		log.Infof("successfully switched to the new Management port: %s", newURL)
+		log.Infof("successfully switched to the new Management URL: %s", newURL.String())
+		return newConfig, nil
 	}
 
 	return config, nil
