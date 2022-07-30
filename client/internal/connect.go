@@ -246,13 +246,18 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 func CheckNewManagementPort(ctx context.Context, config *Config, configPath string) (*Config, error) {
 
 	if config.ManagementURL.Hostname() != ManagementURLDefault().Hostname() {
-		//only do the check for the NetBird managed version
+		// only do the check for the NetBird managed version
 		return config, nil
 	}
 
 	var mgmTlsEnabled bool
 	if config.ManagementURL.Scheme == "https" {
 		mgmTlsEnabled = true
+	}
+
+	if !mgmTlsEnabled {
+		// only do the check for HTTPs scheme (the hosted version of the Management service is always HTTPs)
+		return config, nil
 	}
 
 	if mgmTlsEnabled && config.ManagementURL.Port() == fmt.Sprintf("%d", mgmtcmd.ManagementLegacyPort) {
