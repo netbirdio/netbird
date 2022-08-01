@@ -397,7 +397,7 @@ func (conn *Conn) cleanup() error {
 	peerState.ConnStatusUpdate = time.Now()
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
-		log.Warnf("error while updating peer's %s state, err: %v", conn.config.Key, err)
+		log.Debugf("error while updating peer's %s state, err: %v", conn.config.Key, err)
 	}
 
 	log.Debugf("cleaned up connection to peer %s", conn.config.Key)
