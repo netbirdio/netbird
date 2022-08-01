@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	nbStatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/system"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"sync"
 	"time"
@@ -407,7 +408,7 @@ func (s *Server) Status(
 		return nil, err
 	}
 
-	statusResponse := proto.StatusResponse{Status: string(status)}
+	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: system.NetbirdVersion()}
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = nbStatus.NewRecorder()
