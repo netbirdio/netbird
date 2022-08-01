@@ -395,9 +395,12 @@ func (conn *Conn) cleanup() error {
 	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
 	peerState.ConnStatus = conn.status.String()
 	peerState.ConnStatusUpdate = time.Now()
+
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
-		log.Warnf("error while updating peer's %s state, err: %v", conn.config.Key, err)
+		// pretty common error because by that time Engine can already remove the peer and status won't be available.
+		//todo rethink status updates
+		log.Debugf("error while updating peer's %s state, err: %v", conn.config.Key, err)
 	}
 
 	log.Debugf("cleaned up connection to peer %s", conn.config.Key)
