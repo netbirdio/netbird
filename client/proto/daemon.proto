@@ -68,6 +68,8 @@ message StatusResponse{
   // status of the server.
   string status = 1;
   FullStatus fullStatus = 2;
+  // NetBird daemon version
+  string daemonVersion = 3;
 }
 
 message DownRequest {}
