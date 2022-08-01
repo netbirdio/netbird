@@ -48,6 +48,7 @@ func (r *Route) Copy() *Route {
 		PrefixType:  r.PrefixType,
 		Peer:        r.Peer,
 		Metric:      r.Metric,
+		Masquerade:  r.Masquerade,
 	}
 }
 
