@@ -279,7 +279,6 @@ func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handle
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		grpcHeader := strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc") ||
 			strings.HasPrefix(request.Header.Get("Content-Type"), "application/grpc+proto")
-		fmt.Println(grpcHeader)
 		if request.ProtoMajor == 2 && grpcHeader {
 			gRPCHandler.ServeHTTP(writer, request)
 		} else {
