@@ -14,7 +14,7 @@ builds:
       - hardfloat
       - softfloat
     ldflags:
-      - -s -w -X github.com/netbirdio/netbird/client/ui/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+      - -s -w -X github.com/netbirdio/netbird/client/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
     tags:
       - load_wgnt_from_rsrc
@@ -23,5 +23,7 @@ archives:
   - builds:
       - netbird-ui-darwin
 
+checksum:
+  name_template: "{{ .ProjectName }}_darwin_checksums.txt"
 changelog:
   skip: true
