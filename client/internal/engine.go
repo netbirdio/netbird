@@ -316,7 +316,7 @@ func (e *Engine) removePeer(peerKey string) error {
 	defer func() {
 		err := e.statusRecorder.RemovePeer(peerKey)
 		if err != nil {
-			log.Warnf("received error when removing peer %s from status recorder: %v", peerKey, err)
+			log.Debugf("received error when removing peer %s from status recorder: %v", peerKey, err)
 		}
 	}()
 
