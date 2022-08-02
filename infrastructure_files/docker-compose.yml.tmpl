@@ -41,10 +41,10 @@ services:
       - ./management.json:/etc/netbird/management.json
     ports:
       - $NETBIRD_MGMT_API_PORT:443 #API port
-      command: ["--port", "443"]
   #     # port and command for Let's Encrypt validation without dashboard container
   #   - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
+    command: ["--port", "443"]
   # Coturn
   coturn:
     image: coturn/coturn
