@@ -6,15 +6,6 @@ import (
 	"net/netip"
 )
 
-const (
-	// InvalidPrefix invalid prefix type
-	InvalidPrefix PrefixType = iota
-	// IPv4Prefix IPv4 prefix type
-	IPv4Prefix
-	// IPv6Prefix IPv6 prefix type
-	IPv6Prefix
-)
-
 // Windows has some limitation regarding metric size that differ from Unix-like systems.
 // Because of that we are limiting the min and max metric size based on Windows limits:
 // see based on info from https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/route_ws2008
@@ -24,9 +15,48 @@ const (
 	// MaxMetric max metric input
 	MaxMetric = 9999
 )
+const (
+	// InvalidPrefixString invalid prefix type string
+	InvalidPrefixString = "Invalid"
+	// IPv4PrefixString IPv4 prefix type string
+	IPv4PrefixString = "IPv4"
+	// IPv6PrefixString IPv6 prefix type string
+	IPv6PrefixString = "IPv6"
+)
+
+const (
+	// InvalidPrefix invalid prefix type
+	InvalidPrefix PrefixType = iota
+	// IPv4Prefix IPv4 prefix type
+	IPv4Prefix
+	// IPv6Prefix IPv6 prefix type
+	IPv6Prefix
+)
 
 // PrefixType route prefix type
 type PrefixType int
+
+func (p PrefixType) String() string {
+	switch p {
+	case IPv4Prefix:
+		return IPv4PrefixString
+	case IPv6Prefix:
+		return IPv6PrefixString
+	default:
+		return InvalidPrefixString
+	}
+}
+
+func ToPrefixType(prefix string) PrefixType {
+	switch prefix {
+	case IPv4PrefixString:
+		return IPv4Prefix
+	case IPv6PrefixString:
+		return IPv6Prefix
+	default:
+		return InvalidPrefix
+	}
+}
 
 // Route represents a route
 type Route struct {
@@ -37,6 +67,7 @@ type Route struct {
 	PrefixType  PrefixType
 	Masquerade  bool
 	Metric      int
+	Enabled     bool
 }
 
 // Copy copies a route object
@@ -49,6 +80,7 @@ func (r *Route) Copy() *Route {
 		Peer:        r.Peer,
 		Metric:      r.Metric,
 		Masquerade:  r.Masquerade,
+		Enabled:     r.Enabled,
 	}
 }
 

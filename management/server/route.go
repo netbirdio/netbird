@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -20,6 +21,8 @@ const (
 	UpdateRouteMetric
 	// UpdateRouteMasquerade indicates a route masquerade update operation
 	UpdateRouteMasquerade
+	// UpdateRouteEnabled indicates a route enabled update operation
+	UpdateRouteEnabled
 )
 
 // RouteUpdateOperationType operation type
@@ -50,7 +53,7 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID string) (*route.Rou
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, description string, masquerade bool, metric int) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, description string, masquerade bool, metric int, enabled bool) (*route.Route, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -76,6 +79,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 	newRoute.Description = description
 	newRoute.Masquerade = masquerade
 	newRoute.Metric = metric
+	newRoute.Enabled = enabled
 
 	account.Routes[newRoute.ID] = newRoute
 
@@ -165,6 +169,12 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 				return nil, status.Errorf(codes.InvalidArgument, "failed to parse masquerade %s, not boolean", operation.Values[0])
 			}
 			newRoute.Masquerade = masquerade
+		case UpdateRouteEnabled:
+			enabled, err := strconv.ParseBool(operation.Values[0])
+			if err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
+			}
+			newRoute.Enabled = enabled
 		}
 	}
 
@@ -218,4 +228,30 @@ func (am *DefaultAccountManager) ListRoutes(accountID string) ([]*route.Route, e
 	}
 
 	return routes, nil
+}
+
+func toProtocolRoute(route *route.Route) *proto.Route {
+	return &proto.Route{
+		ID:         route.ID,
+		Prefix:     route.Prefix.String(),
+		PrefixType: int64(route.PrefixType),
+		Peer:       route.Peer,
+		Metric:     int64(route.Metric),
+		Masquerade: route.Masquerade,
+	}
+}
+
+func (am *DefaultAccountManager) toProtocolRoutes(peers []*Peer) []*proto.Route {
+	protoRoutes := make([]*proto.Route, 0)
+	for _, peer := range peers {
+		routes, err := am.Store.GetPeerRoutes(peer.Key)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+		for _, route := range routes {
+			protoRoutes = append(protoRoutes, toProtocolRoute(route))
+		}
+	}
+	return protoRoutes
 }

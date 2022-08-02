@@ -1,5 +1,10 @@
 package server
 
+import (
+	"github.com/netbirdio/netbird/route"
+	"net/netip"
+)
+
 type Store interface {
 	GetPeer(peerKey string) (*Peer, error)
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
@@ -14,4 +19,6 @@ type Store interface {
 	GetAccountBySetupKey(setupKey string) (*Account, error)
 	GetAccountByPrivateDomain(domain string) (*Account, error)
 	SaveAccount(account *Account) error
+	GetPeerRoutes(peerKey string) ([]*route.Route, error)
+	GetRoutesByPrefix(accountID string, prefix netip.Prefix) ([]*route.Route, error)
 }
