@@ -42,9 +42,8 @@ jobs:
           grep AUTH0_DOMAIN docker-compose.yml | grep $CI_NETBIRD_AUTH0_DOMAIN
           grep AUTH0_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH0_CLIENT_ID
           grep AUTH0_AUDIENCE docker-compose.yml | grep $CI_NETBIRD_AUTH0_AUDIENCE
-          grep NETBIRD_MGMT_API_ENDPOINT docker-compose.yml | grep "http://localhost:33071"  
-          grep NETBIRD_MGMT_GRPC_API_ENDPOINT docker-compose.yml | grep "http://localhost:33073"
-
+          grep NETBIRD_MGMT_API_ENDPOINT docker-compose.yml | grep "http://localhost:33073"  
+          
       - name: run docker compose up
         working-directory: infrastructure_files
         run: | 
