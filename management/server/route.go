@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"net/netip"
 	"strconv"
 )
 
@@ -52,6 +53,24 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID string) (*route.Rou
 	return nil, status.Errorf(codes.NotFound, "route with ID %s not found", routeID)
 }
 
+// checkPrefixPeerExists checks the combination of prefix and peer id, if it exists returns an error, otehrwise returns nil
+func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, prefix netip.Prefix) error {
+	routesWithPrefix, err := am.Store.GetRoutesByPrefix(accountID, prefix)
+
+	if err != nil {
+		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+			return nil
+		}
+		return status.Errorf(codes.InvalidArgument, "failed to parse prefix %s", prefix.String())
+	}
+	for _, route := range routesWithPrefix {
+		if route.Peer == peer {
+			return status.Errorf(codes.AlreadyExists, "failed a route with prefix %s and peer already exist", prefix.String())
+		}
+	}
+	return nil
+}
+
 // CreateRoute creates and saves a new route
 func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, description string, masquerade bool, metric int, enabled bool) (*route.Route, error) {
 	am.mux.Lock()
@@ -67,6 +86,11 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", prefix)
 	}
+	err = am.checkPrefixPeerExists(accountID, peer, newPrefix)
+	if err != nil {
+		return nil, err
+	}
+
 	_, peerExist := account.Peers[peer]
 	if !peerExist {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to find Peer %s", peer)
@@ -142,12 +166,20 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", operation.Values[0])
 			}
+			err = am.checkPrefixPeerExists(accountID, routeToUpdate.Peer, prefix)
+			if err != nil {
+				return nil, err
+			}
 			newRoute.Prefix = prefix
 			newRoute.PrefixType = prefixType
 		case UpdateRoutePeer:
 			_, peerExist := account.Peers[operation.Values[0]]
 			if !peerExist {
 				return nil, status.Errorf(codes.InvalidArgument, "failed to find Peer %s", operation.Values[0])
+			}
+			err = am.checkPrefixPeerExists(accountID, operation.Values[0], routeToUpdate.Prefix)
+			if err != nil {
+				return nil, err
 			}
 			newRoute.Peer = operation.Values[0]
 		case UpdateRouteMetric:

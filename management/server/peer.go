@@ -508,11 +508,11 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 
 	network := account.Network.Copy()
 
-	for _, p := range peers {
-		aclPeers := am.getPeersByACL(account, p.Key)
+	for _, peer := range peers {
+		aclPeers := am.getPeersByACL(account, peer.Key)
 		peersUpdate := toRemotePeerConfig(aclPeers)
-		routesUpdate := am.toProtocolRoutes(aclPeers)
-		err = am.peersUpdateManager.SendUpdate(p.Key,
+		routesUpdate := am.toProtocolRoutes(append(aclPeers, peer))
+		err = am.peersUpdateManager.SendUpdate(peer.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
 					// fill deprecated fields for backward compatibility
@@ -523,7 +523,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 						Serial:             account.Network.CurrentSerial(),
 						RemotePeers:        peersUpdate,
 						RemotePeersIsEmpty: len(peersUpdate) == 0,
-						PeerConfig:         toPeerConfig(p, network),
+						PeerConfig:         toPeerConfig(peer, network),
 						Routes:             routesUpdate,
 					},
 				},
