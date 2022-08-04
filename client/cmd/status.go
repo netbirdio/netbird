@@ -7,6 +7,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
 	nbStatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
@@ -72,7 +73,7 @@ var statusCmd = &cobra.Command{
 		pbFullStatus := resp.GetFullStatus()
 		fullStatus := fromProtoFullStatus(pbFullStatus)
 
-		cmd.Print(parseFullStatus(fullStatus, detailFlag, daemonStatus))
+		cmd.Print(parseFullStatus(fullStatus, detailFlag, daemonStatus, resp.GetDaemonVersion()))
 
 		return nil
 	},
@@ -141,7 +142,7 @@ func fromProtoFullStatus(pbFullStatus *proto.FullStatus) nbStatus.FullStatus {
 	return fullStatus
 }
 
-func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonStatus string) string {
+func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonStatus string, daemonVersion string) string {
 	var (
 		managementStatusURL  = ""
 		signalStatusURL      = ""
@@ -177,12 +178,16 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 	peersCountString := fmt.Sprintf("%d/%d Connected", peersConnected, len(fullStatus.Peers))
 
 	summary := fmt.Sprintf(
-		"%s"+ // daemon status
+		"Daemon version: %s\n"+
+			"CLI version: %s\n"+
+			"%s"+ // daemon status
 			"Management: %s%s\n"+
 			"Signal:  %s%s\n"+
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Peers count: %s\n",
+		daemonVersion,
+		system.NetbirdVersion(),
 		daemonStatus,
 		managementConnString,
 		managementStatusURL,
