@@ -26,7 +26,7 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 		accountManager.IsUserAdmin)
 
 	apiHandler := mux.NewRouter()
-	apiHandler.Use(jwtMiddleware.Handler, corsMiddleware.Handler, acMiddleware.Handler)
+	apiHandler.Use(corsMiddleware.Handler, jwtMiddleware.Handler, acMiddleware.Handler)
 
 	groupsHandler := NewGroups(accountManager, authAudience)
 	rulesHandler := NewRules(accountManager, authAudience)
