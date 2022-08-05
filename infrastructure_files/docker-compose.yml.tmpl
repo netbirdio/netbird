@@ -12,7 +12,7 @@ services:
       - AUTH0_CLIENT_ID=$NETBIRD_AUTH0_CLIENT_ID
       - AUTH0_AUDIENCE=$NETBIRD_AUTH0_AUDIENCE
       - NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_MGMT_API_ENDPOINT
-      - NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_MGMT_GRPC_API_ENDPOINT
+      - NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_MGMT_API_ENDPOINT
       - NGINX_SSL_PORT=443
       - LETSENCRYPT_DOMAIN=$NETBIRD_DOMAIN
       - LETSENCRYPT_EMAIL=$NETBIRD_LETSENCRYPT_EMAIL
@@ -40,11 +40,11 @@ services:
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt:ro
       - ./management.json:/etc/netbird/management.json
     ports:
-      - $NETBIRD_MGMT_GRPC_API_PORT:33073 #gRPC port
-      - $NETBIRD_MGMT_API_PORT:33071 #API port
+      - $NETBIRD_MGMT_API_PORT:443 #API port
   #     # port and command for Let's Encrypt validation without dashboard container
   #   - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
+    command: ["--port", "443", "--log-file", "console"]
   # Coturn
   coturn:
     image: coturn/coturn
