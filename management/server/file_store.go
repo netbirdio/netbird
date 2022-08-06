@@ -126,7 +126,13 @@ func restore(file string) (*FileStore, error) {
 		}
 		for _, route := range account.Routes {
 			if route.Peer != "" {
+				if store.PeerKeyId2RouteIDs[route.Peer] == nil {
+					store.PeerKeyId2RouteIDs[route.Peer] = make(map[string]struct{})
+				}
 				store.PeerKeyId2RouteIDs[route.Peer][route.ID] = struct{}{}
+			}
+			if store.AccountPrefix2RouteIDs[account.Id] == nil {
+				store.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
 			}
 			if _, ok := store.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()]; !ok {
 				store.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()] = make([]string, 0)
@@ -143,10 +149,6 @@ func restore(file string) (*FileStore, error) {
 	}
 
 	return store, nil
-}
-
-func parseAccountPrefixKey(accountID, prefix string) string {
-	return fmt.Sprintf("%s-%s", accountID, prefix)
 }
 
 // persist persists account data to a file
@@ -330,7 +332,13 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	for _, route := range account.Routes {
 		if route.Peer != "" {
+			if s.PeerKeyId2RouteIDs[route.Peer] == nil {
+				s.PeerKeyId2RouteIDs[route.Peer] = make(map[string]struct{})
+			}
 			s.PeerKeyId2RouteIDs[route.Peer][route.ID] = struct{}{}
+		}
+		if s.AccountPrefix2RouteIDs[account.Id] == nil {
+			s.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
 		}
 		if _, ok := s.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()]; !ok {
 			s.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()] = make([]string, 0)

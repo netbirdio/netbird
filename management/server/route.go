@@ -81,7 +81,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	var newRoute *route.Route
+	var newRoute route.Route
 	prefixType, newPrefix, err := route.ParsePrefix(prefix)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", prefix)
@@ -105,7 +105,11 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 	newRoute.Metric = metric
 	newRoute.Enabled = enabled
 
-	account.Routes[newRoute.ID] = newRoute
+	if account.Routes == nil {
+		account.Routes = make(map[string]*route.Route)
+	}
+
+	account.Routes[newRoute.ID] = &newRoute
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
@@ -115,9 +119,9 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 	err = am.updateAccountPeers(account)
 	if err != nil {
 		log.Error(err)
-		return newRoute, status.Errorf(codes.Unavailable, "failed to update peers", prefix)
+		return &newRoute, status.Errorf(codes.Unavailable, "failed to update peers", prefix)
 	}
-	return newRoute, nil
+	return &newRoute, nil
 }
 
 // SaveRoute saves route
@@ -273,17 +277,24 @@ func toProtocolRoute(route *route.Route) *proto.Route {
 	}
 }
 
-func (am *DefaultAccountManager) toProtocolRoutes(peers []*Peer) []*proto.Route {
-	protoRoutes := make([]*proto.Route, 0)
+func (am *DefaultAccountManager) getPeersRoutes(peers []*Peer) []*route.Route {
+	routes := make([]*route.Route, 0)
 	for _, peer := range peers {
-		routes, err := am.Store.GetPeerRoutes(peer.Key)
+		peerRoutes, err := am.Store.GetPeerRoutes(peer.Key)
 		if err != nil {
 			log.Error(err)
 			continue
 		}
-		for _, route := range routes {
-			protoRoutes = append(protoRoutes, toProtocolRoute(route))
+		if len(peerRoutes) > 0 {
+			routes = append(routes, peerRoutes...)
 		}
+	}
+	return routes
+}
+func toProtocolRoutes(routes []*route.Route) []*proto.Route {
+	protoRoutes := make([]*proto.Route, 0)
+	for _, route := range routes {
+		protoRoutes = append(protoRoutes, toProtocolRoute(route))
 	}
 	return protoRoutes
 }

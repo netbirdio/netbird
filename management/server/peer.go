@@ -251,9 +251,13 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
 	}
 
+	aclPeers := am.getPeersByACL(account, peerKey)
+	routesUpdate := am.getPeersRoutes(append(aclPeers, account.Peers[peerKey]))
+
 	return &NetworkMap{
-		Peers:   am.getPeersByACL(account, peerKey),
+		Peers:   aclPeers,
 		Network: account.Network.Copy(),
+		Routes:  routesUpdate,
 	}, err
 }
 
@@ -511,7 +515,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	for _, peer := range peers {
 		aclPeers := am.getPeersByACL(account, peer.Key)
 		peersUpdate := toRemotePeerConfig(aclPeers)
-		routesUpdate := am.toProtocolRoutes(append(aclPeers, peer))
+		routesUpdate := toProtocolRoutes(am.getPeersRoutes(append(aclPeers, peer)))
 		err = am.peersUpdateManager.SendUpdate(peer.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
