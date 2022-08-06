@@ -70,6 +70,7 @@ type AccountManager interface {
 	DeleteRule(accountId, ruleID string) error
 	ListRules(accountId string) ([]*Rule, error)
 	GetRoute(accountID, routeID string) (*route.Route, error)
+	CreateRoute(accountID string, prefix, peer, description string, masquerade bool, metric int, enabled bool) (*route.Route, error)
 	SaveRoute(accountID string, route *route.Route) error
 	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID string) error
@@ -693,6 +694,7 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	network := NewNetwork()
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
+	routes := make(map[string]*route.Route)
 	users[userId] = NewAdminUser(userId)
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
@@ -704,6 +706,7 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 		Users:     users,
 		CreatedBy: userId,
 		Domain:    domain,
+		Routes:    routes,
 	}
 
 	addAllGroup(acc)

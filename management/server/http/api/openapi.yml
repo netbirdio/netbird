@@ -276,6 +276,45 @@ components:
         - op
         - path
         - value
+    Route:
+      type: object
+      properties:
+        id:
+          description: Route Id
+          type: string
+        description:
+          description: Route description
+          type: string
+        enabled:
+          description: Route status
+          type: boolean
+        peer:
+          description: Peer associated with route
+          type: string
+        prefix:
+          description: Prefix or network range in CIDR format
+          type: string
+        prefix_type:
+          description: Prefix type indicating if it is IPv4 or IPv6
+          type: string
+        metric:
+          description: Route metric number. Lowest number has higher priority
+          type: integer
+          maximum: 9999
+          minimum: 1
+        masquerade:
+          description: Indicate if peer should masquerade traffic to this route's prefix
+          type: boolean
+      required:
+        - id
+        - description
+        - enabled
+        - peer
+        - prefix
+        - prefix_type
+        - metric
+        - masquerade
+
   responses:
     not_found:
       description: Resource not found
@@ -939,6 +978,57 @@ paths:
         '200':
           description: Delete status code
           content: {}
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+
+  /api/routes:
+    get:
+      summary: Returns a list of all routes
+      tags: [ Routes ]
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Routes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Route'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Creates a Route
+      tags: [ Routes ]
+      security:
+        - BearerAuth: [ ]
+      requestBody:
+        description: New Routes request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/Route'
+
+      responses:
+        '200':
+          description: A Route Object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

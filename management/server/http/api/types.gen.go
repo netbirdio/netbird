@@ -131,6 +131,33 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
+// Route defines model for Route.
+type Route struct {
+	// Route description
+	Description string `json:"description"`
+
+	// Route status
+	Enabled bool `json:"enabled"`
+
+	// Route Id
+	Id string `json:"id"`
+
+	// Indicate if peer should masquerade traffic to this route's prefix
+	Masquerade bool `json:"masquerade"`
+
+	// Route metric number. Lowest number has higher priority
+	Metric int `json:"metric"`
+
+	// Peer associated with route
+	Peer string `json:"peer"`
+
+	// Prefix or network range in CIDR format
+	Prefix string `json:"prefix"`
+
+	// Prefix type indicating if it is IPv4 or IPv6
+	PrefixType string `json:"prefix_type"`
+}
+
 // Rule defines model for Rule.
 type Rule struct {
 	// Rule friendly description
@@ -272,6 +299,9 @@ type PutApiPeersIdJSONBody struct {
 	SshEnabled bool   `json:"ssh_enabled"`
 }
 
+// PostApiRoutesJSONBody defines parameters for PostApiRoutes.
+type PostApiRoutesJSONBody = Route
+
 // PostApiRulesJSONBody defines parameters for PostApiRules.
 type PostApiRulesJSONBody struct {
 	// Rule friendly description
@@ -326,6 +356,9 @@ type PutApiGroupsIdJSONRequestBody PutApiGroupsIdJSONBody
 
 // PutApiPeersIdJSONRequestBody defines body for PutApiPeersId for application/json ContentType.
 type PutApiPeersIdJSONRequestBody PutApiPeersIdJSONBody
+
+// PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
+type PostApiRoutesJSONRequestBody = PostApiRoutesJSONBody
 
 // PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
 type PostApiRulesJSONRequestBody PostApiRulesJSONBody
