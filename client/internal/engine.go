@@ -130,10 +130,7 @@ func NewEngine(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		routeManager: &routemanager.Manager{
-			CTX:            ctx,
-			StatusRecorder: statusRecorder,
-		},
+		routeManager:   routemanager.NewManager(ctx, statusRecorder),
 	}
 }
 
@@ -628,6 +625,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			}
 		}
 	}
+
+	log.Debugf("%#v", networkMap.GetRoutes())
 
 	if networkMap.GetRoutes() != nil {
 		err := e.routeManager.UpdateRoutes(toRoutes(networkMap.GetRoutes()))

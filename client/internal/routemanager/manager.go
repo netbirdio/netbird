@@ -2,7 +2,6 @@ package routemanager
 
 import (
 	"context"
-	"github.com/google/go-cmp/cmp"
 	"github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/route"
 	log "github.com/sirupsen/logrus"
@@ -12,12 +11,21 @@ import (
 )
 
 type Manager struct {
-	CTX             context.Context
+	ctx             context.Context
 	mux             sync.Mutex
 	routes          map[string]*route.Route
 	managedPrefixes map[netip.Prefix]*managedPrefix
-	StatusRecorder  *status.Status
+	statusRecorder  *status.Status
 	//CheckInterval  time.Duration
+}
+
+func NewManager(ctx context.Context, statusRecorder *status.Status) *Manager {
+	return &Manager{
+		ctx:             ctx,
+		routes:          make(map[string]*route.Route),
+		managedPrefixes: make(map[netip.Prefix]*managedPrefix),
+		statusRecorder:  statusRecorder,
+	}
 }
 
 // DefaultCheckInterval default route worker check interval 5s
@@ -45,24 +53,26 @@ func (m *Manager) removeFromPrefix(oldRoute *route.Route) {
 	managed.update <- struct{}{}
 }
 
-func (m *Manager) startPrefixWatcher(prefixString string) {
+func (m *Manager) startPrefixWatcher(prefixString string) *managedPrefix {
 	prefix, _ := netip.ParsePrefix(prefixString)
-	ctx, cancel := context.WithCancel(m.CTX)
-	m.managedPrefixes[prefix] = &managedPrefix{
+	ctx, cancel := context.WithCancel(m.ctx)
+	managed := &managedPrefix{
 		ctx:    ctx,
 		stop:   cancel,
 		routes: make(map[string]*route.Route),
 		update: make(chan struct{}),
 		prefix: prefix,
 	}
+	m.managedPrefixes[prefix] = managed
 	go m.watchPrefix(prefix)
+	return managed
 }
 
 func (m *Manager) updatePrefix(newRoute *route.Route) {
 	managed, found := m.managedPrefixes[newRoute.Prefix]
 	if !found {
 		newRoute.Prefix.Masked()
-		m.startPrefixWatcher(newRoute.Prefix.String())
+		managed = m.startPrefixWatcher(newRoute.Prefix.String())
 	}
 	managed.mux.Lock()
 	managed.routes[newRoute.ID] = newRoute
@@ -94,7 +104,7 @@ func (m *Manager) watchPrefix(prefix netip.Prefix) {
 			// take action
 			managed.mux.Lock()
 			d := len(managed.routes)
-			managed.mux.Lock()
+			managed.mux.Unlock()
 			log.Debugf("ticker ran with %d routes", d)
 		case <-managed.update:
 			// check things
@@ -109,7 +119,7 @@ func (m *Manager) watchPrefix(prefix netip.Prefix) {
 					peer:   route.Peer,
 				})
 			}
-			managed.mux.Lock()
+			managed.mux.Unlock()
 			log.Debugf("update came with following routes: %#v", d)
 		}
 	}
@@ -135,7 +145,8 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 			routesToRemove = append(routesToRemove, routeID)
 			continue
 		}
-		if !cmp.Equal(*update, *m.routes[routeID]) {
+
+		if !update.IsEqual(m.routes[routeID]) {
 			routesToUpdate = append(routesToUpdate, routeID)
 		}
 	}

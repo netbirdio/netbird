@@ -84,6 +84,18 @@ func (r *Route) Copy() *Route {
 	}
 }
 
+// IsEqual compares one route with the other
+func (r *Route) IsEqual(other *Route) bool {
+	return other.ID == r.ID &&
+		other.Description == r.Description &&
+		other.Prefix == r.Prefix &&
+		other.PrefixType == r.PrefixType &&
+		other.Peer == r.Peer &&
+		other.Metric == r.Metric &&
+		other.Masquerade == r.Masquerade &&
+		other.Enabled == r.Enabled
+}
+
 // ParsePrefix Parses a prefix string and returns a netip.Prefix object and if is invalid, IPv4 or IPv6
 func ParsePrefix(prefixString string) (PrefixType, netip.Prefix, error) {
 	prefix, err := netip.ParsePrefix(prefixString)
