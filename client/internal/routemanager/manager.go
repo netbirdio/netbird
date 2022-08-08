@@ -120,7 +120,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 		}
 		prefix.mux.Unlock()
 	}
-	log.Info("routes added %d, removed % and updated %d", len(routesToAdd), len(routesToRemove), len(routesToUpdate))
+	log.Infof("routes added %d, removed %d and updated %d", len(routesToAdd), len(routesToRemove), len(routesToUpdate))
 	return nil
 }
 

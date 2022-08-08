@@ -119,7 +119,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 	err = am.updateAccountPeers(account)
 	if err != nil {
 		log.Error(err)
-		return &newRoute, status.Errorf(codes.Unavailable, "failed to update peers", prefix)
+		return &newRoute, status.Errorf(codes.Unavailable, "failed to update peers after create route %s", newPrefix)
 	}
 	return &newRoute, nil
 }
