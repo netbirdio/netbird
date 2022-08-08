@@ -13,7 +13,7 @@ func addToRouteTable(prefix netip.Prefix, addr string) error {
 		return err
 	}
 
-	ip, _, err := net.ParseCIDR(addr)
+	ip, _, err := net.ParseCIDR(addr + "/32")
 	if err != nil {
 		return err
 	}
