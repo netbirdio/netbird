@@ -130,7 +130,6 @@ func NewEngine(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		routeManager:   routemanager.NewManager(ctx, statusRecorder),
 	}
 }
 
@@ -236,6 +235,9 @@ func (e *Engine) Start() error {
 		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
 		return err
 	}
+
+	routeManager := routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
+	e.routeManager = routeManager
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
