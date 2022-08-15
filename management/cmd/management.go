@@ -319,6 +319,9 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 	config := &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
 		ClientAuth:   tls.NoClientCert,
+		NextProtos: []string{
+			"h2", "http/1.1", // enable HTTP/2
+		},
 	}
 
 	return config, nil
