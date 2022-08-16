@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/route"
 	"strings"
 	"time"
 
@@ -230,7 +231,7 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 				peersToSend = append(peersToSend, p)
 			}
 		}
-		update := toSyncResponse(s.config, remotePeer, peersToSend, nil, networkMap.Network.CurrentSerial(), networkMap.Network)
+		update := toSyncResponse(s.config, remotePeer, peersToSend, networkMap.Routes, nil, networkMap.Network.CurrentSerial(), networkMap.Network)
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
@@ -407,12 +408,14 @@ func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 	return remotePeers
 }
 
-func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *TURNCredentials, serial uint64, network *Network) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *Peer, peers []*Peer, routes []*route.Route, turnCredentials *TURNCredentials, serial uint64, network *Network) *proto.SyncResponse {
 	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
 	pConfig := toPeerConfig(peer, network)
 
 	remotePeers := toRemotePeerConfig(peers)
+
+	routesUpdate := toProtocolRoutes(routes)
 
 	return &proto.SyncResponse{
 		WiretrusteeConfig:  wtConfig,
@@ -424,6 +427,7 @@ func toSyncResponse(config *Config, peer *Peer, peers []*Peer, turnCredentials *
 			PeerConfig:         pConfig,
 			RemotePeers:        remotePeers,
 			RemotePeersIsEmpty: len(remotePeers) == 0,
+			Routes:             routesUpdate,
 		},
 	}
 }
@@ -449,7 +453,7 @@ func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.
 	} else {
 		turnCredentials = nil
 	}
-	plainResp := toSyncResponse(s.config, peer, networkMap.Peers, turnCredentials, networkMap.Network.CurrentSerial(), networkMap.Network)
+	plainResp := toSyncResponse(s.config, peer, networkMap.Peers, networkMap.Routes, turnCredentials, networkMap.Network.CurrentSerial(), networkMap.Network)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
