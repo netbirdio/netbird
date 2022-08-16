@@ -221,7 +221,7 @@ func (s *FileStore) DeletePeer(accountId string, peerKey string) (*Peer, error) 
 		g.Peers = peers
 	}
 
-	for routeID, _ := range peerRoutes {
+	for routeID := range peerRoutes {
 		account.Routes[routeID].Enabled = false
 		account.Routes[routeID].Peer = ""
 	}

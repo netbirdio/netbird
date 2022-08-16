@@ -11,7 +11,6 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -394,7 +393,7 @@ func copySymLink(source, dest string) error {
 
 func cpDir(src string, dst string) error {
 	var err error
-	var fds []os.FileInfo
+	var fds []os.DirEntry
 	var srcinfo os.FileInfo
 
 	if srcinfo, err = os.Stat(src); err != nil {
@@ -405,7 +404,7 @@ func cpDir(src string, dst string) error {
 		return err
 	}
 
-	if fds, err = ioutil.ReadDir(src); err != nil {
+	if fds, err = os.ReadDir(src); err != nil {
 		return err
 	}
 	for _, fd := range fds {
