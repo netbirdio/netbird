@@ -27,7 +27,7 @@ type FileStore struct {
 	PrivateDomain2AccountId map[string]string              `json:"-"`
 	PeerKeyId2SrcRulesId    map[string]map[string]struct{} `json:"-"`
 	PeerKeyId2DstRulesId    map[string]map[string]struct{} `json:"-"`
-	PeerKeyId2RouteIDs      map[string]map[string]struct{} `json:"-"`
+	PeerKeyID2RouteIDs      map[string]map[string]struct{} `json:"-"`
 	AccountPrefix2RouteIDs  map[string]map[string][]string `json:"-"`
 
 	// mutex to synchronise Store read/write operations
@@ -55,7 +55,7 @@ func restore(file string) (*FileStore, error) {
 			UserId2AccountId:        make(map[string]string),
 			PrivateDomain2AccountId: make(map[string]string),
 			PeerKeyId2SrcRulesId:    make(map[string]map[string]struct{}),
-			PeerKeyId2RouteIDs:      make(map[string]map[string]struct{}),
+			PeerKeyID2RouteIDs:      make(map[string]map[string]struct{}),
 			PeerKeyId2DstRulesId:    make(map[string]map[string]struct{}),
 			AccountPrefix2RouteIDs:  make(map[string]map[string][]string),
 			storeFile:               file,
@@ -82,7 +82,7 @@ func restore(file string) (*FileStore, error) {
 	store.PrivateDomain2AccountId = make(map[string]string)
 	store.PeerKeyId2SrcRulesId = make(map[string]map[string]struct{})
 	store.PeerKeyId2DstRulesId = make(map[string]map[string]struct{})
-	store.PeerKeyId2RouteIDs = make(map[string]map[string]struct{})
+	store.PeerKeyID2RouteIDs = make(map[string]map[string]struct{})
 	store.AccountPrefix2RouteIDs = make(map[string]map[string][]string)
 
 	for accountId, account := range store.Accounts {
@@ -126,10 +126,10 @@ func restore(file string) (*FileStore, error) {
 		}
 		for _, route := range account.Routes {
 			if route.Peer != "" {
-				if store.PeerKeyId2RouteIDs[route.Peer] == nil {
-					store.PeerKeyId2RouteIDs[route.Peer] = make(map[string]struct{})
+				if store.PeerKeyID2RouteIDs[route.Peer] == nil {
+					store.PeerKeyID2RouteIDs[route.Peer] = make(map[string]struct{})
 				}
-				store.PeerKeyId2RouteIDs[route.Peer][route.ID] = struct{}{}
+				store.PeerKeyID2RouteIDs[route.Peer][route.ID] = struct{}{}
 			}
 			if store.AccountPrefix2RouteIDs[account.Id] == nil {
 				store.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
@@ -203,12 +203,12 @@ func (s *FileStore) DeletePeer(accountId string, peerKey string) (*Peer, error) 
 	if peer == nil {
 		return nil, status.Errorf(codes.NotFound, "peer not found")
 	}
-	peerRoutes := s.PeerKeyId2RouteIDs[peerKey]
+	peerRoutes := s.PeerKeyID2RouteIDs[peerKey]
 	delete(account.Peers, peerKey)
 	delete(s.PeerKeyId2AccountId, peerKey)
 	delete(s.PeerKeyId2DstRulesId, peerKey)
 	delete(s.PeerKeyId2SrcRulesId, peerKey)
-	delete(s.PeerKeyId2RouteIDs, peerKey)
+	delete(s.PeerKeyID2RouteIDs, peerKey)
 
 	// cleanup groups
 	for _, g := range account.Groups {
@@ -273,7 +273,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	// enforce peer to account index and delete peer to route indexes for rebuild
 	for _, peer := range account.Peers {
 		s.PeerKeyId2AccountId[peer.Key] = account.Id
-		delete(s.PeerKeyId2RouteIDs, peer.Key)
+		delete(s.PeerKeyID2RouteIDs, peer.Key)
 	}
 
 	delete(s.AccountPrefix2RouteIDs, account.Id)
@@ -332,10 +332,10 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	for _, route := range account.Routes {
 		if route.Peer != "" {
-			if s.PeerKeyId2RouteIDs[route.Peer] == nil {
-				s.PeerKeyId2RouteIDs[route.Peer] = make(map[string]struct{})
+			if s.PeerKeyID2RouteIDs[route.Peer] == nil {
+				s.PeerKeyID2RouteIDs[route.Peer] = make(map[string]struct{})
 			}
-			s.PeerKeyId2RouteIDs[route.Peer][route.ID] = struct{}{}
+			s.PeerKeyID2RouteIDs[route.Peer][route.ID] = struct{}{}
 		}
 		if s.AccountPrefix2RouteIDs[account.Id] == nil {
 			s.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
@@ -522,7 +522,7 @@ func (s *FileStore) GetPeerRoutes(peerKey string) ([]*route.Route, error) {
 		return nil, err
 	}
 
-	routeIDs, ok := s.PeerKeyId2RouteIDs[peerKey]
+	routeIDs, ok := s.PeerKeyID2RouteIDs[peerKey]
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "no routes for peer: %v", routeIDs)
 	}
