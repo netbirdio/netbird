@@ -15,6 +15,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v2
         with:
-          args: --timeout=6m
+          #  SA1019: "io/ioutil" has been deprecated since Go 1.16
+          args: --timeout=6m -e SA1019
 
 
