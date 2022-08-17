@@ -32,7 +32,7 @@ jobs:
           CI_NETBIRD_AUTH_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH_CLIENT_ID }}
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
           CI_NETBIRD_AUTH_JWT_CERTS:  https://my.auth0.domain/.well-known/jwks.json
-          CI_NETBIRD_AUTH_SUPPORTED_SCOPES: openid profile email offline_access api
+          CI_NETBIRD_AUTH_SUPPORTED_SCOPES: openid
           CI_NETBIRD_USE_AUTH0: true
 
       - name: check values
@@ -42,7 +42,7 @@ jobs:
           CI_NETBIRD_AUTH_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH_CLIENT_ID }}
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
           CI_NETBIRD_AUTH_JWT_CERTS:  https://my.auth0.domain/.well-known/jwks.json
-          CI_NETBIRD_AUTH_SUPPORTED_SCOPES: openid profile email offline_access api
+          CI_NETBIRD_AUTH_SUPPORTED_SCOPES: openid
           CI_NETBIRD_USE_AUTH0: true
         run: |
           grep AUTH_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_ID
