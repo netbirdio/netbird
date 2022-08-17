@@ -29,6 +29,25 @@ const (
 // RouteUpdateOperationType operation type
 type RouteUpdateOperationType int
 
+func (t RouteUpdateOperationType) String() string {
+	switch t {
+	case UpdateRouteDescription:
+		return "UpdateRouteDescription"
+	case UpdateRoutePrefix:
+		return "UpdateRoutePrefix"
+	case UpdateRoutePeer:
+		return "UpdateRoutePeer"
+	case UpdateRouteMetric:
+		return "UpdateRouteMetric"
+	case UpdateRouteMasquerade:
+		return "UpdateRouteMasquerade"
+	case UpdateRouteEnabled:
+		return "UpdateRouteEnabled"
+	default:
+		return "InvalidOperation"
+	}
+}
+
 // RouteUpdateOperation operation object with type and values to be applied
 type RouteUpdateOperation struct {
 	Type   RouteUpdateOperationType
@@ -91,9 +110,15 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 		return nil, err
 	}
 
-	_, peerExist := account.Peers[peer]
-	if !peerExist {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to find Peer %s", peer)
+	if peer != "" {
+		_, peerExist := account.Peers[peer]
+		if !peerExist {
+			return nil, status.Errorf(codes.InvalidArgument, "failed to find Peer %s", peer)
+		}
+	}
+
+	if metric < route.MinMetric || metric > route.MaxMetric {
+		return nil, status.Errorf(codes.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
 	}
 
 	newRoute.Peer = peer
@@ -125,16 +150,35 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 }
 
 // SaveRoute saves route
-func (am *DefaultAccountManager) SaveRoute(accountID string, route *route.Route) error {
+func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.Route) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
+
+	if routeToSave == nil {
+		return status.Errorf(codes.InvalidArgument, "route provided is nil")
+	}
+
+	if !routeToSave.Prefix.IsValid() {
+		return status.Errorf(codes.InvalidArgument, "invalid Prefix %s", routeToSave.Prefix.String())
+	}
+
+	if routeToSave.Metric < route.MinMetric || routeToSave.Metric > route.MaxMetric {
+		return status.Errorf(codes.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
+	}
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
 
-	account.Routes[route.ID] = route
+	if routeToSave.Peer != "" {
+		_, peerExist := account.Peers[routeToSave.Peer]
+		if !peerExist {
+			return status.Errorf(codes.InvalidArgument, "failed to find Peer %s", routeToSave.Peer)
+		}
+	}
+
+	account.Routes[routeToSave.ID] = routeToSave
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
@@ -162,6 +206,11 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 	newRoute := routeToUpdate.Copy()
 
 	for _, operation := range operations {
+
+		if len(operation.Values) != 1 {
+			return nil, status.Errorf(codes.InvalidArgument, "operation %s contains invalid number of values, it should be 1", operation.Type.String())
+		}
+
 		switch operation.Type {
 		case UpdateRouteDescription:
 			newRoute.Description = operation.Values[0]
@@ -177,10 +226,13 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 			newRoute.Prefix = prefix
 			newRoute.PrefixType = prefixType
 		case UpdateRoutePeer:
-			_, peerExist := account.Peers[operation.Values[0]]
-			if !peerExist {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to find Peer %s", operation.Values[0])
+			if operation.Values[0] != "" {
+				_, peerExist := account.Peers[operation.Values[0]]
+				if !peerExist {
+					return nil, status.Errorf(codes.InvalidArgument, "failed to find Peer %s", operation.Values[0])
+				}
 			}
+
 			err = am.checkPrefixPeerExists(accountID, operation.Values[0], routeToUpdate.Prefix)
 			if err != nil {
 				return nil, err
@@ -300,6 +352,7 @@ func (am *DefaultAccountManager) getPeersRoutes(peers []*Peer) []*route.Route {
 	}
 	return routes
 }
+
 func toProtocolRoutes(routes []*route.Route) []*proto.Route {
 	protoRoutes := make([]*proto.Route, 0)
 	for _, r := range routes {
