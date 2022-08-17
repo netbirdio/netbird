@@ -31,7 +31,7 @@ jobs:
           CI_NETBIRD_AUTH_AUTHORITY: ${{ secrets.CI_NETBIRD_AUTH_AUTHORITY }}
           CI_NETBIRD_AUTH_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH_CLIENT_ID }}
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
-          CI_NETBIRD_AUTH_JWT_CERTS:  https://my.auth0.domain/.well-known/jwks.json
+          CI_NETBIRD_AUTH_JWT_CERTS:  ${{ secrets.CI_NETBIRD_AUTH_AUTHORITY }}.well-known/jwks.json
           CI_NETBIRD_AUTH_SUPPORTED_SCOPES: openid
           CI_NETBIRD_USE_AUTH0: true
 
@@ -41,7 +41,7 @@ jobs:
           CI_NETBIRD_AUTH_AUTHORITY: ${{ secrets.CI_NETBIRD_AUTH_AUTHORITY }}
           CI_NETBIRD_AUTH_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH_CLIENT_ID }}
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
-          CI_NETBIRD_AUTH_JWT_CERTS:  https://my.auth0.domain/.well-known/jwks.json
+          CI_NETBIRD_AUTH_JWT_CERTS:  ${{ secrets.CI_NETBIRD_AUTH_AUTHORITY }}.well-known/jwks.json
           CI_NETBIRD_AUTH_SUPPORTED_SCOPES: openid
           CI_NETBIRD_USE_AUTH0: true
         run: |
