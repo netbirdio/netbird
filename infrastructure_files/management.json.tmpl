@@ -29,9 +29,9 @@
     "Datadir": "",
     "HttpConfig": {
         "Address": "0.0.0.0:$NETBIRD_MGMT_API_PORT",
-        "AuthIssuer": "https://$NETBIRD_AUTH0_DOMAIN/",
-        "AuthAudience": "$NETBIRD_AUTH0_AUDIENCE",
-        "AuthKeysLocation": "https://$NETBIRD_AUTH0_DOMAIN/.well-known/jwks.json",
+        "AuthIssuer": "$NETBIRD_AUTH_AUTHORITY",
+        "AuthAudience": "$NETBIRD_AUTH_AUDIENCE",
+        "AuthKeysLocation": "$NETBIRD_AUTH_JWT_CERTS",
         "CertFile":"$NETBIRD_MGMT_API_CERT_FILE",
         "CertKey":"$NETBIRD_MGMT_API_CERT_KEY_FILE"
     },
