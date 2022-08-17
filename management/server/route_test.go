@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/netbirdio/netbird/route"
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 	"net/netip"
 	"testing"
@@ -583,6 +584,99 @@ func TestDeleteRoute(t *testing.T) {
 	if found {
 		t.Error("route shouldn't be found after delete")
 	}
+}
+
+func TestGetNetworkMap_RouteSync(t *testing.T) {
+	// no routes for peer in different groups
+	// no routes when route is deleted
+
+	baseRoute := &route.Route{
+		ID:          "testingRoute",
+		Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
+		PrefixType:  route.IPv4Prefix,
+		Peer:        peer1Key,
+		Description: "super",
+		Masquerade:  false,
+		Metric:      9999,
+		Enabled:     true,
+	}
+
+	am, err := createRouterManager(t)
+	if err != nil {
+		t.Error("failed to create account manager")
+	}
+
+	account, err := initTestRouteAccount(t, am)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+
+	newAccountRoutes, err := am.GetNetworkMap(peer1Key)
+	require.NoError(t, err)
+	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
+
+	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Prefix.String(), baseRoute.Peer,
+		baseRoute.Description, baseRoute.Masquerade, baseRoute.Metric, false)
+
+	noDisabledRoutes, err := am.GetNetworkMap(peer1Key)
+	require.NoError(t, err)
+	require.Len(t, noDisabledRoutes.Routes, 0, "no routes for disabled routes")
+
+	enabledRoute := createdRoute.Copy()
+	enabledRoute.Enabled = true
+
+	err = am.SaveRoute(account.Id, enabledRoute)
+	require.NoError(t, err)
+
+	peer1Routes, err := am.GetNetworkMap(peer1Key)
+	require.NoError(t, err)
+	require.Len(t, peer1Routes.Routes, 1, "we should receive one route for peer1")
+	require.True(t, enabledRoute.IsEqual(peer1Routes.Routes[0]), "received route should be equal")
+
+	peer2Routes, err := am.GetNetworkMap(peer2Key)
+	require.NoError(t, err)
+	require.Len(t, peer2Routes.Routes, 1, "we should receive one route for peer2")
+	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
+
+	newGroup := &Group{
+		ID:    xid.New().String(),
+		Name:  "peer1 group",
+		Peers: []string{peer1Key},
+	}
+	err = am.SaveGroup(account.Id, newGroup)
+	require.NoError(t, err)
+
+	rules, err := am.ListRules(account.Id)
+	require.NoError(t, err)
+
+	defaultRule := rules[0]
+	newRule := defaultRule.Copy()
+	newRule.ID = xid.New().String()
+	newRule.Name = "peer1 only"
+	newRule.Source = []string{newGroup.ID}
+	newRule.Destination = []string{newGroup.ID}
+
+	err = am.SaveRule(account.Id, newRule)
+	require.NoError(t, err)
+
+	err = am.DeleteRule(account.Id, defaultRule.ID)
+	require.NoError(t, err)
+
+	peer1GroupRoutes, err := am.GetNetworkMap(peer1Key)
+	require.NoError(t, err)
+	require.Len(t, peer1GroupRoutes.Routes, 1, "we should receive one route for peer1")
+
+	peer2GroupRoutes, err := am.GetNetworkMap(peer2Key)
+	require.NoError(t, err)
+	require.Len(t, peer2GroupRoutes.Routes, 0, "we should not receive routes for peer2")
+
+	err = am.DeleteRoute(account.Id, enabledRoute.ID)
+	require.NoError(t, err)
+
+	peer1DeletedRoute, err := am.GetNetworkMap(peer1Key)
+	require.NoError(t, err)
+	require.Len(t, peer1DeletedRoute.Routes, 0, "we should receive one route for peer1")
+
 }
 
 func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
