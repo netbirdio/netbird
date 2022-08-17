@@ -63,6 +63,21 @@ export MGMT_VOLUMENAME
 export SIGNAL_VOLUMENAME
 export LETSENCRYPT_VOLUMENAME
 
+#backwards compatibility after migrating to generic OIDC
+if [[ -z "${NETBIRD_AUTH_AUTHORITY}" ]]; then
+    echo "It seems like you provided an old setup.env file."
+    echo "Since the release of v0.8.8, we introduced a new set of properties."
+    echo "The script is backward compatible and will continue automatically."
+    echo "In the future versions it will be deprecated. Please refer to the documentation to learn about the changes http://netbird.io/docs/getting-started/self-hosting"
+
+    export NETBIRD_AUTH_AUTHORITY="https://${NETBIRD_AUTH0_DOMAIN}/"
+    export NETBIRD_AUTH_CLIENT_ID=${NETBIRD_AUTH0_CLIENT_ID}
+    export NETBIRD_USE_AUTH0="true"
+    export NETBIRD_AUTH_SUPPORTED_SCOPES="openid profile email api offline_access email_verified"
+    export NETBIRD_AUTH_AUDIENCE=${NETBIRD_AUTH0_AUDIENCE}
+    export NETBIRD_AUTH_JWT_CERTS="https://${NETBIRD_AUTH0_DOMAIN}/.well-known/jwks.json"
+fi
+
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 envsubst < management.json.tmpl > management.json
 envsubst < turnserver.conf.tmpl > turnserver.conf
