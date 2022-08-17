@@ -617,6 +617,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 
 	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Prefix.String(), baseRoute.Peer,
 		baseRoute.Description, baseRoute.Masquerade, baseRoute.Metric, false)
+	require.NoError(t, err)
 
 	noDisabledRoutes, err := am.GetNetworkMap(peer1Key)
 	require.NoError(t, err)
