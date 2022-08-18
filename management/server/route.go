@@ -64,9 +64,9 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID string) (*route.Rou
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	rule, ok := account.Routes[routeID]
-	if ok {
-		return rule, nil
+	wantedRoute, found := account.Routes[routeID]
+	if found {
+		return wantedRoute, nil
 	}
 
 	return nil, status.Errorf(codes.NotFound, "route with ID %s not found", routeID)
@@ -200,7 +200,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 
 	routeToUpdate, ok := account.Routes[routeID]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "rule %s no longer exists", routeID)
+		return nil, status.Errorf(codes.NotFound, "route %s no longer exists", routeID)
 	}
 
 	newRoute := routeToUpdate.Copy()
