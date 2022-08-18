@@ -193,17 +193,13 @@ components:
                 $ref: '#/components/schemas/PeerMinimum'
           required:
           - peers
-    GroupPatchOperation:
+    PatchMinimum:
       type: object
       properties:
         op:
           description: Patch operation type
           type: string
           enum: [ "replace","add","remove" ]
-        path:
-          description: Group field to update in form /<field>
-          type: string
-          enum: [ "name","peers" ]
         value:
           description: Values to be applied
           type: array
@@ -211,8 +207,19 @@ components:
             type: string
       required:
         - op
-        - path
         - value
+    GroupPatchOperation:
+      allOf:
+        - $ref: '#/components/schemas/PatchMinimum'
+        - type: object
+          properties:
+            path:
+              description: Group field to update in form /<field>
+              type: string
+              enum: [ "name","peers" ]
+          required:
+            - path
+
     RuleMinimum:
       type: object
       properties:
@@ -259,26 +266,16 @@ components:
           - sources
           - destinations
     RulePatchOperation:
-      type: object
-      properties:
-        op:
-          description: Patch operation type
-          type: string
-          enum: [ "replace","add","remove" ]
-        path:
-          description: Rule field to update in form /<field>
-          type: string
-          enum: [ "name","description","disabled","flow","sources","destinations" ]
-        value:
-          description: Values to be applied
-          type: array
-          items:
-            type: string
-      required:
-        - op
-        - path
-        - value
-
+      allOf:
+        - $ref: '#/components/schemas/PatchMinimum'
+        - type: object
+          properties:
+            path:
+              description: Rule field to update in form /<field>
+              type: string
+              enum: [ "name","description","disabled","flow","sources","destinations" ]
+          required:
+            - path
     RouteRequest:
       type: object
       properties:
@@ -324,27 +321,18 @@ components:
             - id
             - prefix_type
         - $ref: '#/components/schemas/RouteRequest'
-
     RoutePatchOperation:
-      type: object
-      properties:
-        op:
-          description: Patch operation type
-          type: string
-          enum: [ "replace","add","remove" ]
-        path:
-          description: Route field to update in form /<field>
-          type: string
-          enum: [ "prefix","description","enabled","peer","metric","masquerade" ]
-        value:
-          description: Values to be applied
-          type: array
-          items:
-            type: string
-      required:
-        - op
-        - path
-        - value
+      allOf:
+        - $ref: '#/components/schemas/PatchMinimum'
+        - type: object
+          properties:
+            path:
+              description: Route field to update in form /<field>
+              type: string
+              enum: [ "prefix","description","enabled","peer","metric","masquerade" ]
+          required:
+            - path
+
   responses:
     not_found:
       description: Resource not found
@@ -1068,6 +1056,33 @@ paths:
           "$ref": "#/components/responses/internal_error"
 
   /api/routes/{id}:
+    get:
+      summary: Get information about a Routes
+      tags: [ Routes ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Route ID
+      responses:
+        '200':
+          description: A Route object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
     put:
       summary: Update/Replace a Route
       tags: [ Routes ]

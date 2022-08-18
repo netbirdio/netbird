@@ -24,6 +24,13 @@ const (
 	GroupPatchOperationPathPeers GroupPatchOperationPath = "peers"
 )
 
+// Defines values for PatchMinimumOp.
+const (
+	PatchMinimumOpAdd     PatchMinimumOp = "add"
+	PatchMinimumOpRemove  PatchMinimumOp = "remove"
+	PatchMinimumOpReplace PatchMinimumOp = "replace"
+)
+
 // Defines values for RoutePatchOperationOp.
 const (
 	RoutePatchOperationOpAdd     RoutePatchOperationOp = "add"
@@ -43,9 +50,9 @@ const (
 
 // Defines values for RulePatchOperationOp.
 const (
-	Add     RulePatchOperationOp = "add"
-	Remove  RulePatchOperationOp = "remove"
-	Replace RulePatchOperationOp = "replace"
+	RulePatchOperationOpAdd     RulePatchOperationOp = "add"
+	RulePatchOperationOpRemove  RulePatchOperationOp = "remove"
+	RulePatchOperationOpReplace RulePatchOperationOp = "replace"
 )
 
 // Defines values for RulePatchOperationPath.
@@ -102,6 +109,18 @@ type GroupPatchOperationOp string
 
 // Group field to update in form /<field>
 type GroupPatchOperationPath string
+
+// PatchMinimum defines model for PatchMinimum.
+type PatchMinimum struct {
+	// Patch operation type
+	Op PatchMinimumOp `json:"op"`
+
+	// Values to be applied
+	Value []string `json:"value"`
+}
+
+// Patch operation type
+type PatchMinimumOp string
 
 // Peer defines model for Peer.
 type Peer struct {
