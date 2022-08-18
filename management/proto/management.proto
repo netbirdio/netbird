@@ -176,6 +176,8 @@ message NetworkMap {
   // Indicates whether remotePeers array is empty or not to bypass protobuf null and empty array equality.
   bool remotePeersIsEmpty = 4;
 
+  // List of routes to be applied
+  repeated Route Routes = 5;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -228,4 +230,14 @@ message ProviderConfig {
   string Domain =3;
   // An Audience for validation
   string Audience = 4;
+}
+
+// Route represents a route.Route object
+message Route {
+  string ID = 1;
+  string Prefix = 2;
+  int64  PrefixType = 3;
+  string Peer = 4;
+  int64  Metric = 5;
+  bool   Masquerade = 6;
 }

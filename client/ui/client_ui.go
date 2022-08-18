@@ -9,7 +9,6 @@ import (
 	"flag"
 	"fmt"
 	"github.com/netbirdio/netbird/client/system"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -501,7 +500,7 @@ func (s *serviceClient) getSrvConfig() {
 // checkPIDFile exists and return error, or write new.
 func checkPIDFile() error {
 	pidFile := path.Join(os.TempDir(), "wiretrustee-ui.pid")
-	if piddata, err := ioutil.ReadFile(pidFile); err == nil {
+	if piddata, err := os.ReadFile(pidFile); err == nil {
 		if pid, err := strconv.Atoi(string(piddata)); err == nil {
 			if process, err := os.FindProcess(pid); err == nil {
 				if err := process.Signal(syscall.Signal(0)); err == nil {
@@ -511,5 +510,5 @@ func checkPIDFile() error {
 		}
 	}
 
-	return ioutil.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664)
+	return os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o664)
 }
