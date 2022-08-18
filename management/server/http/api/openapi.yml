@@ -14,6 +14,8 @@ tags:
     description: Interact with and view information about groups.
   - name: Rules
     description: Interact with and view information about rules.
+  - name: Routes
+    description: Interact with and view information about routes.
 components:
   schemas:
     User:
@@ -267,6 +269,73 @@ components:
           description: Rule field to update in form /<field>
           type: string
           enum: [ "name","description","disabled","flow","sources","destinations" ]
+        value:
+          description: Values to be applied
+          type: array
+          items:
+            type: string
+      required:
+        - op
+        - path
+        - value
+
+    RouteRequest:
+      type: object
+      properties:
+        description:
+          description: Route description
+          type: string
+        enabled:
+          description: Route status
+          type: boolean
+        peer:
+          description: Peer associated with route
+          type: string
+        prefix:
+          description: Prefix or network range in CIDR format
+          type: string
+        metric:
+          description: Route metric number. Lowest number has higher priority
+          type: integer
+          maximum: 9999
+          minimum: 1
+        masquerade:
+          description: Indicate if peer should masquerade traffic to this route's prefix
+          type: boolean
+      required:
+        - id
+        - description
+        - enabled
+        - peer
+        - prefix
+        - metric
+        - masquerade
+    Route:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Route Id
+              type: string
+            prefix_type:
+              description: Prefix type indicating if it is IPv4 or IPv6
+              type: string
+          required:
+            - id
+            - prefix_type
+        - $ref: '#/components/schemas/RouteRequest'
+
+    RoutePatchOperation:
+      type: object
+      properties:
+        op:
+          description: Patch operation type
+          type: string
+          enum: [ "replace","add","remove" ]
+        path:
+          description: Route field to update in form /<field>
+          type: string
+          enum: [ "prefix","description","enabled","peer","metric","masquerade" ]
         value:
           description: Values to be applied
           type: array
@@ -939,6 +1008,150 @@ paths:
         '200':
           description: Delete status code
           content: {}
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+
+  /api/routes:
+    get:
+      summary: Returns a list of all routes
+      tags: [ Routes ]
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Routes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Route'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Creates a Route
+      tags: [ Routes ]
+      security:
+        - BearerAuth: [ ]
+      requestBody:
+        description: New Routes request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/RouteRequest'
+      responses:
+        '200':
+          description: A Route Object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+
+  /api/routes/{id}:
+    put:
+      summary: Update/Replace a Route
+      tags: [ Routes ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Route ID
+      requestBody:
+        description: Update Route request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouteRequest'
+      responses:
+        '200':
+          description: A Route object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    patch:
+      summary: Update information about a Route
+      tags: [ Routes ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Route ID
+      requestBody:
+        description: Update Route request using a list of json patch objects
+        content:
+          'application/json':
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/RoutePatchOperation'
+      responses:
+        '200':
+          description: A Route object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Route'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Route
+      tags: [ Routes ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Route ID
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
