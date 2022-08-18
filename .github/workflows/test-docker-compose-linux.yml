@@ -28,20 +28,28 @@ jobs:
         working-directory: infrastructure_files
         run: bash -x configure.sh
         env:
-          CI_NETBIRD_AUTH0_DOMAIN: ${{ secrets.CI_NETBIRD_AUTH0_DOMAIN }}
-          CI_NETBIRD_AUTH0_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH0_CLIENT_ID }}
-          CI_NETBIRD_AUTH0_AUDIENCE: testing.ci
+          CI_NETBIRD_AUTH_AUTHORITY: ${{ secrets.CI_NETBIRD_AUTH_AUTHORITY }}
+          CI_NETBIRD_AUTH_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH_CLIENT_ID }}
+          CI_NETBIRD_AUTH_AUDIENCE: testing.ci
+          CI_NETBIRD_AUTH_JWT_CERTS:  ${{ secrets.CI_NETBIRD_AUTH_AUTHORITY }}.well-known/jwks.json
+          CI_NETBIRD_AUTH_SUPPORTED_SCOPES: openid
+          CI_NETBIRD_USE_AUTH0: true
 
       - name: check values
         working-directory: infrastructure_files
         env:
-          CI_NETBIRD_AUTH0_DOMAIN: ${{ secrets.CI_NETBIRD_AUTH0_DOMAIN }}
-          CI_NETBIRD_AUTH0_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH0_CLIENT_ID }}
-          CI_NETBIRD_AUTH0_AUDIENCE: testing.ci
+          CI_NETBIRD_AUTH_AUTHORITY: ${{ secrets.CI_NETBIRD_AUTH_AUTHORITY }}
+          CI_NETBIRD_AUTH_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH_CLIENT_ID }}
+          CI_NETBIRD_AUTH_AUDIENCE: testing.ci
+          CI_NETBIRD_AUTH_JWT_CERTS:  ${{ secrets.CI_NETBIRD_AUTH_AUTHORITY }}.well-known/jwks.json
+          CI_NETBIRD_AUTH_SUPPORTED_SCOPES: openid
+          CI_NETBIRD_USE_AUTH0: true
         run: |
-          grep AUTH0_DOMAIN docker-compose.yml | grep $CI_NETBIRD_AUTH0_DOMAIN
-          grep AUTH0_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH0_CLIENT_ID
-          grep AUTH0_AUDIENCE docker-compose.yml | grep $CI_NETBIRD_AUTH0_AUDIENCE
+          grep AUTH_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_ID
+          grep AUTH_AUTHORITY docker-compose.yml | grep $CI_NETBIRD_AUTH_AUTHORITY
+          grep AUTH_AUDIENCE docker-compose.yml | grep $CI_NETBIRD_AUTH_AUDIENCE
+          grep AUTH_SUPPORTED_SCOPES docker-compose.yml | grep $CI_NETBIRD_AUTH_SUPPORTED_SCOPES
+          grep USE_AUTH0 docker-compose.yml | grep $CI_NETBIRD_USE_AUTH0
           grep NETBIRD_MGMT_API_ENDPOINT docker-compose.yml | grep "http://localhost:33073"  
           
       - name: run docker compose up
