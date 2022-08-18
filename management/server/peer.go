@@ -251,9 +251,13 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
 	}
 
+	aclPeers := am.getPeersByACL(account, peerKey)
+	routesUpdate := am.getPeersRoutes(append(aclPeers, account.Peers[peerKey]))
+
 	return &NetworkMap{
-		Peers:   am.getPeersByACL(account, peerKey),
+		Peers:   aclPeers,
 		Network: account.Network.Copy(),
+		Routes:  routesUpdate,
 	}, err
 }
 
@@ -508,20 +512,23 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 
 	network := account.Network.Copy()
 
-	for _, p := range peers {
-		update := toRemotePeerConfig(am.getPeersByACL(account, p.Key))
-		err = am.peersUpdateManager.SendUpdate(p.Key,
+	for _, peer := range peers {
+		aclPeers := am.getPeersByACL(account, peer.Key)
+		peersUpdate := toRemotePeerConfig(aclPeers)
+		routesUpdate := toProtocolRoutes(am.getPeersRoutes(append(aclPeers, peer)))
+		err = am.peersUpdateManager.SendUpdate(peer.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
 					// fill deprecated fields for backward compatibility
-					RemotePeers:        update,
-					RemotePeersIsEmpty: len(update) == 0,
+					RemotePeers:        peersUpdate,
+					RemotePeersIsEmpty: len(peersUpdate) == 0,
 					// new field
 					NetworkMap: &proto.NetworkMap{
 						Serial:             account.Network.CurrentSerial(),
-						RemotePeers:        update,
-						RemotePeersIsEmpty: len(update) == 0,
-						PeerConfig:         toPeerConfig(p, network),
+						RemotePeers:        peersUpdate,
+						RemotePeersIsEmpty: len(peersUpdate) == 0,
+						PeerConfig:         toPeerConfig(peer, network),
+						Routes:             routesUpdate,
 					},
 				},
 			})

@@ -3,6 +3,7 @@ package mock_server
 import (
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/route"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"time"
@@ -44,6 +45,12 @@ type MockAccountManager struct {
 	UpdatePeerMetaFunc                    func(peerKey string, meta server.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc                  func(peerKey string, sshKey string) error
 	UpdatePeerFunc                        func(accountID string, peer *server.Peer) (*server.Peer, error)
+	CreateRouteFunc                       func(accountID string, prefix, peer, description string, masquerade bool, metric int, enabled bool) (*route.Route, error)
+	GetRouteFunc                          func(accountID, routeID string) (*route.Route, error)
+	SaveRouteFunc                         func(accountID string, route *route.Route) error
+	UpdateRouteFunc                       func(accountID string, routeID string, operations []server.RouteUpdateOperation) (*route.Route, error)
+	DeleteRouteFunc                       func(accountID, routeID string) error
+	ListRoutesFunc                        func(accountID string) ([]*route.Route, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -359,4 +366,52 @@ func (am *MockAccountManager) UpdatePeer(accountID string, peer *server.Peer) (*
 		return am.UpdatePeerFunc(accountID, peer)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method UpdatePeerFunc is is not implemented")
+}
+
+// CreateRoute mock implementation of CreateRoute from server.AccountManager interface
+func (am *MockAccountManager) CreateRoute(accountID string, prefix, peer, description string, masquerade bool, metric int, enabled bool) (*route.Route, error) {
+	if am.GetRouteFunc != nil {
+		return am.CreateRouteFunc(accountID, prefix, peer, description, masquerade, metric, enabled)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method CreateRoute is not implemented")
+}
+
+// GetRoute mock implementation of GetRoute from server.AccountManager interface
+func (am *MockAccountManager) GetRoute(accountID, routeID string) (*route.Route, error) {
+	if am.GetRouteFunc != nil {
+		return am.GetRouteFunc(accountID, routeID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetRoute is not implemented")
+}
+
+// SaveRoute mock implementation of SaveRoute from server.AccountManager interface
+func (am *MockAccountManager) SaveRoute(accountID string, route *route.Route) error {
+	if am.SaveRouteFunc != nil {
+		return am.SaveRouteFunc(accountID, route)
+	}
+	return status.Errorf(codes.Unimplemented, "method SaveRoute is not implemented")
+}
+
+// UpdateRoute mock implementation of UpdateRoute from server.AccountManager interface
+func (am *MockAccountManager) UpdateRoute(accountID string, ruleID string, operations []server.RouteUpdateOperation) (*route.Route, error) {
+	if am.UpdateRouteFunc != nil {
+		return am.UpdateRouteFunc(accountID, ruleID, operations)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateRoute not implemented")
+}
+
+// DeleteRoute mock implementation of DeleteRoute from server.AccountManager interface
+func (am *MockAccountManager) DeleteRoute(accountID, routeID string) error {
+	if am.DeleteRouteFunc != nil {
+		return am.DeleteRouteFunc(accountID, routeID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteRoute is not implemented")
+}
+
+// ListRoutes mock implementation of ListRoutes from server.AccountManager interface
+func (am *MockAccountManager) ListRoutes(accountID string) ([]*route.Route, error) {
+	if am.ListRoutesFunc != nil {
+		return am.ListRoutesFunc(accountID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListRoutes is not implemented")
 }
