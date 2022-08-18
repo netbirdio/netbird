@@ -522,12 +522,13 @@ func (s *FileStore) GetPeerRoutes(peerKey string) ([]*route.Route, error) {
 		return nil, err
 	}
 
+	var routes []*route.Route
+
 	routeIDs, ok := s.PeerKeyID2RouteIDs[peerKey]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "no routes for peer: %v", routeIDs)
+		return routes, nil
 	}
 
-	var routes []*route.Route
 	for id := range routeIDs {
 		route, found := account.Routes[id]
 		if found {
