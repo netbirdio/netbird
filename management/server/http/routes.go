@@ -111,9 +111,9 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	oldroute, err := h.accountManager.GetRoute(account.Id, routeID)
+	_, err = h.accountManager.GetRoute(account.Id, routeID)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("couldn't find route id %s", routeID), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("couldn't find route for ID %s", routeID), http.StatusNotFound)
 		return
 	}
 
@@ -123,11 +123,9 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newRoute := oldroute.Copy()
-
 	prefixType, newPrefix, err := route.ParsePrefix(req.Prefix)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("couldn't parse update prefix %s for route id %s", req.Prefix, routeID), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("couldn't parse update prefix %s for route ID %s", req.Prefix, routeID), http.StatusBadRequest)
 		return
 	}
 
@@ -142,15 +140,19 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		peerKey = peer.Key
 	}
 
-	newRoute.Prefix = newPrefix
-	newRoute.PrefixType = prefixType
-	newRoute.Masquerade = req.Masquerade
-	newRoute.Peer = peerKey
-	newRoute.Metric = req.Metric
-	newRoute.Description = req.Description
-	newRoute.Enabled = req.Enabled
+	newRoute := &route.Route{
+		ID:          routeID,
+		Prefix:      newPrefix,
+		PrefixType:  prefixType,
+		Masquerade:  req.Masquerade,
+		Peer:        peerKey,
+		Metric:      req.Metric,
+		Description: req.Description,
+		Enabled:     req.Enabled,
+	}
 
-	if err := h.accountManager.SaveRoute(account.Id, newRoute); err != nil {
+	err = h.accountManager.SaveRoute(account.Id, newRoute)
+	if err != nil {
 		log.Errorf("failed updating route \"%s\" under account %s %v", routeID, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -172,14 +174,14 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	routeID := vars["id"]
 	if len(routeID) == 0 {
-		http.Error(w, "invalid route Id", http.StatusBadRequest)
+		http.Error(w, "invalid route ID", http.StatusBadRequest)
 		return
 	}
 
 	_, err = h.accountManager.GetRoute(account.Id, routeID)
 	if err != nil {
 		log.Error(err)
-		http.Error(w, fmt.Sprintf("couldn't find route id %s", routeID), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("couldn't find route ID %s", routeID), http.StatusNotFound)
 		return
 	}
 
@@ -360,7 +362,7 @@ func toRouteResponse(account *server.Account, serverRoute *route.Route) *api.Rou
 	if serverRoute.Peer != "" {
 		peer, found := account.Peers[serverRoute.Peer]
 		if !found {
-			panic("peer id not found")
+			panic("peer ID not found")
 		}
 		peerIP = peer.IP.String()
 	}
