@@ -286,7 +286,7 @@ components:
           description: Route status
           type: boolean
         peer:
-          description: Peer associated with route
+          description: Peer Identifier associated with route
           type: string
         prefix:
           description: Prefix or network range in CIDR format

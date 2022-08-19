@@ -184,7 +184,7 @@ type Route struct {
 	// Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
-	// Peer associated with route
+	// Peer Identifier associated with route
 	Peer string `json:"peer"`
 
 	// Prefix or network range in CIDR format
@@ -226,7 +226,7 @@ type RouteRequest struct {
 	// Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
-	// Peer associated with route
+	// Peer Identifier associated with route
 	Peer string `json:"peer"`
 
 	// Prefix or network range in CIDR format
