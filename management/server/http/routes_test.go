@@ -131,7 +131,6 @@ func initRoutesTestData() *Routes {
 }
 
 func TestRoutesHandlers(t *testing.T) {
-	t.Log(fmt.Sprintf("{\"op\":\"replace\",\"path\":\"description\",\"value\":[\"NewDesc\"]}"))
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -247,7 +246,7 @@ func TestRoutesHandlers(t *testing.T) {
 			name:           "PATCH Description OK",
 			requestType:    http.MethodPatch,
 			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("[{\"op\":\"replace\",\"path\":\"description\",\"value\":[\"NewDesc\"]}]")),
+			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"description\",\"value\":[\"NewDesc\"]}]"),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRoute: &api.Route{
@@ -290,7 +289,7 @@ func TestRoutesHandlers(t *testing.T) {
 			name:           "PATCH Not Found Route",
 			requestType:    http.MethodPatch,
 			requestPath:    "/api/routes/" + notFoundRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("[{\"op\":\"replace\",\"path\":\"prefix\",\"value\":[\"192.168.0.0/34\"]}]")),
+			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"prefix\",\"value\":[\"192.168.0.0/34\"]}]"),
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   false,
 		},
