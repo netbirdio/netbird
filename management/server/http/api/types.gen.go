@@ -24,6 +24,30 @@ const (
 	GroupPatchOperationPathPeers GroupPatchOperationPath = "peers"
 )
 
+// Defines values for PatchMinimumOp.
+const (
+	PatchMinimumOpAdd     PatchMinimumOp = "add"
+	PatchMinimumOpRemove  PatchMinimumOp = "remove"
+	PatchMinimumOpReplace PatchMinimumOp = "replace"
+)
+
+// Defines values for RoutePatchOperationOp.
+const (
+	RoutePatchOperationOpAdd     RoutePatchOperationOp = "add"
+	RoutePatchOperationOpRemove  RoutePatchOperationOp = "remove"
+	RoutePatchOperationOpReplace RoutePatchOperationOp = "replace"
+)
+
+// Defines values for RoutePatchOperationPath.
+const (
+	RoutePatchOperationPathDescription RoutePatchOperationPath = "description"
+	RoutePatchOperationPathEnabled     RoutePatchOperationPath = "enabled"
+	RoutePatchOperationPathMasquerade  RoutePatchOperationPath = "masquerade"
+	RoutePatchOperationPathMetric      RoutePatchOperationPath = "metric"
+	RoutePatchOperationPathPeer        RoutePatchOperationPath = "peer"
+	RoutePatchOperationPathPrefix      RoutePatchOperationPath = "prefix"
+)
+
 // Defines values for RulePatchOperationOp.
 const (
 	RulePatchOperationOpAdd     RulePatchOperationOp = "add"
@@ -86,6 +110,18 @@ type GroupPatchOperationOp string
 // Group field to update in form /<field>
 type GroupPatchOperationPath string
 
+// PatchMinimum defines model for PatchMinimum.
+type PatchMinimum struct {
+	// Patch operation type
+	Op PatchMinimumOp `json:"op"`
+
+	// Values to be applied
+	Value []string `json:"value"`
+}
+
+// Patch operation type
+type PatchMinimumOp string
+
 // Peer defines model for Peer.
 type Peer struct {
 	// Provides information of who activated the Peer. User or Setup Key
@@ -129,6 +165,72 @@ type PeerMinimum struct {
 
 	// Peer's hostname
 	Name string `json:"name"`
+}
+
+// Route defines model for Route.
+type Route struct {
+	// Route description
+	Description string `json:"description"`
+
+	// Route status
+	Enabled bool `json:"enabled"`
+
+	// Route Id
+	Id string `json:"id"`
+
+	// Indicate if peer should masquerade traffic to this route's prefix
+	Masquerade bool `json:"masquerade"`
+
+	// Route metric number. Lowest number has higher priority
+	Metric int `json:"metric"`
+
+	// Peer Identifier associated with route
+	Peer string `json:"peer"`
+
+	// Prefix or network range in CIDR format
+	Prefix string `json:"prefix"`
+
+	// Prefix type indicating if it is IPv4 or IPv6
+	PrefixType string `json:"prefix_type"`
+}
+
+// RoutePatchOperation defines model for RoutePatchOperation.
+type RoutePatchOperation struct {
+	// Patch operation type
+	Op RoutePatchOperationOp `json:"op"`
+
+	// Route field to update in form /<field>
+	Path RoutePatchOperationPath `json:"path"`
+
+	// Values to be applied
+	Value []string `json:"value"`
+}
+
+// Patch operation type
+type RoutePatchOperationOp string
+
+// Route field to update in form /<field>
+type RoutePatchOperationPath string
+
+// RouteRequest defines model for RouteRequest.
+type RouteRequest struct {
+	// Route description
+	Description string `json:"description"`
+
+	// Route status
+	Enabled bool `json:"enabled"`
+
+	// Indicate if peer should masquerade traffic to this route's prefix
+	Masquerade bool `json:"masquerade"`
+
+	// Route metric number. Lowest number has higher priority
+	Metric int `json:"metric"`
+
+	// Peer Identifier associated with route
+	Peer string `json:"peer"`
+
+	// Prefix or network range in CIDR format
+	Prefix string `json:"prefix"`
 }
 
 // Rule defines model for Rule.
@@ -272,6 +374,15 @@ type PutApiPeersIdJSONBody struct {
 	SshEnabled bool   `json:"ssh_enabled"`
 }
 
+// PostApiRoutesJSONBody defines parameters for PostApiRoutes.
+type PostApiRoutesJSONBody = RouteRequest
+
+// PatchApiRoutesIdJSONBody defines parameters for PatchApiRoutesId.
+type PatchApiRoutesIdJSONBody = []RoutePatchOperation
+
+// PutApiRoutesIdJSONBody defines parameters for PutApiRoutesId.
+type PutApiRoutesIdJSONBody = RouteRequest
+
 // PostApiRulesJSONBody defines parameters for PostApiRules.
 type PostApiRulesJSONBody struct {
 	// Rule friendly description
@@ -326,6 +437,15 @@ type PutApiGroupsIdJSONRequestBody PutApiGroupsIdJSONBody
 
 // PutApiPeersIdJSONRequestBody defines body for PutApiPeersId for application/json ContentType.
 type PutApiPeersIdJSONRequestBody PutApiPeersIdJSONBody
+
+// PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
+type PostApiRoutesJSONRequestBody = PostApiRoutesJSONBody
+
+// PatchApiRoutesIdJSONRequestBody defines body for PatchApiRoutesId for application/json ContentType.
+type PatchApiRoutesIdJSONRequestBody = PatchApiRoutesIdJSONBody
+
+// PutApiRoutesIdJSONRequestBody defines body for PutApiRoutesId for application/json ContentType.
+type PutApiRoutesIdJSONRequestBody = PutApiRoutesIdJSONBody
 
 // PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
 type PostApiRulesJSONRequestBody PostApiRulesJSONBody
