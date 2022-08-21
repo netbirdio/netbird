@@ -1,8 +1,29 @@
 package peer
 
 import (
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
+
+func TestRegistry_ShouldNotDeregisterWhenHasNewerStreamRegistered(t *testing.T) {
+	r := NewRegistry()
+
+	peerID := "peer"
+
+	// when registry has a peer registered with the newest stream
+	peer1 := &Peer{Id: peerID, StreamID: 2, Stream: nil}
+	r.Register(peer1)
+
+	// and deregister with a peer with an older stream
+	peer2 := &Peer{Id: peerID, StreamID: 1, Stream: nil}
+	r.Deregister(peer2)
+
+	// then the newest stream should be left in the registry
+	registered, _ := r.Get(peer2.Id)
+
+	assert.NotNil(t, registered, "peer can't be nil")
+	assert.Equal(t, peer1, registered)
+}
 
 func TestRegistry_GetNonExistentPeer(t *testing.T) {
 	r := NewRegistry()
