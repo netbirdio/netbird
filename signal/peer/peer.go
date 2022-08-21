@@ -86,8 +86,8 @@ func (registry *Registry) Deregister(peer *Peer) {
 		pp := p.(*Peer)
 		if peer.StreamID < pp.StreamID {
 			registry.Peers.Store(peer.Id, p)
-			log.Warnf("attempted to remove newer registered stream of a peer [%s] [newer streamID %d, previous StreamID %d]",
-				peer.Id, peer.StreamID, pp.StreamID)
+			log.Warnf("attempted to remove newer registered stream of a peer [%s] [newer streamID %d, previous StreamID %d]. Ignoring.",
+				peer.Id, pp.StreamID, peer.StreamID)
 			return
 		}
 	}
