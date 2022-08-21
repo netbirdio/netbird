@@ -22,14 +22,8 @@ func TestRegistry_Register(t *testing.T) {
 	r := NewRegistry()
 	peer1 := NewPeer("test_peer_1", nil)
 	peer2 := NewPeer("test_peer_2", nil)
-	err := r.Register(peer1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = r.Register(peer2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	r.Register(peer1)
+	r.Register(peer2)
 
 	if _, ok := r.Get("test_peer_1"); !ok {
 		t.Errorf("expected test_peer_1 not found in the registry")
@@ -44,14 +38,8 @@ func TestRegistry_Deregister(t *testing.T) {
 	r := NewRegistry()
 	peer1 := NewPeer("test_peer_1", nil)
 	peer2 := NewPeer("test_peer_2", nil)
-	err := r.Register(peer1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = r.Register(peer2)
-	if err != nil {
-		t.Fatal(err)
-	}
+	r.Register(peer1)
+	r.Register(peer2)
 
 	r.Deregister(peer1)
 

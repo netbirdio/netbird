@@ -101,10 +101,7 @@ func (s Server) connectPeer(stream proto.SignalExchange_ConnectStreamServer) (*p
 	if meta, hasMeta := metadata.FromIncomingContext(stream.Context()); hasMeta {
 		if id, found := meta[proto.HeaderId]; found {
 			p := peer.NewPeer(id[0], stream)
-			err := s.registry.Register(p)
-			if err != nil {
-				return nil, err
-			}
+			s.registry.Register(p)
 			return p, nil
 		} else {
 			return nil, status.Errorf(codes.FailedPrecondition, "missing connection header: "+proto.HeaderId)

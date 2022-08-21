@@ -59,7 +59,7 @@ func (registry *Registry) IsPeerRegistered(peerId string) bool {
 }
 
 // Register registers peer in the registry
-func (registry *Registry) Register(peer *Peer) error {
+func (registry *Registry) Register(peer *Peer) {
 	registry.regMutex.Lock()
 	defer registry.regMutex.Unlock()
 
@@ -70,10 +70,10 @@ func (registry *Registry) Register(peer *Peer) error {
 		log.Warnf("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
 			peer.Id, peer.StreamID, pp.StreamID)
 		registry.Peers.Store(peer.Id, peer)
-		return nil
+		return
 	}
 	log.Debugf("peer registered [%s]", peer.Id)
-	return nil
+	return
 }
 
 // Deregister Peer from the Registry (usually once it disconnects)
