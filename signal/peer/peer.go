@@ -70,7 +70,6 @@ func (registry *Registry) Register(peer *Peer) {
 		log.Warnf("peer [%s] is already registered [new streamID %d, previous StreamID %d]. Will override stream.",
 			peer.Id, peer.StreamID, pp.StreamID)
 		registry.Peers.Store(peer.Id, peer)
-		return
 	}
 	log.Debugf("peer registered [%s]", peer.Id)
 	return
