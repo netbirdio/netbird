@@ -3,6 +3,7 @@ package peer
 import (
 	"github.com/stretchr/testify/assert"
 	"testing"
+	"time"
 )
 
 func TestRegistry_ShouldNotDeregisterWhenHasNewerStreamRegistered(t *testing.T) {
@@ -10,19 +11,22 @@ func TestRegistry_ShouldNotDeregisterWhenHasNewerStreamRegistered(t *testing.T) 
 
 	peerID := "peer"
 
-	// when registry has a peer registered with the newest stream
-	peer1 := &Peer{Id: peerID, StreamID: 2, Stream: nil}
-	r.Register(peer1)
+	olderPeer := NewPeer(peerID, nil)
+	r.Register(olderPeer)
+	time.Sleep(time.Nanosecond)
 
-	// and deregister with a peer with an older stream
-	peer2 := &Peer{Id: peerID, StreamID: 1, Stream: nil}
-	r.Deregister(peer2)
-
-	// then the newest stream should be left in the registry
-	registered, _ := r.Get(peer2.Id)
+	newerPeer := NewPeer(peerID, nil)
+	r.Register(newerPeer)
+	registered, _ := r.Get(olderPeer.Id)
 
 	assert.NotNil(t, registered, "peer can't be nil")
-	assert.Equal(t, peer1, registered)
+	assert.Equal(t, newerPeer, registered)
+
+	r.Deregister(olderPeer)
+	registered, _ = r.Get(olderPeer.Id)
+
+	assert.NotNil(t, registered, "peer can't be nil")
+	assert.Equal(t, newerPeer, registered)
 }
 
 func TestRegistry_GetNonExistentPeer(t *testing.T) {

@@ -23,11 +23,11 @@ func NewPeer(id string, stream proto.SignalExchange_ConnectStreamServer) *Peer {
 	return &Peer{
 		Id:       id,
 		Stream:   stream,
-		StreamID: time.Now().UnixMilli(),
+		StreamID: time.Now().UnixNano(),
 	}
 }
 
-// Registry registry that holds all currently connected Peers
+// Registry that holds all currently connected Peers
 type Registry struct {
 	// Peer.key -> Peer
 	Peers sync.Map
