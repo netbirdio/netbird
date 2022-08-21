@@ -55,7 +55,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	}
 
 	defer func() {
-		log.Infof("peer disconnected [%s] ", p.Id)
+		log.Infof("peer disconnected [%s] [streamID %d] ", p.Id, p.StreamID)
 		s.registry.Deregister(p)
 	}()
 
@@ -66,7 +66,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 		return err
 	}
 
-	log.Infof("peer connected [%s]", p.Id)
+	log.Infof("peer connected [%s] [streamID %d] ", p.Id, p.StreamID)
 
 	for {
 		//read incoming messages
@@ -101,7 +101,10 @@ func (s Server) connectPeer(stream proto.SignalExchange_ConnectStreamServer) (*p
 	if meta, hasMeta := metadata.FromIncomingContext(stream.Context()); hasMeta {
 		if id, found := meta[proto.HeaderId]; found {
 			p := peer.NewPeer(id[0], stream)
-			s.registry.Register(p)
+			err := s.registry.Register(p)
+			if err != nil {
+				return nil, err
+			}
 			return p, nil
 		} else {
 			return nil, status.Errorf(codes.FailedPrecondition, "missing connection header: "+proto.HeaderId)
