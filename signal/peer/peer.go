@@ -72,7 +72,6 @@ func (registry *Registry) Register(peer *Peer) {
 		registry.Peers.Store(peer.Id, peer)
 	}
 	log.Debugf("peer registered [%s]", peer.Id)
-	return
 }
 
 // Deregister Peer from the Registry (usually once it disconnects)
