@@ -156,6 +156,9 @@ func (h *Hosted) requestToken(info DeviceAuthInfo) (TokenRequestResponse, error)
 	form.Add("grant_type", HostedGrantType)
 	form.Add("device_code", info.DeviceCode)
 	req, err := http.NewRequest("POST", h.TokenEndpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return TokenRequestResponse{}, fmt.Errorf("failed to create request access token: %v", err)
+	}
 
 	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 

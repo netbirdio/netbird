@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -144,7 +145,7 @@ func TestHosted_WaitToken(t *testing.T) {
 		testingFunc       require.ComparisonAssertionFunc
 		expectedOut       TokenInfo
 		expectedMSG       string
-		expectPayload     TokenRequestPayload
+		expectPayload     string
 	}
 
 	defaultInfo := DeviceAuthInfo{
@@ -153,11 +154,13 @@ func TestHosted_WaitToken(t *testing.T) {
 		Interval:   1,
 	}
 
-	tokenReqPayload := TokenRequestPayload{
-		GrantType:  HostedGrantType,
-		DeviceCode: defaultInfo.DeviceCode,
-		ClientID:   "test",
-	}
+	clientID := "test"
+
+	form := url.Values{}
+	form.Add("grant_type", HostedGrantType)
+	form.Add("device_code", defaultInfo.DeviceCode)
+	form.Add("client_id", clientID)
+	tokenReqPayload := form.Encode()
 
 	testCase1 := test{
 		name:           "Payload Is Valid",
@@ -270,7 +273,7 @@ func TestHosted_WaitToken(t *testing.T) {
 
 			hosted := Hosted{
 				Audience:           testCase.inputAudience,
-				ClientID:           testCase.expectPayload.ClientID,
+				ClientID:           clientID,
 				TokenEndpoint:      "test.hosted.com/token",
 				DeviceAuthEndpoint: "test.hosted.com/device/auth",
 				HTTPClient:         &httpClient,
@@ -281,12 +284,7 @@ func TestHosted_WaitToken(t *testing.T) {
 			tokenInfo, err := hosted.WaitToken(ctx, testCase.inputInfo)
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
-			var payload []byte
-			var emptyPayload TokenRequestPayload
-			if testCase.expectPayload != emptyPayload {
-				payload, _ = json.Marshal(testCase.expectPayload)
-			}
-			require.EqualValues(t, string(payload), httpClient.reqBody, "payload should match")
+			require.EqualValues(t, testCase.expectPayload, httpClient.reqBody, "payload should match")
 
 			testCase.testingFunc(t, testCase.expectedOut, tokenInfo, testCase.expectedMSG)
 
