@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -87,7 +88,7 @@ type TokenRequestResponse struct {
 
 // Claims used when validating the access token
 type Claims struct {
-	Audience string `json:"aud"`
+	Audience interface{} `json:"aud"`
 }
 
 // NewHostedDeviceFlow returns an Hosted OAuth client
@@ -160,19 +161,32 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 		case <-ctx.Done():
 			return TokenInfo{}, ctx.Err()
 		case <-ticker.C:
-			tokenReqPayload := TokenRequestPayload{
-				GrantType:  HostedGrantType,
-				DeviceCode: info.DeviceCode,
-				ClientID:   h.ClientID,
-			}
+			form := url.Values{}
+			form.Add("client_id", h.ClientID)
+			form.Add("grant_type", HostedGrantType)
+			form.Add("device_code", info.DeviceCode)
+			req, err := http.NewRequest("POST", h.TokenEndpoint, strings.NewReader(form.Encode()))
 
-			body, statusCode, err := requestToken(h.HTTPClient, h.TokenEndpoint, tokenReqPayload)
+			req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+			res, err := h.HTTPClient.Do(req)
 			if err != nil {
-				return TokenInfo{}, fmt.Errorf("wait for token: %v", err)
+				return TokenInfo{}, fmt.Errorf("failed to request access token with error: %v", err)
 			}
 
-			if statusCode > 499 {
-				return TokenInfo{}, fmt.Errorf("wait token code returned error: %s", string(body))
+			defer func() {
+				err := res.Body.Close()
+				if err != nil {
+					return
+				}
+			}()
+			body, err := ioutil.ReadAll(res.Body)
+			if err != nil {
+				return TokenInfo{}, fmt.Errorf("failed reading access token response body with error: %v", err)
+			}
+
+			if res.StatusCode > 499 {
+				return TokenInfo{}, fmt.Errorf("access token response returned code: %s", string(body))
 			}
 
 			tokenResponse := TokenRequestResponse{}
@@ -292,9 +306,24 @@ func isValidAccessToken(token string, audience string) error {
 		return err
 	}
 
-	if claims.Audience != audience {
-		return fmt.Errorf("invalid audience")
+	if claims.Audience == nil {
+		return fmt.Errorf("required token field audience is absent")
 	}
 
-	return nil
+	// Audience claim of JWT can be a string or an array of strings
+	typ := reflect.TypeOf(claims.Audience)
+	switch typ.Kind() {
+	case reflect.String:
+		if claims.Audience == audience {
+			return nil
+		}
+	case reflect.Slice:
+		for _, aud := range claims.Audience.([]interface{}) {
+			if audience == aud {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("invalid JWT token audience field")
 }

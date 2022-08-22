@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/skratchdot/open-golang/open"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 	"time"
@@ -192,12 +193,11 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 }
 
 func openURL(cmd *cobra.Command, verificationURIComplete string) {
-	fmt.Println(verificationURIComplete)
-	/*err := open.Run(verificationURIComplete)
+	err := open.Run(verificationURIComplete)
 	cmd.Printf("Please do the SSO login in your browser. \n" +
 		"If your browser didn't open automatically, use this URL to log in:\n\n" +
 		" " + verificationURIComplete + " \n\n")
 	if err != nil {
 		cmd.Printf("Alternatively, you may want to use a setup key, see:\n\n https://www.netbird.io/docs/overview/setup-keys\n")
-	}*/
+	}
 }

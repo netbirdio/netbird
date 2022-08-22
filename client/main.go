@@ -1,9 +1,8 @@
 package main
 
 import (
-	"os"
-
 	"github.com/netbirdio/netbird/client/cmd"
+	"os"
 )
 
 func main() {
