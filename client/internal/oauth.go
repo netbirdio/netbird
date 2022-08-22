@@ -16,7 +16,6 @@ import (
 // OAuthClient is a OAuth client interface for various idp providers
 type OAuthClient interface {
 	RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error)
-	RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error)
 	WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error)
 	GetClientID(ctx context.Context) string
 }
