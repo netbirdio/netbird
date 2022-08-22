@@ -108,10 +108,11 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				Audience:   testCase.expectPayload.Audience,
-				ClientID:   testCase.expectPayload.ClientID,
-				Domain:     "test.hosted.com",
-				HTTPClient: &httpClient,
+				Audience:           testCase.expectPayload.Audience,
+				ClientID:           testCase.expectPayload.ClientID,
+				TokenEndpoint:      "test.hosted.com/token",
+				DeviceAuthEndpoint: "test.hosted.com/device/auth",
+				HTTPClient:         &httpClient,
 			}
 
 			authInfo, err := hosted.RequestDeviceCode(context.TODO())
@@ -268,10 +269,11 @@ func TestHosted_WaitToken(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				Audience:   testCase.inputAudience,
-				ClientID:   testCase.expectPayload.ClientID,
-				Domain:     "test.hosted.com",
-				HTTPClient: &httpClient,
+				Audience:           testCase.inputAudience,
+				ClientID:           testCase.expectPayload.ClientID,
+				TokenEndpoint:      "test.hosted.com/token",
+				DeviceAuthEndpoint: "test.hosted.com/device/auth",
+				HTTPClient:         &httpClient,
 			}
 
 			ctx, cancel := context.WithTimeout(context.TODO(), testCase.inputTimeout)
@@ -392,10 +394,11 @@ func TestHosted_RotateAccessToken(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				Audience:   testCase.inputAudience,
-				ClientID:   testCase.expectPayload.ClientID,
-				Domain:     "test.hosted.com",
-				HTTPClient: &httpClient,
+				Audience:           testCase.inputAudience,
+				ClientID:           testCase.expectPayload.ClientID,
+				TokenEndpoint:      "test.hosted.com/token",
+				DeviceAuthEndpoint: "test.hosted.com/device/auth",
+				HTTPClient:         &httpClient,
 			}
 
 			tokenInfo, err := hosted.RotateAccessToken(context.TODO(), testCase.expectPayload.RefreshToken)
