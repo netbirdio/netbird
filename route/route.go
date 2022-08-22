@@ -14,59 +14,63 @@ const (
 	MinMetric = 1
 	// MaxMetric max metric input
 	MaxMetric = 9999
-)
-const (
-	// InvalidPrefixString invalid prefix type string
-	InvalidPrefixString = "Invalid"
-	// IPv4PrefixString IPv4 prefix type string
-	IPv4PrefixString = "IPv4"
-	// IPv6PrefixString IPv6 prefix type string
-	IPv6PrefixString = "IPv6"
+	// MaxNetIDChar Max Network Identifier
+	MaxNetIDChar = 40
 )
 
 const (
-	// InvalidPrefix invalid prefix type
-	InvalidPrefix PrefixType = iota
-	// IPv4Prefix IPv4 prefix type
-	IPv4Prefix
-	// IPv6Prefix IPv6 prefix type
-	IPv6Prefix
+	// InvalidNetworkString invalid network type string
+	InvalidNetworkString = "Invalid"
+	// IPv4NetworkString IPv4 network type string
+	IPv4NetworkString = "IPv4"
+	// IPv6NetworkString IPv6 network type string
+	IPv6NetworkString = "IPv6"
 )
 
-// PrefixType route prefix type
-type PrefixType int
+const (
+	// InvalidNetwork invalid network type
+	InvalidNetwork NetworkType = iota
+	// IPv4Network IPv4 network type
+	IPv4Network
+	// IPv6Network IPv6 network type
+	IPv6Network
+)
+
+// NetworkType route network type
+type NetworkType int
 
 // String returns prefix type string
-func (p PrefixType) String() string {
+func (p NetworkType) String() string {
 	switch p {
-	case IPv4Prefix:
-		return IPv4PrefixString
-	case IPv6Prefix:
-		return IPv6PrefixString
+	case IPv4Network:
+		return IPv4NetworkString
+	case IPv6Network:
+		return IPv6NetworkString
 	default:
-		return InvalidPrefixString
+		return InvalidNetworkString
 	}
 }
 
 // ToPrefixType returns a prefix type
-func ToPrefixType(prefix string) PrefixType {
+func ToPrefixType(prefix string) NetworkType {
 	switch prefix {
-	case IPv4PrefixString:
-		return IPv4Prefix
-	case IPv6PrefixString:
-		return IPv6Prefix
+	case IPv4NetworkString:
+		return IPv4Network
+	case IPv6NetworkString:
+		return IPv6Network
 	default:
-		return InvalidPrefix
+		return InvalidNetwork
 	}
 }
 
 // Route represents a route
 type Route struct {
-	Prefix      netip.Prefix
 	ID          string
+	Network     netip.Prefix
+	NetID       string
 	Description string
 	Peer        string
-	PrefixType  PrefixType
+	NetworkType NetworkType
 	Masquerade  bool
 	Metric      int
 	Enabled     bool
@@ -77,8 +81,9 @@ func (r *Route) Copy() *Route {
 	return &Route{
 		ID:          r.ID,
 		Description: r.Description,
-		Prefix:      r.Prefix,
-		PrefixType:  r.PrefixType,
+		NetID:       r.NetID,
+		Network:     r.Network,
+		NetworkType: r.NetworkType,
 		Peer:        r.Peer,
 		Metric:      r.Metric,
 		Masquerade:  r.Masquerade,
@@ -90,30 +95,31 @@ func (r *Route) Copy() *Route {
 func (r *Route) IsEqual(other *Route) bool {
 	return other.ID == r.ID &&
 		other.Description == r.Description &&
-		other.Prefix == r.Prefix &&
-		other.PrefixType == r.PrefixType &&
+		other.NetID == r.NetID &&
+		other.Network == r.Network &&
+		other.NetworkType == r.NetworkType &&
 		other.Peer == r.Peer &&
 		other.Metric == r.Metric &&
 		other.Masquerade == r.Masquerade &&
 		other.Enabled == r.Enabled
 }
 
-// ParsePrefix Parses a prefix string and returns a netip.Prefix object and if is invalid, IPv4 or IPv6
-func ParsePrefix(prefixString string) (PrefixType, netip.Prefix, error) {
-	prefix, err := netip.ParsePrefix(prefixString)
+// ParseNetwork Parses a network prefix string and returns a netip.Prefix object and if is invalid, IPv4 or IPv6
+func ParseNetwork(networkString string) (NetworkType, netip.Prefix, error) {
+	prefix, err := netip.ParsePrefix(networkString)
 	if err != nil {
-		return InvalidPrefix, netip.Prefix{}, err
+		return InvalidNetwork, netip.Prefix{}, err
 	}
 
 	masked := prefix.Masked()
 
 	if !masked.IsValid() {
-		return InvalidPrefix, netip.Prefix{}, status.Errorf(codes.InvalidArgument, "invalid range %s", prefixString)
+		return InvalidNetwork, netip.Prefix{}, status.Errorf(codes.InvalidArgument, "invalid range %s", networkString)
 	}
 
 	if masked.Addr().Is6() {
-		return IPv6Prefix, masked, nil
+		return IPv6Network, masked, nil
 	}
 
-	return IPv4Prefix, masked, nil
+	return IPv4Network, masked, nil
 }

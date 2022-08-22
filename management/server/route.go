@@ -9,13 +9,14 @@ import (
 	"google.golang.org/grpc/status"
 	"net/netip"
 	"strconv"
+	"unicode/utf8"
 )
 
 const (
 	// UpdateRouteDescription indicates a route description update operation
 	UpdateRouteDescription RouteUpdateOperationType = iota
-	// UpdateRoutePrefix indicates a route IP update operation
-	UpdateRoutePrefix
+	// UpdateRouteNetwork indicates a route IP update operation
+	UpdateRouteNetwork
 	// UpdateRoutePeer indicates a route peer update operation
 	UpdateRoutePeer
 	// UpdateRouteMetric indicates a route metric update operation
@@ -24,6 +25,8 @@ const (
 	UpdateRouteMasquerade
 	// UpdateRouteEnabled indicates a route enabled update operation
 	UpdateRouteEnabled
+	// UpdateRouteNetworkIdentifier indicates a route net ID update operation
+	UpdateRouteNetworkIdentifier
 )
 
 // RouteUpdateOperationType operation type
@@ -33,8 +36,8 @@ func (t RouteUpdateOperationType) String() string {
 	switch t {
 	case UpdateRouteDescription:
 		return "UpdateRouteDescription"
-	case UpdateRoutePrefix:
-		return "UpdateRoutePrefix"
+	case UpdateRouteNetwork:
+		return "UpdateRouteNetwork"
 	case UpdateRoutePeer:
 		return "UpdateRoutePeer"
 	case UpdateRouteMetric:
@@ -43,6 +46,8 @@ func (t RouteUpdateOperationType) String() string {
 		return "UpdateRouteMasquerade"
 	case UpdateRouteEnabled:
 		return "UpdateRouteEnabled"
+	case UpdateRouteNetworkIdentifier:
+		return "UpdateRouteNetworkIdentifier"
 	default:
 		return "InvalidOperation"
 	}
@@ -72,7 +77,7 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID string) (*route.Rou
 	return nil, status.Errorf(codes.NotFound, "route with ID %s not found", routeID)
 }
 
-// checkPrefixPeerExists checks the combination of prefix and peer id, if it exists returns an error, otehrwise returns nil
+// checkPrefixPeerExists checks the combination of prefix and peer id, if it exists returns an error, otherwise returns nil
 func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, prefix netip.Prefix) error {
 	routesWithPrefix, err := am.Store.GetRoutesByPrefix(accountID, prefix)
 
@@ -91,7 +96,7 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, p
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, description string, masquerade bool, metric int, enabled bool) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, description, netID string, masquerade bool, metric int, enabled bool) (*route.Route, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -101,9 +106,9 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 	}
 
 	var newRoute route.Route
-	prefixType, newPrefix, err := route.ParsePrefix(prefix)
+	prefixType, newPrefix, err := route.ParseNetwork(network)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", prefix)
+		return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", network)
 	}
 	err = am.checkPrefixPeerExists(accountID, peer, newPrefix)
 	if err != nil {
@@ -121,11 +126,16 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, prefix, peer, des
 		return nil, status.Errorf(codes.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
 	}
 
+	if utf8.RuneCountInString(netID) > route.MaxNetIDChar || netID == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
+	}
+
 	newRoute.Peer = peer
 	newRoute.ID = xid.New().String()
-	newRoute.Prefix = newPrefix
-	newRoute.PrefixType = prefixType
+	newRoute.Network = newPrefix
+	newRoute.NetworkType = prefixType
 	newRoute.Description = description
+	newRoute.NetID = netID
 	newRoute.Masquerade = masquerade
 	newRoute.Metric = metric
 	newRoute.Enabled = enabled
@@ -158,12 +168,16 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 		return status.Errorf(codes.InvalidArgument, "route provided is nil")
 	}
 
-	if !routeToSave.Prefix.IsValid() {
-		return status.Errorf(codes.InvalidArgument, "invalid Prefix %s", routeToSave.Prefix.String())
+	if !routeToSave.Network.IsValid() {
+		return status.Errorf(codes.InvalidArgument, "invalid Prefix %s", routeToSave.Network.String())
 	}
 
 	if routeToSave.Metric < route.MinMetric || routeToSave.Metric > route.MaxMetric {
 		return status.Errorf(codes.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
+	}
+
+	if utf8.RuneCountInString(routeToSave.NetID) > route.MaxNetIDChar || routeToSave.NetID == "" {
+		return status.Errorf(codes.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
 	account, err := am.Store.GetAccount(accountID)
@@ -214,8 +228,13 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 		switch operation.Type {
 		case UpdateRouteDescription:
 			newRoute.Description = operation.Values[0]
-		case UpdateRoutePrefix:
-			prefixType, prefix, err := route.ParsePrefix(operation.Values[0])
+		case UpdateRouteNetworkIdentifier:
+			if utf8.RuneCountInString(operation.Values[0]) > route.MaxNetIDChar || operation.Values[0] == "" {
+				return nil, status.Errorf(codes.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
+			}
+			newRoute.NetID = operation.Values[0]
+		case UpdateRouteNetwork:
+			prefixType, prefix, err := route.ParseNetwork(operation.Values[0])
 			if err != nil {
 				return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", operation.Values[0])
 			}
@@ -223,8 +242,8 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 			if err != nil {
 				return nil, err
 			}
-			newRoute.Prefix = prefix
-			newRoute.PrefixType = prefixType
+			newRoute.Network = prefix
+			newRoute.NetworkType = prefixType
 		case UpdateRoutePeer:
 			if operation.Values[0] != "" {
 				_, peerExist := account.Peers[operation.Values[0]]
@@ -233,7 +252,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 				}
 			}
 
-			err = am.checkPrefixPeerExists(accountID, operation.Values[0], routeToUpdate.Prefix)
+			err = am.checkPrefixPeerExists(accountID, operation.Values[0], routeToUpdate.Network)
 			if err != nil {
 				return nil, err
 			}
@@ -320,12 +339,13 @@ func (am *DefaultAccountManager) ListRoutes(accountID string) ([]*route.Route, e
 
 func toProtocolRoute(route *route.Route) *proto.Route {
 	return &proto.Route{
-		ID:         route.ID,
-		Prefix:     route.Prefix.String(),
-		PrefixType: int64(route.PrefixType),
-		Peer:       route.Peer,
-		Metric:     int64(route.Metric),
-		Masquerade: route.Masquerade,
+		ID:          route.ID,
+		NetID:       route.NetID,
+		Network:     route.Network.String(),
+		NetworkType: int64(route.NetworkType),
+		Peer:        route.Peer,
+		Metric:      int64(route.Metric),
+		Masquerade:  route.Masquerade,
 	}
 }
 

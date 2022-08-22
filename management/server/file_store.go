@@ -134,11 +134,11 @@ func restore(file string) (*FileStore, error) {
 			if store.AccountPrefix2RouteIDs[account.Id] == nil {
 				store.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
 			}
-			if _, ok := store.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()]; !ok {
-				store.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()] = make([]string, 0)
+			if _, ok := store.AccountPrefix2RouteIDs[account.Id][route.Network.String()]; !ok {
+				store.AccountPrefix2RouteIDs[account.Id][route.Network.String()] = make([]string, 0)
 			}
-			store.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()] = append(
-				store.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()],
+			store.AccountPrefix2RouteIDs[account.Id][route.Network.String()] = append(
+				store.AccountPrefix2RouteIDs[account.Id][route.Network.String()],
 				route.ID,
 			)
 		}
@@ -340,11 +340,11 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		if s.AccountPrefix2RouteIDs[account.Id] == nil {
 			s.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
 		}
-		if _, ok := s.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()]; !ok {
-			s.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()] = make([]string, 0)
+		if _, ok := s.AccountPrefix2RouteIDs[account.Id][route.Network.String()]; !ok {
+			s.AccountPrefix2RouteIDs[account.Id][route.Network.String()] = make([]string, 0)
 		}
-		s.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()] = append(
-			s.AccountPrefix2RouteIDs[account.Id][route.Prefix.String()],
+		s.AccountPrefix2RouteIDs[account.Id][route.Network.String()] = append(
+			s.AccountPrefix2RouteIDs[account.Id][route.Network.String()],
 			route.ID,
 		)
 	}

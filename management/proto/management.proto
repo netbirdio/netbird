@@ -235,9 +235,10 @@ message ProviderConfig {
 // Route represents a route.Route object
 message Route {
   string ID = 1;
-  string Prefix = 2;
-  int64  PrefixType = 3;
+  string Network = 2;
+  int64  NetworkType = 3;
   string Peer = 4;
   int64  Metric = 5;
   bool   Masquerade = 6;
+  string NetID = 7;
 }
