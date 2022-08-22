@@ -227,11 +227,11 @@ message ProviderConfig {
   // An IDP application client secret
   string ClientSecret = 2;
   // An IDP API domain
-  // Deprecated. Use a full OIDCConfigEndpoint to request device auth code.
+  // Deprecated. Use a full OIDCConfigEndpoint to get required endpoints for device code and token.
   string Domain = 3;
   // An Audience for validation
   string Audience = 4;
-  // OIDCConfigEndpoint is an endpoint to request OIDC configuration
+  // OIDCConfigEndpoint is an endpoint to request OIDC configuration.
   string OIDCConfigEndpoint = 5;
 }
 

@@ -166,11 +166,14 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 		}
 	}
 
-	hostedClient := internal.NewHostedDeviceFlow(
+	hostedClient, err := internal.NewHostedDeviceFlow(
 		providerConfig.ProviderConfig.Audience,
 		providerConfig.ProviderConfig.ClientID,
-		providerConfig.ProviderConfig.Domain,
+		providerConfig.ProviderConfig.OIDCConfigEndpoint,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating new HostedDeviceFlow %v", err)
+	}
 
 	flowInfo, err := hostedClient.RequestDeviceCode(context.TODO())
 	if err != nil {

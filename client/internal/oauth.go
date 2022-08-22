@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -55,10 +56,20 @@ type Hosted struct {
 	Audience string
 	// Hosted Native application client id
 	ClientID string
-	// Hosted domain
-	Domain string
+	// OIDCConfigEndpoint is an OIDC configuration endpoint used to fetch device code and token endpoints
+	OIDCConfigEndpoint string
+
+	// oIDCConfig holds the OIDC configuration fetched from the IDP
+	oIDCConfig OIDCConfigResponse
 
 	HTTPClient HTTPClient
+}
+
+// OIDCConfigResponse used for parsing OIDC config response
+type OIDCConfigResponse struct {
+	Issuer             string `json:"issuer"`
+	TokenEndpoint      string `json:"token_endpoint"`
+	DeviceAuthEndpoint string `json:"device_authorization_endpoint"`
 }
 
 // RequestDeviceCodePayload used for request device code payload for auth0
@@ -88,7 +99,7 @@ type Claims struct {
 }
 
 // NewHostedDeviceFlow returns an Hosted OAuth client
-func NewHostedDeviceFlow(audience string, clientID string, domain string) *Hosted {
+func NewHostedDeviceFlow(audience string, clientID string, oidcEndpoint string) (*Hosted, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -97,12 +108,57 @@ func NewHostedDeviceFlow(audience string, clientID string, domain string) *Hoste
 		Transport: httpTransport,
 	}
 
-	return &Hosted{
-		Audience:   audience,
-		ClientID:   clientID,
-		Domain:     domain,
-		HTTPClient: httpClient,
+	oidcConfig, err := FetchOIDCConfig(oidcEndpoint, httpClient)
+	if err != nil {
+		return nil, err
 	}
+
+	return &Hosted{
+		Audience:           audience,
+		ClientID:           clientID,
+		OIDCConfigEndpoint: oidcEndpoint,
+		HTTPClient:         httpClient,
+		oIDCConfig:         oidcConfig,
+	}, nil
+}
+
+// FetchOIDCConfig fetches OIDC configuration from the IDP
+func FetchOIDCConfig(oidcEndpoint string, httpClient HTTPClient) (OIDCConfigResponse, error) {
+	req, err := http.NewRequest("GET", oidcEndpoint, nil)
+	if err != nil {
+		return OIDCConfigResponse{}, fmt.Errorf("failed creating OIDC configuration request: %v", err)
+	}
+
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return OIDCConfigResponse{}, fmt.Errorf("failed fetching OIDC configuration fro mendpoint %s %v", oidcEndpoint, err)
+	}
+
+	defer func() {
+		err := res.Body.Close()
+		if err != nil {
+			log.Debugf("failed closing response body %v", err)
+		}
+	}()
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return OIDCConfigResponse{}, fmt.Errorf("failed reading OIDC configuration response body: %v", err)
+	}
+
+	if res.StatusCode != 200 {
+		return OIDCConfigResponse{}, fmt.Errorf("OIDC configuration request returned status %d with response: %s",
+			res.StatusCode, string(body))
+	}
+
+	config := OIDCConfigResponse{}
+	err = json.Unmarshal(body, &config)
+	if err != nil {
+		return OIDCConfigResponse{}, fmt.Errorf("failed unmarshaling OIDC configuration response: %v", err)
+	}
+
+	return config, nil
+
 }
 
 // GetClientID returns the provider client id
@@ -112,7 +168,6 @@ func (h *Hosted) GetClientID(ctx context.Context) string {
 
 // RequestDeviceCode requests a device code login flow information from Hosted
 func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
-	url := "https://" + h.Domain + "/oauth/device/code"
 	codePayload := RequestDeviceCodePayload{
 		Audience: h.Audience,
 		ClientID: h.ClientID,
@@ -122,7 +177,7 @@ func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) 
 		return DeviceAuthInfo{}, fmt.Errorf("parsing payload failed with error: %v", err)
 	}
 	payload := strings.NewReader(string(p))
-	req, err := http.NewRequest("POST", url, payload)
+	req, err := http.NewRequest("POST", h.oIDCConfig.DeviceAuthEndpoint, payload)
 	if err != nil {
 		return DeviceAuthInfo{}, fmt.Errorf("creating request failed with error: %v", err)
 	}
@@ -163,14 +218,13 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 		case <-ctx.Done():
 			return TokenInfo{}, ctx.Err()
 		case <-ticker.C:
-			url := "https://" + h.Domain + "/oauth/token"
 			tokenReqPayload := TokenRequestPayload{
 				GrantType:  HostedGrantType,
 				DeviceCode: info.DeviceCode,
 				ClientID:   h.ClientID,
 			}
 
-			body, statusCode, err := requestToken(h.HTTPClient, url, tokenReqPayload)
+			body, statusCode, err := requestToken(h.HTTPClient, h.oIDCConfig.TokenEndpoint, tokenReqPayload)
 			if err != nil {
 				return TokenInfo{}, fmt.Errorf("wait for token: %v", err)
 			}
@@ -216,14 +270,13 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 
 // RotateAccessToken requests a new token using an existing refresh token
 func (h *Hosted) RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error) {
-	url := "https://" + h.Domain + "/oauth/token"
 	tokenReqPayload := TokenRequestPayload{
 		GrantType:    HostedRefreshGrant,
 		ClientID:     h.ClientID,
 		RefreshToken: refreshToken,
 	}
 
-	body, statusCode, err := requestToken(h.HTTPClient, url, tokenReqPayload)
+	body, statusCode, err := requestToken(h.HTTPClient, h.oIDCConfig.TokenEndpoint, tokenReqPayload)
 	if err != nil {
 		return TokenInfo{}, fmt.Errorf("rotate access token: %v", err)
 	}

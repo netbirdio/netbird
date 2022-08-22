@@ -1287,11 +1287,11 @@ type ProviderConfig struct {
 	// An IDP application client secret
 	ClientSecret string `protobuf:"bytes,2,opt,name=ClientSecret,proto3" json:"ClientSecret,omitempty"`
 	// An IDP API domain
-	// Deprecated. Use a full OIDCConfigEndpoint to request device auth code.
+	// Deprecated. Use a full OIDCConfigEndpoint to get required endpoints for device code and token.
 	Domain string `protobuf:"bytes,3,opt,name=Domain,proto3" json:"Domain,omitempty"`
 	// An Audience for validation
 	Audience string `protobuf:"bytes,4,opt,name=Audience,proto3" json:"Audience,omitempty"`
-	// OIDCConfigEndpoint is an endpoint to request OIDC configuration
+	// OIDCConfigEndpoint is an endpoint to request OIDC configuration.
 	OIDCConfigEndpoint string `protobuf:"bytes,5,opt,name=OIDCConfigEndpoint,proto3" json:"OIDCConfigEndpoint,omitempty"`
 }
 

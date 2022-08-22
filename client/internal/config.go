@@ -197,9 +197,12 @@ type ProviderConfig struct {
 	// ClientSecret An IDP application client secret
 	ClientSecret string
 	// Domain An IDP API domain
+	// Deprecated. Use OIDCConfigEndpoint instead
 	Domain string
 	// Audience An Audience for to authorization validation
 	Audience string
+	// OIDCConfigEndpoint is the endpoint of an IDP manager where clients can obtain OIDC configuration
+	OIDCConfigEndpoint string
 }
 
 func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (DeviceAuthorizationFlow, error) {
@@ -250,10 +253,11 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (Device
 		Provider: protoDeviceAuthorizationFlow.Provider.String(),
 
 		ProviderConfig: ProviderConfig{
-			Audience:     protoDeviceAuthorizationFlow.ProviderConfig.Audience,
-			ClientID:     protoDeviceAuthorizationFlow.ProviderConfig.ClientID,
-			ClientSecret: protoDeviceAuthorizationFlow.ProviderConfig.ClientSecret,
-			Domain:       protoDeviceAuthorizationFlow.ProviderConfig.Domain,
+			Audience:           protoDeviceAuthorizationFlow.GetProviderConfig().GetAudience(),
+			ClientID:           protoDeviceAuthorizationFlow.GetProviderConfig().GetClientID(),
+			ClientSecret:       protoDeviceAuthorizationFlow.GetProviderConfig().GetClientSecret(),
+			Domain:             protoDeviceAuthorizationFlow.GetProviderConfig().Domain,
+			OIDCConfigEndpoint: protoDeviceAuthorizationFlow.GetProviderConfig().GetOIDCConfigEndpoint(),
 		},
 	}, nil
 }
