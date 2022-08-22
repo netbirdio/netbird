@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
+	"unicode/utf8"
 )
 
 // Routes is the routes handler of the account
@@ -78,13 +79,18 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		peerKey = peer.Key
 	}
 
-	_, newPrefix, err := route.ParsePrefix(req.Prefix)
+	_, newPrefix, err := route.ParseNetwork(req.Network)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("couldn't parse update prefix %s", req.Prefix), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("couldn't parse update prefix %s", req.Network), http.StatusBadRequest)
 		return
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), peerKey, req.Description, req.Masquerade, req.Metric, req.Enabled)
+	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
+		http.Error(w, fmt.Sprintf("identifier should be between 1 and %d", route.MaxNetIDChar), http.StatusBadRequest)
+		return
+	}
+
+	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), peerKey, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Enabled)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -123,9 +129,9 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	prefixType, newPrefix, err := route.ParsePrefix(req.Prefix)
+	prefixType, newPrefix, err := route.ParseNetwork(req.Network)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("couldn't parse update prefix %s for route ID %s", req.Prefix, routeID), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("couldn't parse update prefix %s for route ID %s", req.Network, routeID), http.StatusBadRequest)
 		return
 	}
 
@@ -140,10 +146,16 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		peerKey = peer.Key
 	}
 
+	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
+		http.Error(w, fmt.Sprintf("identifier should be between 1 and %d", route.MaxNetIDChar), http.StatusBadRequest)
+		return
+	}
+
 	newRoute := &route.Route{
 		ID:          routeID,
-		Prefix:      newPrefix,
-		PrefixType:  prefixType,
+		Network:     newPrefix,
+		NetID:       req.NetworkId,
+		NetworkType: prefixType,
 		Masquerade:  req.Masquerade,
 		Peer:        peerKey,
 		Metric:      req.Metric,
@@ -200,14 +212,14 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	for _, patch := range req {
 		switch patch.Path {
-		case api.RoutePatchOperationPathPrefix:
+		case api.RoutePatchOperationPathNetwork:
 			if patch.Op != api.RoutePatchOperationOpReplace {
-				http.Error(w, fmt.Sprintf("Prefix field only accepts replace operation, got %s", patch.Op),
+				http.Error(w, fmt.Sprintf("Network field only accepts replace operation, got %s", patch.Op),
 					http.StatusBadRequest)
 				return
 			}
 			operations = append(operations, server.RouteUpdateOperation{
-				Type:   server.UpdateRoutePrefix,
+				Type:   server.UpdateRouteNetwork,
 				Values: patch.Value,
 			})
 		case api.RoutePatchOperationPathDescription:
@@ -218,6 +230,16 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 			}
 			operations = append(operations, server.RouteUpdateOperation{
 				Type:   server.UpdateRouteDescription,
+				Values: patch.Value,
+			})
+		case api.RoutePatchOperationPathNetworkId:
+			if patch.Op != api.RoutePatchOperationOpReplace {
+				http.Error(w, fmt.Sprintf("Network Identifier field only accepts replace operation, got %s", patch.Op),
+					http.StatusBadRequest)
+				return
+			}
+			operations = append(operations, server.RouteUpdateOperation{
+				Type:   server.UpdateRouteNetworkIdentifier,
 				Values: patch.Value,
 			})
 		case api.RoutePatchOperationPathPeer:
@@ -370,10 +392,11 @@ func toRouteResponse(account *server.Account, serverRoute *route.Route) *api.Rou
 	return &api.Route{
 		Id:          serverRoute.ID,
 		Description: serverRoute.Description,
+		NetworkId:   serverRoute.NetID,
 		Enabled:     serverRoute.Enabled,
 		Peer:        peerIP,
-		Prefix:      serverRoute.Prefix.String(),
-		PrefixType:  serverRoute.PrefixType.String(),
+		Network:     serverRoute.Network.String(),
+		NetworkType: serverRoute.NetworkType.String(),
 		Masquerade:  serverRoute.Masquerade,
 		Metric:      serverRoute.Metric,
 	}

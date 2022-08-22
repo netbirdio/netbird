@@ -34,8 +34,9 @@ const (
 var baseExistingRoute = &route.Route{
 	ID:          existingRouteID,
 	Description: "base route",
-	Prefix:      netip.MustParsePrefix("192.168.0.0/24"),
-	PrefixType:  route.IPv4Prefix,
+	NetID:       "awesomeNet",
+	Network:     netip.MustParsePrefix("192.168.0.0/24"),
+	NetworkType: route.IPv4Network,
 	Metric:      9999,
 	Masquerade:  false,
 	Enabled:     true,
@@ -61,13 +62,14 @@ func initRoutesTestData() *Routes {
 				}
 				return nil, status.Errorf(codes.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID string, prefix, peer, description string, masquerade bool, metric int, enabled bool) (*route.Route, error) {
-				prefixType, p, _ := route.ParsePrefix(prefix)
+			CreateRouteFunc: func(accountID string, network, peer, description, netID string, masquerade bool, metric int, enabled bool) (*route.Route, error) {
+				networkType, p, _ := route.ParseNetwork(network)
 				return &route.Route{
 					ID:          existingRouteID,
+					NetID:       netID,
 					Peer:        peer,
-					Prefix:      p,
-					PrefixType:  prefixType,
+					Network:     p,
+					NetworkType: networkType,
 					Description: description,
 					Masquerade:  masquerade,
 					Enabled:     enabled,
@@ -95,10 +97,12 @@ func initRoutesTestData() *Routes {
 				}
 				for _, operation := range operations {
 					switch operation.Type {
-					case server.UpdateRoutePrefix:
-						routeToUpdate.PrefixType, routeToUpdate.Prefix, _ = route.ParsePrefix(operation.Values[0])
+					case server.UpdateRouteNetwork:
+						routeToUpdate.NetworkType, routeToUpdate.Network, _ = route.ParseNetwork(operation.Values[0])
 					case server.UpdateRouteDescription:
 						routeToUpdate.Description = operation.Values[0]
+					case server.UpdateRouteNetworkIdentifier:
+						routeToUpdate.NetID = operation.Values[0]
 					case server.UpdateRoutePeer:
 						routeToUpdate.Peer = operation.Values[0]
 					case server.UpdateRouteMetric:
@@ -172,15 +176,16 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/routes",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Prefix\":\"192.168.0.0/16\",\"Peer\":\"%s\"}", existingPeerID))),
+				[]byte(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\"}", existingPeerID))),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRoute: &api.Route{
 				Id:          existingRouteID,
 				Description: "Post",
-				Prefix:      "192.168.0.0/16",
+				NetworkId:   "awesomeNet",
+				Network:     "192.168.0.0/16",
 				Peer:        existingPeerID,
-				PrefixType:  route.IPv4PrefixString,
+				NetworkType: route.IPv4NetworkString,
 				Masquerade:  false,
 				Enabled:     false,
 			},
@@ -189,15 +194,23 @@ func TestRoutesHandlers(t *testing.T) {
 			name:           "POST Not Found Peer",
 			requestType:    http.MethodPost,
 			requestPath:    "/api/routes",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Prefix\":\"192.168.0.0/16\",\"Peer\":\"%s\"}", notFoundPeerID)),
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\"}", notFoundPeerID)),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
-			name:           "POST Invalid Prefix",
+			name:           "POST Not Invalid Network Identifier",
 			requestType:    http.MethodPost,
 			requestPath:    "/api/routes",
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Prefix\":\"192.168.0.0/34\",\"Peer\":\"%s\"}", existingPeerID)),
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"12345678901234567890qwertyuiopqwertyuiop1\",\"Peer\":\"%s\"}", existingPeerID)),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   false,
+		},
+		{
+			name:           "POST Invalid Network",
+			requestType:    http.MethodPost,
+			requestPath:    "/api/routes",
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/34\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\"}", existingPeerID)),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
@@ -205,15 +218,16 @@ func TestRoutesHandlers(t *testing.T) {
 			name:           "PUT OK",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Prefix\":\"192.168.0.0/16\",\"Peer\":\"%s\"}", existingPeerID)),
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\"}", existingPeerID)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedRoute: &api.Route{
 				Id:          existingRouteID,
 				Description: "Post",
-				Prefix:      "192.168.0.0/16",
+				NetworkId:   "awesomeNet",
+				Network:     "192.168.0.0/16",
 				Peer:        existingPeerID,
-				PrefixType:  route.IPv4PrefixString,
+				NetworkType: route.IPv4NetworkString,
 				Masquerade:  false,
 				Enabled:     false,
 			},
@@ -222,7 +236,7 @@ func TestRoutesHandlers(t *testing.T) {
 			name:           "PUT Not Found Route",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + notFoundRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Prefix\":\"192.168.0.0/16\",\"Peer\":\"%s\"}", existingPeerID)),
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\"}", existingPeerID)),
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   false,
 		},
@@ -230,15 +244,23 @@ func TestRoutesHandlers(t *testing.T) {
 			name:           "PUT Not Found Peer",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Prefix\":\"192.168.0.0/16\",\"Peer\":\"%s\"}", notFoundPeerID)),
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\"}", notFoundPeerID)),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
-			name:           "PUT Invalid Prefix",
+			name:           "PUT Invalid Network Identifier",
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Prefix\":\"192.168.0.0/34\",\"Peer\":\"%s\"}", existingPeerID)),
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"12345678901234567890qwertyuiopqwertyuiop1\",\"Peer\":\"%s\"}", existingPeerID)),
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   false,
+		},
+		{
+			name:           "PUT Invalid Network",
+			requestType:    http.MethodPut,
+			requestPath:    "/api/routes/" + existingRouteID,
+			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/34\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\"}", existingPeerID)),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
@@ -252,8 +274,9 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedRoute: &api.Route{
 				Id:          existingRouteID,
 				Description: "NewDesc",
-				Prefix:      baseExistingRoute.Prefix.String(),
-				PrefixType:  route.IPv4PrefixString,
+				NetworkId:   "awesomeNet",
+				Network:     baseExistingRoute.Network.String(),
+				NetworkType: route.IPv4NetworkString,
 				Masquerade:  baseExistingRoute.Masquerade,
 				Enabled:     baseExistingRoute.Enabled,
 				Metric:      baseExistingRoute.Metric,
@@ -269,8 +292,9 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedRoute: &api.Route{
 				Id:          existingRouteID,
 				Description: "NewDesc",
-				Prefix:      baseExistingRoute.Prefix.String(),
-				PrefixType:  route.IPv4PrefixString,
+				NetworkId:   "awesomeNet",
+				Network:     baseExistingRoute.Network.String(),
+				NetworkType: route.IPv4NetworkString,
 				Peer:        existingPeerID,
 				Masquerade:  baseExistingRoute.Masquerade,
 				Enabled:     baseExistingRoute.Enabled,
@@ -289,7 +313,7 @@ func TestRoutesHandlers(t *testing.T) {
 			name:           "PATCH Not Found Route",
 			requestType:    http.MethodPatch,
 			requestPath:    "/api/routes/" + notFoundRouteID,
-			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"prefix\",\"value\":[\"192.168.0.0/34\"]}]"),
+			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"network\",\"value\":[\"192.168.0.0/34\"]}]"),
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   false,
 		},
