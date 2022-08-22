@@ -282,14 +282,19 @@ components:
         description:
           description: Route description
           type: string
+        network_id:
+          description: Route network identifier, to group HA routes
+          type: string
+          maxLength: 40
+          minLength: 1
         enabled:
           description: Route status
           type: boolean
         peer:
           description: Peer Identifier associated with route
           type: string
-        prefix:
-          description: Prefix or network range in CIDR format
+        network:
+          description: Network range in CIDR format
           type: string
         metric:
           description: Route metric number. Lowest number has higher priority
@@ -302,9 +307,10 @@ components:
       required:
         - id
         - description
+        - network_id
         - enabled
         - peer
-        - prefix
+        - network
         - metric
         - masquerade
     Route:
@@ -314,12 +320,12 @@ components:
             id:
               description: Route Id
               type: string
-            prefix_type:
-              description: Prefix type indicating if it is IPv4 or IPv6
+            network_type:
+              description: Network type indicating if it is IPv4 or IPv6
               type: string
           required:
             - id
-            - prefix_type
+            - network_type
         - $ref: '#/components/schemas/RouteRequest'
     RoutePatchOperation:
       allOf:
@@ -329,7 +335,7 @@ components:
             path:
               description: Route field to update in form /<field>
               type: string
-              enum: [ "prefix","description","enabled","peer","metric","masquerade" ]
+              enum: [ "network","network_id","description","enabled","peer","metric","masquerade" ]
           required:
             - path
 
