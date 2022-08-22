@@ -139,6 +139,7 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
 			// reset times and next try will start with a long delay
 			backOff.Reset()
+			log.Warnf("disconnected from the Signal service but will retry silently. Reason: %v", err)
 			return err
 		}
 

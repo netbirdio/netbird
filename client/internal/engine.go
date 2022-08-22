@@ -382,8 +382,6 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 		},
 	})
 	if err != nil {
-		log.Errorf("failed signaling candidate to the remote peer %s %s", remoteKey.String(), err)
-		// todo ??
 		return err
 	}
 
@@ -704,6 +702,7 @@ func (e Engine) peerExists(peerKey string) bool {
 }
 
 func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
+	log.Debugf("creating peer connection %s", pubKey)
 	var stunTurn []*ice.URL
 	stunTurn = append(stunTurn, e.STUNs...)
 	stunTurn = append(stunTurn, e.TURNs...)

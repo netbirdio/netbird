@@ -55,7 +55,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 	}
 
 	defer func() {
-		log.Infof("peer disconnected [%s] ", p.Id)
+		log.Infof("peer disconnected [%s] [streamID %d] ", p.Id, p.StreamID)
 		s.registry.Deregister(p)
 	}()
 
@@ -66,7 +66,7 @@ func (s *Server) ConnectStream(stream proto.SignalExchange_ConnectStreamServer) 
 		return err
 	}
 
-	log.Infof("peer connected [%s]", p.Id)
+	log.Infof("peer connected [%s] [streamID %d] ", p.Id, p.StreamID)
 
 	for {
 		//read incoming messages
