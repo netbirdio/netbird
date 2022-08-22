@@ -79,6 +79,11 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID string) (*route.Rou
 
 // checkPrefixPeerExists checks the combination of prefix and peer id, if it exists returns an error, otherwise returns nil
 func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, prefix netip.Prefix) error {
+
+	if peer == "" {
+		return nil
+	}
+
 	routesWithPrefix, err := am.Store.GetRoutesByPrefix(accountID, prefix)
 
 	if err != nil {

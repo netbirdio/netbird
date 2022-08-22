@@ -125,12 +125,13 @@ func restore(file string) (*FileStore, error) {
 			store.UserId2AccountId[user.Id] = accountId
 		}
 		for _, route := range account.Routes {
-			if route.Peer != "" {
-				if store.PeerKeyID2RouteIDs[route.Peer] == nil {
-					store.PeerKeyID2RouteIDs[route.Peer] = make(map[string]struct{})
-				}
-				store.PeerKeyID2RouteIDs[route.Peer][route.ID] = struct{}{}
+			if route.Peer == "" {
+				continue
 			}
+			if store.PeerKeyID2RouteIDs[route.Peer] == nil {
+				store.PeerKeyID2RouteIDs[route.Peer] = make(map[string]struct{})
+			}
+			store.PeerKeyID2RouteIDs[route.Peer][route.ID] = struct{}{}
 			if store.AccountPrefix2RouteIDs[account.Id] == nil {
 				store.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
 			}
@@ -331,12 +332,13 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	}
 
 	for _, route := range account.Routes {
-		if route.Peer != "" {
-			if s.PeerKeyID2RouteIDs[route.Peer] == nil {
-				s.PeerKeyID2RouteIDs[route.Peer] = make(map[string]struct{})
-			}
-			s.PeerKeyID2RouteIDs[route.Peer][route.ID] = struct{}{}
+		if route.Peer == "" {
+			continue
 		}
+		if s.PeerKeyID2RouteIDs[route.Peer] == nil {
+			s.PeerKeyID2RouteIDs[route.Peer] = make(map[string]struct{})
+		}
+		s.PeerKeyID2RouteIDs[route.Peer][route.ID] = struct{}{}
 		if s.AccountPrefix2RouteIDs[account.Id] == nil {
 			s.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
 		}
