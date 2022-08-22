@@ -44,8 +44,9 @@ const (
 	RoutePatchOperationPathEnabled     RoutePatchOperationPath = "enabled"
 	RoutePatchOperationPathMasquerade  RoutePatchOperationPath = "masquerade"
 	RoutePatchOperationPathMetric      RoutePatchOperationPath = "metric"
+	RoutePatchOperationPathNetwork     RoutePatchOperationPath = "network"
+	RoutePatchOperationPathNetworkId   RoutePatchOperationPath = "network_id"
 	RoutePatchOperationPathPeer        RoutePatchOperationPath = "peer"
-	RoutePatchOperationPathPrefix      RoutePatchOperationPath = "prefix"
 )
 
 // Defines values for RulePatchOperationOp.
@@ -184,14 +185,17 @@ type Route struct {
 	// Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
+	// Network range in CIDR format
+	Network string `json:"network"`
+
+	// Route network identifier, to group HA routes
+	NetworkId string `json:"network_id"`
+
+	// Network type indicating if it is IPv4 or IPv6
+	NetworkType string `json:"network_type"`
+
 	// Peer Identifier associated with route
 	Peer string `json:"peer"`
-
-	// Prefix or network range in CIDR format
-	Prefix string `json:"prefix"`
-
-	// Prefix type indicating if it is IPv4 or IPv6
-	PrefixType string `json:"prefix_type"`
 }
 
 // RoutePatchOperation defines model for RoutePatchOperation.
@@ -226,11 +230,14 @@ type RouteRequest struct {
 	// Route metric number. Lowest number has higher priority
 	Metric int `json:"metric"`
 
+	// Network range in CIDR format
+	Network string `json:"network"`
+
+	// Route network identifier, to group HA routes
+	NetworkId string `json:"network_id"`
+
 	// Peer Identifier associated with route
 	Peer string `json:"peer"`
-
-	// Prefix or network range in CIDR format
-	Prefix string `json:"prefix"`
 }
 
 // Rule defines model for Rule.

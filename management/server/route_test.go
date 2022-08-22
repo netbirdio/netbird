@@ -14,7 +14,8 @@ const peer2Key = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
 func TestCreateRoute(t *testing.T) {
 
 	type input struct {
-		prefix      string
+		network     string
+		netID       string
 		peer        string
 		description string
 		masquerade  bool
@@ -32,7 +33,8 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Happy Path",
 			inputArgs: input{
-				prefix:      "192.168.0.0/16",
+				network:     "192.168.0.0/16",
+				netID:       "happy",
 				peer:        peer1Key,
 				description: "super",
 				masquerade:  false,
@@ -42,8 +44,9 @@ func TestCreateRoute(t *testing.T) {
 			errFunc:      require.NoError,
 			shouldCreate: true,
 			expectedRoute: &route.Route{
-				Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetworkType: route.IPv4Network,
+				NetID:       "happy",
 				Peer:        peer1Key,
 				Description: "super",
 				Masquerade:  false,
@@ -54,7 +57,8 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Bad Prefix",
 			inputArgs: input{
-				prefix:      "192.168.0.0/34",
+				network:     "192.168.0.0/34",
+				netID:       "happy",
 				peer:        peer1Key,
 				description: "super",
 				masquerade:  false,
@@ -67,7 +71,8 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Bad Peer",
 			inputArgs: input{
-				prefix:      "192.168.0.0/16",
+				network:     "192.168.0.0/16",
+				netID:       "happy",
 				peer:        "notExistingPeer",
 				description: "super",
 				masquerade:  false,
@@ -80,7 +85,8 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Empty Peer",
 			inputArgs: input{
-				prefix:      "192.168.0.0/16",
+				network:     "192.168.0.0/16",
+				netID:       "happy",
 				peer:        "",
 				description: "super",
 				masquerade:  false,
@@ -90,8 +96,9 @@ func TestCreateRoute(t *testing.T) {
 			errFunc:      require.NoError,
 			shouldCreate: true,
 			expectedRoute: &route.Route{
-				Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetworkType: route.IPv4Network,
+				NetID:       "happy",
 				Peer:        "",
 				Description: "super",
 				Masquerade:  false,
@@ -102,8 +109,9 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Large Metric",
 			inputArgs: input{
-				prefix:      "192.168.0.0/16",
+				network:     "192.168.0.0/16",
 				peer:        peer1Key,
+				netID:       "happy",
 				description: "super",
 				masquerade:  false,
 				metric:      99999,
@@ -115,11 +123,40 @@ func TestCreateRoute(t *testing.T) {
 		{
 			name: "Small Metric",
 			inputArgs: input{
-				prefix:      "192.168.0.0/16",
+				network:     "192.168.0.0/16",
+				netID:       "happy",
 				peer:        peer1Key,
 				description: "super",
 				masquerade:  false,
 				metric:      0,
+				enabled:     true,
+			},
+			errFunc:      require.Error,
+			shouldCreate: false,
+		},
+		{
+			name: "Large NetID",
+			inputArgs: input{
+				network:     "192.168.0.0/16",
+				peer:        peer1Key,
+				netID:       "12345678901234567890qwertyuiopqwertyuiop1",
+				description: "super",
+				masquerade:  false,
+				metric:      9999,
+				enabled:     true,
+			},
+			errFunc:      require.Error,
+			shouldCreate: false,
+		},
+		{
+			name: "Small NetID",
+			inputArgs: input{
+				network:     "192.168.0.0/16",
+				netID:       "",
+				peer:        peer1Key,
+				description: "",
+				masquerade:  false,
+				metric:      9999,
 				enabled:     true,
 			},
 			errFunc:      require.Error,
@@ -140,9 +177,10 @@ func TestCreateRoute(t *testing.T) {
 
 			outRoute, err := am.CreateRoute(
 				account.Id,
-				testCase.inputArgs.prefix,
+				testCase.inputArgs.network,
 				testCase.inputArgs.peer,
 				testCase.inputArgs.description,
+				testCase.inputArgs.netID,
 				testCase.inputArgs.masquerade,
 				testCase.inputArgs.metric,
 				testCase.inputArgs.enabled,
@@ -173,6 +211,8 @@ func TestSaveRoute(t *testing.T) {
 	invalidPrefix, _ := netip.ParsePrefix("192.168.0.0/34")
 	validMetric := 1000
 	invalidMetric := 99999
+	validNetID := "12345678901234567890qw"
+	invalidNetID := "12345678901234567890qwertyuiopqwertyuiop1"
 
 	testCases := []struct {
 		name          string
@@ -189,8 +229,9 @@ func TestSaveRoute(t *testing.T) {
 			name: "Happy Path",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
-				Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetID:       validNetID,
+				NetworkType: route.IPv4Network,
 				Peer:        peer1Key,
 				Description: "super",
 				Masquerade:  false,
@@ -204,8 +245,9 @@ func TestSaveRoute(t *testing.T) {
 			shouldCreate: true,
 			expectedRoute: &route.Route{
 				ID:          "testingRoute",
-				Prefix:      validPrefix,
-				PrefixType:  route.IPv4Prefix,
+				Network:     validPrefix,
+				NetID:       validNetID,
+				NetworkType: route.IPv4Network,
 				Peer:        validPeer,
 				Description: "super",
 				Masquerade:  false,
@@ -217,8 +259,9 @@ func TestSaveRoute(t *testing.T) {
 			name: "Bad Prefix",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
-				Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetID:       validNetID,
+				NetworkType: route.IPv4Network,
 				Peer:        peer1Key,
 				Description: "super",
 				Masquerade:  false,
@@ -232,8 +275,9 @@ func TestSaveRoute(t *testing.T) {
 			name: "Bad Peer",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
-				Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetID:       validNetID,
+				NetworkType: route.IPv4Network,
 				Peer:        peer1Key,
 				Description: "super",
 				Masquerade:  false,
@@ -247,8 +291,25 @@ func TestSaveRoute(t *testing.T) {
 			name: "Invalid Metric",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
-				Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetID:       validNetID,
+				NetworkType: route.IPv4Network,
+				Peer:        peer1Key,
+				Description: "super",
+				Masquerade:  false,
+				Metric:      9999,
+				Enabled:     true,
+			},
+			newMetric: &invalidMetric,
+			errFunc:   require.Error,
+		},
+		{
+			name: "Invalid NetID",
+			existingRoute: &route.Route{
+				ID:          "testingRoute",
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetID:       invalidNetID,
+				NetworkType: route.IPv4Network,
 				Peer:        peer1Key,
 				Description: "super",
 				Masquerade:  false,
@@ -262,8 +323,9 @@ func TestSaveRoute(t *testing.T) {
 			name: "Nil Route",
 			existingRoute: &route.Route{
 				ID:          "testingRoute",
-				Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetID:       validNetID,
+				NetworkType: route.IPv4Network,
 				Peer:        peer1Key,
 				Description: "super",
 				Masquerade:  false,
@@ -306,7 +368,7 @@ func TestSaveRoute(t *testing.T) {
 				}
 
 				if testCase.newPrefix != nil {
-					routeToSave.Prefix = *testCase.newPrefix
+					routeToSave.Network = *testCase.newPrefix
 				}
 			}
 
@@ -334,8 +396,9 @@ func TestUpdateRoute(t *testing.T) {
 
 	existingRoute := &route.Route{
 		ID:          routeID,
-		Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-		PrefixType:  route.IPv4Prefix,
+		Network:     netip.MustParsePrefix("192.168.0.0/16"),
+		NetID:       "superRoute",
+		NetworkType: route.IPv4Network,
 		Peer:        peer1Key,
 		Description: "super",
 		Masquerade:  false,
@@ -364,8 +427,9 @@ func TestUpdateRoute(t *testing.T) {
 			shouldCreate: true,
 			expectedRoute: &route.Route{
 				ID:          routeID,
-				Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetID:       "superRoute",
+				NetworkType: route.IPv4Network,
 				Peer:        peer2Key,
 				Description: "super",
 				Masquerade:  false,
@@ -382,7 +446,7 @@ func TestUpdateRoute(t *testing.T) {
 					Values: []string{"great"},
 				},
 				RouteUpdateOperation{
-					Type:   UpdateRoutePrefix,
+					Type:   UpdateRouteNetwork,
 					Values: []string{"192.168.0.0/24"},
 				},
 				RouteUpdateOperation{
@@ -401,13 +465,18 @@ func TestUpdateRoute(t *testing.T) {
 					Type:   UpdateRouteEnabled,
 					Values: []string{"false"},
 				},
+				RouteUpdateOperation{
+					Type:   UpdateRouteNetworkIdentifier,
+					Values: []string{"megaRoute"},
+				},
 			},
 			errFunc:      require.NoError,
 			shouldCreate: true,
 			expectedRoute: &route.Route{
 				ID:          routeID,
-				Prefix:      netip.MustParsePrefix("192.168.0.0/24"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/24"),
+				NetID:       "megaRoute",
+				NetworkType: route.IPv4Network,
 				Peer:        peer2Key,
 				Description: "great",
 				Masquerade:  true,
@@ -441,7 +510,7 @@ func TestUpdateRoute(t *testing.T) {
 			existingRoute: existingRoute,
 			operations: []RouteUpdateOperation{
 				RouteUpdateOperation{
-					Type:   UpdateRoutePrefix,
+					Type:   UpdateRouteNetwork,
 					Values: []string{"192.168.0.0/34"},
 				},
 			},
@@ -471,14 +540,37 @@ func TestUpdateRoute(t *testing.T) {
 			shouldCreate: true,
 			expectedRoute: &route.Route{
 				ID:          routeID,
-				Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-				PrefixType:  route.IPv4Prefix,
+				Network:     netip.MustParsePrefix("192.168.0.0/16"),
+				NetID:       "superRoute",
+				NetworkType: route.IPv4Network,
 				Peer:        "",
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
 				Enabled:     true,
 			},
+		},
+		{
+			name:          "Large Network ID",
+			existingRoute: existingRoute,
+			operations: []RouteUpdateOperation{
+				RouteUpdateOperation{
+					Type:   UpdateRouteNetworkIdentifier,
+					Values: []string{"12345678901234567890qwertyuiopqwertyuiop1"},
+				},
+			},
+			errFunc: require.Error,
+		},
+		{
+			name:          "Empty Network ID",
+			existingRoute: existingRoute,
+			operations: []RouteUpdateOperation{
+				RouteUpdateOperation{
+					Type:   UpdateRouteNetworkIdentifier,
+					Values: []string{""},
+				},
+			},
+			errFunc: require.Error,
 		},
 		{
 			name:          "Invalid Metric",
@@ -544,8 +636,8 @@ func TestDeleteRoute(t *testing.T) {
 
 	testingRoute := &route.Route{
 		ID:          "testingRoute",
-		Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-		PrefixType:  route.IPv4Prefix,
+		Network:     netip.MustParsePrefix("192.168.0.0/16"),
+		NetworkType: route.IPv4Network,
 		Peer:        peer1Key,
 		Description: "super",
 		Masquerade:  false,
@@ -592,8 +684,9 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 
 	baseRoute := &route.Route{
 		ID:          "testingRoute",
-		Prefix:      netip.MustParsePrefix("192.168.0.0/16"),
-		PrefixType:  route.IPv4Prefix,
+		Network:     netip.MustParsePrefix("192.168.0.0/16"),
+		NetID:       "superNet",
+		NetworkType: route.IPv4Network,
 		Peer:        peer1Key,
 		Description: "super",
 		Masquerade:  false,
@@ -615,8 +708,8 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Prefix.String(), baseRoute.Peer,
-		baseRoute.Description, baseRoute.Masquerade, baseRoute.Metric, false)
+	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network.String(), baseRoute.Peer,
+		baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, false)
 	require.NoError(t, err)
 
 	noDisabledRoutes, err := am.GetNetworkMap(peer1Key)
