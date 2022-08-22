@@ -2,7 +2,6 @@ package internal
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/require"
@@ -55,15 +54,19 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingFunc      require.ComparisonAssertionFunc
 		expectedOut      DeviceAuthInfo
 		expectedMSG      string
-		expectPayload    RequestDeviceCodePayload
+		expectPayload    string
 	}
 
+	expectedAudience := "ok"
+	expectedClientID := "bla"
+	form := url.Values{}
+	form.Add("audience", expectedAudience)
+	form.Add("client_id", expectedClientID)
+	expectPayload := form.Encode()
+
 	testCase1 := test{
-		name: "Payload Is Valid",
-		expectPayload: RequestDeviceCodePayload{
-			Audience: "ok",
-			ClientID: "bla",
-		},
+		name:           "Payload Is Valid",
+		expectPayload:  expectPayload,
 		inputReqCode:   200,
 		testingErrFunc: require.Error,
 		testingFunc:    require.EqualValues,
@@ -75,6 +78,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingErrFunc:   require.Error,
 		expectedErrorMSG: "should return error",
 		testingFunc:      require.EqualValues,
+		expectPayload:    expectPayload,
 	}
 
 	testCase3 := test{
@@ -83,15 +87,13 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingErrFunc:   require.Error,
 		expectedErrorMSG: "should return error",
 		testingFunc:      require.EqualValues,
+		expectPayload:    expectPayload,
 	}
 	testCase4Out := DeviceAuthInfo{ExpiresIn: 10}
 	testCase4 := test{
-		name:         "Got Device Code",
-		inputResBody: fmt.Sprintf("{\"expires_in\":%d}", testCase4Out.ExpiresIn),
-		expectPayload: RequestDeviceCodePayload{
-			Audience: "ok",
-			ClientID: "bla",
-		},
+		name:           "Got Device Code",
+		inputResBody:   fmt.Sprintf("{\"expires_in\":%d}", testCase4Out.ExpiresIn),
+		expectPayload:  expectPayload,
 		inputReqCode:   200,
 		testingErrFunc: require.NoError,
 		testingFunc:    require.EqualValues,
@@ -109,8 +111,8 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				Audience:           testCase.expectPayload.Audience,
-				ClientID:           testCase.expectPayload.ClientID,
+				Audience:           expectedAudience,
+				ClientID:           expectedClientID,
 				TokenEndpoint:      "test.hosted.com/token",
 				DeviceAuthEndpoint: "test.hosted.com/device/auth",
 				HTTPClient:         &httpClient,
@@ -119,9 +121,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 			authInfo, err := hosted.RequestDeviceCode(context.TODO())
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
-			payload, _ := json.Marshal(testCase.expectPayload)
-
-			require.EqualValues(t, string(payload), httpClient.reqBody, "payload should match")
+			require.EqualValues(t, expectPayload, httpClient.reqBody, "payload should match")
 
 			testCase.testingFunc(t, testCase.expectedOut, authInfo, testCase.expectedMSG)
 
