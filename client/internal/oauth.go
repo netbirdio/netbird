@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -115,21 +116,14 @@ func (h *Hosted) GetClientID(ctx context.Context) string {
 
 // RequestDeviceCode requests a device code login flow information from Hosted
 func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
-	codePayload := RequestDeviceCodePayload{
-		Audience: h.Audience,
-		ClientID: h.ClientID,
-	}
-	p, err := json.Marshal(codePayload)
-	if err != nil {
-		return DeviceAuthInfo{}, fmt.Errorf("parsing payload failed with error: %v", err)
-	}
-	payload := strings.NewReader(string(p))
-	req, err := http.NewRequest("POST", h.DeviceAuthEndpoint, payload)
+	form := url.Values{}
+	form.Add("client_id", h.ClientID)
+	req, err := http.NewRequest("POST", h.DeviceAuthEndpoint,
+		strings.NewReader(form.Encode()))
 	if err != nil {
 		return DeviceAuthInfo{}, fmt.Errorf("creating request failed with error: %v", err)
 	}
-
-	req.Header.Add("content-type", "application/json")
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 	res, err := h.HTTPClient.Do(req)
 	if err != nil {
