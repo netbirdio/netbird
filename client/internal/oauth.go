@@ -151,6 +151,45 @@ func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) 
 	return deviceCode, err
 }
 
+func (h *Hosted) requestToken(info DeviceAuthInfo) (TokenRequestResponse, error) {
+	form := url.Values{}
+	form.Add("client_id", h.ClientID)
+	form.Add("grant_type", HostedGrantType)
+	form.Add("device_code", info.DeviceCode)
+	req, err := http.NewRequest("POST", h.TokenEndpoint, strings.NewReader(form.Encode()))
+
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	res, err := h.HTTPClient.Do(req)
+	if err != nil {
+		return TokenRequestResponse{}, fmt.Errorf("failed to request access token with error: %v", err)
+	}
+
+	defer func() {
+		err := res.Body.Close()
+		if err != nil {
+			return
+		}
+	}()
+
+	body, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return TokenRequestResponse{}, fmt.Errorf("failed reading access token response body with error: %v", err)
+	}
+
+	if res.StatusCode > 499 {
+		return TokenRequestResponse{}, fmt.Errorf("access token response returned code: %s", string(body))
+	}
+
+	tokenResponse := TokenRequestResponse{}
+	err = json.Unmarshal(body, &tokenResponse)
+	if err != nil {
+		return TokenRequestResponse{}, fmt.Errorf("parsing token response failed with error: %v", err)
+	}
+
+	return tokenResponse, nil
+}
+
 // WaitToken waits user's login and authorize the app. Once the user's authorize
 // it retrieves the access token from Hosted's endpoint and validates it before returning
 func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error) {
@@ -161,36 +200,8 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 		case <-ctx.Done():
 			return TokenInfo{}, ctx.Err()
 		case <-ticker.C:
-			form := url.Values{}
-			form.Add("client_id", h.ClientID)
-			form.Add("grant_type", HostedGrantType)
-			form.Add("device_code", info.DeviceCode)
-			req, err := http.NewRequest("POST", h.TokenEndpoint, strings.NewReader(form.Encode()))
 
-			req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-
-			res, err := h.HTTPClient.Do(req)
-			if err != nil {
-				return TokenInfo{}, fmt.Errorf("failed to request access token with error: %v", err)
-			}
-
-			defer func() {
-				err := res.Body.Close()
-				if err != nil {
-					return
-				}
-			}()
-			body, err := ioutil.ReadAll(res.Body)
-			if err != nil {
-				return TokenInfo{}, fmt.Errorf("failed reading access token response body with error: %v", err)
-			}
-
-			if res.StatusCode > 499 {
-				return TokenInfo{}, fmt.Errorf("access token response returned code: %s", string(body))
-			}
-
-			tokenResponse := TokenRequestResponse{}
-			err = json.Unmarshal(body, &tokenResponse)
+			tokenResponse, err := h.requestToken(info)
 			if err != nil {
 				return TokenInfo{}, fmt.Errorf("parsing token response failed with error: %v", err)
 			}
@@ -222,70 +233,6 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 			return tokenInfo, err
 		}
 	}
-}
-
-// RotateAccessToken requests a new token using an existing refresh token
-func (h *Hosted) RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error) {
-	tokenReqPayload := TokenRequestPayload{
-		GrantType:    HostedRefreshGrant,
-		ClientID:     h.ClientID,
-		RefreshToken: refreshToken,
-	}
-
-	body, statusCode, err := requestToken(h.HTTPClient, h.TokenEndpoint, tokenReqPayload)
-	if err != nil {
-		return TokenInfo{}, fmt.Errorf("rotate access token: %v", err)
-	}
-
-	if statusCode != 200 {
-		return TokenInfo{}, fmt.Errorf("rotating token returned error: %s", string(body))
-	}
-
-	tokenResponse := TokenRequestResponse{}
-	err = json.Unmarshal(body, &tokenResponse)
-	if err != nil {
-		return TokenInfo{}, fmt.Errorf("parsing token response failed with error: %v", err)
-	}
-
-	err = isValidAccessToken(tokenResponse.AccessToken, h.Audience)
-	if err != nil {
-		return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
-	}
-
-	tokenInfo := TokenInfo{
-		AccessToken:  tokenResponse.AccessToken,
-		TokenType:    tokenResponse.TokenType,
-		RefreshToken: tokenResponse.RefreshToken,
-		IDToken:      tokenResponse.IDToken,
-		ExpiresIn:    tokenResponse.ExpiresIn,
-	}
-	return tokenInfo, err
-}
-
-func requestToken(client HTTPClient, url string, tokenReqPayload TokenRequestPayload) ([]byte, int, error) {
-	p, err := json.Marshal(tokenReqPayload)
-	if err != nil {
-		return nil, 0, fmt.Errorf("parsing token payload failed with error: %v", err)
-	}
-	payload := strings.NewReader(string(p))
-	req, err := http.NewRequest("POST", url, payload)
-	if err != nil {
-		return nil, 0, fmt.Errorf("creating token request failed with error: %v", err)
-	}
-
-	req.Header.Add("content-type", "application/json")
-
-	res, err := client.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("doing token request failed with error: %v", err)
-	}
-
-	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, 0, fmt.Errorf("reading token body failed with error: %v", err)
-	}
-	return body, res.StatusCode, nil
 }
 
 // isValidAccessToken is a simple validation of the access token
