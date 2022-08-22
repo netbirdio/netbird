@@ -118,6 +118,7 @@ func (h *Hosted) GetClientID(ctx context.Context) string {
 func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
 	form := url.Values{}
 	form.Add("client_id", h.ClientID)
+	form.Add("audience", h.Audience)
 	req, err := http.NewRequest("POST", h.DeviceAuthEndpoint,
 		strings.NewReader(form.Encode()))
 	if err != nil {
