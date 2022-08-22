@@ -205,11 +205,15 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			}
 		}
 
-		hostedClient := internal.NewHostedDeviceFlow(
+		hostedClient, err := internal.NewHostedDeviceFlow(
 			providerConfig.ProviderConfig.Audience,
 			providerConfig.ProviderConfig.ClientID,
 			providerConfig.ProviderConfig.OIDCConfigEndpoint,
 		)
+
+		if err != nil {
+			return nil, fmt.Errorf("failed creating new HostedDeviceFlow %v", err)
+		}
 
 		if s.oauthAuthFlow.client != nil && s.oauthAuthFlow.client.GetClientID(ctx) == hostedClient.GetClientID(context.TODO()) {
 			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
