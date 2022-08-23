@@ -5,8 +5,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"net/url"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -14,7 +16,6 @@ import (
 // OAuthClient is a OAuth client interface for various idp providers
 type OAuthClient interface {
 	RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error)
-	RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error)
 	WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error)
 	GetClientID(ctx context.Context) string
 }
@@ -55,8 +56,10 @@ type Hosted struct {
 	Audience string
 	// Hosted Native application client id
 	ClientID string
-	// Hosted domain
-	Domain string
+	// TokenEndpoint to request access token
+	TokenEndpoint string
+	// DeviceAuthEndpoint to request device authorization code
+	DeviceAuthEndpoint string
 
 	HTTPClient HTTPClient
 }
@@ -84,11 +87,11 @@ type TokenRequestResponse struct {
 
 // Claims used when validating the access token
 type Claims struct {
-	Audience string `json:"aud"`
+	Audience interface{} `json:"aud"`
 }
 
 // NewHostedDeviceFlow returns an Hosted OAuth client
-func NewHostedDeviceFlow(audience string, clientID string, domain string) *Hosted {
+func NewHostedDeviceFlow(audience string, clientID string, tokenEndpoint string, deviceAuthEndpoint string) *Hosted {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -98,10 +101,11 @@ func NewHostedDeviceFlow(audience string, clientID string, domain string) *Hoste
 	}
 
 	return &Hosted{
-		Audience:   audience,
-		ClientID:   clientID,
-		Domain:     domain,
-		HTTPClient: httpClient,
+		Audience:           audience,
+		ClientID:           clientID,
+		TokenEndpoint:      tokenEndpoint,
+		HTTPClient:         httpClient,
+		DeviceAuthEndpoint: deviceAuthEndpoint,
 	}
 }
 
@@ -112,22 +116,15 @@ func (h *Hosted) GetClientID(ctx context.Context) string {
 
 // RequestDeviceCode requests a device code login flow information from Hosted
 func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
-	url := "https://" + h.Domain + "/oauth/device/code"
-	codePayload := RequestDeviceCodePayload{
-		Audience: h.Audience,
-		ClientID: h.ClientID,
-	}
-	p, err := json.Marshal(codePayload)
-	if err != nil {
-		return DeviceAuthInfo{}, fmt.Errorf("parsing payload failed with error: %v", err)
-	}
-	payload := strings.NewReader(string(p))
-	req, err := http.NewRequest("POST", url, payload)
+	form := url.Values{}
+	form.Add("client_id", h.ClientID)
+	form.Add("audience", h.Audience)
+	req, err := http.NewRequest("POST", h.DeviceAuthEndpoint,
+		strings.NewReader(form.Encode()))
 	if err != nil {
 		return DeviceAuthInfo{}, fmt.Errorf("creating request failed with error: %v", err)
 	}
-
-	req.Header.Add("content-type", "application/json")
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
 
 	res, err := h.HTTPClient.Do(req)
 	if err != nil {
@@ -135,7 +132,7 @@ func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) 
 	}
 
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return DeviceAuthInfo{}, fmt.Errorf("reading body failed with error: %v", err)
 	}
@@ -153,6 +150,48 @@ func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) 
 	return deviceCode, err
 }
 
+func (h *Hosted) requestToken(info DeviceAuthInfo) (TokenRequestResponse, error) {
+	form := url.Values{}
+	form.Add("client_id", h.ClientID)
+	form.Add("grant_type", HostedGrantType)
+	form.Add("device_code", info.DeviceCode)
+	req, err := http.NewRequest("POST", h.TokenEndpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return TokenRequestResponse{}, fmt.Errorf("failed to create request access token: %v", err)
+	}
+
+	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+
+	res, err := h.HTTPClient.Do(req)
+	if err != nil {
+		return TokenRequestResponse{}, fmt.Errorf("failed to request access token with error: %v", err)
+	}
+
+	defer func() {
+		err := res.Body.Close()
+		if err != nil {
+			return
+		}
+	}()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return TokenRequestResponse{}, fmt.Errorf("failed reading access token response body with error: %v", err)
+	}
+
+	if res.StatusCode > 499 {
+		return TokenRequestResponse{}, fmt.Errorf("access token response returned code: %s", string(body))
+	}
+
+	tokenResponse := TokenRequestResponse{}
+	err = json.Unmarshal(body, &tokenResponse)
+	if err != nil {
+		return TokenRequestResponse{}, fmt.Errorf("parsing token response failed with error: %v", err)
+	}
+
+	return tokenResponse, nil
+}
+
 // WaitToken waits user's login and authorize the app. Once the user's authorize
 // it retrieves the access token from Hosted's endpoint and validates it before returning
 func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo, error) {
@@ -163,24 +202,8 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 		case <-ctx.Done():
 			return TokenInfo{}, ctx.Err()
 		case <-ticker.C:
-			url := "https://" + h.Domain + "/oauth/token"
-			tokenReqPayload := TokenRequestPayload{
-				GrantType:  HostedGrantType,
-				DeviceCode: info.DeviceCode,
-				ClientID:   h.ClientID,
-			}
 
-			body, statusCode, err := requestToken(h.HTTPClient, url, tokenReqPayload)
-			if err != nil {
-				return TokenInfo{}, fmt.Errorf("wait for token: %v", err)
-			}
-
-			if statusCode > 499 {
-				return TokenInfo{}, fmt.Errorf("wait token code returned error: %s", string(body))
-			}
-
-			tokenResponse := TokenRequestResponse{}
-			err = json.Unmarshal(body, &tokenResponse)
+			tokenResponse, err := h.requestToken(info)
 			if err != nil {
 				return TokenInfo{}, fmt.Errorf("parsing token response failed with error: %v", err)
 			}
@@ -214,71 +237,6 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 	}
 }
 
-// RotateAccessToken requests a new token using an existing refresh token
-func (h *Hosted) RotateAccessToken(ctx context.Context, refreshToken string) (TokenInfo, error) {
-	url := "https://" + h.Domain + "/oauth/token"
-	tokenReqPayload := TokenRequestPayload{
-		GrantType:    HostedRefreshGrant,
-		ClientID:     h.ClientID,
-		RefreshToken: refreshToken,
-	}
-
-	body, statusCode, err := requestToken(h.HTTPClient, url, tokenReqPayload)
-	if err != nil {
-		return TokenInfo{}, fmt.Errorf("rotate access token: %v", err)
-	}
-
-	if statusCode != 200 {
-		return TokenInfo{}, fmt.Errorf("rotating token returned error: %s", string(body))
-	}
-
-	tokenResponse := TokenRequestResponse{}
-	err = json.Unmarshal(body, &tokenResponse)
-	if err != nil {
-		return TokenInfo{}, fmt.Errorf("parsing token response failed with error: %v", err)
-	}
-
-	err = isValidAccessToken(tokenResponse.AccessToken, h.Audience)
-	if err != nil {
-		return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
-	}
-
-	tokenInfo := TokenInfo{
-		AccessToken:  tokenResponse.AccessToken,
-		TokenType:    tokenResponse.TokenType,
-		RefreshToken: tokenResponse.RefreshToken,
-		IDToken:      tokenResponse.IDToken,
-		ExpiresIn:    tokenResponse.ExpiresIn,
-	}
-	return tokenInfo, err
-}
-
-func requestToken(client HTTPClient, url string, tokenReqPayload TokenRequestPayload) ([]byte, int, error) {
-	p, err := json.Marshal(tokenReqPayload)
-	if err != nil {
-		return nil, 0, fmt.Errorf("parsing token payload failed with error: %v", err)
-	}
-	payload := strings.NewReader(string(p))
-	req, err := http.NewRequest("POST", url, payload)
-	if err != nil {
-		return nil, 0, fmt.Errorf("creating token request failed with error: %v", err)
-	}
-
-	req.Header.Add("content-type", "application/json")
-
-	res, err := client.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("doing token request failed with error: %v", err)
-	}
-
-	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return nil, 0, fmt.Errorf("reading token body failed with error: %v", err)
-	}
-	return body, res.StatusCode, nil
-}
-
 // isValidAccessToken is a simple validation of the access token
 func isValidAccessToken(token string, audience string) error {
 	if token == "" {
@@ -297,9 +255,24 @@ func isValidAccessToken(token string, audience string) error {
 		return err
 	}
 
-	if claims.Audience != audience {
-		return fmt.Errorf("invalid audience")
+	if claims.Audience == nil {
+		return fmt.Errorf("required token field audience is absent")
 	}
 
-	return nil
+	// Audience claim of JWT can be a string or an array of strings
+	typ := reflect.TypeOf(claims.Audience)
+	switch typ.Kind() {
+	case reflect.String:
+		if claims.Audience == audience {
+			return nil
+		}
+	case reflect.Slice:
+		for _, aud := range claims.Audience.([]interface{}) {
+			if audience == aud {
+				return nil
+			}
+		}
+	}
+
+	return fmt.Errorf("invalid JWT token audience field")
 }

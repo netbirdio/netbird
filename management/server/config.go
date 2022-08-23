@@ -55,6 +55,8 @@ type HttpServerConfig struct {
 	AuthIssuer string
 	// AuthKeysLocation is a location of JWT key set containing the public keys used to verify JWT
 	AuthKeysLocation string
+	// OIDCConfigEndpoint is the endpoint of an IDP manager to get OIDC configuration
+	OIDCConfigEndpoint string
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)
@@ -81,9 +83,14 @@ type ProviderConfig struct {
 	// ClientSecret An IDP application client secret
 	ClientSecret string
 	// Domain An IDP API domain
+	// Deprecated. Use TokenEndpoint and DeviceAuthEndpoint
 	Domain string
 	// Audience An Audience for to authorization validation
 	Audience string
+	// TokenEndpoint is the endpoint of an IDP manager where clients can obtain access token
+	TokenEndpoint string
+	// DeviceAuthEndpoint is the endpoint of an IDP manager where clients can obtain device authorization code
+	DeviceAuthEndpoint string
 }
 
 // validateURL validates input http url

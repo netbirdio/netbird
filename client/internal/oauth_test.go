@@ -2,12 +2,12 @@ package internal
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/require"
-	"io/ioutil"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -24,7 +24,7 @@ type mockHTTPClient struct {
 }
 
 func (c *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	body, err := ioutil.ReadAll(req.Body)
+	body, err := io.ReadAll(req.Body)
 	if err == nil {
 		c.reqBody = string(body)
 	}
@@ -33,13 +33,13 @@ func (c *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
 		c.count++
 		return &http.Response{
 			StatusCode: c.code,
-			Body:       ioutil.NopCloser(strings.NewReader(c.countResBody)),
+			Body:       io.NopCloser(strings.NewReader(c.countResBody)),
 		}, c.err
 	}
 
 	return &http.Response{
 		StatusCode: c.code,
-		Body:       ioutil.NopCloser(strings.NewReader(c.resBody)),
+		Body:       io.NopCloser(strings.NewReader(c.resBody)),
 	}, c.err
 }
 
@@ -54,15 +54,19 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingFunc      require.ComparisonAssertionFunc
 		expectedOut      DeviceAuthInfo
 		expectedMSG      string
-		expectPayload    RequestDeviceCodePayload
+		expectPayload    string
 	}
 
+	expectedAudience := "ok"
+	expectedClientID := "bla"
+	form := url.Values{}
+	form.Add("audience", expectedAudience)
+	form.Add("client_id", expectedClientID)
+	expectPayload := form.Encode()
+
 	testCase1 := test{
-		name: "Payload Is Valid",
-		expectPayload: RequestDeviceCodePayload{
-			Audience: "ok",
-			ClientID: "bla",
-		},
+		name:           "Payload Is Valid",
+		expectPayload:  expectPayload,
 		inputReqCode:   200,
 		testingErrFunc: require.Error,
 		testingFunc:    require.EqualValues,
@@ -74,6 +78,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingErrFunc:   require.Error,
 		expectedErrorMSG: "should return error",
 		testingFunc:      require.EqualValues,
+		expectPayload:    expectPayload,
 	}
 
 	testCase3 := test{
@@ -82,15 +87,13 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingErrFunc:   require.Error,
 		expectedErrorMSG: "should return error",
 		testingFunc:      require.EqualValues,
+		expectPayload:    expectPayload,
 	}
 	testCase4Out := DeviceAuthInfo{ExpiresIn: 10}
 	testCase4 := test{
-		name:         "Got Device Code",
-		inputResBody: fmt.Sprintf("{\"expires_in\":%d}", testCase4Out.ExpiresIn),
-		expectPayload: RequestDeviceCodePayload{
-			Audience: "ok",
-			ClientID: "bla",
-		},
+		name:           "Got Device Code",
+		inputResBody:   fmt.Sprintf("{\"expires_in\":%d}", testCase4Out.ExpiresIn),
+		expectPayload:  expectPayload,
 		inputReqCode:   200,
 		testingErrFunc: require.NoError,
 		testingFunc:    require.EqualValues,
@@ -108,18 +111,17 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				Audience:   testCase.expectPayload.Audience,
-				ClientID:   testCase.expectPayload.ClientID,
-				Domain:     "test.hosted.com",
-				HTTPClient: &httpClient,
+				Audience:           expectedAudience,
+				ClientID:           expectedClientID,
+				TokenEndpoint:      "test.hosted.com/token",
+				DeviceAuthEndpoint: "test.hosted.com/device/auth",
+				HTTPClient:         &httpClient,
 			}
 
 			authInfo, err := hosted.RequestDeviceCode(context.TODO())
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
-			payload, _ := json.Marshal(testCase.expectPayload)
-
-			require.EqualValues(t, string(payload), httpClient.reqBody, "payload should match")
+			require.EqualValues(t, expectPayload, httpClient.reqBody, "payload should match")
 
 			testCase.testingFunc(t, testCase.expectedOut, authInfo, testCase.expectedMSG)
 
@@ -143,7 +145,7 @@ func TestHosted_WaitToken(t *testing.T) {
 		testingFunc       require.ComparisonAssertionFunc
 		expectedOut       TokenInfo
 		expectedMSG       string
-		expectPayload     TokenRequestPayload
+		expectPayload     string
 	}
 
 	defaultInfo := DeviceAuthInfo{
@@ -152,11 +154,13 @@ func TestHosted_WaitToken(t *testing.T) {
 		Interval:   1,
 	}
 
-	tokenReqPayload := TokenRequestPayload{
-		GrantType:  HostedGrantType,
-		DeviceCode: defaultInfo.DeviceCode,
-		ClientID:   "test",
-	}
+	clientID := "test"
+
+	form := url.Values{}
+	form.Add("grant_type", HostedGrantType)
+	form.Add("device_code", defaultInfo.DeviceCode)
+	form.Add("client_id", clientID)
+	tokenReqPayload := form.Encode()
 
 	testCase1 := test{
 		name:           "Payload Is Valid",
@@ -268,10 +272,11 @@ func TestHosted_WaitToken(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				Audience:   testCase.inputAudience,
-				ClientID:   testCase.expectPayload.ClientID,
-				Domain:     "test.hosted.com",
-				HTTPClient: &httpClient,
+				Audience:           testCase.inputAudience,
+				ClientID:           clientID,
+				TokenEndpoint:      "test.hosted.com/token",
+				DeviceAuthEndpoint: "test.hosted.com/device/auth",
+				HTTPClient:         &httpClient,
 			}
 
 			ctx, cancel := context.WithTimeout(context.TODO(), testCase.inputTimeout)
@@ -279,136 +284,11 @@ func TestHosted_WaitToken(t *testing.T) {
 			tokenInfo, err := hosted.WaitToken(ctx, testCase.inputInfo)
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
-			var payload []byte
-			var emptyPayload TokenRequestPayload
-			if testCase.expectPayload != emptyPayload {
-				payload, _ = json.Marshal(testCase.expectPayload)
-			}
-			require.EqualValues(t, string(payload), httpClient.reqBody, "payload should match")
+			require.EqualValues(t, testCase.expectPayload, httpClient.reqBody, "payload should match")
 
 			testCase.testingFunc(t, testCase.expectedOut, tokenInfo, testCase.expectedMSG)
 
 			require.GreaterOrEqualf(t, testCase.inputMaxReqs, httpClient.count, "should run %d times", testCase.inputMaxReqs)
-
-		})
-	}
-}
-
-func TestHosted_RotateAccessToken(t *testing.T) {
-	type test struct {
-		name             string
-		inputResBody     string
-		inputReqCode     int
-		inputReqError    error
-		inputMaxReqs     int
-		inputInfo        DeviceAuthInfo
-		inputAudience    string
-		testingErrFunc   require.ErrorAssertionFunc
-		expectedErrorMSG string
-		testingFunc      require.ComparisonAssertionFunc
-		expectedOut      TokenInfo
-		expectedMSG      string
-		expectPayload    TokenRequestPayload
-	}
-
-	defaultInfo := DeviceAuthInfo{
-		DeviceCode: "test",
-		ExpiresIn:  10,
-		Interval:   1,
-	}
-
-	tokenReqPayload := TokenRequestPayload{
-		GrantType:    HostedRefreshGrant,
-		ClientID:     "test",
-		RefreshToken: "refresh_test",
-	}
-
-	testCase1 := test{
-		name:           "Payload Is Valid",
-		inputInfo:      defaultInfo,
-		inputReqCode:   200,
-		testingErrFunc: require.Error,
-		testingFunc:    require.EqualValues,
-		expectPayload:  tokenReqPayload,
-	}
-
-	testCase2 := test{
-		name:             "Exit On Network Error",
-		inputInfo:        defaultInfo,
-		expectPayload:    tokenReqPayload,
-		inputReqError:    fmt.Errorf("error"),
-		testingErrFunc:   require.Error,
-		expectedErrorMSG: "should return error",
-		testingFunc:      require.EqualValues,
-	}
-
-	testCase3 := test{
-		name:             "Exit On Non 200 Status Code",
-		inputInfo:        defaultInfo,
-		inputReqCode:     401,
-		expectPayload:    tokenReqPayload,
-		testingErrFunc:   require.Error,
-		expectedErrorMSG: "should return error",
-		testingFunc:      require.EqualValues,
-	}
-
-	audience := "test"
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"aud": audience})
-	var hmacSampleSecret []byte
-	tokenString, _ := token.SignedString(hmacSampleSecret)
-
-	testCase4 := test{
-		name:           "Exit On Invalid Audience",
-		inputInfo:      defaultInfo,
-		inputResBody:   fmt.Sprintf("{\"access_token\":\"%s\"}", tokenString),
-		inputReqCode:   200,
-		inputAudience:  "super test",
-		testingErrFunc: require.Error,
-		testingFunc:    require.EqualValues,
-		expectPayload:  tokenReqPayload,
-	}
-
-	testCase5 := test{
-		name:           "Received Token Info",
-		inputInfo:      defaultInfo,
-		inputResBody:   fmt.Sprintf("{\"access_token\":\"%s\"}", tokenString),
-		inputReqCode:   200,
-		inputAudience:  audience,
-		testingErrFunc: require.NoError,
-		testingFunc:    require.EqualValues,
-		expectPayload:  tokenReqPayload,
-		expectedOut:    TokenInfo{AccessToken: tokenString},
-	}
-
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5} {
-		t.Run(testCase.name, func(t *testing.T) {
-
-			httpClient := mockHTTPClient{
-				resBody: testCase.inputResBody,
-				code:    testCase.inputReqCode,
-				err:     testCase.inputReqError,
-				MaxReqs: testCase.inputMaxReqs,
-			}
-
-			hosted := Hosted{
-				Audience:   testCase.inputAudience,
-				ClientID:   testCase.expectPayload.ClientID,
-				Domain:     "test.hosted.com",
-				HTTPClient: &httpClient,
-			}
-
-			tokenInfo, err := hosted.RotateAccessToken(context.TODO(), testCase.expectPayload.RefreshToken)
-			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
-
-			var payload []byte
-			var emptyPayload TokenRequestPayload
-			if testCase.expectPayload != emptyPayload {
-				payload, _ = json.Marshal(testCase.expectPayload)
-			}
-			require.EqualValues(t, string(payload), httpClient.reqBody, "payload should match")
-
-			testCase.testingFunc(t, testCase.expectedOut, tokenInfo, testCase.expectedMSG)
 
 		})
 	}
