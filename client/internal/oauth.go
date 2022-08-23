@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -132,7 +132,7 @@ func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) 
 	}
 
 	defer res.Body.Close()
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return DeviceAuthInfo{}, fmt.Errorf("reading body failed with error: %v", err)
 	}
@@ -174,7 +174,7 @@ func (h *Hosted) requestToken(info DeviceAuthInfo) (TokenRequestResponse, error)
 		}
 	}()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return TokenRequestResponse{}, fmt.Errorf("failed reading access token response body with error: %v", err)
 	}

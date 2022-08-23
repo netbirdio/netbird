@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/require"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,7 +24,7 @@ type mockHTTPClient struct {
 }
 
 func (c *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	body, err := ioutil.ReadAll(req.Body)
+	body, err := io.ReadAll(req.Body)
 	if err == nil {
 		c.reqBody = string(body)
 	}
@@ -33,13 +33,13 @@ func (c *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
 		c.count++
 		return &http.Response{
 			StatusCode: c.code,
-			Body:       ioutil.NopCloser(strings.NewReader(c.countResBody)),
+			Body:       io.NopCloser(strings.NewReader(c.countResBody)),
 		}, c.err
 	}
 
 	return &http.Response{
 		StatusCode: c.code,
-		Body:       ioutil.NopCloser(strings.NewReader(c.resBody)),
+		Body:       io.NopCloser(strings.NewReader(c.resBody)),
 	}, c.err
 }
 
