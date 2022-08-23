@@ -4,6 +4,7 @@ if ! command -v jq &> /dev/null
 then
     echo "This script uses jq to load OpenID configuration from IDP."
     echo "Please install jq and re-run the script https://stedolan.github.io/jq/"
+    echo ""
     exit 1
 fi
 
@@ -95,7 +96,7 @@ wget ${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT} -q -O openid-configuration.json
 
 export NETBIRD_AUTH_AUTHORITY=$( jq -r  '.issuer' openid-configuration.json )
 export NETBIRD_AUTH_JWT_CERTS=$( jq -r  '.jwks_uri' openid-configuration.json )
-export NETBIRD_AUTH_SUPPORTED_SCOPES=\"$( jq -r '.scopes_supported | join(" ")' openid-configuration.json )\"
+export NETBIRD_AUTH_SUPPORTED_SCOPES=$( jq -r '.scopes_supported | join(" ")' openid-configuration.json )
 export NETBIRD_AUTH_TOKEN_ENDPOINT=$( jq -r  '.token_endpoint' openid-configuration.json )
 export NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT=$( jq -r  '.device_authorization_endpoint' openid-configuration.json )
 
