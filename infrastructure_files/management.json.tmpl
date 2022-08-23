@@ -33,9 +33,20 @@
         "AuthAudience": "$NETBIRD_AUTH_AUDIENCE",
         "AuthKeysLocation": "$NETBIRD_AUTH_JWT_CERTS",
         "CertFile":"$NETBIRD_MGMT_API_CERT_FILE",
-        "CertKey":"$NETBIRD_MGMT_API_CERT_KEY_FILE"
+        "CertKey":"$NETBIRD_MGMT_API_CERT_KEY_FILE",
+        "OIDCConfigEndpoint":"$NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT"
     },
     "IdpManagerConfig": {
         "Manager": "none"
-     }
+     },
+    "DeviceAuthorizationFlow": {
+        "Provider": "$NETBIRD_AUTH_DEVICE_AUTH_PROVIDER",
+        "ProviderConfig": {
+          "Audience": "$NETBIRD_AUTH_AUDIENCE",
+          "Domain": "$NETBIRD_AUTH0_DOMAIN",
+          "ClientID": "$NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID",
+          "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
+          "DeviceAuthEndpoint": "$NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT"
+         }
+    }
 }

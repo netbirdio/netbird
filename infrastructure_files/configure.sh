@@ -1,5 +1,12 @@
 #!/bin/bash
 
+if ! command -v jq &> /dev/null
+then
+    echo "This script uses jq to load OpenID configuration from IDP."
+    echo "Please install jq and re-run the script https://stedolan.github.io/jq/"
+    exit 1
+fi
+
 source setup.env
 source base.setup.env
 
@@ -63,20 +70,45 @@ export MGMT_VOLUMENAME
 export SIGNAL_VOLUMENAME
 export LETSENCRYPT_VOLUMENAME
 
-#backwards compatibility after migrating to generic OIDC
-if [[ -z "${NETBIRD_AUTH_AUTHORITY}" ]]; then
+if [[ ! -z "${NETBIRD_AUTH0_DOMAIN}" ]]; then
+    export NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT="https://${NETBIRD_AUTH0_DOMAIN}/.well-known/openid-configuration"
+fi
+
+#backwards compatibility after migrating to generic OIDC with Auth0
+if [[ -z "${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT}" ]]; then
+
+    if [[ -z "${NETBIRD_AUTH0_DOMAIN}" ]]; then
+       # not a backward compatible state
+       echo "NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT property must be set in the setup.env file"
+       exit 1
+    fi
+
     echo "It seems like you provided an old setup.env file."
-    echo "Since the release of v0.8.8, we introduced a new set of properties."
+    echo "Since the release of v0.8.10, we introduced a new set of properties."
     echo "The script is backward compatible and will continue automatically."
     echo "In the future versions it will be deprecated. Please refer to the documentation to learn about the changes http://netbird.io/docs/getting-started/self-hosting"
 
-    export NETBIRD_AUTH_AUTHORITY="https://${NETBIRD_AUTH0_DOMAIN}/"
-    export NETBIRD_AUTH_CLIENT_ID=${NETBIRD_AUTH0_CLIENT_ID}
+    export NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT="https://${NETBIRD_AUTH0_DOMAIN}/.well-known/openid-configuration"
     export NETBIRD_USE_AUTH0="true"
-    export NETBIRD_AUTH_SUPPORTED_SCOPES="openid profile email api offline_access email_verified"
     export NETBIRD_AUTH_AUDIENCE=${NETBIRD_AUTH0_AUDIENCE}
-    export NETBIRD_AUTH_JWT_CERTS="https://${NETBIRD_AUTH0_DOMAIN}/.well-known/jwks.json"
+    export NETBIRD_AUTH_CLIENT_ID=${NETBIRD_AUTH0_CLIENT_ID}
 fi
+
+echo "loading OpenID configuration from ${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT} to the openid-configuration.json file"
+wget ${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT} -q -O openid-configuration.json
+
+export NETBIRD_AUTH_AUTHORITY=$( jq -r  '.issuer' openid-configuration.json )
+export NETBIRD_AUTH_JWT_CERTS=$( jq -r  '.jwks_uri' openid-configuration.json )
+export NETBIRD_AUTH_SUPPORTED_SCOPES=\"$( jq -r '.scopes_supported | join(" ")' openid-configuration.json )\"
+export NETBIRD_AUTH_TOKEN_ENDPOINT=$( jq -r  '.token_endpoint' openid-configuration.json )
+export NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT=$( jq -r  '.device_authorization_endpoint' openid-configuration.json )
+
+if [[ ! -z "${NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID}" ]]; then
+    # user enabled Device Authorization Grant feature
+    export NETBIRD_AUTH_DEVICE_AUTH_PROVIDER="hosted"
+fi
+
+env | grep NETBIRD
 
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 envsubst < management.json.tmpl > management.json
