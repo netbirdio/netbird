@@ -12,7 +12,6 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"io"
 	"io/fs"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -375,7 +374,7 @@ func fetchOIDCConfig(oidcEndpoint string) (OIDCConfigResponse, error) {
 		}
 	}()
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return OIDCConfigResponse{}, fmt.Errorf("failed reading OIDC configuration response body: %v", err)
 	}
