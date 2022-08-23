@@ -70,10 +70,6 @@ export MGMT_VOLUMENAME
 export SIGNAL_VOLUMENAME
 export LETSENCRYPT_VOLUMENAME
 
-if [[ ! -z "${NETBIRD_AUTH0_DOMAIN}" ]]; then
-    export NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT="https://${NETBIRD_AUTH0_DOMAIN}/.well-known/openid-configuration"
-fi
-
 #backwards compatibility after migrating to generic OIDC with Auth0
 if [[ -z "${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT}" ]]; then
 
