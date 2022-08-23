@@ -208,7 +208,8 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		hostedClient := internal.NewHostedDeviceFlow(
 			providerConfig.ProviderConfig.Audience,
 			providerConfig.ProviderConfig.ClientID,
-			providerConfig.ProviderConfig.Domain,
+			providerConfig.ProviderConfig.TokenEndpoint,
+			providerConfig.ProviderConfig.DeviceAuthEndpoint,
 		)
 
 		if s.oauthAuthFlow.client != nil && s.oauthAuthFlow.client.GetClientID(ctx) == hostedClient.GetClientID(context.TODO()) {

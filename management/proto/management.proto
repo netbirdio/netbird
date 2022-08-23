@@ -227,9 +227,14 @@ message ProviderConfig {
   // An IDP application client secret
   string ClientSecret = 2;
   // An IDP API domain
-  string Domain =3;
+  // Deprecated. Use a DeviceAuthEndpoint and TokenEndpoint
+  string Domain = 3;
   // An Audience for validation
   string Audience = 4;
+  // DeviceAuthEndpoint is an endpoint to request device authentication code.
+  string DeviceAuthEndpoint = 5;
+  // TokenEndpoint is an endpoint to request auth token.
+  string TokenEndpoint = 6;
 }
 
 // Route represents a route.Route object

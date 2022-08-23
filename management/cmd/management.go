@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -304,7 +306,92 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 		config.HttpConfig.CertKey = certKey
 	}
 
+	oidcEndpoint := config.HttpConfig.OIDCConfigEndpoint
+	if oidcEndpoint != "" {
+		// if OIDCConfigEndpoint is specified, we can load DeviceAuthEndpoint and TokenEndpoint automatically
+		log.Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
+		oidcConfig, err := fetchOIDCConfig(oidcEndpoint)
+		if err != nil {
+			return nil, err
+		}
+		log.Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
+
+		log.Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
+			oidcConfig.Issuer, config.HttpConfig.AuthIssuer)
+		config.HttpConfig.AuthIssuer = oidcConfig.Issuer
+
+		log.Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
+			oidcConfig.JwksURI, config.HttpConfig.AuthKeysLocation)
+		config.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
+
+		if config.DeviceAuthorizationFlow != nil {
+			log.Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+				oidcConfig.TokenEndpoint, config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
+			config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
+			log.Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
+				oidcConfig.DeviceAuthEndpoint, config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint)
+			config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint = oidcConfig.DeviceAuthEndpoint
+
+			u, err := url.Parse(oidcEndpoint)
+			if err != nil {
+				return nil, err
+			}
+			log.Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
+				u.Host, config.DeviceAuthorizationFlow.ProviderConfig.Domain)
+			config.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
+
+		}
+		if config.IdpManagerConfig != nil {
+			log.Infof("overriding Auth0ClientCredentials.AuthIssuer with a new value: %s, previously configured value: %s",
+				oidcConfig.Issuer, config.IdpManagerConfig.Auth0ClientCredentials.AuthIssuer)
+			config.IdpManagerConfig.Auth0ClientCredentials.AuthIssuer = oidcConfig.Issuer
+		}
+	}
+
 	return config, err
+}
+
+// OIDCConfigResponse used for parsing OIDC config response
+type OIDCConfigResponse struct {
+	Issuer             string `json:"issuer"`
+	TokenEndpoint      string `json:"token_endpoint"`
+	DeviceAuthEndpoint string `json:"device_authorization_endpoint"`
+	JwksURI            string `json:"jwks_uri"`
+}
+
+// fetchOIDCConfig fetches OIDC configuration from the IDP
+func fetchOIDCConfig(oidcEndpoint string) (OIDCConfigResponse, error) {
+
+	res, err := http.Get(oidcEndpoint)
+	if err != nil {
+		return OIDCConfigResponse{}, fmt.Errorf("failed fetching OIDC configuration fro mendpoint %s %v", oidcEndpoint, err)
+	}
+
+	defer func() {
+		err := res.Body.Close()
+		if err != nil {
+			log.Debugf("failed closing response body %v", err)
+		}
+	}()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return OIDCConfigResponse{}, fmt.Errorf("failed reading OIDC configuration response body: %v", err)
+	}
+
+	if res.StatusCode != 200 {
+		return OIDCConfigResponse{}, fmt.Errorf("OIDC configuration request returned status %d with response: %s",
+			res.StatusCode, string(body))
+	}
+
+	config := OIDCConfigResponse{}
+	err = json.Unmarshal(body, &config)
+	if err != nil {
+		return OIDCConfigResponse{}, fmt.Errorf("failed unmarshaling OIDC configuration response: %v", err)
+	}
+
+	return config, nil
+
 }
 
 func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {

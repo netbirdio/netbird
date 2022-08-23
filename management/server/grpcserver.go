@@ -503,10 +503,12 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 	flowInfoResp := &proto.DeviceAuthorizationFlow{
 		Provider: proto.DeviceAuthorizationFlowProvider(provider),
 		ProviderConfig: &proto.ProviderConfig{
-			ClientID:     s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
-			ClientSecret: s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
-			Domain:       s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
-			Audience:     s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
+			ClientID:           s.config.DeviceAuthorizationFlow.ProviderConfig.ClientID,
+			ClientSecret:       s.config.DeviceAuthorizationFlow.ProviderConfig.ClientSecret,
+			Domain:             s.config.DeviceAuthorizationFlow.ProviderConfig.Domain,
+			Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
+			DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
+			TokenEndpoint:      s.config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint,
 		},
 	}
 
