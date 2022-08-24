@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/client/ssh"
 	nbStatus "github.com/netbirdio/netbird/client/status"
-	mgmtcmd "github.com/netbirdio/netbird/management/cmd"
 	"strings"
 	"time"
 
@@ -241,6 +240,11 @@ func connectToManagement(ctx context.Context, managementAddr string, ourPrivateK
 	return client, loginResp, nil
 }
 
+// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
+// ManagementLegacyPort is the port that was used before by the Management gRPC server.
+// It is used for backward compatibility now.
+const ManagementLegacyPort = 33073
+
 // UpdateOldManagementPort checks whether client can switch to the new Management port 443.
 // If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
 // The check is performed only for the NetBird's managed version.
@@ -261,7 +265,7 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 		return config, nil
 	}
 
-	if mgmTlsEnabled && config.ManagementURL.Port() == fmt.Sprintf("%d", mgmtcmd.ManagementLegacyPort) {
+	if mgmTlsEnabled && config.ManagementURL.Port() == fmt.Sprintf("%d", ManagementLegacyPort) {
 
 		newURL, err := ParseURL("Management URL", fmt.Sprintf("%s://%s:%d",
 			config.ManagementURL.Scheme, config.ManagementURL.Hostname(), 443))
