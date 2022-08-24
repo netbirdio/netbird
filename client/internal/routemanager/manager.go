@@ -18,7 +18,7 @@ type Manager struct {
 	stop           context.CancelFunc
 	mux            sync.Mutex
 	clientRoutes   map[string]*route.Route
-	clientPrefixes map[netip.Prefix]*clientPrefix
+	clientNetworks map[netip.Prefix]*clientNetwork
 	serverRoutes   map[string]*route.Route
 	serverRouter   *serverRouter
 	statusRecorder *status.Status
@@ -29,7 +29,7 @@ type Manager struct {
 // DefaultClientCheckInterval default route worker check interval 5s
 const DefaultClientCheckInterval time.Duration = 15000000000
 
-type clientPrefix struct {
+type clientNetwork struct {
 	ctx         context.Context
 	stop        context.CancelFunc
 	routes      map[string]*route.Route
@@ -74,7 +74,7 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 		ctx:            mCTX,
 		stop:           cancel,
 		clientRoutes:   make(map[string]*route.Route),
-		clientPrefixes: make(map[netip.Prefix]*clientPrefix),
+		clientNetworks: make(map[netip.Prefix]*clientNetwork),
 		serverRoutes:   make(map[string]*route.Route),
 		serverRouter: &serverRouter{
 			routes:                   make(map[string]*route.Route),
@@ -155,28 +155,28 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 	for _, routeID := range clientRoutesToRemove {
 		oldRoute := m.clientRoutes[routeID]
 		delete(m.clientRoutes, routeID)
-		m.removeFromClientPrefix(oldRoute)
+		m.removeFromClientNetwork(oldRoute)
 	}
 	for _, routeID := range clientRoutesToUpdate {
 		newRoute := newClientRoutesMap[routeID]
 		oldRoute := m.clientRoutes[routeID]
 		m.clientRoutes[routeID] = newRoute
 		if newRoute.Network != oldRoute.Network {
-			m.removeFromClientPrefix(oldRoute)
+			m.removeFromClientNetwork(oldRoute)
 		}
-		m.updateClientPrefix(newRoute)
+		m.updateClientNetwork(newRoute)
 	}
 	for _, routeID := range clientRoutesToAdd {
 		newRoute := newClientRoutesMap[routeID]
 		m.clientRoutes[routeID] = newRoute
-		m.updateClientPrefix(newRoute)
+		m.updateClientNetwork(newRoute)
 	}
-	for id, prefix := range m.clientPrefixes {
+	for id, prefix := range m.clientNetworks {
 		prefix.mux.Lock()
 		if len(prefix.routes) == 0 {
 			log.Debugf("stopping client prefix, %s", prefix.prefix)
 			prefix.stop()
-			delete(m.clientPrefixes, id)
+			delete(m.clientNetworks, id)
 		}
 		prefix.mux.Unlock()
 	}
@@ -185,7 +185,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 
 	for _, routeID := range serverRoutesToRemove {
 		oldRoute := m.serverRoutes[routeID]
-		err := m.removeFromServerPrefix(oldRoute)
+		err := m.removeFromServerNetwork(oldRoute)
 		if err != nil {
 			log.Errorf("unable to remove route from server, got: %v", err)
 		}
@@ -197,13 +197,13 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 
 		var err error
 		if newRoute.Network != oldRoute.Network {
-			err = m.removeFromServerPrefix(oldRoute)
+			err = m.removeFromServerNetwork(oldRoute)
 			if err != nil {
 				log.Errorf("unable to update and remove route %s from server, got: %v", oldRoute.ID, err)
 				continue
 			}
 		}
-		err = m.addToServerPrefix(newRoute)
+		err = m.addToServerNetwork(newRoute)
 		if err != nil {
 			log.Errorf("unable to update and add route %s from server, got: %v", newRoute.ID, err)
 			continue
@@ -212,7 +212,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 	}
 	for _, routeID := range serverRoutesToAdd {
 		newRoute := newServerRoutesMap[routeID]
-		err := m.addToServerPrefix(newRoute)
+		err := m.addToServerNetwork(newRoute)
 		if err != nil {
 			log.Errorf("unable to add route %s from server, got: %v", newRoute.ID, err)
 			continue
@@ -228,8 +228,8 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 	return nil
 }
 
-func (m *Manager) removeFromClientPrefix(oldRoute *route.Route) {
-	client, found := m.clientPrefixes[oldRoute.Network]
+func (m *Manager) removeFromClientNetwork(oldRoute *route.Route) {
+	client, found := m.clientNetworks[oldRoute.Network]
 	if !found {
 		log.Debugf("managed prefix %s not found", oldRoute.Network.String())
 		return
@@ -240,25 +240,25 @@ func (m *Manager) removeFromClientPrefix(oldRoute *route.Route) {
 	client.update <- struct{}{}
 }
 
-func (m *Manager) startClientPrefixWatcher(prefixString string) *clientPrefix {
+func (m *Manager) startClientNetworkWatcher(prefixString string) *clientNetwork {
 	prefix, _ := netip.ParsePrefix(prefixString)
 	ctx, cancel := context.WithCancel(m.ctx)
-	client := &clientPrefix{
+	client := &clientNetwork{
 		ctx:    ctx,
 		stop:   cancel,
 		routes: make(map[string]*route.Route),
 		update: make(chan struct{}),
 		prefix: prefix,
 	}
-	m.clientPrefixes[prefix] = client
-	go m.watchClientPrefixes(prefix)
+	m.clientNetworks[prefix] = client
+	go m.watchClientNetworks(prefix)
 	return client
 }
 
-func (m *Manager) updateClientPrefix(newRoute *route.Route) {
-	client, found := m.clientPrefixes[newRoute.Network]
+func (m *Manager) updateClientNetwork(newRoute *route.Route) {
+	client, found := m.clientNetworks[newRoute.Network]
 	if !found {
-		client = m.startClientPrefixWatcher(newRoute.Network.String())
+		client = m.startClientNetworkWatcher(newRoute.Network.String())
 	}
 	client.mux.Lock()
 	client.routes[newRoute.ID] = newRoute
@@ -266,8 +266,8 @@ func (m *Manager) updateClientPrefix(newRoute *route.Route) {
 	client.update <- struct{}{}
 }
 
-func (m *Manager) watchClientPrefixes(prefix netip.Prefix) {
-	client, prefixFound := m.clientPrefixes[prefix]
+func (m *Manager) watchClientNetworks(prefix netip.Prefix) {
+	client, prefixFound := m.clientNetworks[prefix]
 	if !prefixFound {
 		log.Errorf("attepmt to watch prefix %s failed. prefix not found in manager map", prefix.String())
 		return
@@ -396,7 +396,7 @@ func routeToRouterPair(source string, route *route.Route) RouterPair {
 	}
 }
 
-func (m *Manager) removeFromServerPrefix(route *route.Route) error {
+func (m *Manager) removeFromServerNetwork(route *route.Route) error {
 	m.serverRouter.mux.Lock()
 	defer m.serverRouter.mux.Unlock()
 	err := m.serverRouter.firewall.RemoveRoutingRules(routeToRouterPair(m.wgInterface.Address.String(), route))
@@ -407,7 +407,7 @@ func (m *Manager) removeFromServerPrefix(route *route.Route) error {
 	return nil
 }
 
-func (m *Manager) addToServerPrefix(route *route.Route) error {
+func (m *Manager) addToServerNetwork(route *route.Route) error {
 	m.serverRouter.mux.Lock()
 	defer m.serverRouter.mux.Unlock()
 	err := m.serverRouter.firewall.InsertRoutingRules(routeToRouterPair(m.wgInterface.Address.String(), route))
