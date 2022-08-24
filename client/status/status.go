@@ -74,6 +74,18 @@ func (d *Status) AddPeer(peerPubKey string) error {
 	return nil
 }
 
+// GetPeer adds peer to Daemon status map
+func (d *Status) GetPeer(peerPubKey string) (PeerState, error) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	state, ok := d.peers[peerPubKey]
+	if !ok {
+		return PeerState{}, errors.New("peer not found")
+	}
+	return state, nil
+}
+
 // RemovePeer removes peer from Daemon status map
 func (d *Status) RemovePeer(peerPubKey string) error {
 	d.mux.Lock()

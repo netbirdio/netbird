@@ -161,7 +161,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 		newRoute := newClientRoutesMap[routeID]
 		oldRoute := m.clientRoutes[routeID]
 		m.clientRoutes[routeID] = newRoute
-		if newRoute.Prefix != oldRoute.Prefix {
+		if newRoute.Network != oldRoute.Network {
 			m.removeFromClientPrefix(oldRoute)
 		}
 		m.updateClientPrefix(newRoute)
@@ -196,7 +196,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 		oldRoute := m.serverRoutes[routeID]
 
 		var err error
-		if newRoute.Prefix != oldRoute.Prefix {
+		if newRoute.Network != oldRoute.Network {
 			err = m.removeFromServerPrefix(oldRoute)
 			if err != nil {
 				log.Errorf("unable to update and remove route %s from server, got: %v", oldRoute.ID, err)
@@ -229,9 +229,9 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 }
 
 func (m *Manager) removeFromClientPrefix(oldRoute *route.Route) {
-	client, found := m.clientPrefixes[oldRoute.Prefix]
+	client, found := m.clientPrefixes[oldRoute.Network]
 	if !found {
-		log.Debugf("managed prefix %s not found", oldRoute.Prefix.String())
+		log.Debugf("managed prefix %s not found", oldRoute.Network.String())
 		return
 	}
 	client.mux.Lock()
@@ -256,9 +256,9 @@ func (m *Manager) startClientPrefixWatcher(prefixString string) *clientPrefix {
 }
 
 func (m *Manager) updateClientPrefix(newRoute *route.Route) {
-	client, found := m.clientPrefixes[newRoute.Prefix]
+	client, found := m.clientPrefixes[newRoute.Network]
 	if !found {
-		client = m.startClientPrefixWatcher(newRoute.Prefix.String())
+		client = m.startClientPrefixWatcher(newRoute.Network.String())
 	}
 	client.mux.Lock()
 	client.routes[newRoute.ID] = newRoute
@@ -327,7 +327,7 @@ func (m *Manager) watchClientPrefixes(prefix netip.Prefix) {
 							client.mux.Unlock()
 							panic(err)
 						}
-						log.Debugf("route %s added for peer %s", chosenRoute.Prefix.String(), m.wgInterface.GetAddress().IP.String())
+						log.Debugf("route %s added for peer %s", chosenRoute.Network.String(), m.wgInterface.GetAddress().IP.String())
 					}
 				} else {
 					log.Debugf("no change on chossen route for prefix %s", client.prefix)
@@ -391,7 +391,7 @@ func routeToRouterPair(source string, route *route.Route) RouterPair {
 	return RouterPair{
 		ID:          route.ID,
 		source:      parsed.String(),
-		destination: route.Prefix.Masked().String(),
+		destination: route.Network.Masked().String(),
 		masquerade:  route.Masquerade,
 	}
 }
