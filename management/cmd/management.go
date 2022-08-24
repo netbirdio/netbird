@@ -324,7 +324,7 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 			oidcConfig.JwksURI, config.HttpConfig.AuthKeysLocation)
 		config.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
-		if config.DeviceAuthorizationFlow != nil {
+		if !(config.DeviceAuthorizationFlow == nil || strings.ToLower(config.DeviceAuthorizationFlow.Provider) == string(server.NONE)) {
 			log.Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
 				oidcConfig.TokenEndpoint, config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
 			config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
@@ -339,7 +339,6 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 			log.Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
 				u.Host, config.DeviceAuthorizationFlow.ProviderConfig.Domain)
 			config.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
-
 		}
 		if config.IdpManagerConfig != nil {
 			log.Infof("overriding Auth0ClientCredentials.AuthIssuer with a new value: %s, previously configured value: %s",

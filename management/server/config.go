@@ -16,7 +16,7 @@ const (
 	TCP   Protocol = "tcp"
 	HTTP  Protocol = "http"
 	HTTPS Protocol = "https"
-	AUTH0 Provider = "auth0"
+	NONE  Provider = "none"
 )
 
 // Config of the Management service
