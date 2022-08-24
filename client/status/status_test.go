@@ -19,6 +19,21 @@ func TestAddPeer(t *testing.T) {
 	assert.Error(t, err, "should return error on duplicate")
 }
 
+func TestGetPeer(t *testing.T) {
+	key := "abc"
+	status := NewRecorder()
+	err := status.AddPeer(key)
+	assert.NoError(t, err, "shouldn't return error")
+
+	peerStatus, err := status.GetPeer(key)
+	assert.NoError(t, err, "shouldn't return error on getting peer")
+
+	assert.Equal(t, key, peerStatus.PubKey, "retrieved public key should match")
+
+	_, err = status.GetPeer("non_existing_key")
+	assert.Error(t, err, "should return error when peer doesn't exist")
+}
+
 func TestUpdatePeerState(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
