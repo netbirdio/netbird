@@ -55,7 +55,7 @@ jobs:
           grep AUTH_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_ID
           grep AUTH_AUTHORITY docker-compose.yml | grep $CI_NETBIRD_AUTH_AUTHORITY
           grep AUTH_AUDIENCE docker-compose.yml | grep $CI_NETBIRD_AUTH_AUDIENCE
-          grep AUTH_SUPPORTED_SCOPES docker-compose.yml | grep \"$CI_NETBIRD_AUTH_SUPPORTED_SCOPES\"
+          grep AUTH_SUPPORTED_SCOPES docker-compose.yml | grep "$CI_NETBIRD_AUTH_SUPPORTED_SCOPES"
           grep USE_AUTH0 docker-compose.yml | grep $CI_NETBIRD_USE_AUTH0
           grep NETBIRD_MGMT_API_ENDPOINT docker-compose.yml | grep "http://localhost:33073"  
 
