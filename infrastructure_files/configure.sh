@@ -1,5 +1,13 @@
 #!/bin/bash
 
+if ! which curl > /dev/null 2>&1
+then
+    echo "This script uses curl fetch OpenID configuration from IDP."
+    echo "Please install curl and re-run the script https://curl.se/"
+    echo ""
+    exit 1
+fi
+
 if ! which jq > /dev/null 2>&1
 then
     echo "This script uses jq to load OpenID configuration from IDP."
@@ -92,7 +100,7 @@ if [[ -z "${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT}" ]]; then
 fi
 
 echo "loading OpenID configuration from ${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT} to the openid-configuration.json file"
-curl ${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT} -q -o openid-configuration.json
+curl "${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT}" -q -o openid-configuration.json
 
 export NETBIRD_AUTH_AUTHORITY=$( jq -r  '.issuer' openid-configuration.json )
 export NETBIRD_AUTH_JWT_CERTS=$( jq -r  '.jwks_uri' openid-configuration.json )
