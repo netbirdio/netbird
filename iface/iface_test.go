@@ -229,7 +229,7 @@ func Test_UpdatePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer, err := getPeer(ifaceName, peerPubKey, t)
+	peer, err := getPeer(ifaceName, peerPubKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func Test_RemovePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = getPeer(ifaceName, peerPubKey, t)
+	_, err = getPeer(ifaceName, peerPubKey)
 	if err.Error() != "peer not found" {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func Test_ConnectPeers(t *testing.T) {
 			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
 		default:
 		}
-		peer, gpErr := getPeer(peer1ifaceName, peer2Key.PublicKey().String(), t)
+		peer, gpErr := getPeer(peer1ifaceName, peer2Key.PublicKey().String())
 		if gpErr != nil {
 			t.Fatal(gpErr)
 		}
@@ -388,29 +388,4 @@ func Test_ConnectPeers(t *testing.T) {
 		}
 	}
 
-}
-
-func getPeer(ifaceName, peerPubKey string, t *testing.T) (wgtypes.Peer, error) {
-	emptyPeer := wgtypes.Peer{}
-	wg, err := wgctrl.New()
-	if err != nil {
-		return emptyPeer, err
-	}
-	defer func() {
-		err = wg.Close()
-		if err != nil {
-			t.Error(err)
-		}
-	}()
-
-	wgDevice, err := wg.Device(ifaceName)
-	if err != nil {
-		return emptyPeer, err
-	}
-	for _, peer := range wgDevice.Peers {
-		if peer.PublicKey.String() == peerPubKey {
-			return peer, nil
-		}
-	}
-	return emptyPeer, fmt.Errorf("peer not found")
 }
