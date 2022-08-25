@@ -89,13 +89,14 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerKey string) {
 
 	go func() {
 		//we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
-		ticker := time.Tick(m.config.CredentialsTTL.Duration / 4 * 3)
+		ticker := time.NewTicker(m.config.CredentialsTTL.Duration / 4 * 3)
+
 		for {
 			select {
 			case <-cancel:
 				log.Debugf("stopping turn refresh for %s", peerKey)
 				return
-			case <-ticker:
+			case <-ticker.C:
 				c := m.GenerateCredentials()
 				var turns []*proto.ProtectedHostConfig
 				for _, host := range m.config.Turns {
