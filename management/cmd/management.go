@@ -340,11 +340,6 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 				u.Host, config.DeviceAuthorizationFlow.ProviderConfig.Domain)
 			config.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
 		}
-		if config.IdpManagerConfig != nil {
-			log.Infof("overriding Auth0ClientCredentials.AuthIssuer with a new value: %s, previously configured value: %s",
-				oidcConfig.Issuer, config.IdpManagerConfig.Auth0ClientCredentials.AuthIssuer)
-			config.IdpManagerConfig.Auth0ClientCredentials.AuthIssuer = oidcConfig.Issuer
-		}
 	}
 
 	return config, err
