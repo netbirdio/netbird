@@ -33,11 +33,10 @@ func (p *PeersUpdateManager) SendUpdate(peer string, update *UpdateMessage) erro
 		select {
 		case channel <- update:
 			log.Infof("update was sent to channel for peer %s", peer)
-			return nil
 		default:
 			log.Warnf("channel for peer %s is %d full", peer, len(channel))
-			return nil
 		}
+		return nil
 	}
 	log.Debugf("peer %s has no channel", peer)
 	return nil
