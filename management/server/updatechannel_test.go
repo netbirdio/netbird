@@ -36,7 +36,7 @@ func TestSendUpdate(t *testing.T) {
 		t.Error("Update wasn't send")
 	}
 
-	for _ = range [channelBufferSize]int{} {
+	for range [channelBufferSize]int{} {
 		err = peersUpdater.SendUpdate(peer, update)
 		if err != nil {
 			t.Errorf("got an early error sending update: %v ", err)
