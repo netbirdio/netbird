@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
 	"sync"
@@ -36,9 +35,8 @@ func (p *PeersUpdateManager) SendUpdate(peer string, update *UpdateMessage) erro
 			log.Infof("update was sent to channel for peer %s", peer)
 			return nil
 		default:
-			msg := fmt.Errorf("channel for peer %s is %d full", peer, len(channel))
-			log.Info(msg)
-			return msg
+			log.Warnf("channel for peer %s is %d full", peer, len(channel))
+			return nil
 		}
 	}
 	log.Debugf("peer %s has no channel", peer)
