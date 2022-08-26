@@ -31,11 +31,15 @@ func (p *PeersUpdateManager) SendUpdate(peer string, update *UpdateMessage) erro
 	p.channelsMux.Lock()
 	defer p.channelsMux.Unlock()
 	if channel, ok := p.peerChannels[peer]; ok {
-		if len(channel) < channelBufferSize {
-			channel <- update
+		select {
+		case channel <- update:
+			log.Infof("update was sent to channel for peer %s", peer)
 			return nil
+		default:
+			msg := fmt.Errorf("channel for peer %s is %d full", peer, len(channel))
+			log.Info(msg)
+			return msg
 		}
-		return fmt.Errorf("channel for peer %s is %d full", peer, len(channel))
 	}
 	log.Debugf("peer %s has no channel", peer)
 	return nil

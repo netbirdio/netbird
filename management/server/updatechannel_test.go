@@ -5,11 +5,11 @@ import (
 	"testing"
 )
 
-var peersUpdater *PeersUpdateManager
+//var peersUpdater *PeersUpdateManager
 
 func TestCreateChannel(t *testing.T) {
 	peer := "test-create"
-	peersUpdater = NewPeersUpdateManager()
+	peersUpdater := NewPeersUpdateManager()
 	defer peersUpdater.CloseChannel(peer)
 
 	_ = peersUpdater.CreateChannel(peer)
@@ -20,6 +20,7 @@ func TestCreateChannel(t *testing.T) {
 
 func TestSendUpdate(t *testing.T) {
 	peer := "test-sendupdate"
+	peersUpdater := NewPeersUpdateManager()
 	update := &UpdateMessage{Update: &proto.SyncResponse{}}
 	_ = peersUpdater.CreateChannel(peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
@@ -34,10 +35,24 @@ func TestSendUpdate(t *testing.T) {
 	default:
 		t.Error("Update wasn't send")
 	}
+
+	for _ = range [channelBufferSize]int{} {
+		err = peersUpdater.SendUpdate(peer, update)
+		if err != nil {
+			t.Errorf("got an early error sending update: %v ", err)
+		}
+	}
+
+	err = peersUpdater.SendUpdate(peer, update)
+	if err == nil {
+		t.Error("should have returned an error with channel full")
+	}
+
 }
 
 func TestCloseChannel(t *testing.T) {
 	peer := "test-close"
+	peersUpdater := NewPeersUpdateManager()
 	_ = peersUpdater.CreateChannel(peer)
 	if _, ok := peersUpdater.peerChannels[peer]; !ok {
 		t.Error("Error creating the channel")
