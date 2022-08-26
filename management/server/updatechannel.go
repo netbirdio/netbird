@@ -1,10 +1,13 @@
 package server
 
 import (
+	"fmt"
 	"github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
 	"sync"
 )
+
+const channelBufferSize = 100
 
 type UpdateMessage struct {
 	Update *proto.SyncResponse
@@ -28,8 +31,11 @@ func (p *PeersUpdateManager) SendUpdate(peer string, update *UpdateMessage) erro
 	p.channelsMux.Lock()
 	defer p.channelsMux.Unlock()
 	if channel, ok := p.peerChannels[peer]; ok {
-		channel <- update
-		return nil
+		if len(channel) < channelBufferSize {
+			channel <- update
+			return nil
+		}
+		return fmt.Errorf("channel for peer %s is %d full", peer, len(channel))
 	}
 	log.Debugf("peer %s has no channel", peer)
 	return nil
@@ -45,7 +51,7 @@ func (p *PeersUpdateManager) CreateChannel(peerKey string) chan *UpdateMessage {
 		close(channel)
 	}
 	//mbragin: todo shouldn't it be more? or configurable?
-	channel := make(chan *UpdateMessage, 100)
+	channel := make(chan *UpdateMessage, channelBufferSize)
 	p.peerChannels[peerKey] = channel
 
 	log.Debugf("opened updates channel for a peer %s", peerKey)
