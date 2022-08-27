@@ -199,15 +199,16 @@ func (i *iptablesManager) cleanJumpRules() error {
 	return nil
 }
 
+func iptablesProtoToString(proto iptables.Protocol) string {
+	if proto == iptables.ProtocolIPv6 {
+		return ipv6
+	}
+	return ipv4
+}
+
 // restoreRules restores existing NetBird rules
 func (i *iptablesManager) restoreRules(iptablesClient *iptables.IPTables) error {
-	var ipVersion string
-	switch iptablesClient.Proto() {
-	case iptables.ProtocolIPv4:
-		ipVersion = ipv4
-	case iptables.ProtocolIPv6:
-		ipVersion = ipv6
-	}
+	ipVersion := iptablesProtoToString(iptablesClient.Proto())
 
 	if i.rules[ipVersion] == nil {
 		i.rules[ipVersion] = make(map[string][]string)
@@ -249,7 +250,7 @@ func (i *iptablesManager) restoreRules(iptablesClient *iptables.IPTables) error 
 func createChain(iptables *iptables.IPTables, table, newChain string) error {
 	chains, err := iptables.ListChains(table)
 	if err != nil {
-		return fmt.Errorf("couldn't get %s %s table chains, error: %v", iptables.Proto(), table, err)
+		return fmt.Errorf("couldn't get %s %s table chains, error: %v", iptablesProtoToString(iptables.Proto()), table, err)
 	}
 
 	shouldCreateChain := true
@@ -262,7 +263,7 @@ func createChain(iptables *iptables.IPTables, table, newChain string) error {
 	if shouldCreateChain {
 		err = iptables.NewChain(table, newChain)
 		if err != nil {
-			return fmt.Errorf("couldn't create %s chain %s in %s table, error: %v", iptables.Proto(), newChain, table, err)
+			return fmt.Errorf("couldn't create %s chain %s in %s table, error: %v", iptablesProtoToString(iptables.Proto()), newChain, table, err)
 		}
 
 		if table == iptablesNatTable {
@@ -271,7 +272,7 @@ func createChain(iptables *iptables.IPTables, table, newChain string) error {
 			err = iptables.Append(table, newChain, iptablesDefaultNetbirdForwardingRule...)
 		}
 		if err != nil {
-			return fmt.Errorf("couldn't create %s chain %s default rule, error: %v", iptables.Proto(), newChain, err)
+			return fmt.Errorf("couldn't create %s chain %s default rule, error: %v", iptablesProtoToString(iptables.Proto()), newChain, err)
 		}
 
 	}

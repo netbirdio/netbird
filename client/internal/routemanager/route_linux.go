@@ -7,7 +7,7 @@ import (
 	"net/netip"
 )
 
-const IPv4ForwardingPath = "/proc/sys/net/ipv4/ip_forward"
+const ipv4ForwardingPath = "/proc/sys/net/ipv4/ip_forward"
 
 func addToRouteTable(prefix netip.Prefix, addr string) error {
 	_, ipNet, err := net.ParseCIDR(prefix.String())
@@ -54,12 +54,12 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 }
 
 func enableIPForwarding() error {
-	err := ioutil.WriteFile(IPv4ForwardingPath, []byte("1"), 0644)
+	err := ioutil.WriteFile(ipv4ForwardingPath, []byte("1"), 0644)
 	return err
 }
 
 func isNetForwardHistoryEnabled() bool {
-	out, err := ioutil.ReadFile(IPv4ForwardingPath)
+	out, err := ioutil.ReadFile(ipv4ForwardingPath)
 	if err != nil {
 		// todo
 		panic(err)

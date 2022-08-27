@@ -168,6 +168,9 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
 
 	existingPeer, err := getPeer(w.Name, peerKey)
 	if err != nil {
