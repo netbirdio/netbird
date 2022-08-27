@@ -390,6 +390,11 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string)
 		return err
 	}
 
+	if peer.SSHKey == sshKey {
+		log.Debugf("same SSH key provided for peer %s, skipping update", peerKey)
+		return nil
+	}
+
 	account, err := am.Store.GetPeerAccount(peerKey)
 	if err != nil {
 		return err

@@ -85,15 +85,18 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerKey string) {
 	m.cancel(peerKey)
 	cancel := make(chan struct{}, 1)
 	m.cancelMap[peerKey] = cancel
+	log.Debugf("starting turn refresh for %s", peerKey)
+
 	go func() {
+		//we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
+		ticker := time.NewTicker(m.config.CredentialsTTL.Duration / 4 * 3)
+
 		for {
 			select {
 			case <-cancel:
+				log.Debugf("stopping turn refresh for %s", peerKey)
 				return
-			default:
-				//we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
-				time.Sleep(m.config.CredentialsTTL.Duration / 4 * 3)
-
+			case <-ticker.C:
 				c := m.GenerateCredentials()
 				var turns []*proto.ProtectedHostConfig
 				for _, host := range m.config.Turns {
