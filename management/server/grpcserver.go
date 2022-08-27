@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/netbirdio/netbird/route"
+	gPeer "google.golang.org/grpc/peer"
 	"strings"
 	"time"
 
@@ -88,17 +89,24 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	peer, err := s.accountManager.GetPeer(peerKey.String())
 	if err != nil {
-		return status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered", peerKey.String())
+		p, _ := gPeer.FromContext(srv.Context())
+		msg := status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered, remote addr is %s", peerKey.String(), p.Addr.String())
+		log.Debug(msg)
+		return msg
 	}
 
 	syncReq := &proto.SyncRequest{}
 	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, syncReq)
 	if err != nil {
-		return status.Errorf(codes.InvalidArgument, "invalid request message")
+		p, _ := gPeer.FromContext(srv.Context())
+		msg := status.Errorf(codes.InvalidArgument, "invalid request message from %s,remote addr is %s", peerKey.String(), p.Addr.String())
+		log.Debug(msg)
+		return msg
 	}
 
 	err = s.sendInitialSync(peerKey, peer, srv)
 	if err != nil {
+		log.Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		return err
 	}
 
@@ -117,7 +125,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		// condition when there are some updates
 		case update, open := <-updates:
 			if !open {
-				// updates channel has been closed
+				log.Debugf("updates channel for peer %s was closed", peerKey.String())
 				return nil
 			}
 			log.Debugf("recevied an update for peer %s", peerKey.String())
@@ -266,8 +274,13 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.NotFound {
 			// peer doesn't exist -> check if setup key was provided
 			if loginReq.GetJwtToken() == "" && loginReq.GetSetupKey() == "" {
-				// absent setup key -> permission denied
-				return nil, status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered and no setup key or jwt was provided", peerKey.String())
+				// absent setup key or jwt -> permission denied
+				p, _ := gPeer.FromContext(ctx)
+				msg := status.Errorf(codes.PermissionDenied,
+					"provided peer with the key wgPubKey %s is not registered and no setup key or jwt was provided,"+
+						" remote addr is %s", peerKey.String(), p.Addr.String())
+				log.Debug(msg)
+				return nil, msg
 			}
 
 			// setup key or jwt is present -> try normal registration flow
