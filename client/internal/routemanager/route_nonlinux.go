@@ -31,11 +31,11 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 }
 
 func enableIPForwarding() error {
-	log.Debugf("enable IP forwarding is not implemented on %s", runtime.GOOS)
+	log.Infof("enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
 }
 
 func isNetForwardHistoryEnabled() bool {
-	log.Debugf("check netforwad history is not implemented on %s", runtime.GOOS)
+	log.Infof("check netforwad history is not implemented on %s", runtime.GOOS)
 	return false
 }

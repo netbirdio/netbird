@@ -30,10 +30,12 @@ require (
 require (
 	fyne.io/fyne/v2 v2.1.4
 	github.com/c-robinson/iplib v1.0.3
+	github.com/coreos/go-iptables v0.6.0
 	github.com/creack/pty v1.1.18
 	github.com/eko/gocache/v2 v2.3.1
 	github.com/getlantern/systray v1.2.1
 	github.com/gliderlabs/ssh v0.3.4
+	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
 	github.com/magiconair/properties v1.8.5
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/rs/xid v1.3.0

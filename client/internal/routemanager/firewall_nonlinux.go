@@ -17,6 +17,10 @@ func (unimplementedFirewall) RemoveRoutingRules(pair RouterPair) error {
 	return nil
 }
 
+func (unimplementedFirewall) CleanRoutingRules() {
+	return
+}
+
 func NewFirewall(parentCtx context.Context) firewallManager {
 	return unimplementedFirewall{}
 }
