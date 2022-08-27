@@ -31,7 +31,7 @@ const (
 	exprDirectionDestination = "destination"
 )
 
-// Some presets for building nftable rules
+// some presets for building nftable rules
 var (
 	zeroXor = binaryutil.NativeEndian.PutUint32(0)
 
@@ -91,7 +91,6 @@ func (n *nftablesManager) CleanRoutingRules() {
 
 // RestoreOrCreateContainers restores existing nftables containers (tables and chains)
 // if they don't exist, we create them
-
 func (n *nftablesManager) RestoreOrCreateContainers() error {
 	n.mux.Lock()
 	defer n.mux.Unlock()
@@ -135,20 +134,20 @@ func (n *nftablesManager) RestoreOrCreateContainers() error {
 		return fmt.Errorf("nftables: unable to list chains: %v", err)
 	}
 
-	n.chains[Ipv4] = make(map[string]*nftables.Chain)
-	n.chains[Ipv6] = make(map[string]*nftables.Chain)
+	n.chains[ipv4] = make(map[string]*nftables.Chain)
+	n.chains[ipv6] = make(map[string]*nftables.Chain)
 
 	for _, chain := range chains {
 		switch {
 		case chain.Table.Name == nftablesTable && chain.Table.Family == nftables.TableFamilyIPv4:
-			n.chains[Ipv4][chain.Name] = chain
+			n.chains[ipv4][chain.Name] = chain
 		case chain.Table.Name == nftablesTable && chain.Table.Family == nftables.TableFamilyIPv6:
-			n.chains[Ipv6][chain.Name] = chain
+			n.chains[ipv6][chain.Name] = chain
 		}
 	}
 
-	if _, found := n.chains[Ipv4][nftablesRoutingForwardingChain]; !found {
-		n.chains[Ipv4][nftablesRoutingForwardingChain] = n.conn.AddChain(&nftables.Chain{
+	if _, found := n.chains[ipv4][nftablesRoutingForwardingChain]; !found {
+		n.chains[ipv4][nftablesRoutingForwardingChain] = n.conn.AddChain(&nftables.Chain{
 			Name:     nftablesRoutingForwardingChain,
 			Table:    n.tableIPv4,
 			Hooknum:  nftables.ChainHookForward,
@@ -157,8 +156,8 @@ func (n *nftablesManager) RestoreOrCreateContainers() error {
 		})
 	}
 
-	if _, found := n.chains[Ipv4][nftablesRoutingNatChain]; !found {
-		n.chains[Ipv4][nftablesRoutingNatChain] = n.conn.AddChain(&nftables.Chain{
+	if _, found := n.chains[ipv4][nftablesRoutingNatChain]; !found {
+		n.chains[ipv4][nftablesRoutingNatChain] = n.conn.AddChain(&nftables.Chain{
 			Name:     nftablesRoutingNatChain,
 			Table:    n.tableIPv4,
 			Hooknum:  nftables.ChainHookPostrouting,
@@ -167,8 +166,8 @@ func (n *nftablesManager) RestoreOrCreateContainers() error {
 		})
 	}
 
-	if _, found := n.chains[Ipv6][nftablesRoutingForwardingChain]; !found {
-		n.chains[Ipv6][nftablesRoutingForwardingChain] = n.conn.AddChain(&nftables.Chain{
+	if _, found := n.chains[ipv6][nftablesRoutingForwardingChain]; !found {
+		n.chains[ipv6][nftablesRoutingForwardingChain] = n.conn.AddChain(&nftables.Chain{
 			Name:     nftablesRoutingForwardingChain,
 			Table:    n.tableIPv6,
 			Hooknum:  nftables.ChainHookForward,
@@ -177,8 +176,8 @@ func (n *nftablesManager) RestoreOrCreateContainers() error {
 		})
 	}
 
-	if _, found := n.chains[Ipv6][nftablesRoutingNatChain]; !found {
-		n.chains[Ipv6][nftablesRoutingNatChain] = n.conn.AddChain(&nftables.Chain{
+	if _, found := n.chains[ipv6][nftablesRoutingNatChain]; !found {
+		n.chains[ipv6][nftablesRoutingNatChain] = n.conn.AddChain(&nftables.Chain{
 			Name:     nftablesRoutingNatChain,
 			Table:    n.tableIPv6,
 			Hooknum:  nftables.ChainHookPostrouting,
@@ -221,23 +220,23 @@ func (n *nftablesManager) refreshRulesMap() error {
 
 // checkOrCreateDefaultForwardingRules checks if the default forwarding rules are enabled
 func (n *nftablesManager) checkOrCreateDefaultForwardingRules() {
-	_, foundIPv4 := n.rules[Ipv4Forwarding]
+	_, foundIPv4 := n.rules[ipv4Forwarding]
 	if !foundIPv4 {
-		n.rules[Ipv4Forwarding] = n.conn.AddRule(&nftables.Rule{
+		n.rules[ipv4Forwarding] = n.conn.AddRule(&nftables.Rule{
 			Table:    n.tableIPv4,
-			Chain:    n.chains[Ipv4][nftablesRoutingForwardingChain],
+			Chain:    n.chains[ipv4][nftablesRoutingForwardingChain],
 			Exprs:    exprAllowRelatedEstablished,
-			UserData: []byte(Ipv4Forwarding),
+			UserData: []byte(ipv4Forwarding),
 		})
 	}
 
-	_, foundIPv6 := n.rules[Ipv6Forwarding]
+	_, foundIPv6 := n.rules[ipv6Forwarding]
 	if !foundIPv6 {
-		n.rules[Ipv6Forwarding] = n.conn.AddRule(&nftables.Rule{
+		n.rules[ipv6Forwarding] = n.conn.AddRule(&nftables.Rule{
 			Table:    n.tableIPv6,
-			Chain:    n.chains[Ipv6][nftablesRoutingForwardingChain],
+			Chain:    n.chains[ipv6][nftablesRoutingForwardingChain],
 			Exprs:    exprAllowRelatedEstablished,
-			UserData: []byte(Ipv6Forwarding),
+			UserData: []byte(ipv6Forwarding),
 		})
 	}
 }
@@ -253,18 +252,18 @@ func (n *nftablesManager) InsertRoutingRules(pair RouterPair) error {
 	destExp := generateCIDRMatcherExpressions("destination", pair.destination)
 
 	forwardExp := append(sourceExp, append(destExp, exprCounterAccept...)...)
-	fwdKey := genKey(ForwardingFormat, pair.ID)
+	fwdKey := genKey(forwardingFormat, pair.ID)
 	if prefix.Addr().Unmap().Is4() {
 		n.rules[fwdKey] = n.conn.InsertRule(&nftables.Rule{
 			Table:    n.tableIPv4,
-			Chain:    n.chains[Ipv4][nftablesRoutingForwardingChain],
+			Chain:    n.chains[ipv4][nftablesRoutingForwardingChain],
 			Exprs:    forwardExp,
 			UserData: []byte(fwdKey),
 		})
 	} else {
 		n.rules[fwdKey] = n.conn.InsertRule(&nftables.Rule{
 			Table:    n.tableIPv6,
-			Chain:    n.chains[Ipv6][nftablesRoutingForwardingChain],
+			Chain:    n.chains[ipv6][nftablesRoutingForwardingChain],
 			Exprs:    forwardExp,
 			UserData: []byte(fwdKey),
 		})
@@ -272,19 +271,19 @@ func (n *nftablesManager) InsertRoutingRules(pair RouterPair) error {
 
 	if pair.masquerade {
 		natExp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
-		natKey := genKey(NatFormat, pair.ID)
+		natKey := genKey(natFormat, pair.ID)
 
 		if prefix.Addr().Unmap().Is4() {
 			n.rules[natKey] = n.conn.InsertRule(&nftables.Rule{
 				Table:    n.tableIPv4,
-				Chain:    n.chains[Ipv4][nftablesRoutingNatChain],
+				Chain:    n.chains[ipv4][nftablesRoutingNatChain],
 				Exprs:    natExp,
 				UserData: []byte(natKey),
 			})
 		} else {
 			n.rules[natKey] = n.conn.InsertRule(&nftables.Rule{
 				Table:    n.tableIPv6,
-				Chain:    n.chains[Ipv6][nftablesRoutingNatChain],
+				Chain:    n.chains[ipv6][nftablesRoutingNatChain],
 				Exprs:    natExp,
 				UserData: []byte(natKey),
 			})
@@ -308,8 +307,8 @@ func (n *nftablesManager) RemoveRoutingRules(pair RouterPair) error {
 		return err
 	}
 
-	fwdKey := genKey(ForwardingFormat, pair.ID)
-	natKey := genKey(NatFormat, pair.ID)
+	fwdKey := genKey(forwardingFormat, pair.ID)
+	natKey := genKey(natFormat, pair.ID)
 	fwdRule, found := n.rules[fwdKey]
 	if found {
 		err = n.conn.DelRule(fwdRule)

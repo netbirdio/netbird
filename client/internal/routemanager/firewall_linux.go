@@ -9,14 +9,14 @@ import (
 import "github.com/google/nftables"
 
 const (
-	Ipv6Forwarding   = "netbird-rt-ipv6-forwarding"
-	Ipv4Forwarding   = "netbird-rt-ipv4-forwarding"
-	Ipv6Nat          = "netbird-rt-ipv6-nat"
-	Ipv4Nat          = "netbird-rt-ipv4-nat"
-	NatFormat        = "netbird-nat-%s"
-	ForwardingFormat = "netbird-fwd-%s"
-	Ipv6             = "ipv6"
-	Ipv4             = "ipv4"
+	ipv6Forwarding   = "netbird-rt-ipv6-forwarding"
+	ipv4Forwarding   = "netbird-rt-ipv4-forwarding"
+	ipv6Nat          = "netbird-rt-ipv6-nat"
+	ipv4Nat          = "netbird-rt-ipv4-nat"
+	natFormat        = "netbird-nat-%s"
+	forwardingFormat = "netbird-fwd-%s"
+	ipv6             = "ipv6"
+	ipv4             = "ipv4"
 )
 
 func genKey(format string, input string) string {
