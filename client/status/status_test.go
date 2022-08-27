@@ -54,6 +54,31 @@ func TestUpdatePeerState(t *testing.T) {
 	assert.Equal(t, ip, state.IP, "ip should be equal")
 }
 
+func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
+	key := "abc"
+	ip := "10.10.10.10"
+	status := NewRecorder()
+	peerState := PeerState{
+		PubKey: key,
+	}
+
+	status.peers[key] = peerState
+
+	ch := status.GetPeerStateChangeNotifier(key)
+	assert.NotNil(t, ch, "channel shouldn't be nil")
+
+	peerState.IP = ip
+
+	err := status.UpdatePeerState(peerState)
+	assert.NoError(t, err, "shouldn't return error")
+
+	select {
+	case <-ch:
+	default:
+		t.Errorf("channel wasn't closed after update")
+	}
+}
+
 func TestRemovePeer(t *testing.T) {
 	key := "abc"
 	status := NewRecorder()
