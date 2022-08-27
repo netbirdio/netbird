@@ -12,7 +12,6 @@ import (
 	"net/netip"
 	"runtime"
 	"sync"
-	"time"
 )
 
 // Manager is an instance of a route manager
@@ -29,17 +28,15 @@ type Manager struct {
 	pubKey         string
 }
 
-// DefaultClientCheckInterval default route worker check interval 5s
-const DefaultClientCheckInterval time.Duration = 15000000000
-
 type clientNetwork struct {
-	ctx         context.Context
-	stop        context.CancelFunc
-	routes      map[string]*route.Route
-	update      chan struct{}
-	chosenRoute string
-	mux         sync.Mutex
-	prefix      netip.Prefix
+	ctx                 context.Context
+	stop                context.CancelFunc
+	routes              map[string]*route.Route
+	update              chan struct{}
+	chosenRoute         string
+	routePeersNotifiers map[string]chan struct{}
+	mux                 sync.Mutex
+	prefix              netip.Prefix
 }
 
 type serverRouter struct {
@@ -275,6 +272,11 @@ func (m *Manager) removeFromClientNetwork(oldRoute *route.Route) {
 		}
 		client.mux.Lock()
 		delete(client.routes, oldRoute.ID)
+		ch, found := client.routePeersNotifiers[oldRoute.Peer]
+		if found {
+			close(ch)
+			delete(client.routePeersNotifiers, oldRoute.Peer)
+		}
 		client.mux.Unlock()
 		client.update <- struct{}{}
 	}
@@ -283,11 +285,12 @@ func (m *Manager) removeFromClientNetwork(oldRoute *route.Route) {
 func (m *Manager) startClientNetworkWatcher(networkRoute *route.Route) *clientNetwork {
 	ctx, cancel := context.WithCancel(m.ctx)
 	client := &clientNetwork{
-		ctx:    ctx,
-		stop:   cancel,
-		routes: make(map[string]*route.Route),
-		update: make(chan struct{}),
-		prefix: networkRoute.Network,
+		ctx:                 ctx,
+		stop:                cancel,
+		routes:              make(map[string]*route.Route),
+		routePeersNotifiers: make(map[string]chan struct{}),
+		update:              make(chan struct{}),
+		prefix:              networkRoute.Network,
 	}
 	id := getClientNetworkID(networkRoute)
 	m.clientNetworks[id] = client
@@ -312,24 +315,25 @@ func (m *Manager) updateClientNetwork(newRoute *route.Route) {
 	}
 }
 
+func (m *Manager) watchPeerStatusChanges(ctx context.Context, peer string, update chan struct{}, closer chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-closer:
+			return
+		case <-m.statusRecorder.GetPeerStateChangeNotifier(peer):
+			update <- struct{}{}
+		}
+	}
+}
+
 func (m *Manager) watchClientNetworks(id string) {
 	client, prefixFound := m.clientNetworks[id]
 	if !prefixFound {
 		log.Errorf("attepmt to watch prefix %s failed. prefix not found in manager map", id)
 		return
 	}
-	ticker := time.NewTicker(DefaultClientCheckInterval)
-	go func() {
-		for {
-			select {
-			case <-client.ctx.Done():
-				ticker.Stop()
-				return
-			case <-ticker.C:
-				client.update <- struct{}{}
-			}
-		}
-	}()
 
 	for {
 		select {
@@ -344,8 +348,17 @@ func (m *Manager) watchClientNetworks(id string) {
 			return
 		case <-client.update:
 			client.mux.Lock()
+
+			for _, r := range client.routes {
+				_, found := client.routePeersNotifiers[r.Peer]
+				if !found {
+					client.routePeersNotifiers[r.Peer] = make(chan struct{})
+					go m.watchPeerStatusChanges(client.ctx, r.Peer, client.update, client.routePeersNotifiers[r.Peer])
+				}
+			}
+
 			routerPeerStatuses := m.getRouterPeerStatuses(client.routes)
-			chosen := getBestRoute(client.routes, routerPeerStatuses)
+			chosen := getBestRoute(client.chosenRoute, client.routes, routerPeerStatuses)
 			if chosen != "" {
 				if chosen != client.chosenRoute {
 					previousChosen, found := client.routes[client.chosenRoute]
@@ -394,7 +407,7 @@ func (m *Manager) watchClientNetworks(id string) {
 	}
 }
 
-func getBestRoute(routes map[string]*route.Route, routePeerStatuses map[string]routerPeerStatus) string {
+func getBestRoute(current string, routes map[string]*route.Route, routePeerStatuses map[string]routerPeerStatus) string {
 	var chosen string
 	chosenScore := 0
 
@@ -414,7 +427,7 @@ func getBestRoute(routes map[string]*route.Route, routePeerStatuses map[string]r
 		if !peerStatus.direct {
 			tempScore++
 		}
-		if tempScore > chosenScore {
+		if tempScore > chosenScore || (tempScore == chosenScore && current == r.ID) {
 			chosen = r.ID
 			chosenScore = tempScore
 		}
