@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 	log "github.com/sirupsen/logrus"
@@ -14,6 +15,7 @@ import (
 	"time"
 )
 
+// Manager is an instance of a route manager
 type Manager struct {
 	ctx            context.Context
 	stop           context.CancelFunc
@@ -48,7 +50,7 @@ type serverRouter struct {
 	firewall                 firewallManager
 }
 
-type RouterPair struct {
+type routerPair struct {
 	ID          string
 	source      string
 	destination string
@@ -61,6 +63,7 @@ type routerPeerStatus struct {
 	direct    bool
 }
 
+// NewManager returns a new route manager
 func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *status.Status) *Manager {
 	mCTX, cancel := context.WithCancel(ctx)
 	return &Manager{
@@ -80,11 +83,13 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 	}
 }
 
+// Stop stops the manager watchers and clean firewall rules
 func (m *Manager) Stop() {
 	m.stop()
 	m.serverRouter.firewall.CleanRoutingRules()
 }
 
+// UpdateRoutes compares received routes with existing routes and remove, update or add them to the client and server maps
 func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 	select {
 	case <-m.ctx.Done():
@@ -93,6 +98,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 	default:
 		m.mux.Lock()
 		defer m.mux.Unlock()
+
 		clientRoutesToRemove := make([]string, 0)
 		clientRoutesToUpdate := make([]string, 0)
 		clientRoutesToAdd := make([]string, 0)
@@ -115,6 +121,14 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 					serverRoutesToAdd = append(serverRoutesToAdd, newRoute.ID)
 				}
 			} else {
+				// if prefix is too small, lets assume is a possible default route which is not yet supported
+				// we skip this route management
+				if newRoute.Network.Bits() < 7 {
+					log.Errorf("this agent version: %s, doesn't support default routes, received %s, skiping this route",
+						system.NetbirdVersion(), newRoute.Network)
+					continue
+				}
+
 				newClientRoutesMap[newRoute.ID] = newRoute
 				_, found := m.clientRoutes[newRoute.ID]
 				if !found {
@@ -426,9 +440,9 @@ func (m *Manager) getRouterPeerStatuses(routes map[string]*route.Route) map[stri
 	return routePeerStatuses
 }
 
-func routeToRouterPair(source string, route *route.Route) RouterPair {
+func routeToRouterPair(source string, route *route.Route) routerPair {
 	parsed := netip.MustParsePrefix(source).Masked()
-	return RouterPair{
+	return routerPair{
 		ID:          route.ID,
 		source:      parsed.String(),
 		destination: route.Network.Masked().String(),
