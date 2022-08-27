@@ -2,6 +2,7 @@ package routemanager
 
 import (
 	"context"
+	"fmt"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/iface"
@@ -100,9 +101,14 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 		serverRoutesToAdd := make([]string, 0)
 		newClientRoutesMap := make(map[string]*route.Route)
 		newServerRoutesMap := make(map[string]*route.Route)
+
 		for _, newRoute := range newRoutes {
 			// only linux is supported for now
-			if newRoute.Peer == m.pubKey && runtime.GOOS == "linux" {
+			if newRoute.Peer == m.pubKey {
+				if runtime.GOOS != "linux" {
+					log.Warnf("received a route to manage, but agent doesn't support router mode on %s OS", runtime.GOOS)
+					continue
+				}
 				newServerRoutesMap[newRoute.ID] = newRoute
 				_, found := m.serverRoutes[newRoute.ID]
 				if !found {
@@ -120,8 +126,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 		if len(newServerRoutesMap) > 0 {
 			err := m.serverRouter.firewall.RestoreOrCreateContainers()
 			if err != nil {
-				// todo
-				log.Fatal(err)
+				return fmt.Errorf("couldn't initialize firewall containers, got err: %v", err)
 			}
 		}
 
@@ -149,7 +154,8 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 			}
 		}
 
-		log.Infof("client routes to add %d, remove %d and update %d", len(clientRoutesToAdd), len(clientRoutesToRemove), len(clientRoutesToUpdate))
+		log.Infof("client routes to add %d, remove %d and update %d",
+			len(clientRoutesToAdd), len(clientRoutesToRemove), len(clientRoutesToUpdate))
 
 		for _, routeID := range clientRoutesToRemove {
 			oldRoute := m.clientRoutes[routeID]
@@ -180,13 +186,15 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 			prefix.mux.Unlock()
 		}
 
-		log.Infof("client routes added %d, removed %d and updated %d", len(clientRoutesToAdd), len(clientRoutesToRemove), len(clientRoutesToUpdate))
+		log.Infof("client routes added %d, removed %d and updated %d",
+			len(clientRoutesToAdd), len(clientRoutesToRemove), len(clientRoutesToUpdate))
 
 		for _, routeID := range serverRoutesToRemove {
 			oldRoute := m.serverRoutes[routeID]
 			err := m.removeFromServerNetwork(oldRoute)
 			if err != nil {
-				log.Errorf("unable to remove route from server, got: %v", err)
+				log.Errorf("unable to remove route id: %s, network %s, from server, got: %v",
+					oldRoute.ID, oldRoute.Network, err)
 			}
 			delete(m.serverRoutes, routeID)
 		}
@@ -198,13 +206,16 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 			if newRoute.Network != oldRoute.Network {
 				err = m.removeFromServerNetwork(oldRoute)
 				if err != nil {
-					log.Errorf("unable to update and remove route %s from server, got: %v", oldRoute.ID, err)
+					log.Errorf("unable to remove route id: %s, network %s, from server, got: %v",
+						oldRoute.ID, oldRoute.Network, err)
 					continue
 				}
 			}
+
 			err = m.addToServerNetwork(newRoute)
 			if err != nil {
-				log.Errorf("unable to update and add route %s from server, got: %v", newRoute.ID, err)
+				log.Errorf("unable to update and add route id: %s, network: %s, to server, got: %v",
+					newRoute.ID, newRoute.Network, err)
 				continue
 			}
 			m.serverRoutes[routeID] = newRoute
@@ -219,7 +230,8 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 			m.serverRoutes[routeID] = newRoute
 		}
 
-		log.Infof("server routes added %d, removed %d and updated %d", len(serverRoutesToAdd), len(serverRoutesToRemove), len(serverRoutesToUpdate))
+		log.Infof("server routes added %d, removed %d and updated %d",
+			len(serverRoutesToAdd), len(serverRoutesToRemove), len(serverRoutesToUpdate))
 
 		if len(m.serverRoutes) > 0 {
 			err := enableIPForwarding()
