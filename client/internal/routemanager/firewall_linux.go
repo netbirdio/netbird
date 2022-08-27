@@ -23,19 +23,20 @@ func genKey(format string, input string) string {
 	return fmt.Sprintf(format, input)
 }
 
+// NewFirewall if supported, returns an iptables manager, otherwise returns a nftables manager
 func NewFirewall(parentCTX context.Context) firewallManager {
 	ctx, cancel := context.WithCancel(parentCTX)
 
 	if isIptablesSupported() {
 		log.Debugf("iptables is supported")
-		ipv4, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-		ipv6, _ := iptables.NewWithProtocol(iptables.ProtocolIPv6)
+		ipv4Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+		ipv6Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 
 		return &iptablesManager{
 			ctx:        ctx,
 			stop:       cancel,
-			ipv4Client: ipv4,
-			ipv6Client: ipv6,
+			ipv4Client: ipv4Client,
+			ipv6Client: ipv6Client,
 			rules:      make(map[string]map[string][]string),
 		}
 	}

@@ -242,7 +242,7 @@ func (n *nftablesManager) checkOrCreateDefaultForwardingRules() {
 }
 
 // InsertRoutingRules inserts a nftable rule pair to the forwarding chain and if enabled, to the nat chain
-func (n *nftablesManager) InsertRoutingRules(pair RouterPair) error {
+func (n *nftablesManager) InsertRoutingRules(pair routerPair) error {
 	n.mux.Lock()
 	defer n.mux.Unlock()
 
@@ -298,7 +298,7 @@ func (n *nftablesManager) InsertRoutingRules(pair RouterPair) error {
 }
 
 // RemoveRoutingRules removes a nftable rule pair from forwarding and nat chains
-func (n *nftablesManager) RemoveRoutingRules(pair RouterPair) error {
+func (n *nftablesManager) RemoveRoutingRules(pair routerPair) error {
 	n.mux.Lock()
 	defer n.mux.Unlock()
 

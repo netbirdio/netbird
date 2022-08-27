@@ -297,7 +297,7 @@ func getRuleRouteID(rule []string) string {
 }
 
 // InsertRoutingRules inserts an iptables rule pair to the forwarding chain and if enabled, to the nat chain
-func (i *iptablesManager) InsertRoutingRules(pair RouterPair) error {
+func (i *iptablesManager) InsertRoutingRules(pair routerPair) error {
 	i.mux.Lock()
 	defer i.mux.Unlock()
 
@@ -352,7 +352,7 @@ func (i *iptablesManager) InsertRoutingRules(pair RouterPair) error {
 }
 
 // RemoveRoutingRules removes an iptables rule pair from forwarding and nat chains
-func (i *iptablesManager) RemoveRoutingRules(pair RouterPair) error {
+func (i *iptablesManager) RemoveRoutingRules(pair routerPair) error {
 	i.mux.Lock()
 	defer i.mux.Unlock()
 
