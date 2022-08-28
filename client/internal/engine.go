@@ -628,12 +628,13 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			}
 		}
 	}
-
-	if networkMap.GetRoutes() != nil {
-		err := e.routeManager.UpdateRoutes(toRoutes(networkMap.GetRoutes()))
-		if err != nil {
-			return err
-		}
+	protoRoutes := networkMap.GetRoutes()
+	if protoRoutes == nil {
+		protoRoutes = []*mgmProto.Route{}
+	}
+	err := e.routeManager.UpdateRoutes(toRoutes(networkMap.GetRoutes()))
+	if err != nil {
+		return err
 	}
 
 	e.networkSerial = serial

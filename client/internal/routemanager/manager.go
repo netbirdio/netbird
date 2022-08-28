@@ -214,7 +214,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 			oldRoute := m.serverRoutes[routeID]
 
 			var err error
-			if newRoute.Network != oldRoute.Network {
+			if !newRoute.IsEqual(oldRoute) {
 				err = m.removeFromServerNetwork(oldRoute)
 				if err != nil {
 					log.Errorf("unable to remove route id: %s, network %s, from server, got: %v",
@@ -396,6 +396,7 @@ func (m *Manager) watchClientNetworks(id string) {
 					log.Debugf("no change on chossen route for prefix %s", client.prefix)
 				}
 			} else {
+				client.chosenRoute = ""
 				var peers []string
 				for _, r := range client.routes {
 					peers = append(peers, r.Peer)

@@ -315,6 +315,7 @@ func (n *nftablesManager) RemoveRoutingRules(pair routerPair) error {
 		if err != nil {
 			return fmt.Errorf("nftables: unable to remove forwarding rule for %s: %v", pair.destination, err)
 		}
+		log.Debugf("nftables: removing forwarding rule for %s", pair.destination)
 		delete(n.rules, fwdKey)
 	}
 	natRule, found := n.rules[natKey]
@@ -323,12 +324,14 @@ func (n *nftablesManager) RemoveRoutingRules(pair routerPair) error {
 		if err != nil {
 			return fmt.Errorf("nftables: unable to remove nat rule for %s: %v", pair.destination, err)
 		}
+		log.Debugf("nftables: removing nat rule for %s", pair.destination)
 		delete(n.rules, natKey)
 	}
 	err = n.conn.Flush()
 	if err != nil {
 		return fmt.Errorf("nftables: received error while applying rule removal for %s: %v", pair.destination, err)
 	}
+	log.Debugf("nftables: removed rules for %s", pair.destination)
 	return nil
 }
 
