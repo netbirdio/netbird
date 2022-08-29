@@ -177,9 +177,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 			newRoute := newClientRoutesMap[routeID]
 			oldRoute := m.clientRoutes[routeID]
 			m.clientRoutes[routeID] = newRoute
-			if newRoute.Network != oldRoute.Network {
-				m.removeFromClientNetwork(oldRoute)
-			}
+			m.removeFromClientNetwork(oldRoute)
 			m.updateClientNetwork(newRoute)
 		}
 		for _, routeID := range clientRoutesToAdd {
@@ -276,6 +274,9 @@ func (m *Manager) removeFromClientNetwork(oldRoute *route.Route) {
 		if found {
 			close(ch)
 			delete(client.routePeersNotifiers, oldRoute.Peer)
+		}
+		if client.chosenRoute == oldRoute.ID {
+			client.chosenRoute = ""
 		}
 		client.mux.Unlock()
 		client.update <- struct{}{}
