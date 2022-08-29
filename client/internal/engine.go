@@ -632,7 +632,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	if protoRoutes == nil {
 		protoRoutes = []*mgmProto.Route{}
 	}
-	err := e.routeManager.UpdateRoutes(toRoutes(networkMap.GetRoutes()))
+	err := e.routeManager.UpdateRoutes(toRoutes(protoRoutes))
 	if err != nil {
 		return err
 	}
