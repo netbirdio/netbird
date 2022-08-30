@@ -103,6 +103,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 		serverRoutesToUpdate := make([]string, 0)
 		serverRoutesToAdd := make([]string, 0)
 		newClientRoutesMap := make(map[string]*route.Route)
+		newClientRoutesIDMap := make(map[string]struct{})
 		newServerRoutesMap := make(map[string]*route.Route)
 
 		for _, newRoute := range newRoutes {
@@ -127,6 +128,7 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 				}
 
 				newClientRoutesMap[newRoute.ID] = newRoute
+				newClientRoutesIDMap[getClientNetworkID(newRoute)] = struct{}{}
 				_, found := m.clientRoutes[newRoute.ID]
 				if !found {
 					clientRoutesToAdd = append(clientRoutesToAdd, newRoute.ID)
@@ -185,14 +187,14 @@ func (m *Manager) UpdateRoutes(newRoutes []*route.Route) error {
 			m.clientRoutes[routeID] = newRoute
 			m.updateClientNetwork(newRoute)
 		}
-		for id, prefix := range m.clientNetworks {
-			prefix.mux.Lock()
-			if len(prefix.routes) == 0 {
-				log.Debugf("stopping client prefix, %s", prefix.prefix)
-				prefix.stop()
+
+		for id, client := range m.clientNetworks {
+			_, found := newClientRoutesIDMap[id]
+			if !found {
+				log.Debugf("stopping client network watcher, %s", id)
+				client.stop()
 				delete(m.clientNetworks, id)
 			}
-			prefix.mux.Unlock()
 		}
 
 		log.Infof("client routes added %d, removed %d and updated %d",
@@ -263,9 +265,10 @@ func (m *Manager) removeFromClientNetwork(oldRoute *route.Route) {
 		log.Infof("not removing from client network because context is done: %v", m.ctx.Err())
 		return
 	default:
-		client, found := m.clientNetworks[getClientNetworkID(oldRoute)]
+		id := getClientNetworkID(oldRoute)
+		client, found := m.clientNetworks[id]
 		if !found {
-			log.Debugf("managed prefix %s not found", oldRoute.Network.String())
+			log.Debugf("managed prefix %s not found", id)
 			return
 		}
 		client.mux.Lock()
@@ -305,7 +308,8 @@ func (m *Manager) updateClientNetwork(newRoute *route.Route) {
 		log.Infof("not updating client network because context is done: %v", m.ctx.Err())
 		return
 	default:
-		client, found := m.clientNetworks[newRoute.NetID+newRoute.Network.String()]
+		id := getClientNetworkID(newRoute)
+		client, found := m.clientNetworks[id]
 		if !found {
 			client = m.startClientNetworkWatcher(newRoute)
 		}
@@ -379,7 +383,6 @@ func (m *Manager) watchClientNetworks(id string) {
 					if err != nil {
 						log.Errorf("couldn't add allowed IP %s added for peer %s, err: %v",
 							client.prefix, chosenRoute.Peer, err)
-						client.mux.Unlock()
 						continue
 					}
 					log.Debugf("allowed IP %s added for peer %s", client.prefix, chosenRoute.Peer)
@@ -388,7 +391,6 @@ func (m *Manager) watchClientNetworks(id string) {
 						if err != nil {
 							log.Errorf("route %s couldn't be added for peer %s, err: %v",
 								chosenRoute.Network.String(), m.wgInterface.GetAddress().IP.String(), err)
-							client.mux.Unlock()
 							continue
 						}
 						log.Debugf("route %s added for peer %s", chosenRoute.Network.String(), m.wgInterface.GetAddress().IP.String())
