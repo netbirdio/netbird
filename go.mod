@@ -114,3 +114,5 @@ require (
 )
 
 replace github.com/pion/ice/v2 => github.com/wiretrustee/ice/v2 v2.1.21-0.20220218121004-dc81faead4bb
+
+replace github.com/kardianos/service => /Users/maycon/projects/service
