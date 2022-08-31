@@ -110,23 +110,27 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 			peers = append(peers, r.Peer)
 		}
 		log.Warnf("no route was chosen for network %s because no peers from list %s were connected", c.network, peers)
-	} else {
-		log.Infof("chosen route is %s with peer %s with score %d", chosen, c.routes[chosen].Peer, chosenScore)
+	} else if chosen != currID {
+		log.Infof("new chosen route is %s with peer %s with score %d", chosen, c.routes[chosen].Peer, chosenScore)
 	}
 
 	return chosen
 }
 
-func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peer string, peerStateUpdate chan struct{}, closer chan struct{}) {
+func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey string, peerStateUpdate chan struct{}, closer chan struct{}) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-closer:
 			return
-		case <-c.statusRecorder.GetPeerStateChangeNotifier(peer):
+		case <-c.statusRecorder.GetPeerStateChangeNotifier(peerKey):
+			state, err := c.statusRecorder.GetPeer(peerKey)
+			if err != nil || state.ConnStatus == peer.StatusConnecting.String() {
+				continue
+			}
 			peerStateUpdate <- struct{}{}
-			log.Debugf("triggered state update for Peer %s", peer)
+			log.Debugf("triggered route state update for Peer %s, state: %s", peerKey, state.ConnStatus)
 		}
 	}
 }
@@ -141,12 +145,25 @@ func (c *clientNetwork) startPeersStatusChangeWatcher() {
 	}
 }
 
+func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
+	state, err := c.statusRecorder.GetPeer(peerKey)
+	if err != nil || state.ConnStatus != peer.StatusConnected.String() {
+		return nil
+	}
+
+	err = c.wgInterface.RemoveAllowedIP(peerKey, c.network.String())
+	if err != nil {
+		return fmt.Errorf("couldn't remove allowed IP %s removed for peer %s, err: %v",
+			c.network, c.chosenRoute.Peer, err)
+	}
+	return nil
+}
+
 func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 	if c.chosenRoute != nil {
-		err := c.wgInterface.RemoveAllowedIP(c.chosenRoute.Peer, c.network.String())
+		err := c.removeRouteFromWireguardPeer(c.chosenRoute.Peer)
 		if err != nil {
-			return fmt.Errorf("couldn't remove allowed IP %s removed for peer %s, err: %v",
-				c.network, c.chosenRoute.Peer, err)
+			return err
 		}
 		err = removeFromRouteTable(c.network)
 		if err != nil {
@@ -179,10 +196,9 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	}
 
 	if c.chosenRoute != nil {
-		err = c.wgInterface.RemoveAllowedIP(c.chosenRoute.Peer, c.network.String())
+		err = c.removeRouteFromWireguardPeer(c.chosenRoute.Peer)
 		if err != nil {
-			return fmt.Errorf("couldn't remove allowed IP %s removed from previously chosed peer %s, err: %v",
-				c.network, c.chosenRoute.Peer, err)
+			return err
 		}
 	} else {
 		err = addToRouteTable(c.network, c.wgInterface.GetAddress().IP.String())
@@ -233,7 +249,7 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 	for {
 		select {
 		case <-c.ctx.Done():
-			log.Debugf("stopping routine for prefix %s", c.network)
+			log.Debugf("stopping watcher for network %s", c.network)
 			err := c.removeRouteFromPeerAndSystem()
 			if err != nil {
 				log.Error(err)

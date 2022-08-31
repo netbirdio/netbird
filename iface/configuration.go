@@ -160,7 +160,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("removing allowed IP to interface %s and peer %s: allowed IP %s ", w.Name, peerKey, allowedIP)
+	log.Debugf("removing allowed IP from interface %s and peer %s: allowed IP %s ", w.Name, peerKey, allowedIP)
 
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
