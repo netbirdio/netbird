@@ -50,38 +50,30 @@ func (m *Manager) Stop() {
 	m.serverRouter.firewall.CleanRoutingRules()
 }
 
-func sendUpdateToClientNetwork(updateChannel chan routesUpdate, updateSerial uint64, routes []*route.Route) {
-	updateChannel <- routesUpdate{
-		updateSerial: updateSerial,
-		routes:       routes,
-	}
-}
-
 func (m *Manager) updateClientNetworks(updateSerial uint64, networks map[string][]*route.Route) {
-	select {
-	case <-m.ctx.Done():
-		log.Infof("not updating client network because context is done: %v", m.ctx.Err())
-		return
-	default:
-		for id, client := range m.clientNetworks {
-			_, found := networks[id]
-			if !found {
-				log.Debugf("stopping client network watcher, %s", id)
-				go client.stop()
-				delete(m.clientNetworks, id)
-			}
+	// removing routes that do not exist as per the update from the Management service.
+	for id, client := range m.clientNetworks {
+		_, found := networks[id]
+		if !found {
+			log.Debugf("stopping client network watcher, %s", id)
+			client.stop()
+			delete(m.clientNetworks, id)
+		}
+	}
+
+	for id, routes := range networks {
+		clientNetworkWatcher, found := m.clientNetworks[id]
+		if !found {
+			clientNetworkWatcher = newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0].Network)
+			m.clientNetworks[id] = clientNetworkWatcher
+			go clientNetworkWatcher.peersStateAndUpdateWatcher()
+		}
+		update := routesUpdate{
+			updateSerial: updateSerial,
+			routes:       routes,
 		}
 
-		for id, routes := range networks {
-			watcher, found := m.clientNetworks[id]
-			if !found {
-				watcher = newClientNetworkWatcher(m.ctx, m.wgInterface, m.statusRecorder, routes[0].Network)
-				m.clientNetworks[id] = watcher
-				go watcher.stateAndUpdateWatcher()
-			}
-
-			go sendUpdateToClientNetwork(watcher.routeUpdate, updateSerial, routes)
-		}
+		clientNetworkWatcher.sendUpdateToClientNetworkWatcher(update)
 	}
 }
 

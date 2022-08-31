@@ -202,12 +202,13 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 	return nil
 }
 
-func (c *clientNetwork) handleUpdate(update routesUpdate) {
-	if update.updateSerial < c.updateSerial {
-		log.Warnf("received a routes update with smaller serial number, ignoring it")
-		return
-	}
+func (c *clientNetwork) sendUpdateToClientNetworkWatcher(update routesUpdate) {
+	go func() {
+		c.routeUpdate <- update
+	}()
+}
 
+func (c *clientNetwork) handleUpdate(update routesUpdate) {
 	updateMap := make(map[string]*route.Route)
 
 	for _, r := range update.routes {
@@ -218,6 +219,7 @@ func (c *clientNetwork) handleUpdate(update routesUpdate) {
 		_, found := updateMap[id]
 		if !found {
 			close(c.routePeersNotifiers[r.Peer])
+			delete(c.routePeersNotifiers, r.Peer)
 		}
 	}
 
@@ -225,9 +227,9 @@ func (c *clientNetwork) handleUpdate(update routesUpdate) {
 	c.updateSerial = update.updateSerial
 }
 
-// stateAndUpdateWatcher is the main point of reacting on client network routing events.
+// peersStateAndUpdateWatcher is the main point of reacting on client network routing events.
 // All the processing related to the client network should be done here. Thread-safe.
-func (c *clientNetwork) stateAndUpdateWatcher() {
+func (c *clientNetwork) peersStateAndUpdateWatcher() {
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -242,10 +244,14 @@ func (c *clientNetwork) stateAndUpdateWatcher() {
 			if err != nil {
 				log.Error(err)
 			}
+		case update := <-c.routeUpdate:
+			if update.updateSerial < c.updateSerial {
+				log.Warnf("received a routes update with smaller serial number, ignoring it")
+				continue
+			}
 
-			c.startPeersStatusChangeWatcher()
-		case routes := <-c.routeUpdate:
-			c.handleUpdate(routes)
+			log.Debugf("received a client network route update for %s", c.network)
+			c.handleUpdate(update)
 
 			err := c.recalculateRouteAndUpdatePeerAndSystem()
 			if err != nil {
