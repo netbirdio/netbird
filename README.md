@@ -56,7 +56,7 @@ NetBird creates an overlay peer-to-peer network connecting machines automaticall
 -  \[x] Remote SSH access without managing SSH keys.
   
 **Coming soon:**
--  \[ ] Router nodes
+-  \[ ] Network Routes.
 -  \[ ] Private DNS.
 -  \[ ] Mobile clients.
 -  \[ ] Network Activity Monitoring.
