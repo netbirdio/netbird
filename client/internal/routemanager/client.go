@@ -240,7 +240,6 @@ func (c *clientNetwork) handleUpdate(update routesUpdate) {
 	}
 
 	c.routes = updateMap
-	c.updateSerial = update.updateSerial
 }
 
 // peersStateAndUpdateWatcher is the main point of reacting on client network routing events.
@@ -266,8 +265,11 @@ func (c *clientNetwork) peersStateAndUpdateWatcher() {
 				continue
 			}
 
-			log.Debugf("received a client network route update for %s", c.network)
+			log.Debugf("received a new client network route update for %s", c.network)
+
 			c.handleUpdate(update)
+
+			c.updateSerial = update.updateSerial
 
 			err := c.recalculateRouteAndUpdatePeerAndSystem()
 			if err != nil {
