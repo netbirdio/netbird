@@ -186,6 +186,9 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		if err != nil {
 			return err
 		}
+
+		c.chosenRoute = nil
+
 		return nil
 	}
 
