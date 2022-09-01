@@ -85,7 +85,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		defer func() {
 			err = mgmClient.Close()
 			if err != nil {
-				log.Warnf("failed closing Management Service client %v", err)
+				log.Warnf("failed closing Management service client %v", err)
 			}
 		}()
 
@@ -126,7 +126,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		defer func() {
 			err = signalClient.Close()
 			if err != nil {
-				log.Warnf("failed closing Signal Service client %v", err)
+				log.Warnf("failed closing Signal service client %v", err)
 			}
 		}()
 
