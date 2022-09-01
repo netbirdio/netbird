@@ -226,7 +226,13 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (Device
 		log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
 		return DeviceAuthorizationFlow{}, err
 	}
-	log.Debugf("connected to management Service %s", config.ManagementURL.String())
+	log.Debugf("connected to the Management service %s", config.ManagementURL.String())
+	defer func() {
+		err = mgmClient.Close()
+		if err != nil {
+			log.Warnf("failed to close the Management service client %v", err)
+		}
+	}()
 
 	serverKey, err := mgmClient.GetServerPublicKey()
 	if err != nil {
@@ -243,12 +249,6 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (Device
 			log.Errorf("failed to retrieve device flow: %v", err)
 			return DeviceAuthorizationFlow{}, err
 		}
-	}
-
-	err = mgmClient.Close()
-	if err != nil {
-		log.Errorf("failed closing Management Service client: %v", err)
-		return DeviceAuthorizationFlow{}, err
 	}
 
 	return DeviceAuthorizationFlow{
