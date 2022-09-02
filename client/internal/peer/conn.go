@@ -229,8 +229,12 @@ func (conn *Conn) Open() error {
 		return NewConnectionClosedError(conn.config.Key)
 	}
 
-	log.Debugf("received connection confirmation from peer %s running version %s",
-		conn.config.Key, remoteOfferAnswer.Version)
+	log.Debugf("received connection confirmation from peer %s running version %s and with remote WireGuard listen port %d",
+		conn.config.Key, remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
+	// dynamically set remote WireGuard port is other side specified a different one from the default one
+	if remoteOfferAnswer.WgListenPort != 0 {
+		conn.config.ProxyConfig.WgPort = remoteOfferAnswer.WgListenPort
+	}
 
 	// at this point we received offer/answer and we are ready to gather candidates
 	conn.mu.Lock()
