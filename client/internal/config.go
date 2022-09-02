@@ -37,6 +37,7 @@ type Config struct {
 	ManagementURL  *url.URL
 	AdminURL       *url.URL
 	WgIface        string
+	WgPort         int
 	IFaceBlackList []string
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey string
@@ -49,7 +50,13 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 	if err != nil {
 		return nil, err
 	}
-	config := &Config{SSHKey: string(pem), PrivateKey: wgKey, WgIface: iface.WgInterfaceDefault, IFaceBlackList: []string{}}
+	config := &Config{
+		SSHKey:         string(pem),
+		PrivateKey:     wgKey,
+		WgIface:        iface.WgInterfaceDefault,
+		WgPort:         iface.DefaultWgPort,
+		IFaceBlackList: []string{},
+	}
 	if managementURL != "" {
 		URL, err := ParseURL("Management URL", managementURL)
 		if err != nil {
@@ -72,8 +79,8 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 		config.AdminURL = newURL
 	}
 
-	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
-		"Tailscale", "tailscale"}
+	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
+		"Tailscale", "tailscale", "docker", "vet"}
 
 	err = util.WriteJson(configPath, config)
 	if err != nil {
@@ -147,6 +154,11 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 			return nil, err
 		}
 		config.SSHKey = string(pem)
+		refresh = true
+	}
+
+	if config.WgPort == 0 {
+		config.WgPort = iface.DefaultWgPort
 		refresh = true
 	}
 
