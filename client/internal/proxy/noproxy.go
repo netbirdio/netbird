@@ -18,6 +18,7 @@ type NoProxy struct {
 	RemoteWgListenPort int
 }
 
+// NewNoProxy creates a new NoProxy with a provided config and remote peer's WireGuard listen port
 func NewNoProxy(config Config, remoteWgPort int) *NoProxy {
 	return &NoProxy{config: config, RemoteWgListenPort: remoteWgPort}
 }

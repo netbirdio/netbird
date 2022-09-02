@@ -388,6 +388,7 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 	return nil
 }
 
+// SignalOfferAnswer signals either an offer or an answer to remote peer
 func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
 	var t sProto.Body_Type
 	if isAnswer {
