@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	nbStatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
@@ -36,6 +37,20 @@ type ConnConfig struct {
 
 	UDPMux      ice.UDPMux
 	UDPMuxSrflx ice.UniversalUDPMux
+
+	LocalWgPort int
+}
+
+// OfferAnswer represents a session establishment offer or answer
+type OfferAnswer struct {
+	IceCredentials IceCredentials
+	// WgListenPort is a remote WireGuard listen port.
+	// This field is used when establishing a direct WireGuard connection without any proxy.
+	// We can set the remote peer's endpoint with this port.
+	WgListenPort int
+
+	// Version of NetBird Agent
+	Version string
 }
 
 // IceCredentials ICE protocol credentials struct
@@ -51,13 +66,13 @@ type Conn struct {
 	// signalCandidate is a handler function to signal remote peer about local connection candidate
 	signalCandidate func(candidate ice.Candidate) error
 	// signalOffer is a handler function to signal remote peer our connection offer (credentials)
-	signalOffer  func(uFrag string, pwd string) error
-	signalAnswer func(uFrag string, pwd string) error
+	signalOffer  func(OfferAnswer) error
+	signalAnswer func(OfferAnswer) error
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
-	remoteOffersCh chan IceCredentials
+	remoteOffersCh chan OfferAnswer
 	// remoteAnswerCh is a channel used to wait for remote credentials answer (confirmation of our offer) to proceed with the connection
-	remoteAnswerCh     chan IceCredentials
+	remoteAnswerCh     chan OfferAnswer
 	closeCh            chan struct{}
 	ctx                context.Context
 	notifyDisconnected context.CancelFunc
@@ -88,8 +103,8 @@ func NewConn(config ConnConfig, statusRecorder *nbStatus.Status) (*Conn, error) 
 		mu:             sync.Mutex{},
 		status:         StatusDisconnected,
 		closeCh:        make(chan struct{}),
-		remoteOffersCh: make(chan IceCredentials),
-		remoteAnswerCh: make(chan IceCredentials),
+		remoteOffersCh: make(chan OfferAnswer),
+		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
 	}, nil
 }
@@ -200,15 +215,15 @@ func (conn *Conn) Open() error {
 	// Only continue once we got a connection confirmation from the remote peer.
 	// The connection timeout could have happened before a confirmation received from the remote.
 	// The connection could have also been closed externally (e.g. when we received an update from the management that peer shouldn't be connected)
-	var remoteCredentials IceCredentials
+	var remoteOfferAnswer OfferAnswer
 	select {
-	case remoteCredentials = <-conn.remoteOffersCh:
+	case remoteOfferAnswer = <-conn.remoteOffersCh:
 		// received confirmation from the remote peer -> ready to proceed
 		err = conn.sendAnswer()
 		if err != nil {
 			return err
 		}
-	case remoteCredentials = <-conn.remoteAnswerCh:
+	case remoteOfferAnswer = <-conn.remoteAnswerCh:
 	case <-time.After(conn.config.Timeout):
 		return NewConnectionTimeoutError(conn.config.Key, conn.config.Timeout)
 	case <-conn.closeCh:
@@ -216,7 +231,8 @@ func (conn *Conn) Open() error {
 		return NewConnectionClosedError(conn.config.Key)
 	}
 
-	log.Debugf("received connection confirmation from peer %s", conn.config.Key)
+	log.Debugf("received connection confirmation from peer %s running version %s and with remote WireGuard listen port %d",
+		conn.config.Key, remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
 
 	// at this point we received offer/answer and we are ready to gather candidates
 	conn.mu.Lock()
@@ -245,16 +261,21 @@ func (conn *Conn) Open() error {
 	isControlling := conn.config.LocalKey > conn.config.Key
 	var remoteConn *ice.Conn
 	if isControlling {
-		remoteConn, err = conn.agent.Dial(conn.ctx, remoteCredentials.UFrag, remoteCredentials.Pwd)
+		remoteConn, err = conn.agent.Dial(conn.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
-		remoteConn, err = conn.agent.Accept(conn.ctx, remoteCredentials.UFrag, remoteCredentials.Pwd)
+		remoteConn, err = conn.agent.Accept(conn.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	}
 	if err != nil {
 		return err
 	}
 
+	// dynamically set remote WireGuard port is other side specified a different one from the default one
+	remoteWgPort := iface.DefaultWgPort
+	if remoteOfferAnswer.WgListenPort != 0 {
+		remoteWgPort = remoteOfferAnswer.WgListenPort
+	}
 	// the ice connection has been established successfully so we are ready to start the proxy
-	err = conn.startProxy(remoteConn)
+	err = conn.startProxy(remoteConn, remoteWgPort)
 	if err != nil {
 		return err
 	}
@@ -319,7 +340,7 @@ func IsPublicIP(ip net.IP) bool {
 }
 
 // startProxy starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) startProxy(remoteConn net.Conn) error {
+func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -336,7 +357,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 		p = proxy.NewWireguardProxy(conn.config.ProxyConfig)
 		peerState.Direct = false
 	} else {
-		p = proxy.NewNoProxy(conn.config.ProxyConfig)
+		p = proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
 		peerState.Direct = true
 	}
 	conn.proxy = p
@@ -409,12 +430,12 @@ func (conn *Conn) cleanup() error {
 }
 
 // SetSignalOffer sets a handler function to be triggered by Conn when a new connection offer has to be signalled to the remote peer
-func (conn *Conn) SetSignalOffer(handler func(uFrag string, pwd string) error) {
+func (conn *Conn) SetSignalOffer(handler func(offer OfferAnswer) error) {
 	conn.signalOffer = handler
 }
 
 // SetSignalAnswer sets a handler function to be triggered by Conn when a new connection answer has to be signalled to the remote peer
-func (conn *Conn) SetSignalAnswer(handler func(uFrag string, pwd string) error) {
+func (conn *Conn) SetSignalAnswer(handler func(answer OfferAnswer) error) {
 	conn.signalAnswer = handler
 }
 
@@ -459,8 +480,12 @@ func (conn *Conn) sendAnswer() error {
 		return err
 	}
 
-	log.Debugf("sending asnwer to %s", conn.config.Key)
-	err = conn.signalAnswer(localUFrag, localPwd)
+	log.Debugf("sending answer to %s", conn.config.Key)
+	err = conn.signalAnswer(OfferAnswer{
+		IceCredentials: IceCredentials{localUFrag, localPwd},
+		WgListenPort:   conn.config.LocalWgPort,
+		Version:        system.NetbirdVersion(),
+	})
 	if err != nil {
 		return err
 	}
@@ -477,7 +502,11 @@ func (conn *Conn) sendOffer() error {
 	if err != nil {
 		return err
 	}
-	err = conn.signalOffer(localUFrag, localPwd)
+	err = conn.signalOffer(OfferAnswer{
+		IceCredentials: IceCredentials{localUFrag, localPwd},
+		WgListenPort:   conn.config.LocalWgPort,
+		Version:        system.NetbirdVersion(),
+	})
 	if err != nil {
 		return err
 	}
@@ -518,11 +547,11 @@ func (conn *Conn) Status() ConnStatus {
 
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) bool {
+func (conn *Conn) OnRemoteOffer(offer OfferAnswer) bool {
 	log.Debugf("OnRemoteOffer from peer %s on status %s", conn.config.Key, conn.status.String())
 
 	select {
-	case conn.remoteOffersCh <- remoteAuth:
+	case conn.remoteOffersCh <- offer:
 		return true
 	default:
 		log.Debugf("OnRemoteOffer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
@@ -533,11 +562,11 @@ func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) bool {
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (conn *Conn) OnRemoteAnswer(remoteAuth IceCredentials) bool {
+func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
 	log.Debugf("OnRemoteAnswer from peer %s on status %s", conn.config.Key, conn.status.String())
 
 	select {
-	case conn.remoteAnswerCh <- remoteAuth:
+	case conn.remoteAnswerCh <- answer:
 		return true
 	default:
 		// connection might not be ready yet to receive so we ignore the message

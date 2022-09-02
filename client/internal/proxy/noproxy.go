@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"net"
 )
@@ -14,10 +13,14 @@ import (
 // In order NoProxy to work, Wireguard port has to be fixed for the time being.
 type NoProxy struct {
 	config Config
+	// RemoteWgListenPort is a WireGuard port of a remote peer.
+	// It is used instead of the hardcoded 51820 port.
+	RemoteWgListenPort int
 }
 
-func NewNoProxy(config Config) *NoProxy {
-	return &NoProxy{config: config}
+// NewNoProxy creates a new NoProxy with a provided config and remote peer's WireGuard listen port
+func NewNoProxy(config Config, remoteWgPort int) *NoProxy {
+	return &NoProxy{config: config, RemoteWgListenPort: remoteWgPort}
 }
 
 func (p *NoProxy) Close() error {
@@ -36,7 +39,7 @@ func (p *NoProxy) Start(remoteConn net.Conn) error {
 	if err != nil {
 		return err
 	}
-	addr.Port = iface.DefaultWgPort
+	addr.Port = p.RemoteWgListenPort
 	err = p.config.WgInterface.UpdatePeer(p.config.RemoteKey, p.config.AllowedIps, DefaultWgKeepAlive,
 		addr, p.config.PreSharedKey)
 
