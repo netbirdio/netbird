@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"net"
 )
@@ -36,7 +35,7 @@ func (p *NoProxy) Start(remoteConn net.Conn) error {
 	if err != nil {
 		return err
 	}
-	addr.Port = iface.DefaultWgPort
+	addr.Port = p.config.WgPort
 	err = p.config.WgInterface.UpdatePeer(p.config.RemoteKey, p.config.AllowedIps, DefaultWgKeepAlive,
 		addr, p.config.PreSharedKey)
 

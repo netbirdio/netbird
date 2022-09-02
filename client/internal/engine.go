@@ -713,6 +713,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		WgInterface:  e.wgInterface,
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
+		WgPort:       e.config.WgPort,
 	}
 
 	// randomize connection timeout
