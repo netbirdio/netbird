@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/signal/proto"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"io"
@@ -46,9 +47,10 @@ func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey wgtypes.Key, cre
 		Key:       myKey.PublicKey().String(),
 		RemoteKey: remoteKey.String(),
 		Body: &proto.Body{
-			Type:    t,
-			Payload: fmt.Sprintf("%s:%s", credential.UFrag, credential.Pwd),
-			Port:    uint32(myPort),
+			Type:           t,
+			Payload:        fmt.Sprintf("%s:%s", credential.UFrag, credential.Pwd),
+			WgListenPort:   uint32(myPort),
+			NetBirdVersion: system.NetbirdVersion(),
 		},
 	}, nil
 }
