@@ -388,7 +388,8 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 	return nil
 }
 
-func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
+// SignalOfferAnswer signals either an offer or an answer to remote peer
+func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
 	var t sProto.Body_Type
 	if isAnswer {
 		t = sProto.Body_ANSWER
@@ -396,9 +397,9 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 		t = sProto.Body_OFFER
 	}
 
-	msg, err := signal.MarshalCredential(myKey, remoteKey, &signal.Credential{
-		UFrag: uFrag,
-		Pwd:   pwd,
+	msg, err := signal.MarshalCredential(myKey, offerAnswer.WgListenPort, remoteKey, &signal.Credential{
+		UFrag: offerAnswer.IceCredentials.UFrag,
+		Pwd:   offerAnswer.IceCredentials.Pwd,
 	}, t)
 	if err != nil {
 		return err
@@ -726,6 +727,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		UDPMux:             e.udpMux,
 		UDPMuxSrflx:        e.udpMuxSrflx,
 		ProxyConfig:        proxyConfig,
+		LocalWgPort:        e.config.WgPort,
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder)
@@ -738,16 +740,16 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		return nil, err
 	}
 
-	signalOffer := func(uFrag string, pwd string) error {
-		return signalAuth(uFrag, pwd, e.config.WgPrivateKey, wgPubKey, e.signal, false)
+	signalOffer := func(offerAnswer peer.OfferAnswer) error {
+		return SignalOfferAnswer(offerAnswer, e.config.WgPrivateKey, wgPubKey, e.signal, false)
 	}
 
 	signalCandidate := func(candidate ice.Candidate) error {
 		return signalCandidate(candidate, e.config.WgPrivateKey, wgPubKey, e.signal)
 	}
 
-	signalAnswer := func(uFrag string, pwd string) error {
-		return signalAuth(uFrag, pwd, e.config.WgPrivateKey, wgPubKey, e.signal, true)
+	signalAnswer := func(offerAnswer peer.OfferAnswer) error {
+		return SignalOfferAnswer(offerAnswer, e.config.WgPrivateKey, wgPubKey, e.signal, true)
 	}
 
 	peerConn.SetSignalCandidate(signalCandidate)
@@ -776,18 +778,26 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
-				conn.OnRemoteOffer(peer.IceCredentials{
-					UFrag: remoteCred.UFrag,
-					Pwd:   remoteCred.Pwd,
+				conn.OnRemoteOffer(peer.OfferAnswer{
+					IceCredentials: peer.IceCredentials{
+						UFrag: remoteCred.UFrag,
+						Pwd:   remoteCred.Pwd,
+					},
+					WgListenPort: int(msg.GetBody().GetWgListenPort()),
+					Version:      msg.GetBody().GetNetBirdVersion(),
 				})
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
 				if err != nil {
 					return err
 				}
-				conn.OnRemoteAnswer(peer.IceCredentials{
-					UFrag: remoteCred.UFrag,
-					Pwd:   remoteCred.Pwd,
+				conn.OnRemoteAnswer(peer.OfferAnswer{
+					IceCredentials: peer.IceCredentials{
+						UFrag: remoteCred.UFrag,
+						Pwd:   remoteCred.Pwd,
+					},
+					WgListenPort: int(msg.GetBody().GetWgListenPort()),
+					Version:      msg.GetBody().GetNetBirdVersion(),
 				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)

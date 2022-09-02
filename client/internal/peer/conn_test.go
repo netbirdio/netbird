@@ -18,6 +18,7 @@ var connConf = ConnConfig{
 	InterfaceBlackList: nil,
 	Timeout:            time.Second,
 	ProxyConfig:        proxy.Config{},
+	LocalWgPort:        51820,
 }
 
 func TestNewConn_interfaceFilter(t *testing.T) {
@@ -59,9 +60,13 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 
 	go func() {
 		for {
-			accepted := conn.OnRemoteOffer(IceCredentials{
-				UFrag: "test",
-				Pwd:   "test",
+			accepted := conn.OnRemoteOffer(OfferAnswer{
+				IceCredentials: IceCredentials{
+					UFrag: "test",
+					Pwd:   "test",
+				},
+				WgListenPort: 0,
+				Version:      "",
 			})
 			if accepted {
 				wg.Done()
@@ -89,9 +94,13 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 
 	go func() {
 		for {
-			accepted := conn.OnRemoteAnswer(IceCredentials{
-				UFrag: "test",
-				Pwd:   "test",
+			accepted := conn.OnRemoteAnswer(OfferAnswer{
+				IceCredentials: IceCredentials{
+					UFrag: "test",
+					Pwd:   "test",
+				},
+				WgListenPort: 0,
+				Version:      "",
 			})
 			if accepted {
 				wg.Done()
