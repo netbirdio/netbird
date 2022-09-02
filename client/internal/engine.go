@@ -713,7 +713,6 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		WgInterface:  e.wgInterface,
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
-		WgPort:       iface.DefaultWgPort,
 	}
 
 	// randomize connection timeout
@@ -727,6 +726,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		UDPMux:             e.udpMux,
 		UDPMuxSrflx:        e.udpMuxSrflx,
 		ProxyConfig:        proxyConfig,
+		LocalWgPort:        e.config.WgPort,
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder)

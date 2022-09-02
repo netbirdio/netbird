@@ -18,6 +18,7 @@ var connConf = ConnConfig{
 	InterfaceBlackList: nil,
 	Timeout:            time.Second,
 	ProxyConfig:        proxy.Config{},
+	LocalWgPort:        51820,
 }
 
 func TestNewConn_interfaceFilter(t *testing.T) {

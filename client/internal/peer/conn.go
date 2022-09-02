@@ -37,6 +37,8 @@ type ConnConfig struct {
 
 	UDPMux      ice.UDPMux
 	UDPMuxSrflx ice.UniversalUDPMux
+
+	LocalWgPort int
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -231,10 +233,6 @@ func (conn *Conn) Open() error {
 
 	log.Debugf("received connection confirmation from peer %s running version %s and with remote WireGuard listen port %d",
 		conn.config.Key, remoteOfferAnswer.Version, remoteOfferAnswer.WgListenPort)
-	// dynamically set remote WireGuard port is other side specified a different one from the default one
-	if remoteOfferAnswer.WgListenPort != 0 {
-		conn.config.ProxyConfig.WgPort = remoteOfferAnswer.WgListenPort
-	}
 
 	// at this point we received offer/answer and we are ready to gather candidates
 	conn.mu.Lock()
@@ -271,8 +269,13 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
+	// dynamically set remote WireGuard port is other side specified a different one from the default one
+	remoteWgPort := iface.DefaultWgPort
+	if remoteOfferAnswer.WgListenPort != 0 {
+		remoteWgPort = remoteOfferAnswer.WgListenPort
+	}
 	// the ice connection has been established successfully so we are ready to start the proxy
-	err = conn.startProxy(remoteConn)
+	err = conn.startProxy(remoteConn, remoteWgPort)
 	if err != nil {
 		return err
 	}
@@ -337,7 +340,7 @@ func IsPublicIP(ip net.IP) bool {
 }
 
 // startProxy starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) startProxy(remoteConn net.Conn) error {
+func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -354,7 +357,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn) error {
 		p = proxy.NewWireguardProxy(conn.config.ProxyConfig)
 		peerState.Direct = false
 	} else {
-		p = proxy.NewNoProxy(conn.config.ProxyConfig)
+		p = proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
 		peerState.Direct = true
 	}
 	conn.proxy = p
@@ -480,7 +483,7 @@ func (conn *Conn) sendAnswer() error {
 	log.Debugf("sending answer to %s", conn.config.Key)
 	err = conn.signalAnswer(OfferAnswer{
 		IceCredentials: IceCredentials{localUFrag, localPwd},
-		WgListenPort:   conn.config.ProxyConfig.WgPort,
+		WgListenPort:   conn.config.LocalWgPort,
 		Version:        system.NetbirdVersion(),
 	})
 	if err != nil {
@@ -501,7 +504,7 @@ func (conn *Conn) sendOffer() error {
 	}
 	err = conn.signalOffer(OfferAnswer{
 		IceCredentials: IceCredentials{localUFrag, localPwd},
-		WgListenPort:   conn.config.ProxyConfig.WgPort,
+		WgListenPort:   conn.config.LocalWgPort,
 		Version:        system.NetbirdVersion(),
 	})
 	if err != nil {

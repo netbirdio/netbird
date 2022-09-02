@@ -24,7 +24,6 @@ type Config struct {
 	WgInterface  *iface.WGIface
 	AllowedIps   string
 	PreSharedKey *wgtypes.Key
-	WgPort       int
 }
 
 type Proxy interface {
