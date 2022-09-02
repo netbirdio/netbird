@@ -3,6 +3,7 @@ package peer
 import (
 	"context"
 	nbStatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
@@ -45,6 +46,9 @@ type OfferAnswer struct {
 	// This field is used when establishing a direct WireGuard connection without any proxy.
 	// We can set the remote peer's endpoint with this port.
 	WgListenPort int
+
+	// Version of NetBird Agent
+	Version string
 }
 
 // IceCredentials ICE protocol credentials struct
@@ -60,8 +64,8 @@ type Conn struct {
 	// signalCandidate is a handler function to signal remote peer about local connection candidate
 	signalCandidate func(candidate ice.Candidate) error
 	// signalOffer is a handler function to signal remote peer our connection offer (credentials)
-	signalOffer  func(uFrag string, pwd string) error
-	signalAnswer func(uFrag string, pwd string) error
+	signalOffer  func(OfferAnswer) error
+	signalAnswer func(OfferAnswer) error
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -418,12 +422,12 @@ func (conn *Conn) cleanup() error {
 }
 
 // SetSignalOffer sets a handler function to be triggered by Conn when a new connection offer has to be signalled to the remote peer
-func (conn *Conn) SetSignalOffer(handler func(uFrag string, pwd string) error) {
+func (conn *Conn) SetSignalOffer(handler func(offer OfferAnswer) error) {
 	conn.signalOffer = handler
 }
 
 // SetSignalAnswer sets a handler function to be triggered by Conn when a new connection answer has to be signalled to the remote peer
-func (conn *Conn) SetSignalAnswer(handler func(uFrag string, pwd string) error) {
+func (conn *Conn) SetSignalAnswer(handler func(answer OfferAnswer) error) {
 	conn.signalAnswer = handler
 }
 
@@ -469,7 +473,11 @@ func (conn *Conn) sendAnswer() error {
 	}
 
 	log.Debugf("sending answer to %s", conn.config.Key)
-	err = conn.signalAnswer(localUFrag, localPwd)
+	err = conn.signalAnswer(OfferAnswer{
+		IceCredentials: IceCredentials{localUFrag, localPwd},
+		WgListenPort:   conn.config.ProxyConfig.WgPort,
+		Version:        system.NetbirdVersion(),
+	})
 	if err != nil {
 		return err
 	}
@@ -486,7 +494,11 @@ func (conn *Conn) sendOffer() error {
 	if err != nil {
 		return err
 	}
-	err = conn.signalOffer(localUFrag, localPwd)
+	err = conn.signalOffer(OfferAnswer{
+		IceCredentials: IceCredentials{localUFrag, localPwd},
+		WgListenPort:   conn.config.ProxyConfig.WgPort,
+		Version:        system.NetbirdVersion(),
+	})
 	if err != nil {
 		return err
 	}
