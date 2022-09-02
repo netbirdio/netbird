@@ -38,6 +38,15 @@ type ConnConfig struct {
 	UDPMuxSrflx ice.UniversalUDPMux
 }
 
+// OfferAnswer represents a session establishment offer or answer
+type OfferAnswer struct {
+	IceCredentials IceCredentials
+	// WgListenPort is a remote WireGuard listen port.
+	// This field is used when establishing a direct WireGuard connection without any proxy.
+	// We can set the remote peer's endpoint with this port.
+	WgListenPort int
+}
+
 // IceCredentials ICE protocol credentials struct
 type IceCredentials struct {
 	UFrag string
@@ -55,9 +64,9 @@ type Conn struct {
 	signalAnswer func(uFrag string, pwd string) error
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
-	remoteOffersCh chan IceCredentials
+	remoteOffersCh chan OfferAnswer
 	// remoteAnswerCh is a channel used to wait for remote credentials answer (confirmation of our offer) to proceed with the connection
-	remoteAnswerCh     chan IceCredentials
+	remoteAnswerCh     chan OfferAnswer
 	closeCh            chan struct{}
 	ctx                context.Context
 	notifyDisconnected context.CancelFunc
@@ -88,8 +97,8 @@ func NewConn(config ConnConfig, statusRecorder *nbStatus.Status) (*Conn, error) 
 		mu:             sync.Mutex{},
 		status:         StatusDisconnected,
 		closeCh:        make(chan struct{}),
-		remoteOffersCh: make(chan IceCredentials),
-		remoteAnswerCh: make(chan IceCredentials),
+		remoteOffersCh: make(chan OfferAnswer),
+		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
 	}, nil
 }
@@ -200,15 +209,15 @@ func (conn *Conn) Open() error {
 	// Only continue once we got a connection confirmation from the remote peer.
 	// The connection timeout could have happened before a confirmation received from the remote.
 	// The connection could have also been closed externally (e.g. when we received an update from the management that peer shouldn't be connected)
-	var remoteCredentials IceCredentials
+	var remoteOfferAnswer OfferAnswer
 	select {
-	case remoteCredentials = <-conn.remoteOffersCh:
+	case remoteOfferAnswer = <-conn.remoteOffersCh:
 		// received confirmation from the remote peer -> ready to proceed
 		err = conn.sendAnswer()
 		if err != nil {
 			return err
 		}
-	case remoteCredentials = <-conn.remoteAnswerCh:
+	case remoteOfferAnswer = <-conn.remoteAnswerCh:
 	case <-time.After(conn.config.Timeout):
 		return NewConnectionTimeoutError(conn.config.Key, conn.config.Timeout)
 	case <-conn.closeCh:
@@ -245,9 +254,9 @@ func (conn *Conn) Open() error {
 	isControlling := conn.config.LocalKey > conn.config.Key
 	var remoteConn *ice.Conn
 	if isControlling {
-		remoteConn, err = conn.agent.Dial(conn.ctx, remoteCredentials.UFrag, remoteCredentials.Pwd)
+		remoteConn, err = conn.agent.Dial(conn.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	} else {
-		remoteConn, err = conn.agent.Accept(conn.ctx, remoteCredentials.UFrag, remoteCredentials.Pwd)
+		remoteConn, err = conn.agent.Accept(conn.ctx, remoteOfferAnswer.IceCredentials.UFrag, remoteOfferAnswer.IceCredentials.Pwd)
 	}
 	if err != nil {
 		return err
@@ -518,11 +527,11 @@ func (conn *Conn) Status() ConnStatus {
 
 // OnRemoteOffer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) bool {
+func (conn *Conn) OnRemoteOffer(offer OfferAnswer) bool {
 	log.Debugf("OnRemoteOffer from peer %s on status %s", conn.config.Key, conn.status.String())
 
 	select {
-	case conn.remoteOffersCh <- remoteAuth:
+	case conn.remoteOffersCh <- offer:
 		return true
 	default:
 		log.Debugf("OnRemoteOffer skipping message from peer %s on status %s because is not ready", conn.config.Key, conn.status.String())
@@ -533,11 +542,11 @@ func (conn *Conn) OnRemoteOffer(remoteAuth IceCredentials) bool {
 
 // OnRemoteAnswer handles an offer from the remote peer and returns true if the message was accepted, false otherwise
 // doesn't block, discards the message if connection wasn't ready
-func (conn *Conn) OnRemoteAnswer(remoteAuth IceCredentials) bool {
+func (conn *Conn) OnRemoteAnswer(answer OfferAnswer) bool {
 	log.Debugf("OnRemoteAnswer from peer %s on status %s", conn.config.Key, conn.status.String())
 
 	select {
-	case conn.remoteAnswerCh <- remoteAuth:
+	case conn.remoteAnswerCh <- answer:
 		return true
 	default:
 		// connection might not be ready yet to receive so we ignore the message

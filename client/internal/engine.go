@@ -771,30 +771,30 @@ func (e *Engine) receiveSignalEvents() {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
 			}
 
-			if msg.GetBody().GetPort() != 0 {
-				conf := conn.GetConf()
-				conf.ProxyConfig.WgPort = int(msg.GetBody().GetPort())
-				conn.UpdateConf(conf)
-			}
-
 			switch msg.GetBody().Type {
 			case sProto.Body_OFFER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
 				if err != nil {
 					return err
 				}
-				conn.OnRemoteOffer(peer.IceCredentials{
-					UFrag: remoteCred.UFrag,
-					Pwd:   remoteCred.Pwd,
+				conn.OnRemoteOffer(peer.OfferAnswer{
+					IceCredentials: peer.IceCredentials{
+						UFrag: remoteCred.UFrag,
+						Pwd:   remoteCred.Pwd,
+					},
+					WgListenPort: int(msg.GetBody().GetPort()),
 				})
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
 				if err != nil {
 					return err
 				}
-				conn.OnRemoteAnswer(peer.IceCredentials{
-					UFrag: remoteCred.UFrag,
-					Pwd:   remoteCred.Pwd,
+				conn.OnRemoteAnswer(peer.OfferAnswer{
+					IceCredentials: peer.IceCredentials{
+						UFrag: remoteCred.UFrag,
+						Pwd:   remoteCred.Pwd,
+					},
+					WgListenPort: int(msg.GetBody().GetPort()),
 				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
