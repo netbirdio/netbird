@@ -229,7 +229,8 @@ func (conn *Conn) Open() error {
 		return NewConnectionClosedError(conn.config.Key)
 	}
 
-	log.Debugf("received connection confirmation from peer %s", conn.config.Key)
+	log.Debugf("received connection confirmation from peer %s running version %s",
+		conn.config.Key, remoteOfferAnswer.Version)
 
 	// at this point we received offer/answer and we are ready to gather candidates
 	conn.mu.Lock()
