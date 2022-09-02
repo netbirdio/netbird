@@ -459,7 +459,7 @@ func (conn *Conn) sendAnswer() error {
 		return err
 	}
 
-	log.Debugf("sending asnwer to %s", conn.config.Key)
+	log.Debugf("sending answer to %s", conn.config.Key)
 	err = conn.signalAnswer(localUFrag, localPwd)
 	if err != nil {
 		return err

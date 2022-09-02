@@ -388,7 +388,7 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 	return nil
 }
 
-func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
+func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, myPort int, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
 	var t sProto.Body_Type
 	if isAnswer {
 		t = sProto.Body_ANSWER
@@ -396,7 +396,7 @@ func signalAuth(uFrag string, pwd string, myKey wgtypes.Key, remoteKey wgtypes.K
 		t = sProto.Body_OFFER
 	}
 
-	msg, err := signal.MarshalCredential(myKey, remoteKey, &signal.Credential{
+	msg, err := signal.MarshalCredential(myKey, myPort, remoteKey, &signal.Credential{
 		UFrag: uFrag,
 		Pwd:   pwd,
 	}, t)
@@ -713,7 +713,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		WgInterface:  e.wgInterface,
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
-		WgPort:       e.config.WgPort,
+		WgPort:       iface.DefaultWgPort,
 	}
 
 	// randomize connection timeout
@@ -740,7 +740,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	}
 
 	signalOffer := func(uFrag string, pwd string) error {
-		return signalAuth(uFrag, pwd, e.config.WgPrivateKey, wgPubKey, e.signal, false)
+		return signalAuth(uFrag, pwd, e.config.WgPrivateKey, e.config.WgPort, wgPubKey, e.signal, false)
 	}
 
 	signalCandidate := func(candidate ice.Candidate) error {
@@ -748,7 +748,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	}
 
 	signalAnswer := func(uFrag string, pwd string) error {
-		return signalAuth(uFrag, pwd, e.config.WgPrivateKey, wgPubKey, e.signal, true)
+		return signalAuth(uFrag, pwd, e.config.WgPrivateKey, e.config.WgPort, wgPubKey, e.signal, true)
 	}
 
 	peerConn.SetSignalCandidate(signalCandidate)
@@ -769,6 +769,12 @@ func (e *Engine) receiveSignalEvents() {
 			conn := e.peerConns[msg.Key]
 			if conn == nil {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)
+			}
+
+			if msg.GetBody().GetPort() != 0 {
+				conf := conn.GetConf()
+				conf.ProxyConfig.WgPort = int(msg.GetBody().GetPort())
+				conn.UpdateConf(conf)
 			}
 
 			switch msg.GetBody().Type {
