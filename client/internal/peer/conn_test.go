@@ -94,7 +94,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 
 	go func() {
 		for {
-			accepted := conn.OnRemoteOffer(OfferAnswer{
+			accepted := conn.OnRemoteAnswer(OfferAnswer{
 				IceCredentials: IceCredentials{
 					UFrag: "test",
 					Pwd:   "test",
