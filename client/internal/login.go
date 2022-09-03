@@ -26,13 +26,19 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		mgmTlsEnabled = true
 	}
 
-	log.Debugf("connecting to Management Service %s", config.ManagementURL.String())
+	log.Debugf("connecting to the Management service %s", config.ManagementURL.String())
 	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
 	if err != nil {
-		log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
+		log.Errorf("failed connecting to the Management service %s %v", config.ManagementURL.String(), err)
 		return err
 	}
-	log.Debugf("connected to management Service %s", config.ManagementURL.String())
+	log.Debugf("connected to the Management service %s", config.ManagementURL.String())
+	defer func() {
+		err = mgmClient.Close()
+		if err != nil {
+			log.Warnf("failed to close the Management service client %v", err)
+		}
+	}()
 
 	serverKey, err := mgmClient.GetServerPublicKey()
 	if err != nil {
@@ -53,7 +59,7 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 
 	err = mgmClient.Close()
 	if err != nil {
-		log.Errorf("failed closing Management Service client: %v", err)
+		log.Errorf("failed to close the Management service client: %v", err)
 		return err
 	}
 

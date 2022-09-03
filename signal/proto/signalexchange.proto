@@ -49,4 +49,7 @@ message Body {
   }
   Type type = 1;
   string payload = 2;
+  // wgListenPort is an actual WireGuard listen port
+  uint32 wgListenPort = 3;
+  string netBirdVersion = 4;
 }

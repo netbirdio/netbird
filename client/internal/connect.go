@@ -79,9 +79,21 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			cancel()
 		}()
 
+		log.Debugf("conecting to the Management service %s", config.ManagementURL.Host)
+		mgmClient, err := mgm.NewClient(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+		if err != nil {
+			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))
+		}
+		log.Debugf("connected to the Management service %s", config.ManagementURL.Host)
+		defer func() {
+			err = mgmClient.Close()
+			if err != nil {
+				log.Warnf("failed to close the Management service client %v", err)
+			}
+		}()
+
 		// connect (just a connection, no stream yet) and login to Management Service to get an initial global Wiretrustee config
-		mgmClient, loginResp, err := connectToManagement(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled,
-			publicSSHKey)
+		loginResp, err := loginToManagement(engineCtx, mgmClient, publicSSHKey)
 		if err != nil {
 			log.Debug(err)
 			if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
@@ -114,6 +126,12 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			log.Error(err)
 			return wrapErr(err)
 		}
+		defer func() {
+			err = signalClient.Close()
+			if err != nil {
+				log.Warnf("failed closing Signal service client %v", err)
+			}
+		}()
 
 		statusRecorder.MarkSignalConnected(signalURL)
 
@@ -138,18 +156,6 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		<-engineCtx.Done()
 
 		backOff.Reset()
-
-		err = mgmClient.Close()
-		if err != nil {
-			log.Errorf("failed closing Management Service client %v", err)
-			return wrapErr(err)
-		}
-
-		err = signalClient.Close()
-		if err != nil {
-			log.Errorf("failed closing Signal Service client %v", err)
-			return wrapErr(err)
-		}
 
 		err = engine.Stop()
 		if err != nil {
@@ -182,7 +188,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		WgAddr:         peerConfig.Address,
 		IFaceBlackList: config.IFaceBlackList,
 		WgPrivateKey:   key,
-		WgPort:         iface.DefaultWgPort,
+		WgPort:         config.WgPort,
 		SSHKey:         []byte(config.SSHKey),
 	}
 
@@ -215,34 +221,26 @@ func connectToSignal(ctx context.Context, wtConfig *mgmProto.WiretrusteeConfig, 
 	return signalClient, nil
 }
 
-// connectToManagement creates Management Services client, establishes a connection, logs-in and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
-func connectToManagement(ctx context.Context, managementAddr string, ourPrivateKey wgtypes.Key, tlsEnabled bool, pubSSHKey []byte) (*mgm.GrpcClient, *mgmProto.LoginResponse, error) {
-	log.Debugf("connecting to Management Service %s", managementAddr)
-	client, err := mgm.NewClient(ctx, managementAddr, ourPrivateKey, tlsEnabled)
-	if err != nil {
-		return nil, nil, gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err)
-	}
-	log.Debugf("connected to management server %s", managementAddr)
+// loginToManagement creates Management Services client, establishes a connection, logs-in and gets a global Wiretrustee config (signal, turn, stun hosts, etc)
+func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
 
 	serverPublicKey, err := client.GetServerPublicKey()
 	if err != nil {
-		return nil, nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
+		return nil, gstatus.Errorf(codes.FailedPrecondition, "failed while getting Management Service public key: %s", err)
 	}
 
 	sysInfo := system.GetInfo(ctx)
 	loginResp, err := client.Login(*serverPublicKey, sysInfo, pubSSHKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	log.Debugf("peer logged in to Management Service %s", managementAddr)
-
-	return client, loginResp, nil
+	return loginResp, nil
 }
 
-// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
 // ManagementLegacyPort is the port that was used before by the Management gRPC server.
 // It is used for backward compatibility now.
+// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
 const ManagementLegacyPort = 33073
 
 // UpdateOldManagementPort checks whether client can switch to the new Management port 443.
@@ -286,7 +284,12 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 			log.Infof("couldn't switch to the new Management %s", newURL.String())
 			return config, err
 		}
-		defer client.Close() //nolint
+		defer func() {
+			err = client.Close()
+			if err != nil {
+				log.Warnf("failed to close the Management service client %v", err)
+			}
+		}()
 
 		// gRPC check
 		_, err = client.GetServerPublicKey()
