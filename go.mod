@@ -120,5 +120,3 @@ require (
 replace github.com/pion/ice/v2 => github.com/wiretrustee/ice/v2 v2.1.21-0.20220218121004-dc81faead4bb
 
 replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20220901161712-56a6ec08182e
-
-replace github.com/libp2p/go-netroute => /Users/maycon/projects/go-netroute
