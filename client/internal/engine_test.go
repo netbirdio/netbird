@@ -534,7 +534,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				WgPort:       33100,
 			}, nbstatus.NewRecorder())
 			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU)
-
+			assert.NoError(t, err, "shouldn't return error")
 			input := struct {
 				inputSerial uint64
 				inputRoutes []*route.Route
@@ -550,7 +550,12 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 
 			engine.routeManager = mockRouteManager
 
-			defer engine.Stop()
+			defer func() {
+				exitErr := engine.Stop()
+				if exitErr != nil {
+					return
+				}
+			}()
 
 			err = engine.updateNetworkMap(testCase.networkMap)
 			assert.NoError(t, err, "shouldn't return error")
