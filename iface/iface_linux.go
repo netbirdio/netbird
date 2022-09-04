@@ -3,6 +3,7 @@ package iface
 import (
 	"errors"
 	"math"
+	"net"
 	"os"
 	"syscall"
 
@@ -32,6 +33,12 @@ func WireguardModExists() bool {
 
 	return errors.Is(err, syscall.EINVAL)
 }
+func (w *WGIface) CreateNew(sharedSock *net.UDPConn) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.createWithUserspaceNew(sharedSock)
+}
 
 // Create creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
@@ -39,13 +46,7 @@ func (w *WGIface) Create() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if WireguardModExists() {
-		log.Info("using kernel WireGuard")
-		return w.createWithKernel()
-	} else {
-		log.Info("using userspace WireGuard")
-		return w.createWithUserspace()
-	}
+	return w.createWithUserspace()
 }
 
 // createWithKernel Creates a new Wireguard interface using kernel Wireguard module.
