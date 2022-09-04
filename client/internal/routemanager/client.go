@@ -165,7 +165,7 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 		if err != nil {
 			return err
 		}
-		err = removeFromRouteTable(c.network)
+		err = removeFromRouteTableIfNonSystem(c.network, c.wgInterface.Name)
 		if err != nil {
 			return fmt.Errorf("couldn't remove route %s from system, err: %v",
 				c.network, err)
@@ -204,7 +204,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 			return err
 		}
 	} else {
-		err = addToRouteTable(c.network, c.wgInterface.GetAddress().IP.String())
+		err = addToRouteTableIfNoExists(c.network, c.wgInterface.GetAddress().IP.String())
 		if err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
 				c.chosenRoute.Network.String(), c.wgInterface.GetAddress().IP.String(), err)
