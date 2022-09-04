@@ -1,11 +1,14 @@
 package routemanager
 
 import (
+	"fmt"
 	"github.com/libp2p/go-netroute"
 	log "github.com/sirupsen/logrus"
 	"net"
 	"net/netip"
 )
+
+var RouteNotFound = fmt.Errorf("route not found")
 
 func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
 	gatewayIface, err := getExistingRIBRoute(netip.MustParsePrefix("0.0.0.0/0"))
@@ -13,7 +16,7 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
 		return err
 	}
 	iface, err := getExistingRIBRoute(prefix)
-	if err != nil {
+	if err != nil && err != RouteNotFound {
 		return err
 	}
 	if iface != nil && iface.Name != gatewayIface.Name {
@@ -43,7 +46,8 @@ func getExistingRIBRoute(prefix netip.Prefix) (*net.Interface, error) {
 	}
 	iface, _, _, err := r.Route(prefix.Addr().AsSlice())
 	if err != nil {
-		return nil, nil
+		log.Errorf("getting routes returned an error: %v", err)
+		return nil, RouteNotFound
 	}
 	return iface, nil
 }
