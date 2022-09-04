@@ -635,7 +635,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 	err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
 	if err != nil {
-		return err
+		log.Errorf("failed to update routes, err: %v", err)
 	}
 
 	e.networkSerial = serial

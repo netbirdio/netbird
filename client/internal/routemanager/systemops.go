@@ -9,7 +9,6 @@ import (
 )
 
 var errRouteNotFound = fmt.Errorf("route not found")
-var errInterfaceIsNil = fmt.Errorf("interface is nil")
 
 func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
 	gateway, err := getExistingRIBRouteGateway(netip.MustParsePrefix("0.0.0.0/0"))
