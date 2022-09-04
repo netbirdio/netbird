@@ -55,7 +55,9 @@ func TestAddRemoveRoutes(t *testing.T) {
 			routingIface, err = getExistingRIBRoute(testCase.prefix)
 			require.NoError(t, err, "should not return err")
 			if testCase.shouldBeRemoved {
-				require.Nil(t, routingIface, "no interface should be returned because route should've been removed")
+				gatewayIface, err := getExistingRIBRoute(netip.MustParsePrefix("0.0.0.0/0"))
+				require.NoError(t, err)
+				require.Equal(t, gatewayIface.Name, routingIface.Name, "route should be pointing to default gateway interface")
 			} else {
 				require.NotNil(t, routingIface, "interface should be returned because route points to different interface")
 			}
