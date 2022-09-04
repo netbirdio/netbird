@@ -32,7 +32,7 @@ func routeToRouterPair(source string, route *route.Route) routerPair {
 	}
 }
 
-func (m *Manager) removeFromServerNetwork(route *route.Route) error {
+func (m *DefaultManager) removeFromServerNetwork(route *route.Route) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not removing from server network because context is done")
@@ -49,7 +49,7 @@ func (m *Manager) removeFromServerNetwork(route *route.Route) error {
 	}
 }
 
-func (m *Manager) addToServerNetwork(route *route.Route) error {
+func (m *DefaultManager) addToServerNetwork(route *route.Route) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not adding to server network because context is done")

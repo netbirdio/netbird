@@ -12,8 +12,14 @@ import (
 	"sync"
 )
 
-// Manager is an instance of a route manager
-type Manager struct {
+// Manager is a route manager interface
+type Manager interface {
+	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
+	Stop()
+}
+
+// DefaultManager is the default instance of a route manager
+type DefaultManager struct {
 	ctx            context.Context
 	stop           context.CancelFunc
 	mux            sync.Mutex
@@ -26,9 +32,9 @@ type Manager struct {
 }
 
 // NewManager returns a new route manager
-func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *status.Status) *Manager {
+func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *status.Status) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
-	return &Manager{
+	return &DefaultManager{
 		ctx:            mCTX,
 		stop:           cancel,
 		clientNetworks: make(map[string]*clientNetwork),
@@ -45,12 +51,12 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 }
 
 // Stop stops the manager watchers and clean firewall rules
-func (m *Manager) Stop() {
+func (m *DefaultManager) Stop() {
 	m.stop()
 	m.serverRouter.firewall.CleanRoutingRules()
 }
 
-func (m *Manager) updateClientNetworks(updateSerial uint64, networks map[string][]*route.Route) {
+func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks map[string][]*route.Route) {
 	// removing routes that do not exist as per the update from the Management service.
 	for id, client := range m.clientNetworks {
 		_, found := networks[id]
@@ -77,7 +83,7 @@ func (m *Manager) updateClientNetworks(updateSerial uint64, networks map[string]
 	}
 }
 
-func (m *Manager) updateServerRoutes(routesMap map[string]*route.Route) error {
+func (m *DefaultManager) updateServerRoutes(routesMap map[string]*route.Route) error {
 	serverRoutesToRemove := make([]string, 0)
 
 	if len(routesMap) > 0 {
@@ -130,7 +136,7 @@ func (m *Manager) updateServerRoutes(routesMap map[string]*route.Route) error {
 }
 
 // UpdateRoutes compares received routes with existing routes and remove, update or add them to the client and server maps
-func (m *Manager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
+func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not updating routes as context is closed")

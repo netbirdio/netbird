@@ -102,7 +102,7 @@ type Engine struct {
 
 	statusRecorder *nbstatus.Status
 
-	routeManager *routemanager.Manager
+	routeManager routemanager.Manager
 }
 
 // Peer is an instance of the Connection Peer
