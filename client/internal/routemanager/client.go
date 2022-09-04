@@ -165,7 +165,7 @@ func (c *clientNetwork) removeRouteFromPeerAndSystem() error {
 		if err != nil {
 			return err
 		}
-		err = removeFromRouteTableIfNonSystem(c.network, c.wgInterface.Name)
+		err = removeFromRouteTableIfNonSystem(c.network, c.wgInterface.GetAddress().IP.String())
 		if err != nil {
 			return fmt.Errorf("couldn't remove route %s from system, err: %v",
 				c.network, err)

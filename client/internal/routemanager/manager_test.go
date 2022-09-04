@@ -32,7 +32,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 		clientNetworkWatchersExpected int
 	}{
 		{
-			name:            "Happy Client Path",
+			name:            "Should create 2 client networks",
 			inputInitRoutes: []*route.Route{},
 			inputRoutes: []*route.Route{
 				{
@@ -60,7 +60,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			clientNetworkWatchersExpected: 2,
 		},
 		{
-			name: "Happy Server Path",
+			name: "Should Create 2 Server Routes",
 			inputRoutes: []*route.Route{
 				{
 					ID:          "a",
@@ -89,7 +89,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			clientNetworkWatchersExpected: 0,
 		},
 		{
-			name: "Happy Mixed Path",
+			name: "Should Create 1 Route For Client And Server",
 			inputRoutes: []*route.Route{
 				{
 					ID:          "a",
@@ -118,7 +118,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			clientNetworkWatchersExpected: 1,
 		},
 		{
-			name: "Happy HA Client networks",
+			name: "Should Create 1 HA Route and 1 Standalone",
 			inputRoutes: []*route.Route{
 				{
 					ID:          "a",

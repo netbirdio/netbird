@@ -16,7 +16,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 		shouldBeRemoved        bool
 	}{
 		{
-			name:                   "Happy Path Add And Remove Route",
+			name:                   "Should Add And Remove Route",
 			prefix:                 netip.MustParsePrefix("100.66.120.0/24"),
 			shouldRouteToWireguard: true,
 			shouldBeRemoved:        true,
@@ -41,25 +41,27 @@ func TestAddRemoveRoutes(t *testing.T) {
 			err = addToRouteTableIfNoExists(testCase.prefix, wgInterface.GetAddress().IP.String())
 			require.NoError(t, err, "should not return err")
 
-			routingIface, err := getExistingRIBRoute(testCase.prefix)
+			prefixGateway, err := getExistingRIBRouteGateway(testCase.prefix)
 			require.NoError(t, err, "should not return err")
 			if testCase.shouldRouteToWireguard {
-				require.Equal(t, wgInterface.GetName(), routingIface.Name, "route should point to wireguard interface")
+				require.Equal(t, wgInterface.GetAddress().IP.String(), prefixGateway.String(), "route should point to wireguard interface IP")
 			} else {
-				require.NotEqual(t, wgInterface.GetName(), routingIface.Name, "route should point to a different interface")
+				require.NotEqual(t, wgInterface.GetAddress().IP.String(), prefixGateway.String(), "route should point to a different interface")
 			}
 
-			err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.GetName())
+			err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.GetAddress().IP.String())
 			require.NoError(t, err, "should not return err")
 
-			routingIface, err = getExistingRIBRoute(testCase.prefix)
+			prefixGateway, err = getExistingRIBRouteGateway(testCase.prefix)
 			require.NoError(t, err, "should not return err")
+
+			internetGateway, err := getExistingRIBRouteGateway(netip.MustParsePrefix("0.0.0.0/0"))
+			require.NoError(t, err)
+
 			if testCase.shouldBeRemoved {
-				gatewayIface, err := getExistingRIBRoute(netip.MustParsePrefix("0.0.0.0/0"))
-				require.NoError(t, err)
-				require.Equal(t, gatewayIface.Name, routingIface.Name, "route should be pointing to default gateway interface")
+				require.Equal(t, internetGateway, prefixGateway, "route should be pointing to default internet gateway")
 			} else {
-				require.NotNil(t, routingIface, "interface should be returned because route points to different interface")
+				require.NotEqual(t, internetGateway, prefixGateway, "route should be pointing to a different gateway than the internet gateway")
 			}
 		})
 	}
