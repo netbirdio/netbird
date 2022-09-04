@@ -143,23 +143,28 @@ func (i *iptablesManager) addJumpRules() error {
 		return err
 	}
 
+	i.rules[ipv4][ipv4Forwarding] = rule
+
 	rule = append(iptablesDefaultNatRule, ipv4Nat)
 	err = i.ipv4Client.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
 	if err != nil {
 		return err
 	}
+	i.rules[ipv4][ipv4Nat] = rule
 
 	rule = append(iptablesDefaultForwardingRule, ipv6Forwarding)
 	err = i.ipv6Client.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
 	if err != nil {
 		return err
 	}
+	i.rules[ipv6][ipv6Forwarding] = rule
 
 	rule = append(iptablesDefaultNatRule, ipv6Nat)
 	err = i.ipv6Client.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
 	if err != nil {
 		return err
 	}
+	i.rules[ipv6][ipv6Nat] = rule
 
 	return nil
 }
