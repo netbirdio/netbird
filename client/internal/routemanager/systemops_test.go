@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"net/netip"
 	"testing"
-	"time"
 )
 
 func TestAddRemoveRoutes(t *testing.T) {
@@ -49,7 +48,7 @@ func TestAddRemoveRoutes(t *testing.T) {
 			} else {
 				require.NotEqual(t, wgInterface.GetName(), routingIface.Name, "route should point to a different interface")
 			}
-			time.Sleep(90 * time.Second)
+
 			err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.GetName())
 			require.NoError(t, err, "should not return err")
 
