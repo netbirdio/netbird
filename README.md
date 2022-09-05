@@ -16,7 +16,7 @@
    <a href="https://www.codacy.com/gh/netbirdio/netbird/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=netbirdio/netbird&amp;utm_campaign=Badge_Grade"><img src="https://app.codacy.com/project/badge/Grade/e3013d046aec44cdb7462c8673b00976"/></a>
     <br>
     <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A">
-        <img src="https://img.shields.io/badge/slack-@wiretrustee-red.svg?logo=slack"/>
+        <img src="https://img.shields.io/badge/slack-@netbird-red.svg?logo=slack"/>
      </a>    
   </p>
 </div>
