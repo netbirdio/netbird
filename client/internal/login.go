@@ -36,7 +36,10 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 	defer func() {
 		err = mgmClient.Close()
 		if err != nil {
-			log.Warnf("failed to close the Management service client %v", err)
+			cStatus, ok := status.FromError(err)
+			if !ok || ok && cStatus.Code() != codes.Canceled {
+				log.Warnf("failed to close the Management service client, err: %v", err)
+			}
 		}
 	}()
 
