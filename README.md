@@ -43,20 +43,20 @@ It requires zero configuration effort leaving behind the hassle of opening ports
 NetBird creates an overlay peer-to-peer network connecting machines automatically regardless of their location (home, office, datacenter, container, cloud or edge environments) unifying virtual private network management experience.
 
 **Key features:**
--  \[x] Automatic IP allocation and network management with a Web UI ([separate repo](https://github.com/netbirdio/dashboard))
--  \[x] Automatic WireGuard peer (machine) discovery and configuration.
--  \[x] Encrypted peer-to-peer connections without a central VPN gateway.
--  \[x] Connection relay fallback in case a peer-to-peer connection is not possible.
--  \[x] Desktop client applications for Linux, MacOS, and Windows (systray).
--  \[x] Multiuser support - sharing network between multiple users.
--  \[x] SSO and MFA support. 
--  \[x] Multicloud and hybrid-cloud support.
--  \[x] Kernel WireGuard usage when possible.
--  \[x] Access Controls - groups & rules.
--  \[x] Remote SSH access without managing SSH keys.
-  
+- \[x] Automatic IP allocation and network management with a Web UI ([separate repo](https://github.com/netbirdio/dashboard))
+- \[x] Automatic WireGuard peer (machine) discovery and configuration.
+- \[x] Encrypted peer-to-peer connections without a central VPN gateway.
+- \[x] Connection relay fallback in case a peer-to-peer connection is not possible.
+- \[x] Desktop client applications for Linux, MacOS, and Windows (systray).
+- \[x] Multiuser support - sharing network between multiple users.
+- \[x] SSO and MFA support. 
+- \[x] Multicloud and hybrid-cloud support.
+- \[x] Kernel WireGuard usage when possible.
+- \[x] Access Controls - groups & rules.
+- \[x] Remote SSH access without managing SSH keys.
+- \[x] Network Routes.  
+
 **Coming soon:**
--  \[ ] Network Routes.
 -  \[ ] Private DNS.
 -  \[ ] Mobile clients.
 -  \[ ] Network Activity Monitoring.
