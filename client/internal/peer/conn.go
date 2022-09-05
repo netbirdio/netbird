@@ -146,12 +146,12 @@ func (conn *Conn) reCreateAgent() error {
 	conn.agent, err = ice.NewAgent(&ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
-		Urls:             conn.config.StunTurn,
-		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeServerReflexive},
-		FailedTimeout:    &failedTimeout,
-		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
-		UDPMux:           conn.config.UDPMux,
-		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
+		//Urls:             conn.config.StunTurn,
+		CandidateTypes:  []ice.CandidateType{ice.CandidateTypeHost},
+		FailedTimeout:   &failedTimeout,
+		InterfaceFilter: interfaceFilter(conn.config.InterfaceBlackList),
+		UDPMux:          conn.config.UDPMux,
+		UDPMuxSrflx:     conn.config.UDPMuxSrflx,
 	})
 	if err != nil {
 		return err

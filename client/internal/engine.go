@@ -216,16 +216,18 @@ func (s *sharedUDPConn) ReadFrom(buff []byte) (n int, addr net.Addr, err error) 
 	if n, addr, err = s.PacketConn.ReadFrom(buff); err == nil {
 		bytes := make([]byte, n)
 		copy(bytes, buff)
-		if !stun.IsMessage(bytes[:n]) {
+		if !stun.IsMessage(bytes) {
 			e, err := netip.ParseAddrPort(addr.String())
 			if err != nil {
 				return 0, nil, err
 			}
-			s.bind.OnData(bytes, &net.UDPAddr{
+			a := &net.UDPAddr{
 				IP:   e.Addr().AsSlice(),
 				Port: int(e.Port()),
 				Zone: e.Addr().Zone(),
-			})
+			}
+			s.bind.OnData(bytes, a)
+			return 0, a, nil
 		}
 	}
 
@@ -255,17 +257,17 @@ func (e *Engine) Start() error {
 		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
 		return err
 	}
-
+	s := &sharedUDPConn{PacketConn: e.udpMuxConn}
+	bind := iface.NewUserBind(s)
+	s.bind = bind
 	e.udpMuxConnSrflx, err = net.ListenUDP("udp4", &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
 	if err != nil {
 		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
 		return err
 	}
-	e.udpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: e.udpMuxConn})
-	s := &sharedUDPConn{PacketConn: e.udpMuxConnSrflx}
-	bind := iface.NewUserBind(s)
-	s.bind = bind
-	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: s})
+	e.udpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: s})
+
+	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx})
 	err = e.wgInterface.CreateNew(bind)
 	if err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIfaceName, err.Error())
