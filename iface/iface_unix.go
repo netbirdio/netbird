@@ -12,16 +12,13 @@ import (
 	"net"
 )
 
-func (w *WGIface) createWithUserspaceNew(sharedSock *net.UDPConn) error {
+func (w *WGIface) createWithUserspaceNew(bind conn.Bind) error {
 	tunIface, err := tun.CreateTUN(w.Name, w.MTU)
 	if err != nil {
 		return err
 	}
 
 	w.Interface = tunIface
-	bind := &ICEBind{
-		conn: sharedSock,
-	}
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDevice := device.NewDevice(tunIface, bind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))

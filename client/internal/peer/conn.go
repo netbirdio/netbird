@@ -147,7 +147,7 @@ func (conn *Conn) reCreateAgent() error {
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
 		Urls:             conn.config.StunTurn,
-		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
+		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeServerReflexive},
 		FailedTimeout:    &failedTimeout,
 		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
 		UDPMux:           conn.config.UDPMux,
@@ -280,14 +280,7 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
-	if conn.proxy.Type() == proxy.TypeNoProxy {
-		host, _, _ := net.SplitHostPort(remoteConn.LocalAddr().String())
-		rhost, _, _ := net.SplitHostPort(remoteConn.RemoteAddr().String())
-		// direct Wireguard connection
-		log.Infof("directly connected to peer %s [laddr <-> raddr] [%s:%d <-> %s:%d]", conn.config.Key, host, iface.DefaultWgPort, rhost, iface.DefaultWgPort)
-	} else {
-		log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", conn.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
-	}
+	log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", conn.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
@@ -351,15 +344,9 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	}
 
 	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
-	useProxy := shouldUseProxy(pair)
-	var p proxy.Proxy
-	if useProxy {
-		p = proxy.NewWireguardProxy(conn.config.ProxyConfig)
-		peerState.Direct = false
-	} else {
-		p = proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
-		peerState.Direct = true
-	}
+
+	p := proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
+	peerState.Direct = true
 	conn.proxy = p
 	err = p.Start(remoteConn)
 	if err != nil {

@@ -21,6 +21,7 @@ type WGIface struct {
 	Address   WGAddress
 	Interface NetInterface
 	mu        sync.Mutex
+	Bind      *UserBind
 }
 
 // WGAddress Wireguard parsed address

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbstatus "github.com/netbirdio/netbird/client/status"
+	"github.com/pion/stun"
 	"math/rand"
 	"net"
+	"net/netip"
 	"reflect"
 	"runtime"
 	"strings"
@@ -187,6 +189,49 @@ func (e *Engine) Stop() error {
 	return nil
 }
 
+// Matching rules come from
+// https://tools.ietf.org/html/rfc7983
+func isWebRTC(p []byte, n int) bool {
+	if len(p) == 0 {
+		return true
+	} else if p[0] <= 3 { // STUN
+		return true
+	} else if p[0] >= 20 && p[0] <= 63 { // DTLS
+		return true
+	} else if p[0] >= 64 && p[0] <= 79 { // TURN
+		return true
+	} else if p[0] >= 128 && p[0] <= 191 { // RTP and RTCP
+		return true
+	}
+
+	return false
+}
+
+type sharedUDPConn struct {
+	net.PacketConn
+	bind *iface.UserBind
+}
+
+func (s *sharedUDPConn) ReadFrom(buff []byte) (n int, addr net.Addr, err error) {
+	if n, addr, err = s.PacketConn.ReadFrom(buff); err == nil {
+		bytes := make([]byte, n)
+		copy(bytes, buff)
+		if !stun.IsMessage(bytes[:n]) {
+			e, err := netip.ParseAddrPort(addr.String())
+			if err != nil {
+				return 0, nil, err
+			}
+			s.bind.OnData(bytes, &net.UDPAddr{
+				IP:   e.Addr().AsSlice(),
+				Port: int(e.Port()),
+				Zone: e.Addr().Zone(),
+			})
+		}
+	}
+
+	return
+}
+
 // Start creates a new Wireguard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
@@ -216,17 +261,23 @@ func (e *Engine) Start() error {
 		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
 		return err
 	}
-
 	e.udpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: e.udpMuxConn})
-	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx})
-
-	err = e.wgInterface.Create()
+	s := &sharedUDPConn{PacketConn: e.udpMuxConnSrflx}
+	bind := iface.NewUserBind(s)
+	s.bind = bind
+	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: s})
+	err = e.wgInterface.CreateNew(bind)
 	if err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIfaceName, err.Error())
 		return err
 	}
 
-	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
+	log.Infof("shared sock ------------------> %s", s.LocalAddr().String())
+	addrPort, err := netip.ParseAddrPort(s.LocalAddr().String())
+	if err != nil {
+		return err
+	}
+	err = e.wgInterface.Configure(myPrivateKey.String(), int(addrPort.Port()))
 	if err != nil {
 		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
 		return err

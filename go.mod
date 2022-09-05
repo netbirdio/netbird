@@ -36,6 +36,7 @@ require (
 	github.com/gliderlabs/ssh v0.3.4
 	github.com/magiconair/properties v1.8.5
 	github.com/patrickmn/go-cache v2.1.0+incompatible
+	github.com/pion/stun v0.3.5
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.7.1
@@ -81,7 +82,6 @@ require (
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.5 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/stun v0.3.5 // indirect
 	github.com/pion/transport v0.13.0 // indirect
 	github.com/pion/turn/v2 v2.0.7 // indirect
 	github.com/pion/udp v0.1.1 // indirect

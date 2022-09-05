@@ -39,7 +39,6 @@ func (p *NoProxy) Start(remoteConn net.Conn) error {
 	if err != nil {
 		return err
 	}
-	addr.Port = p.RemoteWgListenPort
 	err = p.config.WgInterface.UpdatePeer(p.config.RemoteKey, p.config.AllowedIps, DefaultWgKeepAlive,
 		addr, p.config.PreSharedKey)
 
