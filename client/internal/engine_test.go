@@ -3,11 +3,14 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/route"
 	"github.com/stretchr/testify/assert"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -196,6 +199,7 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		WgPort:       33100,
 	}, nbstatus.NewRecorder())
 	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU)
+	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), engine.wgInterface, engine.statusRecorder)
 
 	type testCase struct {
 		name       string
@@ -423,6 +427,142 @@ func TestEngine_Sync(t *testing.T) {
 		if len(engine.GetPeers()) == 3 && engine.networkSerial == 10 {
 			break
 		}
+	}
+}
+
+func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
+	testCases := []struct {
+		name           string
+		inputErr       error
+		networkMap     *mgmtProto.NetworkMap
+		expectedLen    int
+		expectedRoutes []*route.Route
+		expectedSerial uint64
+	}{
+		{
+			name: "Routes Update Should Be Passed To Manager",
+			networkMap: &mgmtProto.NetworkMap{
+				Serial:             1,
+				PeerConfig:         nil,
+				RemotePeersIsEmpty: false,
+				Routes: []*mgmtProto.Route{
+					{
+						ID:          "a",
+						Network:     "192.168.0.0/24",
+						NetID:       "n1",
+						Peer:        "p1",
+						NetworkType: 1,
+						Masquerade:  false,
+					},
+					{
+						ID:          "b",
+						Network:     "192.168.1.0/24",
+						NetID:       "n2",
+						Peer:        "p1",
+						NetworkType: 1,
+						Masquerade:  false,
+					},
+				},
+			},
+			expectedLen: 2,
+			expectedRoutes: []*route.Route{
+				{
+					ID:          "a",
+					Network:     netip.MustParsePrefix("192.168.0.0/24"),
+					NetID:       "n1",
+					Peer:        "p1",
+					NetworkType: 1,
+					Masquerade:  false,
+				},
+				{
+					ID:          "b",
+					Network:     netip.MustParsePrefix("192.168.1.0/24"),
+					NetID:       "n2",
+					Peer:        "p1",
+					NetworkType: 1,
+					Masquerade:  false,
+				},
+			},
+			expectedSerial: 1,
+		},
+		{
+			name: "Empty Routes Update Should Be Passed",
+			networkMap: &mgmtProto.NetworkMap{
+				Serial:             1,
+				PeerConfig:         nil,
+				RemotePeersIsEmpty: false,
+				Routes:             nil,
+			},
+			expectedLen:    0,
+			expectedRoutes: []*route.Route{},
+			expectedSerial: 1,
+		},
+		{
+			name:     "Error Shouldn't Break Engine",
+			inputErr: fmt.Errorf("mocking error"),
+			networkMap: &mgmtProto.NetworkMap{
+				Serial:             1,
+				PeerConfig:         nil,
+				RemotePeersIsEmpty: false,
+				Routes:             nil,
+			},
+			expectedLen:    0,
+			expectedRoutes: []*route.Route{},
+			expectedSerial: 1,
+		},
+	}
+
+	for n, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// test setup
+			key, err := wgtypes.GeneratePrivateKey()
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
+			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
+
+			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
+				WgIfaceName:  wgIfaceName,
+				WgAddr:       wgAddr,
+				WgPrivateKey: key,
+				WgPort:       33100,
+			}, nbstatus.NewRecorder())
+			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU)
+			assert.NoError(t, err, "shouldn't return error")
+			input := struct {
+				inputSerial uint64
+				inputRoutes []*route.Route
+			}{}
+
+			mockRouteManager := &routemanager.MockManager{
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+					input.inputSerial = updateSerial
+					input.inputRoutes = newRoutes
+					return testCase.inputErr
+				},
+			}
+
+			engine.routeManager = mockRouteManager
+
+			defer func() {
+				exitErr := engine.Stop()
+				if exitErr != nil {
+					return
+				}
+			}()
+
+			err = engine.updateNetworkMap(testCase.networkMap)
+			assert.NoError(t, err, "shouldn't return error")
+			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
+			assert.Len(t, input.inputRoutes, testCase.expectedLen, "routes len should match")
+			assert.Equal(t, testCase.expectedRoutes, input.inputRoutes, "routes should match")
+		})
 	}
 }
 
