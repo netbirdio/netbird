@@ -80,7 +80,7 @@ func (m *UniversalUDPMuxDefault) Type() string {
 }
 
 func (m *UniversalUDPMuxDefault) HandlePacket(p []byte, n int, addr net.Addr) error {
-	if stun.IsMessage(p[:n]) {
+	if stun.IsMessage(p[:20]) {
 		msg := &stun.Message{
 			Raw: append([]byte{}, p[:n]...),
 		}

@@ -85,7 +85,7 @@ func (m *UDPMuxDefault) HandlePacket(p []byte, n int, addr net.Addr) error {
 	m.addressMapMu.Unlock()
 
 	// If we haven't seen this address before but is a STUN packet lookup by ufrag
-	if destinationConn == nil && stun.IsMessage(p[:n]) {
+	if destinationConn == nil && stun.IsMessage(p[:20]) {
 		msg := &stun.Message{
 			Raw: append([]byte{}, p[:n]...),
 		}

@@ -114,7 +114,7 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn, bindMux BindMux) conn.Receiv
 		if err != nil {
 			return 0, nil, err
 		}
-		if !stun.IsMessage(buff[:n]) {
+		if !stun.IsMessage(buff[:20]) {
 			// WireGuard traffic
 			return n, (*conn.StdNetEndpoint)(&net.UDPAddr{
 				IP:   e.Addr().AsSlice(),
