@@ -126,7 +126,7 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn, bindMux BindMux) conn.Receiv
 		b.mu.Lock()
 		if _, ok := b.endpointMap[e.String()]; !ok {
 			b.endpointMap[e.String()] = c
-			log.Infof("added %s endpoint %s", bindMux.Type(), e.Addr().String())
+			log.Infof("added %s endpoint %s", bindMux.Type(), e.String())
 		}
 		b.mu.Unlock()
 
@@ -203,7 +203,7 @@ func (b *ICEBind) Send(buff []byte, endpoint conn.Endpoint) error {
 	b.mu.Unlock()
 	if co == nil {
 		// todo proper handling
-		log.Warnf("conn not found for endpoint %s", endpoint.DstToString())
+		log.Warnf("conn not found for endpoint %s", (*net.UDPAddr)(nend).String())
 		return conn.ErrWrongEndpointType
 	}
 
