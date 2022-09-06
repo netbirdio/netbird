@@ -5,10 +5,7 @@ import (
 	"fmt"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbstatus "github.com/netbirdio/netbird/client/status"
-	"github.com/pion/stun"
 	"math/rand"
-	"net"
-	"net/netip"
 	"reflect"
 	"runtime"
 	"strings"
@@ -161,51 +158,6 @@ func (e *Engine) Stop() error {
 	log.Infof("stopped Netbird Engine")
 
 	return nil
-}
-
-// Matching rules come from
-// https://tools.ietf.org/html/rfc7983
-func isWebRTC(p []byte, n int) bool {
-	if len(p) == 0 {
-		return true
-	} else if p[0] <= 3 { // STUN
-		return true
-	} else if p[0] >= 20 && p[0] <= 63 { // DTLS
-		return true
-	} else if p[0] >= 64 && p[0] <= 79 { // TURN
-		return true
-	} else if p[0] >= 128 && p[0] <= 191 { // RTP and RTCP
-		return true
-	}
-
-	return false
-}
-
-type sharedUDPConn struct {
-	net.PacketConn
-	bind *iface.ICEBind
-}
-
-func (s *sharedUDPConn) ReadFrom(buff []byte) (n int, addr net.Addr, err error) {
-	if n, addr, err = s.PacketConn.ReadFrom(buff); err == nil {
-		bytes := make([]byte, n)
-		copy(bytes, buff)
-		if !stun.IsMessage(bytes) {
-			e, err := netip.ParseAddrPort(addr.String())
-			if err != nil {
-				return 0, nil, err
-			}
-			a := &net.UDPAddr{
-				IP:   e.Addr().AsSlice(),
-				Port: int(e.Port()),
-				Zone: e.Addr().Zone(),
-			}
-			//s.bind.OnData(bytes, a)
-			return 0, a, nil
-		}
-	}
-
-	return
 }
 
 // Start creates a new Wireguard tunnel interface and listens to events from Signal and Management services
