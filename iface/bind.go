@@ -204,7 +204,7 @@ func (b *ICEBind) Send(buff []byte, endpoint conn.Endpoint) error {
 	if co == nil {
 		// todo proper handling
 		log.Warnf("conn not found for endpoint %s", endpoint.DstToString())
-		return nil
+		return conn.ErrWrongEndpointType
 	}
 
 	_, err := co.WriteTo(buff, (*net.UDPAddr)(nend))
