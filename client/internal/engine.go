@@ -89,10 +89,7 @@ type Engine struct {
 
 	wgInterface *iface.WGIface
 
-	udpMux          ice.UDPMux
-	udpMuxSrflx     ice.UniversalUDPMux
-	udpMuxConn      *net.UDPConn
-	udpMuxConnSrflx *net.UDPConn
+	iceMux ice.UniversalUDPMux
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -153,30 +150,6 @@ func (e *Engine) Stop() error {
 		}
 	}
 
-	if e.udpMux != nil {
-		if err := e.udpMux.Close(); err != nil {
-			log.Debugf("close udp mux: %v", err)
-		}
-	}
-
-	if e.udpMuxSrflx != nil {
-		if err := e.udpMuxSrflx.Close(); err != nil {
-			log.Debugf("close server reflexive udp mux: %v", err)
-		}
-	}
-
-	if e.udpMuxConn != nil {
-		if err := e.udpMuxConn.Close(); err != nil {
-			log.Debugf("close udp mux connection: %v", err)
-		}
-	}
-
-	if e.udpMuxConnSrflx != nil {
-		if err := e.udpMuxConnSrflx.Close(); err != nil {
-			log.Debugf("close server reflexive udp mux connection: %v", err)
-		}
-	}
-
 	if !isNil(e.sshServer) {
 		err := e.sshServer.Stop()
 		if err != nil {
@@ -209,7 +182,7 @@ func isWebRTC(p []byte, n int) bool {
 
 type sharedUDPConn struct {
 	net.PacketConn
-	bind *iface.UserBind
+	bind *iface.ICEBind
 }
 
 func (s *sharedUDPConn) ReadFrom(buff []byte) (n int, addr net.Addr, err error) {
@@ -226,7 +199,7 @@ func (s *sharedUDPConn) ReadFrom(buff []byte) (n int, addr net.Addr, err error) 
 				Port: int(e.Port()),
 				Zone: e.Addr().Zone(),
 			}
-			s.bind.OnData(bytes, a)
+			//s.bind.OnData(bytes, a)
 			return 0, a, nil
 		}
 	}
@@ -252,38 +225,31 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	e.udpMuxConn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: e.config.UDPMuxPort})
-	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
-		return err
-	}
-	s := &sharedUDPConn{PacketConn: e.udpMuxConn}
-	bind := iface.NewUserBind(s)
-	s.bind = bind
-	e.udpMuxConnSrflx, err = net.ListenUDP("udp4", &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
-	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
-		return err
-	}
-	e.udpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: s})
-
-	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx})
+	bind := &iface.ICEBind{}
 	err = e.wgInterface.CreateNew(bind)
 	if err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIfaceName, err.Error())
 		return err
 	}
 
-	log.Infof("shared sock ------------------> %s", s.LocalAddr().String())
-	addrPort, err := netip.ParseAddrPort(s.LocalAddr().String())
+	port, err := e.wgInterface.GetListenPort()
 	if err != nil {
 		return err
 	}
-	err = e.wgInterface.Configure(myPrivateKey.String(), int(addrPort.Port()))
+
+	err = e.wgInterface.Configure(myPrivateKey.String(), *port)
 	if err != nil {
 		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
 		return err
 	}
+
+	iceMux, err := bind.GetICEMux()
+	if err != nil {
+		return err
+	}
+	e.iceMux = iceMux
+
+	log.Infof("NetBird Engine started listening on WireGuard port %d", *port)
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -777,8 +743,8 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		StunTurn:           stunTurn,
 		InterfaceBlackList: e.config.IFaceBlackList,
 		Timeout:            timeout,
-		UDPMux:             e.udpMux,
-		UDPMuxSrflx:        e.udpMuxSrflx,
+		UDPMux:             e.iceMux,
+		UDPMuxSrflx:        e.iceMux,
 		ProxyConfig:        proxyConfig,
 		LocalWgPort:        e.config.WgPort,
 	}

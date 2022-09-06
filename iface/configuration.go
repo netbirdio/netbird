@@ -45,7 +45,6 @@ func (w *WGIface) Configure(privateKey string, port int) error {
 		PrivateKey:   &key,
 		ReplacePeers: true,
 		FirewallMark: &fwmark,
-		ListenPort:   &port,
 	}
 
 	err = w.configureDevice(config)
