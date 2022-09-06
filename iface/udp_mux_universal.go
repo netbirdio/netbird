@@ -75,6 +75,10 @@ func (m *UniversalUDPMuxDefault) GetConnForURL(ufrag string, url string) (net.Pa
 	return m.UDPMuxDefault.GetConn(fmt.Sprintf("%s%s", ufrag, url))
 }
 
+func (m *UniversalUDPMuxDefault) Type() string {
+	return "SRFLX"
+}
+
 func (m *UniversalUDPMuxDefault) HandlePacket(p []byte, n int, addr net.Addr) error {
 	if stun.IsMessage(p[:n]) {
 		msg := &stun.Message{

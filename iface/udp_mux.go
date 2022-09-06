@@ -68,6 +68,10 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 	}
 }
 
+func (m *UDPMuxDefault) Type() string {
+	return "HOST"
+}
+
 func (m *UDPMuxDefault) HandlePacket(p []byte, n int, addr net.Addr) error {
 
 	udpAddr, ok := addr.(*net.UDPAddr)
