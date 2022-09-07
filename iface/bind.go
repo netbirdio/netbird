@@ -12,11 +12,6 @@ import (
 	"syscall"
 )
 
-type BindMux interface {
-	HandleSTUNMessage(msg *stun.Message, addr net.Addr) error
-	Type() string
-}
-
 type ICEBind struct {
 	sharedConn net.PacketConn
 	udpMux     *UniversalUDPMuxDefault

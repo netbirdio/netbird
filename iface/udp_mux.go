@@ -68,10 +68,6 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 	}
 }
 
-func (m *UDPMuxDefault) Type() string {
-	return "HOST"
-}
-
 func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) error {
 
 	remoteAddr, ok := addr.(*net.UDPAddr)
@@ -137,7 +133,7 @@ func (m *UDPMuxDefault) GetConn(ufrag string) (net.PacketConn, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	log.Debugf("ICE %s: getting muxed connection for %s", m.Type(), ufrag)
+	log.Debugf("ICE: getting muxed connection for %s", ufrag)
 
 	if m.IsClosed() {
 		return nil, io.ErrClosedPipe
