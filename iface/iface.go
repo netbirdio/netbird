@@ -2,6 +2,10 @@ package iface
 
 import (
 	"fmt"
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/conn"
+	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun"
 	"net"
 	"os"
 	"runtime"
@@ -90,5 +94,51 @@ func (w *WGIface) Close() error {
 		}
 	}
 
+	return nil
+}
+
+func (w *WGIface) CreateNew(bind conn.Bind) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.createWithUserspaceNew(bind)
+}
+
+func (w *WGIface) createWithUserspaceNew(bind conn.Bind) error {
+	tunIface, err := tun.CreateTUN(w.Name, w.MTU)
+	if err != nil {
+		return err
+	}
+
+	w.Interface = tunIface
+
+	// We need to create a wireguard-go device and listen to configuration requests
+	tunDevice := device.NewDevice(tunIface, bind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	err = tunDevice.Up()
+	if err != nil {
+		return err
+	}
+	uapi, err := getUAPI(w.Name)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for {
+			uapiConn, uapiErr := uapi.Accept()
+			if uapiErr != nil {
+				log.Traceln("uapi Accept failed with error: ", uapiErr)
+				continue
+			}
+			go tunDevice.IpcHandle(uapiConn)
+		}
+	}()
+
+	log.Debugln("UAPI listener started")
+
+	err = w.assignAddr()
+	if err != nil {
+		return err
+	}
 	return nil
 }

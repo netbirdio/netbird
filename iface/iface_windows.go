@@ -4,6 +4,7 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
+	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/windows/driver"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 	"net"
@@ -61,4 +62,9 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 // WireguardModExists check if we can load wireguard mod (linux only)
 func WireguardModExists() bool {
 	return false
+}
+
+// getUAPI returns a Listener
+func getUAPI(iface string) (net.Listener, error) {
+	return ipc.UAPIListen(iface)
 }

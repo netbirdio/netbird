@@ -2,7 +2,6 @@ package iface
 
 import (
 	"errors"
-	"golang.zx2c4.com/wireguard/conn"
 	"math"
 	"os"
 	"syscall"
@@ -32,12 +31,6 @@ func WireguardModExists() bool {
 	err := netlink.LinkAdd(link)
 
 	return errors.Is(err, syscall.EINVAL)
-}
-func (w *WGIface) CreateNew(bind conn.Bind) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	return w.createWithUserspaceNew(bind)
 }
 
 // Create creates a new Wireguard interface, sets a given IP and brings it up.
