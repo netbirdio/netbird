@@ -200,12 +200,16 @@ func (b *ICEBind) Send(buff []byte, endpoint conn.Endpoint) error {
 
 	b.mu.Lock()
 	co := b.endpointMap[(*net.UDPAddr)(nend).String()]
-	b.mu.Unlock()
+
 	if co == nil {
 		// todo proper handling
+		// todo without it relayed connections didn't work. investigate
 		log.Warnf("conn not found for endpoint %s", (*net.UDPAddr)(nend).String())
-		return conn.ErrWrongEndpointType
+		co = b.sharedConn
+		b.endpointMap[(*net.UDPAddr)(nend).String()] = b.sharedConn
+		//return conn.ErrWrongEndpointType
 	}
+	b.mu.Unlock()
 
 	_, err := co.WriteTo(buff, (*net.UDPAddr)(nend))
 	return err

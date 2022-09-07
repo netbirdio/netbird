@@ -219,6 +219,7 @@ func (e *Engine) Start() error {
 	log.Infof("NetBird Engine started listening on WireGuard port %d", *port)
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
+	e.config.WgPort = *port
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()

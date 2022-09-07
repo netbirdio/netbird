@@ -345,8 +345,15 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 
 	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
 
-	p := proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
-	peerState.Direct = true
+	var p proxy.Proxy
+	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
+		p = proxy.NewWireguardProxy(conn.config.ProxyConfig)
+		peerState.Direct = false
+	} else {
+		p = proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
+		peerState.Direct = true
+	}
+
 	conn.proxy = p
 	err = p.Start(remoteConn)
 	if err != nil {
