@@ -88,8 +88,7 @@ type Engine struct {
 
 	wgInterface *iface.WGIface
 
-	iceMux     ice.UniversalUDPMux
-	iceHostMux ice.UDPMux
+	iceMux ice.UniversalUDPMux
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -209,12 +208,6 @@ func (e *Engine) Start() error {
 		return err
 	}
 	e.iceMux = iceMux
-
-	/*iceHostMux, err := bind.GetICEHostMux()
-	if err != nil {
-		return err
-	}*/
-	e.iceHostMux = iceMux
 
 	log.Infof("NetBird Engine started listening on WireGuard port %d", *port)
 
@@ -739,7 +732,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		StunTurn:           stunTurn,
 		InterfaceBlackList: e.config.IFaceBlackList,
 		Timeout:            timeout,
-		UDPMux:             e.iceHostMux,
+		UDPMux:             e.iceMux,
 		UDPMuxSrflx:        e.iceMux,
 		ProxyConfig:        proxyConfig,
 		LocalWgPort:        e.config.WgPort,
