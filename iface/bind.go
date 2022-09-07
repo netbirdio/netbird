@@ -18,10 +18,9 @@ type BindMux interface {
 }
 
 type ICEBind struct {
-	sharedConn     net.PacketConn
-	sharedConnHost net.PacketConn
-	iceSrflxMux    *UniversalUDPMuxDefault
-	iceHostMux     *UDPMuxDefault
+	sharedConn net.PacketConn
+	udpMux     *UniversalUDPMuxDefault
+	iceHostMux *UDPMuxDefault
 
 	endpointMap map[string]net.PacketConn
 
@@ -31,11 +30,11 @@ type ICEBind struct {
 func (b *ICEBind) GetICEMux() (UniversalUDPMux, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.iceSrflxMux == nil {
+	if b.udpMux == nil {
 		return nil, fmt.Errorf("ICEBind has not been initialized yet")
 	}
 
-	return b.iceSrflxMux, nil
+	return b.udpMux, nil
 }
 
 func (b *ICEBind) GetICEHostMux() (UDPMux, error) {
@@ -55,9 +54,6 @@ func (b *ICEBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	if b.sharedConn != nil {
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
-	if b.sharedConnHost != nil {
-		return nil, 0, conn.ErrBindAlreadyOpen
-	}
 
 	b.endpointMap = make(map[string]net.PacketConn)
 
@@ -66,24 +62,20 @@ func (b *ICEBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return nil, 0, err
 	}
-	ipv4ConnHost, port, err := listenNet("udp4", 0)
-	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
-		return nil, 0, err
-	}
 	b.sharedConn = ipv4Conn
-	b.sharedConnHost = ipv4ConnHost
-	b.iceSrflxMux = NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: b.sharedConn})
-	b.iceHostMux = NewUDPMuxDefault(UDPMuxParams{UDPConn: b.sharedConnHost})
+	b.udpMux = NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: b.sharedConn})
 
-	portAddr, err := netip.ParseAddrPort(ipv4Conn.LocalAddr().String())
+	portAddr1, err := netip.ParseAddrPort(ipv4Conn.LocalAddr().String())
 	if err != nil {
 		return nil, 0, err
 	}
+
+	log.Infof("opened ICEBind on %s", ipv4Conn.LocalAddr().String())
+
 	return []conn.ReceiveFunc{
-			b.makeReceiveIPv4(b.sharedConn, b.iceSrflxMux),
-			b.makeReceiveIPv4(b.sharedConnHost, b.iceHostMux),
+			b.makeReceiveIPv4(b.sharedConn),
 		},
-		portAddr.Port(), nil
+		portAddr1.Port(), nil
 }
 
 func listenNet(network string, port int) (*net.UDPConn, int, error) {
@@ -104,7 +96,7 @@ func listenNet(network string, port int) (*net.UDPConn, int, error) {
 	return conn, uaddr.Port, nil
 }
 
-func (b *ICEBind) makeReceiveIPv4(c net.PacketConn, bindMux BindMux) conn.ReceiveFunc {
+func (b *ICEBind) makeReceiveIPv4(c net.PacketConn) conn.ReceiveFunc {
 	return func(buff []byte) (int, conn.Endpoint, error) {
 		n, endpoint, err := c.ReadFrom(buff)
 		if err != nil {
@@ -122,15 +114,37 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn, bindMux BindMux) conn.Receiv
 				Zone: e.Addr().Zone(),
 			}), nil
 		}
-
 		b.mu.Lock()
+
+		/*	msg := &stun.Message{
+				Raw: append([]byte{}, buff[:n]...),
+			}
+			if err := msg.Decode(); err != nil {
+				return 0, nil, err
+			}
+			strAttrs := []string{}
+			for _, attribute := range msg.Attributes {
+				strAttrs = append(strAttrs, attribute.String())
+			}
+
+			xorMapped := "EMPTY"
+			_, err = msg.Get(stun.AttrXORMappedAddress)
+			if err == nil {
+				var addr stun.XORMappedAddress
+				if err := addr.GetFrom(msg); err == nil {
+					xorMapped = addr.String()
+				}
+			}
+
+			log.Printf("endpoint %s XORMAPPED %s mux type %s msg type %s, attributes %s", endpoint.String(), xorMapped, bindMux.Type(), msg.Type.String(), strings.Join(strAttrs[:], ";"))
+		*/
 		if _, ok := b.endpointMap[e.String()]; !ok {
 			b.endpointMap[e.String()] = c
-			log.Infof("added %s endpoint %s", bindMux.Type(), e.String())
+			log.Infof("added endpoint %s", e.String())
 		}
 		b.mu.Unlock()
 
-		err = bindMux.HandlePacket(buff, n, endpoint)
+		err = b.udpMux.HandlePacket(buff, n, endpoint)
 		if err != nil {
 			return 0, nil, err
 		}
@@ -147,43 +161,24 @@ func (b *ICEBind) Close() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	var err1, err2, err3, err4 error
+	var err1, err2 error
 	if b.sharedConn != nil {
 		c := b.sharedConn
 		b.sharedConn = nil
 		err1 = c.Close()
 	}
-	if b.sharedConnHost != nil {
-		c := b.sharedConnHost
-		b.sharedConnHost = nil
-		err2 = c.Close()
-	}
 
-	if b.iceSrflxMux != nil {
-		m := b.iceSrflxMux
-		b.iceSrflxMux = nil
-		err3 = m.Close()
+	if b.udpMux != nil {
+		m := b.udpMux
+		b.udpMux = nil
+		err2 = m.Close()
 	}
-
-	if b.iceHostMux != nil {
-		m := b.iceHostMux
-		b.iceHostMux = nil
-		err4 = m.Close()
-	}
-
-	//todo close iceSrflxMux
 
 	if err1 != nil {
 		return err1
 	}
-	if err2 != nil {
-		return err2
-	}
-	if err3 != nil {
-		return err3
-	}
 
-	return err4
+	return err2
 }
 
 // SetMark sets the mark for each packet sent through this Bind.

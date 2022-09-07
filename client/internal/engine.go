@@ -210,11 +210,11 @@ func (e *Engine) Start() error {
 	}
 	e.iceMux = iceMux
 
-	iceHostMux, err := bind.GetICEHostMux()
+	/*iceHostMux, err := bind.GetICEHostMux()
 	if err != nil {
 		return err
-	}
-	e.iceHostMux = iceHostMux
+	}*/
+	e.iceHostMux = iceMux
 
 	log.Infof("NetBird Engine started listening on WireGuard port %d", *port)
 

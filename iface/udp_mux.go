@@ -32,7 +32,7 @@ type UDPMuxDefault struct {
 	conns map[string]*udpMuxedConn
 
 	addressMapMu sync.RWMutex
-	addressMap   map[string]*udpMuxedConn
+	addressMap   map[string][]*udpMuxedConn
 
 	// buffer pool to recycle buffers for net.UDPAddr encodes/decodes
 	pool *sync.Pool
@@ -55,7 +55,7 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 	}
 
 	return &UDPMuxDefault{
-		addressMap: map[string]*udpMuxedConn{},
+		addressMap: map[string][]*udpMuxedConn{},
 		params:     params,
 		conns:      make(map[string]*udpMuxedConn),
 		closedChan: make(chan struct{}, 1),
@@ -81,11 +81,19 @@ func (m *UDPMuxDefault) HandlePacket(p []byte, n int, addr net.Addr) error {
 
 	// If we have already seen this address dispatch to the appropriate destination
 	m.addressMapMu.Lock()
-	destinationConn := m.addressMap[addr.String()]
+	var destinationConnList []*udpMuxedConn
+	if storedConns, ok := m.addressMap[addr.String()]; ok {
+		for _, conn := range storedConns {
+			destinationConnList = append(destinationConnList, conn)
+		}
+	}
 	m.addressMapMu.Unlock()
 
 	// If we haven't seen this address before but is a STUN packet lookup by ufrag
-	if destinationConn == nil && stun.IsMessage(p[:20]) {
+	if stun.IsMessage(p[:20]) {
+		// This block is needed to discover Peer Reflexive Candidates for which we don't know the Endpoint upfront.
+		// However, we can take a username attribute from the STUN message which contains ufrag.
+		// We can use ufrag to identify the destination conn to route packet to.
 		msg := &stun.Message{
 			Raw: append([]byte{}, p[:n]...),
 		}
@@ -96,25 +104,32 @@ func (m *UDPMuxDefault) HandlePacket(p []byte, n int, addr net.Addr) error {
 		}
 
 		attr, stunAttrErr := msg.Get(stun.AttrUsername)
-		if stunAttrErr != nil {
-			log.Warnf("No Username attribute in STUN message from %s\n", addr.String())
-			return stunAttrErr
+		if stunAttrErr == nil {
+			ufrag := strings.Split(string(attr), ":")[0]
+
+			m.mu.Lock()
+			if destinationConn, ok := m.conns[ufrag]; ok {
+				exists := false
+				for _, conn := range destinationConnList {
+					if conn.params.Key == destinationConn.params.Key {
+						exists = true
+						break
+					}
+				}
+				if !exists {
+					destinationConnList = append(destinationConnList, destinationConn)
+				}
+			}
+			m.mu.Unlock()
+		} else {
+			//log.Warnf("No Username attribute in STUN message from %s\n", addr.String())
 		}
-
-		ufrag := strings.Split(string(attr), ":")[0]
-
-		m.mu.Lock()
-		destinationConn = m.conns[ufrag]
-		m.mu.Unlock()
 	}
 
-	if destinationConn == nil {
-		log.Tracef("dropping packet from %s, addr: %s", udpAddr.String(), addr.String())
-		return nil
-	}
-
-	if err := destinationConn.writePacket(p[:n], udpAddr); err != nil {
-		log.Errorf("could not write packet: %v", err)
+	for _, conn := range destinationConnList {
+		if err := conn.writePacket(p[:n], udpAddr); err != nil {
+			log.Errorf("could not write packet: %v", err)
+		}
 	}
 
 	return nil
@@ -130,6 +145,8 @@ func (m *UDPMuxDefault) LocalAddr() net.Addr {
 func (m *UDPMuxDefault) GetConn(ufrag string) (net.PacketConn, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	log.Debugf("ICE %s: getting muxed connection for %s", m.Type(), ufrag)
 
 	if m.IsClosed() {
 		return nil, io.ErrClosedPipe
@@ -219,7 +236,15 @@ func (m *UDPMuxDefault) removeConn(key string) {
 
 	addresses := c.getAddresses()
 	for _, addr := range addresses {
-		delete(m.addressMap, addr)
+		if connList, ok := m.addressMap[addr]; ok {
+			var newList []*udpMuxedConn
+			for _, conn := range connList {
+				if conn.params.Key != key {
+					newList = append(newList, conn)
+				}
+			}
+			m.addressMap[addr] = newList
+		}
 	}
 }
 
@@ -236,12 +261,13 @@ func (m *UDPMuxDefault) registerConnForAddress(conn *udpMuxedConn, addr string) 
 	defer m.addressMapMu.Unlock()
 
 	existing, ok := m.addressMap[addr]
-	if ok {
-		existing.removeAddress(addr)
+	if !ok {
+		existing = []*udpMuxedConn{}
 	}
-	m.addressMap[addr] = conn
+	existing = append(existing, conn)
+	m.addressMap[addr] = existing
 
-	m.params.Logger.Debugf("Registered %s for %s", addr, conn.params.Key)
+	log.Debugf("ICE: registered %s for %s", addr, conn.params.Key)
 }
 
 func (m *UDPMuxDefault) createMuxedConn(key string) *udpMuxedConn {
@@ -252,6 +278,7 @@ func (m *UDPMuxDefault) createMuxedConn(key string) *udpMuxedConn {
 		LocalAddr: m.LocalAddr(),
 		Logger:    m.params.Logger,
 	})
+	log.Debugf("ICE: created muxed connection %s for %s", c.LocalAddr().String(), key)
 	return c
 }
 
