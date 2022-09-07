@@ -22,8 +22,6 @@ type ICEBind struct {
 	udpMux     *UniversalUDPMuxDefault
 	iceHostMux *UDPMuxDefault
 
-	endpointMap map[string]net.PacketConn
-
 	mu sync.Mutex // protects following fields
 }
 
@@ -54,8 +52,6 @@ func (b *ICEBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	if b.sharedConn != nil {
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
-
-	b.endpointMap = make(map[string]net.PacketConn)
 
 	port := int(uport)
 	ipv4Conn, port, err := listenNet("udp4", port)
@@ -131,13 +127,6 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn) conn.ReceiveFunc {
 			return 0, nil, err
 		}
 
-		b.mu.Lock()
-		if _, ok := b.endpointMap[e.String()]; !ok {
-			b.endpointMap[e.String()] = c
-			log.Infof("added endpoint %s", e.String())
-		}
-		b.mu.Unlock()
-
 		err = b.udpMux.HandleSTUNMessage(msg, endpoint)
 		if err != nil {
 			return 0, nil, err
@@ -186,21 +175,7 @@ func (b *ICEBind) Send(buff []byte, endpoint conn.Endpoint) error {
 	if !ok {
 		return conn.ErrWrongEndpointType
 	}
-
-	b.mu.Lock()
-	co := b.endpointMap[(*net.UDPAddr)(nend).String()]
-
-	if co == nil {
-		// todo proper handling
-		// todo without it relayed connections didn't work. investigate
-		log.Warnf("conn not found for endpoint %s", (*net.UDPAddr)(nend).String())
-		co = b.sharedConn
-		b.endpointMap[(*net.UDPAddr)(nend).String()] = b.sharedConn
-		//return conn.ErrWrongEndpointType
-	}
-	b.mu.Unlock()
-
-	_, err := co.WriteTo(buff, (*net.UDPAddr)(nend))
+	_, err := b.sharedConn.WriteTo(buff, (*net.UDPAddr)(nend))
 	return err
 }
 
