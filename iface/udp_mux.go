@@ -72,7 +72,7 @@ func (m *UDPMuxDefault) Type() string {
 	return "HOST"
 }
 
-func (m *UDPMuxDefault) HandlePacket(p []byte, n int, addr net.Addr) error {
+func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) error {
 
 	udpAddr, ok := addr.(*net.UDPAddr)
 	if !ok {
@@ -89,45 +89,32 @@ func (m *UDPMuxDefault) HandlePacket(p []byte, n int, addr net.Addr) error {
 	}
 	m.addressMapMu.Unlock()
 
-	// If we haven't seen this address before but is a STUN packet lookup by ufrag
-	if stun.IsMessage(p[:20]) {
-		// This block is needed to discover Peer Reflexive Candidates for which we don't know the Endpoint upfront.
-		// However, we can take a username attribute from the STUN message which contains ufrag.
-		// We can use ufrag to identify the destination conn to route packet to.
-		msg := &stun.Message{
-			Raw: append([]byte{}, p[:n]...),
-		}
+	// This block is needed to discover Peer Reflexive Candidates for which we don't know the Endpoint upfront.
+	// However, we can take a username attribute from the STUN message which contains ufrag.
+	// We can use ufrag to identify the destination conn to route packet to.
 
-		if err := msg.Decode(); err != nil {
-			log.Warnf("Failed to handle decode ICE from %s: %v\n", addr.String(), err)
-			return err
-		}
+	attr, stunAttrErr := msg.Get(stun.AttrUsername)
+	if stunAttrErr == nil {
+		ufrag := strings.Split(string(attr), ":")[0]
 
-		attr, stunAttrErr := msg.Get(stun.AttrUsername)
-		if stunAttrErr == nil {
-			ufrag := strings.Split(string(attr), ":")[0]
-
-			m.mu.Lock()
-			if destinationConn, ok := m.conns[ufrag]; ok {
-				exists := false
-				for _, conn := range destinationConnList {
-					if conn.params.Key == destinationConn.params.Key {
-						exists = true
-						break
-					}
-				}
-				if !exists {
-					destinationConnList = append(destinationConnList, destinationConn)
+		m.mu.Lock()
+		if destinationConn, ok := m.conns[ufrag]; ok {
+			exists := false
+			for _, conn := range destinationConnList {
+				if conn.params.Key == destinationConn.params.Key {
+					exists = true
+					break
 				}
 			}
-			m.mu.Unlock()
-		} else {
-			//log.Warnf("No Username attribute in STUN message from %s\n", addr.String())
+			if !exists {
+				destinationConnList = append(destinationConnList, destinationConn)
+			}
 		}
+		m.mu.Unlock()
 	}
 
 	for _, conn := range destinationConnList {
-		if err := conn.writePacket(p[:n], udpAddr); err != nil {
+		if err := conn.writePacket(msg.Raw, udpAddr); err != nil {
 			log.Errorf("could not write packet: %v", err)
 		}
 	}

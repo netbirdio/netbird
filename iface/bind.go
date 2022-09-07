@@ -13,7 +13,7 @@ import (
 )
 
 type BindMux interface {
-	HandlePacket(p []byte, n int, addr net.Addr) error
+	HandleSTUNMessage(msg *stun.Message, addr net.Addr) error
 	Type() string
 }
 
@@ -96,6 +96,17 @@ func listenNet(network string, port int) (*net.UDPConn, int, error) {
 	return conn, uaddr.Port, nil
 }
 
+func parseStunMessage(raw []byte) (*stun.Message, error) {
+	msg := &stun.Message{
+		Raw: append([]byte{}, raw...),
+	}
+	if err := msg.Decode(); err != nil {
+		return nil, err
+	}
+
+	return msg, nil
+}
+
 func (b *ICEBind) makeReceiveIPv4(c net.PacketConn) conn.ReceiveFunc {
 	return func(buff []byte) (int, conn.Endpoint, error) {
 		n, endpoint, err := c.ReadFrom(buff)
@@ -114,37 +125,20 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn) conn.ReceiveFunc {
 				Zone: e.Addr().Zone(),
 			}), nil
 		}
+
+		msg, err := parseStunMessage(buff[:n])
+		if err != nil {
+			return 0, nil, err
+		}
+
 		b.mu.Lock()
-
-		/*	msg := &stun.Message{
-				Raw: append([]byte{}, buff[:n]...),
-			}
-			if err := msg.Decode(); err != nil {
-				return 0, nil, err
-			}
-			strAttrs := []string{}
-			for _, attribute := range msg.Attributes {
-				strAttrs = append(strAttrs, attribute.String())
-			}
-
-			xorMapped := "EMPTY"
-			_, err = msg.Get(stun.AttrXORMappedAddress)
-			if err == nil {
-				var addr stun.XORMappedAddress
-				if err := addr.GetFrom(msg); err == nil {
-					xorMapped = addr.String()
-				}
-			}
-
-			log.Printf("endpoint %s XORMAPPED %s mux type %s msg type %s, attributes %s", endpoint.String(), xorMapped, bindMux.Type(), msg.Type.String(), strings.Join(strAttrs[:], ";"))
-		*/
 		if _, ok := b.endpointMap[e.String()]; !ok {
 			b.endpointMap[e.String()] = c
 			log.Infof("added endpoint %s", e.String())
 		}
 		b.mu.Unlock()
 
-		err = b.udpMux.HandlePacket(buff, n, endpoint)
+		err = b.udpMux.HandleSTUNMessage(msg, endpoint)
 		if err != nil {
 			return 0, nil, err
 		}

@@ -79,34 +79,23 @@ func (m *UniversalUDPMuxDefault) Type() string {
 	return "SRFLX"
 }
 
-func (m *UniversalUDPMuxDefault) HandlePacket(p []byte, n int, addr net.Addr) error {
-	if stun.IsMessage(p[:20]) {
-		msg := &stun.Message{
-			Raw: append([]byte{}, p[:n]...),
-		}
+func (m *UniversalUDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) error {
 
-		if err := msg.Decode(); err != nil {
-			log.Warnf("Failed to handle decode ICE from %s: %v\n", addr.String(), err)
-			// todo proper error
-			return nil
-		}
-
-		udpAddr, ok := addr.(*net.UDPAddr)
-		if !ok {
-			// message about this err will be logged in the UDPMux
-			return nil
-		}
-
-		if m.isXORMappedResponse(msg, udpAddr.String()) {
-			err := m.handleXORMappedResponse(udpAddr, msg)
-			if err != nil {
-				log.Debugf("%w: %v", errors.New("failed to get XOR-MAPPED-ADDRESS response"), err)
-				return nil
-			}
-			return nil
-		}
+	udpAddr, ok := addr.(*net.UDPAddr)
+	if !ok {
+		// message about this err will be logged in the UDPMux
+		return nil
 	}
-	return m.UDPMuxDefault.HandlePacket(p, n, addr)
+
+	if m.isXORMappedResponse(msg, udpAddr.String()) {
+		err := m.handleXORMappedResponse(udpAddr, msg)
+		if err != nil {
+			log.Debugf("%w: %v", errors.New("failed to get XOR-MAPPED-ADDRESS response"), err)
+			return nil
+		}
+		return nil
+	}
+	return m.UDPMuxDefault.HandleSTUNMessage(msg, addr)
 }
 
 // isXORMappedResponse indicates whether the message is a XORMappedAddress and is coming from the known STUN server.
