@@ -96,7 +96,7 @@ func listenNet(network string, port int) (*net.UDPConn, int, error) {
 	return conn, uaddr.Port, nil
 }
 
-func parseStunMessage(raw []byte) (*stun.Message, error) {
+func parseSTUNMessage(raw []byte) (*stun.Message, error) {
 	msg := &stun.Message{
 		Raw: append([]byte{}, raw...),
 	}
@@ -126,7 +126,7 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn) conn.ReceiveFunc {
 			}), nil
 		}
 
-		msg, err := parseStunMessage(buff[:n])
+		msg, err := parseSTUNMessage(buff[:n])
 		if err != nil {
 			return 0, nil, err
 		}

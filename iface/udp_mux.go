@@ -74,12 +74,15 @@ func (m *UDPMuxDefault) Type() string {
 
 func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) error {
 
-	udpAddr, ok := addr.(*net.UDPAddr)
+	remoteAddr, ok := addr.(*net.UDPAddr)
 	if !ok {
 		return fmt.Errorf("underlying PacketConn did not return a UDPAddr")
 	}
 
 	// If we have already seen this address dispatch to the appropriate destination
+	// If you are using the same socket for the Host and SRFLX candidates, it might be that there are more than one
+	// muxed connection - one for the SRFLX candidate and the other one for the HOST one.
+	// We will then forward STUN packets to each of these connections.
 	m.addressMapMu.Lock()
 	var destinationConnList []*udpMuxedConn
 	if storedConns, ok := m.addressMap[addr.String()]; ok {
@@ -92,7 +95,6 @@ func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) erro
 	// This block is needed to discover Peer Reflexive Candidates for which we don't know the Endpoint upfront.
 	// However, we can take a username attribute from the STUN message which contains ufrag.
 	// We can use ufrag to identify the destination conn to route packet to.
-
 	attr, stunAttrErr := msg.Get(stun.AttrUsername)
 	if stunAttrErr == nil {
 		ufrag := strings.Split(string(attr), ":")[0]
@@ -113,8 +115,10 @@ func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) erro
 		m.mu.Unlock()
 	}
 
+	// Forward STUN packets to each destination connections even thought the STUN packet might not belong there.
+	// It will be discarded by the further ICE candidate logic if so.
 	for _, conn := range destinationConnList {
-		if err := conn.writePacket(msg.Raw, udpAddr); err != nil {
+		if err := conn.writePacket(msg.Raw, remoteAddr); err != nil {
 			log.Errorf("could not write packet: %v", err)
 		}
 	}
