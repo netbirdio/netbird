@@ -30,10 +30,13 @@ require (
 require (
 	fyne.io/fyne/v2 v2.1.4
 	github.com/c-robinson/iplib v1.0.3
+	github.com/coreos/go-iptables v0.6.0
 	github.com/creack/pty v1.1.18
 	github.com/eko/gocache/v2 v2.3.1
 	github.com/getlantern/systray v1.2.1
 	github.com/gliderlabs/ssh v0.3.4
+	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
+	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pion/logging v0.2.2
@@ -71,6 +74,7 @@ require (
 	github.com/godbus/dbus/v5 v5.0.4 // indirect
 	github.com/goki/freetype v0.0.0-20181231101311-fa8a33aabaff // indirect
 	github.com/google/go-cmp v0.5.7 // indirect
+	github.com/google/gopacket v1.1.19 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/josharian/native v0.0.0-20200817173448-b6b71def0850 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
@@ -118,4 +122,4 @@ require (
 
 replace github.com/pion/ice/v2 => github.com/wiretrustee/ice/v2 v2.1.21-0.20220218121004-dc81faead4bb
 
-replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20220901161712-56a6ec08182e
+replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20220905002524-6ac14ad5ea84

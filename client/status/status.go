@@ -47,17 +47,19 @@ type FullStatus struct {
 
 // Status holds a state of peers, signal and management connections
 type Status struct {
-	mux        sync.Mutex
-	peers      map[string]PeerState
-	signal     SignalState
-	management ManagementState
-	localPeer  LocalPeerState
+	mux          sync.Mutex
+	peers        map[string]PeerState
+	changeNotify map[string]chan struct{}
+	signal       SignalState
+	management   ManagementState
+	localPeer    LocalPeerState
 }
 
 // NewRecorder returns a new Status instance
 func NewRecorder() *Status {
 	return &Status{
-		peers: make(map[string]PeerState),
+		peers:        make(map[string]PeerState),
+		changeNotify: make(map[string]chan struct{}),
 	}
 }
 
@@ -72,6 +74,18 @@ func (d *Status) AddPeer(peerPubKey string) error {
 	}
 	d.peers[peerPubKey] = PeerState{PubKey: peerPubKey}
 	return nil
+}
+
+// GetPeer adds peer to Daemon status map
+func (d *Status) GetPeer(peerPubKey string) (PeerState, error) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	state, ok := d.peers[peerPubKey]
+	if !ok {
+		return PeerState{}, errors.New("peer not found")
+	}
+	return state, nil
 }
 
 // RemovePeer removes peer from Daemon status map
@@ -113,7 +127,25 @@ func (d *Status) UpdatePeerState(receivedState PeerState) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
+	ch, found := d.changeNotify[receivedState.PubKey]
+	if found && ch != nil {
+		close(ch)
+		d.changeNotify[receivedState.PubKey] = nil
+	}
+
 	return nil
+}
+
+// GetPeerStateChangeNotifier returns a change notifier channel for a peer
+func (d *Status) GetPeerStateChangeNotifier(peer string) <-chan struct{} {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	ch, found := d.changeNotify[peer]
+	if !found || ch == nil {
+		ch = make(chan struct{})
+		d.changeNotify[peer] = ch
+	}
+	return ch
 }
 
 // UpdateLocalPeerState updates local peer status

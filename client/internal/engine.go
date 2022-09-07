@@ -3,8 +3,10 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/routemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbstatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/route"
 	"math/rand"
 	"reflect"
 	"runtime"
@@ -96,6 +98,8 @@ type Engine struct {
 	sshServer     nbssh.Server
 
 	statusRecorder *nbstatus.Status
+
+	routeManager routemanager.Manager
 }
 
 // Peer is an instance of the Connection Peer
@@ -155,6 +159,10 @@ func (e *Engine) Stop() error {
 		}
 	}
 
+	if e.routeManager != nil {
+		e.routeManager.Stop()
+	}
+
 	log.Infof("stopped Netbird Engine")
 
 	return nil
@@ -209,6 +217,8 @@ func (e *Engine) Start() error {
 	e.iceHostMux = iceHostMux
 
 	log.Infof("NetBird Engine started listening on WireGuard port %d", *port)
+
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
@@ -597,9 +607,35 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 			}
 		}
 	}
+	protoRoutes := networkMap.GetRoutes()
+	if protoRoutes == nil {
+		protoRoutes = []*mgmProto.Route{}
+	}
+	err := e.routeManager.UpdateRoutes(serial, toRoutes(protoRoutes))
+	if err != nil {
+		log.Errorf("failed to update routes, err: %v", err)
+	}
 
 	e.networkSerial = serial
 	return nil
+}
+
+func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
+	routes := make([]*route.Route, 0)
+	for _, protoRoute := range protoRoutes {
+		_, prefix, _ := route.ParseNetwork(protoRoute.Network)
+		convertedRoute := &route.Route{
+			ID:          protoRoute.ID,
+			Network:     prefix,
+			NetID:       protoRoute.NetID,
+			NetworkType: route.NetworkType(protoRoute.NetworkType),
+			Peer:        protoRoute.Peer,
+			Metric:      int(protoRoute.Metric),
+			Masquerade:  protoRoute.Masquerade,
+		}
+		routes = append(routes, convertedRoute)
+	}
+	return routes
 }
 
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update

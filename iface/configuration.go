@@ -9,6 +9,16 @@ import (
 	"time"
 )
 
+// GetName returns the interface name
+func (w *WGIface) GetName() string {
+	return w.Name
+}
+
+// GetAddress returns the interface address
+func (w *WGIface) GetAddress() WGAddress {
+	return w.Address
+}
+
 // configureDevice configures the wireguard device
 func (w *WGIface) configureDevice(config wgtypes.Config) error {
 	wg, err := wgctrl.New()
@@ -109,6 +119,114 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 		return fmt.Errorf("received error \"%v\" while updating peer on interface %s with settings: allowed ips %s, endpoint %s", err, w.Name, allowedIps, endpoint.String())
 	}
 	return nil
+}
+
+// AddAllowedIP adds a prefix to the allowed IPs list of peer
+func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	log.Debugf("adding allowed IP to interface %s and peer %s: allowed IP %s ", w.Name, peerKey, allowedIP)
+
+	_, ipNet, err := net.ParseCIDR(allowedIP)
+	if err != nil {
+		return err
+	}
+
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+	peer := wgtypes.PeerConfig{
+		PublicKey:         peerKeyParsed,
+		UpdateOnly:        true,
+		ReplaceAllowedIPs: false,
+		AllowedIPs:        []net.IPNet{*ipNet},
+	}
+
+	config := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+	err = w.configureDevice(config)
+	if err != nil {
+		return fmt.Errorf("received error \"%v\" while adding allowed Ip to peer on interface %s with settings: allowed ips %s", err, w.Name, allowedIP)
+	}
+	return nil
+}
+
+// RemoveAllowedIP removes a prefix from the allowed IPs list of peer
+func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	log.Debugf("removing allowed IP from interface %s and peer %s: allowed IP %s ", w.Name, peerKey, allowedIP)
+
+	_, ipNet, err := net.ParseCIDR(allowedIP)
+	if err != nil {
+		return err
+	}
+
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	existingPeer, err := getPeer(w.Name, peerKey)
+	if err != nil {
+		return err
+	}
+
+	newAllowedIPs := existingPeer.AllowedIPs
+
+	for i, existingAllowedIP := range existingPeer.AllowedIPs {
+		if existingAllowedIP.String() == ipNet.String() {
+			newAllowedIPs = append(existingPeer.AllowedIPs[:i], existingPeer.AllowedIPs[i+1:]...)
+			break
+		}
+	}
+
+	if err != nil {
+		return err
+	}
+	peer := wgtypes.PeerConfig{
+		PublicKey:         peerKeyParsed,
+		UpdateOnly:        true,
+		ReplaceAllowedIPs: true,
+		AllowedIPs:        newAllowedIPs,
+	}
+
+	config := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+	err = w.configureDevice(config)
+	if err != nil {
+		return fmt.Errorf("received error \"%v\" while removing allowed IP from peer on interface %s with settings: allowed ips %s", err, w.Name, allowedIP)
+	}
+	return nil
+}
+
+func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
+	wg, err := wgctrl.New()
+	if err != nil {
+		return wgtypes.Peer{}, err
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			log.Errorf("got error while closing wgctl: %v", err)
+		}
+	}()
+
+	wgDevice, err := wg.Device(ifaceName)
+	if err != nil {
+		return wgtypes.Peer{}, err
+	}
+	for _, peer := range wgDevice.Peers {
+		if peer.PublicKey.String() == peerPubKey {
+			return peer, nil
+		}
+	}
+	return wgtypes.Peer{}, fmt.Errorf("peer not found")
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface

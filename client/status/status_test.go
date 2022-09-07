@@ -19,6 +19,21 @@ func TestAddPeer(t *testing.T) {
 	assert.Error(t, err, "should return error on duplicate")
 }
 
+func TestGetPeer(t *testing.T) {
+	key := "abc"
+	status := NewRecorder()
+	err := status.AddPeer(key)
+	assert.NoError(t, err, "shouldn't return error")
+
+	peerStatus, err := status.GetPeer(key)
+	assert.NoError(t, err, "shouldn't return error on getting peer")
+
+	assert.Equal(t, key, peerStatus.PubKey, "retrieved public key should match")
+
+	_, err = status.GetPeer("non_existing_key")
+	assert.Error(t, err, "should return error when peer doesn't exist")
+}
+
 func TestUpdatePeerState(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
@@ -37,6 +52,31 @@ func TestUpdatePeerState(t *testing.T) {
 	state, exists := status.peers[key]
 	assert.True(t, exists, "state should be found")
 	assert.Equal(t, ip, state.IP, "ip should be equal")
+}
+
+func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
+	key := "abc"
+	ip := "10.10.10.10"
+	status := NewRecorder()
+	peerState := PeerState{
+		PubKey: key,
+	}
+
+	status.peers[key] = peerState
+
+	ch := status.GetPeerStateChangeNotifier(key)
+	assert.NotNil(t, ch, "channel shouldn't be nil")
+
+	peerState.IP = ip
+
+	err := status.UpdatePeerState(peerState)
+	assert.NoError(t, err, "shouldn't return error")
+
+	select {
+	case <-ch:
+	default:
+		t.Errorf("channel wasn't closed after update")
+	}
 }
 
 func TestRemovePeer(t *testing.T) {
