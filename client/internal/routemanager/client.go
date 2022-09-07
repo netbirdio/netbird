@@ -207,7 +207,7 @@ func (c *clientNetwork) recalculateRouteAndUpdatePeerAndSystem() error {
 		err = addToRouteTableIfNoExists(c.network, c.wgInterface.GetAddress().IP.String())
 		if err != nil {
 			return fmt.Errorf("route %s couldn't be added for peer %s, err: %v",
-				c.chosenRoute.Network.String(), c.wgInterface.GetAddress().IP.String(), err)
+				c.network.String(), c.wgInterface.GetAddress().IP.String(), err)
 		}
 	}
 
