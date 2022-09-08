@@ -176,7 +176,15 @@ func (m *UDPMuxDefault) RemoveConnByUfrag(ufrag string) {
 	for _, c := range removedConns {
 		addresses := c.getAddresses()
 		for _, addr := range addresses {
-			delete(m.addressMap, addr)
+			if connList, ok := m.addressMap[addr]; ok {
+				var newList []*udpMuxedConn
+				for _, conn := range connList {
+					if conn.params.Key != ufrag {
+						newList = append(newList, conn)
+					}
+				}
+				m.addressMap[addr] = newList
+			}
 		}
 	}
 }
