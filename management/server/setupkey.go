@@ -191,31 +191,43 @@ func (am *DefaultAccountManager) CreateSetupKey(
 	return setupKey, nil
 }
 
-func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *SetupKey) error {
+func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *SetupKey) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	if keyToSave == nil {
-		return status.Errorf(codes.InvalidArgument, "provided setup key to update is nil")
+		return nil, status.Errorf(codes.InvalidArgument, "provided setup key to update is nil")
 	}
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	_, exists := account.SetupKeys[keyToSave.Id]
-	if !exists {
-		return status.Errorf(codes.InvalidArgument, "failed to find setup key %s", keyToSave.Id)
+	var oldKey *SetupKey
+	for _, key := range account.SetupKeys {
+		if key.Id == keyToSave.Id {
+			oldKey = key.Copy()
+			break
+		}
+	}
+	if oldKey == nil {
+		return nil, status.Errorf(codes.NotFound, "setup key not found")
 	}
 
-	account.SetupKeys[keyToSave.Id] = keyToSave
+	// only auto groups, revoked status, and name can be updated for now
+	newKey := oldKey.Copy()
+	newKey.Name = keyToSave.Name
+	newKey.AutoGroups = keyToSave.AutoGroups
+	newKey.Revoked = keyToSave.Revoked
+
+	account.SetupKeys[newKey.Key] = newKey
 
 	if err = am.Store.SaveAccount(account); err != nil {
-		return err
+		return nil, err
 	}
 
-	return am.updateAccountPeers(account)
+	return newKey, am.updateAccountPeers(account)
 }
 
 func (am *DefaultAccountManager) GetSetupKey(accountID, keyID string) (*SetupKey, error) {
@@ -227,10 +239,16 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, keyID string) (*SetupKey
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	key, exists := account.SetupKeys[keyID]
-	if !exists {
+	var foundKey *SetupKey
+	for _, key := range account.SetupKeys {
+		if key.Id == keyID {
+			foundKey = key.Copy()
+			break
+		}
+	}
+	if foundKey == nil {
 		return nil, status.Errorf(codes.NotFound, "setup key not found")
 	}
 
-	return key, nil
+	return foundKey, nil
 }

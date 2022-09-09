@@ -37,28 +37,40 @@ func (h *SetupKeys) updateKey(accountID string, keyID string, w http.ResponseWri
 		return
 	}
 
-	setupKey, err := h.accountManager.GetSetupKey(accountID, keyID)
-	if err != nil {
-		if e, ok := status.FromError(err); ok {
-			switch e.Code() {
-			case codes.NotFound:
-				http.Error(w, fmt.Sprintf("couldn't find setup key for ID %s", keyID), http.StatusNotFound)
-			default:
-				http.Error(w, "failed updating setup key", http.StatusInternalServerError)
-				return
-			}
-		}
+	if req.Name == "" {
+		http.Error(w, fmt.Sprintf("setup key name field is invalid"), http.StatusBadRequest)
+		return
 	}
 
-	// only auto groups, revoked status, and name can be updated for now
-	newKey := setupKey.Copy()
+	if req.AutoGroups == nil {
+		http.Error(w, fmt.Sprintf("setup key AutoGroups field is invalid"), http.StatusBadRequest)
+		return
+	}
+
+	if keyID == "" {
+		http.Error(w, fmt.Sprintf("setup key ID field is invalid"), http.StatusBadRequest)
+		return
+	}
+
+	newKey := &server.SetupKey{}
 	newKey.AutoGroups = req.AutoGroups
 	newKey.Revoked = req.Revoked
 	newKey.Name = req.Name
+	newKey.Id = keyID
 
-	err = h.accountManager.SaveSetupKey(accountID, newKey)
+	newKey, err = h.accountManager.SaveSetupKey(accountID, newKey)
 	if err != nil {
-		http.Error(w, "failed saving setup key", http.StatusInternalServerError)
+		if err != nil {
+			if e, ok := status.FromError(err); ok {
+				switch e.Code() {
+				case codes.NotFound:
+					http.Error(w, fmt.Sprintf("couldn't find setup key for ID %s", keyID), http.StatusNotFound)
+				default:
+					http.Error(w, "failed updating setup key", http.StatusInternalServerError)
+					return
+				}
+			}
+		}
 		return
 	}
 	writeSuccess(w, newKey)

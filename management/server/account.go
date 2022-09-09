@@ -38,7 +38,7 @@ type AccountManager interface {
 		expiresIn time.Duration,
 		autoGroups []string,
 	) (*SetupKey, error)
-	SaveSetupKey(accountID string, key *SetupKey) error
+	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
 	GetSetupKey(accountId, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
