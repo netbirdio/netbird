@@ -191,65 +191,46 @@ func (am *DefaultAccountManager) CreateSetupKey(
 	return setupKey, nil
 }
 
-// RevokeSetupKey marks SetupKey as revoked - becomes not valid anymore
-func (am *DefaultAccountManager) RevokeSetupKey(accountId string, keyId string) (*SetupKey, error) {
+func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *SetupKey) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountId)
+	if keyToSave == nil {
+		return status.Errorf(codes.InvalidArgument, "provided setup key to update is nil")
+	}
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "account not found")
+	}
+
+	_, exists := account.SetupKeys[keyToSave.Id]
+	if !exists {
+		return status.Errorf(codes.InvalidArgument, "failed to find setup key %s", keyToSave.Id)
+	}
+
+	account.SetupKeys[keyToSave.Id] = keyToSave
+
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	return am.updateAccountPeers(account)
+}
+
+func (am *DefaultAccountManager) GetSetupKey(accountID, keyID string) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	setupKey := getAccountSetupKeyById(account, keyId)
-	if setupKey == nil {
-		return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", keyId)
+	key, exists := account.SetupKeys[keyID]
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "setup key not found")
 	}
 
-	keyCopy := setupKey.Copy()
-	keyCopy.Revoked = true
-	account.SetupKeys[keyCopy.Key] = keyCopy
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed adding account key")
-	}
-
-	return keyCopy, nil
-}
-
-// RenameSetupKey renames existing setup key of the specified account.
-func (am *DefaultAccountManager) RenameSetupKey(
-	accountId string,
-	keyId string,
-	newName string,
-) (*SetupKey, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	account, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
-	}
-
-	setupKey := getAccountSetupKeyById(account, keyId)
-	if setupKey == nil {
-		return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", keyId)
-	}
-
-	keyCopy := setupKey.Copy()
-	keyCopy.Name = newName
-	account.SetupKeys[keyCopy.Key] = keyCopy
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed adding account key")
-	}
-
-	return keyCopy, nil
-}
-
-func (am *DefaultAccountManager) SaveSetupKey(accountID string, key *SetupKey) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	return nil
+	return key, nil
 }

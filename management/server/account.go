@@ -38,9 +38,8 @@ type AccountManager interface {
 		expiresIn time.Duration,
 		autoGroups []string,
 	) (*SetupKey, error)
-	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
-	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) error
+	GetSetupKey(accountId, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
 	GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error)

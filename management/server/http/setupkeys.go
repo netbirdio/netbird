@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -28,7 +29,7 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authAudience stri
 	}
 }
 
-func (h *SetupKeys) updateKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
+func (h *SetupKeys) updateKey(accountID string, keyID string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PutApiSetupKeysIdJSONRequestBody{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -36,26 +37,31 @@ func (h *SetupKeys) updateKey(accountId string, keyId string, w http.ResponseWri
 		return
 	}
 
-	var key *server.SetupKey
-	if req.Revoked {
-		//handle only if being revoked, don't allow to enable key again for now
-		key, err = h.accountManager.RevokeSetupKey(accountId, keyId)
-		if err != nil {
-			http.Error(w, "failed revoking key", http.StatusInternalServerError)
-			return
-		}
-	}
-	if len(req.Name) != 0 {
-		key, err = h.accountManager.RenameSetupKey(accountId, keyId, req.Name)
-		if err != nil {
-			http.Error(w, "failed renaming key", http.StatusInternalServerError)
-			return
+	setupKey, err := h.accountManager.GetSetupKey(accountID, keyID)
+	if err != nil {
+		if e, ok := status.FromError(err); ok {
+			switch e.Code() {
+			case codes.NotFound:
+				http.Error(w, fmt.Sprintf("couldn't find setup key for ID %s", keyID), http.StatusNotFound)
+			default:
+				http.Error(w, "failed updating setup key", http.StatusInternalServerError)
+				return
+			}
 		}
 	}
 
-	if key != nil {
-		writeSuccess(w, key)
+	// only auto groups, revoked status, and name can be updated for now
+	newKey := setupKey.Copy()
+	newKey.AutoGroups = req.AutoGroups
+	newKey.Revoked = req.Revoked
+	newKey.Name = req.Name
+
+	err = h.accountManager.SaveSetupKey(accountID, newKey)
+	if err != nil {
+		http.Error(w, "failed saving setup key", http.StatusInternalServerError)
+		return
 	}
+	writeSuccess(w, newKey)
 }
 
 func (h *SetupKeys) getKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
@@ -98,7 +104,8 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 	if req.AutoGroups == nil {
 		req.AutoGroups = []string{}
 	}
-
+	// newExpiresIn := time.Duration(req.ExpiresIn) * time.Second
+	// newKey.ExpiresAt = time.Now().Add(newExpiresIn)
 	setupKey, err := h.accountManager.CreateSetupKey(accountId, req.Name, server.SetupKeyType(req.Type), expiresIn,
 		req.AutoGroups)
 	if err != nil {
