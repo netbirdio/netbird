@@ -95,7 +95,8 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 
 	expiresIn := time.Duration(req.ExpiresIn) * time.Second
 
-	setupKey, err := h.accountManager.AddSetupKey(accountId, req.Name, server.SetupKeyType(req.Type), expiresIn)
+	setupKey, err := h.accountManager.CreateSetupKey(accountId, req.Name, server.SetupKeyType(req.Type), expiresIn,
+		req.AutoGroups)
 	if err != nil {
 		errStatus, ok := status.FromError(err)
 		if ok && errStatus.Code() == codes.NotFound {

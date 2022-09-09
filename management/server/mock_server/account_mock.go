@@ -12,7 +12,7 @@ import (
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc          func(userId, domain string) (*server.Account, error)
 	GetAccountByUserFunc                  func(userId string) (*server.Account, error)
-	AddSetupKeyFunc                       func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn time.Duration) (*server.SetupKey, error)
+	AddSetupKeyFunc                       func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn time.Duration, autoGroups []string) (*server.SetupKey, error)
 	RevokeSetupKeyFunc                    func(accountId string, keyId string) (*server.SetupKey, error)
 	RenameSetupKeyFunc                    func(accountId string, keyId string, newName string) (*server.SetupKey, error)
 	GetAccountByIdFunc                    func(accountId string) (*server.Account, error)
@@ -83,16 +83,17 @@ func (am *MockAccountManager) GetAccountByUser(userId string) (*server.Account, 
 }
 
 // AddSetupKey mock implementation of AddSetupKey from server.AccountManager interface
-func (am *MockAccountManager) AddSetupKey(
+func (am *MockAccountManager) CreateSetupKey(
 	accountId string,
 	keyName string,
 	keyType server.SetupKeyType,
 	expiresIn time.Duration,
+	autoGroups []string,
 ) (*server.SetupKey, error) {
 	if am.AddSetupKeyFunc != nil {
-		return am.AddSetupKeyFunc(accountId, keyName, keyType, expiresIn)
+		return am.AddSetupKeyFunc(accountId, keyName, keyType, expiresIn, autoGroups)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method AddSetupKey is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
 }
 
 // RevokeSetupKey mock implementation of RevokeSetupKey from server.AccountManager interface

@@ -30,40 +30,40 @@ func TestGenerateSetupKey(t *testing.T) {
 	expectedCreatedAt := time.Now()
 	expectedExpiresAt := time.Now().Add(time.Hour)
 
-	key := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour)
+	key := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour, []string{})
 
 	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt, expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))))
 
 }
 
 func TestSetupKey_IsValid(t *testing.T) {
-	validKey := GenerateSetupKey("valid key", SetupKeyOneOff, time.Hour)
+	validKey := GenerateSetupKey("valid key", SetupKeyOneOff, time.Hour, []string{})
 	if !validKey.IsValid() {
 		t.Errorf("expected key to be valid, got invalid %v", validKey)
 	}
 
 	// expired
-	expiredKey := GenerateSetupKey("invalid key", SetupKeyOneOff, -time.Hour)
+	expiredKey := GenerateSetupKey("invalid key", SetupKeyOneOff, -time.Hour, []string{})
 	if expiredKey.IsValid() {
 		t.Errorf("expected key to be invalid due to expiration, got valid %v", expiredKey)
 	}
 
 	// revoked
-	revokedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour)
+	revokedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{})
 	revokedKey.Revoked = true
 	if revokedKey.IsValid() {
 		t.Errorf("expected revoked key to be invalid, got valid %v", revokedKey)
 	}
 
 	// overused
-	overUsedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour)
+	overUsedKey := GenerateSetupKey("invalid key", SetupKeyOneOff, time.Hour, []string{})
 	overUsedKey.UsedTimes = 1
 	if overUsedKey.IsValid() {
 		t.Errorf("expected overused key to be invalid, got valid %v", overUsedKey)
 	}
 
 	// overused
-	reusableKey := GenerateSetupKey("valid key", SetupKeyReusable, time.Hour)
+	reusableKey := GenerateSetupKey("valid key", SetupKeyReusable, time.Hour, []string{})
 	reusableKey.UsedTimes = 99
 	if !reusableKey.IsValid() {
 		t.Errorf("expected reusable key to be valid when used many times, got valid %v", reusableKey)
@@ -108,7 +108,7 @@ func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke 
 
 func TestSetupKey_Copy(t *testing.T) {
 
-	key := GenerateSetupKey("key name", SetupKeyOneOff, time.Hour)
+	key := GenerateSetupKey("key name", SetupKeyOneOff, time.Hour, []string{})
 	keyCopy := key.Copy()
 
 	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpiresAt, key.Id)

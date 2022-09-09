@@ -31,11 +31,12 @@ const (
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	GetAccountByUser(userId string) (*Account, error)
-	AddSetupKey(
+	CreateSetupKey(
 		accountId string,
 		keyName string,
 		keyType SetupKeyType,
 		expiresIn time.Duration,
+		autoGroups []string,
 	) (*SetupKey, error)
 	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
 	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
@@ -244,12 +245,14 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	return nil
 }
 
-// AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
-func (am *DefaultAccountManager) AddSetupKey(
+// CreateSetupKey generates a new setup key with a given name, type, list of groups IDs to auto-assign to peers registered with this key,
+// and adds it to the specified account. A list of autoGroups IDs can be empty.
+func (am *DefaultAccountManager) CreateSetupKey(
 	accountId string,
 	keyName string,
 	keyType SetupKeyType,
 	expiresIn time.Duration,
+	autoGroups []string,
 ) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -264,7 +267,13 @@ func (am *DefaultAccountManager) AddSetupKey(
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	setupKey := GenerateSetupKey(keyName, keyType, keyDuration)
+	for _, group := range autoGroups {
+		if _, ok := account.Groups[group]; !ok {
+			return nil, fmt.Errorf("group %s doesn't exist", group)
+		}
+	}
+
+	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups)
 	account.SetupKeys[setupKey.Key] = setupKey
 
 	err = am.Store.SaveAccount(account)
@@ -504,7 +513,6 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(
 
 // handleExistingUserAccount handles existing User accounts and update its domain attributes.
 //
-//
 // If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
 // we compare the account's ID with the domain account ID, and if they don't match, we set the account as
 // non-primary account for the domain. We don't merge accounts at this stage, because of cases when a domain
@@ -688,7 +696,7 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 
 	setupKeys := make(map[string]*SetupKey)
 	defaultKey := GenerateDefaultSetupKey()
-	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration)
+	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration, []string{})
 	setupKeys[defaultKey.Key] = defaultKey
 	setupKeys[oneOffKey.Key] = oneOffKey
 	network := NewNetwork()

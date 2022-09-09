@@ -37,24 +37,27 @@ type SetupKey struct {
 	UsedTimes int
 	// LastUsed last time the key was used for peer registration
 	LastUsed time.Time
+	// AutoGroups is a list of Group IDs that are auto assigned to a Peer when it uses this key to register
+	AutoGroups []string
 }
 
-//Copy copies SetupKey to a new object
+// Copy copies SetupKey to a new object
 func (key *SetupKey) Copy() *SetupKey {
 	return &SetupKey{
-		Id:        key.Id,
-		Key:       key.Key,
-		Name:      key.Name,
-		Type:      key.Type,
-		CreatedAt: key.CreatedAt,
-		ExpiresAt: key.ExpiresAt,
-		Revoked:   key.Revoked,
-		UsedTimes: key.UsedTimes,
-		LastUsed:  key.LastUsed,
+		Id:         key.Id,
+		Key:        key.Key,
+		Name:       key.Name,
+		Type:       key.Type,
+		CreatedAt:  key.CreatedAt,
+		ExpiresAt:  key.ExpiresAt,
+		Revoked:    key.Revoked,
+		UsedTimes:  key.UsedTimes,
+		LastUsed:   key.LastUsed,
+		AutoGroups: key.AutoGroups,
 	}
 }
 
-//IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
+// IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
 func (key *SetupKey) IncrementUsage() *SetupKey {
 	c := key.Copy()
 	c.UsedTimes = c.UsedTimes + 1
@@ -83,7 +86,7 @@ func (key *SetupKey) IsOverUsed() bool {
 }
 
 // GenerateSetupKey generates a new setup key
-func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration) *SetupKey {
+func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoGroups []string) *SetupKey {
 	key := strings.ToUpper(uuid.New().String())
 	createdAt := time.Now()
 	return &SetupKey{
@@ -100,7 +103,7 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration) *Setu
 
 // GenerateDefaultSetupKey generates a default setup key
 func GenerateDefaultSetupKey() *SetupKey {
-	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration)
+	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{})
 }
 
 func Hash(s string) uint32 {
