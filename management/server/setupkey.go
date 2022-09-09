@@ -1,7 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"hash/fnv"
 	"strconv"
 	"strings"
@@ -114,4 +117,99 @@ func Hash(s string) uint32 {
 		panic(err)
 	}
 	return h.Sum32()
+}
+
+// CreateSetupKey generates a new setup key with a given name, type, list of groups IDs to auto-assign to peers registered with this key,
+// and adds it to the specified account. A list of autoGroups IDs can be empty.
+func (am *DefaultAccountManager) CreateSetupKey(
+	accountId string,
+	keyName string,
+	keyType SetupKeyType,
+	expiresIn time.Duration,
+	autoGroups []string,
+) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	keyDuration := DefaultSetupKeyDuration
+	if expiresIn != 0 {
+		keyDuration = expiresIn
+	}
+
+	account, err := am.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	for _, group := range autoGroups {
+		if _, ok := account.Groups[group]; !ok {
+			return nil, fmt.Errorf("group %s doesn't exist", group)
+		}
+	}
+
+	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups)
+	account.SetupKeys[setupKey.Key] = setupKey
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed adding account key")
+	}
+
+	return setupKey, nil
+}
+
+// RevokeSetupKey marks SetupKey as revoked - becomes not valid anymore
+func (am *DefaultAccountManager) RevokeSetupKey(accountId string, keyId string) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	setupKey := getAccountSetupKeyById(account, keyId)
+	if setupKey == nil {
+		return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", keyId)
+	}
+
+	keyCopy := setupKey.Copy()
+	keyCopy.Revoked = true
+	account.SetupKeys[keyCopy.Key] = keyCopy
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed adding account key")
+	}
+
+	return keyCopy, nil
+}
+
+// RenameSetupKey renames existing setup key of the specified account.
+func (am *DefaultAccountManager) RenameSetupKey(
+	accountId string,
+	keyId string,
+	newName string,
+) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	setupKey := getAccountSetupKeyById(account, keyId)
+	if setupKey == nil {
+		return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", keyId)
+	}
+
+	keyCopy := setupKey.Copy()
+	keyCopy.Name = newName
+	account.SetupKeys[keyCopy.Key] = keyCopy
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed adding account key")
+	}
+
+	return keyCopy, nil
 }
