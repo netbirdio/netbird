@@ -51,6 +51,7 @@ type MockAccountManager struct {
 	UpdateRouteFunc                       func(accountID string, routeID string, operations []server.RouteUpdateOperation) (*route.Route, error)
 	DeleteRouteFunc                       func(accountID, routeID string) error
 	ListRoutesFunc                        func(accountID string) ([]*route.Route, error)
+	SaveSetupKeyFunc                      func(accountID string, key *server.SetupKey) error
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -415,4 +416,12 @@ func (am *MockAccountManager) ListRoutes(accountID string) ([]*route.Route, erro
 		return am.ListRoutesFunc(accountID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListRoutes is not implemented")
+}
+
+func (am *MockAccountManager) SaveSetupKey(accountID string, key *server.SetupKey) error {
+	if am.SaveSetupKeyFunc != nil {
+		return am.SaveSetupKeyFunc(accountID, key)
+	}
+
+	return status.Errorf(codes.Unimplemented, "method SaveSetupKey is not implemented")
 }

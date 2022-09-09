@@ -21,7 +21,40 @@ const (
 	DefaultSetupKeyDuration = 24 * 30 * time.Hour
 	// DefaultSetupKeyName is a default name of the default setup key
 	DefaultSetupKeyName = "Default key"
+
+	// UpdateSetupKeyName indicates a setup key name update operation
+	UpdateSetupKeyName SetupKeyUpdateOperationType = iota
+	// UpdateSetupKeyRevoked indicates a setup key revoked filed update operation
+	UpdateSetupKeyRevoked
+	// UpdateSetupKeyAutoGroups indicates a setup key auto-assign groups update operation
+	UpdateSetupKeyAutoGroups
+	// UpdateSetupKeyExpiresAt indicates a setup key expiration time update operation
+	UpdateSetupKeyExpiresAt
 )
+
+// SetupKeyUpdateOperationType operation type
+type SetupKeyUpdateOperationType int
+
+func (t SetupKeyUpdateOperationType) String() string {
+	switch t {
+	case UpdateSetupKeyName:
+		return "UpdateSetupKeyName"
+	case UpdateSetupKeyRevoked:
+		return "UpdateSetupKeyRevoked"
+	case UpdateSetupKeyAutoGroups:
+		return "UpdateSetupKeyAutoGroups"
+	case UpdateSetupKeyExpiresAt:
+		return "UpdateSetupKeyExpiresAt"
+	default:
+		return "InvalidOperation"
+	}
+}
+
+// SetupKeyUpdateOperation operation object with type and values to be applied
+type SetupKeyUpdateOperation struct {
+	Type   SetupKeyUpdateOperationType
+	Values []string
+}
 
 // SetupKeyType is the type of setup key
 type SetupKeyType string
@@ -212,4 +245,11 @@ func (am *DefaultAccountManager) RenameSetupKey(
 	}
 
 	return keyCopy, nil
+}
+
+func (am *DefaultAccountManager) SaveSetupKey(accountID string, key *SetupKey) error {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	return nil
 }
