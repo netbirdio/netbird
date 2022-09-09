@@ -95,6 +95,10 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 
 	expiresIn := time.Duration(req.ExpiresIn) * time.Second
 
+	if req.AutoGroups == nil {
+		req.AutoGroups = []string{}
+	}
+
 	setupKey, err := h.accountManager.CreateSetupKey(accountId, req.Name, server.SetupKeyType(req.Type), expiresIn,
 		req.AutoGroups)
 	if err != nil {
