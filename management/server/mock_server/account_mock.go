@@ -12,9 +12,8 @@ import (
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc          func(userId, domain string) (*server.Account, error)
 	GetAccountByUserFunc                  func(userId string) (*server.Account, error)
-	AddSetupKeyFunc                       func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn time.Duration, autoGroups []string) (*server.SetupKey, error)
-	RevokeSetupKeyFunc                    func(accountId string, keyId string) (*server.SetupKey, error)
-	RenameSetupKeyFunc                    func(accountId string, keyId string, newName string) (*server.SetupKey, error)
+	CreateSetupKeyFunc                    func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn time.Duration, autoGroups []string) (*server.SetupKey, error)
+	GetSetupKeyFunc                       func(accountID string, keyID string) (*server.SetupKey, error)
 	GetAccountByIdFunc                    func(accountId string) (*server.Account, error)
 	GetAccountByUserOrAccountIdFunc       func(userId, accountId, domain string) (*server.Account, error)
 	GetAccountWithAuthorizationClaimsFunc func(claims jwtclaims.AuthorizationClaims) (*server.Account, error)
@@ -51,7 +50,7 @@ type MockAccountManager struct {
 	UpdateRouteFunc                       func(accountID string, routeID string, operations []server.RouteUpdateOperation) (*route.Route, error)
 	DeleteRouteFunc                       func(accountID, routeID string) error
 	ListRoutesFunc                        func(accountID string) ([]*route.Route, error)
-	SaveSetupKeyFunc                      func(accountID string, key *server.SetupKey) error
+	SaveSetupKeyFunc                      func(accountID string, key *server.SetupKey) (*server.SetupKey, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -83,7 +82,7 @@ func (am *MockAccountManager) GetAccountByUser(userId string) (*server.Account, 
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByUser is not implemented")
 }
 
-// AddSetupKey mock implementation of AddSetupKey from server.AccountManager interface
+// CreateSetupKey mock implementation of CreateSetupKey from server.AccountManager interface
 func (am *MockAccountManager) CreateSetupKey(
 	accountId string,
 	keyName string,
@@ -91,33 +90,10 @@ func (am *MockAccountManager) CreateSetupKey(
 	expiresIn time.Duration,
 	autoGroups []string,
 ) (*server.SetupKey, error) {
-	if am.AddSetupKeyFunc != nil {
-		return am.AddSetupKeyFunc(accountId, keyName, keyType, expiresIn, autoGroups)
+	if am.CreateSetupKeyFunc != nil {
+		return am.CreateSetupKeyFunc(accountId, keyName, keyType, expiresIn, autoGroups)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
-}
-
-// RevokeSetupKey mock implementation of RevokeSetupKey from server.AccountManager interface
-func (am *MockAccountManager) RevokeSetupKey(
-	accountId string,
-	keyId string,
-) (*server.SetupKey, error) {
-	if am.RevokeSetupKeyFunc != nil {
-		return am.RevokeSetupKeyFunc(accountId, keyId)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method RevokeSetupKey is not implemented")
-}
-
-// RenameSetupKey mock implementation of RenameSetupKey from server.AccountManager interface
-func (am *MockAccountManager) RenameSetupKey(
-	accountId string,
-	keyId string,
-	newName string,
-) (*server.SetupKey, error) {
-	if am.RenameSetupKeyFunc != nil {
-		return am.RenameSetupKeyFunc(accountId, keyId, newName)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method RenameSetupKey is not implemented")
 }
 
 // GetAccountById mock implementation of GetAccountById from server.AccountManager interface
@@ -418,10 +394,20 @@ func (am *MockAccountManager) ListRoutes(accountID string) ([]*route.Route, erro
 	return nil, status.Errorf(codes.Unimplemented, "method ListRoutes is not implemented")
 }
 
-func (am *MockAccountManager) SaveSetupKey(accountID string, key *server.SetupKey) error {
+// SaveSetupKey mocks SaveSetupKey of the AccountManager interface
+func (am *MockAccountManager) SaveSetupKey(accountID string, key *server.SetupKey) (*server.SetupKey, error) {
 	if am.SaveSetupKeyFunc != nil {
 		return am.SaveSetupKeyFunc(accountID, key)
 	}
 
-	return status.Errorf(codes.Unimplemented, "method SaveSetupKey is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method SaveSetupKey is not implemented")
+}
+
+// GetSetupKey mocks GetSetupKey of the AccountManager interface
+func (am *MockAccountManager) GetSetupKey(accountID, keyID string) (*server.SetupKey, error) {
+	if am.GetSetupKeyFunc != nil {
+		return am.GetSetupKeyFunc(accountID, keyID)
+	}
+
+	return nil, status.Errorf(codes.Unimplemented, "method GetSetupKey is not implemented")
 }

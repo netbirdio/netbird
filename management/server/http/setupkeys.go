@@ -214,16 +214,27 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 	} else {
 		state = "valid"
 	}
+
+	// the UpdatedAt field was introduced later, so there might be that some keys have a Zero value (e.g, null in the store file)
+	var updatedAt time.Time
+	if key.UpdatedAt.IsZero() {
+		updatedAt = key.CreatedAt
+	} else {
+		updatedAt = key.UpdatedAt
+	}
+
 	return &api.SetupKey{
-		Id:        key.Id,
-		Key:       key.Key,
-		Name:      key.Name,
-		Expires:   key.ExpiresAt,
-		Type:      string(key.Type),
-		Valid:     key.IsValid(),
-		Revoked:   key.Revoked,
-		UsedTimes: key.UsedTimes,
-		LastUsed:  key.LastUsed,
-		State:     state,
+		Id:         key.Id,
+		Key:        key.Key,
+		Name:       key.Name,
+		Expires:    key.ExpiresAt,
+		Type:       string(key.Type),
+		Valid:      key.IsValid(),
+		Revoked:    key.Revoked,
+		UsedTimes:  key.UsedTimes,
+		LastUsed:   key.LastUsed,
+		State:      state,
+		AutoGroups: key.AutoGroups,
+		UpdatedAt:  updatedAt,
 	}
 }

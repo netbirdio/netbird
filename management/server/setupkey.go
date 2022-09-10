@@ -67,6 +67,7 @@ type SetupKey struct {
 	Type      SetupKeyType
 	CreatedAt time.Time
 	ExpiresAt time.Time
+	UpdatedAt time.Time
 	// Revoked indicates whether the key was revoked or not (we don't remove them for tracking purposes)
 	Revoked bool
 	// UsedTimes indicates how many times the key was used
@@ -79,6 +80,9 @@ type SetupKey struct {
 
 // Copy copies SetupKey to a new object
 func (key *SetupKey) Copy() *SetupKey {
+	if key.UpdatedAt.IsZero() {
+		key.UpdatedAt = key.CreatedAt
+	}
 	return &SetupKey{
 		Id:         key.Id,
 		Key:        key.Key,
@@ -86,6 +90,7 @@ func (key *SetupKey) Copy() *SetupKey {
 		Type:       key.Type,
 		CreatedAt:  key.CreatedAt,
 		ExpiresAt:  key.ExpiresAt,
+		UpdatedAt:  key.UpdatedAt,
 		Revoked:    key.Revoked,
 		UsedTimes:  key.UsedTimes,
 		LastUsed:   key.LastUsed,
@@ -132,6 +137,7 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 		Type:       t,
 		CreatedAt:  createdAt,
 		ExpiresAt:  createdAt.Add(validFor),
+		UpdatedAt:  createdAt,
 		Revoked:    false,
 		UsedTimes:  0,
 		AutoGroups: autoGroups,
@@ -191,6 +197,10 @@ func (am *DefaultAccountManager) CreateSetupKey(
 	return setupKey, nil
 }
 
+// SaveSetupKey saves the provided SetupKey to the database overriding the existing one.
+// Due to the unique nature of a SetupKey certain properties must not be overwritten
+// (e.g. the key itself, creation date, ID, etc).
+// These properties are overwritten: Name, AutoGroups, Revoked. The rest is copied from the existing key.
 func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *SetupKey) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
@@ -220,6 +230,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	newKey.Name = keyToSave.Name
 	newKey.AutoGroups = keyToSave.AutoGroups
 	newKey.Revoked = keyToSave.Revoked
+	newKey.UpdatedAt = time.Now()
 
 	account.SetupKeys[newKey.Key] = newKey
 
@@ -248,6 +259,11 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, keyID string) (*SetupKey
 	}
 	if foundKey == nil {
 		return nil, status.Errorf(codes.NotFound, "setup key not found")
+	}
+
+	// the UpdatedAt field was introduced later, so there might be that some keys have a Zero value (e.g, null in the store file)
+	if foundKey.UpdatedAt.IsZero() {
+		foundKey.UpdatedAt = foundKey.CreatedAt
 	}
 
 	return foundKey, nil

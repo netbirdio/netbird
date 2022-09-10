@@ -326,6 +326,9 @@ type SetupKey struct {
 	// Setup key type, one-off for single time usage and reusable
 	Type string `json:"type"`
 
+	// Setup key last update date
+	UpdatedAt time.Time `json:"updated_at"`
+
 	// Usage count of setup key
 	UsedTimes int `json:"used_times"`
 
