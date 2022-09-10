@@ -22,12 +22,13 @@ import (
 )
 
 const (
-	existingSetupKeyID = "existingSetupKeyID"
-	newSetupKeyName    = "New Setup Key"
-	notFoundSetupKeyID = "notFoundSetupKeyID"
+	existingSetupKeyID  = "existingSetupKeyID"
+	newSetupKeyName     = "New Setup Key"
+	updatedSetupKeyName = "KKKey"
+	notFoundSetupKeyID  = "notFoundSetupKeyID"
 )
 
-func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey) *SetupKeys {
+func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey) *SetupKeys {
 	return &SetupKeys{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountWithAuthorizationClaimsFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
@@ -58,6 +59,13 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 					return nil, status.Errorf(codes.NotFound, "key %s not found", keyID)
 				}
 			},
+
+			SaveSetupKeyFunc: func(accountID string, key *server.SetupKey) (*server.SetupKey, error) {
+				if key.Id == updatedSetupKey.Id {
+					return updatedSetupKey, nil
+				}
+				return nil, status.Errorf(codes.NotFound, "key %s not found", key.Id)
+			},
 		},
 		authAudience: "",
 		jwtExtractor: jwtclaims.ClaimsExtractor{
@@ -77,6 +85,10 @@ func TestSetupKeysHandlers(t *testing.T) {
 	defaultSetupKey.Id = existingSetupKeyID
 
 	newSetupKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"})
+	updatedDefaultSetupKey := defaultSetupKey.Copy()
+	updatedDefaultSetupKey.AutoGroups = []string{"group-1"}
+	updatedDefaultSetupKey.Name = updatedSetupKeyName
+	updatedDefaultSetupKey.Revoked = true
 
 	tt := []struct {
 		name              string
@@ -121,9 +133,23 @@ func TestSetupKeysHandlers(t *testing.T) {
 			expectedBody:     true,
 			expectedSetupKey: toResponseBody(newSetupKey),
 		},
+		{
+			name:        "Update Setup Key",
+			requestType: http.MethodPut,
+			requestPath: "/api/setup-keys/" + defaultSetupKey.Id,
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"auto_groups\":[\"%s\"], \"revoked\":%v}",
+					updatedDefaultSetupKey.Type,
+					updatedDefaultSetupKey.AutoGroups[0],
+					updatedDefaultSetupKey.Revoked,
+				))),
+			expectedStatus:   http.StatusOK,
+			expectedBody:     true,
+			expectedSetupKey: toResponseBody(updatedDefaultSetupKey),
+		},
 	}
 
-	handler := initSetupKeysTestMetaData(defaultSetupKey, newSetupKey)
+	handler := initSetupKeysTestMetaData(defaultSetupKey, newSetupKey, updatedDefaultSetupKey)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
