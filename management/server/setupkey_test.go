@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-/*func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
+func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -30,17 +30,29 @@ import (
 	}
 
 	expiresIn := time.Hour
-	autoGroups := []string{"group_1", "group_2"}
 	keyName := "my-test-key"
-	expectedCreatedAt := time.Now()
-	expectedUpdatedAt := time.Now()
-	expectedExpiresAt := time.Now().Add(expiresIn)
 
-	key, err := manager.CreateSetupKey(account.Id, keyName, SetupKeyReusable, expiresIn, autoGroups)
+	key, err := manager.CreateSetupKey(account.Id, keyName, SetupKeyReusable, expiresIn, []string{})
 	if err != nil {
 		t.Fatal(err)
 	}
-}*/
+
+	autoGroups := []string{"group_1", "group_2"}
+	newKeyName := "my-new-test-key"
+	revoked := true
+	newKey, err := manager.SaveSetupKey(account.Id, &SetupKey{
+		Id:         key.Id,
+		Name:       newKeyName,
+		Revoked:    revoked,
+		AutoGroups: autoGroups,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertKey(t, newKey, newKeyName, revoked, "reusable", 0, key.CreatedAt, key.ExpiresAt,
+		key.Id, time.Now(), autoGroups)
+}
 
 func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 	manager, err := createManager(t)
