@@ -78,7 +78,10 @@ func initRoutesTestData() *Routes {
 			SaveRouteFunc: func(_ string, _ *route.Route) error {
 				return nil
 			},
-			DeleteRouteFunc: func(_ string, _ string) error {
+			DeleteRouteFunc: func(_ string, peerIP string) error {
+				if peerIP != existingRouteID {
+					return status.Errorf(codes.NotFound, "Peer with ID %s not found", peerIP)
+				}
 				return nil
 			},
 			GetPeerByIPFunc: func(_ string, peerIP string) (*server.Peer, error) {
