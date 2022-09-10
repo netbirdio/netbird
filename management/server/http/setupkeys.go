@@ -29,53 +29,6 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authAudience stri
 	}
 }
 
-func (h *SetupKeys) updateKey(accountID string, keyID string, w http.ResponseWriter, r *http.Request) {
-	req := &api.PutApiSetupKeysIdJSONRequestBody{}
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	if req.Name == "" {
-		http.Error(w, fmt.Sprintf("setup key name field is invalid: %s", req.Name), http.StatusBadRequest)
-		return
-	}
-
-	if req.AutoGroups == nil {
-		http.Error(w, fmt.Sprintf("setup key AutoGroups field is invalid: %s", req.AutoGroups), http.StatusBadRequest)
-		return
-	}
-
-	if keyID == "" {
-		http.Error(w, fmt.Sprintf("setup key ID field is invalid: %s", keyID), http.StatusBadRequest)
-		return
-	}
-
-	newKey := &server.SetupKey{}
-	newKey.AutoGroups = req.AutoGroups
-	newKey.Revoked = req.Revoked
-	newKey.Name = req.Name
-	newKey.Id = keyID
-
-	newKey, err = h.accountManager.SaveSetupKey(accountID, newKey)
-	if err != nil {
-		if err != nil {
-			if e, ok := status.FromError(err); ok {
-				switch e.Code() {
-				case codes.NotFound:
-					http.Error(w, fmt.Sprintf("couldn't find setup key for ID %s", keyID), http.StatusNotFound)
-				default:
-					http.Error(w, "failed updating setup key", http.StatusInternalServerError)
-					return
-				}
-			}
-		}
-		return
-	}
-	writeSuccess(w, newKey)
-}
-
 // CreateSetupKeyHandler is a POST requests that creates a new SetupKey
 func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
