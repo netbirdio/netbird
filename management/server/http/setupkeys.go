@@ -110,6 +110,7 @@ func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, key)
 }
 
+// UpdateSetupKeyHandler is a PUT request to update server.SetupKey
 func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
