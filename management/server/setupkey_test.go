@@ -8,6 +8,40 @@ import (
 	"time"
 )
 
+/*func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "test_user"
+	account, err := manager.GetOrCreateAccountByUser(userID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = manager.SaveGroup(account.Id, &Group{
+		ID:    "group_1",
+		Name:  "group_name_1",
+		Peers: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expiresIn := time.Hour
+	autoGroups := []string{"group_1", "group_2"}
+	keyName := "my-test-key"
+	expectedCreatedAt := time.Now()
+	expectedUpdatedAt := time.Now()
+	expectedExpiresAt := time.Now().Add(expiresIn)
+
+	key, err := manager.CreateSetupKey(account.Id, keyName, SetupKeyReusable, expiresIn, autoGroups)
+	if err != nil {
+		t.Fatal(err)
+	}
+}*/
+
 func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
@@ -38,20 +72,61 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	expiresIn := time.Hour
-	autoGroups := []string{"group_1", "group_2"}
-	keyName := "my-test-key"
-	expectedCreatedAt := time.Now()
-	expectedUpdatedAt := time.Now()
-	expectedExpiresAt := time.Now().Add(expiresIn)
+	type testCase struct {
+		name string
 
-	key, err := manager.CreateSetupKey(account.Id, keyName, SetupKeyReusable, expiresIn, autoGroups)
-	if err != nil {
-		t.Fatal(err)
+		expectedKeyName   string
+		expectedUsedTimes int
+		expectedType      string
+		expectedGroups    []string
+		expectedCreatedAt time.Time
+		expectedUpdatedAt time.Time
+		expectedExpiresAt time.Time
+		expectedFailure   bool //indicates whether key creation should fail
 	}
 
-	assertKey(t, key, keyName, false, string(SetupKeyReusable), 0, expectedCreatedAt,
-		expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))), expectedUpdatedAt, autoGroups)
+	now := time.Now()
+	expiresIn := time.Hour
+	testCase1 := testCase{
+		name:              "Should Create Setup Key successfully",
+		expectedKeyName:   "my-test-key",
+		expectedUsedTimes: 0,
+		expectedType:      "reusable",
+		expectedGroups:    []string{"group_1", "group_2"},
+		expectedCreatedAt: now,
+		expectedUpdatedAt: now,
+		expectedExpiresAt: now.Add(expiresIn),
+		expectedFailure:   false,
+	}
+	testCase2 := testCase{
+		name:            "Create Setup Key should fail because of unexistent group",
+		expectedKeyName: "my-test-key",
+		expectedGroups:  []string{"FAKE"},
+		expectedFailure: true,
+	}
+
+	for _, tCase := range []testCase{testCase1, testCase2} {
+		t.Run(tCase.name, func(t *testing.T) {
+			key, err := manager.CreateSetupKey(account.Id, tCase.expectedKeyName, SetupKeyReusable, expiresIn,
+				tCase.expectedGroups)
+
+			if tCase.expectedFailure {
+				if err == nil {
+					t.Fatal("expected to fail")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			assertKey(t, key, tCase.expectedKeyName, false, tCase.expectedType, tCase.expectedUsedTimes,
+				tCase.expectedCreatedAt, tCase.expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))),
+				tCase.expectedUpdatedAt, tCase.expectedGroups)
+		})
+	}
+
 }
 
 func TestGenerateDefaultSetupKey(t *testing.T) {
