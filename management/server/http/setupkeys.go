@@ -38,17 +38,17 @@ func (h *SetupKeys) updateKey(accountID string, keyID string, w http.ResponseWri
 	}
 
 	if req.Name == "" {
-		http.Error(w, fmt.Sprintf("setup key name field is invalid"), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("setup key name field is invalid: %s", req.Name), http.StatusBadRequest)
 		return
 	}
 
 	if req.AutoGroups == nil {
-		http.Error(w, fmt.Sprintf("setup key AutoGroups field is invalid"), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("setup key AutoGroups field is invalid: %s", req.AutoGroups), http.StatusBadRequest)
 		return
 	}
 
 	if keyID == "" {
-		http.Error(w, fmt.Sprintf("setup key ID field is invalid"), http.StatusBadRequest)
+		http.Error(w, fmt.Sprintf("setup key ID field is invalid: %s", keyID), http.StatusBadRequest)
 		return
 	}
 
