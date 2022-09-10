@@ -129,15 +129,14 @@ func (key *SetupKey) IsOverUsed() bool {
 // GenerateSetupKey generates a new setup key
 func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoGroups []string) *SetupKey {
 	key := strings.ToUpper(uuid.New().String())
-	createdAt := time.Now()
 	return &SetupKey{
 		Id:         strconv.Itoa(int(Hash(key))),
 		Key:        key,
 		Name:       name,
 		Type:       t,
-		CreatedAt:  createdAt,
-		ExpiresAt:  createdAt.Add(validFor),
-		UpdatedAt:  createdAt,
+		CreatedAt:  time.Now(),
+		ExpiresAt:  time.Now().Add(validFor),
+		UpdatedAt:  time.Now(),
 		Revoked:    false,
 		UsedTimes:  0,
 		AutoGroups: autoGroups,

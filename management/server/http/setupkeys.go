@@ -76,24 +76,17 @@ func (h *SetupKeys) updateKey(accountID string, keyID string, w http.ResponseWri
 	writeSuccess(w, newKey)
 }
 
-func (h *SetupKeys) getKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
-	account, err := h.accountManager.GetAccountById(accountId)
+// CreateSetupKeyHandler is a POST requests that creates a new SetupKey
+func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
-		http.Error(w, "account doesn't exist", http.StatusInternalServerError)
+		log.Error(err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
-	for _, key := range account.SetupKeys {
-		if key.Id == keyId {
-			writeSuccess(w, key)
-			return
-		}
-	}
-	http.Error(w, "setup key not found", http.StatusNotFound)
-}
 
-func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PostApiSetupKeysJSONRequestBody{}
-	err := json.NewDecoder(r.Body).Decode(&req)
+	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -118,7 +111,7 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 	}
 	// newExpiresIn := time.Duration(req.ExpiresIn) * time.Second
 	// newKey.ExpiresAt = time.Now().Add(newExpiresIn)
-	setupKey, err := h.accountManager.CreateSetupKey(accountId, req.Name, server.SetupKeyType(req.Type), expiresIn,
+	setupKey, err := h.accountManager.CreateSetupKey(account.Id, req.Name, server.SetupKeyType(req.Type), expiresIn,
 		req.AutoGroups)
 	if err != nil {
 		errStatus, ok := status.FromError(err)
@@ -133,7 +126,8 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 	writeSuccess(w, setupKey)
 }
 
-func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
+// GetSetupKeyHandler is a GET request to get a SetupKey by ID
+func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
@@ -142,25 +136,85 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	keyId := vars["id"]
-	if len(keyId) == 0 {
+	keyID := vars["id"]
+	if len(keyID) == 0 {
 		http.Error(w, "invalid key Id", http.StatusBadRequest)
 		return
 	}
 
-	switch r.Method {
-	case http.MethodPut:
-		h.updateKey(account.Id, keyId, w, r)
+	key, err := h.accountManager.GetSetupKey(account.Id, keyID)
+	if err != nil {
+		errStatus, ok := status.FromError(err)
+		if ok && errStatus.Code() == codes.NotFound {
+			http.Error(w, fmt.Sprintf("setup key %s not found under account %s", keyID, account.Id), http.StatusNotFound)
+			return
+		}
+		log.Errorf("failed getting setup key %s under account %s %v", keyID, account.Id, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
-	case http.MethodGet:
-		h.getKey(account.Id, keyId, w, r)
-		return
-	default:
-		http.Error(w, "", http.StatusNotFound)
 	}
+
+	writeSuccess(w, key)
 }
 
-func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
+func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	if err != nil {
+		log.Error(err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	keyID := vars["id"]
+	if len(keyID) == 0 {
+		http.Error(w, "invalid key Id", http.StatusBadRequest)
+		return
+	}
+
+	req := &api.PutApiSetupKeysIdJSONRequestBody{}
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, fmt.Sprintf("setup key name field is invalid: %s", req.Name), http.StatusBadRequest)
+		return
+	}
+
+	if req.AutoGroups == nil {
+		http.Error(w, fmt.Sprintf("setup key AutoGroups field is invalid: %s", req.AutoGroups), http.StatusBadRequest)
+		return
+	}
+
+	newKey := &server.SetupKey{}
+	newKey.AutoGroups = req.AutoGroups
+	newKey.Revoked = req.Revoked
+	newKey.Name = req.Name
+	newKey.Id = keyID
+
+	newKey, err = h.accountManager.SaveSetupKey(account.Id, newKey)
+	if err != nil {
+		if err != nil {
+			if e, ok := status.FromError(err); ok {
+				switch e.Code() {
+				case codes.NotFound:
+					http.Error(w, fmt.Sprintf("couldn't find setup key for ID %s", keyID), http.StatusNotFound)
+				default:
+					http.Error(w, "failed updating setup key", http.StatusInternalServerError)
+					return
+				}
+			}
+		}
+		return
+	}
+	writeSuccess(w, newKey)
+}
+
+// GetAllSetupKeysHandler is a GET request that returns a list of SetupKey
+func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Request) {
 
 	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
@@ -169,27 +223,19 @@ func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch r.Method {
-	case http.MethodPost:
-		h.createKey(account.Id, w, r)
+	w.WriteHeader(200)
+	w.Header().Set("Content-Type", "application/json")
+
+	var respBody []*api.SetupKey
+	for _, key := range account.SetupKeys {
+		respBody = append(respBody, toResponseBody(key))
+	}
+
+	err = json.NewEncoder(w).Encode(respBody)
+	if err != nil {
+		log.Errorf("failed encoding account peers %s: %v", account.Id, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
-	case http.MethodGet:
-		w.WriteHeader(200)
-		w.Header().Set("Content-Type", "application/json")
-
-		respBody := []*api.SetupKey{}
-		for _, key := range account.SetupKeys {
-			respBody = append(respBody, toResponseBody(key))
-		}
-
-		err = json.NewEncoder(w).Encode(respBody)
-		if err != nil {
-			log.Errorf("failed encoding account peers %s: %v", account.Id, err)
-			http.Redirect(w, r, "/", http.StatusInternalServerError)
-			return
-		}
-	default:
-		http.Error(w, "", http.StatusNotFound)
 	}
 }
 
