@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"strconv"
 	"testing"
 	"time"
@@ -13,12 +14,14 @@ func TestGenerateDefaultSetupKey(t *testing.T) {
 	expectedType := "reusable"
 	expectedUsedTimes := 0
 	expectedCreatedAt := time.Now()
+	expectedUpdatedAt := time.Now()
 	expectedExpiresAt := time.Now().Add(24 * 30 * time.Hour)
+	var expectedAutoGroups []string
 
 	key := GenerateDefaultSetupKey()
 
 	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
-		expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))))
+		expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))), expectedUpdatedAt, expectedAutoGroups)
 
 }
 
@@ -29,10 +32,13 @@ func TestGenerateSetupKey(t *testing.T) {
 	expectedUsedTimes := 0
 	expectedCreatedAt := time.Now()
 	expectedExpiresAt := time.Now().Add(time.Hour)
+	expectedUpdatedAt := time.Now()
+	var expectedAutoGroups []string
 
 	key := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour, []string{})
 
-	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt, expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))))
+	assertKey(t, key, expectedName, expectedRevoke, expectedType, expectedUsedTimes, expectedCreatedAt,
+		expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))), expectedUpdatedAt, expectedAutoGroups)
 
 }
 
@@ -71,7 +77,8 @@ func TestSetupKey_IsValid(t *testing.T) {
 }
 
 func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke bool, expectedType string,
-	expectedUsedTimes int, expectedCreatedAt time.Time, expectedExpiresAt time.Time, expectedID string) {
+	expectedUsedTimes int, expectedCreatedAt time.Time, expectedExpiresAt time.Time, expectedID string,
+	expectedUpdatedAt time.Time, expectedAutoGroups []string) {
 	if key.Name != expectedName {
 		t.Errorf("expected setup key to have Name %v, got %v", expectedName, key.Name)
 	}
@@ -92,6 +99,10 @@ func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke 
 		t.Errorf("expected setup key to have ExpiresAt ~ %v, got %v", expectedExpiresAt, key.ExpiresAt)
 	}
 
+	if key.UpdatedAt.Sub(expectedUpdatedAt).Round(time.Hour) != 0 {
+		t.Errorf("expected setup key to have UpdatedAt ~ %v, got %v", expectedUpdatedAt, key.UpdatedAt)
+	}
+
 	if key.CreatedAt.Sub(expectedCreatedAt).Round(time.Hour) != 0 {
 		t.Errorf("expected setup key to have CreatedAt ~ %v, got %v", expectedCreatedAt, key.CreatedAt)
 	}
@@ -104,6 +115,11 @@ func assertKey(t *testing.T, key *SetupKey, expectedName string, expectedRevoke 
 	if key.Id != strconv.Itoa(int(Hash(key.Key))) {
 		t.Errorf("expected key Id t= %v, got %v", expectedID, key.Id)
 	}
+
+	if len(key.AutoGroups) != len(expectedAutoGroups) {
+		t.Errorf("expected key AutoGroups size=%d, got %d", len(expectedAutoGroups), len(key.AutoGroups))
+	}
+	assert.ElementsMatch(t, key.AutoGroups, expectedAutoGroups, "expected key AutoGroups to be equal")
 }
 
 func TestSetupKey_Copy(t *testing.T) {
@@ -111,6 +127,7 @@ func TestSetupKey_Copy(t *testing.T) {
 	key := GenerateSetupKey("key name", SetupKeyOneOff, time.Hour, []string{})
 	keyCopy := key.Copy()
 
-	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpiresAt, key.Id)
+	assertKey(t, keyCopy, key.Name, key.Revoked, string(key.Type), key.UsedTimes, key.CreatedAt, key.ExpiresAt, key.Id,
+		key.UpdatedAt, key.AutoGroups)
 
 }
