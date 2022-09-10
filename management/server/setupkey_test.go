@@ -8,6 +8,52 @@ import (
 	"time"
 )
 
+func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userID := "test_user"
+	account, err := manager.GetOrCreateAccountByUser(userID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = manager.SaveGroup(account.Id, &Group{
+		ID:    "group_1",
+		Name:  "group_name_1",
+		Peers: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = manager.SaveGroup(account.Id, &Group{
+		ID:    "group_2",
+		Name:  "group_name_2",
+		Peers: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expiresIn := time.Hour
+	autoGroups := []string{"group_1", "group_2"}
+	keyName := "my-test-key"
+	expectedCreatedAt := time.Now()
+	expectedUpdatedAt := time.Now()
+	expectedExpiresAt := time.Now().Add(expiresIn)
+
+	key, err := manager.CreateSetupKey(account.Id, keyName, SetupKeyReusable, expiresIn, autoGroups)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertKey(t, key, keyName, false, string(SetupKeyReusable), 0, expectedCreatedAt,
+		expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))), expectedUpdatedAt, autoGroups)
+}
+
 func TestGenerateDefaultSetupKey(t *testing.T) {
 	expectedName := "Default key"
 	expectedRevoke := false
