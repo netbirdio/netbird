@@ -155,7 +155,7 @@ func TestRoutesHandlers(t *testing.T) {
 		{
 			name:           "Get Not Existing Route",
 			requestType:    http.MethodGet,
-			requestPath:    "/api/rules/" + notFoundRouteID,
+			requestPath:    "/api/routes/" + notFoundRouteID,
 			expectedStatus: http.StatusNotFound,
 		},
 		{
@@ -168,7 +168,7 @@ func TestRoutesHandlers(t *testing.T) {
 		{
 			name:           "Delete Not Existing Route",
 			requestType:    http.MethodDelete,
-			requestPath:    "/api/rules/" + notFoundRouteID,
+			requestPath:    "/api/routes/" + notFoundRouteID,
 			expectedStatus: http.StatusNotFound,
 		},
 		{
