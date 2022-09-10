@@ -180,7 +180,8 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(200)
 	w.Header().Set("Content-Type", "application/json")
 
-	var respBody []*api.SetupKey
+	// should be initialized like that, otherwise json marshaller will return null
+	respBody := []*api.SetupKey{}
 	for _, key := range account.SetupKeys {
 		respBody = append(respBody, toResponseBody(key))
 	}
