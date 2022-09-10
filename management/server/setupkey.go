@@ -160,13 +160,8 @@ func Hash(s string) uint32 {
 
 // CreateSetupKey generates a new setup key with a given name, type, list of groups IDs to auto-assign to peers registered with this key,
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
-func (am *DefaultAccountManager) CreateSetupKey(
-	accountId string,
-	keyName string,
-	keyType SetupKeyType,
-	expiresIn time.Duration,
-	autoGroups []string,
-) (*SetupKey, error) {
+func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string, keyType SetupKeyType,
+	expiresIn time.Duration, autoGroups []string) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -175,7 +170,7 @@ func (am *DefaultAccountManager) CreateSetupKey(
 		keyDuration = expiresIn
 	}
 
-	account, err := am.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -241,6 +236,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	return newKey, am.updateAccountPeers(account)
 }
 
+// GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
 func (am *DefaultAccountManager) GetSetupKey(accountID, keyID string) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()

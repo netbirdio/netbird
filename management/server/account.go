@@ -39,7 +39,7 @@ type AccountManager interface {
 		autoGroups []string,
 	) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
-	GetSetupKey(accountId, keyID string) (*SetupKey, error)
+	GetSetupKey(accountID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
 	GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error)
@@ -624,15 +624,6 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 
 	addAllGroup(acc)
 	return acc
-}
-
-func getAccountSetupKeyById(acc *Account, keyId string) *SetupKey {
-	for _, k := range acc.SetupKeys {
-		if keyId == k.Id {
-			return k
-		}
-	}
-	return nil
 }
 
 func getAccountSetupKeyByKey(acc *Account, key string) *SetupKey {
