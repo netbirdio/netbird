@@ -348,6 +348,11 @@ func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	err = h.accountManager.DeleteRoute(account.Id, routeID)
 	if err != nil {
+		errStatus, ok := status.FromError(err)
+		if ok && errStatus.Code() == codes.NotFound {
+			http.Error(w, fmt.Sprintf("route %s not found under account %s", routeID, account.Id), http.StatusNotFound)
+			return
+		}
 		log.Errorf("failed delete route %s under account %s %v", routeID, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
