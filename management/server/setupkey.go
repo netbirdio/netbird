@@ -235,6 +235,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	return newKey, am.updateAccountPeers(account)
 }
 
+// ListSetupKeys returns a list of all setup keys of the account
 func (am *DefaultAccountManager) ListSetupKeys(accountID string) ([]*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
