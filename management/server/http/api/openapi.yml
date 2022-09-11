@@ -134,6 +134,15 @@ components:
         state:
           description: Setup key status, "valid", "overused","expired" or "revoked"
           type: string
+        auto_groups:
+          description: Setup key groups to auto-assign to peers registered with this key
+          type: array
+          items:
+            type: string
+        updated_at:
+          description: Setup key last update date
+          type: string
+          format: date-time
       required:
       - id
       - key
@@ -145,6 +154,8 @@ components:
       - used_times
       - last_used
       - state
+      - auto_groups
+      - updated_at
     SetupKeyRequest:
       type: object
       properties:
@@ -160,11 +171,17 @@ components:
         revoked:
           description: Setup key revocation status
           type: boolean
+        auto_groups:
+          description: Setup key groups to auto-assign to peers registered with this key
+          type: array
+          items:
+            type: string
       required:
         - name
         - type
         - expires_in
         - revoked
+        - auto_groups
     GroupMinimum:
       type: object
       properties:

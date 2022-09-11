@@ -31,14 +31,15 @@ const (
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	GetAccountByUser(userId string) (*Account, error)
-	AddSetupKey(
+	CreateSetupKey(
 		accountId string,
 		keyName string,
 		keyType SetupKeyType,
 		expiresIn time.Duration,
+		autoGroups []string,
 	) (*SetupKey, error)
-	RevokeSetupKey(accountId string, keyId string) (*SetupKey, error)
-	RenameSetupKey(accountId string, keyId string, newName string) (*SetupKey, error)
+	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
+	GetSetupKey(accountID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
 	GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error)
@@ -75,6 +76,7 @@ type AccountManager interface {
 	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID string) error
 	ListRoutes(accountID string) ([]*route.Route, error)
+	ListSetupKeys(accountID string) ([]*SetupKey, error)
 }
 
 type DefaultAccountManager struct {
@@ -242,93 +244,6 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 	log.Infof("warmed up IDP cache with %d entries", len(userData))
 	return nil
-}
-
-// AddSetupKey generates a new setup key with a given name and type, and adds it to the specified account
-func (am *DefaultAccountManager) AddSetupKey(
-	accountId string,
-	keyName string,
-	keyType SetupKeyType,
-	expiresIn time.Duration,
-) (*SetupKey, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	keyDuration := DefaultSetupKeyDuration
-	if expiresIn != 0 {
-		keyDuration = expiresIn
-	}
-
-	account, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
-	}
-
-	setupKey := GenerateSetupKey(keyName, keyType, keyDuration)
-	account.SetupKeys[setupKey.Key] = setupKey
-
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed adding account key")
-	}
-
-	return setupKey, nil
-}
-
-// RevokeSetupKey marks SetupKey as revoked - becomes not valid anymore
-func (am *DefaultAccountManager) RevokeSetupKey(accountId string, keyId string) (*SetupKey, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	account, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
-	}
-
-	setupKey := getAccountSetupKeyById(account, keyId)
-	if setupKey == nil {
-		return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", keyId)
-	}
-
-	keyCopy := setupKey.Copy()
-	keyCopy.Revoked = true
-	account.SetupKeys[keyCopy.Key] = keyCopy
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed adding account key")
-	}
-
-	return keyCopy, nil
-}
-
-// RenameSetupKey renames existing setup key of the specified account.
-func (am *DefaultAccountManager) RenameSetupKey(
-	accountId string,
-	keyId string,
-	newName string,
-) (*SetupKey, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	account, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
-	}
-
-	setupKey := getAccountSetupKeyById(account, keyId)
-	if setupKey == nil {
-		return nil, status.Errorf(codes.NotFound, "unknown setupKey %s", keyId)
-	}
-
-	keyCopy := setupKey.Copy()
-	keyCopy.Name = newName
-	account.SetupKeys[keyCopy.Key] = keyCopy
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed adding account key")
-	}
-
-	return keyCopy, nil
 }
 
 // GetAccountById returns an existing account using its ID or error (NotFound) if doesn't exist
@@ -503,7 +418,6 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(
 }
 
 // handleExistingUserAccount handles existing User accounts and update its domain attributes.
-//
 //
 // If there is no primary domain account yet, we set the account as primary for the domain. Otherwise,
 // we compare the account's ID with the domain account ID, and if they don't match, we set the account as
@@ -688,7 +602,7 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 
 	setupKeys := make(map[string]*SetupKey)
 	defaultKey := GenerateDefaultSetupKey()
-	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration)
+	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration, []string{})
 	setupKeys[defaultKey.Key] = defaultKey
 	setupKeys[oneOffKey.Key] = oneOffKey
 	network := NewNetwork()
@@ -711,15 +625,6 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 
 	addAllGroup(acc)
 	return acc
-}
-
-func getAccountSetupKeyById(acc *Account, keyId string) *SetupKey {
-	for _, k := range acc.SetupKeys {
-		if keyId == k.Id {
-			return k
-		}
-	}
-	return nil
 }
 
 func getAccountSetupKeyByKey(acc *Account, key string) *SetupKey {
