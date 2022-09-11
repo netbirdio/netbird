@@ -76,6 +76,7 @@ type AccountManager interface {
 	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID string) error
 	ListRoutes(accountID string) ([]*route.Route, error)
+	ListSetupKeys(accountID string) ([]*SetupKey, error)
 }
 
 type DefaultAccountManager struct {

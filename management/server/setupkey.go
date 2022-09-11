@@ -235,6 +235,22 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	return newKey, am.updateAccountPeers(account)
 }
 
+func (am *DefaultAccountManager) ListSetupKeys(accountID string) ([]*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	keys := make([]*SetupKey, 0, len(account.SetupKeys))
+	for _, key := range account.SetupKeys {
+		keys = append(keys, key.Copy())
+	}
+
+	return keys, nil
+}
+
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
 func (am *DefaultAccountManager) GetSetupKey(accountID, keyID string) (*SetupKey, error) {
 	am.mux.Lock()

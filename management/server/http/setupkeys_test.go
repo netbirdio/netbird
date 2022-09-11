@@ -66,6 +66,10 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				}
 				return nil, status.Errorf(codes.NotFound, "key %s not found", key.Id)
 			},
+
+			ListSetupKeysFunc: func(accountID string) ([]*server.SetupKey, error) {
+				return []*server.SetupKey{defaultKey}, nil
+			},
 		},
 		authAudience: "",
 		jwtExtractor: jwtclaims.ClaimsExtractor{

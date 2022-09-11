@@ -150,16 +150,14 @@ func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 	newKey.Id = keyID
 
 	newKey, err = h.accountManager.SaveSetupKey(account.Id, newKey)
+
 	if err != nil {
-		if err != nil {
-			if e, ok := status.FromError(err); ok {
-				switch e.Code() {
-				case codes.NotFound:
-					http.Error(w, fmt.Sprintf("couldn't find setup key for ID %s", keyID), http.StatusNotFound)
-				default:
-					http.Error(w, "failed updating setup key", http.StatusInternalServerError)
-					return
-				}
+		if e, ok := status.FromError(err); ok {
+			switch e.Code() {
+			case codes.NotFound:
+				http.Error(w, fmt.Sprintf("couldn't find setup key for ID %s", keyID), http.StatusNotFound)
+			default:
+				http.Error(w, "failed updating setup key", http.StatusInternalServerError)
 			}
 		}
 		return
@@ -177,21 +175,18 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	w.WriteHeader(200)
-	w.Header().Set("Content-Type", "application/json")
-
-	// should be initialized like that, otherwise json marshaller will return null
-	respBody := []*api.SetupKey{}
-	for _, key := range account.SetupKeys {
-		respBody = append(respBody, toResponseBody(key))
-	}
-
-	err = json.NewEncoder(w).Encode(respBody)
+	setupKeys, err := h.accountManager.ListSetupKeys(account.Id)
 	if err != nil {
-		log.Errorf("failed encoding account peers %s: %v", account.Id, err)
+		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
+	apiSetupKeys := make([]*api.SetupKey, 0)
+	for _, key := range setupKeys {
+		apiSetupKeys = append(apiSetupKeys, toResponseBody(key))
+	}
+
+	writeJSONObject(w, apiSetupKeys)
 }
 
 func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
@@ -216,14 +211,6 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 		state = "valid"
 	}
 
-	// the UpdatedAt field was introduced later, so there might be that some keys have a Zero value (e.g, null in the store file)
-	var updatedAt time.Time
-	if key.UpdatedAt.IsZero() {
-		updatedAt = key.CreatedAt
-	} else {
-		updatedAt = key.UpdatedAt
-	}
-
 	return &api.SetupKey{
 		Id:         key.Id,
 		Key:        key.Key,
@@ -236,6 +223,6 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 		LastUsed:   key.LastUsed,
 		State:      state,
 		AutoGroups: key.AutoGroups,
-		UpdatedAt:  updatedAt,
+		UpdatedAt:  key.UpdatedAt,
 	}
 }
