@@ -78,7 +78,10 @@ func initRoutesTestData() *Routes {
 			SaveRouteFunc: func(_ string, _ *route.Route) error {
 				return nil
 			},
-			DeleteRouteFunc: func(_ string, _ string) error {
+			DeleteRouteFunc: func(_ string, peerIP string) error {
+				if peerIP != existingRouteID {
+					return status.Errorf(codes.NotFound, "Peer with ID %s not found", peerIP)
+				}
 				return nil
 			},
 			GetPeerByIPFunc: func(_ string, peerIP string) (*server.Peer, error) {
@@ -155,7 +158,7 @@ func TestRoutesHandlers(t *testing.T) {
 		{
 			name:           "Get Not Existing Route",
 			requestType:    http.MethodGet,
-			requestPath:    "/api/rules/" + notFoundRouteID,
+			requestPath:    "/api/routes/" + notFoundRouteID,
 			expectedStatus: http.StatusNotFound,
 		},
 		{
@@ -168,7 +171,7 @@ func TestRoutesHandlers(t *testing.T) {
 		{
 			name:           "Delete Not Existing Route",
 			requestType:    http.MethodDelete,
-			requestPath:    "/api/rules/" + notFoundRouteID,
+			requestPath:    "/api/routes/" + notFoundRouteID,
 			expectedStatus: http.StatusNotFound,
 		},
 		{

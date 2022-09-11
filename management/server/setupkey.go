@@ -1,7 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"hash/fnv"
 	"strconv"
 	"strings"
@@ -18,7 +21,40 @@ const (
 	DefaultSetupKeyDuration = 24 * 30 * time.Hour
 	// DefaultSetupKeyName is a default name of the default setup key
 	DefaultSetupKeyName = "Default key"
+
+	// UpdateSetupKeyName indicates a setup key name update operation
+	UpdateSetupKeyName SetupKeyUpdateOperationType = iota
+	// UpdateSetupKeyRevoked indicates a setup key revoked filed update operation
+	UpdateSetupKeyRevoked
+	// UpdateSetupKeyAutoGroups indicates a setup key auto-assign groups update operation
+	UpdateSetupKeyAutoGroups
+	// UpdateSetupKeyExpiresAt indicates a setup key expiration time update operation
+	UpdateSetupKeyExpiresAt
 )
+
+// SetupKeyUpdateOperationType operation type
+type SetupKeyUpdateOperationType int
+
+func (t SetupKeyUpdateOperationType) String() string {
+	switch t {
+	case UpdateSetupKeyName:
+		return "UpdateSetupKeyName"
+	case UpdateSetupKeyRevoked:
+		return "UpdateSetupKeyRevoked"
+	case UpdateSetupKeyAutoGroups:
+		return "UpdateSetupKeyAutoGroups"
+	case UpdateSetupKeyExpiresAt:
+		return "UpdateSetupKeyExpiresAt"
+	default:
+		return "InvalidOperation"
+	}
+}
+
+// SetupKeyUpdateOperation operation object with type and values to be applied
+type SetupKeyUpdateOperation struct {
+	Type   SetupKeyUpdateOperationType
+	Values []string
+}
 
 // SetupKeyType is the type of setup key
 type SetupKeyType string
@@ -31,30 +67,38 @@ type SetupKey struct {
 	Type      SetupKeyType
 	CreatedAt time.Time
 	ExpiresAt time.Time
+	UpdatedAt time.Time
 	// Revoked indicates whether the key was revoked or not (we don't remove them for tracking purposes)
 	Revoked bool
 	// UsedTimes indicates how many times the key was used
 	UsedTimes int
 	// LastUsed last time the key was used for peer registration
 	LastUsed time.Time
+	// AutoGroups is a list of Group IDs that are auto assigned to a Peer when it uses this key to register
+	AutoGroups []string
 }
 
-//Copy copies SetupKey to a new object
+// Copy copies SetupKey to a new object
 func (key *SetupKey) Copy() *SetupKey {
+	if key.UpdatedAt.IsZero() {
+		key.UpdatedAt = key.CreatedAt
+	}
 	return &SetupKey{
-		Id:        key.Id,
-		Key:       key.Key,
-		Name:      key.Name,
-		Type:      key.Type,
-		CreatedAt: key.CreatedAt,
-		ExpiresAt: key.ExpiresAt,
-		Revoked:   key.Revoked,
-		UsedTimes: key.UsedTimes,
-		LastUsed:  key.LastUsed,
+		Id:         key.Id,
+		Key:        key.Key,
+		Name:       key.Name,
+		Type:       key.Type,
+		CreatedAt:  key.CreatedAt,
+		ExpiresAt:  key.ExpiresAt,
+		UpdatedAt:  key.UpdatedAt,
+		Revoked:    key.Revoked,
+		UsedTimes:  key.UsedTimes,
+		LastUsed:   key.LastUsed,
+		AutoGroups: key.AutoGroups,
 	}
 }
 
-//IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
+// IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
 func (key *SetupKey) IncrementUsage() *SetupKey {
 	c := key.Copy()
 	c.UsedTimes = c.UsedTimes + 1
@@ -83,24 +127,25 @@ func (key *SetupKey) IsOverUsed() bool {
 }
 
 // GenerateSetupKey generates a new setup key
-func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration) *SetupKey {
+func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoGroups []string) *SetupKey {
 	key := strings.ToUpper(uuid.New().String())
-	createdAt := time.Now()
 	return &SetupKey{
-		Id:        strconv.Itoa(int(Hash(key))),
-		Key:       key,
-		Name:      name,
-		Type:      t,
-		CreatedAt: createdAt,
-		ExpiresAt: createdAt.Add(validFor),
-		Revoked:   false,
-		UsedTimes: 0,
+		Id:         strconv.Itoa(int(Hash(key))),
+		Key:        key,
+		Name:       name,
+		Type:       t,
+		CreatedAt:  time.Now(),
+		ExpiresAt:  time.Now().Add(validFor),
+		UpdatedAt:  time.Now(),
+		Revoked:    false,
+		UsedTimes:  0,
+		AutoGroups: autoGroups,
 	}
 }
 
 // GenerateDefaultSetupKey generates a default setup key
 func GenerateDefaultSetupKey() *SetupKey {
-	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration)
+	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{})
 }
 
 func Hash(s string) uint32 {
@@ -110,4 +155,128 @@ func Hash(s string) uint32 {
 		panic(err)
 	}
 	return h.Sum32()
+}
+
+// CreateSetupKey generates a new setup key with a given name, type, list of groups IDs to auto-assign to peers registered with this key,
+// and adds it to the specified account. A list of autoGroups IDs can be empty.
+func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string, keyType SetupKeyType,
+	expiresIn time.Duration, autoGroups []string) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	keyDuration := DefaultSetupKeyDuration
+	if expiresIn != 0 {
+		keyDuration = expiresIn
+	}
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	for _, group := range autoGroups {
+		if _, ok := account.Groups[group]; !ok {
+			return nil, fmt.Errorf("group %s doesn't exist", group)
+		}
+	}
+
+	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups)
+	account.SetupKeys[setupKey.Key] = setupKey
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed adding account key")
+	}
+
+	return setupKey, nil
+}
+
+// SaveSetupKey saves the provided SetupKey to the database overriding the existing one.
+// Due to the unique nature of a SetupKey certain properties must not be overwritten
+// (e.g. the key itself, creation date, ID, etc).
+// These properties are overwritten: Name, AutoGroups, Revoked. The rest is copied from the existing key.
+func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *SetupKey) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	if keyToSave == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "provided setup key to update is nil")
+	}
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	var oldKey *SetupKey
+	for _, key := range account.SetupKeys {
+		if key.Id == keyToSave.Id {
+			oldKey = key.Copy()
+			break
+		}
+	}
+	if oldKey == nil {
+		return nil, status.Errorf(codes.NotFound, "setup key not found")
+	}
+
+	// only auto groups, revoked status, and name can be updated for now
+	newKey := oldKey.Copy()
+	newKey.Name = keyToSave.Name
+	newKey.AutoGroups = keyToSave.AutoGroups
+	newKey.Revoked = keyToSave.Revoked
+	newKey.UpdatedAt = time.Now()
+
+	account.SetupKeys[newKey.Key] = newKey
+
+	if err = am.Store.SaveAccount(account); err != nil {
+		return nil, err
+	}
+
+	return newKey, am.updateAccountPeers(account)
+}
+
+// ListSetupKeys returns a list of all setup keys of the account
+func (am *DefaultAccountManager) ListSetupKeys(accountID string) ([]*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	keys := make([]*SetupKey, 0, len(account.SetupKeys))
+	for _, key := range account.SetupKeys {
+		keys = append(keys, key.Copy())
+	}
+
+	return keys, nil
+}
+
+// GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
+func (am *DefaultAccountManager) GetSetupKey(accountID, keyID string) (*SetupKey, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	var foundKey *SetupKey
+	for _, key := range account.SetupKeys {
+		if key.Id == keyID {
+			foundKey = key.Copy()
+			break
+		}
+	}
+	if foundKey == nil {
+		return nil, status.Errorf(codes.NotFound, "setup key not found")
+	}
+
+	// the UpdatedAt field was introduced later, so there might be that some keys have a Zero value (e.g, null in the store file)
+	if foundKey.UpdatedAt.IsZero() {
+		foundKey.UpdatedAt = foundKey.CreatedAt
+	}
+
+	return foundKey, nil
 }

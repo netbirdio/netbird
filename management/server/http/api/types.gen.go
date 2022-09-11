@@ -299,6 +299,9 @@ type RulePatchOperationPath string
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
+	// Setup key groups to auto-assign to peers registered with this key
+	AutoGroups []string `json:"auto_groups"`
+
 	// Setup Key expiration date
 	Expires time.Time `json:"expires"`
 
@@ -323,6 +326,9 @@ type SetupKey struct {
 	// Setup key type, one-off for single time usage and reusable
 	Type string `json:"type"`
 
+	// Setup key last update date
+	UpdatedAt time.Time `json:"updated_at"`
+
 	// Usage count of setup key
 	UsedTimes int `json:"used_times"`
 
@@ -332,6 +338,9 @@ type SetupKey struct {
 
 // SetupKeyRequest defines model for SetupKeyRequest.
 type SetupKeyRequest struct {
+	// Setup key groups to auto-assign to peers registered with this key
+	AutoGroups []string `json:"auto_groups"`
+
 	// Expiration time in seconds
 	ExpiresIn int `json:"expires_in"`
 

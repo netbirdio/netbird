@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -28,54 +29,17 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authAudience stri
 	}
 }
 
-func (h *SetupKeys) updateKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
-	req := &api.PutApiSetupKeysIdJSONRequestBody{}
-	err := json.NewDecoder(r.Body).Decode(&req)
+// CreateSetupKeyHandler is a POST requests that creates a new SetupKey
+func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		log.Error(err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	var key *server.SetupKey
-	if req.Revoked {
-		//handle only if being revoked, don't allow to enable key again for now
-		key, err = h.accountManager.RevokeSetupKey(accountId, keyId)
-		if err != nil {
-			http.Error(w, "failed revoking key", http.StatusInternalServerError)
-			return
-		}
-	}
-	if len(req.Name) != 0 {
-		key, err = h.accountManager.RenameSetupKey(accountId, keyId, req.Name)
-		if err != nil {
-			http.Error(w, "failed renaming key", http.StatusInternalServerError)
-			return
-		}
-	}
-
-	if key != nil {
-		writeSuccess(w, key)
-	}
-}
-
-func (h *SetupKeys) getKey(accountId string, keyId string, w http.ResponseWriter, r *http.Request) {
-	account, err := h.accountManager.GetAccountById(accountId)
-	if err != nil {
-		http.Error(w, "account doesn't exist", http.StatusInternalServerError)
-		return
-	}
-	for _, key := range account.SetupKeys {
-		if key.Id == keyId {
-			writeSuccess(w, key)
-			return
-		}
-	}
-	http.Error(w, "setup key not found", http.StatusNotFound)
-}
-
-func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PostApiSetupKeysJSONRequestBody{}
-	err := json.NewDecoder(r.Body).Decode(&req)
+	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -95,7 +59,13 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 
 	expiresIn := time.Duration(req.ExpiresIn) * time.Second
 
-	setupKey, err := h.accountManager.AddSetupKey(accountId, req.Name, server.SetupKeyType(req.Type), expiresIn)
+	if req.AutoGroups == nil {
+		req.AutoGroups = []string{}
+	}
+	// newExpiresIn := time.Duration(req.ExpiresIn) * time.Second
+	// newKey.ExpiresAt = time.Now().Add(newExpiresIn)
+	setupKey, err := h.accountManager.CreateSetupKey(account.Id, req.Name, server.SetupKeyType(req.Type), expiresIn,
+		req.AutoGroups)
 	if err != nil {
 		errStatus, ok := status.FromError(err)
 		if ok && errStatus.Code() == codes.NotFound {
@@ -109,7 +79,8 @@ func (h *SetupKeys) createKey(accountId string, w http.ResponseWriter, r *http.R
 	writeSuccess(w, setupKey)
 }
 
-func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
+// GetSetupKeyHandler is a GET request to get a SetupKey by ID
+func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
@@ -118,25 +89,84 @@ func (h *SetupKeys) HandleKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	keyId := vars["id"]
-	if len(keyId) == 0 {
+	keyID := vars["id"]
+	if len(keyID) == 0 {
 		http.Error(w, "invalid key Id", http.StatusBadRequest)
 		return
 	}
 
-	switch r.Method {
-	case http.MethodPut:
-		h.updateKey(account.Id, keyId, w, r)
+	key, err := h.accountManager.GetSetupKey(account.Id, keyID)
+	if err != nil {
+		errStatus, ok := status.FromError(err)
+		if ok && errStatus.Code() == codes.NotFound {
+			http.Error(w, fmt.Sprintf("setup key %s not found under account %s", keyID, account.Id), http.StatusNotFound)
+			return
+		}
+		log.Errorf("failed getting setup key %s under account %s %v", keyID, account.Id, err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
-	case http.MethodGet:
-		h.getKey(account.Id, keyId, w, r)
-		return
-	default:
-		http.Error(w, "", http.StatusNotFound)
 	}
+
+	writeSuccess(w, key)
 }
 
-func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
+// UpdateSetupKeyHandler is a PUT request to update server.SetupKey
+func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	if err != nil {
+		log.Error(err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	keyID := vars["id"]
+	if len(keyID) == 0 {
+		http.Error(w, "invalid key Id", http.StatusBadRequest)
+		return
+	}
+
+	req := &api.PutApiSetupKeysIdJSONRequestBody{}
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		http.Error(w, fmt.Sprintf("setup key name field is invalid: %s", req.Name), http.StatusBadRequest)
+		return
+	}
+
+	if req.AutoGroups == nil {
+		http.Error(w, fmt.Sprintf("setup key AutoGroups field is invalid: %s", req.AutoGroups), http.StatusBadRequest)
+		return
+	}
+
+	newKey := &server.SetupKey{}
+	newKey.AutoGroups = req.AutoGroups
+	newKey.Revoked = req.Revoked
+	newKey.Name = req.Name
+	newKey.Id = keyID
+
+	newKey, err = h.accountManager.SaveSetupKey(account.Id, newKey)
+
+	if err != nil {
+		if e, ok := status.FromError(err); ok {
+			switch e.Code() {
+			case codes.NotFound:
+				http.Error(w, fmt.Sprintf("couldn't find setup key for ID %s", keyID), http.StatusNotFound)
+			default:
+				http.Error(w, "failed updating setup key", http.StatusInternalServerError)
+			}
+		}
+		return
+	}
+	writeSuccess(w, newKey)
+}
+
+// GetAllSetupKeysHandler is a GET request that returns a list of SetupKey
+func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Request) {
 
 	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
@@ -145,28 +175,18 @@ func (h *SetupKeys) GetKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	switch r.Method {
-	case http.MethodPost:
-		h.createKey(account.Id, w, r)
+	setupKeys, err := h.accountManager.ListSetupKeys(account.Id)
+	if err != nil {
+		log.Error(err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
-	case http.MethodGet:
-		w.WriteHeader(200)
-		w.Header().Set("Content-Type", "application/json")
-
-		respBody := []*api.SetupKey{}
-		for _, key := range account.SetupKeys {
-			respBody = append(respBody, toResponseBody(key))
-		}
-
-		err = json.NewEncoder(w).Encode(respBody)
-		if err != nil {
-			log.Errorf("failed encoding account peers %s: %v", account.Id, err)
-			http.Redirect(w, r, "/", http.StatusInternalServerError)
-			return
-		}
-	default:
-		http.Error(w, "", http.StatusNotFound)
 	}
+	apiSetupKeys := make([]*api.SetupKey, 0)
+	for _, key := range setupKeys {
+		apiSetupKeys = append(apiSetupKeys, toResponseBody(key))
+	}
+
+	writeJSONObject(w, apiSetupKeys)
 }
 
 func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
@@ -190,16 +210,19 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 	} else {
 		state = "valid"
 	}
+
 	return &api.SetupKey{
-		Id:        key.Id,
-		Key:       key.Key,
-		Name:      key.Name,
-		Expires:   key.ExpiresAt,
-		Type:      string(key.Type),
-		Valid:     key.IsValid(),
-		Revoked:   key.Revoked,
-		UsedTimes: key.UsedTimes,
-		LastUsed:  key.LastUsed,
-		State:     state,
+		Id:         key.Id,
+		Key:        key.Key,
+		Name:       key.Name,
+		Expires:    key.ExpiresAt,
+		Type:       string(key.Type),
+		Valid:      key.IsValid(),
+		Revoked:    key.Revoked,
+		UsedTimes:  key.UsedTimes,
+		LastUsed:   key.LastUsed,
+		State:      state,
+		AutoGroups: key.AutoGroups,
+		UpdatedAt:  key.UpdatedAt,
 	}
 }
