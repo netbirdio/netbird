@@ -29,6 +29,7 @@ func NewUserHandler(accountManager server.AccountManager, authAudience string) *
 	}
 }
 
+// UpdateUser is a PUT requests to update User data
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		http.Error(w, "", http.StatusBadRequest)

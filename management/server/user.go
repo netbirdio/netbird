@@ -28,9 +28,7 @@ type User struct {
 // Copy the user
 func (u *User) Copy() *User {
 	var autoGroups []string
-	for _, group := range u.AutoGroups {
-		autoGroups = append(autoGroups, group)
-	}
+	autoGroups = append(autoGroups, u.AutoGroups...)
 	return &User{
 		Id:         u.Id,
 		Role:       u.Role,
