@@ -39,6 +39,7 @@ type AccountManager interface {
 		autoGroups []string,
 	) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
+	SaveUser(accountID string, key *User) (*UserInfo, error)
 	GetSetupKey(accountID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
@@ -107,10 +108,11 @@ type Account struct {
 }
 
 type UserInfo struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
+	ID         string   `json:"id"`
+	Email      string   `json:"email"`
+	Name       string   `json:"name"`
+	Role       string   `json:"role"`
+	AutoGroups []string `json:"auto_groups"`
 }
 
 func (a *Account) Copy() *Account {
@@ -311,6 +313,21 @@ func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
 
 func (am *DefaultAccountManager) loadFromCache(_ context.Context, accountID interface{}) (interface{}, error) {
 	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
+}
+
+func (am *DefaultAccountManager) lookupUserInCache(user *User, accountID string) (*idp.UserData, error) {
+	userData, err := am.lookupCache(map[string]*User{user.Id: user}, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, datum := range userData {
+		if datum.ID == user.Id {
+			return datum, nil
+		}
+	}
+
+	return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", user.Id)
 }
 
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {

@@ -31,13 +31,32 @@ components:
           description: User's name from idp provider
           type: string
         role:
-          description: User's Netbird account role
+          description: User's NetBird account role
           type: string
+        auto_groups:
+          description: Groups to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
       required:
       - id
       - email
       - name
       - role
+    UserRequest:
+      type: object
+      properties:
+        auto_groups:
+          description: Groups to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+      required:
+        - name
+        - type
+        - expires_in
+        - revoked
+        - auto_groups
     PeerMinimum:
       type: object
       properties:
@@ -401,6 +420,40 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/User'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/{id}:
+    put:
+      summary: Update information about a User
+      tags: [ Users]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The User ID
+      requestBody:
+        description: User update
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/UserRequest'
+      responses:
+        '200':
+          description: A User object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

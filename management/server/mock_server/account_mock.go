@@ -52,6 +52,7 @@ type MockAccountManager struct {
 	ListRoutesFunc                        func(accountID string) ([]*route.Route, error)
 	SaveSetupKeyFunc                      func(accountID string, key *server.SetupKey) (*server.SetupKey, error)
 	ListSetupKeysFunc                     func(accountID string) ([]*server.SetupKey, error)
+	SaveUserFunc                          func(accountID string, user *server.User) (*server.UserInfo, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -420,4 +421,12 @@ func (am *MockAccountManager) ListSetupKeys(accountID string) ([]*server.SetupKe
 	}
 
 	return nil, status.Errorf(codes.Unimplemented, "method ListSetupKeys is not implemented")
+}
+
+// SaveUser mocks SaveUser of the AccountManager interface
+func (am *MockAccountManager) SaveUser(accountID string, user *server.User) (*server.UserInfo, error) {
+	if am.SaveUserFunc != nil {
+		return am.SaveUserFunc(accountID, user)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method SaveUser is not implemented")
 }
