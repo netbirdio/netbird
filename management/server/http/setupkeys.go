@@ -181,9 +181,17 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
+
+	groups, err := h.accountManager.ListGroups(account.Id)
+	if err != nil {
+		log.Error(err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
 	apiSetupKeys := make([]*api.SetupKey, 0)
 	for _, key := range setupKeys {
-		apiSetupKeys = append(apiSetupKeys, toResponseBody(key))
+		apiSetupKeys = append(apiSetupKeys, toResponseBody(groups, key))
 	}
 
 	writeJSONObject(w, apiSetupKeys)
@@ -192,14 +200,15 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
 	w.WriteHeader(200)
 	w.Header().Set("Content-Type", "application/json")
-	err := json.NewEncoder(w).Encode(toResponseBody(key))
+	err := json.NewEncoder(w).Encode(toResponseBody(nil, key))
 	if err != nil {
 		http.Error(w, "failed handling request", http.StatusInternalServerError)
 		return
 	}
 }
 
-func toResponseBody(key *server.SetupKey) *api.SetupKey {
+// toResponseBody takes a list of all groups, a key, finds groups that belong to the key and add them to the response
+func toResponseBody(groups []*server.Group, key *server.SetupKey) *api.SetupKey {
 	var state string
 	if key.IsExpired() {
 		state = "expired"
@@ -209,6 +218,17 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 		state = "overused"
 	} else {
 		state = "valid"
+	}
+
+	// should be instantiated like that to ensure if empty, we return an empty array to the client
+	autoGroups := []api.GroupMinimum{}
+	for _, group := range groups {
+		for _, keyGroup := range key.AutoGroups {
+			if group.ID == keyGroup {
+				autoGroups = append(autoGroups, *toGroupMinimumResponse(group))
+				break
+			}
+		}
 	}
 
 	return &api.SetupKey{
@@ -222,7 +242,7 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 		UsedTimes:  key.UsedTimes,
 		LastUsed:   key.LastUsed,
 		State:      state,
-		AutoGroups: key.AutoGroups,
+		AutoGroups: autoGroups,
 		UpdatedAt:  key.UpdatedAt,
 	}
 }

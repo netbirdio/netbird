@@ -138,7 +138,7 @@ components:
           description: Setup key groups to auto-assign to peers registered with this key
           type: array
           items:
-            type: string
+            $ref: '#/components/schemas/GroupMinimum'
         updated_at:
           description: Setup key last update date
           type: string

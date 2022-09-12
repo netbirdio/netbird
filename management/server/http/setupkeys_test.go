@@ -110,7 +110,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			requestPath:       "/api/setup-keys",
 			expectedStatus:    http.StatusOK,
 			expectedBody:      true,
-			expectedSetupKeys: []*api.SetupKey{toResponseBody(defaultSetupKey)},
+			expectedSetupKeys: []*api.SetupKey{toResponseBody(nil, defaultSetupKey)},
 		},
 		{
 			name:             "Get Existing Setup Key",
@@ -118,7 +118,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			requestPath:      "/api/setup-keys/" + existingSetupKeyID,
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
-			expectedSetupKey: toResponseBody(defaultSetupKey),
+			expectedSetupKey: toResponseBody(nil, defaultSetupKey),
 		},
 		{
 			name:           "Get Not Existing Setup Key",
@@ -135,7 +135,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"%s\"}", newSetupKey.Name, newSetupKey.Type))),
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
-			expectedSetupKey: toResponseBody(newSetupKey),
+			expectedSetupKey: toResponseBody(nil, newSetupKey),
 		},
 		{
 			name:        "Update Setup Key",
@@ -149,7 +149,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 				))),
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
-			expectedSetupKey: toResponseBody(updatedDefaultSetupKey),
+			expectedSetupKey: toResponseBody(nil, updatedDefaultSetupKey),
 		},
 	}
 

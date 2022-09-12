@@ -344,6 +344,14 @@ func peerIPsToKeys(account *server.Account, peerIPs *[]string) []string {
 	return mappedPeerKeys
 }
 
+func toGroupMinimumResponse(group *server.Group) *api.GroupMinimum {
+	return &api.GroupMinimum{
+		Id:         group.ID,
+		Name:       group.Name,
+		PeersCount: len(group.Peers),
+	}
+}
+
 func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 	cache := make(map[string]api.PeerMinimum)
 	gr := api.Group{
