@@ -100,6 +100,14 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
+	for _, newGroupID := range update.AutoGroups {
+		if _, ok := account.Groups[newGroupID]; !ok {
+			return nil,
+				status.Errorf(codes.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
+					newGroupID, update.Id)
+		}
+	}
+
 	oldUser := account.Users[update.Id]
 	if oldUser == nil {
 		return nil, status.Errorf(codes.NotFound, "update not found")
