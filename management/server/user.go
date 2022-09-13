@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/idp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"strings"
@@ -25,9 +26,38 @@ type User struct {
 	AutoGroups []string
 }
 
+// toUserInfo converts a User object to a UserInfo object.
+func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
+	autoGroups := u.AutoGroups
+	if autoGroups == nil {
+		autoGroups = []string{}
+	}
+
+	if userData == nil {
+		return &UserInfo{
+			ID:         u.Id,
+			Email:      "",
+			Name:       "",
+			Role:       string(u.Role),
+			AutoGroups: u.AutoGroups,
+		}, nil
+	}
+	if userData.ID != u.Id {
+		return nil, fmt.Errorf("wrong UserData provided for user %s", u.Id)
+	}
+
+	return &UserInfo{
+		ID:         u.Id,
+		Email:      userData.Email,
+		Name:       userData.Name,
+		Role:       string(u.Role),
+		AutoGroups: autoGroups,
+	}, nil
+}
+
 // Copy the user
 func (u *User) Copy() *User {
-	var autoGroups []string
+	autoGroups := []string{}
 	autoGroups = append(autoGroups, u.AutoGroups...)
 	return &User{
 		Id:         u.Id,
@@ -79,6 +109,8 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 	newUser := oldUser.Copy()
 	newUser.AutoGroups = update.AutoGroups
 
+	account.Users[newUser.Id] = newUser
+
 	if err = am.Store.SaveAccount(account); err != nil {
 		return nil, err
 	}
@@ -88,20 +120,9 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 		if err != nil {
 			return nil, err
 		}
-		return &UserInfo{
-			ID:         newUser.Id,
-			Role:       string(newUser.Role),
-			AutoGroups: newUser.AutoGroups,
-			Email:      userData.Email,
-			Name:       userData.Name,
-		}, nil
+		return newUser.toUserInfo(userData)
 	}
-
-	return &UserInfo{
-		ID:         newUser.Id,
-		Role:       string(newUser.Role),
-		AutoGroups: newUser.AutoGroups,
-	}, nil
+	return newUser.toUserInfo(nil)
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
@@ -162,4 +183,47 @@ func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaim
 	}
 
 	return user.Role == UserRoleAdmin, nil
+}
+
+// GetUsersFromAccount performs a batched request for users from IDP by account ID
+func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
+	account, err := am.GetAccountById(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	queriedUsers := make([]*idp.UserData, 0)
+	if !isNil(am.idpManager) {
+		queriedUsers, err = am.lookupCache(account.Users, accountID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	userInfos := make([]*UserInfo, 0)
+
+	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
+	if len(queriedUsers) == 0 {
+		for _, user := range account.Users {
+			info, err := user.toUserInfo(nil)
+			if err != nil {
+				return nil, err
+			}
+			userInfos = append(userInfos, info)
+		}
+		return userInfos, nil
+	}
+
+	for _, queriedUser := range queriedUsers {
+		if localUser, contains := account.Users[queriedUser.ID]; contains {
+
+			info, err := localUser.toUserInfo(queriedUser)
+			if err != nil {
+				return nil, err
+			}
+			userInfos = append(userInfos, info)
+		}
+	}
+
+	return userInfos, nil
 }

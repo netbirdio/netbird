@@ -369,46 +369,6 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, acco
 	return userData, err
 }
 
-// GetUsersFromAccount performs a batched request for users from IDP by account id
-func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
-	account, err := am.GetAccountById(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	queriedUsers := make([]*idp.UserData, 0)
-	if !isNil(am.idpManager) {
-		queriedUsers, err = am.lookupCache(account.Users, accountID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	userInfo := make([]*UserInfo, 0)
-
-	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
-	if len(queriedUsers) == 0 {
-		for _, user := range account.Users {
-			userInfo = append(userInfo, &UserInfo{
-				ID:    user.Id,
-				Email: "",
-				Name:  "",
-				Role:  string(user.Role),
-			})
-		}
-		return userInfo, nil
-	}
-
-	for _, queriedUser := range queriedUsers {
-		if localUser, contains := account.Users[queriedUser.ID]; contains {
-			userInfo = append(userInfo, mergeLocalAndQueryUser(*queriedUser, *localUser))
-			log.Debugf("Merged userinfo to send back; %v", userInfo)
-		}
-	}
-
-	return userInfo, nil
-}
-
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
 func (am *DefaultAccountManager) updateAccountDomainAttributes(
 	account *Account,
