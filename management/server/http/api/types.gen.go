@@ -357,7 +357,7 @@ type SetupKeyRequest struct {
 // User defines model for User.
 type User struct {
 	// Groups to auto-assign to peers registered by this user
-	AutoGroups *[]string `json:"auto_groups,omitempty"`
+	AutoGroups []string `json:"auto_groups"`
 
 	// User's email address
 	Email string `json:"email"`

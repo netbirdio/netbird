@@ -43,6 +43,7 @@ components:
       - email
       - name
       - role
+      - auto_groups
     UserRequest:
       type: object
       properties:

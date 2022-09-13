@@ -103,10 +103,17 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func toUserResponse(user *server.UserInfo) *api.User {
+
+	autoGroups := user.AutoGroups
+	if autoGroups == nil {
+		autoGroups = []string{}
+	}
+
 	return &api.User{
-		Id:    user.ID,
-		Name:  user.Name,
-		Email: user.Email,
-		Role:  user.Role,
+		Id:         user.ID,
+		Name:       user.Name,
+		Email:      user.Email,
+		Role:       user.Role,
+		AutoGroups: autoGroups,
 	}
 }
