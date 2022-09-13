@@ -302,15 +302,6 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 	return nil
 }
 
-func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
-	return &UserInfo{
-		ID:    local.Id,
-		Email: queried.Email,
-		Name:  queried.Name,
-		Role:  string(local.Role),
-	}
-}
-
 func (am *DefaultAccountManager) loadFromCache(_ context.Context, accountID interface{}) (interface{}, error) {
 	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
 }
