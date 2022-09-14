@@ -130,7 +130,7 @@ func tryToLoadModule(moduleName string) (bool, error) {
 func isModuleEnabled(name string) bool {
 	builtin, builtinErr := isBuiltinModule(name)
 	state, statusErr := moduleStatus(name)
-	return (builtinErr == nil && builtin) || (statusErr == nil && state < loading)
+	return (builtinErr == nil && builtin) || (statusErr == nil && state >= loading)
 }
 
 func getModulePath(name string) (string, error) {
