@@ -58,7 +58,7 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 	return w.assignAddr(luid)
 }
 
-// WireguardModExists check if we can load wireguard mod (linux only)
-func WireguardModExists() bool {
+// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
+func WireguardModuleIsLoaded() bool {
 	return false
 }

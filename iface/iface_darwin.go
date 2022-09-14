@@ -34,7 +34,7 @@ func (w *WGIface) assignAddr() error {
 	return nil
 }
 
-// WireguardModExists check if we can load wireguard mod (linux only)
-func WireguardModExists() bool {
+// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
+func WireguardModuleIsLoaded() bool {
 	return false
 }

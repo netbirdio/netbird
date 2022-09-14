@@ -84,8 +84,10 @@ func (n *nftablesManager) CleanRoutingRules() {
 	n.mux.Lock()
 	defer n.mux.Unlock()
 	log.Debug("flushing tables")
-	n.conn.FlushTable(n.tableIPv6)
-	n.conn.FlushTable(n.tableIPv4)
+	if n.tableIPv4 != nil && n.tableIPv6 != nil {
+		n.conn.FlushTable(n.tableIPv6)
+		n.conn.FlushTable(n.tableIPv4)
+	}
 	log.Debugf("flushing tables result in: %v error", n.conn.Flush())
 }
 
