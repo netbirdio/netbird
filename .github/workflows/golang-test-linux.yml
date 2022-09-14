@@ -75,13 +75,13 @@ jobs:
       - run: chmod +x *testing.bin
 
       - name: Run Iface tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/iface-testing.bin
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/iface --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/iface-testing.bin
 
       - name: Run RouteManager tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/routemanager-testing.bin
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/routemanager-testing.bin
 
       - name: Run Engine tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/engine-testing.bin
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/engine-testing.bin
 
       - name: Run Peer tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/peer-testing.bin
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/peer  --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/peer-testing.bin
