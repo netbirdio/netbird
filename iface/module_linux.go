@@ -1,9 +1,5 @@
 package iface
 
-// Holds logic to check existence of Wireguard kernel module
-// Copied from https://github.com/paultag/go-modprobe and
-// https://github.com/pmorjan/kmod
-
 import (
 	"bufio"
 	"errors"
@@ -20,10 +16,15 @@ import (
 	"syscall"
 )
 
+// Holds logic to check existence of kernel modules used by wireguard interfaces
+// Copied from https://github.com/paultag/go-modprobe and
+// https://github.com/pmorjan/kmod
+
 type status int
 
 const (
-	unknown status = iota
+	defaultModuleDir        = "/lib/modules"
+	unknown          status = iota
 	unloaded
 	unloading
 	loading
@@ -39,6 +40,7 @@ type module struct {
 var (
 	// ErrModuleNotFound is the error resulting if a module can't be found.
 	ErrModuleNotFound = errors.New("module not found")
+	moduleLibDir      = defaultModuleDir
 	// get the root directory for the kernel modules. If this line panics,
 	// it's because getModuleRoot has failed to get the uname of the running
 	// kernel (likely a non-POSIX system, but maybe a broken kernel?)
@@ -56,7 +58,7 @@ func getModuleRoot() string {
 	for ; uname.Release[i] != 0; i++ {
 	}
 
-	return filepath.Join("/lib/modules", string(uname.Release[:i]))
+	return filepath.Join(moduleLibDir, string(uname.Release[:i]))
 }
 
 // tunModuleIsLoaded check if tun module exist, if is not attempt to load it
@@ -65,6 +67,9 @@ func tunModuleIsLoaded() bool {
 	if err == nil {
 		return true
 	}
+
+	log.Infof("couldn't access device /dev/net/tun, go error %v, "+
+		"will attempt to load tun module, if running on container add flag --cap-add=NET_ADMIN", err)
 
 	tunLoaded, err := tryToLoadModule("tun")
 	if err != nil {
@@ -297,7 +302,7 @@ func loadModule(name, path string) error {
 	return err
 }
 
-// getModuleDependencies returns a module depenencies
+// getModuleDependencies returns a module dependencies
 func getModuleDependencies(name string) ([]module, error) {
 	f, err := os.Open(filepath.Join(moduleRoot, "/modules.dep"))
 	if err != nil {
