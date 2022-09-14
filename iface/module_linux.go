@@ -1,3 +1,4 @@
+// Package iface provides wireguard network interface creation and management
 package iface
 
 import (
