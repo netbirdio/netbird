@@ -1,36 +1,14 @@
 package iface
 
 import (
-	"errors"
-	"math"
-	"os"
-	"syscall"
-
+	"fmt"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+	"os"
 )
 
 type NativeLink struct {
 	Link *netlink.Link
-}
-
-// WireguardModExists check if we can load wireguard mod (linux only)
-func WireguardModExists() bool {
-	link := newWGLink("mustnotexist")
-
-	// We willingly try to create a device with an invalid
-	// MTU here as the validation of the MTU will be performed after
-	// the validation of the link kind and hence allows us to check
-	// for the existance of the wireguard module without actually
-	// creating a link.
-	//
-	// As a side-effect, this will also let the kernel lazy-load
-	// the wireguard module.
-	link.attrs.MTU = math.MaxInt
-
-	err := netlink.LinkAdd(link)
-
-	return errors.Is(err, syscall.EINVAL)
 }
 
 // Create creates a new Wireguard interface, sets a given IP and brings it up.
@@ -39,10 +17,13 @@ func (w *WGIface) Create() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	if WireguardModExists() {
+	if WireguardModuleIsLoaded() {
 		log.Info("using kernel WireGuard")
 		return w.createWithKernel()
 	} else {
+		if !tunModuleIsLoaded() {
+			return fmt.Errorf("couldn't check or load tun module")
+		}
 		log.Info("using userspace WireGuard")
 		return w.createWithUserspace()
 	}

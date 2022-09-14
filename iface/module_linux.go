@@ -8,12 +8,16 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	log "github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
 	"io/fs"
 	"io/ioutil"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 type status int
@@ -55,29 +59,86 @@ func getModuleRoot() string {
 	return filepath.Join("/lib/modules", string(uname.Release[:i]))
 }
 
-// resolveModName will, given a module name (such as `wireguard`) return an absolute
-// path to the .ko that provides that module.
-func resolveModPath(name string) (string, error) {
-	fsPath, err := getModulePath(moduleRoot, name)
+// tunModuleIsLoaded check if tun module exist, if is not attempt to load it
+func tunModuleIsLoaded() bool {
+	_, err := os.Stat("/dev/net/tun")
+	if err == nil {
+		return true
+	}
+
+	tunLoaded, err := tryToLoadModule("tun")
 	if err != nil {
-		return "", err
+		log.Errorf("unable to find or load tun module, got error: %v", err)
 	}
-
-	if !strings.HasPrefix(fsPath, moduleRoot) {
-		return "", fmt.Errorf("module isn't in the module directory")
-	}
-
-	return fsPath, nil
+	return tunLoaded
 }
 
-// Open every single kernel module under the root, and parse the ELF headers to
-// extract the module name.
-func getModulePath(root string, name string) (string, error) {
+// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
+func WireguardModuleIsLoaded() bool {
+	if canCreateFakeWireguardInterface() {
+		return true
+	}
+
+	loaded, err := tryToLoadModule("wireguard")
+	if err != nil {
+		log.Info(err)
+		return false
+	}
+
+	return loaded
+}
+
+func canCreateFakeWireguardInterface() bool {
+	link := newWGLink("mustnotexist")
+
+	// We willingly try to create a device with an invalid
+	// MTU here as the validation of the MTU will be performed after
+	// the validation of the link kind and hence allows us to check
+	// for the existance of the wireguard module without actually
+	// creating a link.
+	//
+	// As a side-effect, this will also let the kernel lazy-load
+	// the wireguard module.
+	link.attrs.MTU = math.MaxInt
+
+	err := netlink.LinkAdd(link)
+
+	return errors.Is(err, syscall.EINVAL)
+}
+
+func tryToLoadModule(moduleName string) (bool, error) {
+	if isModuleEnabled(moduleName) {
+		return true, nil
+	}
+	modulePath, err := getModulePath(moduleName)
+	if err != nil {
+		return false, fmt.Errorf("couldn't find module path for %s, error: %v", moduleName, err)
+	}
+	if modulePath == "" {
+		return false, nil
+	}
+
+	log.Infof("trying to load %s module", moduleName)
+
+	err = loadModuleWithDependencies(moduleName, modulePath)
+	if err != nil {
+		return false, fmt.Errorf("couldn't load %s module, error: %v", moduleName, err)
+	}
+	return true, nil
+}
+
+func isModuleEnabled(name string) bool {
+	builtin, builtinErr := isBuiltinModule(name)
+	state, statusErr := moduleStatus(name)
+	return (builtinErr == nil && builtin) || (statusErr == nil && state < loading)
+}
+
+func getModulePath(name string) (string, error) {
 	var foundPath string
 	skipRemainingDirs := false
 
 	err := filepath.WalkDir(
-		root,
+		moduleRoot,
 		func(path string, info fs.DirEntry, err error) error {
 			if skipRemainingDirs {
 				return fs.SkipDir
@@ -119,12 +180,17 @@ func cleanName(s string) string {
 	return strings.ReplaceAll(strings.TrimSpace(s), "-", "_")
 }
 
-func isBuiltin(name string) (bool, error) {
+func isBuiltinModule(name string) (bool, error) {
 	f, err := os.Open(filepath.Join(moduleRoot, "/modules.builtin"))
 	if err != nil {
 		return false, err
 	}
-	defer f.Close()
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			log.Errorf("failed closing modules.builtin file, %v", err)
+		}
+	}()
 
 	var found bool
 	scanner := bufio.NewScanner(f)
@@ -144,13 +210,18 @@ func isBuiltin(name string) (bool, error) {
 // /proc/modules
 //      name | memory size | reference count | references | state: <Live|Loading|Unloading>
 // 		macvlan 28672 1 macvtap, Live 0x0000000000000000
-func modStatus(name string) (status, error) {
+func moduleStatus(name string) (status, error) {
 	state := unknown
 	f, err := os.Open("/proc/modules")
 	if err != nil {
 		return state, err
 	}
-	defer f.Close()
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			log.Errorf("failed closing /proc/modules file, %v", err)
+		}
+	}()
 
 	state = unloaded
 
@@ -180,22 +251,22 @@ func modStatus(name string) (status, error) {
 	return state, nil
 }
 
-func loadWithDeps(name, path string) error {
-	deps, err := modDeps(name)
+func loadModuleWithDependencies(name, path string) error {
+	deps, err := getModuleDependencies(name)
 	if err != nil {
 		return fmt.Errorf("couldn't load list of module %s dependecies", name)
 	}
 	for _, dep := range deps {
-		err = load(dep.name, dep.path)
+		err = loadModule(dep.name, dep.path)
 		if err != nil {
 			return fmt.Errorf("couldn't load dependecy module %s for %s", dep.name, name)
 		}
 	}
-	return load(name, path)
+	return loadModule(name, path)
 }
 
-func load(name, path string) error {
-	state, err := modStatus(name)
+func loadModule(name, path string) error {
+	state, err := moduleStatus(name)
 	if err != nil {
 		return err
 	}
@@ -207,7 +278,12 @@ func load(name, path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			log.Errorf("failed closing %s file, %v", path, err)
+		}
+	}()
 
 	// first try finit_module(2), then init_module(2)
 	err = unix.FinitModule(int(f.Fd()), "", 0)
@@ -221,13 +297,18 @@ func load(name, path string) error {
 	return err
 }
 
-// modDeps returns a module depenencies
-func modDeps(name string) ([]module, error) {
+// getModuleDependencies returns a module depenencies
+func getModuleDependencies(name string) ([]module, error) {
 	f, err := os.Open(filepath.Join(moduleRoot, "/modules.dep"))
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			log.Errorf("failed closing modules.dep file, %v", err)
+		}
+	}()
 
 	var deps []string
 	scanner := bufio.NewScanner(f)
