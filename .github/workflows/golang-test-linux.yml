@@ -34,7 +34,7 @@ jobs:
       - name: Test
         run: GOARCH=${{ matrix.arch }} go test -exec 'sudo --preserve-env=CI' -timeout 5m -p 1 ./...
 
-  test_on_docker:
+  test_client_on_docker:
     runs-on: ubuntu-latest
     steps:
       - name: Install Go
@@ -60,10 +60,28 @@ jobs:
       - name: Install modules
         run: go mod tidy
 
-      - name: Generate Test bin
-        run: go test -c -o testing.bin ./...
+      - name: Generate Iface Test bin
+        run: go test -c -o iface-testing.bin ./iface/...
 
-      - run: chmod +x testing.bin
+      - name: Generate RouteManager Test bin
+        run: go test -c -o routemanager-testing.bin ./client/internal/routemanager/...
 
-      - name: Run tests in docker
-        run: docker run -t --cap-add=NET_ADMIN --rm -v $PWD:/ci gcr.io/distroless/base:debug /ci/testing.bin
+      - name: Generate Engine Test bin
+        run: go test -c -o engine-testing.bin ./client/internal/*.go
+
+      - name: Generate Peer Test bin
+        run: go test -c -o peer-testing.bin ./client/internal/peer/...
+
+      - run: chmod +x *testing.bin
+
+      - name: Run Iface tests in docker
+        run: docker run -t --cap-add=NET_ADMIN --rm -v $PWD:/ci gcr.io/distroless/base:debug /ci/iface-testing.bin
+
+      - name: Run RouteManager tests in docker
+        run: docker run -t --cap-add=NET_ADMIN --rm -v $PWD:/ci gcr.io/distroless/base:debug /ci/routemanager-testing.bin
+
+      - name: Run Engine tests in docker
+        run: docker run -t --cap-add=NET_ADMIN --rm -v $PWD:/ci gcr.io/distroless/base:debug /ci/engine-testing.bin
+
+      - name: Run Peer tests in docker
+        run: docker run -t --cap-add=NET_ADMIN --rm -v $PWD:/ci gcr.io/distroless/base:debug /ci/peer-testing.bin
