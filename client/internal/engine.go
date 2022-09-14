@@ -2,21 +2,24 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math/rand"
+	"net"
+	"net/netip"
+	"reflect"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
-	"math/rand"
-	"net"
-	"net/netip"
-	"reflect"
-	"runtime"
-	"strings"
-	"sync"
-	"time"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
@@ -27,6 +30,7 @@ import (
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
 	"github.com/pion/ice/v2"
+	"github.com/pion/stun"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -66,6 +70,8 @@ type EngineConfig struct {
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey []byte
+
+	NATExternalIPs []string
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -776,6 +782,7 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 		e.syncMsgMux.Lock()
 		conf := conn.GetConf()
 		conf.StunTurn = append(e.STUNs, e.TURNs...)
+		conf.NATExternalIPs = e.parseNATExternalIPMappings()
 		conn.UpdateConf(conf)
 		e.syncMsgMux.Unlock()
 
@@ -917,4 +924,117 @@ func (e *Engine) receiveSignalEvents() {
 	}()
 
 	e.signal.WaitStreamConnected()
+}
+
+func (e* Engine) parseNATExternalIPMappings() []string {
+	var mappedIPs []string
+	for _, mapping := range e.config.NATExternalIPs {
+		var external, internal string
+		var externalIP, internalIP net.IP
+		var err error
+		split := strings.Split(mapping, "/")
+		if len(split) > 1 {
+			internal = split[1]
+			internalIP = net.ParseIP(internal)
+			if internalIP == nil {
+				// not a properly formattted IP address, maybe it's interface name?
+				internalIP, err = findIPFromInterfaceName(internal)
+				if err != nil {
+					log.Warnf("error finding interface IP for interface '%s', ignoring external mapping '%s': %v", internal, mapping, err)
+					break
+				}
+			}
+		}
+		external = split[0]
+		if external == "stun" {
+			externalIP, err = e.findNATExternalIPFromSTUN(internalIP)
+			if err != nil {
+				log.Warnf("error finding external IP via stun, ignoring external IP mapping '%s': %v", mapping, err)
+				break
+			}
+		} else {
+			externalIP = net.ParseIP(external)
+			if externalIP == nil {
+				log.Warnf("invalid external IP, ignoring external IP mapping '%s'", mapping)
+				break
+			}
+		}
+		if externalIP != nil {
+			mappedIP := externalIP.String()
+			if internalIP != nil {
+				mappedIP = mappedIP + "/" + internalIP.String()
+			}
+			mappedIPs = append(mappedIPs, mappedIP)
+			log.Infof("parsed external IP mapping of '%s' as '%s'", mapping, mappedIP)
+		}
+	}
+	return mappedIPs
+}
+
+func (e *Engine) findNATExternalIPFromSTUN(internalIP net.IP) (net.IP, error) {
+	if len(e.STUNs) < 1 {
+		return nil, errors.New("no STUN servers available for external IP discovery")
+	}
+
+	// What about auth?
+	url := e.STUNs[0]
+	addr :=  net.JoinHostPort(url.Host, strconv.Itoa(url.Port))
+
+	d := net.Dialer{}
+	if internalIP != nil {
+		d.LocalAddr = &net.UDPAddr{ IP: internalIP }
+	}
+	con, err := d.Dial("udp", addr)
+	if err != nil {
+		return nil, err
+	}
+	cli, err := stun.NewClient(con)
+	defer func() {
+		_ = cli.Close()
+	}()
+
+	req := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
+	var hErr *error
+	var hAddr *net.IP 
+	// call to Do method blocks until all handlers are called and have returned, no synchronization needed
+	if err := cli.Do(req, func(e stun.Event) {
+		if e.Error != nil {
+			hErr = &e.Error
+		} else {
+			var xorAddr = stun.XORMappedAddress{}
+			err = xorAddr.GetFrom(e.Message)
+			if err != nil {
+				hErr = &err
+			} else {
+				hAddr = &xorAddr.IP
+			}
+		}
+	}); err != nil {
+		return nil, err
+	}
+	if hErr != nil {
+		return nil, err 
+	}
+	return *hAddr, nil
+}
+
+func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
+    iface, err := net.InterfaceByName(ifaceName)
+	if err != nil {
+        return nil, err
+    }
+    return findIPFromInterface(iface)
+}
+
+func findIPFromInterface(iface *net.Interface) (net.IP, error) {
+    ifaceAddrs, err := iface.Addrs()
+	if err != nil {
+        return nil, err
+    }
+    for _, addr := range ifaceAddrs {
+        if ipv4Addr := addr.(*net.IPNet).IP.To4(); ipv4Addr != nil {
+			return ipv4Addr, nil
+        }
+    }
+	return nil, fmt.Errorf("interface %s don't have an ipv4 address", iface.Name)
 }
