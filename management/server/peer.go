@@ -330,6 +330,13 @@ func (am *DefaultAccountManager) AddPeer(
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown user with ID: %s", userID)
 		}
+		user, ok := account.Users[userID]
+		if !ok {
+			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown user with ID: %s", userID)
+		}
+
+		groupsToAdd = user.AutoGroups
+
 	} else {
 		// Empty setup key and jwt fail
 		return nil, status.Errorf(codes.InvalidArgument, "no setup key or user id provided")
