@@ -294,6 +294,8 @@ func (am *DefaultAccountManager) AddPeer(
 	var account *Account
 	var err error
 	var sk *SetupKey
+	// auto-assign groups that are coming with a SetupKey or a User
+	var groupsToAdd []string
 	if len(upperKey) != 0 {
 		account, err = am.Store.GetAccountBySetupKey(upperKey)
 		if err != nil {
@@ -320,6 +322,8 @@ func (am *DefaultAccountManager) AddPeer(
 				"unable to register peer, its setup key is invalid (expired, overused or revoked)",
 			)
 		}
+
+		groupsToAdd = sk.AutoGroups
 
 	} else if len(userID) != 0 {
 		account, err = am.Store.GetUserAccount(userID)
@@ -360,6 +364,14 @@ func (am *DefaultAccountManager) AddPeer(
 		return nil, err
 	}
 	group.Peers = append(group.Peers, newPeer.Key)
+
+	if len(groupsToAdd) > 0 {
+		for _, s := range groupsToAdd {
+			if g, ok := account.Groups[s]; ok && g.Name != "All" {
+				g.Peers = append(g.Peers, newPeer.Key)
+			}
+		}
+	}
 
 	account.Peers[newPeer.Key] = newPeer
 	if len(upperKey) != 0 {

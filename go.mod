@@ -11,7 +11,7 @@ require (
 	github.com/kardianos/service v1.2.1-0.20210728001519-a323c3813bc7 //keep this version otherwise wiretrustee up command breaks
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.18.1
-	github.com/pion/ice/v2 v2.1.17
+	github.com/pion/ice/v2 v2.2.7
 	github.com/rs/cors v1.8.0
 	github.com/sirupsen/logrus v1.8.1
 	github.com/spf13/cobra v1.3.0
@@ -42,7 +42,7 @@ require (
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.7.1
-	golang.org/x/net v0.0.0-20220513224357-95641704303c
+	golang.org/x/net v0.0.0-20220630215102-69896b714898
 	golang.org/x/term v0.0.0-20220526004731-065cf7ba2467
 )
 
@@ -80,13 +80,13 @@ require (
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pegasus-kv/thrift v0.13.0 // indirect
-	github.com/pion/dtls/v2 v2.1.2 // indirect
+	github.com/pion/dtls/v2 v2.1.5 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/mdns v0.0.5 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
 	github.com/pion/stun v0.3.5 // indirect
-	github.com/pion/transport v0.13.0 // indirect
-	github.com/pion/turn/v2 v2.0.7 // indirect
+	github.com/pion/transport v0.13.1 // indirect
+	github.com/pion/turn/v2 v2.0.8 // indirect
 	github.com/pion/udp v0.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/client_golang v1.12.2 // indirect
@@ -116,7 +116,5 @@ require (
 	honnef.co/go/tools v0.2.2 // indirect
 	k8s.io/apimachinery v0.23.5 // indirect
 )
-
-replace github.com/pion/ice/v2 => github.com/wiretrustee/ice/v2 v2.1.21-0.20220218121004-dc81faead4bb
 
 replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20220905002524-6ac14ad5ea84
