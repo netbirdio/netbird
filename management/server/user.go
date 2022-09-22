@@ -2,10 +2,10 @@ package server
 
 import (
 	"fmt"
-	"strings"
-
+	"github.com/netbirdio/netbird/management/server/idp"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
@@ -22,20 +22,56 @@ type UserRole string
 type User struct {
 	Id   string
 	Role UserRole
+	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
+	AutoGroups []string
 }
 
+// toUserInfo converts a User object to a UserInfo object.
+func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
+	autoGroups := u.AutoGroups
+	if autoGroups == nil {
+		autoGroups = []string{}
+	}
+
+	if userData == nil {
+		return &UserInfo{
+			ID:         u.Id,
+			Email:      "",
+			Name:       "",
+			Role:       string(u.Role),
+			AutoGroups: u.AutoGroups,
+		}, nil
+	}
+	if userData.ID != u.Id {
+		return nil, fmt.Errorf("wrong UserData provided for user %s", u.Id)
+	}
+
+	return &UserInfo{
+		ID:         u.Id,
+		Email:      userData.Email,
+		Name:       userData.Name,
+		Role:       string(u.Role),
+		AutoGroups: autoGroups,
+	}, nil
+}
+
+// Copy the user
 func (u *User) Copy() *User {
+	autoGroups := []string{}
+	autoGroups = append(autoGroups, u.AutoGroups...)
 	return &User{
-		Id:   u.Id,
-		Role: u.Role,
+		Id:         u.Id,
+		Role:       u.Role,
+		AutoGroups: autoGroups,
 	}
 }
 
 // NewUser creates a new user
 func NewUser(id string, role UserRole) *User {
 	return &User{
-		Id:   id,
-		Role: role,
+		Id:         id,
+		Role:       role,
+		AutoGroups: []string{},
 	}
 }
 
@@ -47,6 +83,54 @@ func NewRegularUser(id string) *User {
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
 	return NewUser(id, UserRoleAdmin)
+}
+
+// SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.
+// Only User.AutoGroups field is allowed to be updated for now.
+func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*UserInfo, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	if update == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "provided user update is nil")
+	}
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	for _, newGroupID := range update.AutoGroups {
+		if _, ok := account.Groups[newGroupID]; !ok {
+			return nil,
+				status.Errorf(codes.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
+					newGroupID, update.Id)
+		}
+	}
+
+	oldUser := account.Users[update.Id]
+	if oldUser == nil {
+		return nil, status.Errorf(codes.NotFound, "update not found")
+	}
+
+	// only auto groups, revoked status, and name can be updated for now
+	newUser := oldUser.Copy()
+	newUser.AutoGroups = update.AutoGroups
+
+	account.Users[newUser.Id] = newUser
+
+	if err = am.Store.SaveAccount(account); err != nil {
+		return nil, err
+	}
+
+	if !isNil(am.idpManager) {
+		userData, err := am.lookupUserInCache(newUser, accountID)
+		if err != nil {
+			return nil, err
+		}
+		return newUser.toUserInfo(userData)
+	}
+	return newUser.toUserInfo(nil)
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
@@ -107,4 +191,47 @@ func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaim
 	}
 
 	return user.Role == UserRoleAdmin, nil
+}
+
+// GetUsersFromAccount performs a batched request for users from IDP by account ID
+func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
+	account, err := am.GetAccountById(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	queriedUsers := make([]*idp.UserData, 0)
+	if !isNil(am.idpManager) {
+		queriedUsers, err = am.lookupCache(account.Users, accountID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	userInfos := make([]*UserInfo, 0)
+
+	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
+	if len(queriedUsers) == 0 {
+		for _, user := range account.Users {
+			info, err := user.toUserInfo(nil)
+			if err != nil {
+				return nil, err
+			}
+			userInfos = append(userInfos, info)
+		}
+		return userInfos, nil
+	}
+
+	for _, queriedUser := range queriedUsers {
+		if localUser, contains := account.Users[queriedUser.ID]; contains {
+
+			info, err := localUser.toUserInfo(queriedUser)
+			if err != nil {
+				return nil, err
+			}
+			userInfos = append(userInfos, info)
+		}
+	}
+
+	return userInfos, nil
 }

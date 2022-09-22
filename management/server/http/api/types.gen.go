@@ -356,6 +356,9 @@ type SetupKeyRequest struct {
 
 // User defines model for User.
 type User struct {
+	// Groups to auto-assign to peers registered by this user
+	AutoGroups []string `json:"auto_groups"`
+
 	// User's email address
 	Email string `json:"email"`
 
@@ -365,8 +368,14 @@ type User struct {
 	// User's name from idp provider
 	Name string `json:"name"`
 
-	// User's Netbird account role
+	// User's NetBird account role
 	Role string `json:"role"`
+}
+
+// UserRequest defines model for UserRequest.
+type UserRequest struct {
+	// Groups to auto-assign to peers registered by this user
+	AutoGroups []string `json:"auto_groups"`
 }
 
 // PostApiGroupsJSONBody defines parameters for PostApiGroups.
@@ -442,6 +451,9 @@ type PostApiSetupKeysJSONBody = SetupKeyRequest
 // PutApiSetupKeysIdJSONBody defines parameters for PutApiSetupKeysId.
 type PutApiSetupKeysIdJSONBody = SetupKeyRequest
 
+// PutApiUsersIdJSONBody defines parameters for PutApiUsersId.
+type PutApiUsersIdJSONBody = UserRequest
+
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody PostApiGroupsJSONBody
 
@@ -477,3 +489,6 @@ type PostApiSetupKeysJSONRequestBody = PostApiSetupKeysJSONBody
 
 // PutApiSetupKeysIdJSONRequestBody defines body for PutApiSetupKeysId for application/json ContentType.
 type PutApiSetupKeysIdJSONRequestBody = PutApiSetupKeysIdJSONBody
+
+// PutApiUsersIdJSONRequestBody defines body for PutApiUsersId for application/json ContentType.
+type PutApiUsersIdJSONRequestBody = PutApiUsersIdJSONBody
