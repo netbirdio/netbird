@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/util"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
+	"net"
 	"net/netip"
 	"sort"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 var (
 	detailFlag   bool
+	ipv4Flag     bool
 	ipsFilter    []string
 	statusFilter string
 	ipsFilterMap map[string]struct{}
@@ -73,7 +75,7 @@ var statusCmd = &cobra.Command{
 		pbFullStatus := resp.GetFullStatus()
 		fullStatus := fromProtoFullStatus(pbFullStatus)
 
-		cmd.Print(parseFullStatus(fullStatus, detailFlag, daemonStatus, resp.GetDaemonVersion()))
+		cmd.Print(parseFullStatus(fullStatus, detailFlag, daemonStatus, resp.GetDaemonVersion(), ipv4Flag))
 
 		return nil
 	},
@@ -82,8 +84,9 @@ var statusCmd = &cobra.Command{
 func init() {
 	ipsFilterMap = make(map[string]struct{})
 	statusCmd.PersistentFlags().BoolVarP(&detailFlag, "detail", "d", false, "display detailed status information")
-	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g. --filter-by-ips 100.64.0.100,100.64.0.200")
-	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(connected|disconnected), e.g. --filter-by-status connected")
+	statusCmd.PersistentFlags().BoolVar(&ipv4Flag, "ipv4", false, "display only NetBird IPv4 of this peer, e.g., --ipv4 will output 100.64.0.33")
+	statusCmd.PersistentFlags().StringSliceVar(&ipsFilter, "filter-by-ips", []string{}, "filters the detailed output by a list of one or more IPs, e.g., --filter-by-ips 100.64.0.100,100.64.0.200")
+	statusCmd.PersistentFlags().StringVar(&statusFilter, "filter-by-status", "", "filters the detailed output by connection status(connected|disconnected), e.g., --filter-by-status connected")
 }
 
 func parseFilters() error {
@@ -142,7 +145,19 @@ func fromProtoFullStatus(pbFullStatus *proto.FullStatus) nbStatus.FullStatus {
 	return fullStatus
 }
 
-func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonStatus string, daemonVersion string) string {
+func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonStatus string, daemonVersion string, flag bool) string {
+
+	interfaceIP := fullStatus.LocalPeerState.IP
+
+	ip, _, err := net.ParseCIDR(interfaceIP)
+	if err != nil {
+		return ""
+	}
+
+	if ipv4Flag {
+		return fmt.Sprintf("%s\n", ip)
+	}
+
 	var (
 		managementStatusURL  = ""
 		signalStatusURL      = ""
@@ -163,8 +178,6 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 	if fullStatus.SignalState.Connected {
 		signalConnString = "Connected"
 	}
-
-	interfaceIP := fullStatus.LocalPeerState.IP
 
 	if fullStatus.LocalPeerState.KernelInterface {
 		interfaceTypeString = "Kernel"
