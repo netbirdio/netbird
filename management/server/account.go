@@ -39,6 +39,7 @@ type AccountManager interface {
 		autoGroups []string,
 	) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
+	SaveUser(accountID string, key *User) (*UserInfo, error)
 	GetSetupKey(accountID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
@@ -107,10 +108,11 @@ type Account struct {
 }
 
 type UserInfo struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Role  string `json:"role"`
+	ID         string   `json:"id"`
+	Email      string   `json:"email"`
+	Name       string   `json:"name"`
+	Role       string   `json:"role"`
+	AutoGroups []string `json:"auto_groups"`
 }
 
 func (a *Account) Copy() *Account {
@@ -300,17 +302,23 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 	return nil
 }
 
-func mergeLocalAndQueryUser(queried idp.UserData, local User) *UserInfo {
-	return &UserInfo{
-		ID:    local.Id,
-		Email: queried.Email,
-		Name:  queried.Name,
-		Role:  string(local.Role),
-	}
-}
-
 func (am *DefaultAccountManager) loadFromCache(_ context.Context, accountID interface{}) (interface{}, error) {
 	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
+}
+
+func (am *DefaultAccountManager) lookupUserInCache(user *User, accountID string) (*idp.UserData, error) {
+	userData, err := am.lookupCache(map[string]*User{user.Id: user}, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, datum := range userData {
+		if datum.ID == user.Id {
+			return datum, nil
+		}
+	}
+
+	return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", user.Id)
 }
 
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {
@@ -350,46 +358,6 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, acco
 	}
 
 	return userData, err
-}
-
-// GetUsersFromAccount performs a batched request for users from IDP by account id
-func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
-	account, err := am.GetAccountById(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	queriedUsers := make([]*idp.UserData, 0)
-	if !isNil(am.idpManager) {
-		queriedUsers, err = am.lookupCache(account.Users, accountID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	userInfo := make([]*UserInfo, 0)
-
-	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
-	if len(queriedUsers) == 0 {
-		for _, user := range account.Users {
-			userInfo = append(userInfo, &UserInfo{
-				ID:    user.Id,
-				Email: "",
-				Name:  "",
-				Role:  string(user.Role),
-			})
-		}
-		return userInfo, nil
-	}
-
-	for _, queriedUser := range queriedUsers {
-		if localUser, contains := account.Users[queriedUser.ID]; contains {
-			userInfo = append(userInfo, mergeLocalAndQueryUser(*queriedUser, *localUser))
-			log.Debugf("Merged userinfo to send back; %v", userInfo)
-		}
-	}
-
-	return userInfo, nil
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
