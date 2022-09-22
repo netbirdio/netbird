@@ -263,7 +263,7 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (Device
 		}
 	}
 
-	return DeviceAuthorizationFlow{
+	deviceAuthorizationFlow := DeviceAuthorizationFlow{
 		Provider: protoDeviceAuthorizationFlow.Provider.String(),
 
 		ProviderConfig: ProviderConfig{
@@ -274,5 +274,32 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (Device
 			TokenEndpoint:      protoDeviceAuthorizationFlow.GetProviderConfig().GetTokenEndpoint(),
 			DeviceAuthEndpoint: protoDeviceAuthorizationFlow.GetProviderConfig().GetDeviceAuthEndpoint(),
 		},
-	}, nil
+	}
+
+	err = isProviderConfigValid(deviceAuthorizationFlow.ProviderConfig)
+	if err != nil {
+		return DeviceAuthorizationFlow{}, err
+	}
+
+	return deviceAuthorizationFlow, nil
+}
+
+func isProviderConfigValid(config ProviderConfig) error {
+	errorMSGFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
+	if config.Audience == "" {
+		return fmt.Errorf(errorMSGFormat, "Audience")
+	}
+	if config.ClientID == "" {
+		return fmt.Errorf(errorMSGFormat, "Client ID")
+	}
+	if config.ClientSecret == "" {
+		return fmt.Errorf(errorMSGFormat, "Client Secret")
+	}
+	if config.TokenEndpoint == "" {
+		return fmt.Errorf(errorMSGFormat, "Token Endpoint")
+	}
+	if config.DeviceAuthEndpoint == "" {
+		return fmt.Errorf(errorMSGFormat, "Device Auth Endpoint")
+	}
+	return nil
 }
