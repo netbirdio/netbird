@@ -17,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
+	gRPCPeer "google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
@@ -79,7 +80,10 @@ func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
-	log.Debugf("Sync request from peer %s", req.WgPubKey)
+	p, ok := gRPCPeer.FromContext(srv.Context())
+	if ok {
+		log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
+	}
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
@@ -255,7 +259,10 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
-	log.Debugf("Login request from peer %s", req.WgPubKey)
+	p, ok := gRPCPeer.FromContext(ctx)
+	if ok {
+		log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
+	}
 
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
