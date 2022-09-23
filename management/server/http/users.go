@@ -45,7 +45,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["id"]
 	if len(userID) == 0 {
-		http.Error(w, "invalid key Id", http.StatusBadRequest)
+		http.Error(w, "invalid user ID", http.StatusBadRequest)
 		return
 	}
 
@@ -56,8 +56,15 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userRole := server.StrRoleToUserRole(req.Role)
+	if userRole == server.UserRoleUnknown {
+		http.Error(w, "invalid user role", http.StatusBadRequest)
+		return
+	}
+
 	newUser, err := h.accountManager.SaveUser(account.Id, &server.User{
 		Id:         userID,
+		Role:       userRole,
 		AutoGroups: req.AutoGroups,
 	})
 	if err != nil {
