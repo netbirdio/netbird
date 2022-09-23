@@ -141,7 +141,7 @@ func toPeerResponse(peer *server.PeerInfo, account *server.Account) *api.Peer {
 			}
 		}
 	}
-	return &api.Peer{
+	resp := &api.Peer{
 		Id:         peer.Peer.IP.String(),
 		Name:       peer.Peer.Name,
 		Ip:         peer.Peer.IP.String(),
@@ -151,5 +151,13 @@ func toPeerResponse(peer *server.PeerInfo, account *server.Account) *api.Peer {
 		Version:    peer.Peer.Meta.WtVersion,
 		Groups:     groupsInfo,
 		SshEnabled: peer.Peer.SSHEnabled,
+		HostName:   &peer.Peer.Meta.Hostname,
 	}
+
+	if peer.UserInfo != nil {
+		resp.UserEmail = &peer.UserInfo.Email
+		resp.UserName = &peer.UserInfo.Name
+	}
+
+	return resp
 }

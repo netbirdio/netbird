@@ -110,6 +110,15 @@ components:
             ssh_enabled:
               description: Indicates whether SSH server is enabled on this peer
               type: boolean
+            user_email:
+              description: User Email that this peer was added by
+              type: string
+            user_name:
+              description: User full name that this peer was added by
+              type: string
+            host_name:
+              description: Peer's hostname
+              type: string
           required:
           - ip
           - connected

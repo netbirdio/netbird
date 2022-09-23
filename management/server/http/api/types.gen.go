@@ -137,6 +137,9 @@ type Peer struct {
 	// Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
 
+	// Peer's hostname
+	HostName *string `json:"host_name,omitempty"`
+
 	// Peer ID
 	Id string `json:"id"`
 
@@ -154,6 +157,12 @@ type Peer struct {
 
 	// Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
+
+	// User Email that this peer was added by
+	UserEmail *string `json:"user_email,omitempty"`
+
+	// User full name that this peer was added by
+	UserName *string `json:"user_name,omitempty"`
 
 	// Peer's daemon or cli version
 	Version string `json:"version"`
