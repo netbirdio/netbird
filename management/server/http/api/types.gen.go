@@ -156,13 +156,8 @@ type Peer struct {
 	Os string `json:"os"`
 
 	// Indicates whether SSH server is enabled on this peer
-	SshEnabled bool `json:"ssh_enabled"`
-
-	// User Email that this peer was added by
-	UserEmail *string `json:"user_email,omitempty"`
-
-	// User full name that this peer was added by
-	UserName *string `json:"user_name,omitempty"`
+	SshEnabled bool         `json:"ssh_enabled"`
+	User       *UserMinimum `json:"user,omitempty"`
 
 	// Peer's daemon or cli version
 	Version string `json:"version"`
@@ -379,6 +374,18 @@ type User struct {
 
 	// User's NetBird account role
 	Role string `json:"role"`
+}
+
+// UserMinimum defines model for UserMinimum.
+type UserMinimum struct {
+	// User's email address
+	Email *string `json:"email,omitempty"`
+
+	// User ID
+	Id *string `json:"id,omitempty"`
+
+	// User's name from idp provider
+	Name *string `json:"name,omitempty"`
 }
 
 // UserRequest defines model for UserRequest.

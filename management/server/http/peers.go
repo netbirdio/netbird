@@ -155,8 +155,11 @@ func toPeerResponse(peer *server.PeerInfo, account *server.Account) *api.Peer {
 	}
 
 	if peer.UserInfo != nil {
-		resp.UserEmail = &peer.UserInfo.Email
-		resp.UserName = &peer.UserInfo.Name
+		resp.User = &api.UserMinimum{
+			Email: &peer.UserInfo.Email,
+			Id:    &peer.UserInfo.ID,
+			Name:  &peer.UserInfo.Name,
+		}
 	}
 
 	return resp

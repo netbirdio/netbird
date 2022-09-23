@@ -44,6 +44,18 @@ components:
       - name
       - role
       - auto_groups
+    UserMinimum:
+      type: object
+      properties:
+        id:
+          description: User ID
+          type: string
+        email:
+          description: User's email address
+          type: string
+        name:
+          description: User's name from idp provider
+          type: string
     UserRequest:
       type: object
       properties:
@@ -110,12 +122,8 @@ components:
             ssh_enabled:
               description: Indicates whether SSH server is enabled on this peer
               type: boolean
-            user_email:
-              description: User Email that this peer was added by
-              type: string
-            user_name:
-              description: User full name that this peer was added by
-              type: string
+            user:
+              $ref: '#/components/schemas/UserMinimum'
             host_name:
               description: Peer's hostname
               type: string
