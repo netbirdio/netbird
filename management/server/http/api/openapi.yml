@@ -110,6 +110,12 @@ components:
             ssh_enabled:
               description: Indicates whether SSH server is enabled on this peer
               type: boolean
+            user_id:
+              description: User ID of the user that enrolled this peer
+              type: string
+            hostname:
+              description: Hostname of the machine
+              type: string
           required:
           - ip
           - connected
@@ -119,6 +125,7 @@ components:
           - groups
           - activated_by
           - ssh_enabled
+          - hostname
     SetupKey:
       type: object
       properties:
