@@ -92,9 +92,11 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
 	}
 
-	data, err := h.accountManager.GetUsersFromAccount(account.Id)
+	data, err := h.accountManager.GetUsers(account.Id)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)

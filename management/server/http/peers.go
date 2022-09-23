@@ -11,7 +11,7 @@ import (
 	"net/http"
 )
 
-//Peers is a handler that returns peers of the account
+// Peers is a handler that returns peers of the account
 type Peers struct {
 	accountManager server.AccountManager
 	authAudience   string
@@ -42,7 +42,7 @@ func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.Re
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
-	writeJSONObject(w, toPeerResponse(peer, account))
+	writeJSONObject(w, toPeerResponse(&server.PeerInfo{Peer: peer}, account))
 }
 
 func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
@@ -83,7 +83,7 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		h.updatePeer(account, peer, w, r)
 		return
 	case http.MethodGet:
-		writeJSONObject(w, toPeerResponse(peer, account))
+		writeJSONObject(w, toPeerResponse(&server.PeerInfo{Peer: peer}, account))
 		return
 
 	default:
@@ -93,27 +93,34 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
-		if err != nil {
-			log.Error(err)
-			http.Redirect(w, r, "/", http.StatusInternalServerError)
-			return
-		}
 
-		respBody := []*api.Peer{}
-		for _, peer := range account.Peers {
-			respBody = append(respBody, toPeerResponse(peer, account))
-		}
-		writeJSONObject(w, respBody)
-		return
-	default:
+	if r.Method != http.MethodGet {
 		http.Error(w, "", http.StatusNotFound)
 	}
+
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	if err != nil {
+		log.Error(err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	peers, err := h.accountManager.GetPeers(account.Id)
+	if err != nil {
+		log.Error(err)
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		return
+	}
+
+	respBody := []*api.Peer{}
+	for _, peer := range peers {
+		respBody = append(respBody, toPeerResponse(peer, account))
+	}
+	writeJSONObject(w, respBody)
+	return
 }
 
-func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
+func toPeerResponse(peer *server.PeerInfo, account *server.Account) *api.Peer {
 	var groupsInfo []api.GroupMinimum
 	groupsChecked := make(map[string]struct{})
 	for _, group := range account.Groups {
@@ -123,7 +130,7 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 		}
 		groupsChecked[group.ID] = struct{}{}
 		for _, pk := range group.Peers {
-			if pk == peer.Key {
+			if pk == peer.Peer.Key {
 				info := api.GroupMinimum{
 					Id:         group.ID,
 					Name:       group.Name,
@@ -135,14 +142,14 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 		}
 	}
 	return &api.Peer{
-		Id:         peer.IP.String(),
-		Name:       peer.Name,
-		Ip:         peer.IP.String(),
-		Connected:  peer.Status.Connected,
-		LastSeen:   peer.Status.LastSeen,
-		Os:         fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
-		Version:    peer.Meta.WtVersion,
+		Id:         peer.Peer.IP.String(),
+		Name:       peer.Peer.Name,
+		Ip:         peer.Peer.IP.String(),
+		Connected:  peer.Peer.Status.Connected,
+		LastSeen:   peer.Peer.Status.LastSeen,
+		Os:         fmt.Sprintf("%s %s", peer.Peer.Meta.OS, peer.Peer.Meta.Core),
+		Version:    peer.Peer.Meta.WtVersion,
 		Groups:     groupsInfo,
-		SshEnabled: peer.SSHEnabled,
+		SshEnabled: peer.Peer.SSHEnabled,
 	}
 }

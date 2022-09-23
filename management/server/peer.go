@@ -31,6 +31,12 @@ type PeerStatus struct {
 	Connected bool
 }
 
+// PeerInfo is a composition of Peer and additional UserInfo
+type PeerInfo struct {
+	Peer     *Peer
+	UserInfo *UserInfo
+}
+
 // Peer represents a machine connected to the network.
 // The Peer is a Wireguard peer identified by a public key
 type Peer struct {
@@ -66,6 +72,44 @@ func (p *Peer) Copy() *Peer {
 		SSHKey:     p.SSHKey,
 		SSHEnabled: p.SSHEnabled,
 	}
+}
+
+// GetPeers returns a list of Peers belonging to the specified account
+func (am *DefaultAccountManager) GetPeers(accountID string) ([]*PeerInfo, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	users, err := am.getUsersInfos(account)
+	if err != nil {
+		return nil, err
+	}
+
+	var userMap = make(map[string]*UserInfo)
+	for _, user := range users {
+		userMap[user.ID] = user
+	}
+
+	var peerInfos []*PeerInfo
+	for _, peer := range account.Peers {
+		if peer.UserID == "" {
+			peerInfos = append(peerInfos, &PeerInfo{
+				Peer:     peer,
+				UserInfo: nil,
+			})
+		} else {
+			peerInfos = append(peerInfos, &PeerInfo{
+				Peer:     peer.Copy(),
+				UserInfo: userMap[peer.UserID],
+			})
+		}
+	}
+
+	return peerInfos, nil
 }
 
 // GetPeer returns a peer from a Store

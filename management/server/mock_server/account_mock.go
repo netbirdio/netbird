@@ -60,7 +60,7 @@ func (am *MockAccountManager) GetUsersFromAccount(accountID string) ([]*server.U
 	if am.GetUsersFromAccountFunc != nil {
 		return am.GetUsersFromAccountFunc(accountID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetUsers is not implemented")
 }
 
 // GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface

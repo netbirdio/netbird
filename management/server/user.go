@@ -207,16 +207,11 @@ func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaim
 	return user.Role == UserRoleAdmin, nil
 }
 
-// GetUsersFromAccount performs a batched request for users from IDP by account ID
-func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
-	account, err := am.GetAccountById(accountID)
-	if err != nil {
-		return nil, err
-	}
-
+func (am *DefaultAccountManager) getUsersInfos(account *Account) ([]*UserInfo, error) {
+	var err error
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		queriedUsers, err = am.lookupCache(account.Users, accountID)
+		queriedUsers, err = am.lookupCache(account.Users, account.Id)
 		if err != nil {
 			return nil, err
 		}
@@ -248,4 +243,13 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 	}
 
 	return userInfos, nil
+}
+
+// GetUsers performs a batched request for users from IDP by account ID
+func (am *DefaultAccountManager) GetUsers(accountID string) ([]*UserInfo, error) {
+	account, err := am.GetAccountById(accountID)
+	if err != nil {
+		return nil, err
+	}
+	return am.getUsersInfos(account)
 }

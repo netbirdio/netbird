@@ -47,6 +47,7 @@ type AccountManager interface {
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeer(peerKey string) (*Peer, error)
+	GetPeers(accountID string) ([]*PeerInfo, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	RenamePeer(accountId string, peerKey string, newName string) (*Peer, error)
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
@@ -57,7 +58,7 @@ type AccountManager interface {
 	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
 	UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error
 	UpdatePeerSSHKey(peerKey string, sshKey string) error
-	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
+	GetUsers(accountId string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
 	UpdateGroup(accountID string, groupID string, operations []GroupUpdateOperation) (*Group, error)
