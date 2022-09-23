@@ -47,16 +47,16 @@ components:
     UserRequest:
       type: object
       properties:
+        role:
+          description: User's NetBird account role
+          type: string
         auto_groups:
           description: Groups to auto-assign to peers registered by this user
           type: array
           items:
             type: string
       required:
-        - name
-        - type
-        - expires_in
-        - revoked
+        - role
         - auto_groups
     PeerMinimum:
       type: object

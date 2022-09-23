@@ -11,9 +11,22 @@ import (
 )
 
 const (
-	UserRoleAdmin UserRole = "admin"
-	UserRoleUser  UserRole = "user"
+	UserRoleAdmin   UserRole = "admin"
+	UserRoleUser    UserRole = "user"
+	UserRoleUnknown UserRole = "unknown"
 )
+
+// StrRoleToUserRole returns UserRole for a given strRole or UserRoleUnknown if the specified role is unknown
+func StrRoleToUserRole(strRole string) UserRole {
+	switch strings.ToLower(strRole) {
+	case "admin":
+		return UserRoleAdmin
+	case "user":
+		return UserRoleUser
+	default:
+		return UserRoleUnknown
+	}
+}
 
 // UserRole is the role of the User
 type UserRole string
@@ -116,6 +129,7 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 	// only auto groups, revoked status, and name can be updated for now
 	newUser := oldUser.Copy()
 	newUser.AutoGroups = update.AutoGroups
+	newUser.Role = update.Role
 
 	account.Users[newUser.Id] = newUser
 
