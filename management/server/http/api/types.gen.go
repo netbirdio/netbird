@@ -158,6 +158,9 @@ type Peer struct {
 	// Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
 
+	// Peer's desktop UI version
+	UiVersion *string `json:"ui_version,omitempty"`
+
 	// User ID of the user that enrolled this peer
 	UserId *string `json:"user_id,omitempty"`
 

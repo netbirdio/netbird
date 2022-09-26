@@ -116,6 +116,9 @@ components:
             hostname:
               description: Hostname of the machine
               type: string
+            ui_version:
+              description: Peer's desktop UI version
+              type: string
           required:
           - ip
           - connected

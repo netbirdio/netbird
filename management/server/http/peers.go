@@ -146,5 +146,6 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 		SshEnabled: peer.SSHEnabled,
 		Hostname:   peer.Meta.Hostname,
 		UserId:     &peer.UserID,
+		UiVersion:  &peer.Meta.UIVersion,
 	}
 }
