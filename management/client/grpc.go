@@ -170,7 +170,6 @@ func (c *GrpcClient) connectToStream(serverPubKey wgtypes.Key) (context.CancelFu
 func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
 	for {
 		update, err := stream.Recv()
-		return fmt.Errorf("forceddddddd")
 		if err == io.EOF {
 			log.Debugf("Management stream has been closed by server: %s", err)
 			return err
