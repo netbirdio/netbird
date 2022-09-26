@@ -109,7 +109,9 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 			return err
 		}
 
-		stream, err := c.connectToStream(*serverPubKey)
+		ctx, cancelStream := context.WithCancel(c.ctx)
+		defer cancelStream()
+		stream, err := c.connectToStream(ctx, *serverPubKey)
 		if err != nil {
 			log.Debugf("failed to open Management Service stream: %s", err)
 			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
@@ -145,7 +147,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 	return nil
 }
 
-func (c *GrpcClient) connectToStream(serverPubKey wgtypes.Key) (proto.ManagementService_SyncClient, error) {
+func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key) (proto.ManagementService_SyncClient, error) {
 	req := &proto.SyncRequest{}
 
 	myPrivateKey := c.key
@@ -156,9 +158,12 @@ func (c *GrpcClient) connectToStream(serverPubKey wgtypes.Key) (proto.Management
 		log.Errorf("failed encrypting message: %s", err)
 		return nil, err
 	}
-
 	syncReq := &proto.EncryptedMessage{WgPubKey: myPublicKey.String(), Body: encryptedReq}
-	return c.realClient.Sync(c.ctx, syncReq)
+	sync, err := c.realClient.Sync(ctx, syncReq)
+	if err != nil {
+		return nil, err
+	}
+	return sync, nil
 }
 
 func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, serverPubKey wgtypes.Key, msgHandler func(msg *proto.SyncResponse) error) error {
