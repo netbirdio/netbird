@@ -292,9 +292,6 @@ func isProviderConfigValid(config ProviderConfig) error {
 	if config.ClientID == "" {
 		return fmt.Errorf(errorMSGFormat, "Client ID")
 	}
-	if config.ClientSecret == "" {
-		return fmt.Errorf(errorMSGFormat, "Client Secret")
-	}
 	if config.TokenEndpoint == "" {
 		return fmt.Errorf(errorMSGFormat, "Token Endpoint")
 	}
