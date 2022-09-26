@@ -87,7 +87,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	}, nil
 }
 
-//defaultBackoff is a basic backoff mechanism for general issues
+// defaultBackoff is a basic backoff mechanism for general issues
 func defaultBackoff(ctx context.Context) backoff.BackOff {
 	return backoff.WithContext(&backoff.ExponentialBackOff{
 		InitialInterval:     800 * time.Millisecond,
@@ -121,9 +121,11 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 			return fmt.Errorf("connection to signal is not ready and in %s state", connState)
 		}
 
-		// connect to Signal stream identifying ourselves with a public Wireguard key
+		// connect to Signal stream identifying ourselves with a public WireGuard key
 		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
-		stream, err := c.connect(c.key.PublicKey().String())
+		ctx, cancelStream := context.WithCancel(c.ctx)
+		defer cancelStream()
+		stream, err := c.connect(ctx, c.key.PublicKey().String())
 		if err != nil {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 			return err
@@ -180,15 +182,13 @@ func (c *GrpcClient) getStreamStatusChan() <-chan struct{} {
 	return c.connectedCh
 }
 
-func (c *GrpcClient) connect(key string) (proto.SignalExchange_ConnectStreamClient, error) {
+func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExchange_ConnectStreamClient, error) {
 	c.stream = nil
 
 	// add key fingerprint to the request header to be identified on the server side
 	md := metadata.New(map[string]string{proto.HeaderId: key})
-	ctx := metadata.NewOutgoingContext(c.ctx, md)
-
-	stream, err := c.realClient.ConnectStream(ctx, grpc.WaitForReady(true))
-
+	metaCtx := metadata.NewOutgoingContext(ctx, md)
+	stream, err := c.realClient.ConnectStream(metaCtx, grpc.WaitForReady(true))
 	c.stream = stream
 	if err != nil {
 		return nil, err
