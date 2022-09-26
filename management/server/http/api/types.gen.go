@@ -125,17 +125,14 @@ type PatchMinimumOp string
 
 // Peer defines model for Peer.
 type Peer struct {
-	// Provides information of who activated the Peer. User or Setup Key
-	ActivatedBy struct {
-		Type  string `json:"type"`
-		Value string `json:"value"`
-	} `json:"activated_by"`
-
 	// Peer to Management connection status
 	Connected bool `json:"connected"`
 
 	// Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
+
+	// Hostname of the machine
+	Hostname string `json:"hostname"`
 
 	// Peer ID
 	Id string `json:"id"`
@@ -154,6 +151,12 @@ type Peer struct {
 
 	// Indicates whether SSH server is enabled on this peer
 	SshEnabled bool `json:"ssh_enabled"`
+
+	// Peer's desktop UI version
+	UiVersion *string `json:"ui_version,omitempty"`
+
+	// User ID of the user that enrolled this peer
+	UserId *string `json:"user_id,omitempty"`
 
 	// Peer's daemon or cli version
 	Version string `json:"version"`

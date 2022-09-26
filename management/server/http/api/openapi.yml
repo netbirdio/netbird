@@ -96,20 +96,18 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/GroupMinimum'
-            activated_by:
-              description: Provides information of who activated the Peer. User or Setup Key
-              type: object
-              properties:
-                type:
-                  type: string
-                value:
-                  type: string
-              required:
-              - type
-              - value
             ssh_enabled:
               description: Indicates whether SSH server is enabled on this peer
               type: boolean
+            user_id:
+              description: User ID of the user that enrolled this peer
+              type: string
+            hostname:
+              description: Hostname of the machine
+              type: string
+            ui_version:
+              description: Peer's desktop UI version
+              type: string
           required:
           - ip
           - connected
@@ -117,8 +115,8 @@ components:
           - os
           - version
           - groups
-          - activated_by
           - ssh_enabled
+          - hostname
     SetupKey:
       type: object
       properties:
