@@ -125,12 +125,6 @@ type PatchMinimumOp string
 
 // Peer defines model for Peer.
 type Peer struct {
-	// Provides information of who activated the Peer. User or Setup Key
-	ActivatedBy struct {
-		Type  string `json:"type"`
-		Value string `json:"value"`
-	} `json:"activated_by"`
-
 	// Peer to Management connection status
 	Connected bool `json:"connected"`
 
