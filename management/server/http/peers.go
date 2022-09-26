@@ -11,7 +11,7 @@ import (
 	"net/http"
 )
 
-//Peers is a handler that returns peers of the account
+// Peers is a handler that returns peers of the account
 type Peers struct {
 	accountManager server.AccountManager
 	authAudience   string
@@ -144,5 +144,8 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 		Version:    peer.Meta.WtVersion,
 		Groups:     groupsInfo,
 		SshEnabled: peer.SSHEnabled,
+		Hostname:   peer.Meta.Hostname,
+		UserId:     &peer.UserID,
+		UiVersion:  &peer.Meta.UIVersion,
 	}
 }
