@@ -114,6 +114,7 @@ type UserInfo struct {
 	Name       string   `json:"name"`
 	Role       string   `json:"role"`
 	AutoGroups []string `json:"auto_groups"`
+	Status     string   `json:"-"`
 }
 
 func (a *Account) Copy() *Account {
@@ -305,6 +306,24 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 
 func (am *DefaultAccountManager) loadFromCache(_ context.Context, accountID interface{}) (interface{}, error) {
 	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
+}
+
+func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountID string) (*idp.UserData, error) {
+	data, err := am.cacheManager.Get(am.ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	userData := data.([]*idp.UserData)
+
+	for _, datum := range userData {
+		if datum.Email == email {
+			return datum, nil
+		}
+	}
+
+	return nil, nil
+
 }
 
 func (am *DefaultAccountManager) lookupUserInCache(user *User, accountID string) (*idp.UserData, error) {

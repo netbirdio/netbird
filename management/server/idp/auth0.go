@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -52,6 +51,16 @@ type Auth0Credentials struct {
 	httpClient   ManagerHTTPClient
 	jwtToken     JWTToken
 	mux          sync.Mutex
+}
+
+// createUserRequest is a user create request
+type createUserRequest struct {
+	Email       string            `json:"email"`
+	Name        string            `json:"name"`
+	AppMeta     map[string]string `json:"app_metadata"`
+	Connection  string            `json:"connection"`
+	Password    string            `json:"password"`
+	VerifyEmail bool              `json:"verify_email"`
 }
 
 // userExportJobRequest is a user export request struct
@@ -172,7 +181,7 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 // parseRequestJWTResponse parses jwt raw response body and extracts token and expires in seconds
 func (c *Auth0Credentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JWTToken, error) {
 	jwtToken := JWTToken{}
-	body, err := ioutil.ReadAll(rawBody)
+	body, err := io.ReadAll(rawBody)
 	if err != nil {
 		return jwtToken, err
 	}
@@ -404,6 +413,24 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	return nil
 }
 
+func buildCreateUserRequestPayload(email string, name string, accountID string) (string, error) {
+	req := &createUserRequest{
+		Email:       email,
+		Name:        name,
+		AppMeta:     map[string]string{"wt_account_id": accountID},
+		Connection:  "Username-Password-Authentication",
+		Password:    GeneratePassword(8, 1, 1, 1),
+		VerifyEmail: false,
+	}
+
+	str, err := json.Marshal(req)
+	if err != nil {
+		return "", err
+	}
+
+	return string(str), nil
+}
+
 func buildUserExportRequest() (string, error) {
 	req := &userExportJobRequest{}
 	fields := make([]map[string]string, 0)
@@ -428,28 +455,36 @@ func buildUserExportRequest() (string, error) {
 	return string(str), nil
 }
 
-// GetAllAccounts gets all registered accounts with corresponding user data.
-// It returns a list of users indexed by accountID.
-func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
+func (am *Auth0Manager) createPostRequest(endpoint string, payloadStr string) (*http.Request, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return nil, err
 	}
 
-	reqURL := am.authIssuer + "/api/v2/jobs/users-exports"
+	reqURL := am.authIssuer + endpoint
 
+	payload := strings.NewReader(payloadStr)
+
+	req, err := http.NewRequest("POST", reqURL, payload)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	return req, nil
+
+}
+
+// GetAllAccounts gets all registered accounts with corresponding user data.
+// It returns a list of users indexed by accountID.
+func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	payloadString, err := buildUserExportRequest()
 	if err != nil {
 		return nil, err
 	}
-	payload := strings.NewReader(payloadString)
 
-	exportJobReq, err := http.NewRequest("POST", reqURL, payload)
-	if err != nil {
-		return nil, err
-	}
-	exportJobReq.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
-	exportJobReq.Header.Add("content-type", "application/json")
+	exportJobReq, err := am.createPostRequest("/api/v2/jobs/users-exports", payloadString)
 
 	jobResp, err := am.httpClient.Do(exportJobReq)
 	if err != nil {
@@ -469,7 +504,7 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	var exportJobResp userExportJobResponse
 
-	body, err := ioutil.ReadAll(jobResp.Body)
+	body, err := io.ReadAll(jobResp.Body)
 	if err != nil {
 		log.Debugf("Coudln't read export job response; %v", err)
 		return nil, err
@@ -498,6 +533,57 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	}
 
 	return nil, fmt.Errorf("failed extracting user profiles from auth0")
+}
+
+// CreateUser creates a new user in Auth0 Idp and sends an invite
+func (am *Auth0Manager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+
+	payloadString, err := buildCreateUserRequestPayload(email, name, accountID)
+	if err != nil {
+		return nil, err
+	}
+	req, err := am.createPostRequest("/api/v2/users", payloadString)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := am.httpClient.Do(req)
+	if err != nil {
+		log.Debugf("Couldn't get job response %v", err)
+		return nil, err
+	}
+
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing create user response body: %v", err)
+		}
+	}()
+	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
+		return nil, fmt.Errorf("unable to create user, statusCode %d", resp.StatusCode)
+	}
+
+	var createResp UserData
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Debugf("Coudln't read export job response; %v", err)
+		return nil, err
+	}
+
+	err = am.helper.Unmarshal(body, &createResp)
+	if err != nil {
+		log.Debugf("Coudln't unmarshal export job response; %v", err)
+		return nil, err
+	}
+
+	if createResp.ID == "" {
+		return nil, fmt.Errorf("couldn't create user: response %v", resp)
+	}
+
+	log.Debugf("created user %s in account %s", createResp.ID, accountID)
+
+	return &createResp, nil
 }
 
 // checkExportJobStatus checks the status of the job created at CreateExportUsersJob.
@@ -605,7 +691,7 @@ func doGetReq(client ManagerHTTPClient, url, accessToken string) ([]byte, error)
 		return nil, fmt.Errorf("unable to get %s, statusCode %d", url, res.StatusCode)
 	}
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}

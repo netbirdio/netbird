@@ -13,6 +13,7 @@ type Manager interface {
 	GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error)
 	GetAccount(accountId string) ([]*UserData, error)
 	GetAllAccounts() (map[string][]*UserData, error)
+	CreateUser(email string, name string, accountID string) (*UserData, error)
 }
 
 // Config an idp configuration struct to be loaded from management server's config file

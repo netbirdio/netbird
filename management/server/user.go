@@ -103,15 +103,48 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
+	if am.idpManager == nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "user invite is not possible without enabled IDP manager")
+	}
+
 	if invite == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "provided user update is nil")
 	}
 
-	// check if the email already exists somewhere and we have an account registered => reject
-	// create user with IdP and send an invite
-	// return user with status
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
 
-	return nil, nil
+	// check if the user is already registered with this email => reject
+	user, err := am.lookupUserInCacheByEmail(invite.Email, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "user with a given email is already registered")
+	}
+
+	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	role := StrRoleToUserRole(invite.Role)
+	newUser := &User{
+		Id:         idpUser.ID,
+		Role:       role,
+		AutoGroups: invite.AutoGroups,
+	}
+	account.Users[idpUser.ID] = newUser
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, err
+	}
+
+	return newUser.toUserInfo(idpUser)
 
 }
 

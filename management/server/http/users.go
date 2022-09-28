@@ -100,6 +100,11 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	if server.StrRoleToUserRole(req.Role) == server.UserRoleUnknown {
+		http.Error(w, "unknown user role "+req.Role, http.StatusBadRequest)
+		return
+	}
+
 	newUser, err := h.accountManager.CreateUser(account.Id, &server.UserInfo{
 		Email:      req.Email,
 		Name:       *req.Name,
