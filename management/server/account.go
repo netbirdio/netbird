@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/eko/gocache/v2/cache"
 	cacheStore "github.com/eko/gocache/v2/store"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/route"
@@ -39,6 +40,7 @@ type AccountManager interface {
 		autoGroups []string,
 	) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
+	ListSetupKeys(accountID string) ([]*SetupKey, error)
 	SaveUser(accountID string, key *User) (*UserInfo, error)
 	GetSetupKey(accountID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
@@ -77,7 +79,12 @@ type AccountManager interface {
 	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID string) error
 	ListRoutes(accountID string) ([]*route.Route, error)
-	ListSetupKeys(accountID string) ([]*SetupKey, error)
+	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string) (*nbdns.NameServerGroup, error)
+	SaveNameServerGroup(accountID string, nsGroupToSave *nbdns.NameServerGroup) error
+	UpdateNameServerGroup(accountID, nsGroupID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
+	DeleteNameServerGroup(accountID, nsGroupID string) error
+	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
 }
 
 type DefaultAccountManager struct {
@@ -105,6 +112,7 @@ type Account struct {
 	Groups                 map[string]*Group
 	Rules                  map[string]*Rule
 	Routes                 map[string]*route.Route
+	NameServerGroups       map[string]*nbdns.NameServerGroup
 }
 
 type UserInfo struct {
