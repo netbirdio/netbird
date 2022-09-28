@@ -82,6 +82,44 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// CreateUserHandler creates a User in the system with a status "invited" (effectively this is a user invite).
+func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "", http.StatusNotFound)
+	}
+
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	if err != nil {
+		log.Error(err)
+	}
+
+	req := &api.PostApiUsersJSONRequestBody{}
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	newUser, err := h.accountManager.CreateUser(account.Id, &server.UserInfo{
+		Email:      req.Email,
+		Name:       *req.Name,
+		Role:       req.Role,
+		AutoGroups: req.AutoGroups,
+	})
+	if err != nil {
+		if e, ok := status.FromError(err); ok {
+			switch e.Code() {
+			case codes.NotFound:
+			default:
+				http.Error(w, "failed to update user", http.StatusInternalServerError)
+			}
+		}
+		return
+	}
+	writeJSONObject(w, toUserResponse(newUser))
+
+}
+
 // GetUsers returns a list of users of the account this user belongs to.
 // It also gathers additional user data (like email and name) from the IDP manager.
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
@@ -122,5 +160,6 @@ func toUserResponse(user *server.UserInfo) *api.User {
 		Email:      user.Email,
 		Role:       user.Role,
 		AutoGroups: autoGroups,
+		Status:     api.Active, //todo fetch from info
 	}
 }

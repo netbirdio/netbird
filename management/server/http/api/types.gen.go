@@ -66,6 +66,13 @@ const (
 	RulePatchOperationPathSources      RulePatchOperationPath = "sources"
 )
 
+// Defines values for UserStatus.
+const (
+	Active   UserStatus = "active"
+	Disabled UserStatus = "disabled"
+	Invited  UserStatus = "invited"
+)
+
 // Group defines model for Group.
 type Group struct {
 	// Group ID
@@ -373,6 +380,27 @@ type User struct {
 
 	// User's NetBird account role
 	Role string `json:"role"`
+
+	// User's status
+	Status UserStatus `json:"status"`
+}
+
+// User's status
+type UserStatus string
+
+// UserCreateRequest defines model for UserCreateRequest.
+type UserCreateRequest struct {
+	// Groups to auto-assign to peers registered by this user
+	AutoGroups []string `json:"auto_groups"`
+
+	// User's Email to send invite to
+	Email string `json:"email"`
+
+	// User's full name
+	Name *string `json:"name,omitempty"`
+
+	// User's NetBird account role
+	Role string `json:"role"`
 }
 
 // UserRequest defines model for UserRequest.
@@ -457,6 +485,9 @@ type PostApiSetupKeysJSONBody = SetupKeyRequest
 // PutApiSetupKeysIdJSONBody defines parameters for PutApiSetupKeysId.
 type PutApiSetupKeysIdJSONBody = SetupKeyRequest
 
+// PostApiUsersJSONBody defines parameters for PostApiUsers.
+type PostApiUsersJSONBody = UserCreateRequest
+
 // PutApiUsersIdJSONBody defines parameters for PutApiUsersId.
 type PutApiUsersIdJSONBody = UserRequest
 
@@ -495,6 +526,9 @@ type PostApiSetupKeysJSONRequestBody = PostApiSetupKeysJSONBody
 
 // PutApiSetupKeysIdJSONRequestBody defines body for PutApiSetupKeysId for application/json ContentType.
 type PutApiSetupKeysIdJSONRequestBody = PutApiSetupKeysIdJSONBody
+
+// PostApiUsersJSONRequestBody defines body for PostApiUsers for application/json ContentType.
+type PostApiUsersJSONRequestBody = PostApiUsersJSONBody
 
 // PutApiUsersIdJSONRequestBody defines body for PutApiUsersId for application/json ContentType.
 type PutApiUsersIdJSONRequestBody = PutApiUsersIdJSONBody

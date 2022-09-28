@@ -98,6 +98,23 @@ func NewAdminUser(id string) *User {
 	return NewUser(id, UserRoleAdmin)
 }
 
+// CreateUser creates a new user under the given account. Effectively this is a user invite.
+func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) (*UserInfo, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	if invite == nil {
+		return nil, status.Errorf(codes.InvalidArgument, "provided user update is nil")
+	}
+
+	// check if the email already exists somewhere and we have an account registered => reject
+	// create user with IdP and send an invite
+	// return user with status
+
+	return nil, nil
+
+}
+
 // SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.
 // Only User.AutoGroups field is allowed to be updated for now.
 func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*UserInfo, error) {

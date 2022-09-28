@@ -33,6 +33,10 @@ components:
         role:
           description: User's NetBird account role
           type: string
+        status:
+          description: User's status
+          type: string
+          enum: [ "active","invited","disabled" ]
         auto_groups:
           description: Groups to auto-assign to peers registered by this user
           type: array
@@ -44,6 +48,7 @@ components:
       - name
       - role
       - auto_groups
+      - status
     UserRequest:
       type: object
       properties:
@@ -58,6 +63,27 @@ components:
       required:
         - role
         - auto_groups
+    UserCreateRequest:
+      type: object
+      properties:
+        role:
+          description: User's NetBird account role
+          type: string
+        email:
+          description: User's Email to send invite to
+          type: string
+        name:
+          description: User's full name
+          type: string
+        auto_groups:
+          description: Groups to auto-assign to peers registered by this user
+          type: array
+          items:
+            type: string
+      required:
+        - role
+        - auto_groups
+        - email
     PeerMinimum:
       type: object
       properties:
@@ -419,6 +445,33 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/User'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/:
+    post:
+      summary: Create a User (invite)
+      tags: [ Users]
+      security:
+        - BearerAuth: [ ]
+      requestBody:
+        description: User invite information
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        '200':
+          description: A User object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

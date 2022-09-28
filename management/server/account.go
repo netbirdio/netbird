@@ -39,6 +39,7 @@ type AccountManager interface {
 		autoGroups []string,
 	) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
+	CreateUser(accountID string, key *UserInfo) (*UserInfo, error)
 	SaveUser(accountID string, key *User) (*UserInfo, error)
 	GetSetupKey(accountID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
