@@ -507,7 +507,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	return nil
 }
 
-// GetTokenAccount returns account of a
+// GetTokenAccount returns an account associated with this token
 func (am *DefaultAccountManager) GetTokenAccount(claims jwtclaims.AuthorizationClaims) (*Account, error) {
 	account, err := am.GetAccountWithAuthorizationClaims(claims)
 	if err != nil {
