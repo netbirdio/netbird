@@ -591,18 +591,20 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
 	routes := make(map[string]*route.Route)
+	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userId] = NewAdminUser(userId)
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
 	acc := &Account{
-		Id:        accountId,
-		SetupKeys: setupKeys,
-		Network:   network,
-		Peers:     peers,
-		Users:     users,
-		CreatedBy: userId,
-		Domain:    domain,
-		Routes:    routes,
+		Id:               accountId,
+		SetupKeys:        setupKeys,
+		Network:          network,
+		Peers:            peers,
+		Users:            users,
+		CreatedBy:        userId,
+		Domain:           domain,
+		Routes:           routes,
+		NameServerGroups: nameServersGroups,
 	}
 
 	addAllGroup(acc)
