@@ -3,6 +3,8 @@ package dns
 import "net/netip"
 
 const (
+	// MaxGroupNameChar maximum group name size
+	MaxGroupNameChar = 40
 	// InvalidNameServerType invalid nameserver type
 	InvalidNameServerType NameServerType = iota
 	// UDPNameServerType udp nameserver type
