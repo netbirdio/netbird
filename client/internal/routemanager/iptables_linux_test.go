@@ -186,7 +186,7 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 				require.False(t, foundNat, "nat rule should not exist in the map")
 			}
 
-			inNatRuleKey := genKey(natFormat, testCase.inputPair.ID)
+			inNatRuleKey := genKey(inNatFormat, testCase.inputPair.ID)
 			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, getInPair(testCase.inputPair).source, getInPair(testCase.inputPair).destination)
 
 			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, inNatRule...)
