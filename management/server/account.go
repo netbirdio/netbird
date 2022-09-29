@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 	"math/rand"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -480,7 +481,7 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(
 ) (*Account, error) {
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
-	if claims.DomainCategory != PrivateCategory {
+	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
 		return am.GetAccountByUserOrAccountId(claims.UserId, claims.AccountId, claims.Domain)
 	} else if claims.AccountId != "" {
 		accountFromID, err := am.GetAccountById(claims.AccountId)
@@ -518,6 +519,11 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(
 		// other error
 		return nil, err
 	}
+}
+
+func isDomainValid(domain string) bool {
+	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
+	return re.Match([]byte(domain))
 }
 
 // AccountExists checks whether account exists (returns true) or not (returns false)
