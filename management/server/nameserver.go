@@ -13,6 +13,8 @@ const (
 	UpdateNameServerGroupNameServers
 	// UpdateNameServerGroupGroups indicates a nameserver group' groups update operation
 	UpdateNameServerGroupGroups
+	// UpdateNameServerGroupEnabled indicates a nameserver group status update operation
+	UpdateNameServerGroupEnabled
 )
 
 // NameServerGroupUpdateOperationType operation type
@@ -28,6 +30,8 @@ func (t NameServerGroupUpdateOperationType) String() string {
 		return "UpdateNameServerGroupNameServers"
 	case UpdateNameServerGroupGroups:
 		return "UpdateNameServerGroupGroups"
+	case UpdateNameServerGroupEnabled:
+		return "UpdateNameServerGroupEnabled"
 	default:
 		return "InvalidOperation"
 	}

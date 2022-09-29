@@ -51,6 +51,8 @@ type NameServerGroup struct {
 	NameServers []NameServer
 	// Groups list of peer group IDs to distribute the nameservers information
 	Groups []string
+	// Enabled group status
+	Enabled bool
 }
 
 // NameServer represents a DNS nameserver
