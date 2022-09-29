@@ -86,7 +86,8 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 	account.NameServerGroups[newNSGroup.ID] = newNSGroup
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	err = am.Store.SaveAccount(account)
+	if err != nil {
 		return nil, err
 	}
 
@@ -115,7 +116,8 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupTo
 	account.NameServerGroups[nsGroupToSave.ID] = nsGroupToSave
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	err = am.Store.SaveAccount(account)
+	if err != nil {
 		return err
 	}
 
