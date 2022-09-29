@@ -247,48 +247,12 @@ func (n *nftablesManager) InsertRoutingRules(pair routerPair) error {
 	n.mux.Lock()
 	defer n.mux.Unlock()
 
-	prefix := netip.MustParsePrefix(pair.source)
-
-	sourceExp := generateCIDRMatcherExpressions("source", pair.source)
-	destExp := generateCIDRMatcherExpressions("destination", pair.destination)
-
-	forwardExp := append(sourceExp, append(destExp, exprCounterAccept...)...)
-	fwdKey := genKey(forwardingFormat, pair.ID)
-	if prefix.Addr().Unmap().Is4() {
-		n.rules[fwdKey] = n.conn.InsertRule(&nftables.Rule{
-			Table:    n.tableIPv4,
-			Chain:    n.chains[ipv4][nftablesRoutingForwardingChain],
-			Exprs:    forwardExp,
-			UserData: []byte(fwdKey),
-		})
-	} else {
-		n.rules[fwdKey] = n.conn.InsertRule(&nftables.Rule{
-			Table:    n.tableIPv6,
-			Chain:    n.chains[ipv6][nftablesRoutingForwardingChain],
-			Exprs:    forwardExp,
-			UserData: []byte(fwdKey),
-		})
-	}
+	n.insertRoutingRule(forwardingFormat, nftablesRoutingForwardingChain, pair, false)
+	n.insertRoutingRule(inForwardingFormat, nftablesRoutingForwardingChain, getInPair(pair), false)
 
 	if pair.masquerade {
-		natExp := append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
-		natKey := genKey(natFormat, pair.ID)
-
-		if prefix.Addr().Unmap().Is4() {
-			n.rules[natKey] = n.conn.InsertRule(&nftables.Rule{
-				Table:    n.tableIPv4,
-				Chain:    n.chains[ipv4][nftablesRoutingNatChain],
-				Exprs:    natExp,
-				UserData: []byte(natKey),
-			})
-		} else {
-			n.rules[natKey] = n.conn.InsertRule(&nftables.Rule{
-				Table:    n.tableIPv6,
-				Chain:    n.chains[ipv6][nftablesRoutingNatChain],
-				Exprs:    natExp,
-				UserData: []byte(natKey),
-			})
-		}
+		n.insertRoutingRule(natFormat, nftablesRoutingNatChain, pair, true)
+		n.insertRoutingRule(inNatFormat, nftablesRoutingNatChain, getInPair(pair), true)
 	}
 
 	err := n.conn.Flush()
@@ -296,6 +260,40 @@ func (n *nftablesManager) InsertRoutingRules(pair routerPair) error {
 		return fmt.Errorf("nftables: unable to insert rules for %s: %v", pair.destination, err)
 	}
 	return nil
+}
+
+// insertRoutingRule inserts a nftable rule to the conn client flush queue
+func (n *nftablesManager) insertRoutingRule(format, chain string, pair routerPair, isNat bool) {
+
+	prefix := netip.MustParsePrefix(pair.source)
+
+	sourceExp := generateCIDRMatcherExpressions("source", pair.source)
+	destExp := generateCIDRMatcherExpressions("destination", pair.destination)
+
+	var expression []expr.Any
+	if isNat {
+		expression = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
+	} else {
+		expression = append(sourceExp, append(destExp, exprCounterAccept...)...)
+	}
+
+	ruleKey := genKey(format, pair.ID)
+
+	if prefix.Addr().Unmap().Is4() {
+		n.rules[ruleKey] = n.conn.InsertRule(&nftables.Rule{
+			Table:    n.tableIPv4,
+			Chain:    n.chains[ipv4][chain],
+			Exprs:    expression,
+			UserData: []byte(ruleKey),
+		})
+	} else {
+		n.rules[ruleKey] = n.conn.InsertRule(&nftables.Rule{
+			Table:    n.tableIPv6,
+			Chain:    n.chains[ipv6][chain],
+			Exprs:    expression,
+			UserData: []byte(ruleKey),
+		})
+	}
 }
 
 // RemoveRoutingRules removes a nftable rule pair from forwarding and nat chains
@@ -308,31 +306,54 @@ func (n *nftablesManager) RemoveRoutingRules(pair routerPair) error {
 		return err
 	}
 
-	fwdKey := genKey(forwardingFormat, pair.ID)
-	natKey := genKey(natFormat, pair.ID)
-	fwdRule, found := n.rules[fwdKey]
-	if found {
-		err = n.conn.DelRule(fwdRule)
-		if err != nil {
-			return fmt.Errorf("nftables: unable to remove forwarding rule for %s: %v", pair.destination, err)
-		}
-		log.Debugf("nftables: removing forwarding rule for %s", pair.destination)
-		delete(n.rules, fwdKey)
+	err = n.removeRoutingRule(forwardingFormat, pair)
+	if err != nil {
+		return err
 	}
-	natRule, found := n.rules[natKey]
-	if found {
-		err = n.conn.DelRule(natRule)
-		if err != nil {
-			return fmt.Errorf("nftables: unable to remove nat rule for %s: %v", pair.destination, err)
-		}
-		log.Debugf("nftables: removing nat rule for %s", pair.destination)
-		delete(n.rules, natKey)
+
+	err = n.removeRoutingRule(inForwardingFormat, getInPair(pair))
+	if err != nil {
+		return err
 	}
+
+	err = n.removeRoutingRule(natFormat, pair)
+	if err != nil {
+		return err
+	}
+
+	err = n.removeRoutingRule(inNatFormat, getInPair(pair))
+	if err != nil {
+		return err
+	}
+
 	err = n.conn.Flush()
 	if err != nil {
 		return fmt.Errorf("nftables: received error while applying rule removal for %s: %v", pair.destination, err)
 	}
 	log.Debugf("nftables: removed rules for %s", pair.destination)
+	return nil
+}
+
+// removeRoutingRule add a nftable rule to the removal queue and delete from rules map
+func (n *nftablesManager) removeRoutingRule(format string, pair routerPair) error {
+	ruleKey := genKey(format, pair.ID)
+
+	rule, found := n.rules[ruleKey]
+	if found {
+		ruleType := "forwarding"
+		if rule.Chain.Type == nftables.ChainTypeNAT {
+			ruleType = "nat"
+		}
+
+		err := n.conn.DelRule(rule)
+		if err != nil {
+			return fmt.Errorf("nftables: unable to remove %s rule for %s: %v", ruleType, pair.destination, err)
+		}
+
+		log.Debugf("nftables: removing %s rule for %s", ruleType, pair.destination)
+
+		delete(n.rules, ruleKey)
+	}
 	return nil
 }
 
