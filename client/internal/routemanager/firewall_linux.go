@@ -9,14 +9,16 @@ import (
 import "github.com/google/nftables"
 
 const (
-	ipv6Forwarding   = "netbird-rt-ipv6-forwarding"
-	ipv4Forwarding   = "netbird-rt-ipv4-forwarding"
-	ipv6Nat          = "netbird-rt-ipv6-nat"
-	ipv4Nat          = "netbird-rt-ipv4-nat"
-	natFormat        = "netbird-nat-%s"
-	forwardingFormat = "netbird-fwd-%s"
-	ipv6             = "ipv6"
-	ipv4             = "ipv4"
+	ipv6Forwarding     = "netbird-rt-ipv6-forwarding"
+	ipv4Forwarding     = "netbird-rt-ipv4-forwarding"
+	ipv6Nat            = "netbird-rt-ipv6-nat"
+	ipv4Nat            = "netbird-rt-ipv4-nat"
+	natFormat          = "netbird-nat-%s"
+	forwardingFormat   = "netbird-fwd-%s"
+	inNatFormat        = "netbird-nat-in-%s"
+	inForwardingFormat = "netbird-fwd-in-%s"
+	ipv6               = "ipv6"
+	ipv4               = "ipv4"
 )
 
 func genKey(format string, input string) string {
@@ -52,4 +54,16 @@ func NewFirewall(parentCTX context.Context) firewallManager {
 	}
 
 	return manager
+}
+
+func getInPair(pair routerPair) routerPair {
+	inPair := pair
+	inPair.source = pair.destination
+	inPair.destination = pair.source
+	return routerPair{
+		ID:          pair.ID,
+		source:      pair.destination,
+		destination: pair.source,
+		masquerade:  pair.masquerade,
+	}
 }

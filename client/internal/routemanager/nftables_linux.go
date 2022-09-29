@@ -12,7 +12,6 @@ import (
 )
 import "github.com/google/nftables"
 
-//
 const (
 	nftablesTable                  = "netbird-rt"
 	nftablesRoutingForwardingChain = "netbird-rt-fwd"
