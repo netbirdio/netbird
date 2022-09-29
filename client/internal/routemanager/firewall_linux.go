@@ -57,11 +57,9 @@ func NewFirewall(parentCTX context.Context) firewallManager {
 }
 
 func getInPair(pair routerPair) routerPair {
-	inPair := pair
-	inPair.source = pair.destination
-	inPair.destination = pair.source
 	return routerPair{
-		ID:          pair.ID,
+		ID: pair.ID,
+		// invert source/destination
 		source:      pair.destination,
 		destination: pair.source,
 		masquerade:  pair.masquerade,
