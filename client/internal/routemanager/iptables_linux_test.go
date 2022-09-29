@@ -159,6 +159,17 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			require.True(t, found, "forwarding rule should exist in the manager map")
 			require.Equal(t, forwardRule[:4], foundRule[:4], "stored forwarding rule should match")
 
+			inForwardRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)
+			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, getInPair(testCase.inputPair).source, getInPair(testCase.inputPair).destination)
+
+			exists, err = iptablesClient.Exists(iptablesFilterTable, iptablesRoutingForwardingChain, inForwardRule...)
+			require.NoError(t, err, "should be able to query the iptables %s %s table and %s chain", testCase.ipVersion, iptablesFilterTable, iptablesRoutingForwardingChain)
+			require.True(t, exists, "income forwarding rule should exist")
+
+			foundRule, found = manager.rules[testCase.ipVersion][inForwardRuleKey]
+			require.True(t, found, "income forwarding rule should exist in the manager map")
+			require.Equal(t, inForwardRule[:4], foundRule[:4], "stored income forwarding rule should match")
+
 			natRuleKey := genKey(natFormat, testCase.inputPair.ID)
 			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.inputPair.source, testCase.inputPair.destination)
 
@@ -172,7 +183,23 @@ func TestIptablesManager_InsertRoutingRules(t *testing.T) {
 			} else {
 				require.False(t, exists, "nat rule should not be created")
 				_, foundNat := manager.rules[testCase.ipVersion][natRuleKey]
-				require.False(t, foundNat, "nat rule should exist in the map")
+				require.False(t, foundNat, "nat rule should not exist in the map")
+			}
+
+			inNatRuleKey := genKey(natFormat, testCase.inputPair.ID)
+			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, getInPair(testCase.inputPair).source, getInPair(testCase.inputPair).destination)
+
+			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, inNatRule...)
+			require.NoError(t, err, "should be able to query the iptables %s %s table and %s chain", testCase.ipVersion, iptablesNatTable, iptablesRoutingNatChain)
+			if testCase.inputPair.masquerade {
+				require.True(t, exists, "income nat rule should be created")
+				foundNatRule, foundNat := manager.rules[testCase.ipVersion][inNatRuleKey]
+				require.True(t, foundNat, "income nat rule should exist in the map")
+				require.Equal(t, inNatRule[:4], foundNatRule[:4], "stored income nat rule should match")
+			} else {
+				require.False(t, exists, "nat rule should not be created")
+				_, foundNat := manager.rules[testCase.ipVersion][inNatRuleKey]
+				require.False(t, foundNat, "income nat rule should not exist in the map")
 			}
 		})
 	}
@@ -213,10 +240,22 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 			err = iptablesClient.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forwardRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
+			inForwardRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)
+			inForwardRule := genRuleSpec(routingFinalForwardJump, inForwardRuleKey, getInPair(testCase.inputPair).source, getInPair(testCase.inputPair).destination)
+
+			err = iptablesClient.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, inForwardRule...)
+			require.NoError(t, err, "inserting rule should not return error")
+
 			natRuleKey := genKey(natFormat, testCase.inputPair.ID)
 			natRule := genRuleSpec(routingFinalNatJump, natRuleKey, testCase.inputPair.source, testCase.inputPair.destination)
 
 			err = iptablesClient.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, natRule...)
+			require.NoError(t, err, "inserting rule should not return error")
+
+			inNatRuleKey := genKey(inNatFormat, testCase.inputPair.ID)
+			inNatRule := genRuleSpec(routingFinalNatJump, inNatRuleKey, getInPair(testCase.inputPair).source, getInPair(testCase.inputPair).destination)
+
+			err = iptablesClient.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, inNatRule...)
 			require.NoError(t, err, "inserting rule should not return error")
 
 			delete(manager.rules, ipv4)
@@ -235,12 +274,26 @@ func TestIptablesManager_RemoveRoutingRules(t *testing.T) {
 			_, found := manager.rules[testCase.ipVersion][forwardRuleKey]
 			require.False(t, found, "forwarding rule should exist in the manager map")
 
+			exists, err = iptablesClient.Exists(iptablesFilterTable, iptablesRoutingForwardingChain, inForwardRule...)
+			require.NoError(t, err, "should be able to query the iptables %s %s table and %s chain", testCase.ipVersion, iptablesFilterTable, iptablesRoutingForwardingChain)
+			require.False(t, exists, "income forwarding rule should not exist")
+
+			_, found = manager.rules[testCase.ipVersion][inForwardRuleKey]
+			require.False(t, found, "income forwarding rule should exist in the manager map")
+
 			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, natRule...)
 			require.NoError(t, err, "should be able to query the iptables %s %s table and %s chain", testCase.ipVersion, iptablesNatTable, iptablesRoutingNatChain)
 			require.False(t, exists, "nat rule should not exist")
 
 			_, found = manager.rules[testCase.ipVersion][natRuleKey]
-			require.False(t, found, "forwarding rule should exist in the manager map")
+			require.False(t, found, "nat rule should exist in the manager map")
+
+			exists, err = iptablesClient.Exists(iptablesNatTable, iptablesRoutingNatChain, inNatRule...)
+			require.NoError(t, err, "should be able to query the iptables %s %s table and %s chain", testCase.ipVersion, iptablesNatTable, iptablesRoutingNatChain)
+			require.False(t, exists, "income nat rule should not exist")
+
+			_, found = manager.rules[testCase.ipVersion][inNatRuleKey]
+			require.False(t, found, "income nat rule should exist in the manager map")
 
 		})
 	}
