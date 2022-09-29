@@ -52,7 +52,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
-func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string) (*nbdns.NameServerGroup, error) {
+func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, enabled bool) (*nbdns.NameServerGroup, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 

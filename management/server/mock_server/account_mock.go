@@ -55,7 +55,7 @@ type MockAccountManager struct {
 	ListSetupKeysFunc                     func(accountID string) ([]*server.SetupKey, error)
 	SaveUserFunc                          func(accountID string, user *server.User) (*server.UserInfo, error)
 	GetNameServerGroupFunc                func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
-	CreateNameServerGroupFunc             func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroupFunc             func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, enabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroupFunc               func(accountID string, nsGroupToSave *nbdns.NameServerGroup) error
 	UpdateNameServerGroupFunc             func(accountID, nsGroupID string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
 	DeleteNameServerGroupFunc             func(accountID, nsGroupID string) error
@@ -447,9 +447,9 @@ func (am *MockAccountManager) GetNameServerGroup(accountID, nsGroupID string) (*
 }
 
 // CreateNameServerGroup mocks CreateNameServerGroup of the AccountManager interface
-func (am *MockAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string) (*nbdns.NameServerGroup, error) {
+func (am *MockAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, enabled bool) (*nbdns.NameServerGroup, error) {
 	if am.CreateNameServerGroupFunc != nil {
-		return am.CreateNameServerGroupFunc(accountID, name, description, nameServerList, groups)
+		return am.CreateNameServerGroupFunc(accountID, name, description, nameServerList, groups, enabled)
 	}
 	return nil, nil
 }
