@@ -67,9 +67,9 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		return nil, fmt.Errorf("wrong UserData provided for user %s", u.Id)
 	}
 
-	userStatus := UserStatusInvited
-	if userData.LoginsCount > 0 {
-		userStatus = UserStatusActive
+	userStatus := UserStatusActive
+	if userData.AppMetadata.WTInvited {
+		userStatus = UserStatusInvited
 	}
 
 	return &UserInfo{
@@ -203,7 +203,7 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 	}
 
 	if !isNil(am.idpManager) {
-		userData, err := am.lookupUserInCache(newUser, accountID)
+		userData, err := am.lookupUserInCache(newUser.Id, accountID)
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +281,11 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		queriedUsers, err = am.lookupCache(account.Users, accountID)
+		users := make(map[string]struct{}, len(account.Users))
+		for _, user := range account.Users {
+			users[user.Id] = struct{}{}
+		}
+		queriedUsers, err = am.lookupCache(users, accountID)
 		if err != nil {
 			return nil, err
 		}

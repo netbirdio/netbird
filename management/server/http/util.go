@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-//writeJSONObject simply writes object to the HTTP reponse in JSON format
+// writeJSONObject simply writes object to the HTTP reponse in JSON format
 func writeJSONObject(w http.ResponseWriter, obj interface{}) {
 	w.WriteHeader(http.StatusOK)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
@@ -21,7 +21,7 @@ func writeJSONObject(w http.ResponseWriter, obj interface{}) {
 	}
 }
 
-//Duration is used strictly for JSON requests/responses due to duration marshalling issues
+// Duration is used strictly for JSON requests/responses due to duration marshalling issues
 type Duration struct {
 	time.Duration
 }
@@ -57,7 +57,7 @@ func getJWTAccount(accountManager server.AccountManager,
 
 	jwtClaims := jwtExtractor.ExtractClaimsFromRequestContext(r, authAudience)
 
-	account, err := accountManager.GetAccountWithAuthorizationClaims(jwtClaims)
+	account, err := accountManager.GetTokenAccount(jwtClaims)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
 	}

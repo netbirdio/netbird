@@ -44,6 +44,7 @@ type AccountManager interface {
 	GetSetupKey(accountID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
+	GetTokenAccount(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
@@ -237,11 +238,17 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 
 	for accountID, users := range userData {
+		activeUsers := make([]*idp.UserData, 0)
+		for _, user := range users {
+			if !user.AppMetadata.WTInvited {
+				activeUsers = append(activeUsers, user)
+			}
+		}
 		rand.Seed(time.Now().UnixNano())
 
 		r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
 		expiration := time.Duration(r) * time.Millisecond
-		err = am.cacheManager.Set(am.ctx, accountID, users, &cacheStore.Options{Expiration: expiration})
+		err = am.cacheManager.Set(am.ctx, accountID, activeUsers, &cacheStore.Options{Expiration: expiration})
 		if err != nil {
 			return err
 		}
@@ -326,22 +333,22 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 
 }
 
-func (am *DefaultAccountManager) lookupUserInCache(user *User, accountID string) (*idp.UserData, error) {
-	userData, err := am.lookupCache(map[string]*User{user.Id: user}, accountID)
+func (am *DefaultAccountManager) lookupUserInCache(userID string, accountID string) (*idp.UserData, error) {
+	userData, err := am.lookupCache(map[string]struct{}{userID: {}}, accountID)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, datum := range userData {
-		if datum.ID == user.Id {
+		if datum.ID == userID {
 			return datum, nil
 		}
 	}
 
-	return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", user.Id)
+	return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", userID)
 }
 
-func (am *DefaultAccountManager) lookupCache(accountUsers map[string]*User, accountID string) ([]*idp.UserData, error) {
+func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, accountID string) ([]*idp.UserData, error) {
 	data, err := am.cacheManager.Get(am.ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -471,6 +478,43 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 	}
 
 	err = am.updateIDPMetadata(claims.UserId, account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	return account, nil
+}
+
+// redeemInvite checks whether user has been invited and redeems the invite
+func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) error {
+	// only possible with the enabled IdP manager
+	if am.idpManager == nil {
+		return nil
+	}
+
+	user, err := am.lookupUserInCache(userID, account.Id)
+	if err != nil {
+		return err
+	}
+
+	if user.AppMetadata.WTInvited {
+		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTInvited: false})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// GetTokenAccount returns account of a
+func (am *DefaultAccountManager) GetTokenAccount(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	account, err := am.GetAccountWithAuthorizationClaims(claims)
+	if err != nil {
+		return nil, err
+	}
+
+	err = am.redeemInvite(account, claims.UserId)
 	if err != nil {
 		return nil, err
 	}

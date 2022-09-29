@@ -39,17 +39,18 @@ type ManagerHelper interface {
 }
 
 type UserData struct {
-	Email       string `json:"email"`
-	Name        string `json:"name"`
-	ID          string `json:"user_id"`
-	LoginsCount int    `json:"logins_count"`
+	Email       string      `json:"email"`
+	Name        string      `json:"name"`
+	ID          string      `json:"user_id"`
+	AppMetadata AppMetadata `json:"app_metadata"`
 }
 
 // AppMetadata user app metadata to associate with a profile
 type AppMetadata struct {
 	// Wiretrustee account id to update in the IDP
 	// maps to wt_account_id when json.marshal
-	WTAccountId string `json:"wt_account_id"`
+	WTAccountId string `json:"wt_account_id,omitempty"`
+	WTInvited   bool   `json:"wt_invited"`
 }
 
 // JWTToken a JWT object that holds information of a token
