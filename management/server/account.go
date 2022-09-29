@@ -522,7 +522,7 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(
 }
 
 func isDomainValid(domain string) bool {
-	re := regexp.MustCompile("^([a-z0-9]+(-[a-z0-9]+)*\\.)+[a-z]{2,}$")
+	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
 	return re.Match([]byte(domain))
 }
 
