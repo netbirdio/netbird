@@ -247,15 +247,32 @@ func (n *nftablesManager) InsertRoutingRules(pair routerPair) error {
 	n.mux.Lock()
 	defer n.mux.Unlock()
 
-	n.insertRoutingRule(forwardingFormat, nftablesRoutingForwardingChain, pair, false)
-	n.insertRoutingRule(inForwardingFormat, nftablesRoutingForwardingChain, getInPair(pair), false)
-
-	if pair.masquerade {
-		n.insertRoutingRule(natFormat, nftablesRoutingNatChain, pair, true)
-		n.insertRoutingRule(inNatFormat, nftablesRoutingNatChain, getInPair(pair), true)
+	err := n.refreshRulesMap()
+	if err != nil {
+		return err
 	}
 
-	err := n.conn.Flush()
+	err = n.insertRoutingRule(forwardingFormat, nftablesRoutingForwardingChain, pair, false)
+	if err != nil {
+		return err
+	}
+	err = n.insertRoutingRule(inForwardingFormat, nftablesRoutingForwardingChain, getInPair(pair), false)
+	if err != nil {
+		return err
+	}
+
+	if pair.masquerade {
+		err = n.insertRoutingRule(natFormat, nftablesRoutingNatChain, pair, true)
+		if err != nil {
+			return err
+		}
+		err = n.insertRoutingRule(inNatFormat, nftablesRoutingNatChain, getInPair(pair), true)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = n.conn.Flush()
 	if err != nil {
 		return fmt.Errorf("nftables: unable to insert rules for %s: %v", pair.destination, err)
 	}
@@ -263,7 +280,7 @@ func (n *nftablesManager) InsertRoutingRules(pair routerPair) error {
 }
 
 // insertRoutingRule inserts a nftable rule to the conn client flush queue
-func (n *nftablesManager) insertRoutingRule(format, chain string, pair routerPair, isNat bool) {
+func (n *nftablesManager) insertRoutingRule(format, chain string, pair routerPair, isNat bool) error {
 
 	prefix := netip.MustParsePrefix(pair.source)
 
@@ -278,6 +295,14 @@ func (n *nftablesManager) insertRoutingRule(format, chain string, pair routerPai
 	}
 
 	ruleKey := genKey(format, pair.ID)
+
+	_, exists := n.rules[ruleKey]
+	if exists {
+		err := n.removeRoutingRule(format, pair)
+		if err != nil {
+			return err
+		}
+	}
 
 	if prefix.Addr().Unmap().Is4() {
 		n.rules[ruleKey] = n.conn.InsertRule(&nftables.Rule{
@@ -294,6 +319,7 @@ func (n *nftablesManager) insertRoutingRule(format, chain string, pair routerPai
 			UserData: []byte(ruleKey),
 		})
 	}
+	return nil
 }
 
 // RemoveRoutingRules removes a nftable rule pair from forwarding and nat chains
