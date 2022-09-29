@@ -65,41 +65,6 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	if utf8.RuneCountInString(name) > nbdns.MaxGroupNameChar || name == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "nameserver group name should be between 1 and %d", nbdns.MaxGroupNameChar)
-	}
-
-	for _, nsGroup := range account.NameServerGroups {
-		if name == nsGroup.Name {
-			return nil, status.Errorf(codes.InvalidArgument, "a nameserver group with name %s already exist", name)
-		}
-	}
-
-	nsListLenght := len(nameServerList)
-	if nsListLenght == 0 || nsListLenght > 2 {
-		return nil, status.Errorf(codes.InvalidArgument, "the list of nameservers should be 1 or 2")
-	}
-
-	if len(groups) == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "the list of group IDs should not be empty")
-	}
-
-	for _, id := range groups {
-		if id == "" {
-			return nil, status.Errorf(codes.InvalidArgument, "group ID should not be empty string")
-		}
-		found := false
-		for groupID := range account.Groups {
-			if id == groupID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, status.Errorf(codes.InvalidArgument, "group id %s not found", id)
-		}
-	}
-
 	newNSGroup := &nbdns.NameServerGroup{
 		ID:          xid.New().String(),
 		Name:        name,
@@ -107,6 +72,11 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 		NameServers: nameServerList,
 		Groups:      groups,
 		Enabled:     enabled,
+	}
+
+	err = validateNameServerGroup(false, newNSGroup, account)
+	if err != nil {
+		return nil, err
 	}
 
 	if account.NameServerGroups == nil {
@@ -127,6 +97,28 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupToSave *nbdns.NameServerGroup) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
+
+	if nsGroupToSave == nil {
+		return status.Errorf(codes.InvalidArgument, "nameserver group provided is nil")
+	}
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "account not found")
+	}
+
+	err = validateNameServerGroup(true, nsGroupToSave, account)
+	if err != nil {
+		return err
+	}
+
+	account.NameServerGroups[nsGroupToSave.ID] = nsGroupToSave
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -152,4 +144,78 @@ func (am *DefaultAccountManager) ListNameServerGroups(accountID string) ([]*nbdn
 	defer am.mux.Unlock()
 
 	return nil, nil
+}
+
+func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServerGroup, account *Account) error {
+	nsGroupID := ""
+	if existingGroup {
+		nsGroupID = nameserverGroup.ID
+		_, found := account.NameServerGroups[nsGroupID]
+		if !found {
+			return status.Errorf(codes.NotFound, "nameserver group with ID %s was not found", nsGroupID)
+		}
+	}
+
+	err := validateNSGroupName(nameserverGroup.Name, nsGroupID, account.NameServerGroups)
+	if err != nil {
+		return err
+	}
+
+	err = validateNSList(nameserverGroup.NameServers)
+	if err != nil {
+		return err
+	}
+
+	err = validateGroups(nameserverGroup.Groups, account.Groups)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateNSGroupName(name, nsGroupID string, nsGroupMap map[string]*nbdns.NameServerGroup) error {
+	if utf8.RuneCountInString(name) > nbdns.MaxGroupNameChar || name == "" {
+		return status.Errorf(codes.InvalidArgument, "nameserver group name should be between 1 and %d", nbdns.MaxGroupNameChar)
+	}
+
+	for _, nsGroup := range nsGroupMap {
+		if name == nsGroup.Name && nsGroup.ID != nsGroupID {
+			return status.Errorf(codes.InvalidArgument, "a nameserver group with name %s already exist", name)
+		}
+	}
+
+	return nil
+}
+
+func validateNSList(list []nbdns.NameServer) error {
+	nsListLenght := len(list)
+	if nsListLenght == 0 || nsListLenght > 2 {
+		return status.Errorf(codes.InvalidArgument, "the list of nameservers should be 1 or 2, got %d", len(list))
+	}
+	return nil
+}
+
+func validateGroups(list []string, groups map[string]*Group) error {
+	if len(list) == 0 {
+		return status.Errorf(codes.InvalidArgument, "the list of group IDs should not be empty")
+	}
+
+	for _, id := range list {
+		if id == "" {
+			return status.Errorf(codes.InvalidArgument, "group ID should not be empty string")
+		}
+		found := false
+		for groupID := range groups {
+			if id == groupID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return status.Errorf(codes.InvalidArgument, "group id %s not found", id)
+		}
+	}
+
+	return nil
 }
