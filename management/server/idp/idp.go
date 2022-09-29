@@ -39,9 +39,10 @@ type ManagerHelper interface {
 }
 
 type UserData struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	ID    string `json:"user_id"`
+	Email       string `json:"email"`
+	Name        string `json:"name"`
+	ID          string `json:"user_id"`
+	LoginsCount int    `json:"logins_count"`
 }
 
 // AppMetadata user app metadata to associate with a profile

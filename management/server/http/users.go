@@ -159,12 +159,22 @@ func toUserResponse(user *server.UserInfo) *api.User {
 		autoGroups = []string{}
 	}
 
+	var userStatus api.UserStatus
+	switch user.Status {
+	case "active":
+		userStatus = api.Active
+	case "invited":
+		userStatus = api.Invited
+	default:
+		userStatus = api.Disabled
+	}
+
 	return &api.User{
 		Id:         user.ID,
 		Name:       user.Name,
 		Email:      user.Email,
 		Role:       user.Role,
 		AutoGroups: autoGroups,
-		Status:     api.Active, //todo fetch from info
+		Status:     userStatus,
 	}
 }

@@ -55,12 +55,12 @@ type Auth0Credentials struct {
 
 // createUserRequest is a user create request
 type createUserRequest struct {
-	Email       string            `json:"email"`
-	Name        string            `json:"name"`
-	AppMeta     map[string]string `json:"app_metadata"`
-	Connection  string            `json:"connection"`
-	Password    string            `json:"password"`
-	VerifyEmail bool              `json:"verify_email"`
+	Email       string         `json:"email"`
+	Name        string         `json:"name"`
+	AppMeta     map[string]any `json:"app_metadata"`
+	Connection  string         `json:"connection"`
+	Password    string         `json:"password"`
+	VerifyEmail bool           `json:"verify_email"`
 }
 
 // userExportJobRequest is a user export request struct
@@ -417,10 +417,10 @@ func buildCreateUserRequestPayload(email string, name string, accountID string) 
 	req := &createUserRequest{
 		Email:       email,
 		Name:        name,
-		AppMeta:     map[string]string{"wt_account_id": accountID},
+		AppMeta:     map[string]any{"wt_account_id": accountID, "wt_invited": true},
 		Connection:  "Username-Password-Authentication",
 		Password:    GeneratePassword(8, 1, 1, 1),
-		VerifyEmail: false,
+		VerifyEmail: true,
 	}
 
 	str, err := json.Marshal(req)

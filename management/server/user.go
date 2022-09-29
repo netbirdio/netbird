@@ -14,6 +14,10 @@ const (
 	UserRoleAdmin   UserRole = "admin"
 	UserRoleUser    UserRole = "user"
 	UserRoleUnknown UserRole = "unknown"
+
+	UserStatusActive   UserStatus = "active"
+	UserStatusDisabled UserStatus = "disabled"
+	UserStatusInvited  UserStatus = "invited"
 )
 
 // StrRoleToUserRole returns UserRole for a given strRole or UserRoleUnknown if the specified role is unknown
@@ -28,7 +32,10 @@ func StrRoleToUserRole(strRole string) UserRole {
 	}
 }
 
-// UserRole is the role of the User
+// UserStatus is the status of a User
+type UserStatus string
+
+// UserRole is the role of a User
 type UserRole string
 
 // User represents a user of the system
@@ -53,10 +60,16 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			Name:       "",
 			Role:       string(u.Role),
 			AutoGroups: u.AutoGroups,
+			Status:     string(UserStatusActive),
 		}, nil
 	}
 	if userData.ID != u.Id {
 		return nil, fmt.Errorf("wrong UserData provided for user %s", u.Id)
+	}
+
+	userStatus := UserStatusInvited
+	if userData.LoginsCount > 0 {
+		userStatus = UserStatusActive
 	}
 
 	return &UserInfo{
@@ -65,6 +78,7 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		Name:       userData.Name,
 		Role:       string(u.Role),
 		AutoGroups: autoGroups,
+		Status:     string(userStatus),
 	}, nil
 }
 
@@ -117,6 +131,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	}
 
 	// check if the user is already registered with this email => reject
+	// TODO check all accounts!
 	user, err := am.lookupUserInCacheByEmail(invite.Email, accountID)
 	if err != nil {
 		return nil, err
