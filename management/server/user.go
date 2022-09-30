@@ -131,7 +131,6 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	}
 
 	// check if the user is already registered with this email => reject
-	// TODO check all accounts!
 	user, err := am.lookupUserInCacheByEmail(invite.Email, accountID)
 	if err != nil {
 		return nil, err
@@ -141,9 +140,10 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 		return nil, status.Errorf(codes.FailedPrecondition, "user with a given email is already registered")
 	}
 
+	// if user already exists with this email, the operation will fail which is good for us.
 	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.FailedPrecondition, "failed creating user in IdP")
 	}
 
 	role := StrRoleToUserRole(invite.Role)

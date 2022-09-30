@@ -144,7 +144,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	users := []*api.User{}
+	users := make([]*api.User, 0)
 	for _, r := range data {
 		users = append(users, toUserResponse(r))
 	}
