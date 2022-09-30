@@ -60,7 +60,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 
 	nsGroup, found := account.NameServerGroups[nsGroupID]
 	if found {
-		return nsGroup, nil
+		return nsGroup.Copy(), nil
 	}
 
 	return nil, status.Errorf(codes.NotFound, "nameserver group with ID %s not found", nsGroupID)
@@ -102,7 +102,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 		return nil, err
 	}
 
-	return newNSGroup, nil
+	return newNSGroup.Copy(), nil
 }
 
 // SaveNameServerGroup saves nameserver group
@@ -216,7 +216,7 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 		return nil, err
 	}
 
-	return newNSGroup, nil
+	return newNSGroup.Copy(), nil
 }
 
 // DeleteNameServerGroup deletes nameserver group with nsGroupID
@@ -252,7 +252,7 @@ func (am *DefaultAccountManager) ListNameServerGroups(accountID string) ([]*nbdn
 
 	nsGroups := make([]*nbdns.NameServerGroup, 0, len(account.NameServerGroups))
 	for _, item := range account.NameServerGroups {
-		nsGroups = append(nsGroups, item)
+		nsGroups = append(nsGroups, item.Copy())
 	}
 
 	return nsGroups, nil
