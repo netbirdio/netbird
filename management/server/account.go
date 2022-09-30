@@ -238,17 +238,11 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 
 	for accountID, users := range userData {
-		activeUsers := make([]*idp.UserData, 0)
-		for _, user := range users {
-			if !user.AppMetadata.WTInvited {
-				activeUsers = append(activeUsers, user)
-			}
-		}
 		rand.Seed(time.Now().UnixNano())
 
 		r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
 		expiration := time.Duration(r) * time.Millisecond
-		err = am.cacheManager.Set(am.ctx, accountID, activeUsers, &cacheStore.Options{Expiration: expiration})
+		err = am.cacheManager.Set(am.ctx, accountID, users, &cacheStore.Options{Expiration: expiration})
 		if err != nil {
 			return err
 		}
@@ -348,6 +342,20 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, accountID stri
 	return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", userID)
 }
 
+func (am *DefaultAccountManager) reloadCache(accountID string) ([]*idp.UserData, error) {
+	log.Debugf("reloading cache for account %s", accountID)
+	err := am.cacheManager.Delete(am.ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	data, err := am.cacheManager.Get(am.ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	userData := data.([]*idp.UserData)
+	log.Debugf("reloaded cache for account %s with %d items", accountID, len(userData))
+	return userData, nil
+}
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, accountID string) ([]*idp.UserData, error) {
 	data, err := am.cacheManager.Get(am.ctx, accountID)
 	if err != nil {
@@ -372,15 +380,10 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 
 	if reload {
 		// reload cache once avoiding loops
-		err := am.cacheManager.Delete(am.ctx, accountID)
+		data, err = am.reloadCache(accountID)
 		if err != nil {
 			return nil, err
 		}
-		data, err = am.cacheManager.Get(am.ctx, accountID)
-		if err != nil {
-			return nil, err
-		}
-
 		userData = data.([]*idp.UserData)
 	}
 
@@ -499,6 +502,11 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 
 	if user.AppMetadata.WTInvited {
 		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTInvited: false})
+		if err != nil {
+			return err
+		}
+
+		_, err = am.reloadCache(account.Id)
 		if err != nil {
 			return err
 		}

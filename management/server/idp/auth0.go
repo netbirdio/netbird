@@ -292,6 +292,10 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 			return nil, err
 		}
 
+		if res.StatusCode != 200 {
+			return nil, fmt.Errorf("failed requesting user data from IdP %s", string(body))
+		}
+
 		var batch []UserData
 		err = json.Unmarshal(body, &batch)
 		if err != nil {
