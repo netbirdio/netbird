@@ -211,7 +211,8 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 	account.NameServerGroups[nsGroupID] = newNSGroup
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	err = am.Store.SaveAccount(account)
+	if err != nil {
 		return nil, err
 	}
 
@@ -231,7 +232,8 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID stri
 	delete(account.NameServerGroups, nsGroupID)
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	err = am.Store.SaveAccount(account)
+	if err != nil {
 		return err
 	}
 
