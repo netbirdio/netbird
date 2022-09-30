@@ -140,6 +140,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedMSG                 string
 		expectedUserRole            UserRole
 		expectedDomainCategory      string
+		expectedDomain              string
 		expectedPrimaryDomainStatus bool
 		expectedCreatedBy           string
 		expectedUsers               []string
@@ -168,6 +169,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		expectedMSG:                 "account IDs shouldn't match",
 		expectedUserRole:            UserRoleAdmin,
 		expectedDomainCategory:      "",
+		expectedDomain:              publicDomain,
 		expectedPrimaryDomainStatus: false,
 		expectedCreatedBy:           "pub-domain-user",
 		expectedUsers:               []string{"pub-domain-user"},
@@ -188,6 +190,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		testingFunc:                 require.NotEqual,
 		expectedMSG:                 "account IDs shouldn't match",
 		expectedUserRole:            UserRoleAdmin,
+		expectedDomain:              unknownDomain,
 		expectedDomainCategory:      "",
 		expectedPrimaryDomainStatus: false,
 		expectedCreatedBy:           "unknown-domain-user",
@@ -205,6 +208,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		testingFunc:                 require.NotEqual,
 		expectedMSG:                 "account IDs shouldn't match",
 		expectedUserRole:            UserRoleAdmin,
+		expectedDomain:              privateDomain,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
 		expectedCreatedBy:           "pvt-domain-user",
@@ -227,6 +231,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		testingFunc:                 require.Equal,
 		expectedMSG:                 "account IDs should match",
 		expectedUserRole:            UserRoleUser,
+		expectedDomain:              privateDomain,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
 		expectedCreatedBy:           defaultInitAccount.UserId,
@@ -244,6 +249,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		testingFunc:                 require.Equal,
 		expectedMSG:                 "account IDs should match",
 		expectedUserRole:            UserRoleAdmin,
+		expectedDomain:              defaultInitAccount.Domain,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
 		expectedCreatedBy:           defaultInitAccount.UserId,
@@ -262,12 +268,32 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 		testingFunc:                 require.Equal,
 		expectedMSG:                 "account IDs should match",
 		expectedUserRole:            UserRoleAdmin,
+		expectedDomain:              defaultInitAccount.Domain,
 		expectedDomainCategory:      PrivateCategory,
 		expectedPrimaryDomainStatus: true,
 		expectedCreatedBy:           defaultInitAccount.UserId,
 		expectedUsers:               []string{defaultInitAccount.UserId},
 	}
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6} {
+
+	testCase7 := test{
+		name: "User With Private Category And Empty Domain",
+		inputClaims: jwtclaims.AuthorizationClaims{
+			Domain:         "",
+			UserId:         "pvt-domain-user",
+			DomainCategory: PrivateCategory,
+		},
+		inputInitUserParams:         defaultInitAccount,
+		testingFunc:                 require.NotEqual,
+		expectedMSG:                 "account IDs shouldn't match",
+		expectedUserRole:            UserRoleAdmin,
+		expectedDomain:              "",
+		expectedDomainCategory:      "",
+		expectedPrimaryDomainStatus: false,
+		expectedCreatedBy:           "pvt-domain-user",
+		expectedUsers:               []string{"pvt-domain-user"},
+	}
+
+	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5, testCase6, testCase7} {
 		t.Run(testCase.name, func(t *testing.T) {
 			manager, err := createManager(t)
 			require.NoError(t, err, "unable to create account manager")
@@ -294,6 +320,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 			require.EqualValues(t, testCase.expectedUserRole, account.Users[testCase.inputClaims.UserId].Role, "expected user role should match")
 			require.EqualValues(t, testCase.expectedDomainCategory, account.DomainCategory, "expected account domain category should match")
 			require.EqualValues(t, testCase.expectedPrimaryDomainStatus, account.IsDomainPrimaryAccount, "expected account primary status should match")
+			require.EqualValues(t, testCase.expectedDomain, account.Domain, "expected account domain should match")
 		})
 	}
 }

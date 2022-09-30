@@ -311,7 +311,37 @@ func (i *iptablesManager) InsertRoutingRules(pair routerPair) error {
 	i.mux.Lock()
 	defer i.mux.Unlock()
 
+	err := i.insertRoutingRule(forwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, routingFinalForwardJump, pair)
+	if err != nil {
+		return err
+	}
+
+	err = i.insertRoutingRule(inForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, routingFinalForwardJump, getInPair(pair))
+	if err != nil {
+		return err
+	}
+
+	if !pair.masquerade {
+		return nil
+	}
+
+	err = i.insertRoutingRule(natFormat, iptablesNatTable, iptablesRoutingNatChain, routingFinalNatJump, pair)
+	if err != nil {
+		return err
+	}
+
+	err = i.insertRoutingRule(inNatFormat, iptablesNatTable, iptablesRoutingNatChain, routingFinalNatJump, getInPair(pair))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// insertRoutingRule inserts an iptable rule
+func (i *iptablesManager) insertRoutingRule(keyFormat, table, chain, jump string, pair routerPair) error {
 	var err error
+
 	prefix := netip.MustParsePrefix(pair.source)
 	ipVersion := ipv4
 	iptablesClient := i.ipv4Client
@@ -320,43 +350,22 @@ func (i *iptablesManager) InsertRoutingRules(pair routerPair) error {
 		ipVersion = ipv6
 	}
 
-	forwardRuleKey := genKey(forwardingFormat, pair.ID)
-	forwardRule := genRuleSpec(routingFinalForwardJump, forwardRuleKey, pair.source, pair.destination)
-	existingRule, found := i.rules[ipVersion][forwardRuleKey]
+	ruleKey := genKey(keyFormat, pair.ID)
+	rule := genRuleSpec(jump, ruleKey, pair.source, pair.destination)
+	existingRule, found := i.rules[ipVersion][ruleKey]
 	if found {
-		err = iptablesClient.DeleteIfExists(iptablesFilterTable, iptablesRoutingForwardingChain, existingRule...)
+		err = iptablesClient.DeleteIfExists(table, chain, existingRule...)
 		if err != nil {
-			return fmt.Errorf("iptables: error while removing existing forwarding rule for %s: %v", pair.destination, err)
+			return fmt.Errorf("iptables: error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.destination, err)
 		}
-		delete(i.rules[ipVersion], forwardRuleKey)
+		delete(i.rules[ipVersion], ruleKey)
 	}
-	err = iptablesClient.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forwardRule...)
+	err = iptablesClient.Insert(table, chain, 1, rule...)
 	if err != nil {
-		return fmt.Errorf("iptables: error while adding new forwarding rule for %s: %v", pair.destination, err)
+		return fmt.Errorf("iptables: error while adding new %s rule for %s: %v", getIptablesRuleType(table), pair.destination, err)
 	}
 
-	i.rules[ipVersion][forwardRuleKey] = forwardRule
-
-	if !pair.masquerade {
-		return nil
-	}
-
-	natRuleKey := genKey(natFormat, pair.ID)
-	natRule := genRuleSpec(routingFinalNatJump, natRuleKey, pair.source, pair.destination)
-	existingRule, found = i.rules[ipVersion][natRuleKey]
-	if found {
-		err = iptablesClient.DeleteIfExists(iptablesNatTable, iptablesRoutingNatChain, existingRule...)
-		if err != nil {
-			return fmt.Errorf("iptables: error while removing existing nat rulefor %s: %v", pair.destination, err)
-		}
-		delete(i.rules[ipVersion], natRuleKey)
-	}
-	err = iptablesClient.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, natRule...)
-	if err != nil {
-		return fmt.Errorf("iptables: error while adding new nat rulefor %s: %v", pair.destination, err)
-	}
-
-	i.rules[ipVersion][natRuleKey] = natRule
+	i.rules[ipVersion][ruleKey] = rule
 
 	return nil
 }
@@ -366,7 +375,37 @@ func (i *iptablesManager) RemoveRoutingRules(pair routerPair) error {
 	i.mux.Lock()
 	defer i.mux.Unlock()
 
+	err := i.removeRoutingRule(forwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, pair)
+	if err != nil {
+		return err
+	}
+
+	err = i.removeRoutingRule(inForwardingFormat, iptablesFilterTable, iptablesRoutingForwardingChain, getInPair(pair))
+	if err != nil {
+		return err
+	}
+
+	if !pair.masquerade {
+		return nil
+	}
+
+	err = i.removeRoutingRule(natFormat, iptablesNatTable, iptablesRoutingNatChain, pair)
+	if err != nil {
+		return err
+	}
+
+	err = i.removeRoutingRule(inNatFormat, iptablesNatTable, iptablesRoutingNatChain, getInPair(pair))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// removeRoutingRule removes an iptables rule
+func (i *iptablesManager) removeRoutingRule(keyFormat, table, chain string, pair routerPair) error {
 	var err error
+
 	prefix := netip.MustParsePrefix(pair.source)
 	ipVersion := ipv4
 	iptablesClient := i.ipv4Client
@@ -375,29 +414,23 @@ func (i *iptablesManager) RemoveRoutingRules(pair routerPair) error {
 		ipVersion = ipv6
 	}
 
-	forwardRuleKey := genKey(forwardingFormat, pair.ID)
-	existingRule, found := i.rules[ipVersion][forwardRuleKey]
+	ruleKey := genKey(keyFormat, pair.ID)
+	existingRule, found := i.rules[ipVersion][ruleKey]
 	if found {
-		err = iptablesClient.DeleteIfExists(iptablesFilterTable, iptablesRoutingForwardingChain, existingRule...)
+		err = iptablesClient.DeleteIfExists(table, chain, existingRule...)
 		if err != nil {
-			return fmt.Errorf("iptables: error while removing existing forwarding rule for %s: %v", pair.destination, err)
+			return fmt.Errorf("iptables: error while removing existing %s rule for %s: %v", getIptablesRuleType(table), pair.destination, err)
 		}
 	}
-	delete(i.rules[ipVersion], forwardRuleKey)
-
-	if !pair.masquerade {
-		return nil
-	}
-
-	natRuleKey := genKey(natFormat, pair.ID)
-	existingRule, found = i.rules[ipVersion][natRuleKey]
-	if found {
-		err = iptablesClient.DeleteIfExists(iptablesNatTable, iptablesRoutingNatChain, existingRule...)
-		if err != nil {
-			return fmt.Errorf("iptables: error while removing existing nat rule for %s: %v", pair.destination, err)
-		}
-	}
-	delete(i.rules[ipVersion], natRuleKey)
+	delete(i.rules[ipVersion], ruleKey)
 
 	return nil
+}
+
+func getIptablesRuleType(table string) string {
+	ruleType := "forwarding"
+	if table == iptablesNatTable {
+		ruleType = "nat"
+	}
+	return ruleType
 }

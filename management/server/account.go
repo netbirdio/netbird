@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/eko/gocache/v2/cache"
 	cacheStore "github.com/eko/gocache/v2/store"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/route"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc/status"
 	"math/rand"
 	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +42,7 @@ type AccountManager interface {
 	) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
 	CreateUser(accountID string, key *UserInfo) (*UserInfo, error)
+	ListSetupKeys(accountID string) ([]*SetupKey, error)
 	SaveUser(accountID string, key *User) (*UserInfo, error)
 	GetSetupKey(accountID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
@@ -79,7 +82,12 @@ type AccountManager interface {
 	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID string) error
 	ListRoutes(accountID string) ([]*route.Route, error)
-	ListSetupKeys(accountID string) ([]*SetupKey, error)
+	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, enabled bool) (*nbdns.NameServerGroup, error)
+	SaveNameServerGroup(accountID string, nsGroupToSave *nbdns.NameServerGroup) error
+	UpdateNameServerGroup(accountID, nsGroupID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
+	DeleteNameServerGroup(accountID, nsGroupID string) error
+	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
 }
 
 type DefaultAccountManager struct {
@@ -107,6 +115,7 @@ type Account struct {
 	Groups                 map[string]*Group
 	Rules                  map[string]*Rule
 	Routes                 map[string]*route.Route
+	NameServerGroups       map[string]*nbdns.NameServerGroup
 }
 
 type UserInfo struct {
@@ -144,15 +153,27 @@ func (a *Account) Copy() *Account {
 		rules[id] = rule.Copy()
 	}
 
+	routes := map[string]*route.Route{}
+	for id, route := range a.Routes {
+		routes[id] = route.Copy()
+	}
+
+	nsGroups := map[string]*nbdns.NameServerGroup{}
+	for id, nsGroup := range a.NameServerGroups {
+		nsGroups[id] = nsGroup.Copy()
+	}
+
 	return &Account{
-		Id:        a.Id,
-		CreatedBy: a.CreatedBy,
-		SetupKeys: setupKeys,
-		Network:   a.Network.Copy(),
-		Peers:     peers,
-		Users:     users,
-		Groups:    groups,
-		Rules:     rules,
+		Id:               a.Id,
+		CreatedBy:        a.CreatedBy,
+		SetupKeys:        setupKeys,
+		Network:          a.Network.Copy(),
+		Peers:            peers,
+		Users:            users,
+		Groups:           groups,
+		Rules:            rules,
+		Routes:           routes,
+		NameServerGroups: nsGroups,
 	}
 }
 
@@ -556,7 +577,7 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(
 ) (*Account, error) {
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
-	if claims.DomainCategory != PrivateCategory {
+	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
 		return am.GetAccountByUserOrAccountId(claims.UserId, claims.AccountId, claims.Domain)
 	} else if claims.AccountId != "" {
 		accountFromID, err := am.GetAccountById(claims.AccountId)
@@ -594,6 +615,11 @@ func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(
 		// other error
 		return nil, err
 	}
+}
+
+func isDomainValid(domain string) bool {
+	re := regexp.MustCompile(`^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$`)
+	return re.Match([]byte(domain))
 }
 
 // AccountExists checks whether account exists (returns true) or not (returns false)
@@ -653,18 +679,20 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
 	routes := make(map[string]*route.Route)
+	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userId] = NewAdminUser(userId)
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
 	acc := &Account{
-		Id:        accountId,
-		SetupKeys: setupKeys,
-		Network:   network,
-		Peers:     peers,
-		Users:     users,
-		CreatedBy: userId,
-		Domain:    domain,
-		Routes:    routes,
+		Id:               accountId,
+		SetupKeys:        setupKeys,
+		Network:          network,
+		Peers:            peers,
+		Users:            users,
+		CreatedBy:        userId,
+		Domain:           domain,
+		Routes:           routes,
+		NameServerGroups: nameServersGroups,
 	}
 
 	addAllGroup(acc)

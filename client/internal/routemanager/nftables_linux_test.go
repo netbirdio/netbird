@@ -189,6 +189,45 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 				}
 				require.Equal(t, 1, found, "should find at least 1 rule to test")
 			}
+
+			sourceExp = generateCIDRMatcherExpressions("source", getInPair(testCase.inputPair).source)
+			destExp = generateCIDRMatcherExpressions("destination", getInPair(testCase.inputPair).destination)
+			testingExpression = append(sourceExp, destExp...)
+			inFwdRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)
+
+			found = 0
+			for _, registeredChains := range manager.chains {
+				for _, chain := range registeredChains {
+					rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
+					require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
+					for _, rule := range rules {
+						if len(rule.UserData) > 0 && string(rule.UserData) == inFwdRuleKey {
+							require.ElementsMatchf(t, rule.Exprs[:len(testingExpression)], testingExpression, "income forwarding rule elements should match")
+							found = 1
+						}
+					}
+				}
+			}
+
+			require.Equal(t, 1, found, "should find at least 1 rule to test")
+
+			if testCase.inputPair.masquerade {
+				inNatRuleKey := genKey(inNatFormat, testCase.inputPair.ID)
+				found := 0
+				for _, registeredChains := range manager.chains {
+					for _, chain := range registeredChains {
+						rules, err := nftablesTestingClient.GetRules(chain.Table, chain)
+						require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
+						for _, rule := range rules {
+							if len(rule.UserData) > 0 && string(rule.UserData) == inNatRuleKey {
+								require.ElementsMatchf(t, rule.Exprs[:len(testingExpression)], testingExpression, "income nat rule elements should match")
+								found = 1
+							}
+						}
+					}
+				}
+				require.Equal(t, 1, found, "should find at least 1 rule to test")
+			}
 		})
 	}
 }
@@ -241,6 +280,28 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 				UserData: []byte(natRuleKey),
 			})
 
+			sourceExp = generateCIDRMatcherExpressions("source", getInPair(testCase.inputPair).source)
+			destExp = generateCIDRMatcherExpressions("destination", getInPair(testCase.inputPair).destination)
+
+			forwardExp = append(sourceExp, append(destExp, exprCounterAccept...)...)
+			inForwardRuleKey := genKey(inForwardingFormat, testCase.inputPair.ID)
+			insertedInForwarding := nftablesTestingClient.InsertRule(&nftables.Rule{
+				Table:    table,
+				Chain:    manager.chains[testCase.ipVersion][nftablesRoutingForwardingChain],
+				Exprs:    forwardExp,
+				UserData: []byte(inForwardRuleKey),
+			})
+
+			natExp = append(sourceExp, append(destExp, &expr.Counter{}, &expr.Masq{})...)
+			inNatRuleKey := genKey(inNatFormat, testCase.inputPair.ID)
+
+			insertedInNat := nftablesTestingClient.InsertRule(&nftables.Rule{
+				Table:    table,
+				Chain:    manager.chains[testCase.ipVersion][nftablesRoutingNatChain],
+				Exprs:    natExp,
+				UserData: []byte(inNatRuleKey),
+			})
+
 			err = nftablesTestingClient.Flush()
 			require.NoError(t, err, "shouldn't return error")
 
@@ -259,8 +320,10 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 					require.NoError(t, err, "should list rules for %s table and %s chain", chain.Table.Name, chain.Name)
 					for _, rule := range rules {
 						if len(rule.UserData) > 0 {
-							require.NotEqual(t, insertedForwarding.UserData, rule.UserData, "forwarding rule should exist")
-							require.NotEqual(t, insertedNat.UserData, rule.UserData, "nat rule should exist")
+							require.NotEqual(t, insertedForwarding.UserData, rule.UserData, "forwarding rule should not exist")
+							require.NotEqual(t, insertedNat.UserData, rule.UserData, "nat rule should not exist")
+							require.NotEqual(t, insertedInForwarding.UserData, rule.UserData, "income forwarding rule should not exist")
+							require.NotEqual(t, insertedInNat.UserData, rule.UserData, "income nat rule should not exist")
 						}
 					}
 				}
