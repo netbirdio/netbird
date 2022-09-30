@@ -213,6 +213,18 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID stri
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return status.Errorf(codes.NotFound, "account not found")
+	}
+
+	delete(account.NameServerGroups, nsGroupID)
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
 	return nil
 }
 

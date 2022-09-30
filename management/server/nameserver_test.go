@@ -776,51 +776,61 @@ func TestUpdateNameServerGroup(t *testing.T) {
 	}
 }
 
-//func TestDeleteNameServerGroup(t *testing.T) {
-//
-//	testingRoute := &route.Route{
-//		ID:          "testingRoute",
-//		Network:     netip.MustParsePrefix("192.168.0.0/16"),
-//		NetworkType: route.IPv4Network,
-//		Peer:        nsGroupPeer1Key,
-//		Description: "super",
-//		Masquerade:  false,
-//		Metric:      9999,
-//		Enabled:     true,
-//	}
-//
-//	am, err := createNSManager(t)
-//	if err != nil {
-//		t.Error("failed to create account manager")
-//	}
-//
-//	account, err := initTestNSAccount(t, am)
-//	if err != nil {
-//		t.Error("failed to init testing account")
-//	}
-//
-//	account.Routes[testingRoute.ID] = testingRoute
-//
-//	err = am.Store.SaveAccount(account)
-//	if err != nil {
-//		t.Error("failed to save account")
-//	}
-//
-//	err = am.DeleteRoute(account.Id, testingRoute.ID)
-//	if err != nil {
-//		t.Error("deleting route failed with error: ", err)
-//	}
-//
-//	savedAccount, err := am.Store.GetAccount(account.Id)
-//	if err != nil {
-//		t.Error("failed to retrieve saved account with error: ", err)
-//	}
-//
-//	_, found := savedAccount.Routes[testingRoute.ID]
-//	if found {
-//		t.Error("route shouldn't be found after delete")
-//	}
-//}
+func TestDeleteNameServerGroup(t *testing.T) {
+	nsGroupID := "testingNSGroup"
+
+	testingNSGroup := &nbdns.NameServerGroup{
+		ID:          nsGroupID,
+		Name:        "super",
+		Description: "super",
+		NameServers: []nbdns.NameServer{
+			{
+				IP:     netip.MustParseAddr("1.1.1.1"),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			},
+			{
+				IP:     netip.MustParseAddr("1.1.2.2"),
+				NSType: nbdns.UDPNameServerType,
+				Port:   nbdns.DefaultDNSPort,
+			},
+		},
+		Groups:  []string{group1ID},
+		Enabled: true,
+	}
+
+	am, err := createNSManager(t)
+	if err != nil {
+		t.Error("failed to create account manager")
+	}
+
+	account, err := initTestNSAccount(t, am)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+
+	account.NameServerGroups[testingNSGroup.ID] = testingNSGroup
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		t.Error("failed to save account")
+	}
+
+	err = am.DeleteNameServerGroup(account.Id, testingNSGroup.ID)
+	if err != nil {
+		t.Error("deleting nameserver group failed with error: ", err)
+	}
+
+	savedAccount, err := am.Store.GetAccount(account.Id)
+	if err != nil {
+		t.Error("failed to retrieve saved account with error: ", err)
+	}
+
+	_, found := savedAccount.NameServerGroups[testingNSGroup.ID]
+	if found {
+		t.Error("nameserver group shouldn't be found after delete")
+	}
+}
 
 func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	store, err := createNSStore(t)
