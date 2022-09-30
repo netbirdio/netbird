@@ -1,6 +1,7 @@
 package mock_server
 
 import (
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/route"
@@ -53,6 +54,12 @@ type MockAccountManager struct {
 	SaveSetupKeyFunc                      func(accountID string, key *server.SetupKey) (*server.SetupKey, error)
 	ListSetupKeysFunc                     func(accountID string) ([]*server.SetupKey, error)
 	SaveUserFunc                          func(accountID string, user *server.User) (*server.UserInfo, error)
+	GetNameServerGroupFunc                func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroupFunc             func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, enabled bool) (*nbdns.NameServerGroup, error)
+	SaveNameServerGroupFunc               func(accountID string, nsGroupToSave *nbdns.NameServerGroup) error
+	UpdateNameServerGroupFunc             func(accountID, nsGroupID string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
+	DeleteNameServerGroupFunc             func(accountID, nsGroupID string) error
+	ListNameServerGroupsFunc              func(accountID string) ([]*nbdns.NameServerGroup, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -429,4 +436,52 @@ func (am *MockAccountManager) SaveUser(accountID string, user *server.User) (*se
 		return am.SaveUserFunc(accountID, user)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SaveUser is not implemented")
+}
+
+// GetNameServerGroup mocks GetNameServerGroup of the AccountManager interface
+func (am *MockAccountManager) GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
+	if am.GetNameServerGroupFunc != nil {
+		return am.GetNameServerGroupFunc(accountID, nsGroupID)
+	}
+	return nil, nil
+}
+
+// CreateNameServerGroup mocks CreateNameServerGroup of the AccountManager interface
+func (am *MockAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, enabled bool) (*nbdns.NameServerGroup, error) {
+	if am.CreateNameServerGroupFunc != nil {
+		return am.CreateNameServerGroupFunc(accountID, name, description, nameServerList, groups, enabled)
+	}
+	return nil, nil
+}
+
+// SaveNameServerGroup mocks SaveNameServerGroup of the AccountManager interface
+func (am *MockAccountManager) SaveNameServerGroup(accountID string, nsGroupToSave *nbdns.NameServerGroup) error {
+	if am.SaveNameServerGroupFunc != nil {
+		return am.SaveNameServerGroupFunc(accountID, nsGroupToSave)
+	}
+	return nil
+}
+
+// UpdateNameServerGroup mocks UpdateNameServerGroup of the AccountManager interface
+func (am *MockAccountManager) UpdateNameServerGroup(accountID, nsGroupID string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error) {
+	if am.UpdateNameServerGroupFunc != nil {
+		return am.UpdateNameServerGroupFunc(accountID, nsGroupID, operations)
+	}
+	return nil, nil
+}
+
+// DeleteNameServerGroup mocks DeleteNameServerGroup of the AccountManager interface
+func (am *MockAccountManager) DeleteNameServerGroup(accountID, nsGroupID string) error {
+	if am.DeleteNameServerGroupFunc != nil {
+		return am.DeleteNameServerGroupFunc(accountID, nsGroupID)
+	}
+	return nil
+}
+
+// ListNameServerGroups mocks ListNameServerGroups of the AccountManager interface
+func (am *MockAccountManager) ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error) {
+	if am.ListNameServerGroupsFunc != nil {
+		return am.ListNameServerGroupsFunc(accountID)
+	}
+	return nil, nil
 }
