@@ -1,6 +1,12 @@
 package dns
 
-import "net/netip"
+import (
+	"fmt"
+	"net/netip"
+	"net/url"
+	"strconv"
+	"strings"
+)
 
 const (
 	// MaxGroupNameChar maximum group name size
@@ -81,6 +87,36 @@ func (n *NameServer) IsEqual(other *NameServer) bool {
 	return other.IP == n.IP &&
 		other.NSType == n.NSType &&
 		other.Port == n.Port
+}
+
+// ParseNameServerURL parses a nameserver url in the format <type>://<ip>:<port>, e.g., udp://1.1.1.1:53
+func ParseNameServerURL(nsURL string) (NameServer, error) {
+	parsedURL, err := url.Parse(nsURL)
+	if err != nil {
+		return NameServer{}, err
+	}
+	var ns NameServer
+	parsedScheme := strings.ToLower(parsedURL.Scheme)
+	nsType := ToNameServerType(parsedScheme)
+	if nsType == InvalidNameServerType {
+		return NameServer{}, fmt.Errorf("invalid nameserver url schema type, got %s", parsedScheme)
+	}
+	ns.NSType = nsType
+
+	parsedPort, err := strconv.Atoi(parsedURL.Port())
+	if err != nil {
+		return NameServer{}, fmt.Errorf("invalid nameserver url port, got %s", parsedURL.Port())
+	}
+	ns.Port = parsedPort
+
+	parsedAddr, err := netip.ParseAddr(parsedURL.Hostname())
+	if err != nil {
+		return NameServer{}, fmt.Errorf("invalid nameserver url IP, got %s", parsedURL.Hostname())
+	}
+
+	ns.IP = parsedAddr
+
+	return ns, nil
 }
 
 // Copy copies a nameserver group object

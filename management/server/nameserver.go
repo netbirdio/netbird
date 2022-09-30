@@ -5,6 +5,7 @@ import (
 	"github.com/rs/xid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strconv"
 	"unicode/utf8"
 )
 
@@ -129,7 +130,82 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	return nil, nil
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	if len(operations) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "operations shouldn't be empty")
+	}
+
+	nsGroupToUpdate, ok := account.NameServerGroups[nsGroupID]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "nameserver group ID %s no longer exists", nsGroupID)
+	}
+
+	newNSGroup := nsGroupToUpdate.Copy()
+
+	for _, operation := range operations {
+		valuesCount := len(operation.Values)
+		if valuesCount < 1 {
+			return nil, status.Errorf(codes.InvalidArgument, "operation %s contains invalid number of values, it should be at least 1", operation.Type.String())
+		}
+
+		for _, value := range operation.Values {
+			if value == "" {
+				return nil, status.Errorf(codes.InvalidArgument, "operation %s contains invalid empty string value", operation.Type.String())
+			}
+		}
+		switch operation.Type {
+		case UpdateNameServerGroupDescription:
+			newNSGroup.Description = operation.Values[0]
+		case UpdateNameServerGroupName:
+			if valuesCount > 1 {
+				return nil, status.Errorf(codes.InvalidArgument, "failed to parse name values, expected 1 value got %d", valuesCount)
+			}
+			err = validateNSGroupName(operation.Values[0], nsGroupID, account.NameServerGroups)
+			if err != nil {
+				return nil, err
+			}
+			newNSGroup.Name = operation.Values[0]
+		case UpdateNameServerGroupNameServers:
+			var nsList []nbdns.NameServer
+			for _, url := range operation.Values {
+				ns, err := nbdns.ParseNameServerURL(url)
+				if err != nil {
+					return nil, err
+				}
+				nsList = append(nsList, ns)
+			}
+			err = validateNSList(nsList)
+			if err != nil {
+				return nil, err
+			}
+			newNSGroup.NameServers = nsList
+		case UpdateNameServerGroupGroups:
+			err = validateGroups(operation.Values, account.Groups)
+			if err != nil {
+				return nil, err
+			}
+			newNSGroup.Groups = operation.Values
+		case UpdateNameServerGroupEnabled:
+			enabled, err := strconv.ParseBool(operation.Values[0])
+			if err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
+			}
+			newNSGroup.Enabled = enabled
+		}
+	}
+
+	account.NameServerGroups[nsGroupID] = newNSGroup
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return nil, err
+	}
+
+	return newNSGroup, nil
 }
 
 // DeleteNameServerGroup deletes nameserver group with nsGroupID
