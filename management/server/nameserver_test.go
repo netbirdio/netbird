@@ -832,6 +832,33 @@ func TestDeleteNameServerGroup(t *testing.T) {
 	}
 }
 
+func TestGetNameServerGroup(t *testing.T) {
+
+	am, err := createNSManager(t)
+	if err != nil {
+		t.Error("failed to create account manager")
+	}
+
+	account, err := initTestNSAccount(t, am)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+
+	foundGroup, err := am.GetNameServerGroup(account.Id, existingNSGroupName)
+	if err != nil {
+		t.Error("getting existing nameserver group failed with error: ", err)
+	}
+
+	if foundGroup == nil {
+		t.Error("got a nil group while getting nameserver group with ID")
+	}
+
+	_, err = am.GetNameServerGroup(account.Id, "not existing")
+	if err == nil {
+		t.Error("getting not existing nameserver group should return error, got nil")
+	}
+}
+
 func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	store, err := createNSStore(t)
 	if err != nil {
