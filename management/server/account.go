@@ -150,15 +150,27 @@ func (a *Account) Copy() *Account {
 		rules[id] = rule.Copy()
 	}
 
+	routes := map[string]*route.Route{}
+	for id, route := range a.Routes {
+		routes[id] = route.Copy()
+	}
+
+	nsGroups := map[string]*nbdns.NameServerGroup{}
+	for id, nsGroup := range a.NameServerGroups {
+		nsGroups[id] = nsGroup.Copy()
+	}
+
 	return &Account{
-		Id:        a.Id,
-		CreatedBy: a.CreatedBy,
-		SetupKeys: setupKeys,
-		Network:   a.Network.Copy(),
-		Peers:     peers,
-		Users:     users,
-		Groups:    groups,
-		Rules:     rules,
+		Id:               a.Id,
+		CreatedBy:        a.CreatedBy,
+		SetupKeys:        setupKeys,
+		Network:          a.Network.Copy(),
+		Peers:            peers,
+		Users:            users,
+		Groups:           groups,
+		Rules:            rules,
+		Routes:           routes,
+		NameServerGroups: nsGroups,
 	}
 }
 
