@@ -55,12 +55,12 @@ type Auth0Credentials struct {
 
 // createUserRequest is a user create request
 type createUserRequest struct {
-	Email       string         `json:"email"`
-	Name        string         `json:"name"`
-	AppMeta     map[string]any `json:"app_metadata"`
-	Connection  string         `json:"connection"`
-	Password    string         `json:"password"`
-	VerifyEmail bool           `json:"verify_email"`
+	Email       string      `json:"email"`
+	Name        string      `json:"name"`
+	AppMeta     AppMetadata `json:"app_metadata"`
+	Connection  string      `json:"connection"`
+	Password    string      `json:"password"`
+	VerifyEmail bool        `json:"verify_email"`
 }
 
 // userExportJobRequest is a user export request struct
@@ -380,14 +380,12 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 
 	reqURL := am.authIssuer + "/api/v2/users/" + userID
 
-	data, err := am.helper.Marshal(appMetadata)
+	data, err := am.helper.Marshal(map[string]any{"app_metadata": appMetadata})
 	if err != nil {
 		return err
 	}
 
-	payloadString := fmt.Sprintf("{\"app_metadata\": %s}", string(data))
-
-	payload := strings.NewReader(payloadString)
+	payload := strings.NewReader(string(data))
 
 	req, err := http.NewRequest("PATCH", reqURL, payload)
 	if err != nil {
@@ -419,9 +417,12 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 
 func buildCreateUserRequestPayload(email string, name string, accountID string) (string, error) {
 	req := &createUserRequest{
-		Email:       email,
-		Name:        name,
-		AppMeta:     map[string]any{"wt_account_id": accountID, "wt_invited": true},
+		Email: email,
+		Name:  name,
+		AppMeta: AppMetadata{
+			WTAccountId:     accountID,
+			WTPendingInvite: true,
+		},
 		Connection:  "Username-Password-Authentication",
 		Password:    GeneratePassword(8, 1, 1, 1),
 		VerifyEmail: true,

@@ -49,8 +49,8 @@ type UserData struct {
 type AppMetadata struct {
 	// Wiretrustee account id to update in the IDP
 	// maps to wt_account_id when json.marshal
-	WTAccountId string `json:"wt_account_id,omitempty"`
-	WTInvited   bool   `json:"wt_invited"`
+	WTAccountId     string `json:"wt_account_id,omitempty"`
+	WTPendingInvite bool   `json:"wt_pending_invite"`
 }
 
 // JWTToken a JWT object that holds information of a token

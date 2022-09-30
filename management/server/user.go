@@ -68,7 +68,7 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	}
 
 	userStatus := UserStatusActive
-	if userData.AppMetadata.WTInvited {
+	if userData.AppMetadata.WTPendingInvite {
 		userStatus = UserStatusInvited
 	}
 
@@ -84,7 +84,7 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 
 // Copy the user
 func (u *User) Copy() *User {
-	autoGroups := []string{}
+	autoGroups := make([]string, 0)
 	autoGroups = append(autoGroups, u.AutoGroups...)
 	return &User{
 		Id:         u.Id,
@@ -203,7 +203,7 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 	}
 
 	if !isNil(am.idpManager) {
-		userData, err := am.lookupUserInCache(newUser.Id, accountID)
+		userData, err := am.lookupUserInCache(newUser.Id, account)
 		if err != nil {
 			return nil, err
 		}

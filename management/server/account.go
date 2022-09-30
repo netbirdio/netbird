@@ -327,8 +327,12 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 
 }
 
-func (am *DefaultAccountManager) lookupUserInCache(userID string, accountID string) (*idp.UserData, error) {
-	userData, err := am.lookupCache(map[string]struct{}{userID: {}}, accountID)
+func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Account) (*idp.UserData, error) {
+	users := make(map[string]struct{}, len(account.Users))
+	for _, user := range account.Users {
+		users[user.Id] = struct{}{}
+	}
+	userData, err := am.lookupCache(users, account.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -495,13 +499,13 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 		return nil
 	}
 
-	user, err := am.lookupUserInCache(userID, account.Id)
+	user, err := am.lookupUserInCache(userID, account)
 	if err != nil {
 		return err
 	}
 
-	if user.AppMetadata.WTInvited {
-		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTInvited: false})
+	if user.AppMetadata.WTPendingInvite {
+		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTPendingInvite: false})
 		if err != nil {
 			return err
 		}
