@@ -53,7 +53,17 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	return nil, nil
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	nsGroup, found := account.NameServerGroups[nsGroupID]
+	if found {
+		return nsGroup, nil
+	}
+
+	return nil, status.Errorf(codes.NotFound, "nameserver group with ID %s not found", nsGroupID)
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
@@ -233,7 +243,17 @@ func (am *DefaultAccountManager) ListNameServerGroups(accountID string) ([]*nbdn
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	return nil, nil
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	nsGroups := make([]*nbdns.NameServerGroup, 0, len(account.NameServerGroups))
+	for _, item := range account.NameServerGroups {
+		nsGroups = append(nsGroups, item)
+	}
+
+	return nsGroups, nil
 }
 
 func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServerGroup, account *Account) error {
