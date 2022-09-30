@@ -11,6 +11,7 @@ const (
 	group1ID            = "group1"
 	group2ID            = "group2"
 	existingNSGroupName = "existing"
+	existingNSGroupID   = "existingNSGroup"
 	nsGroupPeer1Key     = "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8="
 	nsGroupPeer2Key     = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
 )
@@ -844,7 +845,7 @@ func TestGetNameServerGroup(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 
-	foundGroup, err := am.GetNameServerGroup(account.Id, existingNSGroupName)
+	foundGroup, err := am.GetNameServerGroup(account.Id, existingNSGroupID)
 	if err != nil {
 		t.Error("getting existing nameserver group failed with error: ", err)
 	}
@@ -907,7 +908,7 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 		},
 	}
 	existingNSGroup := nbdns.NameServerGroup{
-		ID:          "existingNSGroup",
+		ID:          existingNSGroupID,
 		Name:        existingNSGroupName,
 		Description: "",
 		NameServers: []nbdns.NameServer{
