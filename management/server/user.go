@@ -159,6 +159,11 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 		return nil, err
 	}
 
+	_, err = am.reloadCache(account.Id)
+	if err != nil {
+		return nil, err
+	}
+
 	return newUser.toUserInfo(idpUser)
 
 }

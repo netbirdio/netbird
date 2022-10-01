@@ -96,12 +96,13 @@ type userExportJobStatusResponse struct {
 
 // auth0Profile represents an Auth0 user profile response
 type auth0Profile struct {
-	AccountID string `json:"wt_account_id"`
-	UserID    string `json:"user_id"`
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	CreatedAt string `json:"created_at"`
-	LastLogin string `json:"last_login"`
+	AccountID     string `json:"wt_account_id"`
+	PendingInvite bool   `json:"wt_pending_invite"`
+	UserID        string `json:"user_id"`
+	Name          string `json:"name"`
+	Email         string `json:"email"`
+	CreatedAt     string `json:"created_at"`
+	LastLogin     string `json:"last_login"`
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
@@ -449,6 +450,11 @@ func buildUserExportRequest() (string, error) {
 		"export_as": "wt_account_id",
 	})
 
+	fields = append(fields, map[string]string{
+		"name":      "app_metadata.wt_pending_invite",
+		"export_as": "wt_pending_invite",
+	})
+
 	req.Format = "json"
 	req.Fields = fields
 
@@ -663,6 +669,10 @@ func (am *Auth0Manager) downloadProfileExport(location string) (map[string][]*Us
 					ID:    profile.UserID,
 					Name:  profile.Name,
 					Email: profile.Email,
+					AppMetadata: AppMetadata{
+						WTAccountId:     profile.AccountID,
+						WTPendingInvite: profile.PendingInvite,
+					},
 				})
 		}
 	}

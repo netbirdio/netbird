@@ -92,8 +92,12 @@ type AccountManager interface {
 
 type DefaultAccountManager struct {
 	Store Store
-	// mutex to synchronise account operations (e.g. generating Peer IP address inside the Network)
-	mux                sync.Mutex
+	// mux to synchronise account operations (e.g. generating Peer IP address inside the Network)
+	mux sync.Mutex
+	// cacheMux and cacheLoading helps to make sure that only a single cache reload runs at a time per accountID
+	cacheMux sync.Mutex
+	// cacheLoading keeps the accountIDs that are currently reloading. The accountID has to be removed once cache has been reloaded
+	cacheLoading       map[string]chan []*idp.UserData
 	peersUpdateManager *PeersUpdateManager
 	idpManager         idp.Manager
 	cacheManager       cache.CacheInterface
@@ -196,6 +200,8 @@ func BuildManager(
 		peersUpdateManager: peersUpdateManager,
 		idpManager:         idpManager,
 		ctx:                context.Background(),
+		cacheMux:           sync.Mutex{},
+		cacheLoading:       map[string]chan []*idp.UserData{},
 	}
 
 	// if account has not default group
@@ -214,7 +220,7 @@ func BuildManager(
 	gocacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
 	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
 
-	am.cacheManager = cache.NewLoadable(am.loadFromCache, cache.New(gocacheStore))
+	am.cacheManager = cache.NewLoadable(am.loadAccount, cache.New(gocacheStore))
 
 	if !isNil(am.idpManager) {
 		go func() {
@@ -326,7 +332,8 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 	return nil
 }
 
-func (am *DefaultAccountManager) loadFromCache(_ context.Context, accountID interface{}) (interface{}, error) {
+func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interface{}) (interface{}, error) {
+	log.Debugf("account %s not found in cache, reloading", accountID)
 	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
 }
 
@@ -368,18 +375,52 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 }
 
 func (am *DefaultAccountManager) reloadCache(accountID string) ([]*idp.UserData, error) {
-	log.Debugf("reloading cache for account %s", accountID)
-	err := am.cacheManager.Delete(am.ctx, accountID)
-	if err != nil {
-		return nil, err
+	am.cacheMux.Lock()
+	result := am.cacheLoading[accountID]
+	if result == nil {
+		log.Debugf("reloading cache for account %s", accountID)
+		result = make(chan []*idp.UserData)
+		am.cacheLoading[accountID] = result
+		am.cacheMux.Unlock()
+
+		defer func() {
+			am.cacheMux.Lock()
+			delete(am.cacheLoading, accountID)
+			close(result)
+			am.cacheMux.Unlock()
+		}()
+
+		err := am.cacheManager.Delete(am.ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+
+		data, err := am.cacheManager.Get(am.ctx, accountID)
+		if err != nil {
+			return nil, err
+		}
+		userData := data.([]*idp.UserData)
+		log.Debugf("reloaded cache for account %s with %d items", accountID, len(userData))
+		select {
+		case result <- userData:
+		default:
+		}
+		return userData, nil
+
+	} else {
+		am.cacheMux.Unlock()
+		log.Debugf("cache for accountID %s is already reloading", accountID)
 	}
-	data, err := am.cacheManager.Get(am.ctx, accountID)
-	if err != nil {
-		return nil, err
+
+	select {
+	case data, ok := <-result:
+		if !ok {
+			return nil, fmt.Errorf("failed while waiting for account %s cahce to reload", accountID)
+		}
+		return data, nil
+	case <-time.After(5 * time.Second):
+		return nil, fmt.Errorf("timeout while waiting for account %s cahce to reload", accountID)
 	}
-	userData := data.([]*idp.UserData)
-	log.Debugf("reloaded cache for account %s with %d items", accountID, len(userData))
-	return userData, nil
 }
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, accountID string) ([]*idp.UserData, error) {
 	data, err := am.cacheManager.Get(am.ctx, accountID)
@@ -517,8 +558,11 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) error {
 	// only possible with the enabled IdP manager
 	if am.idpManager == nil {
+		log.Warnf("invites only work with enabled IdP manager")
 		return nil
 	}
+
+	log.Warnf("redeeming invite for user %s account %s", userID, account.Id)
 
 	user, err := am.lookupUserInCache(userID, account)
 	if err != nil {
@@ -528,10 +572,14 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	if user.AppMetadata.WTPendingInvite {
 		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
 		// Our job is to just reload cache.
-		_, err = am.reloadCache(account.Id)
-		if err != nil {
-			return err
-		}
+		go func() {
+			_, err = am.reloadCache(account.Id)
+			if err != nil {
+				log.Warnf("failed reloading cache when redeeming user %s under account %s", userID, account.Id)
+				return
+			}
+			log.Debugf("user %s of account %s redeemed invite", user.ID, account.Id)
+		}()
 	}
 
 	return nil
