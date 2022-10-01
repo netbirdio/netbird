@@ -526,11 +526,8 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	}
 
 	if user.AppMetadata.WTPendingInvite {
-		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTPendingInvite: false})
-		if err != nil {
-			return err
-		}
-
+		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
+		// Our job is to just reload cache.
 		_, err = am.reloadCache(account.Id)
 		if err != nil {
 			return err
