@@ -374,7 +374,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 }
 
 func (am *DefaultAccountManager) resetCacheValue(accountID string) ([]*idp.UserData, error) {
-	data, err := am.cacheManager.Get(am.ctx, accountID)
+	data, err := am.idpManager.GetAccount(accountID)
 	if err != nil {
 		return nil, err
 	}
