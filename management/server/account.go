@@ -418,7 +418,7 @@ func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData
 
 	select {
 	case <-result:
-		// channel has been closed meanwhile meaning cache was loaded, simple return fresh value
+		// channel has been closed meaning cache was loaded => simply return from cache
 		return am.cacheManager.Get(am.ctx, accountID)
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout while waiting for account %s cache to reload", accountID)
