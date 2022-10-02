@@ -4,7 +4,7 @@ on: [push,pull_request]
 jobs:
   test-on-push:
     if: github.event_name != 'pull_request'
-    uses: ${{github.action_repository}}/.github/workflows/golang-test-darwin-template.yml@${{ github.ref_name }}
+    uses: ${{ format('{0}/.github/workflows/golang-test-darwin-template.yml@{1}', github.action_repository, github.ref_name ) }}
   test-on-pr:
     if: github.event_name == 'pull_request'
-    uses: ${{github.action_repository}}/.github/workflows/golang-test-darwin-template.yml@${{ github.ref_name }}
+    uses: ${{ format('{0}/.github/workflows/golang-test-darwin-template.yml@{1}', github.action_repository, github.ref_name ) }}
