@@ -6,6 +6,7 @@ import (
 	"fmt"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"io"
@@ -15,7 +16,6 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
-	"github.com/magiconair/properties/assert"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -151,7 +151,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/nameservers",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"Name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedNSGroup: &api.NameserverGroup{
@@ -174,7 +174,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/nameservers",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"Name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1000\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1000\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
@@ -183,7 +183,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/nameservers/" + existingNSGroupID,
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"Name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedNSGroup: &api.NameserverGroup{
@@ -206,16 +206,17 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/nameservers/" + notFoundNSGroupID,
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"Name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"100\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   false,
 		},
 		{
-			name:           "PUT Invalid Nameserver",
-			requestType:    http.MethodPut,
-			requestPath:    "/api/nameservers/" + notFoundNSGroupID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\"}", existingPeerID)),
-			expectedStatus: http.StatusNotFound,
+			name:        "PUT Invalid Nameserver",
+			requestType: http.MethodPut,
+			requestPath: "/api/nameservers/" + notFoundNSGroupID,
+			requestBody: bytes.NewBuffer(
+				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"100\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
 		{
@@ -277,11 +278,11 @@ func TestNameserversHandlers(t *testing.T) {
 				return
 			}
 
-			got := &api.Route{}
+			got := &api.NameserverGroup{}
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
-			assert.Equal(t, got, tc.expectedNSGroup)
+			assert.Equal(t, tc.expectedNSGroup, got)
 		})
 	}
 }

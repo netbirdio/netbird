@@ -127,6 +127,7 @@ func (g *NameServerGroup) Copy() *NameServerGroup {
 		Description: g.Description,
 		NameServers: g.NameServers,
 		Groups:      g.Groups,
+		Enabled:     g.Enabled,
 	}
 }
 

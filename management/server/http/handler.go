@@ -34,6 +34,7 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	keysHandler := NewSetupKeysHandler(accountManager, authAudience)
 	userHandler := NewUserHandler(accountManager, authAudience)
 	routesHandler := NewRoutes(accountManager, authAudience)
+	nameserversHandler := NewNameservers(accountManager, authAudience)
 
 	apiHandler.HandleFunc("/api/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/api/peers/{id}", peersHandler.HandlePeer).
@@ -66,6 +67,13 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	apiHandler.HandleFunc("/api/routes/{id}", routesHandler.PatchRouteHandler).Methods("PATCH", "OPTIONS")
 	apiHandler.HandleFunc("/api/routes/{id}", routesHandler.GetRouteHandler).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/api/routes/{id}", routesHandler.DeleteRouteHandler).Methods("DELETE", "OPTIONS")
+
+	apiHandler.HandleFunc("/api/nameservers", nameserversHandler.GetAllNameserversHandler).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/api/nameservers", nameserversHandler.CreateNameserverGroupHandler).Methods("POST", "OPTIONS")
+	apiHandler.HandleFunc("/api/nameservers/{id}", nameserversHandler.UpdateNameserverGroupHandler).Methods("PUT", "OPTIONS")
+	apiHandler.HandleFunc("/api/nameservers/{id}", nameserversHandler.PatchNameserverGroupHandler).Methods("PATCH", "OPTIONS")
+	apiHandler.HandleFunc("/api/nameservers/{id}", nameserversHandler.GetNameserverGroupHandler).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/api/nameservers/{id}", nameserversHandler.DeleteNameserverGroupHandler).Methods("DELETE", "OPTIONS")
 
 	return apiHandler, nil
 
