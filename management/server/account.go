@@ -3,8 +3,8 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/eko/gocache/v2/cache"
-	cacheStore "github.com/eko/gocache/v2/store"
+	"github.com/eko/gocache/v3/cache"
+	cacheStore "github.com/eko/gocache/v3/store"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -30,14 +30,9 @@ const (
 	CacheExpirationMin = 3 * 24 * 3600 * time.Second // 3 days
 )
 
-var cacheExpirationOption *cacheStore.Options
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-
+func cacheEntryExpiration() time.Duration {
 	r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
-	expiration := time.Duration(r) * time.Millisecond
-	cacheExpirationOption = &cacheStore.Options{Expiration: expiration}
+	return time.Duration(r) * time.Millisecond
 }
 
 type AccountManager interface {
@@ -110,7 +105,7 @@ type DefaultAccountManager struct {
 	cacheLoading       map[string]chan []*idp.UserData
 	peersUpdateManager *PeersUpdateManager
 	idpManager         idp.Manager
-	cacheManager       cache.CacheInterface
+	cacheManager       cache.CacheInterface[[]*idp.UserData]
 	ctx                context.Context
 }
 
@@ -228,9 +223,9 @@ func BuildManager(
 	}
 
 	gocacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
-	gocacheStore := cacheStore.NewGoCache(gocacheClient, nil)
+	gocacheStore := cacheStore.NewGoCache(gocacheClient)
 
-	am.cacheManager = cache.NewLoadable(am.loadAccount, cache.New(gocacheStore))
+	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](gocacheStore))
 
 	if !isNil(am.idpManager) {
 		go func() {
@@ -275,7 +270,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 
 	for accountID, users := range userData {
-		err = am.cacheManager.Set(am.ctx, accountID, users, cacheExpirationOption)
+		err = am.cacheManager.Set(am.ctx, accountID, users, cacheStore.WithExpiration(cacheEntryExpiration()))
 		if err != nil {
 			return err
 		}
@@ -338,7 +333,7 @@ func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) err
 	return nil
 }
 
-func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interface{}) (interface{}, error) {
+func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interface{}) ([]*idp.UserData, error) {
 	log.Debugf("account %s not found in cache, reloading", accountID)
 	return am.idpManager.GetAccount(fmt.Sprintf("%v", accountID))
 }
@@ -349,9 +344,7 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 		return nil, err
 	}
 
-	userData := data.([]*idp.UserData)
-
-	for _, datum := range userData {
+	for _, datum := range data {
 		if datum.Email == email {
 			return datum, nil
 		}
@@ -386,12 +379,11 @@ func (am *DefaultAccountManager) resetCacheValue(accountID string) ([]*idp.UserD
 		return nil, err
 	}
 
-	userData := data.([]*idp.UserData)
-	err = am.cacheManager.Set(am.ctx, accountID, userData, cacheExpirationOption)
+	err = am.cacheManager.Set(am.ctx, accountID, data, cacheStore.WithExpiration(cacheEntryExpiration()))
 	if err != nil {
 		return nil, err
 	}
-	return userData, nil
+	return data, nil
 }
 
 // refreshCache resets a value of the cache for a given accountID ensuring that only one cache load is done at a time
@@ -436,7 +428,7 @@ func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData
 			if err != nil {
 				return nil, err
 			}
-			return data.([]*idp.UserData), nil
+			return data, nil
 		}
 		return data, nil
 	case <-time.After(5 * time.Second):
@@ -449,16 +441,14 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 		return nil, err
 	}
 
-	userData := data.([]*idp.UserData)
-
 	userDataMap := make(map[string]struct{})
-	for _, datum := range userData {
+	for _, datum := range data {
 		userDataMap[datum.ID] = struct{}{}
 	}
 
 	// check whether we need to reload the cache
 	// the accountUsers ID list is the source of truth and all the users should be in the cache
-	reload := len(accountUsers) != len(userData)
+	reload := len(accountUsers) != len(data)
 	for user := range accountUsers {
 		if _, ok := userDataMap[user]; !ok {
 			reload = true
@@ -471,10 +461,9 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 		if err != nil {
 			return nil, err
 		}
-		userData = data.([]*idp.UserData)
 	}
 
-	return userData, err
+	return data, err
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
