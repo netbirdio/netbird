@@ -30,6 +30,16 @@ const (
 	CacheExpirationMin = 3 * 24 * 3600 * time.Second // 3 days
 )
 
+var cacheExpirationOption *cacheStore.Options
+
+func init() {
+	rand.Seed(time.Now().UnixNano())
+
+	r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
+	expiration := time.Duration(r) * time.Millisecond
+	cacheExpirationOption = &cacheStore.Options{Expiration: expiration}
+}
+
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	GetAccountByUser(userId string) (*Account, error)
@@ -265,11 +275,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 
 	for accountID, users := range userData {
-		rand.Seed(time.Now().UnixNano())
-
-		r := rand.Intn(int(CacheExpirationMax.Milliseconds()-CacheExpirationMin.Milliseconds())) + int(CacheExpirationMin.Milliseconds())
-		expiration := time.Duration(r) * time.Millisecond
-		err = am.cacheManager.Set(am.ctx, accountID, users, &cacheStore.Options{Expiration: expiration})
+		err = am.cacheManager.Set(am.ctx, accountID, users, cacheExpirationOption)
 		if err != nil {
 			return err
 		}
@@ -374,7 +380,22 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 	return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", userID)
 }
 
-func (am *DefaultAccountManager) reloadCache(accountID string) ([]*idp.UserData, error) {
+func (am *DefaultAccountManager) resetCacheValue(accountID string) ([]*idp.UserData, error) {
+	data, err := am.cacheManager.Get(am.ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	userData := data.([]*idp.UserData)
+	err = am.cacheManager.Set(am.ctx, accountID, userData, cacheExpirationOption)
+	if err != nil {
+		return nil, err
+	}
+	return userData, nil
+}
+
+// refreshCache resets a value of the cache for a given accountID ensuring that only one cache load is done at a time
+func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData, error) {
 	am.cacheMux.Lock()
 	result := am.cacheLoading[accountID]
 	if result == nil {
@@ -390,17 +411,12 @@ func (am *DefaultAccountManager) reloadCache(accountID string) ([]*idp.UserData,
 			am.cacheMux.Unlock()
 		}()
 
-		err := am.cacheManager.Delete(am.ctx, accountID)
+		userData, err := am.resetCacheValue(accountID)
 		if err != nil {
 			return nil, err
 		}
 
-		data, err := am.cacheManager.Get(am.ctx, accountID)
-		if err != nil {
-			return nil, err
-		}
-		userData := data.([]*idp.UserData)
-		log.Debugf("reloaded cache for account %s with %d items", accountID, len(userData))
+		log.Debugf("refreshed cache for account %s with %d items", accountID, len(userData))
 		select {
 		case result <- userData:
 		default:
@@ -415,11 +431,16 @@ func (am *DefaultAccountManager) reloadCache(accountID string) ([]*idp.UserData,
 	select {
 	case data, ok := <-result:
 		if !ok {
-			return nil, fmt.Errorf("failed while waiting for account %s cahce to reload", accountID)
+			// channel has been closed meanwhile meaning cache was loaded, simple return fresh value
+			data, err := am.cacheManager.Get(am.ctx, accountID)
+			if err != nil {
+				return nil, err
+			}
+			return data.([]*idp.UserData), nil
 		}
 		return data, nil
 	case <-time.After(5 * time.Second):
-		return nil, fmt.Errorf("timeout while waiting for account %s cahce to reload", accountID)
+		return nil, fmt.Errorf("timeout while waiting for account %s cache to reload", accountID)
 	}
 }
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, accountID string) ([]*idp.UserData, error) {
@@ -446,7 +467,7 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 
 	if reload {
 		// reload cache once avoiding loops
-		data, err = am.reloadCache(accountID)
+		data, err = am.refreshCache(accountID)
 		if err != nil {
 			return nil, err
 		}
@@ -573,7 +594,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
 		// Our job is to just reload cache.
 		go func() {
-			_, err = am.reloadCache(account.Id)
+			_, err = am.refreshCache(account.Id)
 			if err != nil {
 				log.Warnf("failed reloading cache when redeeming user %s under account %s", userID, account.Id)
 				return

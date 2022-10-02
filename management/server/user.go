@@ -159,7 +159,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 		return nil, err
 	}
 
-	_, err = am.reloadCache(account.Id)
+	_, err = am.refreshCache(account.Id)
 	if err != nil {
 		return nil, err
 	}
