@@ -102,7 +102,7 @@ type DefaultAccountManager struct {
 	// cacheMux and cacheLoading helps to make sure that only a single cache reload runs at a time per accountID
 	cacheMux sync.Mutex
 	// cacheLoading keeps the accountIDs that are currently reloading. The accountID has to be removed once cache has been reloaded
-	cacheLoading       map[string]chan []*idp.UserData
+	cacheLoading       map[string]chan struct{}
 	peersUpdateManager *PeersUpdateManager
 	idpManager         idp.Manager
 	cacheManager       cache.CacheInterface[[]*idp.UserData]
@@ -206,7 +206,7 @@ func BuildManager(
 		idpManager:         idpManager,
 		ctx:                context.Background(),
 		cacheMux:           sync.Mutex{},
-		cacheLoading:       map[string]chan []*idp.UserData{},
+		cacheLoading:       map[string]chan struct{}{},
 	}
 
 	// if account has not default group
@@ -392,7 +392,7 @@ func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData
 	result := am.cacheLoading[accountID]
 	if result == nil {
 		log.Debugf("reloading cache for account %s", accountID)
-		result = make(chan []*idp.UserData)
+		result = make(chan struct{})
 		am.cacheLoading[accountID] = result
 		am.cacheMux.Unlock()
 
@@ -409,10 +409,6 @@ func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData
 		}
 
 		log.Debugf("refreshed cache for account %s with %d items", accountID, len(userData))
-		select {
-		case result <- userData:
-		default:
-		}
 		return userData, nil
 
 	} else {
@@ -421,16 +417,9 @@ func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData
 	}
 
 	select {
-	case data, ok := <-result:
-		if !ok {
-			// channel has been closed meanwhile meaning cache was loaded, simple return fresh value
-			data, err := am.cacheManager.Get(am.ctx, accountID)
-			if err != nil {
-				return nil, err
-			}
-			return data, nil
-		}
-		return data, nil
+	case <-result:
+		// channel has been closed meanwhile meaning cache was loaded, simple return fresh value
+		return am.cacheManager.Get(am.ctx, accountID)
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout while waiting for account %s cache to reload", accountID)
 	}
