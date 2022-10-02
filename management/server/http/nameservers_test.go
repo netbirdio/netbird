@@ -3,7 +3,6 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/stretchr/testify/assert"
@@ -206,7 +205,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/nameservers/" + notFoundNSGroupID,
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   false,
 		},
@@ -215,7 +214,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/nameservers/" + notFoundNSGroupID,
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"100\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"100\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
