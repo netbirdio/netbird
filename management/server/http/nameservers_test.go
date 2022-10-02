@@ -151,7 +151,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/nameservers",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedNSGroup: &api.NameserverGroup{
@@ -174,7 +174,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/nameservers",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1000\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1000\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
@@ -183,7 +183,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/nameservers/" + existingNSGroupID,
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}"))),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedNSGroup: &api.NameserverGroup{
