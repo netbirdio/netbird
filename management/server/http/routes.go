@@ -123,7 +123,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PutApiRoutesIdJSONBody
+	var req api.PutApiRoutesIdJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
