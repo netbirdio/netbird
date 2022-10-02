@@ -24,6 +24,27 @@ const (
 	GroupPatchOperationPathPeers GroupPatchOperationPath = "peers"
 )
 
+// Defines values for NameserverNsType.
+const (
+	Udp NameserverNsType = "udp"
+)
+
+// Defines values for NameserverGroupPatchOperationOp.
+const (
+	NameserverGroupPatchOperationOpAdd     NameserverGroupPatchOperationOp = "add"
+	NameserverGroupPatchOperationOpRemove  NameserverGroupPatchOperationOp = "remove"
+	NameserverGroupPatchOperationOpReplace NameserverGroupPatchOperationOp = "replace"
+)
+
+// Defines values for NameserverGroupPatchOperationPath.
+const (
+	NameserverGroupPatchOperationPathDescription NameserverGroupPatchOperationPath = "description"
+	NameserverGroupPatchOperationPathEnabled     NameserverGroupPatchOperationPath = "enabled"
+	NameserverGroupPatchOperationPathGroups      NameserverGroupPatchOperationPath = "groups"
+	NameserverGroupPatchOperationPathName        NameserverGroupPatchOperationPath = "name"
+	NameserverGroupPatchOperationPathNameservers NameserverGroupPatchOperationPath = "nameservers"
+)
+
 // Defines values for PatchMinimumOp.
 const (
 	PatchMinimumOpAdd     PatchMinimumOp = "add"
@@ -51,9 +72,9 @@ const (
 
 // Defines values for RulePatchOperationOp.
 const (
-	RulePatchOperationOpAdd     RulePatchOperationOp = "add"
-	RulePatchOperationOpRemove  RulePatchOperationOp = "remove"
-	RulePatchOperationOpReplace RulePatchOperationOp = "replace"
+	Add     RulePatchOperationOp = "add"
+	Remove  RulePatchOperationOp = "remove"
+	Replace RulePatchOperationOp = "replace"
 )
 
 // Defines values for RulePatchOperationPath.
@@ -110,6 +131,78 @@ type GroupPatchOperationOp string
 
 // Group field to update in form /<field>
 type GroupPatchOperationPath string
+
+// Nameserver defines model for Nameserver.
+type Nameserver struct {
+	// Nameserver IP
+	Ip string `json:"ip"`
+
+	// Nameserver Type
+	NsType NameserverNsType `json:"ns_type"`
+
+	// Nameserver Port
+	Port int `json:"port"`
+}
+
+// Nameserver Type
+type NameserverNsType string
+
+// NameserverGroup defines model for NameserverGroup.
+type NameserverGroup struct {
+	// Nameserver group  description
+	Description string `json:"description"`
+
+	// Nameserver group status
+	Enabled bool `json:"enabled"`
+
+	// Nameserver group tag groups
+	Groups []string `json:"groups"`
+
+	// Nameserver group ID
+	Id string `json:"id"`
+
+	// Nameserver group name
+	Name string `json:"name"`
+
+	// Nameserver group
+	Nameservers []Nameserver `json:"nameservers"`
+}
+
+// NameserverGroupPatchOperation defines model for NameserverGroupPatchOperation.
+type NameserverGroupPatchOperation struct {
+	// Patch operation type
+	Op NameserverGroupPatchOperationOp `json:"op"`
+
+	// Nameserver group field to update in form /<field>
+	Path NameserverGroupPatchOperationPath `json:"path"`
+
+	// Values to be applied
+	Value []string `json:"value"`
+}
+
+// Patch operation type
+type NameserverGroupPatchOperationOp string
+
+// Nameserver group field to update in form /<field>
+type NameserverGroupPatchOperationPath string
+
+// NameserverGroupRequest defines model for NameserverGroupRequest.
+type NameserverGroupRequest struct {
+	// Nameserver group  description
+	Description string `json:"description"`
+
+	// Nameserver group status
+	Enabled bool `json:"enabled"`
+
+	// Nameserver group tag groups
+	Groups []string `json:"groups"`
+
+	// Nameserver group name
+	Name string `json:"name"`
+
+	// Nameserver group
+	Nameservers []Nameserver `json:"nameservers"`
+}
 
 // PatchMinimum defines model for PatchMinimum.
 type PatchMinimum struct {
@@ -399,6 +492,15 @@ type PutApiGroupsIdJSONBody struct {
 	Peers *[]string `json:"Peers,omitempty"`
 }
 
+// PostApiNameserversJSONBody defines parameters for PostApiNameservers.
+type PostApiNameserversJSONBody = NameserverGroupRequest
+
+// PatchApiNameserversIdJSONBody defines parameters for PatchApiNameserversId.
+type PatchApiNameserversIdJSONBody = []NameserverGroupPatchOperation
+
+// PutApiNameserversIdJSONBody defines parameters for PutApiNameserversId.
+type PutApiNameserversIdJSONBody = NameserverGroupRequest
+
 // PutApiPeersIdJSONBody defines parameters for PutApiPeersId.
 type PutApiPeersIdJSONBody struct {
 	Name       string `json:"name"`
@@ -468,6 +570,15 @@ type PatchApiGroupsIdJSONRequestBody = PatchApiGroupsIdJSONBody
 
 // PutApiGroupsIdJSONRequestBody defines body for PutApiGroupsId for application/json ContentType.
 type PutApiGroupsIdJSONRequestBody PutApiGroupsIdJSONBody
+
+// PostApiNameserversJSONRequestBody defines body for PostApiNameservers for application/json ContentType.
+type PostApiNameserversJSONRequestBody = PostApiNameserversJSONBody
+
+// PatchApiNameserversIdJSONRequestBody defines body for PatchApiNameserversId for application/json ContentType.
+type PatchApiNameserversIdJSONRequestBody = PatchApiNameserversIdJSONBody
+
+// PutApiNameserversIdJSONRequestBody defines body for PutApiNameserversId for application/json ContentType.
+type PutApiNameserversIdJSONRequestBody = PutApiNameserversIdJSONBody
 
 // PutApiPeersIdJSONRequestBody defines body for PutApiPeersId for application/json ContentType.
 type PutApiPeersIdJSONRequestBody PutApiPeersIdJSONBody
