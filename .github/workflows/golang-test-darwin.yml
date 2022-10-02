@@ -2,26 +2,9 @@ name: Test Code Darwin
 on: [push,pull_request]
 
 jobs:
-  test:
-    runs-on: macos-latest
-    steps:
-      - name: Install Go
-        uses: actions/setup-go@v2
-        with:
-          go-version: 1.18.x
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Cache Go modules
-        uses: actions/cache@v2
-        with:
-          path: ~/go/pkg/mod
-          key: macos-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            macos-go-
-
-      - name: Install modules
-        run: go mod tidy
-
-      - name: Test
-        run: go test -exec 'sudo --preserve-env=CI' -timeout 5m -p 1 ./...
+  test-on-push:
+    if: github.event_name != 'pull_request'
+    uses: ${{github.action_repository}}/.github/workflows/golang-test-darwin-template.yml@${{ github.ref_name }}
+  test-on-pr:
+    if: github.event_name == 'pull_request'
+    uses: ${{github.action_repository}}/.github/workflows/golang-test-darwin-template.yml@${{ github.ref_name }}
