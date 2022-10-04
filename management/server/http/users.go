@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"

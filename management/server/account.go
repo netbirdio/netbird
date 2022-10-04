@@ -304,7 +304,7 @@ func (am *DefaultAccountManager) GetAccountByUserOrAccountId(
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
 		}
-		err = am.updateIDPMetadata(userId, account.Id)
+		err = am.addAccountIDToIDPAppMeta(userId, account)
 		if err != nil {
 			return nil, err
 		}
@@ -318,16 +318,39 @@ func isNil(i idp.Manager) bool {
 	return i == nil || reflect.ValueOf(i).IsNil()
 }
 
-// updateIDPMetadata update user's  app metadata in idp manager
-func (am *DefaultAccountManager) updateIDPMetadata(userId, accountID string) error {
+// addAccountIDToIDPAppMeta update user's  app metadata in idp manager
+func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account *Account) error {
 	if !isNil(am.idpManager) {
-		err := am.idpManager.UpdateUserAppMetadata(userId, idp.AppMetadata{WTAccountId: accountID})
+
+		// user can be nil if it wasn't found (e.g., just created)
+		user, err := am.lookupUserInCache(userID, account)
+		if err != nil {
+			return err
+		}
+
+		if user != nil && user.AppMetadata.WTAccountId == account.Id {
+			// it was already set, so we skip the unnecessary update
+			log.Debugf("skipping IDP App Meta update because accountID %s has been already set for user %s",
+				account.Id, userID)
+			return nil
+		}
+
+		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTAccountId: account.Id})
+		if err != nil {
+			return err
+		}
+
 		if err != nil {
 			return status.Errorf(
 				codes.Internal,
 				"updating user's app metadata failed with: %v",
 				err,
 			)
+		}
+		// refresh cache to reflect the update
+		_, err = am.refreshCache(account.Id)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
@@ -339,7 +362,7 @@ func (am *DefaultAccountManager) loadAccount(_ context.Context, accountID interf
 }
 
 func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountID string) (*idp.UserData, error) {
-	data, err := am.cacheManager.Get(am.ctx, accountID)
+	data, err := am.getAccountFromCache(accountID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -354,11 +377,13 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 
 }
 
+// lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
 func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Account) (*idp.UserData, error) {
 	users := make(map[string]struct{}, len(account.Users))
 	for _, user := range account.Users {
 		users[user.Id] = struct{}{}
 	}
+	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(users, account.Id)
 	if err != nil {
 		return nil, err
@@ -370,62 +395,53 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		}
 	}
 
-	return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", userID)
+	return nil, nil
 }
 
-func (am *DefaultAccountManager) resetCacheValue(accountID string) ([]*idp.UserData, error) {
-	data, err := am.idpManager.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	err = am.cacheManager.Set(am.ctx, accountID, data, cacheStore.WithExpiration(cacheEntryExpiration()))
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
-// refreshCache resets a value of the cache for a given accountID ensuring that only one cache load is done at a time
 func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData, error) {
+	return am.getAccountFromCache(accountID, true)
+}
+
+// getAccountFromCache returns user data for a given account ensuring that cache load happens only once
+func (am *DefaultAccountManager) getAccountFromCache(accountID string, forceReload bool) ([]*idp.UserData, error) {
 	am.cacheMux.Lock()
-	result := am.cacheLoading[accountID]
-	if result == nil {
-		log.Debugf("reloading cache for account %s", accountID)
-		result = make(chan struct{})
-		am.cacheLoading[accountID] = result
+	loadingChan := am.cacheLoading[accountID]
+	if loadingChan == nil {
+		loadingChan = make(chan struct{})
+		am.cacheLoading[accountID] = loadingChan
 		am.cacheMux.Unlock()
 
 		defer func() {
 			am.cacheMux.Lock()
 			delete(am.cacheLoading, accountID)
-			close(result)
+			close(loadingChan)
 			am.cacheMux.Unlock()
 		}()
 
-		userData, err := am.resetCacheValue(accountID)
-		if err != nil {
-			return nil, err
+		if forceReload {
+			err := am.cacheManager.Delete(am.ctx, accountID)
+			if err != nil {
+				return nil, err
+			}
 		}
 
-		log.Debugf("refreshed cache for account %s with %d items", accountID, len(userData))
-		return userData, nil
-
-	} else {
-		am.cacheMux.Unlock()
-		log.Debugf("cache for accountID %s is already reloading", accountID)
+		return am.cacheManager.Get(am.ctx, accountID)
 	}
+	am.cacheMux.Unlock()
+
+	log.Debugf("one request to get account %s is already running", accountID)
 
 	select {
-	case <-result:
+	case <-loadingChan:
 		// channel has been closed meaning cache was loaded => simply return from cache
 		return am.cacheManager.Get(am.ctx, accountID)
 	case <-time.After(5 * time.Second):
 		return nil, fmt.Errorf("timeout while waiting for account %s cache to reload", accountID)
 	}
 }
+
 func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, accountID string) ([]*idp.UserData, error) {
-	data, err := am.cacheManager.Get(am.ctx, accountID)
+	data, err := am.getAccountFromCache(accountID, false)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +523,7 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 	}
 
 	// we should register the account ID to this user's metadata in our IDP manager
-	err = am.updateIDPMetadata(claims.UserId, existingAcc.Id)
+	err = am.addAccountIDToIDPAppMeta(claims.UserId, existingAcc)
 	if err != nil {
 		return err
 	}
@@ -545,7 +561,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 		}
 	}
 
-	err = am.updateIDPMetadata(claims.UserId, account.Id)
+	err = am.addAccountIDToIDPAppMeta(claims.UserId, account)
 	if err != nil {
 		return nil, err
 	}
@@ -561,14 +577,17 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 		return nil
 	}
 
-	log.Warnf("redeeming invite for user %s account %s", userID, account.Id)
-
 	user, err := am.lookupUserInCache(userID, account)
 	if err != nil {
 		return err
 	}
 
+	if user == nil {
+		return status.Errorf(codes.NotFound, "user %s not found in the IdP", userID)
+	}
+
 	if user.AppMetadata.WTPendingInvite {
+		log.Warnf("redeeming invite for user %s account %s", userID, account.Id)
 		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
 		// Our job is to just reload cache.
 		go func() {
@@ -586,6 +605,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 
 // GetTokenAccount returns an account associated with this token
 func (am *DefaultAccountManager) GetTokenAccount(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	log.Debugf("GET ------------------ TOKEN ----- ACCOUNT")
 	account, err := am.GetAccountWithAuthorizationClaims(claims)
 	if err != nil {
 		return nil, err

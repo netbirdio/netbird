@@ -240,7 +240,7 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	return c.jwtToken, nil
 }
 
-func batchRequestUsersURL(authIssuer, accountID string, page int) (string, url.Values, error) {
+func batchRequestUsersURL(authIssuer, accountID string, page int, perPage int) (string, url.Values, error) {
 	u, err := url.Parse(authIssuer + "/api/v2/users")
 	if err != nil {
 		return "", nil, err
@@ -248,6 +248,7 @@ func batchRequestUsersURL(authIssuer, accountID string, page int) (string, url.V
 	q := u.Query()
 	q.Set("page", strconv.Itoa(page))
 	q.Set("search_engine", "v3")
+	q.Set("per_page", strconv.Itoa(perPage))
 	q.Set("q", "app_metadata.wt_account_id:"+accountID)
 	u.RawQuery = q.Encode()
 
@@ -269,8 +270,9 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 
 	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
 	// auth0 limitation of 1000 users via this endpoint
+	resultsPerPage := 50
 	for page := 0; page < 20; page++ {
-		reqURL, query, err := batchRequestUsersURL(am.authIssuer, accountID, page)
+		reqURL, query, err := batchRequestUsersURL(am.authIssuer, accountID, page, resultsPerPage)
 		if err != nil {
 			return nil, err
 		}
@@ -303,23 +305,20 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 			return nil, err
 		}
 
-		log.Debugf("requested batch; %v", batch)
+		log.Debugf("returned user batch for accountID %s on page %d, %v", accountID, page, batch)
 
 		err = res.Body.Close()
 		if err != nil {
 			return nil, err
 		}
 
-		if res.StatusCode != 200 {
-			return nil, fmt.Errorf("unable to request UserData from auth0, statusCode %d", res.StatusCode)
-		}
-
-		if len(batch) == 0 {
-			return list, nil
-		}
-
 		for user := range batch {
 			list = append(list, &batch[user])
+		}
+
+		if len(batch) == 0 || len(batch) < resultsPerPage {
+			log.Debugf("finished loading users for accountID %s", accountID)
+			return list, nil
 		}
 	}
 
@@ -395,7 +394,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
-	log.Debugf("updating metadata for user %s", userID)
+	log.Debugf("updating IdP metadata for user %s", userID)
 
 	res, err := am.httpClient.Do(req)
 	if err != nil {

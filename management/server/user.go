@@ -212,6 +212,9 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 		if err != nil {
 			return nil, err
 		}
+		if userData == nil {
+			return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", newUser.Id)
+		}
 		return newUser.toUserInfo(userData)
 	}
 	return newUser.toUserInfo(nil)
