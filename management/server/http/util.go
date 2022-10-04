@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	log "github.com/sirupsen/logrus"
 	"net/http"
 	"time"
 )
@@ -55,8 +54,6 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 func getJWTAccount(accountManager server.AccountManager,
 	jwtExtractor jwtclaims.ClaimsExtractor,
 	authAudience string, r *http.Request) (*server.Account, error) {
-
-	log.Debugf("GET JWT TOKE -----------------------------")
 
 	jwtClaims := jwtExtractor.ExtractClaimsFromRequestContext(r, authAudience)
 

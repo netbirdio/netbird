@@ -587,7 +587,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	}
 
 	if user.AppMetadata.WTPendingInvite {
-		log.Warnf("redeeming invite for user %s account %s", userID, account.Id)
+		log.Infof("redeeming invite for user %s account %s", userID, account.Id)
 		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
 		// Our job is to just reload cache.
 		go func() {
@@ -605,7 +605,6 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 
 // GetTokenAccount returns an account associated with this token
 func (am *DefaultAccountManager) GetTokenAccount(claims jwtclaims.AuthorizationClaims) (*Account, error) {
-	log.Debugf("GET ------------------ TOKEN ----- ACCOUNT")
 	account, err := am.GetAccountWithAuthorizationClaims(claims)
 	if err != nil {
 		return nil, err
