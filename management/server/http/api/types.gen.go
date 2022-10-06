@@ -477,6 +477,9 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
+// PatchApiDnsNameserversIdJSONBody defines parameters for PatchApiDnsNameserversId.
+type PatchApiDnsNameserversIdJSONBody = []NameserverGroupPatchOperation
+
 // PostApiGroupsJSONBody defines parameters for PostApiGroups.
 type PostApiGroupsJSONBody struct {
 	Name  string    `json:"name"`
@@ -491,9 +494,6 @@ type PutApiGroupsIdJSONBody struct {
 	Name  *string   `json:"Name,omitempty"`
 	Peers *[]string `json:"Peers,omitempty"`
 }
-
-// PatchApiNameserversIdJSONBody defines parameters for PatchApiNameserversId.
-type PatchApiNameserversIdJSONBody = []NameserverGroupPatchOperation
 
 // PutApiPeersIdJSONBody defines parameters for PutApiPeersId.
 type PutApiPeersIdJSONBody struct {
@@ -541,6 +541,15 @@ type PutApiRulesIdJSONBody struct {
 	Sources *[]string `json:"sources,omitempty"`
 }
 
+// PostApiDnsNameserversJSONRequestBody defines body for PostApiDnsNameservers for application/json ContentType.
+type PostApiDnsNameserversJSONRequestBody = NameserverGroupRequest
+
+// PatchApiDnsNameserversIdJSONRequestBody defines body for PatchApiDnsNameserversId for application/json ContentType.
+type PatchApiDnsNameserversIdJSONRequestBody = PatchApiDnsNameserversIdJSONBody
+
+// PutApiDnsNameserversIdJSONRequestBody defines body for PutApiDnsNameserversId for application/json ContentType.
+type PutApiDnsNameserversIdJSONRequestBody = NameserverGroupRequest
+
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody PostApiGroupsJSONBody
 
@@ -549,15 +558,6 @@ type PatchApiGroupsIdJSONRequestBody = PatchApiGroupsIdJSONBody
 
 // PutApiGroupsIdJSONRequestBody defines body for PutApiGroupsId for application/json ContentType.
 type PutApiGroupsIdJSONRequestBody PutApiGroupsIdJSONBody
-
-// PostApiNameserversJSONRequestBody defines body for PostApiNameservers for application/json ContentType.
-type PostApiNameserversJSONRequestBody = NameserverGroupRequest
-
-// PatchApiNameserversIdJSONRequestBody defines body for PatchApiNameserversId for application/json ContentType.
-type PatchApiNameserversIdJSONRequestBody = PatchApiNameserversIdJSONBody
-
-// PutApiNameserversIdJSONRequestBody defines body for PutApiNameserversId for application/json ContentType.
-type PutApiNameserversIdJSONRequestBody = NameserverGroupRequest
 
 // PutApiPeersIdJSONRequestBody defines body for PutApiPeersId for application/json ContentType.
 type PutApiPeersIdJSONRequestBody PutApiPeersIdJSONBody

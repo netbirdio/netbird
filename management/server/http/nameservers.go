@@ -59,7 +59,7 @@ func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *htt
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
-	var req api.PostApiNameserversJSONRequestBody
+	var req api.PostApiDnsNameserversJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -97,7 +97,7 @@ func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
-	var req api.PutApiNameserversIdJSONRequestBody
+	var req api.PutApiDnsNameserversIdJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -144,7 +144,7 @@ func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http
 		return
 	}
 
-	var req api.PatchApiNameserversIdJSONRequestBody
+	var req api.PatchApiDnsNameserversIdJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

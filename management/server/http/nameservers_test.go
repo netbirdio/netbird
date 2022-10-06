@@ -134,7 +134,7 @@ func TestNameserversHandlers(t *testing.T) {
 		{
 			name:            "Get Existing Nameserver Group",
 			requestType:     http.MethodGet,
-			requestPath:     "/api/nameservers/" + existingNSGroupID,
+			requestPath:     "/api/dns/nameservers/" + existingNSGroupID,
 			expectedStatus:  http.StatusOK,
 			expectedBody:    true,
 			expectedNSGroup: toNameserverGroupResponse(baseExistingNSGroup),
@@ -142,13 +142,13 @@ func TestNameserversHandlers(t *testing.T) {
 		{
 			name:           "Get Not Existing Nameserver Group",
 			requestType:    http.MethodGet,
-			requestPath:    "/api/nameservers/" + notFoundNSGroupID,
+			requestPath:    "/api/dns/nameservers/" + notFoundNSGroupID,
 			expectedStatus: http.StatusNotFound,
 		},
 		{
 			name:        "POST OK",
 			requestType: http.MethodPost,
-			requestPath: "/api/nameservers",
+			requestPath: "/api/dns/nameservers",
 			requestBody: bytes.NewBuffer(
 				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusOK,
@@ -171,7 +171,7 @@ func TestNameserversHandlers(t *testing.T) {
 		{
 			name:        "POST Invalid Nameserver",
 			requestType: http.MethodPost,
-			requestPath: "/api/nameservers",
+			requestPath: "/api/dns/nameservers",
 			requestBody: bytes.NewBuffer(
 				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1000\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusBadRequest,
@@ -180,7 +180,7 @@ func TestNameserversHandlers(t *testing.T) {
 		{
 			name:        "PUT OK",
 			requestType: http.MethodPut,
-			requestPath: "/api/nameservers/" + existingNSGroupID,
+			requestPath: "/api/dns/nameservers/" + existingNSGroupID,
 			requestBody: bytes.NewBuffer(
 				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusOK,
@@ -203,7 +203,7 @@ func TestNameserversHandlers(t *testing.T) {
 		{
 			name:        "PUT Not Existing Nameserver Group",
 			requestType: http.MethodPut,
-			requestPath: "/api/nameservers/" + notFoundNSGroupID,
+			requestPath: "/api/dns/nameservers/" + notFoundNSGroupID,
 			requestBody: bytes.NewBuffer(
 				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusNotFound,
@@ -212,7 +212,7 @@ func TestNameserversHandlers(t *testing.T) {
 		{
 			name:        "PUT Invalid Nameserver",
 			requestType: http.MethodPut,
-			requestPath: "/api/nameservers/" + notFoundNSGroupID,
+			requestPath: "/api/dns/nameservers/" + notFoundNSGroupID,
 			requestBody: bytes.NewBuffer(
 				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"100\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
 			expectedStatus: http.StatusBadRequest,
@@ -221,7 +221,7 @@ func TestNameserversHandlers(t *testing.T) {
 		{
 			name:           "PATCH OK",
 			requestType:    http.MethodPatch,
-			requestPath:    "/api/nameservers/" + existingNSGroupID,
+			requestPath:    "/api/dns/nameservers/" + existingNSGroupID,
 			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"description\",\"value\":[\"NewDesc\"]}]"),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
@@ -237,7 +237,7 @@ func TestNameserversHandlers(t *testing.T) {
 		{
 			name:           "PATCH Invalid Nameserver Group OK",
 			requestType:    http.MethodPatch,
-			requestPath:    "/api/nameservers/" + notFoundRouteID,
+			requestPath:    "/api/dns/nameservers/" + notFoundRouteID,
 			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"description\",\"value\":[\"NewDesc\"]}]"),
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   false,
@@ -252,11 +252,11 @@ func TestNameserversHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/nameservers/{id}", p.GetNameserverGroupHandler).Methods("GET")
-			router.HandleFunc("/api/nameservers", p.CreateNameserverGroupHandler).Methods("POST")
-			router.HandleFunc("/api/nameservers/{id}", p.DeleteNameserverGroupHandler).Methods("DELETE")
-			router.HandleFunc("/api/nameservers/{id}", p.UpdateNameserverGroupHandler).Methods("PUT")
-			router.HandleFunc("/api/nameservers/{id}", p.PatchNameserverGroupHandler).Methods("PATCH")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.GetNameserverGroupHandler).Methods("GET")
+			router.HandleFunc("/api/dns/nameservers", p.CreateNameserverGroupHandler).Methods("POST")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.DeleteNameserverGroupHandler).Methods("DELETE")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.UpdateNameserverGroupHandler).Methods("PUT")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.PatchNameserverGroupHandler).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

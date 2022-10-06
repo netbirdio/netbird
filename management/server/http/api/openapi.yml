@@ -1322,7 +1322,7 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-  /api/nameservers:
+  /api/dns/nameservers:
     get:
       summary: Returns a list of all Nameserver Groups
       tags: [ DNS ]
@@ -1372,7 +1372,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
 
-  /api/nameservers/{id}:
+  /api/dns/nameservers/{id}:
     get:
       summary: Get information about a Nameserver Groups
       tags: [ DNS ]
