@@ -117,6 +117,8 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 			default:
 				http.Error(w, "failed to update user", http.StatusInternalServerError)
 			}
+		} else {
+			http.Error(w, "failed to update user", http.StatusInternalServerError)
 		}
 		return
 	}

@@ -545,6 +545,31 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	return nil, fmt.Errorf("failed extracting user profiles from auth0")
 }
 
+// GetUserByEmail searches users with a given email. If no users have been found, this function returns an empty list.
+// This function can return multiple users. This is due to the Auth0 internals - there could be multiple users with
+// the same email but different connections that are considered as separate accounts (e.g., Google and username/password).
+func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+	reqURL := am.authIssuer + "/api/v2/users-by-email?email=" + email
+	body, err := doGetReq(am.httpClient, reqURL, jwtToken.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	userResp := []*UserData{}
+
+	err = am.helper.Unmarshal(body, &userResp)
+	if err != nil {
+		log.Debugf("Coudln't unmarshal export job response; %v", err)
+		return nil, err
+	}
+
+	return userResp, nil
+}
+
 // CreateUser creates a new user in Auth0 Idp and sends an invite
 func (am *Auth0Manager) CreateUser(email string, name string, accountID string) (*UserData, error) {
 

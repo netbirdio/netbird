@@ -136,8 +136,17 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 		return nil, err
 	}
 
+	users, err := am.idpManager.GetUserByEmail(invite.Email)
+	if err != nil {
+		return nil, err
+	}
+
 	if user != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "user with a given email is already registered")
+	}
+
+	if len(users) > 0 {
+		return nil, fmt.Errorf("user with the given email already exists")
 	}
 
 	// if user already exists with this email, the operation will fail which is good for us.
