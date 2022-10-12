@@ -324,12 +324,12 @@ func (s *serviceClient) updateStatus() error {
 			return err
 		}
 
-		if status.Status == string(internal.StatusConnected) {
+		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
 			systray.SetIcon(s.icConnected)
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
 			s.mDown.Enable()
-		} else {
+		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
 			systray.SetIcon(s.icDisconnected)
 			s.mStatus.SetTitle("Disconnected")
 			s.mDown.Disable()
