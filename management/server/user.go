@@ -118,16 +118,16 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	defer am.mux.Unlock()
 
 	if am.idpManager == nil {
-		return nil, status.Errorf(codes.FailedPrecondition, "user invite is not possible without enabled IDP manager")
+		return nil, Errorf(PreconditionFailed, "IdP manager must be enabled to send user invites", accountID)
 	}
 
 	if invite == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "provided user update is nil")
+		return nil, fmt.Errorf("provided user update is nil")
 	}
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, Errorf(AccountNotFound, "account %s doesn't exist", accountID)
 	}
 
 	// check if the user is already registered with this email => reject
@@ -136,23 +136,22 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 		return nil, err
 	}
 
+	if user != nil {
+		return nil, Errorf(UserAlreadyExists, "user has an existing account")
+	}
+
 	users, err := am.idpManager.GetUserByEmail(invite.Email)
 	if err != nil {
 		return nil, err
 	}
 
-	if user != nil {
-		return nil, status.Errorf(codes.FailedPrecondition, "user with a given email is already registered")
-	}
-
 	if len(users) > 0 {
-		return nil, fmt.Errorf("user with the given email already exists")
+		return nil, Errorf(UserAlreadyExists, "user has an existing account")
 	}
 
-	// if user already exists with this email, the operation will fail which is good for us.
 	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.FailedPrecondition, "failed creating user in IdP")
+		return nil, err
 	}
 
 	role := StrRoleToUserRole(invite.Role)
