@@ -162,11 +162,11 @@ func toUserResponse(user *server.UserInfo) *api.User {
 	var userStatus api.UserStatus
 	switch user.Status {
 	case "active":
-		userStatus = api.Active
+		userStatus = api.UserStatusActive
 	case "invited":
-		userStatus = api.Invited
+		userStatus = api.UserStatusInvited
 	default:
-		userStatus = api.Disabled
+		userStatus = api.UserStatusDisabled
 	}
 
 	return &api.User{
