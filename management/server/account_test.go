@@ -127,7 +127,7 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	}
 }
 
-func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
+func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 	type initUserParams jwtclaims.AuthorizationClaims
 
 	type test struct {

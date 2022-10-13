@@ -617,7 +617,7 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 	return account, nil
 }
 
-// GetAccountWithAuthorizationClaims retrievs an account using JWT Claims.
+// getAccountWithAuthorizationClaims retrievs an account using JWT Claims.
 // if domain is of the PrivateCategory category, it will evaluate
 // if account is new, existing or if there is another account with the same domain
 //
