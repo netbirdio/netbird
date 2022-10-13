@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/stretchr/testify/require"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -22,13 +22,13 @@ type mockHTTPClient struct {
 }
 
 func (c *mockHTTPClient) Do(req *http.Request) (*http.Response, error) {
-	body, err := ioutil.ReadAll(req.Body)
+	body, err := io.ReadAll(req.Body)
 	if err == nil {
 		c.reqBody = string(body)
 	}
 	return &http.Response{
 		StatusCode: c.code,
-		Body:       ioutil.NopCloser(strings.NewReader(c.resBody)),
+		Body:       io.NopCloser(strings.NewReader(c.resBody)),
 	}, c.err
 }
 
@@ -130,7 +130,7 @@ func TestAuth0_RequestJWTToken(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			body, err := ioutil.ReadAll(res.Body)
+			body, err := io.ReadAll(res.Body)
 			assert.NoError(t, err, "unable to read the response body")
 
 			jwtToken := JWTToken{}
@@ -178,7 +178,7 @@ func TestAuth0_ParseRequestJWTResponse(t *testing.T) {
 	for _, testCase := range []parseRequestJWTResponseTest{parseRequestJWTResponseTestCase1, parseRequestJWTResponseTestCase2} {
 		t.Run(testCase.name, func(t *testing.T) {
 
-			rawBody := ioutil.NopCloser(strings.NewReader(testCase.inputResBody))
+			rawBody := io.NopCloser(strings.NewReader(testCase.inputResBody))
 
 			config := Auth0ClientConfig{}
 

@@ -495,6 +495,9 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	}
 
 	exportJobReq, err := am.createPostRequest("/api/v2/jobs/users-exports", payloadString)
+	if err != nil {
+		return nil, err
+	}
 
 	jobResp, err := am.httpClient.Do(exportJobReq)
 	if err != nil {
