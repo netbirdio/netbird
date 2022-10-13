@@ -31,7 +31,7 @@ const (
 func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey) *SetupKeys {
 	return &SetupKeys{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountWithAuthorizationClaimsFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return &server.Account{
 					Id:     testAccountID,
 					Domain: "hotmail.com",

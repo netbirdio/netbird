@@ -127,7 +127,7 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	}
 }
 
-func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
+func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 	type initUserParams jwtclaims.AuthorizationClaims
 
 	type test struct {
@@ -310,7 +310,7 @@ func TestDefaultAccountManager_GetAccountWithAuthorizationClaims(t *testing.T) {
 				testCase.inputClaims.AccountId = initAccount.Id
 			}
 
-			account, err := manager.GetAccountWithAuthorizationClaims(testCase.inputClaims)
+			account, err := manager.GetAccountFromToken(testCase.inputClaims)
 			require.NoError(t, err, "support function failed")
 			verifyNewAccountHasDefaultFields(t, account, testCase.expectedCreatedBy, testCase.inputClaims.Domain, testCase.expectedUsers)
 			verifyCanAddPeerToAccount(t, manager, account, testCase.expectedCreatedBy)

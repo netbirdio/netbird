@@ -120,7 +120,7 @@ func initRoutesTestData() *Routes {
 				}
 				return routeToUpdate, nil
 			},
-			GetAccountWithAuthorizationClaimsFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return testingAccount, nil
 			},
 		},

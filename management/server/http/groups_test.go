@@ -67,14 +67,14 @@ func initGroupTestData(groups ...*server.Group) *Groups {
 				}
 				return nil, fmt.Errorf("peer not found")
 			},
-			GetAccountWithAuthorizationClaimsFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
 					Peers:  TestPeers,
 					Groups: map[string]*server.Group{
-						"id-existed": &server.Group{ID: "id-existed", Peers: []string{"A", "B"}},
-						"id-all":     &server.Group{ID: "id-all", Name: "All"}},
+						"id-existed": {ID: "id-existed", Peers: []string{"A", "B"}},
+						"id-all":     {ID: "id-all", Name: "All"}},
 				}, nil
 			},
 		},

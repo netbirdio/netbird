@@ -181,7 +181,7 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 			return nil, status.Errorf(codes.Internal, "invalid jwt token, err: %v", err)
 		}
 		claims := jwtclaims.ExtractClaimsWithToken(token, s.config.HttpConfig.AuthAudience)
-		_, err = s.accountManager.GetAccountWithAuthorizationClaims(claims)
+		_, err = s.accountManager.GetAccountFromToken(claims)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
 		}

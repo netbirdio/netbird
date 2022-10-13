@@ -104,7 +104,7 @@ func initNameserversTestData() *Nameservers {
 				}
 				return nsGroupToUpdate, nil
 			},
-			GetAccountWithAuthorizationClaimsFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return testingNSAccount, nil
 			},
 		},
