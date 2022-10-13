@@ -118,7 +118,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	defer am.mux.Unlock()
 
 	if am.idpManager == nil {
-		return nil, Errorf(PreconditionFailed, "IdP manager must be enabled to send user invites", accountID)
+		return nil, Errorf(PreconditionFailed, "IdP manager must be enabled to send user invites")
 	}
 
 	if invite == nil {

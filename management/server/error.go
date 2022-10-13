@@ -33,7 +33,7 @@ func (e *Error) Error() string {
 func Errorf(errorType ErrorType, format string, a ...interface{}) error {
 	return &Error{
 		errorType: errorType,
-		message:   fmt.Sprintf(format, a),
+		message:   fmt.Sprintf(format, a...),
 	}
 }
 
