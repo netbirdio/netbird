@@ -327,14 +327,14 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 			return err
 		}
 
-		if user != nil && user.AppMetadata.WTAccountId == account.Id {
+		if user != nil && user.AppMetadata.WTAccountID == account.Id {
 			// it was already set, so we skip the unnecessary update
 			log.Debugf("skipping IDP App Meta update because accountID %s has been already set for user %s",
 				account.Id, userID)
 			return nil
 		}
 
-		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTAccountId: account.Id})
+		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTAccountID: account.Id})
 		if err != nil {
 			return err
 		}
@@ -602,7 +602,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	return nil
 }
 
-// GetTokenAccount returns an account associated with this token
+// GetAccountFromToken returns an account associated with this token
 func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error) {
 	account, err := am.getAccountWithAuthorizationClaims(claims)
 	if err != nil {

@@ -5,8 +5,11 @@ import (
 )
 
 const (
-	UserAlreadyExists  ErrorType = 1
-	AccountNotFound    ErrorType = iota
+	// UserAlreadyExists indicates that user already exists
+	UserAlreadyExists ErrorType = 1
+	// AccountNotFound indicates that specified account hasn't been found
+	AccountNotFound ErrorType = iota
+	// PreconditionFailed indicates that some pre-condition for the operation hasn't been fulfilled
 	PreconditionFailed ErrorType = iota
 )
 

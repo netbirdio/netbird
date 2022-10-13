@@ -48,9 +48,9 @@ type UserData struct {
 
 // AppMetadata user app metadata to associate with a profile
 type AppMetadata struct {
-	// Wiretrustee account id to update in the IDP
+	// WTAccountID is a NetBird (previously Wiretrustee) account id to update in the IDP
 	// maps to wt_account_id when json.marshal
-	WTAccountId     string `json:"wt_account_id,omitempty"`
+	WTAccountID     string `json:"wt_account_id,omitempty"`
 	WTPendingInvite bool   `json:"wt_pending_invite"`
 }
 

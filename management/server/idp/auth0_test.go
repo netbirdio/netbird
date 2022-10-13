@@ -320,7 +320,7 @@ func TestAuth0_UpdateUserAppMetadata(t *testing.T) {
 
 	exp := 15
 	token := newTestJWT(t, exp)
-	appMetadata := AppMetadata{WTAccountId: "ok"}
+	appMetadata := AppMetadata{WTAccountID: "ok"}
 
 	updateUserAppMetadataTestCase1 := updateUserAppMetadataTest{
 		name:            "Bad Authentication",
@@ -340,7 +340,7 @@ func TestAuth0_UpdateUserAppMetadata(t *testing.T) {
 	updateUserAppMetadataTestCase2 := updateUserAppMetadataTest{
 		name:            "Bad Status Code",
 		inputReqBody:    fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
-		expectedReqBody: fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":false}}", appMetadata.WTAccountId),
+		expectedReqBody: fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":false}}", appMetadata.WTAccountID),
 		appMetadata:     appMetadata,
 		statusCode:      400,
 		helper:          JsonParser{},
@@ -363,7 +363,7 @@ func TestAuth0_UpdateUserAppMetadata(t *testing.T) {
 	updateUserAppMetadataTestCase4 := updateUserAppMetadataTest{
 		name:                 "Good request",
 		inputReqBody:         fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
-		expectedReqBody:      fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":false}}", appMetadata.WTAccountId),
+		expectedReqBody:      fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":false}}", appMetadata.WTAccountID),
 		appMetadata:          appMetadata,
 		statusCode:           200,
 		helper:               JsonParser{},

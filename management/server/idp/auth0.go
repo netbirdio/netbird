@@ -420,7 +420,7 @@ func buildCreateUserRequestPayload(email string, name string, accountID string) 
 		Email: email,
 		Name:  name,
 		AppMeta: AppMetadata{
-			WTAccountId:     accountID,
+			WTAccountID:     accountID,
 			WTPendingInvite: true,
 		},
 		Connection:  "Username-Password-Authentication",
@@ -697,7 +697,7 @@ func (am *Auth0Manager) downloadProfileExport(location string) (map[string][]*Us
 					Name:  profile.Name,
 					Email: profile.Email,
 					AppMetadata: AppMetadata{
-						WTAccountId:     profile.AccountID,
+						WTAccountID:     profile.AccountID,
 						WTPendingInvite: profile.PendingInvite,
 					},
 				})
