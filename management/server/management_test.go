@@ -2,7 +2,7 @@ package server_test
 
 import (
 	"context"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"net"
 	"os"
@@ -45,7 +45,7 @@ var _ = Describe("Management service", func() {
 		level, _ := log.ParseLevel("Debug")
 		log.SetLevel(level)
 		var err error
-		dataDir, err = ioutil.TempDir("", "wiretrustee_mgmt_test_tmp_*")
+		dataDir, err = io.TempDir("", "wiretrustee_mgmt_test_tmp_*")
 		Expect(err).NotTo(HaveOccurred())
 
 		err = util.CopyFileContents("testdata/store.json", filepath.Join(dataDir, "store.json"))
