@@ -114,7 +114,7 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		if e, ok := server.FromError(err); ok {
 			switch e.Type() {
 			case server.UserAlreadyExists:
-				http.Error(w, "You can't invite users with an existing NetBird account", http.StatusPreconditionFailed)
+				http.Error(w, "You can't invite users with an existing NetBird account.", http.StatusPreconditionFailed)
 				return
 			default:
 			}
