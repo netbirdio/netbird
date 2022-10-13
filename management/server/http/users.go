@@ -111,19 +111,18 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		AutoGroups: req.AutoGroups,
 	})
 	if err != nil {
-		if e, ok := status.FromError(err); ok {
-			switch e.Code() {
-			case codes.NotFound:
+		if e, ok := server.FromError(err); ok {
+			switch e.Type() {
+			case server.UserAlreadyExists:
+				http.Error(w, "You can't invite users with an existing NetBird account", http.StatusPreconditionFailed)
+				return
 			default:
-				http.Error(w, "failed to update user", http.StatusInternalServerError)
 			}
-		} else {
-			http.Error(w, "failed to update user", http.StatusInternalServerError)
 		}
+		http.Error(w, "failed to invite", http.StatusInternalServerError)
 		return
 	}
 	writeJSONObject(w, toUserResponse(newUser))
-
 }
 
 // GetUsers returns a list of users of the account this user belongs to.

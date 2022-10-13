@@ -10,13 +10,18 @@ const (
 	PreconditionFailed ErrorType = iota
 )
 
-// ErrorType is a type of an Error
+// ErrorType is a type of the Error
 type ErrorType int32
 
 // Error is an internal error
 type Error struct {
 	errorType ErrorType
 	message   string
+}
+
+// Type returns the Type of the error
+func (e *Error) Type() ErrorType {
+	return e.errorType
 }
 
 // Error is an error string
