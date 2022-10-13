@@ -16,6 +16,8 @@ tags:
     description: Interact with and view information about rules.
   - name: Routes
     description: Interact with and view information about routes.
+  - name: DNS
+    description: Interact with and view information about DNS configuration.
 components:
   schemas:
     User:
@@ -397,6 +399,76 @@ components:
               description: Route field to update in form /<field>
               type: string
               enum: [ "network","network_id","description","enabled","peer","metric","masquerade" ]
+          required:
+            - path
+    Nameserver:
+      type: object
+      properties:
+        ip:
+          description: Nameserver IP
+          type: string
+        ns_type:
+          description: Nameserver Type
+          type: string
+          enum: ["udp"]
+        port:
+          description: Nameserver Port
+          type: integer
+      required:
+        - ip
+        - ns_type
+        - port
+    NameserverGroupRequest:
+      type: object
+      properties:
+        name:
+          description: Nameserver group name
+          type: string
+          maxLength: 40
+          minLength: 1
+        description:
+          description: Nameserver group  description
+          type: string
+        nameservers:
+          description: Nameserver group
+          minLength: 1
+          maxLength: 2
+          type: array
+          items:
+            $ref: '#/components/schemas/Nameserver'
+        enabled:
+          description: Nameserver group status
+          type: boolean
+        groups:
+          description: Nameserver group tag groups
+          type: array
+          items:
+            type: string
+      required:
+        - name
+        - description
+        - nameservers
+        - enabled
+        - groups
+    NameserverGroup:
+      allOf:
+        - type: object
+          properties:
+            id:
+              description: Nameserver group ID
+              type: string
+          required:
+            - id
+        - $ref: '#/components/schemas/NameserverGroupRequest'
+    NameserverGroupPatchOperation:
+      allOf:
+        - $ref: '#/components/schemas/PatchMinimum'
+        - type: object
+          properties:
+            path:
+              description: Nameserver group field to update in form /<field>
+              type: string
+              enum: [ "name","description","enabled","groups","nameservers" ]
           required:
             - path
 
@@ -1291,6 +1363,176 @@ paths:
           schema:
             type: string
           description: The Route ID
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/dns/nameservers:
+    get:
+      summary: Returns a list of all Nameserver Groups
+      tags: [ DNS ]
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Nameserver Groups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NameserverGroup'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Creates a Nameserver Group
+      tags: [ DNS ]
+      security:
+        - BearerAuth: [ ]
+      requestBody:
+        description: New Nameserver Groups request
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/NameserverGroupRequest'
+      responses:
+        '200':
+          description: A Nameserver Groups Object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NameserverGroup'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+
+  /api/dns/nameservers/{id}:
+    get:
+      summary: Get information about a Nameserver Groups
+      tags: [ DNS ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Nameserver Group ID
+      responses:
+        '200':
+          description: A Nameserver Group object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NameserverGroup'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update/Replace a Nameserver Group
+      tags: [ DNS ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Nameserver Group ID
+      requestBody:
+        description: Update Nameserver Group request
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NameserverGroupRequest'
+      responses:
+        '200':
+          description: A Nameserver Group object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NameserverGroup'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    patch:
+      summary: Update information about a Nameserver Group
+      tags: [ DNS ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Nameserver Group ID
+      requestBody:
+        description: Update Nameserver Group request using a list of json patch objects
+        content:
+          'application/json':
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/NameserverGroupPatchOperation'
+      responses:
+        '200':
+          description: A Nameserver Group object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NameserverGroup'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Nameserver Group
+      tags: [ DNS ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Nameserver Group ID
       responses:
         '200':
           description: Delete status code

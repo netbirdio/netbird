@@ -3,3 +3,5 @@ generate:
   models: true
   embedded-spec: false
 output: types.gen.go
+compatibility:
+  always-prefix-enum-values: true

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net/http"
 	"time"
 )
@@ -63,4 +66,26 @@ func getJWTAccount(accountManager server.AccountManager,
 	}
 
 	return account, nil
+}
+
+func toHTTPError(err error, w http.ResponseWriter) {
+	errStatus, ok := status.FromError(err)
+	if ok && errStatus.Code() == codes.Internal {
+		http.Error(w, errStatus.String(), http.StatusInternalServerError)
+		return
+	}
+
+	if ok && errStatus.Code() == codes.NotFound {
+		http.Error(w, errStatus.String(), http.StatusNotFound)
+		return
+	}
+
+	if ok && errStatus.Code() == codes.InvalidArgument {
+		http.Error(w, errStatus.String(), http.StatusBadRequest)
+		return
+	}
+
+	unhandledMSG := fmt.Sprintf("got unhandled error code, error: %s", errStatus.String())
+	log.Error(unhandledMSG)
+	http.Error(w, unhandledMSG, http.StatusInternalServerError)
 }
