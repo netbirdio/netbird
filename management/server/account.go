@@ -52,8 +52,7 @@ type AccountManager interface {
 	GetSetupKey(accountID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
-	GetTokenAccount(claims jwtclaims.AuthorizationClaims) (*Account, error)
-	GetAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error)
+	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeer(peerKey string) (*Peer, error)
@@ -604,8 +603,8 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 }
 
 // GetTokenAccount returns an account associated with this token
-func (am *DefaultAccountManager) GetTokenAccount(claims jwtclaims.AuthorizationClaims) (*Account, error) {
-	account, err := am.GetAccountWithAuthorizationClaims(claims)
+func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	account, err := am.getAccountWithAuthorizationClaims(claims)
 	if err != nil {
 		return nil, err
 	}
@@ -635,7 +634,7 @@ func (am *DefaultAccountManager) GetTokenAccount(claims jwtclaims.AuthorizationC
 // Existing user + Existing account + Existing Indexed Domain -> Nothing changes
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
-func (am *DefaultAccountManager) GetAccountWithAuthorizationClaims(
+func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(
 	claims jwtclaims.AuthorizationClaims,
 ) (*Account, error) {
 	// if Account ID is part of the claims

@@ -57,7 +57,7 @@ func getJWTAccount(accountManager server.AccountManager,
 
 	jwtClaims := jwtExtractor.ExtractClaimsFromRequestContext(r, authAudience)
 
-	account, err := accountManager.GetTokenAccount(jwtClaims)
+	account, err := accountManager.GetAccountFromToken(jwtClaims)
 	if err != nil {
 		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
 	}

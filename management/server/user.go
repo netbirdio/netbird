@@ -275,7 +275,7 @@ func (am *DefaultAccountManager) GetAccountByUser(userId string) (*Account, erro
 
 // IsUserAdmin flag for current user authenticated by JWT token
 func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
-	account, err := am.GetAccountWithAuthorizationClaims(claims)
+	account, err := am.GetAccountFromToken(claims)
 	if err != nil {
 		return false, fmt.Errorf("get account: %v", err)
 	}

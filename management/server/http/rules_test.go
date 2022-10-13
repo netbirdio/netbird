@@ -66,14 +66,14 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 				}
 				return &rule, nil
 			},
-			GetAccountWithAuthorizationClaimsFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
 					Rules:  map[string]*server.Rule{"id-existed": &server.Rule{ID: "id-existed"}},
 					Groups: map[string]*server.Group{
-						"F": &server.Group{ID: "F"},
-						"G": &server.Group{ID: "G"},
+						"F": {ID: "F"},
+						"G": {ID: "G"},
 					},
 				}, nil
 			},
