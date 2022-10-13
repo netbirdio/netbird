@@ -14,6 +14,10 @@ const (
 	UserRoleAdmin   UserRole = "admin"
 	UserRoleUser    UserRole = "user"
 	UserRoleUnknown UserRole = "unknown"
+
+	UserStatusActive   UserStatus = "active"
+	UserStatusDisabled UserStatus = "disabled"
+	UserStatusInvited  UserStatus = "invited"
 )
 
 // StrRoleToUserRole returns UserRole for a given strRole or UserRoleUnknown if the specified role is unknown
@@ -28,7 +32,10 @@ func StrRoleToUserRole(strRole string) UserRole {
 	}
 }
 
-// UserRole is the role of the User
+// UserStatus is the status of a User
+type UserStatus string
+
+// UserRole is the role of a User
 type UserRole string
 
 // User represents a user of the system
@@ -53,10 +60,16 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			Name:       "",
 			Role:       string(u.Role),
 			AutoGroups: u.AutoGroups,
+			Status:     string(UserStatusActive),
 		}, nil
 	}
 	if userData.ID != u.Id {
 		return nil, fmt.Errorf("wrong UserData provided for user %s", u.Id)
+	}
+
+	userStatus := UserStatusActive
+	if userData.AppMetadata.WTPendingInvite {
+		userStatus = UserStatusInvited
 	}
 
 	return &UserInfo{
@@ -65,12 +78,13 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		Name:       userData.Name,
 		Role:       string(u.Role),
 		AutoGroups: autoGroups,
+		Status:     string(userStatus),
 	}, nil
 }
 
 // Copy the user
 func (u *User) Copy() *User {
-	autoGroups := []string{}
+	autoGroups := make([]string, 0)
 	autoGroups = append(autoGroups, u.AutoGroups...)
 	return &User{
 		Id:         u.Id,
@@ -96,6 +110,70 @@ func NewRegularUser(id string) *User {
 // NewAdminUser creates a new user with role UserRoleAdmin
 func NewAdminUser(id string) *User {
 	return NewUser(id, UserRoleAdmin)
+}
+
+// CreateUser creates a new user under the given account. Effectively this is a user invite.
+func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) (*UserInfo, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+
+	if am.idpManager == nil {
+		return nil, Errorf(PreconditionFailed, "IdP manager must be enabled to send user invites")
+	}
+
+	if invite == nil {
+		return nil, fmt.Errorf("provided user update is nil")
+	}
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, Errorf(AccountNotFound, "account %s doesn't exist", accountID)
+	}
+
+	// check if the user is already registered with this email => reject
+	user, err := am.lookupUserInCacheByEmail(invite.Email, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	if user != nil {
+		return nil, Errorf(UserAlreadyExists, "user has an existing account")
+	}
+
+	users, err := am.idpManager.GetUserByEmail(invite.Email)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(users) > 0 {
+		return nil, Errorf(UserAlreadyExists, "user has an existing account")
+	}
+
+	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	role := StrRoleToUserRole(invite.Role)
+	newUser := &User{
+		Id:         idpUser.ID,
+		Role:       role,
+		AutoGroups: invite.AutoGroups,
+	}
+	account.Users[idpUser.ID] = newUser
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = am.refreshCache(account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	return newUser.toUserInfo(idpUser)
+
 }
 
 // SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.
@@ -138,9 +216,12 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 	}
 
 	if !isNil(am.idpManager) {
-		userData, err := am.lookupUserInCache(newUser, accountID)
+		userData, err := am.lookupUserInCache(newUser.Id, account)
 		if err != nil {
 			return nil, err
+		}
+		if userData == nil {
+			return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", newUser.Id)
 		}
 		return newUser.toUserInfo(userData)
 	}
@@ -194,7 +275,7 @@ func (am *DefaultAccountManager) GetAccountByUser(userId string) (*Account, erro
 
 // IsUserAdmin flag for current user authenticated by JWT token
 func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
-	account, err := am.GetAccountWithAuthorizationClaims(claims)
+	account, err := am.GetAccountFromToken(claims)
 	if err != nil {
 		return false, fmt.Errorf("get account: %v", err)
 	}
@@ -216,7 +297,11 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 
 	queriedUsers := make([]*idp.UserData, 0)
 	if !isNil(am.idpManager) {
-		queriedUsers, err = am.lookupCache(account.Users, accountID)
+		users := make(map[string]struct{}, len(account.Users))
+		for _, user := range account.Users {
+			users[user.Id] = struct{}{}
+		}
+		queriedUsers, err = am.lookupCache(users, accountID)
 		if err != nil {
 			return nil, err
 		}

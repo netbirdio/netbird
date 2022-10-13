@@ -19,7 +19,7 @@ import (
 func initTestMetaData(peer ...*server.Peer) *Peers {
 	return &Peers{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountWithAuthorizationClaimsFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",

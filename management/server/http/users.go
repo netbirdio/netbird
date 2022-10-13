@@ -5,11 +5,10 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
-
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -82,6 +81,50 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 
 }
 
+// CreateUserHandler creates a User in the system with a status "invited" (effectively this is a user invite).
+func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "", http.StatusNotFound)
+	}
+
+	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	if err != nil {
+		log.Error(err)
+	}
+
+	req := &api.PostApiUsersJSONRequestBody{}
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if server.StrRoleToUserRole(req.Role) == server.UserRoleUnknown {
+		http.Error(w, "unknown user role "+req.Role, http.StatusBadRequest)
+		return
+	}
+
+	newUser, err := h.accountManager.CreateUser(account.Id, &server.UserInfo{
+		Email:      req.Email,
+		Name:       *req.Name,
+		Role:       req.Role,
+		AutoGroups: req.AutoGroups,
+	})
+	if err != nil {
+		if e, ok := server.FromError(err); ok {
+			switch e.Type() {
+			case server.UserAlreadyExists:
+				http.Error(w, "You can't invite users with an existing NetBird account.", http.StatusPreconditionFailed)
+				return
+			default:
+			}
+		}
+		http.Error(w, "failed to invite", http.StatusInternalServerError)
+		return
+	}
+	writeJSONObject(w, toUserResponse(newUser))
+}
+
 // GetUsers returns a list of users of the account this user belongs to.
 // It also gathers additional user data (like email and name) from the IDP manager.
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +144,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	users := []*api.User{}
+	users := make([]*api.User, 0)
 	for _, r := range data {
 		users = append(users, toUserResponse(r))
 	}
@@ -116,11 +159,22 @@ func toUserResponse(user *server.UserInfo) *api.User {
 		autoGroups = []string{}
 	}
 
+	var userStatus api.UserStatus
+	switch user.Status {
+	case "active":
+		userStatus = api.UserStatusActive
+	case "invited":
+		userStatus = api.UserStatusInvited
+	default:
+		userStatus = api.UserStatusDisabled
+	}
+
 	return &api.User{
 		Id:         user.ID,
 		Name:       user.Name,
 		Email:      user.Email,
 		Role:       user.Role,
 		AutoGroups: autoGroups,
+		Status:     userStatus,
 	}
 }

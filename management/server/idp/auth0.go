@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -54,6 +53,16 @@ type Auth0Credentials struct {
 	mux          sync.Mutex
 }
 
+// createUserRequest is a user create request
+type createUserRequest struct {
+	Email       string      `json:"email"`
+	Name        string      `json:"name"`
+	AppMeta     AppMetadata `json:"app_metadata"`
+	Connection  string      `json:"connection"`
+	Password    string      `json:"password"`
+	VerifyEmail bool        `json:"verify_email"`
+}
+
 // userExportJobRequest is a user export request struct
 type userExportJobRequest struct {
 	Format string              `json:"format"`
@@ -87,12 +96,13 @@ type userExportJobStatusResponse struct {
 
 // auth0Profile represents an Auth0 user profile response
 type auth0Profile struct {
-	AccountID string `json:"wt_account_id"`
-	UserID    string `json:"user_id"`
-	Name      string `json:"name"`
-	Email     string `json:"email"`
-	CreatedAt string `json:"created_at"`
-	LastLogin string `json:"last_login"`
+	AccountID     string `json:"wt_account_id"`
+	PendingInvite bool   `json:"wt_pending_invite"`
+	UserID        string `json:"user_id"`
+	Name          string `json:"name"`
+	Email         string `json:"email"`
+	CreatedAt     string `json:"created_at"`
+	LastLogin     string `json:"last_login"`
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
@@ -172,7 +182,7 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 // parseRequestJWTResponse parses jwt raw response body and extracts token and expires in seconds
 func (c *Auth0Credentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JWTToken, error) {
 	jwtToken := JWTToken{}
-	body, err := ioutil.ReadAll(rawBody)
+	body, err := io.ReadAll(rawBody)
 	if err != nil {
 		return jwtToken, err
 	}
@@ -230,7 +240,7 @@ func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	return c.jwtToken, nil
 }
 
-func batchRequestUsersURL(authIssuer, accountID string, page int) (string, url.Values, error) {
+func batchRequestUsersURL(authIssuer, accountID string, page int, perPage int) (string, url.Values, error) {
 	u, err := url.Parse(authIssuer + "/api/v2/users")
 	if err != nil {
 		return "", nil, err
@@ -238,6 +248,7 @@ func batchRequestUsersURL(authIssuer, accountID string, page int) (string, url.V
 	q := u.Query()
 	q.Set("page", strconv.Itoa(page))
 	q.Set("search_engine", "v3")
+	q.Set("per_page", strconv.Itoa(perPage))
 	q.Set("q", "app_metadata.wt_account_id:"+accountID)
 	u.RawQuery = q.Encode()
 
@@ -259,8 +270,9 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 
 	// https://auth0.com/docs/manage-users/user-search/retrieve-users-with-get-users-endpoint#limitations
 	// auth0 limitation of 1000 users via this endpoint
+	resultsPerPage := 50
 	for page := 0; page < 20; page++ {
-		reqURL, query, err := batchRequestUsersURL(am.authIssuer, accountID, page)
+		reqURL, query, err := batchRequestUsersURL(am.authIssuer, accountID, page, resultsPerPage)
 		if err != nil {
 			return nil, err
 		}
@@ -283,29 +295,30 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 			return nil, err
 		}
 
+		if res.StatusCode != 200 {
+			return nil, fmt.Errorf("failed requesting user data from IdP %s", string(body))
+		}
+
 		var batch []UserData
 		err = json.Unmarshal(body, &batch)
 		if err != nil {
 			return nil, err
 		}
 
-		log.Debugf("requested batch; %v", batch)
+		log.Debugf("returned user batch for accountID %s on page %d, %v", accountID, page, batch)
 
 		err = res.Body.Close()
 		if err != nil {
 			return nil, err
 		}
 
-		if res.StatusCode != 200 {
-			return nil, fmt.Errorf("unable to request UserData from auth0, statusCode %d", res.StatusCode)
-		}
-
-		if len(batch) == 0 {
-			return list, nil
-		}
-
 		for user := range batch {
 			list = append(list, &batch[user])
+		}
+
+		if len(batch) == 0 || len(batch) < resultsPerPage {
+			log.Debugf("finished loading users for accountID %s", accountID)
+			return list, nil
 		}
 	}
 
@@ -367,14 +380,12 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 
 	reqURL := am.authIssuer + "/api/v2/users/" + userID
 
-	data, err := am.helper.Marshal(appMetadata)
+	data, err := am.helper.Marshal(map[string]any{"app_metadata": appMetadata})
 	if err != nil {
 		return err
 	}
 
-	payloadString := fmt.Sprintf("{\"app_metadata\": %s}", string(data))
-
-	payload := strings.NewReader(payloadString)
+	payload := strings.NewReader(string(data))
 
 	req, err := http.NewRequest("PATCH", reqURL, payload)
 	if err != nil {
@@ -383,7 +394,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
-	log.Debugf("updating metadata for user %s", userID)
+	log.Debugf("updating IdP metadata for user %s", userID)
 
 	res, err := am.httpClient.Do(req)
 	if err != nil {
@@ -404,6 +415,27 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	return nil
 }
 
+func buildCreateUserRequestPayload(email string, name string, accountID string) (string, error) {
+	req := &createUserRequest{
+		Email: email,
+		Name:  name,
+		AppMeta: AppMetadata{
+			WTAccountID:     accountID,
+			WTPendingInvite: true,
+		},
+		Connection:  "Username-Password-Authentication",
+		Password:    GeneratePassword(8, 1, 1, 1),
+		VerifyEmail: true,
+	}
+
+	str, err := json.Marshal(req)
+	if err != nil {
+		return "", err
+	}
+
+	return string(str), nil
+}
+
 func buildUserExportRequest() (string, error) {
 	req := &userExportJobRequest{}
 	fields := make([]map[string]string, 0)
@@ -417,6 +449,11 @@ func buildUserExportRequest() (string, error) {
 		"export_as": "wt_account_id",
 	})
 
+	fields = append(fields, map[string]string{
+		"name":      "app_metadata.wt_pending_invite",
+		"export_as": "wt_pending_invite",
+	})
+
 	req.Format = "json"
 	req.Fields = fields
 
@@ -428,28 +465,39 @@ func buildUserExportRequest() (string, error) {
 	return string(str), nil
 }
 
-// GetAllAccounts gets all registered accounts with corresponding user data.
-// It returns a list of users indexed by accountID.
-func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
+func (am *Auth0Manager) createPostRequest(endpoint string, payloadStr string) (*http.Request, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
 		return nil, err
 	}
 
-	reqURL := am.authIssuer + "/api/v2/jobs/users-exports"
+	reqURL := am.authIssuer + endpoint
 
+	payload := strings.NewReader(payloadStr)
+
+	req, err := http.NewRequest("POST", reqURL, payload)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	return req, nil
+
+}
+
+// GetAllAccounts gets all registered accounts with corresponding user data.
+// It returns a list of users indexed by accountID.
+func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	payloadString, err := buildUserExportRequest()
 	if err != nil {
 		return nil, err
 	}
-	payload := strings.NewReader(payloadString)
 
-	exportJobReq, err := http.NewRequest("POST", reqURL, payload)
+	exportJobReq, err := am.createPostRequest("/api/v2/jobs/users-exports", payloadString)
 	if err != nil {
 		return nil, err
 	}
-	exportJobReq.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
-	exportJobReq.Header.Add("content-type", "application/json")
 
 	jobResp, err := am.httpClient.Do(exportJobReq)
 	if err != nil {
@@ -469,7 +517,7 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	var exportJobResp userExportJobResponse
 
-	body, err := ioutil.ReadAll(jobResp.Body)
+	body, err := io.ReadAll(jobResp.Body)
 	if err != nil {
 		log.Debugf("Coudln't read export job response; %v", err)
 		return nil, err
@@ -498,6 +546,82 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	}
 
 	return nil, fmt.Errorf("failed extracting user profiles from auth0")
+}
+
+// GetUserByEmail searches users with a given email. If no users have been found, this function returns an empty list.
+// This function can return multiple users. This is due to the Auth0 internals - there could be multiple users with
+// the same email but different connections that are considered as separate accounts (e.g., Google and username/password).
+func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+	reqURL := am.authIssuer + "/api/v2/users-by-email?email=" + email
+	body, err := doGetReq(am.httpClient, reqURL, jwtToken.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	userResp := []*UserData{}
+
+	err = am.helper.Unmarshal(body, &userResp)
+	if err != nil {
+		log.Debugf("Coudln't unmarshal export job response; %v", err)
+		return nil, err
+	}
+
+	return userResp, nil
+}
+
+// CreateUser creates a new user in Auth0 Idp and sends an invite
+func (am *Auth0Manager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+
+	payloadString, err := buildCreateUserRequestPayload(email, name, accountID)
+	if err != nil {
+		return nil, err
+	}
+	req, err := am.createPostRequest("/api/v2/users", payloadString)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := am.httpClient.Do(req)
+	if err != nil {
+		log.Debugf("Couldn't get job response %v", err)
+		return nil, err
+	}
+
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing create user response body: %v", err)
+		}
+	}()
+	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
+		return nil, fmt.Errorf("unable to create user, statusCode %d", resp.StatusCode)
+	}
+
+	var createResp UserData
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Debugf("Coudln't read export job response; %v", err)
+		return nil, err
+	}
+
+	err = am.helper.Unmarshal(body, &createResp)
+	if err != nil {
+		log.Debugf("Coudln't unmarshal export job response; %v", err)
+		return nil, err
+	}
+
+	if createResp.ID == "" {
+		return nil, fmt.Errorf("couldn't create user: response %v", resp)
+	}
+
+	log.Debugf("created user %s in account %s", createResp.ID, accountID)
+
+	return &createResp, nil
 }
 
 // checkExportJobStatus checks the status of the job created at CreateExportUsersJob.
@@ -572,6 +696,10 @@ func (am *Auth0Manager) downloadProfileExport(location string) (map[string][]*Us
 					ID:    profile.UserID,
 					Name:  profile.Name,
 					Email: profile.Email,
+					AppMetadata: AppMetadata{
+						WTAccountID:     profile.AccountID,
+						WTPendingInvite: profile.PendingInvite,
+					},
 				})
 		}
 	}
@@ -605,7 +733,7 @@ func doGetReq(client ManagerHTTPClient, url, accessToken string) ([]byte, error)
 		return nil, fmt.Errorf("unable to get %s, statusCode %d", url, res.StatusCode)
 	}
 
-	body, err := ioutil.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
 	}

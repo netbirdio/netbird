@@ -16,7 +16,7 @@ import (
 func initUsers(user ...*server.User) *UserHandler {
 	return &UserHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountWithAuthorizationClaimsFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				users := make(map[string]*server.User, 0)
 				for _, u := range user {
 					users[u.Id] = u
