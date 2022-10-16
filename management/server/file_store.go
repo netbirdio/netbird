@@ -29,6 +29,7 @@ type FileStore struct {
 	PeerKeyId2DstRulesId    map[string]map[string]struct{} `json:"-"`
 	PeerKeyID2RouteIDs      map[string]map[string]struct{} `json:"-"`
 	AccountPrefix2RouteIDs  map[string]map[string][]string `json:"-"`
+	InstallationID          string
 
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
@@ -415,8 +416,10 @@ func (s *FileStore) GetAccountPeers(accountId string) ([]*Peer, error) {
 
 // GetAllAccounts returns all accounts
 func (s *FileStore) GetAllAccounts() (all []*Account) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	for _, a := range s.Accounts {
-		all = append(all, a)
+		all = append(all, a.Copy())
 	}
 
 	return all
@@ -565,4 +568,19 @@ func (s *FileStore) GetRoutesByPrefix(accountID string, prefix netip.Prefix) ([]
 	}
 
 	return routes, nil
+}
+
+// GetInstallationID returns the installation ID from the store
+func (s *FileStore) GetInstallationID() string {
+	return s.InstallationID
+}
+
+// SaveInstallationID saves the installation ID
+func (s *FileStore) SaveInstallationID(id string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	s.InstallationID = id
+
+	return s.persist(s.storeFile)
 }

@@ -21,4 +21,6 @@ type Store interface {
 	SaveAccount(account *Account) error
 	GetPeerRoutes(peerKey string) ([]*route.Route, error)
 	GetRoutesByPrefix(accountID string, prefix netip.Prefix) ([]*route.Route, error)
+	GetInstallationID() string
+	SaveInstallationID(id string) error
 }

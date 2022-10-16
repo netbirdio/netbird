@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/google/uuid"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/metrics"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -161,6 +164,21 @@ var (
 			}
 			mgmtProto.RegisterManagementServiceServer(gRPCAPIHandler, srv)
 
+			installationID, err := getInstallationID(store)
+			if err != nil {
+				log.Errorf("cannot load TLS credentials: %v", err)
+				return err
+			}
+
+			fmt.Println("metrics ", disableMetrics)
+
+			if !disableMetrics {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				metricsWorker := metrics.NewWorker(ctx, installationID, store, peersUpdateManager)
+				go metricsWorker.Run()
+			}
+
 			var compatListener net.Listener
 			if mgmtPort != ManagementLegacyPort {
 				// The Management gRPC server was running on port 33073 previously. Old agents that are already connected to it
@@ -226,6 +244,20 @@ func notifyStop(msg string) {
 	default:
 		// stop has been already called, nothing to report
 	}
+}
+
+func getInstallationID(store server.Store) (string, error) {
+	installationID := store.GetInstallationID()
+	if installationID != "" {
+		return installationID, nil
+	}
+
+	installationID = strings.ToUpper(uuid.New().String())
+	err := store.SaveInstallationID(installationID)
+	if err != nil {
+		return "", err
+	}
+	return installationID, nil
 }
 
 func serveGRPC(grpcServer *grpc.Server, port int) (net.Listener, error) {
