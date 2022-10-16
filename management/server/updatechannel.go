@@ -71,6 +71,7 @@ func (p *PeersUpdateManager) CloseChannel(peerKey string) {
 	log.Debugf("closed updates channel of a peer %s", peerKey)
 }
 
+// GetAllConnectedPeers returns a copy of the connected peers map
 func (p *PeersUpdateManager) GetAllConnectedPeers() map[string]struct{} {
 	p.channelsMux.Lock()
 	defer p.channelsMux.Unlock()

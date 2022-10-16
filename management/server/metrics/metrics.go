@@ -31,7 +31,7 @@ type getTokenResponse struct {
 
 type pushPayload struct {
 	APIKey     string     `json:"api_key"`
-	DistinctId string     `json:"distinct_id"`
+	DistinctID string     `json:"distinct_id"`
 	Event      string     `json:"event"`
 	Properties properties `json:"properties"`
 	Timestamp  time.Time  `json:"timestamp"`
@@ -140,7 +140,7 @@ func (w *Worker) generatePayload(apiKey string) pushPayload {
 
 	return pushPayload{
 		APIKey:     apiKey,
-		DistinctId: w.id,
+		DistinctID: w.id,
 		Event:      PayloadEvent,
 		Properties: properties,
 		Timestamp:  time.Now(),
