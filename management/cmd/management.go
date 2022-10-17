@@ -121,8 +121,8 @@ var (
 				}
 			}
 
-			singleAccountMode := true
-			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, singleAccountMode)
+			singleAccountModeDomain := "netbird.selfhosted"
+			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, singleAccountModeDomain)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}

@@ -493,7 +493,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	peersUpdateManager := server.NewPeersUpdateManager()
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, false)
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "")
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}

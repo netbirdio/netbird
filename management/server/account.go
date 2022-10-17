@@ -111,6 +111,8 @@ type DefaultAccountManager struct {
 	// If true, then every new user will end up under the same account.
 	// This value will be set to false if management service has more than one account.
 	singleAccountMode bool
+	// singleAccountModeDomain is a domain to use in singleAccountMode setup
+	singleAccountModeDomain string
 }
 
 // Account represents a unique account of the system
@@ -201,7 +203,7 @@ func (a *Account) GetGroupAll() (*Group, error) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountMode bool) (*DefaultAccountManager, error) {
+	singleAccountModeDomain string) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
@@ -213,8 +215,9 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
-	am.singleAccountMode = singleAccountMode && len(allAccounts) <= 1
+	am.singleAccountMode = singleAccountModeDomain != "" && len(allAccounts) <= 1
 	if am.singleAccountMode {
+		am.singleAccountModeDomain = singleAccountModeDomain
 		log.Infof("single account mode enabled")
 	}
 
@@ -614,6 +617,13 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 
 // GetAccountFromToken returns an account associated with this token
 func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+
+	if am.singleAccountMode && am.singleAccountModeDomain != "" {
+		claims.Domain = am.singleAccountModeDomain
+		claims.DomainCategory = PrivateCategory
+		log.Infof("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
+	}
+
 	account, err := am.getAccountWithAuthorizationClaims(claims)
 	if err != nil {
 		return nil, err
