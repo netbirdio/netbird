@@ -121,7 +121,8 @@ var (
 				}
 			}
 
-			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager)
+			singleAccountMode := true
+			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, singleAccountMode)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}

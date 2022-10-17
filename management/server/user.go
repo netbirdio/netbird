@@ -228,10 +228,42 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 	return newUser.toUserInfo(nil)
 }
 
+func (am *DefaultAccountManager) getOrCreateAccountByUserSingleMode(userId, domain string) (*Account, error) {
+	accounts := am.Store.GetAllAccounts()
+	var account *Account
+	var err error
+	if len(accounts) > 1 {
+		return nil, fmt.Errorf("single account mode with multiple accounts")
+	}
+	if len(accounts) == 1 {
+		account = accounts[0]
+		account.Users[userId] = NewRegularUser(userId)
+		err = am.Store.SaveAccount(account)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed updating account with domain")
+		}
+	} else {
+		account, err = am.newAccount(userId, strings.ToLower(domain))
+		if err != nil {
+			return nil, err
+		}
+		err = am.Store.SaveAccount(account)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed creating account")
+		}
+	}
+	return account, err
+
+}
+
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
 func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string) (*Account, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
+
+	if am.singleAccountMode {
+		return am.getOrCreateAccountByUserSingleMode(userId, domain)
+	}
 
 	lowerDomain := strings.ToLower(domain)
 

@@ -106,6 +106,11 @@ type DefaultAccountManager struct {
 	idpManager         idp.Manager
 	cacheManager       cache.CacheInterface[[]*idp.UserData]
 	ctx                context.Context
+
+	// singleAccountMode indicates whether the instance has a single account.
+	// If true, then every new user will end up under the same account.
+	// This value will be set to false if management service has more than one account.
+	singleAccountMode bool
 }
 
 // Account represents a unique account of the system
@@ -195,9 +200,8 @@ func (a *Account) GetGroupAll() (*Group, error) {
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
-func BuildManager(
-	store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-) (*DefaultAccountManager, error) {
+func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
+	singleAccountMode bool) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
@@ -207,11 +211,17 @@ func BuildManager(
 		cacheMux:           sync.Mutex{},
 		cacheLoading:       map[string]chan struct{}{},
 	}
+	allAccounts := store.GetAllAccounts()
+	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
+	am.singleAccountMode = singleAccountMode && len(allAccounts) <= 1
+	if am.singleAccountMode {
+		log.Infof("single account mode enabled")
+	}
 
-	// if account has not default group
+	// if account doesn't have a default group
 	// we create 'all' group and add all peers into it
 	// also we create default rule with source as destination
-	for _, account := range store.GetAllAccounts() {
+	for _, account := range allAccounts {
 		_, err := account.GetGroupAll()
 		if err != nil {
 			addAllGroup(account)
@@ -221,10 +231,10 @@ func BuildManager(
 		}
 	}
 
-	gocacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
-	gocacheStore := cacheStore.NewGoCache(gocacheClient)
+	goCacheClient := gocache.New(CacheExpirationMax, 30*time.Minute)
+	goCacheStore := cacheStore.NewGoCache(goCacheClient)
 
-	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](gocacheStore))
+	am.cacheManager = cache.NewLoadable[[]*idp.UserData](am.loadAccount, cache.New[[]*idp.UserData](goCacheStore))
 
 	if !isNil(am.idpManager) {
 		go func() {
