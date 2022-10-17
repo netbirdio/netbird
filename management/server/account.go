@@ -619,6 +619,8 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error) {
 
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
+		// This section is mostly related to self-hosted installations.
+		// We override incoming domain claims to group users under a single account.
 		claims.Domain = am.singleAccountModeDomain
 		claims.DomainCategory = PrivateCategory
 		log.Infof("overriding JWT Domain and DomainCategory claims since single account mode is enabled")
