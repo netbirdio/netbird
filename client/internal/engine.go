@@ -2,14 +2,12 @@ package internal
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/rand"
 	"net"
 	"net/netip"
 	"reflect"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,7 +28,6 @@ import (
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
 	"github.com/pion/ice/v2"
-	"github.com/pion/stun"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
@@ -946,18 +943,10 @@ func (e* Engine) parseNATExternalIPMappings() []string {
 			}
 		}
 		external = split[0]
-		if external == "stun" {
-			externalIP, err = e.findNATExternalIPFromSTUN(internalIP)
-			if err != nil {
-				log.Warnf("error finding external IP via stun, ignoring external IP mapping '%s': %v", mapping, err)
-				break
-			}
-		} else {
-			externalIP = net.ParseIP(external)
-			if externalIP == nil {
-				log.Warnf("invalid external IP, ignoring external IP mapping '%s'", mapping)
-				break
-			}
+		externalIP = net.ParseIP(external)
+		if externalIP == nil {
+			log.Warnf("invalid external IP, ignoring external IP mapping '%s'", mapping)
+			break
 		}
 		if externalIP != nil {
 			mappedIP := externalIP.String()
@@ -969,53 +958,6 @@ func (e* Engine) parseNATExternalIPMappings() []string {
 		}
 	}
 	return mappedIPs
-}
-
-func (e *Engine) findNATExternalIPFromSTUN(internalIP net.IP) (net.IP, error) {
-	if len(e.STUNs) < 1 {
-		return nil, errors.New("no STUN servers available for external IP discovery")
-	}
-
-	// What about auth?
-	url := e.STUNs[0]
-	addr :=  net.JoinHostPort(url.Host, strconv.Itoa(url.Port))
-
-	d := net.Dialer{}
-	if internalIP != nil {
-		d.LocalAddr = &net.UDPAddr{ IP: internalIP }
-	}
-	con, err := d.Dial("udp", addr)
-	if err != nil {
-		return nil, err
-	}
-	cli, err := stun.NewClient(con)
-	defer func() {
-		_ = cli.Close()
-	}()
-
-	req := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
-	var hErr *error
-	var hAddr *net.IP 
-	// call to Do method blocks until all handlers are called and have returned, no synchronization needed
-	if err := cli.Do(req, func(e stun.Event) {
-		if e.Error != nil {
-			hErr = &e.Error
-		} else {
-			var xorAddr = stun.XORMappedAddress{}
-			err = xorAddr.GetFrom(e.Message)
-			if err != nil {
-				hErr = &err
-			} else {
-				hAddr = &xorAddr.IP
-			}
-		}
-	}); err != nil {
-		return nil, err
-	}
-	if hErr != nil {
-		return nil, err 
-	}
-	return *hAddr, nil
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
