@@ -41,11 +41,12 @@ import (
 const ManagementLegacyPort = 33073
 
 var (
-	mgmtPort              int
-	mgmtLetsencryptDomain string
-	certFile              string
-	certKey               string
-	config                *server.Config
+	mgmtPort                int
+	mgmtLetsencryptDomain   string
+	mgmtSingleAccModeDomain string
+	certFile                string
+	certKey                 string
+	config                  *server.Config
 
 	kaep = keepalive.EnforcementPolicy{
 		MinTime:             15 * time.Second,
@@ -121,8 +122,10 @@ var (
 				}
 			}
 
-			singleAccountModeDomain := "netbird.selfhosted"
-			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, singleAccountModeDomain)
+			if disableSingleAccMode {
+				mgmtSingleAccModeDomain = ""
+			}
+			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}

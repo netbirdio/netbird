@@ -13,21 +13,23 @@ const (
 )
 
 var (
-	defaultMgmtConfigDir    string
-	defaultMgmtDataDir      string
-	defaultMgmtConfig       string
-	defaultLogDir           string
-	defaultLogFile          string
-	oldDefaultMgmtConfigDir string
-	oldDefaultMgmtDataDir   string
-	oldDefaultMgmtConfig    string
-	oldDefaultLogDir        string
-	oldDefaultLogFile       string
-	mgmtDataDir             string
-	mgmtConfig              string
-	logLevel                string
-	logFile                 string
-	disableMetrics          bool
+	defaultMgmtConfigDir       string
+	defaultMgmtDataDir         string
+	defaultMgmtConfig          string
+	defaultSingleAccModeDomain string
+	defaultLogDir              string
+	defaultLogFile             string
+	oldDefaultMgmtConfigDir    string
+	oldDefaultMgmtDataDir      string
+	oldDefaultMgmtConfig       string
+	oldDefaultLogDir           string
+	oldDefaultLogFile          string
+	mgmtDataDir                string
+	mgmtConfig                 string
+	logLevel                   string
+	logFile                    string
+	disableMetrics             bool
+	disableSingleAccMode       bool
 
 	rootCmd = &cobra.Command{
 		Use:   "netbird-mgmt",
@@ -48,6 +50,7 @@ func init() {
 	stopCh = make(chan int)
 
 	defaultMgmtDataDir = "/var/lib/netbird/"
+	defaultSingleAccModeDomain = "netbird.selfhosted"
 	defaultMgmtConfigDir = "/etc/netbird"
 	defaultLogDir = "/var/log/netbird"
 
@@ -65,6 +68,8 @@ func init() {
 	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
 	mgmtCmd.Flags().StringVar(&mgmtConfig, "config", defaultMgmtConfig, "Netbird config file location. Config params specified via command line (e.g. datadir) have a precedence over configuration from this file")
 	mgmtCmd.Flags().StringVar(&mgmtLetsencryptDomain, "letsencrypt-domain", "", "a domain to issue Let's Encrypt certificate for. Enables TLS using Let's Encrypt. Will fetch and renew certificate, and run the server with TLS")
+	mgmtCmd.Flags().StringVar(&mgmtSingleAccModeDomain, "single-account-mode-domain", defaultSingleAccModeDomain, "Enables single account mode. This means that all the users will be under the same account grouped by the specified domain. Enabled by default with the default domain "+defaultSingleAccModeDomain)
+	mgmtCmd.Flags().BoolVar(&disableSingleAccMode, "disable-single-account-mode", false, "If set to true, disables single account mode. The --single-account-mode-domain property will be ignored and every new user will have a separate NetBird account.")
 	mgmtCmd.Flags().StringVar(&certFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	mgmtCmd.Flags().StringVar(&certKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	mgmtCmd.Flags().BoolVar(&disableMetrics, "disable-anonymous-metrics", false, "disables push of anonymous usage metrics to NetBird")
