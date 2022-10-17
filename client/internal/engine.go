@@ -779,7 +779,6 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 		e.syncMsgMux.Lock()
 		conf := conn.GetConf()
 		conf.StunTurn = append(e.STUNs, e.TURNs...)
-		conf.NATExternalIPs = e.parseNATExternalIPMappings()
 		conn.UpdateConf(conf)
 		e.syncMsgMux.Unlock()
 
@@ -829,6 +828,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		UDPMuxSrflx:        e.udpMuxSrflx,
 		ProxyConfig:        proxyConfig,
 		LocalWgPort:        e.config.WgPort,
+		NATExternalIPs:		e.parseNATExternalIPMappings(),
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder)
