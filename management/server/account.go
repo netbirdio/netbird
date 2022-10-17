@@ -218,9 +218,9 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 	am.singleAccountMode = singleAccountModeDomain != "" && len(allAccounts) <= 1
 	if am.singleAccountMode {
 		am.singleAccountModeDomain = singleAccountModeDomain
-		log.Infof("single account mode enabled")
+		log.Infof("single account mode enabled, accounts number %d", len(allAccounts))
 	} else {
-		log.Infof("single account mode disabled")
+		log.Infof("single account mode disabled, accounts number %d", len(allAccounts))
 	}
 
 	// if account doesn't have a default group
