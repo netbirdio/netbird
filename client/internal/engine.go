@@ -925,16 +925,28 @@ func (e *Engine) receiveSignalEvents() {
 
 func (e* Engine) parseNATExternalIPMappings() []string {
 	var mappedIPs []string
+	var ignoredIFaces = make(map[string]interface{})
+	for _, iFace := range(e.config.IFaceBlackList) {
+		ignoredIFaces[iFace] = nil
+	}
 	for _, mapping := range e.config.NATExternalIPs {
 		var external, internal string
 		var externalIP, internalIP net.IP
 		var err error
 		split := strings.Split(mapping, "/")
+		if len(split) > 2 {
+			log.Warnf("ignoring invalid external mapping '%s', too many delimiters", mapping)
+			break
+		}
 		if len(split) > 1 {
 			internal = split[1]
 			internalIP = net.ParseIP(internal)
 			if internalIP == nil {
-				// not a properly formattted IP address, maybe it's interface name?
+				// not a properly formatted IP address, maybe it's interface name?
+				if _, present := ignoredIFaces[internal]; present {
+					log.Warnf("internal interface '%s' in blacklist, ignoring external mapping '%s'", internal, mapping)
+					break
+				}
 				internalIP, err = findIPFromInterfaceName(internal)
 				if err != nil {
 					log.Warnf("error finding interface IP for interface '%s', ignoring external mapping '%s': %v", internal, mapping, err)
