@@ -590,6 +590,11 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
 		// Our job is to just reload cache.
 		go func() {
+			// set  AppMetadata setting WTPendingInvite = false to indicate that it was redeemed
+			// it shouldn't be necessary since the IdP should redeem on login,
+			// but we make sure we do it if IdP is not capable of resetting teh flag.
+			_ = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTAccountID: account.Id, WTPendingInvite: false}) //nolint
+
 			_, err = am.refreshCache(account.Id)
 			if err != nil {
 				log.Warnf("failed reloading cache when redeeming user %s under account %s", userID, account.Id)
