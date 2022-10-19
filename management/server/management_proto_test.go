@@ -403,7 +403,7 @@ func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, erro
 		return nil, err
 	}
 	peersUpdateManager := NewPeersUpdateManager()
-	accountManager, err := BuildManager(store, peersUpdateManager, nil)
+	accountManager, err := BuildManager(store, peersUpdateManager, nil, "")
 	if err != nil {
 		return nil, err
 	}
