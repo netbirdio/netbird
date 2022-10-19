@@ -416,12 +416,13 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 }
 
 func buildCreateUserRequestPayload(email string, name string, accountID string) (string, error) {
+	invite := true
 	req := &createUserRequest{
 		Email: email,
 		Name:  name,
 		AppMeta: AppMetadata{
 			WTAccountID:     accountID,
-			WTPendingInvite: true,
+			WTPendingInvite: &invite,
 		},
 		Connection:  "Username-Password-Authentication",
 		Password:    GeneratePassword(8, 1, 1, 1),
@@ -556,7 +557,7 @@ func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
 	if err != nil {
 		return nil, err
 	}
-	reqURL := am.authIssuer + "/api/v2/users-by-email?email=" + email
+	reqURL := am.authIssuer + "/api/v2/users-by-email?email=" + url.QueryEscape(email)
 	body, err := doGetReq(am.httpClient, reqURL, jwtToken.AccessToken)
 	if err != nil {
 		return nil, err
@@ -698,7 +699,7 @@ func (am *Auth0Manager) downloadProfileExport(location string) (map[string][]*Us
 					Email: profile.Email,
 					AppMetadata: AppMetadata{
 						WTAccountID:     profile.AccountID,
-						WTPendingInvite: profile.PendingInvite,
+						WTPendingInvite: &profile.PendingInvite,
 					},
 				})
 		}
@@ -729,13 +730,12 @@ func doGetReq(client ManagerHTTPClient, url, accessToken string) ([]byte, error)
 			log.Errorf("error while closing body for url %s: %v", url, err)
 		}
 	}()
-	if res.StatusCode != 200 {
-		return nil, fmt.Errorf("unable to get %s, statusCode %d", url, res.StatusCode)
-	}
-
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, err
+	}
+	if res.StatusCode != 200 {
+		return nil, fmt.Errorf("unable to get %s, statusCode %d", url, res.StatusCode)
 	}
 	return body, nil
 }

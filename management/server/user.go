@@ -68,7 +68,7 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	}
 
 	userStatus := UserStatusActive
-	if userData.AppMetadata.WTPendingInvite {
+	if userData.AppMetadata.WTPendingInvite != nil && *userData.AppMetadata.WTPendingInvite {
 		userStatus = UserStatusInvited
 	}
 
