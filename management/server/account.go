@@ -600,7 +600,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 		return status.Errorf(codes.NotFound, "user %s not found in the IdP", userID)
 	}
 
-	if user.AppMetadata.WTPendingInvite {
+	if user.AppMetadata.WTPendingInvite != nil && *user.AppMetadata.WTPendingInvite {
 		log.Infof("redeeming invite for user %s account %s", userID, account.Id)
 		// User has already logged in, meaning that IdP should have set wt_pending_invite to false.
 		// Our job is to just reload cache.
