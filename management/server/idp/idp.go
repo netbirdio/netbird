@@ -51,7 +51,7 @@ type AppMetadata struct {
 	// WTAccountID is a NetBird (previously Wiretrustee) account id to update in the IDP
 	// maps to wt_account_id when json.marshal
 	WTAccountID     string `json:"wt_account_id,omitempty"`
-	WTPendingInvite *bool  `json:"wt_pending_invite"`
+	WTPendingInvite *bool  `json:"wt_pending_invite,omitempty"`
 }
 
 // JWTToken a JWT object that holds information of a token

@@ -18,12 +18,12 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/vishvananda/netlink v1.1.0
 	golang.org/x/crypto v0.0.0-20220513210258-46612604a0f9
-	golang.org/x/sys v0.0.0-20220622161953-175b2fd9d664
+	golang.org/x/sys v0.0.0-20220919091848-fb04ddd9f9c8
 	golang.zx2c4.com/wireguard v0.0.0-20211209221555-9c9e7e272434
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20211215182854-7a385b3431de
 	golang.zx2c4.com/wireguard/windows v0.5.1
 	google.golang.org/grpc v1.43.0
-	google.golang.org/protobuf v1.28.0
+	google.golang.org/protobuf v1.28.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
 )
 
@@ -39,9 +39,14 @@ require (
 	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
 	github.com/patrickmn/go-cache v2.1.0+incompatible
+	github.com/prometheus/client_golang v1.13.0
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.8.0
+	go.opentelemetry.io/otel v1.11.1
+	go.opentelemetry.io/otel/exporters/prometheus v0.33.0
+	go.opentelemetry.io/otel/metric v0.33.0
+	go.opentelemetry.io/otel/sdk/metric v0.33.0
 	golang.org/x/net v0.0.0-20220630215102-69896b714898
 	golang.org/x/term v0.0.0-20220526004731-065cf7ba2467
 )
@@ -65,11 +70,13 @@ require (
 	github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f // indirect
 	github.com/go-gl/gl v0.0.0-20210813123233-e4099ee2221f // indirect
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20211024062804-40e447a793be // indirect
+	github.com/go-logr/logr v1.2.3 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/godbus/dbus/v5 v5.0.4 // indirect
 	github.com/goki/freetype v0.0.0-20181231101311-fa8a33aabaff // indirect
-	github.com/google/go-cmp v0.5.7 // indirect
+	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/gopacket v1.1.19 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/josharian/native v0.0.0-20200817173448-b6b71def0850 // indirect
@@ -89,20 +96,21 @@ require (
 	github.com/pion/turn/v2 v2.0.8 // indirect
 	github.com/pion/udp v0.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/prometheus/client_golang v1.12.2 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
-	github.com/prometheus/common v0.33.0 // indirect
-	github.com/prometheus/procfs v0.7.3 // indirect
+	github.com/prometheus/common v0.37.0 // indirect
+	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/rogpeppe/go-internal v1.8.0 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/srwiley/oksvg v0.0.0-20200311192757-870daf9aa564 // indirect
 	github.com/srwiley/rasterx v0.0.0-20200120212402-85cb7272f5e9 // indirect
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
 	github.com/yuin/goldmark v1.4.1 // indirect
+	go.opentelemetry.io/otel/sdk v1.11.1 // indirect
+	go.opentelemetry.io/otel/trace v1.11.1 // indirect
 	golang.org/x/exp v0.0.0-20220518171630-0b5c67f07fdf // indirect
 	golang.org/x/image v0.0.0-20200430140353-33d19683fad8 // indirect
 	golang.org/x/mod v0.6.0-dev.0.20220106191415-9b9b3d81d5e3 // indirect
-	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c // indirect
+	golang.org/x/sync v0.0.0-20220601150217-0de741cfad7f // indirect
 	golang.org/x/text v0.3.8-0.20211105212822-18b340fc7af2 // indirect
 	golang.org/x/tools v0.1.10 // indirect
 	golang.org/x/xerrors v0.0.0-20220411194840-2f41105eb62f // indirect
