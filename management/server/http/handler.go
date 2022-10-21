@@ -97,7 +97,7 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 			if err != nil {
 				return err
 			}
-			err = metrics.AddHttpRequestResponseCounter(template, method)
+			err = metrics.AddHTTPRequestResponseCounter(template, method)
 			if err != nil {
 				return err
 			}

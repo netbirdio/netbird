@@ -55,9 +55,9 @@ type MetricsMiddleware struct {
 	httpResponseCounters map[string]syncint64.Counter
 }
 
-// AddHttpRequestResponseCounter adds a new meter for an HTTP endpoint and Method (GET, POST, etc)
+// AddHTTPRequestResponseCounter adds a new meter for an HTTP endpoint and Method (GET, POST, etc)
 // Creates one request counter and multiple response counters (one per http response status code).
-func (m *MetricsMiddleware) AddHttpRequestResponseCounter(endpoint string, method string) error {
+func (m *MetricsMiddleware) AddHTTPRequestResponseCounter(endpoint string, method string) error {
 	meterKey := getRequestCounterKey(endpoint, method)
 	httpReqCounter, err := m.meter.SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
 	if err != nil {
