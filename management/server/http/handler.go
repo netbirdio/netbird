@@ -5,6 +5,7 @@ import (
 	"github.com/gorilla/mux"
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"net/http"
@@ -27,12 +28,11 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 		authAudience,
 		accountManager.IsUserAdmin)
 
-	metrics, err := middleware.NewMetricsMiddleware(context.TODO())
+	rootRouter := mux.NewRouter()
+	metrics, err := middleware.NewMetricsMiddleware(context.Background())
 	if err != nil {
 		return nil, err
 	}
-	rootRouter := mux.NewRouter()
-	rootRouter.Handle("/metrics", promhttp.Handler())
 
 	apiHandler := rootRouter.PathPrefix("/api").Subrouter()
 	apiHandler.Use(metrics.Handler, corsMiddleware.Handler, jwtMiddleware.Handler, acMiddleware.Handler)
@@ -84,6 +84,31 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.PatchNameserverGroupHandler).Methods("PATCH", "OPTIONS")
 	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.GetNameserverGroupHandler).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.DeleteNameserverGroupHandler).Methods("DELETE", "OPTIONS")
+
+	err = apiHandler.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+		methods, err := route.GetMethods()
+		if err != nil {
+			return err
+		}
+		for _, method := range methods {
+			template, err := route.GetPathTemplate()
+			if err != nil {
+				return err
+			}
+			err = metrics.AddHttpRequestResponseMeter(template, method)
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	rootRouter.Handle("/metrics", promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{EnableOpenMetrics: true}))
 
 	return rootRouter, nil
 

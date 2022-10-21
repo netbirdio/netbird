@@ -4,15 +4,18 @@ import (
 	"context"
 	"fmt"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/prometheus"
+	metric2 "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/instrument"
 	"go.opentelemetry.io/otel/metric/instrument/syncint64"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"hash/fnv"
 	"net/http"
 	"reflect"
+	"strings"
 )
+
+const httpRequestCounterPrefix = "management.http.request.counter"
 
 // WrappedResponseWriter is a wrapper for http.ResponseWriter that allows the
 // written HTTP status code to be captured for metrics reporting or logging purposes.
@@ -41,9 +44,31 @@ func (rw *WrappedResponseWriter) WriteHeader(code int) {
 }
 
 type MetricsMiddleware struct {
-	httpRequestCounter  syncint64.Counter
-	httpResponseCounter syncint64.Counter
-	ctx                 context.Context
+	meter                metric2.Meter
+	ctx                  context.Context
+	httpRequestCounters  map[string]syncint64.Counter
+	httpResponseCounters map[string]syncint64.Counter
+}
+
+func (m *MetricsMiddleware) AddHttpRequestResponseMeter(endpoint string, method string) error {
+	meterKey := fmt.Sprintf("%s%s.%s", httpRequestCounterPrefix, strings.ReplaceAll(endpoint, "/", "."), method)
+	httpReqCounter, err := m.meter.SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
+	if err != nil {
+		return err
+	}
+	m.httpRequestCounters[meterKey] = httpReqCounter
+	respCodes := []int{200, 204, 400, 401, 403, 500, 502, 503}
+	for _, code := range respCodes {
+		meterKey := fmt.Sprintf("%s%s.%s.%d", httpRequestCounterPrefix,
+			strings.ReplaceAll(endpoint, "/", "."), method, code)
+		httpRespCounter, err := m.meter.SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
+		if err != nil {
+			return err
+		}
+		m.httpResponseCounters[meterKey] = httpRespCounter
+	}
+
+	return nil
 }
 
 func NewMetricsMiddleware(ctx context.Context) (*MetricsMiddleware, error) {
@@ -54,19 +79,13 @@ func NewMetricsMiddleware(ctx context.Context) (*MetricsMiddleware, error) {
 	pkg := reflect.TypeOf(MetricsMiddleware{}).PkgPath()
 	provider := metric.NewMeterProvider(metric.WithReader(exporter))
 	meter := provider.Meter(pkg)
-	httpRequestCounter, err := meter.SyncInt64().Counter("management.http.request.counter", instrument.WithUnit("1"))
-	if err != nil {
-		return nil, err
-	}
-	httpResponseCounter, err := meter.SyncInt64().Counter("management.http.response.counter", instrument.WithUnit("1"))
-	if err != nil {
-		return nil, err
-	}
 	log.Infof("metrics enabled for package %v", pkg)
 	return &MetricsMiddleware{
-			httpRequestCounter:  httpRequestCounter,
-			httpResponseCounter: httpResponseCounter,
-			ctx:                 ctx},
+			ctx:                  ctx,
+			httpRequestCounters:  map[string]syncint64.Counter{},
+			httpResponseCounters: map[string]syncint64.Counter{},
+			meter:                meter,
+		},
 		nil
 }
 
@@ -74,18 +93,28 @@ func (m *MetricsMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		traceID := hash(fmt.Sprintf("%v", r))
 		log.Tracef("HTTP request %v: %v %v", traceID, r.Method, r.URL)
-		m.httpRequestCounter.Add(m.ctx, 1,
-			attribute.String("method", r.Method),
-			attribute.String("endpoint", r.URL.Path))
+
+		metricKey := fmt.Sprintf("%s%s.%s", httpRequestCounterPrefix, strings.ReplaceAll(r.URL.Path, "/", "."), r.Method)
+
+		if c, ok := m.httpRequestCounters[metricKey]; ok {
+			c.Add(m.ctx, 1)
+		}
+
 		w := WrapResponseWriter(rw)
 
 		h.ServeHTTP(w, r)
 
-		log.Tracef("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
-		m.httpResponseCounter.Add(m.ctx, 1,
-			attribute.String("method", r.Method),
-			attribute.Int("status", w.Status()),
-			attribute.String("endpoint", r.URL.Path))
+		if !(w.Status() >= 200 || w.Status() < 300) {
+			log.Errorf("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
+		} else {
+			log.Tracef("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
+		}
+
+		metricKey = fmt.Sprintf("%s%s.%s.%d", httpRequestCounterPrefix,
+			strings.ReplaceAll(r.URL.Path, "/", "."), r.Method, w.Status())
+		if c, ok := m.httpResponseCounters[metricKey]; ok {
+			c.Add(m.ctx, 1)
+		}
 	}
 
 	return http.HandlerFunc(fn)
