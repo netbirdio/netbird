@@ -163,7 +163,7 @@ var (
 				tlsEnabled = true
 			}
 
-			metricsListener, err := net.Listen("tcp4", fmt.Sprintf("localhost:%d", mgmtMetricsPort))
+			metricsListener, err := net.Listen("tcp4", fmt.Sprintf(":%d", mgmtMetricsPort))
 			if err != nil {
 				return err
 			}
