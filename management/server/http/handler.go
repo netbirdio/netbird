@@ -8,11 +8,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
+	"go.opentelemetry.io/otel/metric"
 	"net/http"
 )
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience string, authKeysLocation string) (http.Handler, error) {
+func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience string, authKeysLocation string,
+	meter metric.Meter) (http.Handler, error) {
 	jwtMiddleware, err := middleware.NewJwtMiddleware(
 		authIssuer,
 		authAudience,
@@ -29,7 +31,7 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 		accountManager.IsUserAdmin)
 
 	rootRouter := mux.NewRouter()
-	metrics, err := middleware.NewMetricsMiddleware(context.Background())
+	metrics, err := middleware.NewMetricsMiddleware(context.Background(), meter)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +97,7 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 			if err != nil {
 				return err
 			}
-			err = metrics.AddHttpRequestResponseMeter(template, method)
+			err = metrics.AddHttpRequestResponseCounter(template, method)
 			if err != nil {
 				return err
 			}

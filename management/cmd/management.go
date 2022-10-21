@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/metrics"
+	"go.opentelemetry.io/otel/exporters/prometheus"
+	"go.opentelemetry.io/otel/sdk/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -20,6 +22,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"reflect"
 	"strings"
 	"time"
 
@@ -155,8 +158,18 @@ var (
 				tlsEnabled = true
 			}
 
+			// todo move
+			exporter, err := prometheus.New()
+			if err != nil {
+				return err
+			}
+			pkg := reflect.TypeOf(ManagementLegacyPort).PkgPath()
+			provider := metric.NewMeterProvider(metric.WithReader(exporter))
+			meter := provider.Meter(pkg)
+			log.Infof("metrics enabled for package %v", pkg)
+
 			httpAPIHandler, err := httpapi.APIHandler(accountManager,
-				config.HttpConfig.AuthIssuer, config.HttpConfig.AuthAudience, config.HttpConfig.AuthKeysLocation)
+				config.HttpConfig.AuthIssuer, config.HttpConfig.AuthAudience, config.HttpConfig.AuthKeysLocation, meter)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}

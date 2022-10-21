@@ -4,14 +4,11 @@ import (
 	"context"
 	"fmt"
 	log "github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel/exporters/prometheus"
 	metric2 "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/instrument"
 	"go.opentelemetry.io/otel/metric/instrument/syncint64"
-	"go.opentelemetry.io/otel/sdk/metric"
 	"hash/fnv"
 	"net/http"
-	"reflect"
 	"strings"
 )
 
@@ -28,14 +25,17 @@ type WrappedResponseWriter struct {
 	wroteHeader bool
 }
 
+// WrapResponseWriter wraps original http.ResponseWriter
 func WrapResponseWriter(w http.ResponseWriter) *WrappedResponseWriter {
 	return &WrappedResponseWriter{ResponseWriter: w}
 }
 
+// Status returns response status
 func (rw *WrappedResponseWriter) Status() int {
 	return rw.status
 }
 
+// WriteHeader wraps http.ResponseWriter.WriteHeader method
 func (rw *WrappedResponseWriter) WriteHeader(code int) {
 	if rw.wroteHeader {
 		return
@@ -46,6 +46,8 @@ func (rw *WrappedResponseWriter) WriteHeader(code int) {
 	rw.wroteHeader = true
 }
 
+// MetricsMiddleware handler used to collect metrics of every request/response coming to the API.
+// Also adds request tracing (logging).
 type MetricsMiddleware struct {
 	meter                metric2.Meter
 	ctx                  context.Context
@@ -53,7 +55,9 @@ type MetricsMiddleware struct {
 	httpResponseCounters map[string]syncint64.Counter
 }
 
-func (m *MetricsMiddleware) AddHttpRequestResponseMeter(endpoint string, method string) error {
+// AddHttpRequestResponseCounter adds a new meter for an HTTP endpoint and Method (GET, POST, etc)
+// Creates one request counter and multiple response counters (one per http response status code).
+func (m *MetricsMiddleware) AddHttpRequestResponseCounter(endpoint string, method string) error {
 	meterKey := getRequestCounterKey(endpoint, method)
 	httpReqCounter, err := m.meter.SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
 	if err != nil {
@@ -73,15 +77,8 @@ func (m *MetricsMiddleware) AddHttpRequestResponseMeter(endpoint string, method 
 	return nil
 }
 
-func NewMetricsMiddleware(ctx context.Context) (*MetricsMiddleware, error) {
-	exporter, err := prometheus.New()
-	if err != nil {
-		return nil, err
-	}
-	pkg := reflect.TypeOf(MetricsMiddleware{}).PkgPath()
-	provider := metric.NewMeterProvider(metric.WithReader(exporter))
-	meter := provider.Meter(pkg)
-	log.Infof("metrics enabled for package %v", pkg)
+// NewMetricsMiddleware creates a new MetricsMiddleware
+func NewMetricsMiddleware(ctx context.Context, meter metric2.Meter) (*MetricsMiddleware, error) {
 	return &MetricsMiddleware{
 			ctx:                  ctx,
 			httpRequestCounters:  map[string]syncint64.Counter{},
@@ -101,6 +98,7 @@ func getResponseCounterKey(endpoint, method string, status int) string {
 		strings.ReplaceAll(endpoint, "/", "_"), method, status)
 }
 
+// Handler logs every request and response and adds the, to metrics.
 func (m *MetricsMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		traceID := hash(fmt.Sprintf("%v", r))
