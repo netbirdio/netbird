@@ -8,9 +8,13 @@ import (
 	"flag"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/metrics"
+	prometheus2 "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel/exporters/prometheus"
+	metric2 "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
@@ -45,6 +49,7 @@ const ManagementLegacyPort = 33073
 
 var (
 	mgmtPort                int
+	mgmtMetricsPort         int
 	mgmtLetsencryptDomain   string
 	mgmtSingleAccModeDomain string
 	certFile                string
@@ -158,15 +163,14 @@ var (
 				tlsEnabled = true
 			}
 
-			// todo move
-			exporter, err := prometheus.New()
+			metricsListener, err := net.Listen("tcp4", fmt.Sprintf("localhost:%d", mgmtMetricsPort))
 			if err != nil {
 				return err
 			}
-			pkg := reflect.TypeOf(ManagementLegacyPort).PkgPath()
-			provider := metric.NewMeterProvider(metric.WithReader(exporter))
-			meter := provider.Meter(pkg)
-			log.Infof("metrics enabled for package %v", pkg)
+			meter, err := exposeMetrics(metricsListener)
+			if err != nil {
+				return err
+			}
 
 			httpAPIHandler, err := httpapi.APIHandler(accountManager,
 				config.HttpConfig.AuthIssuer, config.HttpConfig.AuthAudience, config.HttpConfig.AuthKeysLocation, meter)
@@ -242,6 +246,7 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
+			_ = metricsListener.Close()
 			_ = listener.Close()
 			if certManager != nil {
 				_ = certManager.Listener().Close()
@@ -253,6 +258,29 @@ var (
 		},
 	}
 )
+
+func exposeMetrics(lis net.Listener) (metric2.Meter, error) {
+	exporter, err := prometheus.New()
+	if err != nil {
+		return nil, err
+	}
+	pkg := reflect.TypeOf(ManagementLegacyPort).PkgPath()
+	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	meter := provider.Meter(pkg)
+	rootRouter := mux.NewRouter()
+	rootRouter.Handle("/metrics", promhttp.HandlerFor(
+		prometheus2.DefaultGatherer,
+		promhttp.HandlerOpts{EnableOpenMetrics: true}))
+
+	go func() {
+		err := http.Serve(lis, rootRouter)
+		if err != nil {
+			return
+		}
+	}()
+	log.Infof("metrics enabled for package %v and listening on %s", pkg, lis.Addr().String())
+	return meter, nil
+}
 
 func notifyStop(msg string) {
 	select {

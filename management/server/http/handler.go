@@ -5,8 +5,6 @@ import (
 	"github.com/gorilla/mux"
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/cors"
 	"go.opentelemetry.io/otel/metric"
 	"net/http"
@@ -107,10 +105,6 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	if err != nil {
 		return nil, err
 	}
-
-	rootRouter.Handle("/metrics", promhttp.HandlerFor(
-		prometheus.DefaultGatherer,
-		promhttp.HandlerOpts{EnableOpenMetrics: true}))
 
 	return rootRouter, nil
 
