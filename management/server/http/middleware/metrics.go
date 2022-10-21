@@ -16,6 +16,7 @@ import (
 )
 
 const httpRequestCounterPrefix = "management.http.request.counter"
+const httpResponseCounterPrefix = "management.http.response.counter"
 
 // WrappedResponseWriter is a wrapper for http.ResponseWriter that allows the
 // written HTTP status code to be captured for metrics reporting or logging purposes.
@@ -59,7 +60,7 @@ func (m *MetricsMiddleware) AddHttpRequestResponseMeter(endpoint string, method 
 	m.httpRequestCounters[meterKey] = httpReqCounter
 	respCodes := []int{200, 204, 400, 401, 403, 500, 502, 503}
 	for _, code := range respCodes {
-		meterKey := fmt.Sprintf("%s%s.%s.%d", httpRequestCounterPrefix,
+		meterKey := fmt.Sprintf("%s%s.%s.%d", httpResponseCounterPrefix,
 			strings.ReplaceAll(endpoint, "/", "."), method, code)
 		httpRespCounter, err := m.meter.SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
 		if err != nil {
@@ -110,7 +111,7 @@ func (m *MetricsMiddleware) Handler(h http.Handler) http.Handler {
 			log.Tracef("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
 		}
 
-		metricKey = fmt.Sprintf("%s%s.%s.%d", httpRequestCounterPrefix,
+		metricKey = fmt.Sprintf("%s%s.%s.%d", httpResponseCounterPrefix,
 			strings.ReplaceAll(r.URL.Path, "/", "."), r.Method, w.Status())
 		if c, ok := m.httpResponseCounters[metricKey]; ok {
 			c.Add(m.ctx, 1)
