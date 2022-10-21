@@ -186,7 +186,7 @@ func (m *JWTMiddleware) CheckJWTFromRequest(w http.ResponseWriter, r *http.Reque
 
 	validatedToken, err := m.ValidateAndParse(token)
 	if err != nil {
-		m.Options.ErrorHandler(w, r, "The token isn't valid")
+		m.Options.ErrorHandler(w, r, err.Error())
 		return err
 	}
 
