@@ -106,10 +106,6 @@ func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, 
 func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.String(), "/metrics") {
-			h.ServeHTTP(w, r)
-			return
-		}
 		// Let secure process the request. If it returns an error,
 		// that indicates the request should not continue.
 		err := m.CheckJWTFromRequest(w, r)
@@ -190,7 +186,7 @@ func (m *JWTMiddleware) CheckJWTFromRequest(w http.ResponseWriter, r *http.Reque
 
 	validatedToken, err := m.ValidateAndParse(token)
 	if err != nil {
-		m.Options.ErrorHandler(w, r, "The token isn't valid")
+		m.Options.ErrorHandler(w, r, err.Error())
 		return err
 	}
 

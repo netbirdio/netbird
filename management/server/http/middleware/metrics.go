@@ -114,7 +114,7 @@ func (m *MetricsMiddleware) Handler(h http.Handler) http.Handler {
 
 		h.ServeHTTP(w, r)
 
-		if !(w.Status() >= 200 || w.Status() < 300) {
+		if w.Status() > 399 {
 			log.Errorf("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
 		} else {
 			log.Tracef("HTTP response %v: %v %v status %v", traceID, r.Method, r.URL, w.Status())
