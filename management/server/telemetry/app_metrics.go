@@ -24,6 +24,7 @@ type MockAppMetrics struct {
 	ExposeFunc         func(port int, endpoint string) error
 	IDPMetricsFunc     func() *IDPMetrics
 	HTTPMiddlewareFunc func() *HTTPMiddleware
+	GRPCMetricsFunc    func() *GRPCMetrics
 }
 
 // GetMeter mocks the GetMeter function of the AppMetrics interface
@@ -66,6 +67,14 @@ func (mock *MockAppMetrics) HTTPMiddleware() *HTTPMiddleware {
 	return nil
 }
 
+// GRPCMetrics mocks the GRPCMetrics function of the IDPMetrics interface
+func (mock *MockAppMetrics) GRPCMetrics() *GRPCMetrics {
+	if mock.GRPCMetricsFunc != nil {
+		return mock.GRPCMetricsFunc()
+	}
+	return nil
+}
+
 // AppMetrics is metrics interface
 type AppMetrics interface {
 	GetMeter() metric2.Meter
@@ -73,6 +82,7 @@ type AppMetrics interface {
 	Expose(port int, endpoint string) error
 	IDPMetrics() *IDPMetrics
 	HTTPMiddleware() *HTTPMiddleware
+	GRPCMetrics() *GRPCMetrics
 }
 
 // defaultAppMetrics are core application metrics based on OpenTelemetry https://opentelemetry.io/
@@ -83,6 +93,7 @@ type defaultAppMetrics struct {
 	ctx            context.Context
 	idpMetrics     *IDPMetrics
 	httpMiddleware *HTTPMiddleware
+	grpcMetrics    *GRPCMetrics
 }
 
 // IDPMetrics returns metrics for the idp package
@@ -93,6 +104,11 @@ func (appMetrics *defaultAppMetrics) IDPMetrics() *IDPMetrics {
 // HTTPMiddleware returns metrics for the http api package
 func (appMetrics *defaultAppMetrics) HTTPMiddleware() *HTTPMiddleware {
 	return appMetrics.httpMiddleware
+}
+
+// GRPCMetrics returns metrics for the gRPC api
+func (appMetrics *defaultAppMetrics) GRPCMetrics() *GRPCMetrics {
+	return appMetrics.grpcMetrics
 }
 
 // Close stop application metrics HTTP handler and closes listener.
@@ -155,6 +171,11 @@ func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
+	grpcMetrics, err := NewGRPCMetrics(ctx, meter)
+	if err != nil {
+		return nil, err
+	}
 
-	return &defaultAppMetrics{Meter: meter, ctx: ctx, idpMetrics: idpMetrics, httpMiddleware: middleware}, nil
+	return &defaultAppMetrics{Meter: meter, ctx: ctx, idpMetrics: idpMetrics, httpMiddleware: middleware,
+		grpcMetrics: grpcMetrics}, nil
 }
