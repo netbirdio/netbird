@@ -334,11 +334,13 @@ func (s *serviceClient) updateStatus() error {
 
 		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
 			systray.SetIcon(s.icConnected)
+			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
 			s.mDown.Enable()
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
 			systray.SetIcon(s.icDisconnected)
+			systray.SetTooltip("NetBird (Disconnected)")
 			s.mStatus.SetTitle("Disconnected")
 			s.mDown.Disable()
 			s.mUp.Enable()
@@ -363,6 +365,7 @@ func (s *serviceClient) updateStatus() error {
 
 func (s *serviceClient) onTrayReady() {
 	systray.SetIcon(s.icDisconnected)
+	systray.SetTooltip("NetBird")
 
 	// setup systray menu items
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
