@@ -65,6 +65,11 @@ NetBird creates an overlay peer-to-peer network connecting machines automaticall
 
 https://user-images.githubusercontent.com/700848/197345455-dbce1f41-4e85-4b4f-89f2-cbceedacde7d.mp4
 
+
+https://user-images.githubusercontent.com/700848/197345764-21fd80b5-69ee-4993-abe2-694e7b0f28ef.mp4
+
+
+
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. 
 For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).
 
