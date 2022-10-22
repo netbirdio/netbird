@@ -40,7 +40,8 @@ func (appMetrics *defaultAppMetrics) Close() error {
 	return appMetrics.listener.Close()
 }
 
-// Expose metrics on a given port and defaultEndpoint. If endpoint is empty a defaultEndpoint one will be used.
+// Expose metrics on a given port and endpoint. If endpoint is empty a defaultEndpoint one will be used.
+// Exposes metrics in the Prometheus format https://prometheus.io/
 func (appMetrics *defaultAppMetrics) Expose(port int, endpoint string) error {
 	if endpoint == "" {
 		endpoint = defaultEndpoint
