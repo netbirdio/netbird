@@ -1,5 +1,5 @@
 <p align="center">
- <strong>:hatching_chick: User Invites! </strong>.
+ <strong>:hatching_chick: New Release! User Invites.</strong>
   <a href="https://github.com/netbirdio/netbird/releases">
        Learn more
      </a>   
