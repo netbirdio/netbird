@@ -14,7 +14,7 @@ type IDPMetrics struct {
 	getAllAccountsCounter      syncint64.Counter
 	createUserCounter          syncint64.Counter
 	getAccountCounter          syncint64.Counter
-	getUserByIdCounter         syncint64.Counter
+	getUserByIDCounter         syncint64.Counter
 	authenticateRequestCounter syncint64.Counter
 	requestErrorCounter        syncint64.Counter
 	requestStatusErrorCounter  syncint64.Counter
@@ -43,7 +43,7 @@ func NewIDPMetrics(ctx context.Context, meter metric.Meter) (*IDPMetrics, error)
 	if err != nil {
 		return nil, err
 	}
-	getUserByIdCounter, err := meter.SyncInt64().Counter("management.idp.get.user.by.id.counter", instrument.WithUnit("1"))
+	getUserByIDCounter, err := meter.SyncInt64().Counter("management.idp.get.user.by.id.counter", instrument.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
@@ -59,13 +59,14 @@ func NewIDPMetrics(ctx context.Context, meter metric.Meter) (*IDPMetrics, error)
 	if err != nil {
 		return nil, err
 	}
+
 	return &IDPMetrics{
 		metaUpdateCounter:          metaUpdateCounter,
 		getUserByEmailCounter:      getUserByEmailCounter,
 		getAllAccountsCounter:      getAllAccountsCounter,
 		createUserCounter:          createUserCounter,
 		getAccountCounter:          getAccountCounter,
-		getUserByIdCounter:         getUserByIdCounter,
+		getUserByIDCounter:         getUserByIDCounter,
 		authenticateRequestCounter: authenticateRequestCounter,
 		requestErrorCounter:        requestErrorCounter,
 		requestStatusErrorCounter:  requestStatusErrorCounter,
@@ -99,7 +100,7 @@ func (idpMetrics *IDPMetrics) CountGetAccount() {
 
 // CountGetUserDataByID ...
 func (idpMetrics *IDPMetrics) CountGetUserDataByID() {
-	idpMetrics.getUserByIdCounter.Add(idpMetrics.ctx, 1)
+	idpMetrics.getUserByIDCounter.Add(idpMetrics.ctx, 1)
 }
 
 // CountAuthenticate ...
