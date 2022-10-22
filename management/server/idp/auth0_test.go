@@ -3,6 +3,7 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
@@ -475,7 +476,7 @@ func TestNewAuth0Manager(t *testing.T) {
 
 	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := NewAuth0Manager(testCase.inputConfig)
+			_, err := NewAuth0Manager(testCase.inputConfig, &telemetry.MockAppMetrics{})
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 		})
 	}

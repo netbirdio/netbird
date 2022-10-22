@@ -1,4 +1,4 @@
-package metrics
+package telemetry
 
 import (
 	"context"
@@ -17,19 +17,82 @@ import (
 
 const defaultEndpoint = "/metrics"
 
+// MockAppMetrics mocks the AppMetrics interface
+type MockAppMetrics struct {
+	GetMeterFunc       func() metric2.Meter
+	CloseFunc          func() error
+	ExposeFunc         func(port int, endpoint string) error
+	IDPMetricsFunc     func() *IDPMetrics
+	HTTPMiddlewareFunc func() *HTTPMiddleware
+}
+
+// GetMeter mocks the GetMeter function of the AppMetrics interface
+func (mock *MockAppMetrics) GetMeter() metric2.Meter {
+	if mock.GetMeterFunc != nil {
+		return mock.GetMeterFunc()
+	}
+	return nil
+}
+
+// Close mocks the Close function of the AppMetrics interface
+func (mock *MockAppMetrics) Close() error {
+	if mock.CloseFunc != nil {
+		return mock.CloseFunc()
+	}
+	return fmt.Errorf("unimplemented")
+}
+
+// Expose mocks the Expose function of the AppMetrics interface
+func (mock *MockAppMetrics) Expose(port int, endpoint string) error {
+	if mock.ExposeFunc != nil {
+		return mock.ExposeFunc(port, endpoint)
+	}
+	return fmt.Errorf("unimplemented")
+}
+
+// IDPMetrics mocks the IDPMetrics function of the IDPMetrics interface
+func (mock *MockAppMetrics) IDPMetrics() *IDPMetrics {
+	if mock.IDPMetricsFunc != nil {
+		return mock.IDPMetricsFunc()
+	}
+	return nil
+}
+
+// HTTPMiddleware mocks the HTTPMiddleware function of the IDPMetrics interface
+func (mock *MockAppMetrics) HTTPMiddleware() *HTTPMiddleware {
+	if mock.HTTPMiddlewareFunc != nil {
+		return mock.HTTPMiddlewareFunc()
+	}
+	return nil
+}
+
 // AppMetrics is metrics interface
 type AppMetrics interface {
 	GetMeter() metric2.Meter
 	Close() error
 	Expose(port int, endpoint string) error
+	IDPMetrics() *IDPMetrics
+	HTTPMiddleware() *HTTPMiddleware
 }
 
 // defaultAppMetrics are core application metrics based on OpenTelemetry https://opentelemetry.io/
 type defaultAppMetrics struct {
 	// Meter can be used by different application parts to create counters and measure things
-	Meter    metric2.Meter
-	listener net.Listener
-	ctx      context.Context
+	Meter          metric2.Meter
+	listener       net.Listener
+	ctx            context.Context
+	idpMetrics     *IDPMetrics
+	httpMiddleware *HTTPMiddleware
+}
+
+// IDPMetrics returns metrics for the idp package
+func (appMetrics *defaultAppMetrics) IDPMetrics() *IDPMetrics {
+	return appMetrics.idpMetrics
+}
+
+// HTTPMiddleware returns metrics for the http api package
+func (appMetrics *defaultAppMetrics) HTTPMiddleware() *HTTPMiddleware {
+	return appMetrics.httpMiddleware
 }
 
 // Close stop application metrics HTTP handler and closes listener.
@@ -83,5 +146,15 @@ func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
 	pkg := reflect.TypeOf(defaultEndpoint).PkgPath()
 	meter := provider.Meter(pkg)
 
-	return &defaultAppMetrics{Meter: meter, ctx: ctx}, nil
+	idpMetrics, err := NewIDPMetrics(ctx, meter)
+	if err != nil {
+		return nil, err
+	}
+
+	middleware, err := NewMetricsMiddleware(ctx, meter)
+	if err != nil {
+		return nil, err
+	}
+
+	return &defaultAppMetrics{Meter: meter, ctx: ctx, idpMetrics: idpMetrics, httpMiddleware: middleware}, nil
 }
