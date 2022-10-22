@@ -5,14 +5,14 @@ import (
 	"github.com/gorilla/mux"
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/rs/cors"
-	"go.opentelemetry.io/otel/metric"
 	"net/http"
 )
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience string, authKeysLocation string,
-	meter metric.Meter) (http.Handler, error) {
+func APIHandler(ctx context.Context, accountManager s.AccountManager, authIssuer string, authAudience string, authKeysLocation string,
+	appMetrics *metrics.AppMetrics) (http.Handler, error) {
 	jwtMiddleware, err := middleware.NewJwtMiddleware(
 		authIssuer,
 		authAudience,
@@ -29,13 +29,13 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 		accountManager.IsUserAdmin)
 
 	rootRouter := mux.NewRouter()
-	metrics, err := middleware.NewMetricsMiddleware(context.Background(), meter)
+	metricsMiddleware, err := metrics.NewMetricsMiddleware(ctx, appMetrics)
 	if err != nil {
 		return nil, err
 	}
 
 	apiHandler := rootRouter.PathPrefix("/api").Subrouter()
-	apiHandler.Use(metrics.Handler, corsMiddleware.Handler, jwtMiddleware.Handler, acMiddleware.Handler)
+	apiHandler.Use(metricsMiddleware.Handler, corsMiddleware.Handler, jwtMiddleware.Handler, acMiddleware.Handler)
 
 	groupsHandler := NewGroups(accountManager, authAudience)
 	rulesHandler := NewRules(accountManager, authAudience)
@@ -95,7 +95,7 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 			if err != nil {
 				return err
 			}
-			err = metrics.AddHTTPRequestResponseCounter(template, method)
+			err = metricsMiddleware.AddHTTPRequestResponseCounter(template, method)
 			if err != nil {
 				return err
 			}
