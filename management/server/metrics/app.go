@@ -49,7 +49,7 @@ func CreateAppMetrics(ctx context.Context, port int) (*AppMetrics, error) {
 		prometheus2.DefaultGatherer,
 		promhttp.HandlerOpts{EnableOpenMetrics: true}))
 
-	appMetrics := &AppMetrics{Meter: meter, listener: listener}
+	appMetrics := &AppMetrics{Meter: meter, listener: listener, ctx: ctx}
 
 	go func() {
 		err := http.Serve(listener, rootRouter)
@@ -60,7 +60,7 @@ func CreateAppMetrics(ctx context.Context, port int) (*AppMetrics, error) {
 	log.Infof("metrics enabled for package %v and listening on %s", pkg, listener.Addr().String())
 
 	go func() {
-		<-ctx.Done()
+		<-appMetrics.ctx.Done()
 		_ = appMetrics.Close() //nolint
 	}()
 
