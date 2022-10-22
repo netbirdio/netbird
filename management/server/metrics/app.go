@@ -15,7 +15,7 @@ import (
 	"reflect"
 )
 
-const Endpoint = "/metrics"
+const endpoint = "/metrics"
 
 // AppMetrics is core application metrics based on OpenTelemetry https://opentelemetry.io/
 type AppMetrics struct {
@@ -30,7 +30,7 @@ func (appMetrics *AppMetrics) Close() error {
 	return appMetrics.listener.Close()
 }
 
-// CreateAppMetrics and expose them via Endpoint on a given HTTP port
+// CreateAppMetrics and expose them via endpoint on a given HTTP port
 // The metrics are exposed in openmetrics Prometheus format https://prometheus.io/
 func CreateAppMetrics(ctx context.Context, port int) (*AppMetrics, error) {
 	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", port))
@@ -41,7 +41,7 @@ func CreateAppMetrics(ctx context.Context, port int) (*AppMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	pkg := reflect.TypeOf(Endpoint).PkgPath()
+	pkg := reflect.TypeOf(endpoint).PkgPath()
 	provider := metric.NewMeterProvider(metric.WithReader(exporter))
 	meter := provider.Meter(pkg)
 	rootRouter := mux.NewRouter()
