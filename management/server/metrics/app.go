@@ -47,7 +47,7 @@ func (appMetrics *defaultAppMetrics) Expose(port int, endpoint string) error {
 		endpoint = defaultEndpoint
 	}
 	rootRouter := mux.NewRouter()
-	rootRouter.Handle("/metrics", promhttp.HandlerFor(
+	rootRouter.Handle(endpoint, promhttp.HandlerFor(
 		prometheus2.DefaultGatherer,
 		promhttp.HandlerOpts{EnableOpenMetrics: true}))
 	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", port))
