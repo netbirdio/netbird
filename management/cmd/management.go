@@ -8,14 +8,8 @@ import (
 	"flag"
 	"fmt"
 	"github.com/google/uuid"
-	"github.com/gorilla/mux"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/metrics"
-	prometheus2 "github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"go.opentelemetry.io/otel/exporters/prometheus"
-	metric2 "go.opentelemetry.io/otel/metric"
-	"go.opentelemetry.io/otel/sdk/metric"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -26,7 +20,6 @@ import (
 	"net/url"
 	"os"
 	"path"
-	"reflect"
 	"strings"
 	"time"
 
@@ -162,18 +155,17 @@ var (
 				gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
 				tlsEnabled = true
 			}
-
-			metricsListener, err := net.Listen("tcp4", fmt.Sprintf(":%d", mgmtMetricsPort))
+			appMetrics, err := metrics.NewDefaultAppMetrics(cmd.Context())
 			if err != nil {
 				return err
 			}
-			meter, err := exposeMetrics(metricsListener)
+			err = appMetrics.Expose(mgmtMetricsPort, "/metrics")
 			if err != nil {
 				return err
 			}
 
-			httpAPIHandler, err := httpapi.APIHandler(accountManager,
-				config.HttpConfig.AuthIssuer, config.HttpConfig.AuthAudience, config.HttpConfig.AuthKeysLocation, meter)
+			httpAPIHandler, err := httpapi.APIHandler(cmd.Context(), accountManager, config.HttpConfig.AuthIssuer,
+				config.HttpConfig.AuthAudience, config.HttpConfig.AuthKeysLocation, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
@@ -246,7 +238,7 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
-			_ = metricsListener.Close()
+			_ = appMetrics.Close()
 			_ = listener.Close()
 			if certManager != nil {
 				_ = certManager.Listener().Close()
@@ -258,29 +250,6 @@ var (
 		},
 	}
 )
-
-func exposeMetrics(lis net.Listener) (metric2.Meter, error) {
-	exporter, err := prometheus.New()
-	if err != nil {
-		return nil, err
-	}
-	pkg := reflect.TypeOf(ManagementLegacyPort).PkgPath()
-	provider := metric.NewMeterProvider(metric.WithReader(exporter))
-	meter := provider.Meter(pkg)
-	rootRouter := mux.NewRouter()
-	rootRouter.Handle("/metrics", promhttp.HandlerFor(
-		prometheus2.DefaultGatherer,
-		promhttp.HandlerOpts{EnableOpenMetrics: true}))
-
-	go func() {
-		err := http.Serve(lis, rootRouter)
-		if err != nil {
-			return
-		}
-	}()
-	log.Infof("metrics enabled for package %v and listening on %s", pkg, lis.Addr().String())
-	return meter, nil
-}
 
 func notifyStop(msg string) {
 	select {
@@ -472,7 +441,7 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 		return nil, err
 	}
 
-	// Create the credentials and return it
+	// NewDefaultAppMetrics the credentials and return it
 	config := &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
 		ClientAuth:   tls.NoClientCert,

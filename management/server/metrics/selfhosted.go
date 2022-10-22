@@ -17,7 +17,7 @@ import (
 const (
 	// PayloadEvent identifies an event type
 	PayloadEvent = "self-hosted stats"
-	// payloadEndpoint metrics endpoint to send anonymous data
+	// payloadEndpoint metrics defaultEndpoint to send anonymous data
 	payloadEndpoint = "https://metrics.netbird.io"
 	// defaultPushInterval default interval to push metrics
 	defaultPushInterval = 24 * time.Hour
