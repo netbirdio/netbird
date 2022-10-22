@@ -1,6 +1,6 @@
 <p align="center">
- <strong>:hatching_chick: New release! NetBird Easy SSH</strong>.
-  <a href="https://github.com/netbirdio/netbird/releases/tag/v0.8.0">
+ <strong>:hatching_chick: User Invites! </strong>.
+  <a href="https://github.com/netbirdio/netbird/releases">
        Learn more
      </a>   
 </p>
