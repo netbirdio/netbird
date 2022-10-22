@@ -78,6 +78,9 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 
 func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
 	// todo introduce something more meaningful with the key expiration/rotation
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountGetKeyRequest()
+	}
 	now := time.Now().Add(24 * time.Hour)
 	secs := int64(now.Second())
 	nanos := int32(now.Nanosecond())
@@ -92,6 +95,9 @@ func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountSyncRequest()
+	}
 	p, ok := gRPCPeer.FromContext(srv.Context())
 	if ok {
 		log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
@@ -271,6 +277,9 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountLoginRequest()
+	}
 	p, ok := gRPCPeer.FromContext(ctx)
 	if ok {
 		log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())

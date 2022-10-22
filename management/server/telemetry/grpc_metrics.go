@@ -48,14 +48,29 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 	}, err
 }
 
+// CountSyncRequest counts the number of gRPC sync requests coming to the gRPC API
+func (grpcMetrics *GRPCMetrics) CountSyncRequest() {
+	grpcMetrics.syncRequestsCounter.Add(grpcMetrics.ctx, 1)
+}
+
+// CountGetKeyRequest counts the number of gRPC get server key requests coming to the gRPC API
+func (grpcMetrics *GRPCMetrics) CountGetKeyRequest() {
+	grpcMetrics.getKeyRequestsCounter.Add(grpcMetrics.ctx, 1)
+}
+
+// CountLoginRequest counts the number of gRPC login requests coming to the gRPC API
+func (grpcMetrics *GRPCMetrics) CountLoginRequest() {
+	grpcMetrics.loginRequestsCounter.Add(grpcMetrics.ctx, 1)
+}
+
 // RegisterConnectedStreams registers a function that collects number of active streams and feeds it to the metrics gauge.
-func (m *GRPCMetrics) RegisterConnectedStreams(producer func() int64) error {
-	if err := m.meter.RegisterCallback(
+func (grpcMetrics *GRPCMetrics) RegisterConnectedStreams(producer func() int64) error {
+	if err := grpcMetrics.meter.RegisterCallback(
 		[]instrument.Asynchronous{
-			m.activeStreamsGauge,
+			grpcMetrics.activeStreamsGauge,
 		},
 		func(ctx context.Context) {
-			m.activeStreamsGauge.Observe(ctx, producer())
+			grpcMetrics.activeStreamsGauge.Observe(ctx, producer())
 		},
 	); err != nil {
 		return err
