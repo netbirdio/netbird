@@ -48,11 +48,11 @@ func (rw *WrappedResponseWriter) WriteHeader(code int) {
 // HTTPMiddleware handler used to collect metrics of every request/response coming to the API.
 // Also adds request tracing (logging).
 type HTTPMiddleware struct {
-	appMetrics *AppMetrics
+	appMetrics AppMetrics
 	ctx        context.Context
-	// endpoint & method
+	// defaultEndpoint & method
 	httpRequestCounters map[string]syncint64.Counter
-	// endpoint & method & status code
+	// defaultEndpoint & method & status code
 	httpResponseCounters map[string]syncint64.Counter
 	// all HTTP requests
 	totalHTTPRequestsCounter syncint64.Counter
@@ -62,11 +62,11 @@ type HTTPMiddleware struct {
 	totalHTTPResponseCodeCounters map[int]syncint64.Counter
 }
 
-// AddHTTPRequestResponseCounter adds a new meter for an HTTP endpoint and Method (GET, POST, etc)
+// AddHTTPRequestResponseCounter adds a new meter for an HTTP defaultEndpoint and Method (GET, POST, etc)
 // Creates one request counter and multiple response counters (one per http response status code).
 func (m *HTTPMiddleware) AddHTTPRequestResponseCounter(endpoint string, method string) error {
 	meterKey := getRequestCounterKey(endpoint, method)
-	httpReqCounter, err := m.appMetrics.Meter.SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
+	httpReqCounter, err := m.appMetrics.GetMeter().SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
 	if err != nil {
 		return err
 	}
@@ -74,14 +74,14 @@ func (m *HTTPMiddleware) AddHTTPRequestResponseCounter(endpoint string, method s
 	respCodes := []int{200, 204, 400, 401, 403, 404, 500, 502, 503}
 	for _, code := range respCodes {
 		meterKey = getResponseCounterKey(endpoint, method, code)
-		httpRespCounter, err := m.appMetrics.Meter.SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
+		httpRespCounter, err := m.appMetrics.GetMeter().SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
 		if err != nil {
 			return err
 		}
 		m.httpResponseCounters[meterKey] = httpRespCounter
 
 		meterKey = fmt.Sprintf("%s_%d_total", httpResponseCounterPrefix, code)
-		totalHTTPResponseCodeCounter, err := m.appMetrics.Meter.SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
+		totalHTTPResponseCodeCounter, err := m.appMetrics.GetMeter().SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
 		if err != nil {
 			return err
 		}
@@ -92,15 +92,15 @@ func (m *HTTPMiddleware) AddHTTPRequestResponseCounter(endpoint string, method s
 }
 
 // NewMetricsMiddleware creates a new HTTPMiddleware
-func NewMetricsMiddleware(ctx context.Context, appMetrics *AppMetrics) (*HTTPMiddleware, error) {
+func NewMetricsMiddleware(ctx context.Context, appMetrics AppMetrics) (*HTTPMiddleware, error) {
 
-	totalHTTPRequestsCounter, err := appMetrics.Meter.SyncInt64().Counter(
+	totalHTTPRequestsCounter, err := appMetrics.GetMeter().SyncInt64().Counter(
 		fmt.Sprintf("%s_total", httpRequestCounterPrefix),
 		instrument.WithUnit("1"))
 	if err != nil {
 		return nil, err
 	}
-	totalHTTPResponseCounter, err := appMetrics.Meter.SyncInt64().Counter(
+	totalHTTPResponseCounter, err := appMetrics.GetMeter().SyncInt64().Counter(
 		fmt.Sprintf("%s_total", httpResponseCounterPrefix),
 		instrument.WithUnit("1"))
 	if err != nil {

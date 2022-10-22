@@ -15,10 +15,17 @@ import (
 	"reflect"
 )
 
-const endpoint = "/metrics"
+const defaultEndpoint = "/metrics"
 
-// AppMetrics is core application metrics based on OpenTelemetry https://opentelemetry.io/
-type AppMetrics struct {
+// AppMetrics is metrics interface
+type AppMetrics interface {
+	GetMeter() metric2.Meter
+	Close() error
+	Expose(port int, endpoint string) error
+}
+
+// defaultAppMetrics are core application metrics based on OpenTelemetry https://opentelemetry.io/
+type defaultAppMetrics struct {
 	// Meter can be used by different application parts to create counters and measure things
 	Meter    metric2.Meter
 	listener net.Listener
@@ -26,43 +33,54 @@ type AppMetrics struct {
 }
 
 // Close stop application metrics HTTP handler and closes listener.
-func (appMetrics *AppMetrics) Close() error {
+func (appMetrics *defaultAppMetrics) Close() error {
+	if appMetrics.listener == nil {
+		return nil
+	}
 	return appMetrics.listener.Close()
 }
 
-// CreateAppMetrics and expose them via endpoint on a given HTTP port
-// The metrics are exposed in openmetrics Prometheus format https://prometheus.io/
-func CreateAppMetrics(ctx context.Context, port int) (*AppMetrics, error) {
-	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", port))
-	if err != nil {
-		return nil, err
+// Expose metrics on a given port and defaultEndpoint. If endpoint is empty a defaultEndpoint one will be used.
+func (appMetrics *defaultAppMetrics) Expose(port int, endpoint string) error {
+	if endpoint == "" {
+		endpoint = defaultEndpoint
 	}
-	exporter, err := prometheus.New()
-	if err != nil {
-		return nil, err
-	}
-	pkg := reflect.TypeOf(endpoint).PkgPath()
-	provider := metric.NewMeterProvider(metric.WithReader(exporter))
-	meter := provider.Meter(pkg)
 	rootRouter := mux.NewRouter()
 	rootRouter.Handle("/metrics", promhttp.HandlerFor(
 		prometheus2.DefaultGatherer,
 		promhttp.HandlerOpts{EnableOpenMetrics: true}))
-
-	appMetrics := &AppMetrics{Meter: meter, listener: listener, ctx: ctx}
-
+	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", port))
+	if err != nil {
+		return err
+	}
+	appMetrics.listener = listener
 	go func() {
 		err := http.Serve(listener, rootRouter)
 		if err != nil {
 			return
 		}
 	}()
-	log.Infof("metrics enabled for package %v and listening on %s", pkg, listener.Addr().String())
 
-	go func() {
-		<-appMetrics.ctx.Done()
-		_ = appMetrics.Close() //nolint
-	}()
+	log.Infof("enabled application metrics and exposing on http://%s", listener.Addr().String())
 
-	return appMetrics, nil
+	return nil
+}
+
+// GetMeter returns metrics meter that can be used to add various counters
+func (appMetrics *defaultAppMetrics) GetMeter() metric2.Meter {
+	return appMetrics.Meter
+}
+
+// NewDefaultAppMetrics and expose them via defaultEndpoint on a given HTTP port
+func NewDefaultAppMetrics(ctx context.Context) (AppMetrics, error) {
+	exporter, err := prometheus.New()
+	if err != nil {
+		return nil, err
+	}
+
+	provider := metric.NewMeterProvider(metric.WithReader(exporter))
+	pkg := reflect.TypeOf(defaultEndpoint).PkgPath()
+	meter := provider.Meter(pkg)
+
+	return &defaultAppMetrics{Meter: meter, ctx: ctx}, nil
 }

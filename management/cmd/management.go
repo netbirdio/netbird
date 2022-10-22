@@ -155,10 +155,11 @@ var (
 				gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
 				tlsEnabled = true
 			}
-			appMetrics, err := metrics.CreateAppMetrics(cmd.Context(), mgmtMetricsPort)
+			appMetrics, err := metrics.NewDefaultAppMetrics(cmd.Context())
 			if err != nil {
 				return err
 			}
+			err = appMetrics.Expose(mgmtMetricsPort, "/metrics")
 			if err != nil {
 				return err
 			}
@@ -440,7 +441,7 @@ func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {
 		return nil, err
 	}
 
-	// CreateAppMetrics the credentials and return it
+	// NewDefaultAppMetrics the credentials and return it
 	config := &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
 		ClientAuth:   tls.NoClientCert,

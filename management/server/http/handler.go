@@ -12,7 +12,7 @@ import (
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func APIHandler(ctx context.Context, accountManager s.AccountManager, authIssuer string, authAudience string, authKeysLocation string,
-	appMetrics *metrics.AppMetrics) (http.Handler, error) {
+	appMetrics metrics.AppMetrics) (http.Handler, error) {
 	jwtMiddleware, err := middleware.NewJwtMiddleware(
 		authIssuer,
 		authAudience,
