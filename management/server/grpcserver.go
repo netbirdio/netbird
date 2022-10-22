@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 	gPeer "google.golang.org/grpc/peer"
 	"strings"
@@ -30,10 +31,12 @@ type GRPCServer struct {
 	config                 *Config
 	turnCredentialsManager TURNCredentialsManager
 	jwtMiddleware          *middleware.JWTMiddleware
+	appMetrics             telemetry.AppMetrics
 }
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*GRPCServer, error) {
+func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager,
+	turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -53,6 +56,16 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		log.Debug("unable to use http config to create new jwt middleware")
 	}
 
+	if appMetrics != nil {
+		// update gauge based on number of connected peers which is equal to open gRPC streams
+		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
+			return int64(len(peersUpdateManager.peerChannels))
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
@@ -61,11 +74,15 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		config:                 config,
 		turnCredentialsManager: turnCredentialsManager,
 		jwtMiddleware:          jwtMiddleware,
+		appMetrics:             appMetrics,
 	}, nil
 }
 
 func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto.ServerKeyResponse, error) {
 	// todo introduce something more meaningful with the key expiration/rotation
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountGetKeyRequest()
+	}
 	now := time.Now().Add(24 * time.Hour)
 	secs := int64(now.Second())
 	nanos := int32(now.Nanosecond())
@@ -80,6 +97,9 @@ func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto
 // Sync validates the existence of a connecting peer, sends an initial state (all available for the connecting peers) and
 // notifies the connected peer of any updates (e.g. new peers under the same account)
 func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementService_SyncServer) error {
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountSyncRequest()
+	}
 	p, ok := gRPCPeer.FromContext(srv.Context())
 	if ok {
 		log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
@@ -259,6 +279,9 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 // In case it isn't, the endpoint checks whether setup key is provided within the request and tries to register a peer.
 // In case of the successful registration login is also successful
 func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	if s.appMetrics != nil {
+		s.appMetrics.GRPCMetrics().CountLoginRequest()
+	}
 	p, ok := gRPCPeer.FromContext(ctx)
 	if ok {
 		log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())

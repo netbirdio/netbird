@@ -173,7 +173,7 @@ var (
 			}
 
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
+			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}
