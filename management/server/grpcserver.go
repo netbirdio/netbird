@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/netbirdio/netbird/route"
 	gPeer "google.golang.org/grpc/peer"
 	"strings"
@@ -30,10 +31,12 @@ type GRPCServer struct {
 	config                 *Config
 	turnCredentialsManager TURNCredentialsManager
 	jwtMiddleware          *middleware.JWTMiddleware
+	appMetrics             telemetry.AppMetrics
 }
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager) (*GRPCServer, error) {
+func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager,
+	turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -53,6 +56,14 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		log.Debug("unable to use http config to create new jwt middleware")
 	}
 
+	// update gauge based on number of connected peers which is equal to open gRPC streams
+	err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
+		return int64(len(peersUpdateManager.peerChannels))
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
@@ -61,6 +72,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		config:                 config,
 		turnCredentialsManager: turnCredentialsManager,
 		jwtMiddleware:          jwtMiddleware,
+		appMetrics:             appMetrics,
 	}, nil
 }
 
