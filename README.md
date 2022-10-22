@@ -64,8 +64,7 @@ NetBird creates an overlay peer-to-peer network connecting machines automaticall
 ### Secure peer-to-peer VPN with SSO and MFA in minutes
 
 
-https://user-images.githubusercontent.com/700848/197345455-dbce1f41-4e85-4b4f-89f2-cbceedacde7d.mp4
-
+https://user-images.githubusercontent.com/58986949/115314310-805b2780-a1a7-11eb-8558-648a367ea231.mp4
 
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. 
 For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).
