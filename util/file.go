@@ -3,7 +3,6 @@ package util
 import (
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 )
@@ -24,7 +23,7 @@ func WriteJson(file string, obj interface{}) error {
 		return err
 	}
 
-	tempFile, err := ioutil.TempFile(configDir, ".*"+configFileName)
+	tempFile, err := os.CreateTemp(configDir, ".*"+configFileName)
 	if err != nil {
 		return err
 	}
@@ -43,7 +42,7 @@ func WriteJson(file string, obj interface{}) error {
 		}
 	}()
 
-	err = ioutil.WriteFile(tempFileName, bs, 0600)
+	err = os.WriteFile(tempFileName, bs, 0600)
 	if err != nil {
 		return err
 	}
@@ -65,7 +64,7 @@ func ReadJson(file string, res interface{}) (interface{}, error) {
 	}
 	defer f.Close()
 
-	bs, err := ioutil.ReadAll(f)
+	bs, err := io.ReadAll(f)
 	if err != nil {
 		return nil, err
 	}

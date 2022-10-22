@@ -766,7 +766,7 @@ func startManagement(port int, dataDir string) (*grpc.Server, error) {
 		return nil, err
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
+	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil)
 	if err != nil {
 		return nil, err
 	}

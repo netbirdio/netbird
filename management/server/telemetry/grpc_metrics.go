@@ -65,16 +65,12 @@ func (grpcMetrics *GRPCMetrics) CountLoginRequest() {
 
 // RegisterConnectedStreams registers a function that collects number of active streams and feeds it to the metrics gauge.
 func (grpcMetrics *GRPCMetrics) RegisterConnectedStreams(producer func() int64) error {
-	if err := grpcMetrics.meter.RegisterCallback(
+	return grpcMetrics.meter.RegisterCallback(
 		[]instrument.Asynchronous{
 			grpcMetrics.activeStreamsGauge,
 		},
 		func(ctx context.Context) {
 			grpcMetrics.activeStreamsGauge.Observe(ctx, producer())
 		},
-	); err != nil {
-		return err
-	}
-
-	return nil
+	)
 }
