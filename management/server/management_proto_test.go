@@ -408,7 +408,7 @@ func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, erro
 		return nil, err
 	}
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager)
+	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager, nil)
 	if err != nil {
 		return nil, err
 	}

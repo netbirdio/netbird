@@ -498,7 +498,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 		log.Fatalf("failed creating a manager: %v", err)
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager)
+	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil)
 	Expect(err).NotTo(HaveOccurred())
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {

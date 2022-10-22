@@ -56,12 +56,14 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		log.Debug("unable to use http config to create new jwt middleware")
 	}
 
-	// update gauge based on number of connected peers which is equal to open gRPC streams
-	err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
-		return int64(len(peersUpdateManager.peerChannels))
-	})
-	if err != nil {
-		return nil, err
+	if appMetrics != nil {
+		// update gauge based on number of connected peers which is equal to open gRPC streams
+		err = appMetrics.GRPCMetrics().RegisterConnectedStreams(func() int64 {
+			return int64(len(peersUpdateManager.peerChannels))
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &GRPCServer{

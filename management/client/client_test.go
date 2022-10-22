@@ -60,7 +60,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	turnManager := mgmt.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := mgmt.NewServer(config, accountManager, peersUpdateManager, turnManager)
+	mgmtServer, err := mgmt.NewServer(config, accountManager, peersUpdateManager, turnManager, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
