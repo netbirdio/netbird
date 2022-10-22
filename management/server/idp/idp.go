@@ -2,6 +2,7 @@ package idp
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"net/http"
 	"strings"
 	"time"
@@ -64,12 +65,12 @@ type JWTToken struct {
 }
 
 // NewManager returns a new idp manager based on the configuration that it receives
-func NewManager(config Config) (Manager, error) {
+func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error) {
 	switch strings.ToLower(config.ManagerType) {
 	case "none", "":
 		return nil, nil
 	case "auth0":
-		return NewAuth0Manager(config.Auth0ClientCredentials)
+		return NewAuth0Manager(config.Auth0ClientCredentials, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
