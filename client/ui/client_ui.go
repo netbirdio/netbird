@@ -157,7 +157,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 
 func (s *serviceClient) showUIElements() {
 	// add settings window UI elements.
-	s.wSettings = s.app.NewWindow("Settings")
+	s.wSettings = s.app.NewWindow("NetBird Settings")
 	s.iMngURL = widget.NewEntry()
 	s.iAdminURL = widget.NewEntry()
 	s.iConfigFile = widget.NewEntry()
