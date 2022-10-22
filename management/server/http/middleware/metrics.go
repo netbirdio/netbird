@@ -72,7 +72,7 @@ func (m *MetricsMiddleware) AddHTTPRequestResponseCounter(endpoint string, metho
 		return err
 	}
 	m.httpRequestCounters[meterKey] = httpReqCounter
-	respCodes := []int{200, 204, 400, 401, 403, 500, 502, 503}
+	respCodes := []int{200, 204, 400, 401, 403, 404, 500, 502, 503}
 	for _, code := range respCodes {
 		meterKey = getResponseCounterKey(endpoint, method, code)
 		httpRespCounter, err := m.meter.SyncInt64().Counter(meterKey, instrument.WithUnit("1"))
