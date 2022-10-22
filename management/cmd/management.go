@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/metrics"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -115,9 +116,18 @@ var (
 			}
 			peersUpdateManager := server.NewPeersUpdateManager()
 
+			appMetrics, err := telemetry.NewDefaultAppMetrics(cmd.Context())
+			if err != nil {
+				return err
+			}
+			err = appMetrics.Expose(mgmtMetricsPort, "/metrics")
+			if err != nil {
+				return err
+			}
+
 			var idpManager idp.Manager
 			if config.IdpManagerConfig != nil {
-				idpManager, err = idp.NewManager(*config.IdpManagerConfig)
+				idpManager, err = idp.NewManager(*config.IdpManagerConfig, appMetrics)
 				if err != nil {
 					return fmt.Errorf("failed retrieving a new idp manager with err: %v", err)
 				}
@@ -155,16 +165,8 @@ var (
 				gRPCOpts = append(gRPCOpts, grpc.Creds(transportCredentials))
 				tlsEnabled = true
 			}
-			appMetrics, err := metrics.NewDefaultAppMetrics(cmd.Context())
-			if err != nil {
-				return err
-			}
-			err = appMetrics.Expose(mgmtMetricsPort, "/metrics")
-			if err != nil {
-				return err
-			}
 
-			httpAPIHandler, err := httpapi.APIHandler(cmd.Context(), accountManager, config.HttpConfig.AuthIssuer,
+			httpAPIHandler, err := httpapi.APIHandler(accountManager, config.HttpConfig.AuthIssuer,
 				config.HttpConfig.AuthAudience, config.HttpConfig.AuthKeysLocation, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)

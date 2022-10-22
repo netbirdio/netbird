@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,6 +25,7 @@ type Auth0Manager struct {
 	httpClient  ManagerHTTPClient
 	credentials ManagerCredentials
 	helper      ManagerHelper
+	appMetrics  telemetry.AppMetrics
 }
 
 // Auth0ClientConfig auth0 manager client configurations
@@ -51,6 +53,7 @@ type Auth0Credentials struct {
 	httpClient   ManagerHTTPClient
 	jwtToken     JWTToken
 	mux          sync.Mutex
+	appMetrics   telemetry.AppMetrics
 }
 
 // createUserRequest is a user create request
@@ -106,7 +109,7 @@ type auth0Profile struct {
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
-func NewAuth0Manager(config Auth0ClientConfig) (*Auth0Manager, error) {
+func NewAuth0Manager(config Auth0ClientConfig, appMetrics telemetry.AppMetrics) (*Auth0Manager, error) {
 
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
@@ -134,12 +137,15 @@ func NewAuth0Manager(config Auth0ClientConfig) (*Auth0Manager, error) {
 		clientConfig: config,
 		httpClient:   httpClient,
 		helper:       helper,
+		appMetrics:   appMetrics,
 	}
+
 	return &Auth0Manager{
 		authIssuer:  config.AuthIssuer,
 		credentials: credentials,
 		httpClient:  httpClient,
 		helper:      helper,
+		appMetrics:  appMetrics,
 	}, nil
 }
 
@@ -170,6 +176,9 @@ func (c *Auth0Credentials) requestJWTToken() (*http.Response, error) {
 
 	res, err = c.httpClient.Do(req)
 	if err != nil {
+		if c.appMetrics != nil {
+			c.appMetrics.IDPMetrics().CountRequestError()
+		}
 		return res, err
 	}
 
@@ -213,6 +222,10 @@ func (c *Auth0Credentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JWTTo
 func (c *Auth0Credentials) Authenticate() (JWTToken, error) {
 	c.mux.Lock()
 	defer c.mux.Unlock()
+
+	if c.appMetrics != nil {
+		c.appMetrics.IDPMetrics().CountAuthenticate()
+	}
 
 	// If jwtToken has an expires time and we have enough time to do a request return immediately
 	if c.jwtStillValid() {
@@ -287,7 +300,14 @@ func (am *Auth0Manager) GetAccount(accountID string) ([]*UserData, error) {
 
 		res, err := am.httpClient.Do(req)
 		if err != nil {
+			if am.appMetrics != nil {
+				am.appMetrics.IDPMetrics().CountRequestError()
+			}
 			return nil, err
+		}
+
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountGetAccount()
 		}
 
 		body, err := io.ReadAll(res.Body)
@@ -342,7 +362,14 @@ func (am *Auth0Manager) GetUserDataByID(userID string, appMetadata AppMetadata) 
 
 	res, err := am.httpClient.Do(req)
 	if err != nil {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
 		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetUserDataByID()
 	}
 
 	body, err := io.ReadAll(res.Body)
@@ -398,7 +425,14 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 
 	res, err := am.httpClient.Do(req)
 	if err != nil {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
 		return err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
 	}
 
 	defer func() {
@@ -503,6 +537,9 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	jobResp, err := am.httpClient.Do(exportJobReq)
 	if err != nil {
 		log.Debugf("Couldn't get job response %v", err)
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
 		return nil, err
 	}
 
@@ -513,6 +550,9 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 		}
 	}()
 	if jobResp.StatusCode != 200 {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
 		return nil, fmt.Errorf("unable to update the appMetadata, statusCode %d", jobResp.StatusCode)
 	}
 
@@ -531,6 +571,9 @@ func (am *Auth0Manager) GetAllAccounts() (map[string][]*UserData, error) {
 	}
 
 	if exportJobResp.ID == "" {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
 		return nil, fmt.Errorf("couldn't get an batch id status %d, %s, response body: %v", jobResp.StatusCode, jobResp.Status, exportJobResp)
 	}
 
@@ -563,6 +606,10 @@ func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
 		return nil, err
 	}
 
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetUserByEmail()
+	}
+
 	userResp := []*UserData{}
 
 	err = am.helper.Unmarshal(body, &userResp)
@@ -586,9 +633,16 @@ func (am *Auth0Manager) CreateUser(email string, name string, accountID string) 
 		return nil, err
 	}
 
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
 		log.Debugf("Couldn't get job response %v", err)
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
 		return nil, err
 	}
 
@@ -599,6 +653,9 @@ func (am *Auth0Manager) CreateUser(email string, name string, accountID string) 
 		}
 	}()
 	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
 		return nil, fmt.Errorf("unable to create user, statusCode %d", resp.StatusCode)
 	}
 

@@ -1,18 +1,17 @@
 package http
 
 import (
-	"context"
 	"github.com/gorilla/mux"
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
-	"github.com/netbirdio/netbird/management/server/metrics"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/rs/cors"
 	"net/http"
 )
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(ctx context.Context, accountManager s.AccountManager, authIssuer string, authAudience string, authKeysLocation string,
-	appMetrics metrics.AppMetrics) (http.Handler, error) {
+func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience string, authKeysLocation string,
+	appMetrics telemetry.AppMetrics) (http.Handler, error) {
 	jwtMiddleware, err := middleware.NewJwtMiddleware(
 		authIssuer,
 		authAudience,
@@ -29,10 +28,7 @@ func APIHandler(ctx context.Context, accountManager s.AccountManager, authIssuer
 		accountManager.IsUserAdmin)
 
 	rootRouter := mux.NewRouter()
-	metricsMiddleware, err := metrics.NewMetricsMiddleware(ctx, appMetrics)
-	if err != nil {
-		return nil, err
-	}
+	metricsMiddleware := appMetrics.HTTPMiddleware()
 
 	apiHandler := rootRouter.PathPrefix("/api").Subrouter()
 	apiHandler.Use(metricsMiddleware.Handler, corsMiddleware.Handler, jwtMiddleware.Handler, acMiddleware.Handler)
