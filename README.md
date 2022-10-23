@@ -103,5 +103,5 @@ See a complete [architecture overview](https://netbird.io/docs/overview/architec
 We use open-source technologies like [WireGuard®](https://www.wireguard.com/), [Pion ICE (WebRTC)](https://github.com/pion/ice), and [Coturn](https://github.com/coturn/coturn). We very much appreciate the work these guys are doing and we'd greatly appreciate if you could support them in any way (e.g. giving a star or a contribution).
 
 ### Legal
- [WireGuard](https://wireguard.com/) is a registered trademark of Jason A. Donenfeld.
+ _WireGuard_ and the _WireGuard_ logo are [registered trademarks](https://www.wireguard.com/trademark-policy/) of Jason A. Donenfeld.
 
