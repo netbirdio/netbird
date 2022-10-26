@@ -89,7 +89,6 @@ func getIfaceAddrs(ifaceName string) ([]net.Addr, error) {
 	return addrs, nil
 }
 
-//
 func Test_CreateInterface(t *testing.T) {
 	ifaceName := fmt.Sprintf("utun%d", WgIntNumber+1)
 	wgIP := "10.99.99.1/32"
@@ -369,8 +368,8 @@ func Test_ConnectPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	timeout := 10 * time.Second
+	// todo: investigate why in some tests execution we need 30s
+	timeout := 30 * time.Second
 	timeoutChannel := time.After(timeout)
 	for {
 		select {

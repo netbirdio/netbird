@@ -188,13 +188,17 @@ func (w *Worker) generateProperties() properties {
 				userPeers++
 			}
 
-			_, connected := connections[peer.Key]
-			if connected || peer.Status.LastSeen.After(w.lastRun) {
-				activePeersLastDay++
-			}
 			osKey := strings.ToLower(fmt.Sprintf("peer_os_%s", peer.Meta.GoOS))
 			osCount := osPeers[osKey]
 			osPeers[osKey] = osCount + 1
+
+			_, connected := connections[peer.Key]
+			if connected || peer.Status.LastSeen.After(w.lastRun) {
+				activePeersLastDay++
+				osActiveKey := osKey + "_active"
+				osActiveCount := osPeers[osActiveKey]
+				osPeers[osActiveKey] = osActiveCount + 1
+			}
 		}
 	}
 
@@ -279,5 +283,4 @@ func createPostRequest(ctx context.Context, endpoint string, payloadStr string) 
 	req.Header.Add("content-type", "application/json")
 
 	return req, nil
-
 }
