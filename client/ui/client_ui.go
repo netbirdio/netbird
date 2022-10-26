@@ -8,7 +8,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"github.com/netbirdio/netbird/client/system"
 	"os"
 	"os/exec"
 	"path"
@@ -17,6 +16,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/netbirdio/netbird/client/system"
 
 	"github.com/cenkalti/backoff/v4"
 
@@ -61,6 +62,13 @@ func main() {
 	flag.Parse()
 
 	a := app.New()
+
+	if runtime.GOOS == "windows" {
+		a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedICO))
+	} else {
+		a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
+	}
+
 	client := newServiceClient(daemonAddr, a, showSettings)
 	if showSettings {
 		a.Run()
@@ -113,7 +121,7 @@ type serviceClient struct {
 	iLogFile      *widget.Entry
 	iPreSharedKey *widget.Entry
 
-	// observable settings over correspondign iMngURL and iPreSharedKey values.
+	// observable settings over corresponding iMngURL and iPreSharedKey values.
 	managementURL string
 	preSharedKey  string
 	adminURL      string
@@ -121,7 +129,7 @@ type serviceClient struct {
 
 // newServiceClient instance constructor
 //
-// This constructor olso build UI elements for settings window.
+// This constructor also builds the UI elements for the settings window.
 func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient {
 	s := &serviceClient{
 		ctx:  context.Background(),
@@ -149,7 +157,7 @@ func newServiceClient(addr string, a fyne.App, showSettings bool) *serviceClient
 
 func (s *serviceClient) showUIElements() {
 	// add settings window UI elements.
-	s.wSettings = s.app.NewWindow("Settings")
+	s.wSettings = s.app.NewWindow("NetBird Settings")
 	s.iMngURL = widget.NewEntry()
 	s.iAdminURL = widget.NewEntry()
 	s.iConfigFile = widget.NewEntry()
@@ -326,11 +334,13 @@ func (s *serviceClient) updateStatus() error {
 
 		if status.Status == string(internal.StatusConnected) && !s.mUp.Disabled() {
 			systray.SetIcon(s.icConnected)
+			systray.SetTooltip("NetBird (Connected)")
 			s.mStatus.SetTitle("Connected")
 			s.mUp.Disable()
 			s.mDown.Enable()
 		} else if status.Status != string(internal.StatusConnected) && s.mUp.Disabled() {
 			systray.SetIcon(s.icDisconnected)
+			systray.SetTooltip("NetBird (Disconnected)")
 			s.mStatus.SetTitle("Disconnected")
 			s.mDown.Disable()
 			s.mUp.Enable()
@@ -355,6 +365,7 @@ func (s *serviceClient) updateStatus() error {
 
 func (s *serviceClient) onTrayReady() {
 	systray.SetIcon(s.icDisconnected)
+	systray.SetTooltip("NetBird")
 
 	// setup systray menu items
 	s.mStatus = systray.AddMenuItem("Disconnected", "Disconnected")
