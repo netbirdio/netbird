@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/dns"
 	"net"
 	"os"
 	"strings"
@@ -53,6 +54,10 @@ func (p *program) Start(svc service.Service) error {
 				return
 			}
 		}
+
+		dnsServer := dns.NewServer(p.ctx)
+		dnsServer.Start()
+		defer dnsServer.Stop()
 
 		serverInstance := server.New(p.ctx, managementURL, adminURL, configPath, logFile)
 		if err := serverInstance.Start(); err != nil {

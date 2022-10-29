@@ -38,6 +38,7 @@ require (
 	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
 	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
+	github.com/miekg/dns v1.1.41
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/prometheus/client_golang v1.13.0
 	github.com/rs/xid v1.3.0
