@@ -59,6 +59,8 @@ type NameServerGroup struct {
 	NameServers []NameServer
 	// Groups list of peer group IDs to distribute the nameservers information
 	Groups []string
+	// SearchDomains list of searchdomains
+	SearchDomains []string
 	// Enabled group status
 	Enabled bool
 }
