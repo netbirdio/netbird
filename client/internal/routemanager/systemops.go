@@ -45,11 +45,14 @@ func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, _, localGatewayAddress, err := r.Route(prefix.Addr().AsSlice())
+	_, gateway, preferredSrc, err := r.Route(prefix.Addr().AsSlice())
 	if err != nil {
 		log.Errorf("getting routes returned an error: %v", err)
 		return nil, errRouteNotFound
 	}
+	if gateway == nil {
+		return preferredSrc, nil
+	}
 
-	return localGatewayAddress, nil
+	return gateway, nil
 }
