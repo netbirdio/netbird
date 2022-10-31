@@ -59,8 +59,10 @@ type NameServerGroup struct {
 	NameServers []NameServer
 	// Groups list of peer group IDs to distribute the nameservers information
 	Groups []string
-	// SearchDomains list of searchdomains
-	SearchDomains []string
+	// Primary indicates that the nameserver group is the primary resolver for any dns query
+	Primary bool
+	// Domains indicate the dns query domains to use with this nameserver group
+	Domains []string
 	// Enabled group status
 	Enabled bool
 }

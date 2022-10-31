@@ -62,9 +62,9 @@ func (p *program) Start(svc service.Service) error {
 		defer dnsServer.Stop()
 
 		err = dnsServer.UpdateDNSServer(1, nbdns.Update{
-			CustomDomains: []nbdns.CustomDomain{
+			CustomZones: []nbdns.CustomZone{
 				{
-					SearchDomain: []string{"netbird.cloud"},
+					Domain: "netbird.cloud",
 					Records: []nbdns.SimpleRecord{
 						{
 							Name:  "peera.netbird.cloud",
@@ -80,12 +80,19 @@ func (p *program) Start(svc service.Service) error {
 							TTL:   300,
 							RData: "5.6.7.8",
 						},
+						{
+							Name:  "peerc.netbird.cloud",
+							Type:  5,
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "globo.com",
+						},
 					},
 				},
 			},
 			NameServerGroups: []nbdns.NameServerGroup{
 				{
-					SearchDomains: []string{"wiretrustee.com", "netbird.io"},
+					Domains: []string{"wiretrustee.com", "netbird.io"},
 					NameServers: []nbdns.NameServer{
 						{
 							IP:     netip.MustParseAddr("8.8.8.8"),
@@ -100,7 +107,7 @@ func (p *program) Start(svc service.Service) error {
 					},
 				},
 				{
-					SearchDomains: []string{"uol.com"},
+					Domains: []string{"uol.com"},
 					NameServers: []nbdns.NameServer{
 						{
 							IP:     netip.MustParseAddr("1.1.1.1"),
@@ -110,6 +117,16 @@ func (p *program) Start(svc service.Service) error {
 						{
 							IP:     netip.MustParseAddr("8.8.4.4"),
 							NSType: nbdns.NameServerType(3),
+							Port:   53,
+						},
+					},
+				},
+				{
+					Primary: true,
+					NameServers: []nbdns.NameServer{
+						{
+							IP:     netip.MustParseAddr("9.9.9.9"),
+							NSType: nbdns.UDPNameServerType,
 							Port:   53,
 						},
 					},

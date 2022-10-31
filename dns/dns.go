@@ -7,17 +7,21 @@ import (
 	"github.com/miekg/dns"
 )
 
-// DefaultDNSPort well-known port number
-const DefaultDNSPort = 53
+const (
+	// DefaultDNSPort well-known port number
+	DefaultDNSPort = 53
+	// RootZone is a string representation of the root zone
+	RootZone = "."
+)
 
 type Update struct {
 	NameServerGroups []NameServerGroup
-	CustomDomains    []CustomDomain
+	CustomZones      []CustomZone
 }
 
-type CustomDomain struct {
-	SearchDomain []string
-	Records      []SimpleRecord
+type CustomZone struct {
+	Domain  string
+	Records []SimpleRecord
 }
 
 // DefaultClass is the class supported by the system

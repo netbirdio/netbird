@@ -29,8 +29,8 @@ type Server struct {
 type registrationMap map[string]struct{}
 
 type muxUpdate struct {
-	searchDomain string
-	handler      dns.Handler
+	domain  string
+	handler dns.Handler
 }
 
 func NewServer(ctx context.Context) *Server {
@@ -92,7 +92,7 @@ func (s *Server) UpdateDNSServer(serial uint64, update nbdns.Update) error {
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
-		localMuxUpdates, localRecords := s.buildLocalHandlerUpdate(update.CustomDomains)
+		localMuxUpdates, localRecords := s.buildLocalHandlerUpdate(update.CustomZones)
 		upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups)
 		if err != nil {
 			return fmt.Errorf("not applying dns update, error: %v", err)
@@ -109,18 +109,17 @@ func (s *Server) UpdateDNSServer(serial uint64, update nbdns.Update) error {
 	}
 }
 
-func (s *Server) buildLocalHandlerUpdate(customDomains []nbdns.CustomDomain) ([]muxUpdate, map[string]nbdns.SimpleRecord) {
+func (s *Server) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxUpdate, map[string]nbdns.SimpleRecord) {
 	var muxUpdates []muxUpdate
 	localRecords := make(map[string]nbdns.SimpleRecord, 0)
 
-	for _, customDomain := range customDomains {
-		for _, searchDomain := range customDomain.SearchDomain {
-			muxUpdates = append(muxUpdates, muxUpdate{
-				searchDomain: searchDomain,
-				handler:      s.localResolver,
-			})
-		}
-		for _, record := range customDomain.Records {
+	for _, customZone := range customZones {
+		muxUpdates = append(muxUpdates, muxUpdate{
+			domain:  customZone.Domain,
+			handler: s.localResolver,
+		})
+
+		for _, record := range customZone.Records {
 			localRecords[record.Name] = record
 		}
 	}
@@ -147,17 +146,25 @@ func (s *Server) buildUpstreamHandlerUpdate(nameServerGroups []nbdns.NameServerG
 		}
 
 		if len(handler.upstreamServers) == 0 {
-			log.Errorf("received a nameserver group with invalid nameserver list")
+			log.Errorf("received a nameserver group with an invalid nameserver list")
 			continue
 		}
 
-		for _, searchDomain := range nsGroup.SearchDomains {
-			if searchDomain == "" {
-				return nil, fmt.Errorf("received a nameserver group with empty searchdomain")
+		if nsGroup.Primary {
+			muxUpdates = append(muxUpdates, muxUpdate{
+				domain:  nbdns.RootZone,
+				handler: handler,
+			})
+			continue
+		}
+
+		for _, domain := range nsGroup.Domains {
+			if domain == "" {
+				return nil, fmt.Errorf("received a non primary nameserver group with an empty domain list")
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
-				searchDomain: searchDomain,
-				handler:      handler,
+				domain:  domain,
+				handler: handler,
 			})
 		}
 	}
@@ -168,8 +175,8 @@ func (s *Server) updateMux(muxUpdates []muxUpdate) {
 	muxUpdateMap := make(registrationMap)
 
 	for _, update := range muxUpdates {
-		s.registerMux(update.searchDomain, update.handler)
-		muxUpdateMap[update.searchDomain] = struct{}{}
+		s.registerMux(update.domain, update.handler)
+		muxUpdateMap[update.domain] = struct{}{}
 	}
 
 	for key := range s.dnsMuxMap {
