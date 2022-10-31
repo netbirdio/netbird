@@ -9,8 +9,6 @@ import (
 )
 
 const (
-	// MaxGroupNameChar maximum group name size
-	MaxGroupNameChar = 40
 	// InvalidNameServerType invalid nameserver type
 	InvalidNameServerType NameServerType = iota
 	// UDPNameServerType udp nameserver type
@@ -18,6 +16,8 @@ const (
 )
 
 const (
+	// MaxGroupNameChar maximum group name size
+	MaxGroupNameChar = 40
 	// InvalidNameServerTypeString invalid nameserver type as string
 	InvalidNameServerTypeString = "invalid"
 	// UDPNameServerTypeString udp nameserver type as string

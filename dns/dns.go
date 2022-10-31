@@ -36,5 +36,5 @@ type SimpleRecord struct {
 // <Name> <Type> <Class> <TTL> <RDATA>
 func (s SimpleRecord) String() string {
 	fqdn := dns.Fqdn(s.Name)
-	return fmt.Sprintf("%s %s %s %d %s", fqdn, dns.Type(s.Type).String(), s.Class, s.TTL, s.RData)
+	return fmt.Sprintf("%s %d %s %s %s", fqdn, s.TTL, s.Class, dns.Type(s.Type).String(), s.RData)
 }

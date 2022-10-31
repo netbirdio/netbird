@@ -3,8 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/dns"
+	cdns "github.com/netbirdio/netbird/client/internal/dns"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"net"
+	"net/netip"
 	"os"
 	"strings"
 	"time"
@@ -55,9 +57,69 @@ func (p *program) Start(svc service.Service) error {
 			}
 		}
 
-		dnsServer := dns.NewServer(p.ctx)
+		dnsServer := cdns.NewServer(p.ctx)
 		dnsServer.Start()
 		defer dnsServer.Stop()
+
+		err = dnsServer.UpdateDNSServer(1, nbdns.Update{
+			CustomDomains: []nbdns.CustomDomain{
+				{
+					SearchDomain: []string{"netbird.cloud"},
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "peera.netbird.cloud",
+							Type:  1,
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "1.2.3.4",
+						},
+						{
+							Name:  "peerb.netbird.cloud",
+							Type:  1,
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "5.6.7.8",
+						},
+					},
+				},
+			},
+			NameServerGroups: []nbdns.NameServerGroup{
+				{
+					SearchDomains: []string{"wiretrustee.com", "netbird.io"},
+					NameServers: []nbdns.NameServer{
+						{
+							IP:     netip.MustParseAddr("8.8.8.8"),
+							NSType: nbdns.UDPNameServerType,
+							Port:   53,
+						},
+						{
+							IP:     netip.MustParseAddr("8.8.4.4"),
+							NSType: nbdns.UDPNameServerType,
+							Port:   53,
+						},
+					},
+				},
+				{
+					SearchDomains: []string{"uol.com"},
+					NameServers: []nbdns.NameServer{
+						{
+							IP:     netip.MustParseAddr("1.1.1.1"),
+							NSType: nbdns.UDPNameServerType,
+							Port:   53,
+						},
+						{
+							IP:     netip.MustParseAddr("8.8.4.4"),
+							NSType: nbdns.NameServerType(3),
+							Port:   53,
+						},
+					},
+				},
+			},
+		})
+
+		if err != nil {
+			panic(err)
+		}
 
 		serverInstance := server.New(p.ctx, managementURL, adminURL, configPath, logFile)
 		if err := serverInstance.Start(); err != nil {
