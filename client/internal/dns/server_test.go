@@ -187,6 +187,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
 			dnsServer.updateSerial = testCase.initSerial
+			dnsServer.listenerIsRunning = true
 
 			err := dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {

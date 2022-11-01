@@ -17,14 +17,15 @@ const (
 
 // Server dns server object
 type Server struct {
-	ctx           context.Context
-	stop          context.CancelFunc
-	mux           sync.Mutex
-	server        *dns.Server
-	dnsMux        *dns.ServeMux
-	dnsMuxMap     registrationMap
-	localResolver *localResolver
-	updateSerial  uint64
+	ctx               context.Context
+	stop              context.CancelFunc
+	mux               sync.Mutex
+	server            *dns.Server
+	dnsMux            *dns.ServeMux
+	dnsMuxMap         registrationMap
+	localResolver     *localResolver
+	updateSerial      uint64
+	listenerIsRunning bool
 }
 
 type registrationMap map[string]struct{}
@@ -63,6 +64,8 @@ func NewServer(ctx context.Context) *Server {
 func (s *Server) Start() {
 	log.Debugf("starting dns on %s:%d", defaultIP, port)
 	go func() {
+		s.setListenerStatus(true)
+		defer s.setListenerStatus(false)
 		err := s.server.ListenAndServe()
 		if err != nil {
 			log.Errorf("dns server returned an error: %v", err)
@@ -70,16 +73,33 @@ func (s *Server) Start() {
 	}()
 }
 
-// Stop stops the listener
+func (s *Server) setListenerStatus(running bool) {
+	s.listenerIsRunning = running
+}
+
+// Stop stops the server
 func (s *Server) Stop() {
 	s.stop()
 
+	err := s.stopListener()
+	if err != nil {
+		log.Error(err)
+	}
+}
+
+func (s *Server) stopListener() error {
+	if !s.listenerIsRunning {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
 	err := s.server.ShutdownContext(ctx)
 	if err != nil {
-		log.Errorf("stopping dns server returned an error: %v", err)
+		return fmt.Errorf("stopping dns server listener returned an error: %v", err)
 	}
-	cancel()
+	return nil
 }
 
 // UpdateDNSServer processes an update received from the management service
@@ -95,6 +115,17 @@ func (s *Server) UpdateDNSServer(serial uint64, update nbdns.Update) error {
 		}
 		s.mux.Lock()
 		defer s.mux.Unlock()
+
+		// is the service should be disabled, we stop the listener
+		// and proceed with a regular update to clean up the handlers and records
+		if !update.ServiceEnable {
+			err := s.stopListener()
+			if err != nil {
+				log.Error(err)
+			}
+		} else if !s.listenerIsRunning {
+			s.Start()
+		}
 
 		localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
 		if err != nil {

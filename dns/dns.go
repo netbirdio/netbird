@@ -15,6 +15,7 @@ const (
 )
 
 type Update struct {
+	ServiceEnable    bool
 	NameServerGroups []NameServerGroup
 	CustomZones      []CustomZone
 }
