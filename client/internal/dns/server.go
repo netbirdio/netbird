@@ -11,10 +11,11 @@ import (
 )
 
 const (
-	Port      = 5053
-	DefaultIP = "0.0.0.0"
+	port      = 5053
+	defaultIP = "0.0.0.0"
 )
 
+// Server dns server object
 type Server struct {
 	ctx           context.Context
 	stop          context.CancelFunc
@@ -33,11 +34,12 @@ type muxUpdate struct {
 	handler dns.Handler
 }
 
+// NewServer returns a new dns server
 func NewServer(ctx context.Context) *Server {
 	mux := dns.NewServeMux()
 
 	dnsServer := &dns.Server{
-		Addr:    fmt.Sprintf("%s:%d", DefaultIP, Port),
+		Addr:    fmt.Sprintf("%s:%d", defaultIP, port),
 		Net:     "udp",
 		Handler: mux,
 		UDPSize: 65535,
@@ -57,8 +59,9 @@ func NewServer(ctx context.Context) *Server {
 	}
 }
 
+// Start runs the listener in a go routine
 func (s *Server) Start() {
-	log.Debugf("starting dns on %s:%d", DefaultIP, Port)
+	log.Debugf("starting dns on %s:%d", defaultIP, port)
 	go func() {
 		err := s.server.ListenAndServe()
 		if err != nil {
@@ -67,6 +70,7 @@ func (s *Server) Start() {
 	}()
 }
 
+// Stop stops the listener
 func (s *Server) Stop() {
 	s.stop()
 
@@ -78,6 +82,7 @@ func (s *Server) Stop() {
 	cancel()
 }
 
+// UpdateDNSServer processes an update received from the management service
 func (s *Server) UpdateDNSServer(serial uint64, update nbdns.Update) error {
 	select {
 	case <-s.ctx.Done():
@@ -85,14 +90,16 @@ func (s *Server) UpdateDNSServer(serial uint64, update nbdns.Update) error {
 		return s.ctx.Err()
 	default:
 		if serial < s.updateSerial {
-			log.Debugf("not applying dns update, error: "+
+			return fmt.Errorf("not applying dns update, error: "+
 				"network update is %d behind the last applied update", s.updateSerial-serial)
-			return nil
 		}
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
-		localMuxUpdates, localRecords := s.buildLocalHandlerUpdate(update.CustomZones)
+		localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
+		if err != nil {
+			return fmt.Errorf("not applying dns update, error: %v", err)
+		}
 		upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups)
 		if err != nil {
 			return fmt.Errorf("not applying dns update, error: %v", err)
@@ -109,11 +116,16 @@ func (s *Server) UpdateDNSServer(serial uint64, update nbdns.Update) error {
 	}
 }
 
-func (s *Server) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxUpdate, map[string]nbdns.SimpleRecord) {
+func (s *Server) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxUpdate, map[string]nbdns.SimpleRecord, error) {
 	var muxUpdates []muxUpdate
 	localRecords := make(map[string]nbdns.SimpleRecord, 0)
 
 	for _, customZone := range customZones {
+
+		if len(customZone.Records) == 0 {
+			return nil, nil, fmt.Errorf("received an empty list of records")
+		}
+
 		muxUpdates = append(muxUpdates, muxUpdate{
 			domain:  customZone.Domain,
 			handler: s.localResolver,
@@ -123,7 +135,7 @@ func (s *Server) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxU
 			localRecords[record.Name] = record
 		}
 	}
-	return muxUpdates, localRecords
+	return muxUpdates, localRecords, nil
 }
 
 func (s *Server) buildUpstreamHandlerUpdate(nameServerGroups []nbdns.NameServerGroup) ([]muxUpdate, error) {
@@ -133,8 +145,9 @@ func (s *Server) buildUpstreamHandlerUpdate(nameServerGroups []nbdns.NameServerG
 			return nil, fmt.Errorf("received a nameserver group with empty nameserver list")
 		}
 		handler := &upstreamResolver{
-			parentCTX:      s.ctx,
-			upstreamClient: &dns.Client{},
+			parentCTX:       s.ctx,
+			upstreamClient:  &dns.Client{},
+			upstreamTimeout: defaultUpstreamTimeout,
 		}
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
@@ -158,9 +171,13 @@ func (s *Server) buildUpstreamHandlerUpdate(nameServerGroups []nbdns.NameServerG
 			continue
 		}
 
+		if len(nsGroup.Domains) == 0 {
+			return nil, fmt.Errorf("received a non primary nameserver group with an empty domain list")
+		}
+
 		for _, domain := range nsGroup.Domains {
 			if domain == "" {
-				return nil, fmt.Errorf("received a non primary nameserver group with an empty domain list")
+				return nil, fmt.Errorf("received a nameserver group with an empty domain element")
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
 				domain:  domain,

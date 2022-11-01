@@ -13,6 +13,7 @@ type localResolver struct {
 	records       sync.Map
 }
 
+// ServeDNS handles a DNS request
 func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Debugf("received question: %#v\n", r.Question[0])
 	response := d.lookupRecord(r)
