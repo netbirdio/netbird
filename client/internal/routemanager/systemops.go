@@ -21,7 +21,7 @@ func addToRouteTableIfNoExists(prefix netip.Prefix, addr string) error {
 	}
 
 	if prefixGateway != nil && !prefixGateway.Equal(gateway) {
-		log.Warnf("route for network %s already exist and is pointing to the gateway: %s, won't add another one", prefix, prefixGateway)
+		log.Warnf("skipping adding a new route for network %s because it already exists and is pointing to the non default gateway: %s", prefix, prefixGateway)
 		return nil
 	}
 	return addToRouteTable(prefix, addr)
@@ -45,11 +45,14 @@ func getExistingRIBRouteGateway(prefix netip.Prefix) (net.IP, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, _, localGatewayAddress, err := r.Route(prefix.Addr().AsSlice())
+	_, gateway, preferredSrc, err := r.Route(prefix.Addr().AsSlice())
 	if err != nil {
 		log.Errorf("getting routes returned an error: %v", err)
 		return nil, errRouteNotFound
 	}
+	if gateway == nil {
+		return preferredSrc, nil
+	}
 
-	return localGatewayAddress, nil
+	return gateway, nil
 }

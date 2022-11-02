@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/stretchr/testify/require"
+	"net"
 	"net/netip"
 	"testing"
 )
@@ -64,5 +65,47 @@ func TestAddRemoveRoutes(t *testing.T) {
 				require.NotEqual(t, internetGateway, prefixGateway, "route should be pointing to a different gateway than the internet gateway")
 			}
 		})
+	}
+}
+
+func TestGetExistingRIBRouteGateway(t *testing.T) {
+	gateway, err := getExistingRIBRouteGateway(netip.MustParsePrefix("0.0.0.0/0"))
+	if err != nil {
+		t.Fatal("shouldn't return error when fetching the gateway: ", err)
+	}
+	if gateway == nil {
+		t.Fatal("should return a gateway")
+	}
+	addresses, err := net.InterfaceAddrs()
+	if err != nil {
+		t.Fatal("shouldn't return error when fetching interface addresses: ", err)
+	}
+
+	var testingIP string
+	var testingPrefix netip.Prefix
+	for _, address := range addresses {
+		if address.Network() != "ip+net" {
+			continue
+		}
+		prefix := netip.MustParsePrefix(address.String())
+		if !prefix.Addr().IsLoopback() && prefix.Addr().Is4() {
+			testingIP = prefix.Addr().String()
+			testingPrefix = prefix.Masked()
+			break
+		}
+	}
+
+	localIP, err := getExistingRIBRouteGateway(testingPrefix)
+	if err != nil {
+		t.Fatal("shouldn't return error: ", err)
+	}
+	if localIP == nil {
+		t.Fatal("should return a gateway for local network")
+	}
+	if localIP.String() == gateway.String() {
+		t.Fatal("local ip should not match with gateway IP")
+	}
+	if localIP.String() != testingIP {
+		t.Fatalf("local ip should match with testing IP: want %s got %s", testingIP, localIP.String())
 	}
 }

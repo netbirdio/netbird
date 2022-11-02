@@ -62,12 +62,7 @@ func main() {
 	flag.Parse()
 
 	a := app.New()
-
-	if runtime.GOOS == "windows" {
-		a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedICO))
-	} else {
-		a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
-	}
+	a.SetIcon(fyne.NewStaticResource("netbird", iconDisconnectedPNG))
 
 	client := newServiceClient(daemonAddr, a, showSettings)
 	if showSettings {
