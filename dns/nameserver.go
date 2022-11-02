@@ -132,6 +132,8 @@ func (g *NameServerGroup) Copy() *NameServerGroup {
 		NameServers: g.NameServers,
 		Groups:      g.Groups,
 		Enabled:     g.Enabled,
+		Primary:     g.Primary,
+		Domains:     g.Domains,
 	}
 }
 
@@ -140,8 +142,10 @@ func (g *NameServerGroup) IsEqual(other *NameServerGroup) bool {
 	return other.ID == g.ID &&
 		other.Name == g.Name &&
 		other.Description == g.Description &&
+		other.Primary == g.Primary &&
 		compareNameServerList(g.NameServers, other.NameServers) &&
-		compareGroupsList(g.Groups, other.Groups)
+		compareGroupsList(g.Groups, other.Groups) &&
+		compareGroupsList(g.Domains, other.Domains)
 }
 
 func compareNameServerList(list, other []NameServer) bool {
