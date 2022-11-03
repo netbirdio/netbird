@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/rs/xid"
 	"google.golang.org/grpc/codes"
@@ -20,6 +21,10 @@ const (
 	UpdateNameServerGroupGroups
 	// UpdateNameServerGroupEnabled indicates a nameserver group status update operation
 	UpdateNameServerGroupEnabled
+	// UpdateNameServerGroupPrimary indicates a nameserver group primary status update operation
+	UpdateNameServerGroupPrimary
+	// UpdateNameServerGroupDomains indicates a nameserver group' domains update operation
+	UpdateNameServerGroupDomains
 )
 
 // NameServerGroupUpdateOperationType operation type
@@ -37,6 +42,10 @@ func (t NameServerGroupUpdateOperationType) String() string {
 		return "UpdateNameServerGroupGroups"
 	case UpdateNameServerGroupEnabled:
 		return "UpdateNameServerGroupEnabled"
+	case UpdateNameServerGroupPrimary:
+		return "UpdateNameServerGroupPrimary"
+	case UpdateNameServerGroupDomains:
+		return "UpdateNameServerGroupDomains"
 	default:
 		return "InvalidOperation"
 	}
@@ -67,7 +76,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
-func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, enabled bool) (*nbdns.NameServerGroup, error) {
+func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool) (*nbdns.NameServerGroup, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -83,6 +92,8 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 		NameServers: nameServerList,
 		Groups:      groups,
 		Enabled:     enabled,
+		Primary:     primary,
+		Domains:     domains,
 	}
 
 	err = validateNameServerGroup(false, newNSGroup, account)
@@ -205,6 +216,18 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 				return nil, status.Errorf(codes.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
 			}
 			newNSGroup.Enabled = enabled
+		case UpdateNameServerGroupPrimary:
+			primary, err := strconv.ParseBool(operation.Values[0])
+			if err != nil {
+				return nil, status.Errorf(codes.InvalidArgument, "failed to parse primary status %s, not boolean", operation.Values[0])
+			}
+			newNSGroup.Primary = primary
+		case UpdateNameServerGroupDomains:
+			err = validateDomainInput(false, operation.Values)
+			if err != nil {
+				return nil, err
+			}
+			newNSGroup.Domains = operation.Values
 		}
 	}
 
@@ -268,7 +291,12 @@ func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServ
 		}
 	}
 
-	err := validateNSGroupName(nameserverGroup.Name, nsGroupID, account.NameServerGroups)
+	err := validateDomainInput(nameserverGroup.Primary, nameserverGroup.Domains)
+	if err != nil {
+		return err
+	}
+
+	err = validateNSGroupName(nameserverGroup.Name, nsGroupID, account.NameServerGroups)
 	if err != nil {
 		return err
 	}
@@ -283,6 +311,24 @@ func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServ
 		return err
 	}
 
+	return nil
+}
+
+func validateDomainInput(primary bool, domains []string) error {
+	if !primary && len(domains) == 0 {
+		return status.Errorf(codes.InvalidArgument, "nameserver group primary status is false and domains are empty,"+
+			" it should be primary or have at least one domain")
+	}
+	if primary && len(domains) != 0 {
+		return status.Errorf(codes.InvalidArgument, "nameserver group primary status is true and domains are not empty,"+
+			" you should set either primary or domain")
+	}
+	for _, domain := range domains {
+		_, valid := dns.IsDomainName(domain)
+		if !valid {
+			return status.Errorf(codes.InvalidArgument, "nameserver group got an invalid domain: %s", domain)
+		}
+	}
 	return nil
 }
 
