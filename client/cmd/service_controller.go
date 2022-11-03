@@ -3,10 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
-	cdns "github.com/netbirdio/netbird/client/internal/dns"
-	nbdns "github.com/netbirdio/netbird/dns"
 	"net"
-	"net/netip"
 	"os"
 	"strings"
 	"time"
@@ -56,83 +53,6 @@ func (p *program) Start(svc service.Service) error {
 				return
 			}
 		}
-
-		dnsServer := cdns.NewServer(p.ctx)
-		dnsServer.Start()
-		defer dnsServer.Stop()
-
-		err = dnsServer.UpdateDNSServer(1, nbdns.Update{
-			CustomZones: []nbdns.CustomZone{
-				{
-					Domain: "netbird.cloud",
-					Records: []nbdns.SimpleRecord{
-						{
-							Name:  "peera.netbird.cloud",
-							Type:  1,
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "1.2.3.4",
-						},
-						{
-							Name:  "peerb.netbird.cloud",
-							Type:  1,
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "5.6.7.8",
-						},
-						{
-							Name:  "peerc.netbird.cloud",
-							Type:  5,
-							Class: nbdns.DefaultClass,
-							TTL:   300,
-							RData: "globo.com",
-						},
-					},
-				},
-			},
-			NameServerGroups: []nbdns.NameServerGroup{
-				{
-					Domains: []string{"wiretrustee.com", "netbird.io"},
-					NameServers: []nbdns.NameServer{
-						{
-							IP:     netip.MustParseAddr("8.8.8.8"),
-							NSType: nbdns.UDPNameServerType,
-							Port:   53,
-						},
-						{
-							IP:     netip.MustParseAddr("8.8.4.4"),
-							NSType: nbdns.UDPNameServerType,
-							Port:   53,
-						},
-					},
-				},
-				{
-					Domains: []string{"uol.com"},
-					NameServers: []nbdns.NameServer{
-						{
-							IP:     netip.MustParseAddr("1.1.1.1"),
-							NSType: nbdns.UDPNameServerType,
-							Port:   53,
-						},
-						{
-							IP:     netip.MustParseAddr("8.8.4.4"),
-							NSType: nbdns.NameServerType(3),
-							Port:   53,
-						},
-					},
-				},
-				{
-					Primary: true,
-					NameServers: []nbdns.NameServer{
-						{
-							IP:     netip.MustParseAddr("9.9.9.9"),
-							NSType: nbdns.UDPNameServerType,
-							Port:   53,
-						},
-					},
-				},
-			},
-		})
 
 		if err != nil {
 			panic(err)
