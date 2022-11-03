@@ -8,7 +8,6 @@ import (
 )
 
 type localResolver struct {
-	mux           sync.Mutex
 	registeredMap registrationMap
 	records       sync.Map
 }

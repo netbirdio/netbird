@@ -53,6 +53,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Update{
+				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
 						Domain:  "netbird.cloud",
@@ -80,6 +81,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Update{
+				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
 						Domain:  "netbird.cloud",
@@ -111,6 +113,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Update{
+				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
 						Domain:  "netbird.cloud",
@@ -132,6 +135,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Update{
+				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
 						Domain:  "netbird.cloud",
@@ -153,6 +157,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Update{
+				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
 						Domain: "netbird.cloud",
@@ -173,7 +178,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			initUpstreamMap:     registrationMap{zoneRecords[0].Name: struct{}{}},
 			initSerial:          0,
 			inputSerial:         1,
-			inputUpdate:         nbdns.Update{},
+			inputUpdate:         nbdns.Update{ServiceEnable: true},
 			expectedUpstreamMap: make(registrationMap),
 			expectedLocalMap:    make(registrationMap),
 		},
@@ -236,7 +241,14 @@ func TestDNSServerStartStop(t *testing.T) {
 			d := net.Dialer{
 				Timeout: time.Second * 5,
 			}
-			return d.DialContext(ctx, network, fmt.Sprintf("127.0.0.1:%d", port))
+			addr := fmt.Sprintf("127.0.0.1:%d", port)
+			conn, err := d.DialContext(ctx, network, addr)
+			if err != nil {
+				// retry test before exit, for slower systems
+				return d.DialContext(ctx, network, addr)
+			}
+
+			return conn, nil
 		},
 	}
 
