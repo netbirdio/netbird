@@ -6,7 +6,7 @@ on:
       - 'v*'
     branches:
       - main
-  pull_request:
+#  pull_request:
 
 env:
   SIGN_PIPE_VER: "v0.0.4"
