@@ -107,7 +107,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 				Name:        "super",
 				Description: "super",
 				Primary:     false,
-				Domains:     []string{"example.com", "test.com"},
+				Domains:     []string{"example.com"},
 				Groups:      []string{group1ID},
 				NameServers: []nbdns.NameServer{
 					{
