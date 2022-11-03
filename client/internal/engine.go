@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbstatus "github.com/netbirdio/netbird/client/status"
@@ -103,6 +104,8 @@ type Engine struct {
 	statusRecorder *nbstatus.Status
 
 	routeManager routemanager.Manager
+
+	dnsServer *dns.Server
 }
 
 // Peer is an instance of the Connection Peer
@@ -130,6 +133,7 @@ func NewEngine(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
+		dnsServer:      dns.NewServer(ctx),
 	}
 }
 
@@ -188,6 +192,10 @@ func (e *Engine) Stop() error {
 
 	if e.routeManager != nil {
 		e.routeManager.Stop()
+	}
+
+	if e.dnsServer != nil {
+		e.dnsServer.Stop()
 	}
 
 	log.Infof("stopped Netbird Engine")

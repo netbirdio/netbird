@@ -159,6 +159,9 @@ type NameserverGroup struct {
 	// Description Nameserver group  description
 	Description string `json:"description"`
 
+	// Domains Nameserver group domain list
+	Domains []string `json:"domains"`
+
 	// Enabled Nameserver group status
 	Enabled bool `json:"enabled"`
 
@@ -173,6 +176,9 @@ type NameserverGroup struct {
 
 	// Nameservers Nameserver group
 	Nameservers []Nameserver `json:"nameservers"`
+
+	// Primary Nameserver group primary status
+	Primary bool `json:"primary"`
 }
 
 // NameserverGroupPatchOperation defines model for NameserverGroupPatchOperation.
@@ -198,6 +204,9 @@ type NameserverGroupRequest struct {
 	// Description Nameserver group  description
 	Description string `json:"description"`
 
+	// Domains Nameserver group domain list
+	Domains []string `json:"domains"`
+
 	// Enabled Nameserver group status
 	Enabled bool `json:"enabled"`
 
@@ -209,6 +218,9 @@ type NameserverGroupRequest struct {
 
 	// Nameservers Nameserver group
 	Nameservers []Nameserver `json:"nameservers"`
+
+	// Primary Nameserver group primary status
+	Primary bool `json:"primary"`
 }
 
 // PatchMinimum defines model for PatchMinimum.

@@ -14,6 +14,8 @@ const (
 	existingNSGroupID   = "existingNSGroup"
 	nsGroupPeer1Key     = "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8="
 	nsGroupPeer2Key     = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
+	validDomain         = "example.com"
+	invalidDomain       = "dnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdns.com"
 )
 
 func TestCreateNameServerGroup(t *testing.T) {
@@ -23,6 +25,8 @@ func TestCreateNameServerGroup(t *testing.T) {
 		enabled     bool
 		groups      []string
 		nameServers []nbdns.NameServer
+		primary     bool
+		domains     []string
 	}
 
 	testCases := []struct {
@@ -33,11 +37,12 @@ func TestCreateNameServerGroup(t *testing.T) {
 		expectedNSGroup *nbdns.NameServerGroup
 	}{
 		{
-			name: "Create A NS Group",
+			name: "Create A NS Group With Primary Status",
 			inputArgs: input{
 				name:        "super",
 				description: "super",
 				groups:      []string{group1ID},
+				primary:     true,
 				nameServers: []nbdns.NameServer{
 					{
 						IP:     netip.MustParseAddr("1.1.1.1"),
@@ -57,6 +62,52 @@ func TestCreateNameServerGroup(t *testing.T) {
 			expectedNSGroup: &nbdns.NameServerGroup{
 				Name:        "super",
 				Description: "super",
+				Primary:     true,
+				Groups:      []string{group1ID},
+				NameServers: []nbdns.NameServer{
+					{
+						IP:     netip.MustParseAddr("1.1.1.1"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					},
+					{
+						IP:     netip.MustParseAddr("1.1.2.2"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					},
+				},
+				Enabled: true,
+			},
+		},
+		{
+			name: "Create A NS Group With Domains",
+			inputArgs: input{
+				name:        "super",
+				description: "super",
+				groups:      []string{group1ID},
+				primary:     false,
+				domains:     []string{validDomain},
+				nameServers: []nbdns.NameServer{
+					{
+						IP:     netip.MustParseAddr("1.1.1.1"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					},
+					{
+						IP:     netip.MustParseAddr("1.1.2.2"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					},
+				},
+				enabled: true,
+			},
+			errFunc:      require.NoError,
+			shouldCreate: true,
+			expectedNSGroup: &nbdns.NameServerGroup{
+				Name:        "super",
+				Description: "super",
+				Primary:     false,
+				Domains:     []string{"example.com"},
 				Groups:      []string{group1ID},
 				NameServers: []nbdns.NameServer{
 					{
@@ -78,6 +129,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 			inputArgs: input{
 				name:        existingNSGroupName,
 				description: "super",
+				primary:     true,
 				groups:      []string{group1ID},
 				nameServers: []nbdns.NameServer{
 					{
@@ -101,6 +153,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 			inputArgs: input{
 				name:        "",
 				description: "super",
+				primary:     true,
 				groups:      []string{group1ID},
 				nameServers: []nbdns.NameServer{
 					{
@@ -124,6 +177,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 			inputArgs: input{
 				name:        "1234567890123456789012345678901234567890extra",
 				description: "super",
+				primary:     true,
 				groups:      []string{group1ID},
 				nameServers: []nbdns.NameServer{
 					{
@@ -147,6 +201,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 			inputArgs: input{
 				name:        "super",
 				description: "super",
+				primary:     true,
 				groups:      []string{group1ID},
 				nameServers: []nbdns.NameServer{},
 				enabled:     true,
@@ -159,6 +214,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 			inputArgs: input{
 				name:        "super",
 				description: "super",
+				primary:     true,
 				groups:      []string{group1ID},
 				nameServers: []nbdns.NameServer{
 					{
@@ -187,6 +243,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 			inputArgs: input{
 				name:        "super",
 				description: "super",
+				primary:     true,
 				groups:      []string{},
 				nameServers: []nbdns.NameServer{
 					{
@@ -210,6 +267,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 			inputArgs: input{
 				name:        "super",
 				description: "super",
+				primary:     true,
 				groups:      []string{"missingGroup"},
 				nameServers: []nbdns.NameServer{
 					{
@@ -233,7 +291,55 @@ func TestCreateNameServerGroup(t *testing.T) {
 			inputArgs: input{
 				name:        "super",
 				description: "super",
+				primary:     true,
 				groups:      []string{""},
+				nameServers: []nbdns.NameServer{
+					{
+						IP:     netip.MustParseAddr("1.1.1.1"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					},
+					{
+						IP:     netip.MustParseAddr("1.1.2.2"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					},
+				},
+				enabled: true,
+			},
+			errFunc:      require.Error,
+			shouldCreate: false,
+		},
+		{
+			name: "Should Not Create If No Domain Or Primary",
+			inputArgs: input{
+				name:        "super",
+				description: "super",
+				groups:      []string{group1ID},
+				nameServers: []nbdns.NameServer{
+					{
+						IP:     netip.MustParseAddr("1.1.1.1"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					},
+					{
+						IP:     netip.MustParseAddr("1.1.2.2"),
+						NSType: nbdns.UDPNameServerType,
+						Port:   nbdns.DefaultDNSPort,
+					},
+				},
+				enabled: true,
+			},
+			errFunc:      require.Error,
+			shouldCreate: false,
+		},
+		{
+			name: "Should Not Create If Domain List Is Invalid",
+			inputArgs: input{
+				name:        "super",
+				description: "super",
+				groups:      []string{group1ID},
+				domains:     []string{invalidDomain},
 				nameServers: []nbdns.NameServer{
 					{
 						IP:     netip.MustParseAddr("1.1.1.1"),
@@ -270,6 +376,8 @@ func TestCreateNameServerGroup(t *testing.T) {
 				testCase.inputArgs.description,
 				testCase.inputArgs.nameServers,
 				testCase.inputArgs.groups,
+				testCase.inputArgs.primary,
+				testCase.inputArgs.domains,
 				testCase.inputArgs.enabled,
 			)
 
@@ -295,6 +403,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 		ID:          "testingNSGroup",
 		Name:        "super",
 		Description: "super",
+		Primary:     true,
 		NameServers: []nbdns.NameServer{
 			{
 				IP:     netip.MustParseAddr("1.1.1.1"),
@@ -313,6 +422,10 @@ func TestSaveNameServerGroup(t *testing.T) {
 
 	validGroups := []string{group2ID}
 	invalidGroups := []string{"nonExisting"}
+	disabledPrimary := false
+	validDomains := []string{validDomain}
+	invalidDomains := []string{invalidDomain}
+
 	validNameServerList := []nbdns.NameServer{
 		{
 			IP:     netip.MustParseAddr("1.1.1.1"),
@@ -348,6 +461,8 @@ func TestSaveNameServerGroup(t *testing.T) {
 		existingNSGroup *nbdns.NameServerGroup
 		newID           *string
 		newName         *string
+		newPrimary      *bool
+		newDomains      []string
 		newNSList       []nbdns.NameServer
 		newGroups       []string
 		skipCopying     bool
@@ -360,12 +475,16 @@ func TestSaveNameServerGroup(t *testing.T) {
 			existingNSGroup: existingNSGroup,
 			newName:         &validName,
 			newGroups:       validGroups,
+			newPrimary:      &disabledPrimary,
+			newDomains:      validDomains,
 			newNSList:       validNameServerList,
 			errFunc:         require.NoError,
 			shouldCreate:    true,
 			expectedNSGroup: &nbdns.NameServerGroup{
 				ID:          "testingNSGroup",
 				Name:        validName,
+				Primary:     false,
+				Domains:     validDomains,
 				Description: "super",
 				NameServers: validNameServerList,
 				Groups:      validGroups,
@@ -435,6 +554,29 @@ func TestSaveNameServerGroup(t *testing.T) {
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
+		{
+			name:            "Should Not Update If Domains List Is Empty",
+			existingNSGroup: existingNSGroup,
+			newPrimary:      &disabledPrimary,
+			errFunc:         require.Error,
+			shouldCreate:    false,
+		},
+		{
+			name:            "Should Not Update If Primary And Domains",
+			existingNSGroup: existingNSGroup,
+			newPrimary:      &existingNSGroup.Primary,
+			newDomains:      validDomains,
+			errFunc:         require.Error,
+			shouldCreate:    false,
+		},
+		{
+			name:            "Should Not Update If Domains List Is Invalid",
+			existingNSGroup: existingNSGroup,
+			newPrimary:      &disabledPrimary,
+			newDomains:      invalidDomains,
+			errFunc:         require.Error,
+			shouldCreate:    false,
+		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -475,6 +617,14 @@ func TestSaveNameServerGroup(t *testing.T) {
 				if testCase.newNSList != nil {
 					nsGroupToSave.NameServers = testCase.newNSList
 				}
+
+				if testCase.newPrimary != nil {
+					nsGroupToSave.Primary = *testCase.newPrimary
+				}
+
+				if testCase.newDomains != nil {
+					nsGroupToSave.Domains = testCase.newDomains
+				}
 			}
 
 			err = am.SaveNameServerGroup(account.Id, nsGroupToSave)
@@ -503,6 +653,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 		ID:          nsGroupID,
 		Name:        "super",
 		Description: "super",
+		Primary:     true,
 		NameServers: []nbdns.NameServer{
 			{
 				IP:     netip.MustParseAddr("1.1.1.1"),
@@ -544,6 +695,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 				ID:          nsGroupID,
 				Name:        "superNew",
 				Description: "super",
+				Primary:     true,
 				NameServers: []nbdns.NameServer{
 					{
 						IP:     netip.MustParseAddr("1.1.1.1"),
@@ -585,6 +737,14 @@ func TestUpdateNameServerGroup(t *testing.T) {
 					Type:   UpdateNameServerGroupEnabled,
 					Values: []string{"false"},
 				},
+				NameServerGroupUpdateOperation{
+					Type:   UpdateNameServerGroupPrimary,
+					Values: []string{"false"},
+				},
+				NameServerGroupUpdateOperation{
+					Type:   UpdateNameServerGroupDomains,
+					Values: []string{validDomain},
+				},
 			},
 			errFunc:      require.NoError,
 			shouldCreate: true,
@@ -592,6 +752,8 @@ func TestUpdateNameServerGroup(t *testing.T) {
 				ID:          nsGroupID,
 				Name:        "superNew",
 				Description: "superDescription",
+				Primary:     false,
+				Domains:     []string{validDomain},
 				NameServers: []nbdns.NameServer{
 					{
 						IP:     netip.MustParseAddr("127.0.0.1"),
@@ -736,6 +898,30 @@ func TestUpdateNameServerGroup(t *testing.T) {
 				NameServerGroupUpdateOperation{
 					Type:   UpdateNameServerGroupGroups,
 					Values: []string{"nonExistingGroupID"},
+				},
+			},
+			errFunc: require.Error,
+		},
+		{
+			name:            "Should Not Update On Invalid Domains",
+			existingNSGroup: existingNSGroup,
+			nsGroupID:       existingNSGroup.ID,
+			operations: []NameServerGroupUpdateOperation{
+				NameServerGroupUpdateOperation{
+					Type:   UpdateNameServerGroupDomains,
+					Values: []string{invalidDomain},
+				},
+			},
+			errFunc: require.Error,
+		},
+		{
+			name:            "Should Not Update On Invalid Primary Status",
+			existingNSGroup: existingNSGroup,
+			nsGroupID:       existingNSGroup.ID,
+			operations: []NameServerGroupUpdateOperation{
+				NameServerGroupUpdateOperation{
+					Type:   UpdateNameServerGroupPrimary,
+					Values: []string{"yes"},
 				},
 			},
 			errFunc: require.Error,
