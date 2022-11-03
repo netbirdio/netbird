@@ -234,7 +234,10 @@ func TestDNSServerStartStop(t *testing.T) {
 	dnsServer := NewServer(ctx)
 	dnsServer.Start()
 
-	_ = dnsServer.localResolver.registerRecord(zoneRecords[0])
+	err := dnsServer.localResolver.registerRecord(zoneRecords[0])
+	if err != nil {
+		t.Error(err)
+	}
 	dnsServer.dnsMux.Handle("netbird.cloud", dnsServer.localResolver)
 
 	resolver := &net.Resolver{
