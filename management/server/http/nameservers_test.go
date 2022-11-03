@@ -35,6 +35,7 @@ var baseExistingNSGroup = &nbdns.NameServerGroup{
 	ID:          existingNSGroupID,
 	Name:        "super",
 	Description: "super",
+	Primary:     true,
 	NameServers: []nbdns.NameServer{
 		{
 			IP:     netip.MustParseAddr("1.1.1.1"),
@@ -60,7 +61,7 @@ func initNameserversTestData() *Nameservers {
 				}
 				return nil, status.Errorf(codes.NotFound, "nameserver group with ID %s not found", nsGroupID)
 			},
-			CreateNameServerGroupFunc: func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, enabled bool) (*nbdns.NameServerGroup, error) {
+			CreateNameServerGroupFunc: func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool) (*nbdns.NameServerGroup, error) {
 				return &nbdns.NameServerGroup{
 					ID:          existingNSGroupID,
 					Name:        name,
@@ -68,6 +69,8 @@ func initNameserversTestData() *Nameservers {
 					NameServers: nameServerList,
 					Groups:      groups,
 					Enabled:     enabled,
+					Primary:     primary,
+					Domains:     domains,
 				}, nil
 			},
 			DeleteNameServerGroupFunc: func(accountID, nsGroupID string) error {
@@ -150,7 +153,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/dns/nameservers",
 			requestBody: bytes.NewBuffer(
-				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true,\"primary\":true}")),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedNSGroup: &api.NameserverGroup{
@@ -173,7 +176,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/dns/nameservers",
 			requestBody: bytes.NewBuffer(
-				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1000\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1000\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true,\"primary\":true}")),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},
@@ -182,7 +185,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/dns/nameservers/" + existingNSGroupID,
 			requestBody: bytes.NewBuffer(
-				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true,\"primary\":true}")),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedNSGroup: &api.NameserverGroup{
@@ -205,7 +208,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/dns/nameservers/" + notFoundNSGroupID,
 			requestBody: bytes.NewBuffer(
-				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1.1.1.1\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true,\"primary\":true}")),
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   false,
 		},
@@ -214,7 +217,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/dns/nameservers/" + notFoundNSGroupID,
 			requestBody: bytes.NewBuffer(
-				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"100\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true}")),
+				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"100\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true,\"primary\":true}")),
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   false,
 		},

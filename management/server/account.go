@@ -87,7 +87,7 @@ type AccountManager interface {
 	DeleteRoute(accountID, routeID string) error
 	ListRoutes(accountID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
-	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, enabled bool) (*nbdns.NameServerGroup, error)
+	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(accountID string, nsGroupToSave *nbdns.NameServerGroup) error
 	UpdateNameServerGroup(accountID, nsGroupID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
 	DeleteNameServerGroup(accountID, nsGroupID string) error

@@ -9,8 +9,6 @@ import (
 )
 
 const (
-	// MaxGroupNameChar maximum group name size
-	MaxGroupNameChar = 40
 	// InvalidNameServerType invalid nameserver type
 	InvalidNameServerType NameServerType = iota
 	// UDPNameServerType udp nameserver type
@@ -18,6 +16,8 @@ const (
 )
 
 const (
+	// MaxGroupNameChar maximum group name size
+	MaxGroupNameChar = 40
 	// InvalidNameServerTypeString invalid nameserver type as string
 	InvalidNameServerTypeString = "invalid"
 	// UDPNameServerTypeString udp nameserver type as string
@@ -59,6 +59,10 @@ type NameServerGroup struct {
 	NameServers []NameServer
 	// Groups list of peer group IDs to distribute the nameservers information
 	Groups []string
+	// Primary indicates that the nameserver group is the primary resolver for any dns query
+	Primary bool
+	// Domains indicate the dns query domains to use with this nameserver group
+	Domains []string
 	// Enabled group status
 	Enabled bool
 }
@@ -128,6 +132,8 @@ func (g *NameServerGroup) Copy() *NameServerGroup {
 		NameServers: g.NameServers,
 		Groups:      g.Groups,
 		Enabled:     g.Enabled,
+		Primary:     g.Primary,
+		Domains:     g.Domains,
 	}
 }
 
@@ -136,8 +142,10 @@ func (g *NameServerGroup) IsEqual(other *NameServerGroup) bool {
 	return other.ID == g.ID &&
 		other.Name == g.Name &&
 		other.Description == g.Description &&
+		other.Primary == g.Primary &&
 		compareNameServerList(g.NameServers, other.NameServers) &&
-		compareGroupsList(g.Groups, other.Groups)
+		compareGroupsList(g.Groups, other.Groups) &&
+		compareGroupsList(g.Domains, other.Domains)
 }
 
 func compareNameServerList(list, other []NameServer) bool {

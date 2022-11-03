@@ -444,12 +444,24 @@ components:
           type: array
           items:
             type: string
+        primary:
+          description: Nameserver group primary status
+          type: boolean
+        domains:
+          description: Nameserver group domain list
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 255
       required:
         - name
         - description
         - nameservers
         - enabled
         - groups
+        - primary
+        - domains
     NameserverGroup:
       allOf:
         - type: object
