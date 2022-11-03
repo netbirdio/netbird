@@ -288,5 +288,5 @@ func getListenUDP(t *testing.T) {
 	if err != nil {
 		t.Log("got error checking for listening udp ports: ", err)
 	}
-	t.Log(out)
+	t.Log(string(out))
 }
