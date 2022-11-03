@@ -66,7 +66,7 @@ func getModuleRoot() string {
 func tunModuleIsLoaded() bool {
 	_, err := os.Stat("/dev/net/tun")
 	if err == nil {
-		//return true
+		return true
 	}
 
 	log.Infof("couldn't access device /dev/net/tun, go error %v, "+
