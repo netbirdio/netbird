@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/util"
 	"net"
 	"net/netip"
 	"testing"
@@ -228,9 +229,11 @@ func TestUpdateDNSServer(t *testing.T) {
 }
 
 func TestDNSServerStartStop(t *testing.T) {
+	_ = util.InitLog("debug", "console")
 	ctx := context.Background()
 	dnsServer := NewServer(ctx)
 	dnsServer.Start()
+	dnsServer.server.ListenAndServe()
 
 	_ = dnsServer.localResolver.registerRecord(zoneRecords[0])
 	dnsServer.dnsMux.Handle("netbird.cloud", dnsServer.localResolver)
@@ -256,6 +259,8 @@ func TestDNSServerStartStop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to connect to the server, error: %v", err)
 	}
+
+	t.Log(ips)
 
 	if ips[0] != zoneRecords[0].RData {
 		t.Fatalf("got a different IP from the server: want %s, got %s", zoneRecords[0].RData, ips[0])
