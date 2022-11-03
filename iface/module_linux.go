@@ -66,7 +66,7 @@ func getModuleRoot() string {
 func tunModuleIsLoaded() bool {
 	_, err := os.Stat("/dev/net/tun")
 	if err == nil {
-		return true
+		//return true
 	}
 
 	log.Infof("couldn't access device /dev/net/tun, go error %v, "+
@@ -214,8 +214,9 @@ func isBuiltinModule(name string) (bool, error) {
 }
 
 // /proc/modules
-//      name | memory size | reference count | references | state: <Live|Loading|Unloading>
-// 		macvlan 28672 1 macvtap, Live 0x0000000000000000
+//
+//	     name | memory size | reference count | references | state: <Live|Loading|Unloading>
+//			macvlan 28672 1 macvtap, Live 0x0000000000000000
 func moduleStatus(name string) (status, error) {
 	state := unknown
 	f, err := os.Open("/proc/modules")

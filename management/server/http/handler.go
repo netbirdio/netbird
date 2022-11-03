@@ -23,7 +23,7 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 
 	corsMiddleware := cors.AllowAll()
 
-	acMiddleware := middleware.NewAccessControll(
+	acMiddleware := middleware.NewAccessControl(
 		authAudience,
 		accountManager.IsUserAdmin)
 
