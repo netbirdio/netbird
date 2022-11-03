@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -159,6 +160,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req = req.Clone(context.WithValue(context.TODO(), "isAdminUser", true)) //nolint
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/setup-keys", handler.GetAllSetupKeysHandler).Methods("GET", "OPTIONS")

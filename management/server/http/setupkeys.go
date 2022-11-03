@@ -6,12 +6,15 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // SetupKeys is a handler that returns a list of setup keys of the account
@@ -107,6 +110,11 @@ func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isUserAdmin, ok := r.Context().Value(middleware.IsUserAdminProperty).(bool)
+	if !ok || !isUserAdmin {
+		key = hideKey(key)
+	}
+
 	writeSuccess(w, key)
 }
 
@@ -175,6 +183,11 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	isUserAdmin, ok := r.Context().Value(middleware.IsUserAdminProperty).(bool)
+	if !ok {
+		isUserAdmin = false
+	}
+
 	setupKeys, err := h.accountManager.ListSetupKeys(account.Id)
 	if err != nil {
 		log.Error(err)
@@ -183,10 +196,21 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 	}
 	apiSetupKeys := make([]*api.SetupKey, 0)
 	for _, key := range setupKeys {
-		apiSetupKeys = append(apiSetupKeys, toResponseBody(key))
+		k := key.Copy()
+		if !isUserAdmin {
+			k = hideKey(key)
+		}
+		apiSetupKeys = append(apiSetupKeys, toResponseBody(k))
 	}
 
 	writeJSONObject(w, apiSetupKeys)
+}
+
+func hideKey(key *server.SetupKey) *server.SetupKey {
+	k := key.Copy()
+	prefix := k.Key[0:5]
+	k.Key = prefix + strings.Repeat("*", utf8.RuneCountInString(key.Key)-len(prefix))
+	return k
 }
 
 func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {

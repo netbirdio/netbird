@@ -1,32 +1,38 @@
 package middleware
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
+const (
+	IsUserAdminProperty = "isAdminUser"
+)
+
 type IsUserAdminFunc func(claims jwtclaims.AuthorizationClaims) (bool, error)
 
-// AccessControll middleware to restrict to make POST/PUT/DELETE requests by admin only
-type AccessControll struct {
+// AccessControl middleware to restrict to make POST/PUT/DELETE requests by admin only
+type AccessControl struct {
 	jwtExtractor jwtclaims.ClaimsExtractor
 	isUserAdmin  IsUserAdminFunc
 	audience     string
 }
 
-// NewAccessControll instance constructor
-func NewAccessControll(audience string, isUserAdmin IsUserAdminFunc) *AccessControll {
-	return &AccessControll{
+// NewAccessControl instance constructor
+func NewAccessControl(audience string, isUserAdmin IsUserAdminFunc) *AccessControl {
+	return &AccessControl{
 		isUserAdmin:  isUserAdmin,
 		audience:     audience,
 		jwtExtractor: *jwtclaims.NewClaimsExtractor(nil),
 	}
 }
 
-// Handler method of the middleware which forbinneds all modify requests for non admin users
-func (a *AccessControll) Handler(h http.Handler) http.Handler {
+// Handler method of the middleware which forbids all modify requests for non admin users
+// It also adds
+func (a *AccessControl) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		jwtClaims := a.jwtExtractor.ExtractClaimsFromRequestContext(r, a.audience)
 
@@ -34,7 +40,6 @@ func (a *AccessControll) Handler(h http.Handler) http.Handler {
 		if err != nil {
 			http.Error(w, fmt.Sprintf("error get user from JWT: %v", err), http.StatusUnauthorized)
 			return
-
 		}
 
 		if !ok {
@@ -44,6 +49,10 @@ func (a *AccessControll) Handler(h http.Handler) http.Handler {
 				return
 			}
 		}
+
+		newRequest := r.Clone(context.WithValue(r.Context(), IsUserAdminProperty, ok)) //nolint
+		// Update the current request with the new context information.
+		*r = *newRequest
 
 		h.ServeHTTP(w, r)
 	})
