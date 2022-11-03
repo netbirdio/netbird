@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	IsUserAdminProperty = "isUserAdmin"
+	IsUserAdminProperty = "isAdminUser"
 )
 
 type IsUserAdminFunc func(claims jwtclaims.AuthorizationClaims) (bool, error)
