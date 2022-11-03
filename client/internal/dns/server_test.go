@@ -7,6 +7,8 @@ import (
 	"github.com/netbirdio/netbird/util"
 	"net"
 	"net/netip"
+	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -232,12 +234,16 @@ func TestDNSServerStartStop(t *testing.T) {
 	_ = util.InitLog("debug", "console")
 	ctx := context.Background()
 	dnsServer := NewServer(ctx)
+	if runtime.GOOS == "windows" {
+		getListenUDP(t)
+	}
 	dnsServer.Start()
 
 	err := dnsServer.localResolver.registerRecord(zoneRecords[0])
 	if err != nil {
 		t.Error(err)
 	}
+
 	dnsServer.dnsMux.Handle("netbird.cloud", dnsServer.localResolver)
 
 	resolver := &net.Resolver{
@@ -275,4 +281,12 @@ func TestDNSServerStartStop(t *testing.T) {
 	if err == nil {
 		t.Fatalf("we should encounter an error when querying a stopped server")
 	}
+}
+
+func getListenUDP(t *testing.T) {
+	out, err := exec.Command("netstat", "-p", "UDP", "-n", "-a").CombinedOutput()
+	if err != nil {
+		t.Log("got error checking for listening udp ports: ", err)
+	}
+	t.Log(out)
 }
