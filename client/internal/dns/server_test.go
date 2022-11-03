@@ -246,6 +246,9 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	dnsServer.dnsMux.Handle("netbird.cloud", dnsServer.localResolver)
 	if runtime.GOOS == "windows" {
+		getListenUDP(t)
+	}
+	if runtime.GOOS == "windows" {
 		time.Sleep(1 * time.Second)
 		getListenUDP(t)
 	}
