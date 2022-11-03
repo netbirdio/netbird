@@ -245,7 +245,10 @@ func TestDNSServerStartStop(t *testing.T) {
 	}
 
 	dnsServer.dnsMux.Handle("netbird.cloud", dnsServer.localResolver)
-
+	if runtime.GOOS == "windows" {
+		time.Sleep(1 * time.Second)
+		getListenUDP(t)
+	}
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
