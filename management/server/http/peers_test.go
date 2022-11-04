@@ -16,15 +16,18 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initTestMetaData(peer ...*server.Peer) *Peers {
+func initTestMetaData(peers ...*server.Peer) *Peers {
 	return &Peers{
 		accountManager: &mock_server.MockAccountManager{
+			GetPeersFunc: func(accountID, userID string) ([]*server.Peer, error) {
+				return peers, nil
+			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
 					Peers: map[string]*server.Peer{
-						"test_peer": peer[0],
+						"test_peer": peers[0],
 					},
 					Users: map[string]*server.User{
 						"test_user": server.NewAdminUser("test_user"),

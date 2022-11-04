@@ -20,6 +20,7 @@ type MockAccountManager struct {
 	IsUserAdminFunc                 func(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExistsFunc               func(accountId string) (*bool, error)
 	GetPeerFunc                     func(peerKey string) (*server.Peer, error)
+	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
 	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
 	RenamePeerFunc                  func(accountId string, peerKey string, newName string) (*server.Peer, error)
 	DeletePeerFunc                  func(accountId string, peerKey string) (*server.Peer, error)
@@ -488,4 +489,12 @@ func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.Authorization
 		return am.GetAccountFromTokenFunc(claims)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountFromToken is not implemented")
+}
+
+// GetPeers mocks GetPeers of the AccountManager interface
+func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*server.Peer, error) {
+	if am.GetAccountFromTokenFunc != nil {
+		return am.GetPeersFunc(accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeersFunc is not implemented")
 }
