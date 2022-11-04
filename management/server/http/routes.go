@@ -33,16 +33,24 @@ func NewRoutes(accountManager server.AccountManager, authAudience string) *Route
 
 // GetAllRoutesHandler returns the list of routes for the account
 func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	routes, err := h.accountManager.ListRoutes(account.Id)
+	routes, err := h.accountManager.ListRoutes(account.Id, user.Id)
 	if err != nil {
 		log.Error(err)
+		if e, ok := server.FromError(err); ok {
+			switch e.Type() {
+			case server.PermissionDenied:
+				http.Error(w, e.Error(), http.StatusForbidden)
+				return
+			default:
+			}
+		}
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
@@ -117,7 +125,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.accountManager.GetRoute(account.Id, routeID)
+	_, err = h.accountManager.GetRoute(account.Id, routeID, "")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("couldn't find route for ID %s", routeID), http.StatusNotFound)
 		return
@@ -190,7 +198,7 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.accountManager.GetRoute(account.Id, routeID)
+	_, err = h.accountManager.GetRoute(account.Id, routeID, "")
 	if err != nil {
 		log.Error(err)
 		http.Error(w, fmt.Sprintf("couldn't find route ID %s", routeID), http.StatusNotFound)
@@ -363,7 +371,7 @@ func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetRouteHandler handles a route Get request identified by ID
 func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -375,7 +383,7 @@ func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	foundRoute, err := h.accountManager.GetRoute(account.Id, routeID)
+	foundRoute, err := h.accountManager.GetRoute(account.Id, routeID, user.Id)
 	if err != nil {
 		http.Error(w, "route not found", http.StatusNotFound)
 		return
