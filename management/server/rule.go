@@ -246,7 +246,7 @@ func (am *DefaultAccountManager) ListRules(accountID, userID string) ([]*Rule, e
 	}
 
 	if !user.IsAdmin() {
-		return nil, Errorf(PermissionDenied, "Only Administrators are allowed to view Access Rules")
+		return nil, Errorf(PermissionDenied, "Only Administrators can view Access Rules")
 	}
 
 	rules := make([]*Rule, 0, len(account.Rules))
