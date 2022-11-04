@@ -40,6 +40,16 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 
 	accountRules, err := h.accountManager.ListRules(account.Id, user.Id)
 	if err != nil {
+		log.Error(err)
+		if e, ok := server.FromError(err); ok {
+			switch e.Type() {
+			case server.PermissionDenied:
+				http.Error(w, e.Error(), http.StatusForbidden)
+				return
+			default:
+			}
+		}
+		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 	rules := []*api.Rule{}
