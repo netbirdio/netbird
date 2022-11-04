@@ -66,7 +66,7 @@ type AccountManager interface {
 	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
 	UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error
 	UpdatePeerSSHKey(peerKey string, sshKey string) error
-	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
+	GetUsersFromAccount(accountId, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
 	UpdateGroup(accountID string, groupID string, operations []GroupUpdateOperation) (*Group, error)
@@ -140,6 +140,16 @@ type UserInfo struct {
 	Role       string   `json:"role"`
 	AutoGroups []string `json:"auto_groups"`
 	Status     string   `json:"-"`
+}
+
+// FindUser looks for a given user in the Account or returns error if user wasn't found.
+func (a *Account) FindUser(userID string) (*User, error) {
+	user := a.Users[userID]
+	if user == nil {
+		return nil, Errorf(UserNotFound, "user %s not found", userID)
+	}
+
+	return user, nil
 }
 
 func (a *Account) Copy() *Account {

@@ -27,7 +27,7 @@ func initUsers(user ...*server.User) *UserHandler {
 					Users:  users,
 				}, nil
 			},
-			GetUsersFromAccountFunc: func(accountID string) ([]*server.UserInfo, error) {
+			GetUsersFromAccountFunc: func(accountID, userID string) ([]*server.UserInfo, error) {
 				users := make([]*server.UserInfo, 0)
 				for _, v := range user {
 					users = append(users, &server.UserInfo{

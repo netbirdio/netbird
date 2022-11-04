@@ -247,16 +247,6 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	return newKey, am.updateAccountPeers(account)
 }
 
-func findUser(account *Account, userID string) (*User, error) {
-	user := account.Users[userID]
-	if user == nil {
-		// this is not really possible because we got an account by user ID
-		return nil, fmt.Errorf("user %s not found", userID)
-	}
-
-	return user, nil
-}
-
 // ListSetupKeys returns a list of all setup keys of the account
 func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*SetupKey, error) {
 	am.mux.Lock()
@@ -266,7 +256,7 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	user, err := findUser(account, userID)
+	user, err := account.FindUser(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -295,7 +285,7 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	user, err := findUser(account, userID)
+	user, err := account.FindUser(userID)
 	if err != nil {
 		return nil, err
 	}

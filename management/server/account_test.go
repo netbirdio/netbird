@@ -874,7 +874,7 @@ func TestGetUsersFromAccount(t *testing.T) {
 		account.Users[user.Id] = user
 	}
 
-	userInfos, err := manager.GetUsersFromAccount(accountId)
+	userInfos, err := manager.GetUsersFromAccount(accountId, "")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -40,7 +40,7 @@ type MockAccountManager struct {
 	UpdateRuleFunc                  func(accountID string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error)
 	DeleteRuleFunc                  func(accountID, ruleID string) error
 	ListRulesFunc                   func(accountID string) ([]*server.Rule, error)
-	GetUsersFromAccountFunc         func(accountID string) ([]*server.UserInfo, error)
+	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
 	UpdatePeerMetaFunc              func(peerKey string, meta server.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerKey string, sshKey string) error
 	UpdatePeerFunc                  func(accountID string, peer *server.Peer) (*server.Peer, error)
@@ -64,9 +64,9 @@ type MockAccountManager struct {
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
-func (am *MockAccountManager) GetUsersFromAccount(accountID string) ([]*server.UserInfo, error) {
+func (am *MockAccountManager) GetUsersFromAccount(accountID string, userID string) ([]*server.UserInfo, error) {
 	if am.GetUsersFromAccountFunc != nil {
-		return am.GetUsersFromAccountFunc(accountID)
+		return am.GetUsersFromAccountFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount is not implemented")
 }
