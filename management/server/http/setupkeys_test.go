@@ -2,7 +2,6 @@ package http
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/mux"
@@ -29,13 +28,17 @@ const (
 	notFoundSetupKeyID  = "notFoundSetupKeyID"
 )
 
-func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey) *SetupKeys {
+func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey,
+	user *server.User) *SetupKeys {
 	return &SetupKeys{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
 				return &server.Account{
 					Id:     testAccountID,
 					Domain: "hotmail.com",
+					Users: map[string]*server.User{
+						user.Id: user,
+					},
 					SetupKeys: map[string]*server.SetupKey{
 						defaultKey.Key: defaultKey,
 					},
@@ -76,7 +79,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 		jwtExtractor: jwtclaims.ClaimsExtractor{
 			ExtractClaimsFromRequestContext: func(r *http.Request, authAudience string) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
-					UserId:    "test_user",
+					UserId:    user.Id,
 					Domain:    "hotmail.com",
 					AccountId: testAccountID,
 				}
@@ -88,6 +91,8 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 func TestSetupKeysHandlers(t *testing.T) {
 	defaultSetupKey := server.GenerateDefaultSetupKey()
 	defaultSetupKey.Id = existingSetupKeyID
+
+	adminUser := server.NewAdminUser("test_user")
 
 	newSetupKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"})
 	updatedDefaultSetupKey := defaultSetupKey.Copy()
@@ -154,13 +159,12 @@ func TestSetupKeysHandlers(t *testing.T) {
 		},
 	}
 
-	handler := initSetupKeysTestMetaData(defaultSetupKey, newSetupKey, updatedDefaultSetupKey)
+	handler := initSetupKeysTestMetaData(defaultSetupKey, newSetupKey, updatedDefaultSetupKey, adminUser)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
-			req = req.Clone(context.WithValue(context.TODO(), "isAdminUser", true)) //nolint
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/setup-keys", handler.GetAllSetupKeysHandler).Methods("GET", "OPTIONS")

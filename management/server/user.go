@@ -46,6 +46,11 @@ type User struct {
 	AutoGroups []string
 }
 
+// IsAdmin returns true if user is an admin, false otherwise
+func (u *User) IsAdmin() bool {
+	return u.Role == UserRoleAdmin
+}
+
 // toUserInfo converts a User object to a UserInfo object.
 func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	autoGroups := u.AutoGroups

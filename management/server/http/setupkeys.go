@@ -6,7 +6,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -84,7 +83,7 @@ func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 
 // GetSetupKeyHandler is a GET request to get a SetupKey by ID
 func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -110,8 +109,7 @@ func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isUserAdmin, ok := r.Context().Value(middleware.IsUserAdminProperty).(bool)
-	if !ok || !isUserAdmin {
+	if !user.IsAdmin() {
 		key = hideKey(key)
 	}
 
@@ -176,16 +174,11 @@ func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 // GetAllSetupKeysHandler is a GET request that returns a list of SetupKey
 func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Request) {
 
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
-	}
-
-	isUserAdmin, ok := r.Context().Value(middleware.IsUserAdminProperty).(bool)
-	if !ok {
-		isUserAdmin = false
 	}
 
 	setupKeys, err := h.accountManager.ListSetupKeys(account.Id)
@@ -197,7 +190,7 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 	apiSetupKeys := make([]*api.SetupKey, 0)
 	for _, key := range setupKeys {
 		k := key.Copy()
-		if !isUserAdmin {
+		if !user.IsAdmin() {
 			k = hideKey(key)
 		}
 		apiSetupKeys = append(apiSetupKeys, toResponseBody(k))
