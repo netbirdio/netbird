@@ -26,6 +26,9 @@ func initTestMetaData(peer ...*server.Peer) *Peers {
 					Peers: map[string]*server.Peer{
 						"test_peer": peer[0],
 					},
+					Users: map[string]*server.User{
+						"test_user": server.NewAdminUser("test_user"),
+					},
 				}, nil
 			},
 		},

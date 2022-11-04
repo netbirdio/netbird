@@ -14,7 +14,7 @@ type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc    func(userId, domain string) (*server.Account, error)
 	GetAccountByUserFunc            func(userId string) (*server.Account, error)
 	CreateSetupKeyFunc              func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn time.Duration, autoGroups []string) (*server.SetupKey, error)
-	GetSetupKeyFunc                 func(accountID string, keyID string) (*server.SetupKey, error)
+	GetSetupKeyFunc                 func(accountID, userID, keyID string) (*server.SetupKey, error)
 	GetAccountByIdFunc              func(accountId string) (*server.Account, error)
 	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
 	IsUserAdminFunc                 func(claims jwtclaims.AuthorizationClaims) (bool, error)
@@ -51,7 +51,7 @@ type MockAccountManager struct {
 	DeleteRouteFunc                 func(accountID, routeID string) error
 	ListRoutesFunc                  func(accountID string) ([]*route.Route, error)
 	SaveSetupKeyFunc                func(accountID string, key *server.SetupKey) (*server.SetupKey, error)
-	ListSetupKeysFunc               func(accountID string) ([]*server.SetupKey, error)
+	ListSetupKeysFunc               func(accountID, userID string) ([]*server.SetupKey, error)
 	SaveUserFunc                    func(accountID string, user *server.User) (*server.UserInfo, error)
 	GetNameServerGroupFunc          func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroupFunc       func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool) (*nbdns.NameServerGroup, error)
@@ -401,18 +401,18 @@ func (am *MockAccountManager) SaveSetupKey(accountID string, key *server.SetupKe
 }
 
 // GetSetupKey mocks GetSetupKey of the AccountManager interface
-func (am *MockAccountManager) GetSetupKey(accountID, keyID string) (*server.SetupKey, error) {
+func (am *MockAccountManager) GetSetupKey(accountID, userID, keyID string) (*server.SetupKey, error) {
 	if am.GetSetupKeyFunc != nil {
-		return am.GetSetupKeyFunc(accountID, keyID)
+		return am.GetSetupKeyFunc(accountID, userID, keyID)
 	}
 
 	return nil, status.Errorf(codes.Unimplemented, "method GetSetupKey is not implemented")
 }
 
 // ListSetupKeys mocks ListSetupKeys of the AccountManager interface
-func (am *MockAccountManager) ListSetupKeys(accountID string) ([]*server.SetupKey, error) {
+func (am *MockAccountManager) ListSetupKeys(accountID, userID string) ([]*server.SetupKey, error) {
 	if am.ListSetupKeysFunc != nil {
-		return am.ListSetupKeysFunc(accountID)
+		return am.ListSetupKeysFunc(accountID, userID)
 	}
 
 	return nil, status.Errorf(codes.Unimplemented, "method ListSetupKeys is not implemented")

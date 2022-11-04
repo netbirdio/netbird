@@ -44,7 +44,7 @@ func initUsers(user ...*server.User) *UserHandler {
 		jwtExtractor: jwtclaims.ClaimsExtractor{
 			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
-					UserId:    "test_user",
+					UserId:    "1",
 					Domain:    "hotmail.com",
 					AccountId: "test_id",
 				}

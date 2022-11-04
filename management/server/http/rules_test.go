@@ -75,6 +75,9 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 						"F": {ID: "F"},
 						"G": {ID: "G"},
 					},
+					Users: map[string]*server.User{
+						"test_user": server.NewAdminUser("test_user"),
+					},
 				}, nil
 			},
 		},

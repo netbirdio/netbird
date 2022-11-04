@@ -53,7 +53,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				}
 				return nil, fmt.Errorf("failed creating setup key")
 			},
-			GetSetupKeyFunc: func(accountID string, keyID string) (*server.SetupKey, error) {
+			GetSetupKeyFunc: func(accountID, userID, keyID string) (*server.SetupKey, error) {
 				switch keyID {
 				case defaultKey.Id:
 					return defaultKey, nil
@@ -71,7 +71,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				return nil, status.Errorf(codes.NotFound, "key %s not found", key.Id)
 			},
 
-			ListSetupKeysFunc: func(accountID string) ([]*server.SetupKey, error) {
+			ListSetupKeysFunc: func(accountID, userID string) ([]*server.SetupKey, error) {
 				return []*server.SetupKey{defaultKey}, nil
 			},
 		},
