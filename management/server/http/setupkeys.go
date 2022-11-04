@@ -11,9 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
-	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 // SetupKeys is a handler that returns a list of setup keys of the account
@@ -97,7 +95,7 @@ func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := h.accountManager.GetSetupKey(account.Id, keyID)
+	key, err := h.accountManager.GetSetupKey(account.Id, user.Id, keyID)
 	if err != nil {
 		errStatus, ok := status.FromError(err)
 		if ok && errStatus.Code() == codes.NotFound {
@@ -107,10 +105,6 @@ func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 		log.Errorf("failed getting setup key %s under account %s %v", keyID, account.Id, err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
-	}
-
-	if !user.IsAdmin() {
-		key = hideKey(key)
 	}
 
 	writeSuccess(w, key)
@@ -181,7 +175,7 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	setupKeys, err := h.accountManager.ListSetupKeys(account.Id)
+	setupKeys, err := h.accountManager.ListSetupKeys(account.Id, user.Id)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -189,21 +183,10 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 	}
 	apiSetupKeys := make([]*api.SetupKey, 0)
 	for _, key := range setupKeys {
-		k := key.Copy()
-		if !user.IsAdmin() {
-			k = hideKey(key)
-		}
-		apiSetupKeys = append(apiSetupKeys, toResponseBody(k))
+		apiSetupKeys = append(apiSetupKeys, toResponseBody(key))
 	}
 
 	writeJSONObject(w, apiSetupKeys)
-}
-
-func hideKey(key *server.SetupKey) *server.SetupKey {
-	k := key.Copy()
-	prefix := k.Key[0:5]
-	k.Key = prefix + strings.Repeat("*", utf8.RuneCountInString(key.Key)-len(prefix))
-	return k
 }
 
 func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
