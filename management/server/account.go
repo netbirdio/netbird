@@ -76,11 +76,11 @@ type AccountManager interface {
 	GroupAddPeer(accountId, groupID, peerKey string) error
 	GroupDeletePeer(accountId, groupID, peerKey string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
-	GetRule(accountId, ruleID string) (*Rule, error)
+	GetRule(accountID, ruleID, userID string) (*Rule, error)
 	SaveRule(accountID string, rule *Rule) error
 	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
 	DeleteRule(accountId, ruleID string) error
-	ListRules(accountId string) ([]*Rule, error)
+	ListRules(accountID, userID string) ([]*Rule, error)
 	GetRoute(accountID, routeID string) (*route.Route, error)
 	CreateRoute(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, enabled bool) (*route.Route, error)
 	SaveRoute(accountID string, route *route.Route) error

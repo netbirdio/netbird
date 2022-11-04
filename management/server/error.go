@@ -14,6 +14,9 @@ const (
 
 	// UserNotFound indicates that user wasn't found in the system (or under a given Account)
 	UserNotFound ErrorType = iota
+
+	// PermissionDenied indicates that user has no permissions to view data
+	PermissionDenied ErrorType = iota
 )
 
 // ErrorType is a type of the Error

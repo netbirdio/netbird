@@ -36,11 +36,11 @@ type MockAccountManager struct {
 	GroupAddPeerFunc                func(accountID, groupID, peerKey string) error
 	GroupDeletePeerFunc             func(accountID, groupID, peerKey string) error
 	GroupListPeersFunc              func(accountID, groupID string) ([]*server.Peer, error)
-	GetRuleFunc                     func(accountID, ruleID string) (*server.Rule, error)
+	GetRuleFunc                     func(accountID, ruleID, userID string) (*server.Rule, error)
 	SaveRuleFunc                    func(accountID string, rule *server.Rule) error
 	UpdateRuleFunc                  func(accountID string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error)
 	DeleteRuleFunc                  func(accountID, ruleID string) error
-	ListRulesFunc                   func(accountID string) ([]*server.Rule, error)
+	ListRulesFunc                   func(accountID, userID string) ([]*server.Rule, error)
 	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
 	UpdatePeerMetaFunc              func(peerKey string, meta server.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerKey string, sshKey string) error
@@ -273,9 +273,9 @@ func (am *MockAccountManager) GroupListPeers(accountID, groupID string) ([]*serv
 }
 
 // GetRule mock implementation of GetRule from server.AccountManager interface
-func (am *MockAccountManager) GetRule(accountID, ruleID string) (*server.Rule, error) {
+func (am *MockAccountManager) GetRule(accountID, ruleID, userID string) (*server.Rule, error) {
 	if am.GetRuleFunc != nil {
-		return am.GetRuleFunc(accountID, ruleID)
+		return am.GetRuleFunc(accountID, ruleID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetRule is not implemented")
 }
@@ -305,9 +305,9 @@ func (am *MockAccountManager) DeleteRule(accountID, ruleID string) error {
 }
 
 // ListRules mock implementation of ListRules from server.AccountManager interface
-func (am *MockAccountManager) ListRules(accountID string) ([]*server.Rule, error) {
+func (am *MockAccountManager) ListRules(accountID, userID string) ([]*server.Rule, error) {
 	if am.ListRulesFunc != nil {
-		return am.ListRulesFunc(accountID)
+		return am.ListRulesFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListRules is not implemented")
 }

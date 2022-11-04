@@ -28,7 +28,7 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 				}
 				return nil
 			},
-			GetRuleFunc: func(_, ruleID string) (*server.Rule, error) {
+			GetRuleFunc: func(_, ruleID, _ string) (*server.Rule, error) {
 				if ruleID != "idoftherule" {
 					return nil, fmt.Errorf("not found")
 				}
