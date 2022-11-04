@@ -91,13 +91,17 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 		return nil, err
 	}
 
-	_, err = account.FindUser(userID)
+	user, err := account.FindUser(userID)
 	if err != nil {
 		return nil, err
 	}
 
 	peers := make([]*Peer, 0, len(account.Peers))
 	for _, peer := range account.Peers {
+		if !user.IsAdmin() && user.Id != peer.UserID {
+			// only display peers that belong to the current user if the current user is not an admin
+			continue
+		}
 		peers = append(peers, peer.Copy())
 	}
 
