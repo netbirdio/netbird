@@ -178,6 +178,9 @@ message NetworkMap {
 
   // List of routes to be applied
   repeated Route Routes = 5;
+
+  // List of dns update to be applied
+  repeated DNSUpdate DNSUpdate = 6;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -193,6 +196,8 @@ message RemotePeerConfig {
   // SSHConfig is a SSH config of the remote peer. SSHConfig.sshPubKey should be ignored because peer knows it's SSH key.
   SSHConfig sshConfig = 3;
 
+  // peer's domain name
+  string domainName = 4;
 }
 
 // SSHConfig represents SSH configurations of a peer.
@@ -246,4 +251,44 @@ message Route {
   int64  Metric = 5;
   bool   Masquerade = 6;
   string NetID = 7;
+}
+
+// Update represents a dns.Update
+message DNSUpdate {
+  bool ServiceEnable = 1;
+  repeated NameServerGroup NameServerGroups = 2;
+  repeated CustomZone CustomZones = 3;
+}
+
+// CustomZone represents a dns.CustomZone
+message CustomZone {
+  string Domain = 1;
+  repeated SimpleRecord Records = 2;
+}
+
+// SimpleRecord represents a dns.SimpleRecord
+message SimpleRecord {
+  string Name = 1;
+  int64 Type = 2;
+  string Class = 3;
+  int64 TTL = 4;
+  string RData = 5;
+}
+
+// NameServerGroup represents a dns.NameServerGroup
+message NameServerGroup {
+  string ID = 1;
+  string Name = 2;
+  repeated NameServer NameServers = 3;
+  repeated string Groups = 4;
+  bool Primary = 5;
+  repeated string Domains = 6;
+  bool Enabled = 7;
+}
+
+// NameServer represents a dns.NameServer
+message NameServer {
+  string IP = 1;
+  int64  NSType = 2;
+  int64  Port = 3;
 }

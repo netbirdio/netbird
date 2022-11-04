@@ -5,6 +5,9 @@ package dns
 import (
 	"fmt"
 	"github.com/miekg/dns"
+	"golang.org/x/net/idna"
+	"regexp"
+	"strings"
 )
 
 const (
@@ -15,6 +18,8 @@ const (
 	// DefaultClass is the class supported by the system
 	DefaultClass = "IN"
 )
+
+const invalidHostLabel = "[^a-zA-Z0-9-]+"
 
 // Update represents a dns update that is exchanged between management and peers
 type Update struct {
@@ -53,4 +58,23 @@ type SimpleRecord struct {
 func (s SimpleRecord) String() string {
 	fqdn := dns.Fqdn(s.Name)
 	return fmt.Sprintf("%s %d %s %s %s", fqdn, s.TTL, s.Class, dns.Type(s.Type).String(), s.RData)
+}
+
+// GetParsedDomainLabel returns a domain label with max 59 characters,
+// parsed for old Hosts.txt requirements, and converted to ASCII and lowercase
+func GetParsedDomainLabel(name string) (string, error) {
+	rawLabel := dns.SplitDomainName(name)[0]
+	ascii, err := idna.Punycode.ToASCII(rawLabel)
+	if err != nil {
+		return "", fmt.Errorf("unable to convert host lavel to ASCII, error: %v", err)
+	}
+
+	invalidHostMatcher := regexp.MustCompile(invalidHostLabel)
+
+	validHost := strings.ToLower(invalidHostMatcher.ReplaceAllString(ascii, "-"))
+	if len(validHost) > 58 {
+		validHost = validHost[:59]
+	}
+
+	return validHost, nil
 }
