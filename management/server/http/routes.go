@@ -33,7 +33,7 @@ func NewRoutes(accountManager server.AccountManager, authAudience string) *Route
 
 // GetAllRoutesHandler returns the list of routes for the account
 func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -56,7 +56,7 @@ func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
 
 // CreateRouteHandler handles route creation request
 func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -104,7 +104,7 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // UpdateRouteHandler handles update to a route identified by a given ID
 func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -177,7 +177,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // PatchRouteHandler handles patch updates to a route identified by a given ID
 func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -334,7 +334,7 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // DeleteRouteHandler handles route deletion request
 func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -363,7 +363,7 @@ func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetRouteHandler handles a route Get request identified by ID
 func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return

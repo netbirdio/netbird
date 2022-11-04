@@ -33,7 +33,7 @@ func NewGroups(accountManager server.AccountManager, authAudience string) *Group
 
 // GetAllGroupsHandler list for the account
 func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -50,7 +50,7 @@ func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
 
 // UpdateGroupHandler handles update to a group identified by a given ID
 func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -111,7 +111,7 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 
 // PatchGroupHandler handles patch updates to a group identified by a given ID
 func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -226,7 +226,7 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 
 // CreateGroupHandler handles group creation request
 func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -260,7 +260,7 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 
 // DeleteGroupHandler handles group deletion request
 func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -295,7 +295,7 @@ func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetGroupHandler returns a group
 func (h *Groups) GetGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
