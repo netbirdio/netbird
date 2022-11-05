@@ -47,15 +47,16 @@ type AccountManager interface {
 	) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
 	CreateUser(accountID string, key *UserInfo) (*UserInfo, error)
-	ListSetupKeys(accountID string) ([]*SetupKey, error)
+	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID string, key *User) (*UserInfo, error)
-	GetSetupKey(accountID, keyID string) (*SetupKey, error)
+	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountById(accountId string) (*Account, error)
 	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeer(peerKey string) (*Peer, error)
+	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	RenamePeer(accountId string, peerKey string, newName string) (*Peer, error)
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
@@ -66,7 +67,7 @@ type AccountManager interface {
 	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
 	UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error
 	UpdatePeerSSHKey(peerKey string, sshKey string) error
-	GetUsersFromAccount(accountId string) ([]*UserInfo, error)
+	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountId string, group *Group) error
 	UpdateGroup(accountID string, groupID string, operations []GroupUpdateOperation) (*Group, error)
@@ -75,17 +76,17 @@ type AccountManager interface {
 	GroupAddPeer(accountId, groupID, peerKey string) error
 	GroupDeletePeer(accountId, groupID, peerKey string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
-	GetRule(accountId, ruleID string) (*Rule, error)
+	GetRule(accountID, ruleID, userID string) (*Rule, error)
 	SaveRule(accountID string, rule *Rule) error
 	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
 	DeleteRule(accountId, ruleID string) error
-	ListRules(accountId string) ([]*Rule, error)
-	GetRoute(accountID, routeID string) (*route.Route, error)
+	ListRules(accountID, userID string) ([]*Rule, error)
+	GetRoute(accountID, routeID, userID string) (*route.Route, error)
 	CreateRoute(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, enabled bool) (*route.Route, error)
 	SaveRoute(accountID string, route *route.Route) error
 	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID string) error
-	ListRoutes(accountID string) ([]*route.Route, error)
+	ListRoutes(accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroup(accountID string, nsGroupToSave *nbdns.NameServerGroup) error
@@ -142,6 +143,16 @@ type UserInfo struct {
 	Role       string   `json:"role"`
 	AutoGroups []string `json:"auto_groups"`
 	Status     string   `json:"-"`
+}
+
+// FindUser looks for a given user in the Account or returns error if user wasn't found.
+func (a *Account) FindUser(userID string) (*User, error) {
+	user := a.Users[userID]
+	if user == nil {
+		return nil, Errorf(UserNotFound, "user %s not found", userID)
+	}
+
+	return user, nil
 }
 
 func (a *Account) Copy() *Account {

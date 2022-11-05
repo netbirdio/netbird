@@ -28,7 +28,7 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 				}
 				return nil
 			},
-			GetRuleFunc: func(_, ruleID string) (*server.Rule, error) {
+			GetRuleFunc: func(_, ruleID, _ string) (*server.Rule, error) {
 				if ruleID != "idoftherule" {
 					return nil, fmt.Errorf("not found")
 				}
@@ -74,6 +74,9 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 					Groups: map[string]*server.Group{
 						"F": {ID: "F"},
 						"G": {ID: "G"},
+					},
+					Users: map[string]*server.User{
+						"test_user": server.NewAdminUser("test_user"),
 					},
 				}, nil
 			},

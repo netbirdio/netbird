@@ -25,7 +25,7 @@ var TestPeers = map[string]*server.Peer{
 	"B": &server.Peer{Key: "B", IP: net.ParseIP("200.200.200.200")},
 }
 
-func initGroupTestData(groups ...*server.Group) *Groups {
+func initGroupTestData(user *server.User, groups ...*server.Group) *Groups {
 	return &Groups{
 		accountManager: &mock_server.MockAccountManager{
 			SaveGroupFunc: func(accountID string, group *server.Group) error {
@@ -72,6 +72,9 @@ func initGroupTestData(groups ...*server.Group) *Groups {
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
 					Peers:  TestPeers,
+					Users: map[string]*server.User{
+						user.Id: user,
+					},
 					Groups: map[string]*server.Group{
 						"id-existed": {ID: "id-existed", Peers: []string{"A", "B"}},
 						"id-all":     {ID: "id-all", Name: "All"}},
@@ -120,7 +123,8 @@ func TestGetGroup(t *testing.T) {
 		Name: "Group",
 	}
 
-	p := initGroupTestData(group)
+	adminUser := server.NewAdminUser("test_user")
+	p := initGroupTestData(adminUser, group)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -270,7 +274,8 @@ func TestWriteGroup(t *testing.T) {
 		},
 	}
 
-	p := initGroupTestData()
+	adminUser := server.NewAdminUser("test_user")
+	p := initGroupTestData(adminUser)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {

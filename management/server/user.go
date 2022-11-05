@@ -46,6 +46,11 @@ type User struct {
 	AutoGroups []string
 }
 
+// IsAdmin returns true if user is an admin, false otherwise
+func (u *User) IsAdmin() bool {
+	return u.Role == UserRoleAdmin
+}
+
 // toUserInfo converts a User object to a UserInfo object.
 func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
@@ -288,9 +293,15 @@ func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaim
 	return user.Role == UserRoleAdmin, nil
 }
 
-// GetUsersFromAccount performs a batched request for users from IDP by account ID
-func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserInfo, error) {
+// GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
+// based on provided user role.
+func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error) {
 	account, err := am.GetAccountById(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -311,8 +322,12 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 
 	// in case of self-hosted, or IDP doesn't return anything, we will return the locally stored userInfo
 	if len(queriedUsers) == 0 {
-		for _, user := range account.Users {
-			info, err := user.toUserInfo(nil)
+		for _, accountUser := range account.Users {
+			if !user.IsAdmin() && user.Id != accountUser.Id {
+				// if user is not an admin then show only current user and do not show other users
+				continue
+			}
+			info, err := accountUser.toUserInfo(nil)
 			if err != nil {
 				return nil, err
 			}
@@ -322,6 +337,10 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID string) ([]*UserI
 	}
 
 	for _, queriedUser := range queriedUsers {
+		if !user.IsAdmin() && user.Id != queriedUser.ID {
+			// if user is not an admin then show only current user and do not show other users
+			continue
+		}
 		if localUser, contains := account.Users[queriedUser.ID]; contains {
 
 			info, err := localUser.toUserInfo(queriedUser)

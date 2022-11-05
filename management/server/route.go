@@ -60,13 +60,22 @@ type RouteUpdateOperation struct {
 }
 
 // GetRoute gets a route object from account and route IDs
-func (am *DefaultAccountManager) GetRoute(accountID, routeID string) (*route.Route, error) {
+func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*route.Route, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdmin() {
+		return nil, Errorf(PermissionDenied, "Only administrators can view Network Routes")
 	}
 
 	wantedRoute, found := account.Routes[routeID]
@@ -325,13 +334,22 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
 }
 
 // ListRoutes returns a list of routes from account
-func (am *DefaultAccountManager) ListRoutes(accountID string) ([]*route.Route, error) {
+func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.Route, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdmin() {
+		return nil, Errorf(PermissionDenied, "Only administrators can view Network Routes")
 	}
 
 	routes := make([]*route.Route, 0, len(account.Routes))

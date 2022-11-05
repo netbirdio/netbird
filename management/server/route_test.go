@@ -740,7 +740,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	err = am.SaveGroup(account.Id, newGroup)
 	require.NoError(t, err)
 
-	rules, err := am.ListRules(account.Id)
+	rules, err := am.ListRules(account.Id, "testingUser")
 	require.NoError(t, err)
 
 	defaultRule := rules[0]
