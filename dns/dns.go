@@ -26,7 +26,7 @@ type Update struct {
 	// ServiceEnable indicates if the service should be enabled
 	ServiceEnable bool
 	// NameServerGroups contains a list of nameserver group
-	NameServerGroups []NameServerGroup
+	NameServerGroups []*NameServerGroup
 	// CustomZones contains a list of custom zone
 	CustomZones []CustomZone
 }

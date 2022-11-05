@@ -13,10 +13,10 @@ type lookupMap map[string]struct{}
 
 const defaultTTL = 300
 
-func toProtocolDNSUpdate(customZones []nbdns.CustomZone, nsGroups []*nbdns.NameServerGroup) *proto.DNSUpdate {
-	protoUpdate := &proto.DNSUpdate{ServiceEnable: true}
+func toProtocolDNSUpdate(update nbdns.Update) *proto.DNSUpdate {
+	protoUpdate := &proto.DNSUpdate{ServiceEnable: update.ServiceEnable}
 
-	for _, zone := range customZones {
+	for _, zone := range update.CustomZones {
 		protoZone := &proto.CustomZone{Domain: zone.Domain}
 		for _, record := range zone.Records {
 			protoZone.Records = append(protoZone.Records, &proto.SimpleRecord{
@@ -30,7 +30,7 @@ func toProtocolDNSUpdate(customZones []nbdns.CustomZone, nsGroups []*nbdns.NameS
 		protoUpdate.CustomZones = append(protoUpdate.CustomZones, protoZone)
 	}
 
-	for _, nsGroup := range nsGroups {
+	for _, nsGroup := range update.NameServerGroups {
 		protoGroup := &proto.NameServerGroup{
 			ID:      nsGroup.ID,
 			Name:    nsGroup.Name,

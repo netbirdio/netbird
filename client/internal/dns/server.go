@@ -169,7 +169,7 @@ func (s *Server) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxU
 	return muxUpdates, localRecords, nil
 }
 
-func (s *Server) buildUpstreamHandlerUpdate(nameServerGroups []nbdns.NameServerGroup) ([]muxUpdate, error) {
+func (s *Server) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]muxUpdate, error) {
 	var muxUpdates []muxUpdate
 	for _, nsGroup := range nameServerGroups {
 		if len(nsGroup.NameServers) == 0 {

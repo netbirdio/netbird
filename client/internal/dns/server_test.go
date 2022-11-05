@@ -62,7 +62,7 @@ func TestUpdateDNSServer(t *testing.T) {
 						Records: zoneRecords,
 					},
 				},
-				NameServerGroups: []nbdns.NameServerGroup{
+				NameServerGroups: []*nbdns.NameServerGroup{
 					{
 						Domains:     []string{"netbird.io"},
 						NameServers: nameServers,
@@ -90,7 +90,7 @@ func TestUpdateDNSServer(t *testing.T) {
 						Records: zoneRecords,
 					},
 				},
-				NameServerGroups: []nbdns.NameServerGroup{
+				NameServerGroups: []*nbdns.NameServerGroup{
 					{
 						Domains:     []string{"netbird.io"},
 						NameServers: nameServers,
@@ -122,7 +122,7 @@ func TestUpdateDNSServer(t *testing.T) {
 						Records: zoneRecords,
 					},
 				},
-				NameServerGroups: []nbdns.NameServerGroup{
+				NameServerGroups: []*nbdns.NameServerGroup{
 					{
 						NameServers: nameServers,
 					},
@@ -144,7 +144,7 @@ func TestUpdateDNSServer(t *testing.T) {
 						Records: zoneRecords,
 					},
 				},
-				NameServerGroups: []nbdns.NameServerGroup{
+				NameServerGroups: []*nbdns.NameServerGroup{
 					{
 						NameServers: nameServers,
 					},
@@ -165,7 +165,7 @@ func TestUpdateDNSServer(t *testing.T) {
 						Domain: "netbird.cloud",
 					},
 				},
-				NameServerGroups: []nbdns.NameServerGroup{
+				NameServerGroups: []*nbdns.NameServerGroup{
 					{
 						NameServers: nameServers,
 						Primary:     true,

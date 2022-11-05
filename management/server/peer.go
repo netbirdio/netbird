@@ -311,10 +311,26 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 	aclPeers := am.getPeersByACL(account, peerKey)
 	routesUpdate := am.getPeersRoutes(append(aclPeers, account.Peers[peerKey]))
 
+	// todo extract this with the store v2
+	// this should become part of the method parameters
+	// to prevent slow performance when called in a parent loop
+	var zones []nbdns.CustomZone
+	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
+	if peersCustomZone.Domain != "" {
+		zones = append(zones, peersCustomZone)
+	}
+
+	dnsUpdate := nbdns.Update{
+		ServiceEnable:    true,
+		CustomZones:      zones,
+		NameServerGroups: getPeerNSGroups(account, peerKey),
+	}
+
 	return &NetworkMap{
-		Peers:   aclPeers,
-		Network: account.Network.Copy(),
-		Routes:  routesUpdate,
+		Peers:     aclPeers,
+		Network:   account.Network.Copy(),
+		Routes:    routesUpdate,
+		DNSUpdate: dnsUpdate,
 	}, err
 }
 
@@ -400,20 +416,20 @@ func (am *DefaultAccountManager) AddPeer(
 	}
 
 	var takenIps []net.IP
-	// todo finish
-	var existingLabels := make(lookupMap)
-	for _, peer := range account.Peers {
-		takenIps = append(takenIps, peer.IP)
+	existingLabels := make(lookupMap)
+	for _, existingPeer := range account.Peers {
+		takenIps = append(takenIps, existingPeer.IP)
+		if existingPeer.DNSLabel != "" {
+			existingLabels[existingPeer.DNSLabel] = struct{}{}
+		}
 	}
 
-	existingLabels := account.getPeerDNSLabels()
-
-	newLabel, err := getPeerHostLabel(peerCopy.Name, existingLabels)
+	newLabel, err := getPeerHostLabel(peer.Name, existingLabels)
 	if err != nil {
 		return nil, err
 	}
 
-	peerCopy.DNSLabel = newLabel
+	peer.DNSLabel = newLabel
 
 	network := account.Network
 	nextIp, err := AllocatePeerIP(network.Net, takenIps)
@@ -427,6 +443,7 @@ func (am *DefaultAccountManager) AddPeer(
 		IP:         nextIp,
 		Meta:       peer.Meta,
 		Name:       peer.Name,
+		DNSLabel:   newLabel,
 		UserID:     userID,
 		Status:     &PeerStatus{Connected: false, LastSeen: time.Now()},
 		SSHEnabled: false,
@@ -613,7 +630,11 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 		aclPeers := am.getPeersByACL(account, peer.Key)
 		peersUpdate := toRemotePeerConfig(aclPeers)
 		routesUpdate := toProtocolRoutes(am.getPeersRoutes(append(aclPeers, peer)))
-		dnsUpdate := toProtocolDNSUpdate(zones, getPeerNSGroups(account, peer.Key))
+		dnsUpdate := toProtocolDNSUpdate(nbdns.Update{
+			ServiceEnable:    true,
+			CustomZones:      zones,
+			NameServerGroups: getPeerNSGroups(account, peer.Key),
+		})
 		err = am.peersUpdateManager.SendUpdate(peer.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{

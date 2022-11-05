@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/c-robinson/iplib"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	"google.golang.org/grpc/codes"
@@ -23,9 +24,10 @@ const (
 )
 
 type NetworkMap struct {
-	Peers   []*Peer
-	Network *Network
-	Routes  []*route.Route
+	Peers     []*Peer
+	Network   *Network
+	Routes    []*route.Route
+	DNSUpdate nbdns.Update
 }
 
 type Network struct {
