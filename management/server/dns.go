@@ -149,7 +149,7 @@ func getUniqueHostLabel(name string, peerLabels lookupMap) string {
 	if !found {
 		return name
 	}
-	for i := 1; i < 1000; i += 1 {
+	for i := 1; i < 1000; i++ {
 		nameWithSuffix := name + "-" + strconv.Itoa(i)
 		_, found = peerLabels[nameWithSuffix]
 		if !found {

@@ -130,6 +130,16 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 	if peer.Name != "" {
 		peerCopy.Name = update.Name
 	}
+
+	existingLabels := account.getPeerDNSLabels()
+
+	newLabel, err := getPeerHostLabel(peerCopy.Name, existingLabels)
+	if err != nil {
+		return nil, err
+	}
+
+	peerCopy.DNSLabel = newLabel
+
 	peerCopy.SSHEnabled = update.SSHEnabled
 
 	err = am.Store.SavePeer(accountID, peerCopy)
@@ -162,7 +172,21 @@ func (am *DefaultAccountManager) RenamePeer(
 
 	peerCopy := peer.Copy()
 	peerCopy.Name = newName
-	// todo get the new peer DNSLabel
+
+	account, err := am.Store.GetAccount(accountId)
+	if err != nil {
+		return nil, err
+	}
+
+	existingLabels := account.getPeerDNSLabels()
+
+	newLabel, err := getPeerHostLabel(peerCopy.Name, existingLabels)
+	if err != nil {
+		return nil, err
+	}
+
+	peerCopy.DNSLabel = newLabel
+
 	err = am.Store.SavePeer(accountId, peerCopy)
 	if err != nil {
 		return nil, err
@@ -349,9 +373,20 @@ func (am *DefaultAccountManager) AddPeer(
 	}
 
 	var takenIps []net.IP
+	// todo finish
+	var existingLabels := make(lookupMap)
 	for _, peer := range account.Peers {
 		takenIps = append(takenIps, peer.IP)
 	}
+
+	existingLabels := account.getPeerDNSLabels()
+
+	newLabel, err := getPeerHostLabel(peerCopy.Name, existingLabels)
+	if err != nil {
+		return nil, err
+	}
+
+	peerCopy.DNSLabel = newLabel
 
 	network := account.Network
 	nextIp, err := AllocatePeerIP(network.Net, takenIps)
