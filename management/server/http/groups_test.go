@@ -21,8 +21,8 @@ import (
 )
 
 var TestPeers = map[string]*server.Peer{
-	"A": &server.Peer{Key: "A", IP: net.ParseIP("100.100.100.100")},
-	"B": &server.Peer{Key: "B", IP: net.ParseIP("200.200.200.200")},
+	"A": {Key: "A", IP: net.ParseIP("100.100.100.100")},
+	"B": {Key: "B", IP: net.ParseIP("200.200.200.200")},
 }
 
 func initGroupTestData(user *server.User, groups ...*server.Group) *Groups {

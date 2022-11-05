@@ -50,7 +50,7 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -68,7 +68,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -76,7 +76,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error
 	account.Groups[group.ID] = group
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return err
 	}
 
@@ -89,7 +89,7 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -121,7 +121,7 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 	account.Groups[groupID] = group
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
@@ -138,7 +138,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -146,7 +146,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 	delete(account.Groups, groupID)
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return err
 	}
 
@@ -158,7 +158,7 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) 
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -176,7 +176,7 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -198,7 +198,7 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string
 	}
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return err
 	}
 
@@ -210,7 +210,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -224,7 +224,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 	for i, itemID := range group.Peers {
 		if itemID == peerKey {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
-			if err := am.Store.SaveAccount(account); err != nil {
+			if err := am.storeV2.SaveAccount(account); err != nil {
 				return status.Errorf(codes.Internal, "can't save account")
 			}
 		}
@@ -238,7 +238,7 @@ func (am *DefaultAccountManager) GroupListPeers(accountID, groupID string) ([]*P
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}

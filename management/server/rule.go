@@ -93,7 +93,7 @@ func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rul
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -120,7 +120,7 @@ func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -128,7 +128,7 @@ func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
 	account.Rules[rule.ID] = rule
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return err
 	}
 
@@ -141,7 +141,7 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -198,7 +198,7 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 	account.Rules[ruleID] = rule
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
@@ -215,7 +215,7 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -223,7 +223,7 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
 	delete(account.Rules, ruleID)
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return err
 	}
 
@@ -235,7 +235,7 @@ func (am *DefaultAccountManager) ListRules(accountID, userID string) ([]*Rule, e
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}

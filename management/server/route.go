@@ -64,7 +64,7 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*r
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -114,7 +114,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -161,7 +161,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 	account.Routes[newRoute.ID] = &newRoute
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
@@ -194,7 +194,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 		return status.Errorf(codes.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -209,7 +209,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 	account.Routes[routeToSave.ID] = routeToSave
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return err
 	}
 
@@ -221,7 +221,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -302,7 +302,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 	account.Routes[routeID] = newRoute
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
@@ -318,7 +318,7 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -326,7 +326,7 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
 	delete(account.Routes, routeID)
 
 	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return err
 	}
 
@@ -338,7 +338,7 @@ func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}

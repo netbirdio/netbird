@@ -957,6 +957,72 @@ func TestAccountManager_UpdatePeerMeta(t *testing.T) {
 	assert.Equal(t, newMeta, p.Meta)
 }
 
+func TestAccount_GetPeerRules(t *testing.T) {
+
+	groups := map[string]*Group{
+		"group_1": {
+			ID:    "group_1",
+			Name:  "group_1",
+			Peers: []string{"peer-1", "peer-2"},
+		},
+		"group_2": {
+			ID:    "group_2",
+			Name:  "group_2",
+			Peers: []string{"peer-2", "peer-3"},
+		},
+		"group_3": {
+			ID:    "group_3",
+			Name:  "group_3",
+			Peers: []string{"peer-4"},
+		},
+		"group_4": {
+			ID:    "group_4",
+			Name:  "group_4",
+			Peers: []string{"peer-1"},
+		},
+	}
+	rules := map[string]*Rule{
+		"rule-1": {
+			ID:          "rule-1",
+			Name:        "rule-1",
+			Description: "rule-1",
+			Disabled:    false,
+			Source:      []string{"group_1"},
+			Destination: []string{"group_2"},
+			Flow:        0,
+		},
+		"rule-2": {
+			ID:          "rule-2",
+			Name:        "rule-2",
+			Description: "rule-2",
+			Disabled:    false,
+			Source:      []string{"group_1"},
+			Destination: []string{"group_1"},
+			Flow:        0,
+		},
+		"rule-3": {
+			ID:          "rule-3",
+			Name:        "rule-3",
+			Description: "rule-3",
+			Disabled:    false,
+			Source:      []string{"group_3"},
+			Destination: []string{"group_3"},
+			Flow:        0,
+		},
+	}
+
+	account := &Account{
+		Groups: groups,
+		Rules:  rules,
+	}
+
+	srcRules, dstRules := account.GetPeerRules("peer-1")
+
+	assert.Equal(t, 2, len(srcRules))
+	assert.Equal(t, 1, len(dstRules))
+
+}
+
 func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	store, err := createStore(t)
 	if err != nil {

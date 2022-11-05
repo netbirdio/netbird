@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"math/rand"
+	"net/netip"
 	"reflect"
 	"regexp"
 	"strings"
@@ -58,7 +59,6 @@ type AccountManager interface {
 	GetPeer(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
-	RenamePeer(accountId string, peerKey string, newName string) (*Peer, error)
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID string, peer *Peer) (*Peer, error)
@@ -96,7 +96,8 @@ type AccountManager interface {
 }
 
 type DefaultAccountManager struct {
-	Store Store
+	Store   Store
+	storeV2 StoreV2
 	// mux to synchronise account operations (e.g. generating Peer IP address inside the Network)
 	mux sync.Mutex
 	// cacheMux and cacheLoading helps to make sure that only a single cache reload runs at a time per accountID
@@ -141,6 +142,99 @@ type UserInfo struct {
 	Role       string   `json:"role"`
 	AutoGroups []string `json:"auto_groups"`
 	Status     string   `json:"-"`
+}
+
+// GetRoutesByPrefix return list of routes by account and route prefix
+func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) ([]*route.Route, error) {
+
+	var routes []*route.Route
+	for _, route := range a.Routes {
+		if route.ID == a
+		route, found := a.Routes[id]
+		if found {
+			routes = append(routes, route)
+		}
+	}
+
+	return routes, nil
+}
+
+// GetPeerRules returns a list of source or destination rules of a given peer.
+func (a *Account) GetPeerRules(peerPubKey string) (srcRules []*Rule, dstRules []*Rule) {
+
+	// Rules are group based so there is no direct access to peers.
+	// First, find all groups that the given peer belongs to
+	peerGroups := make(map[string]struct{})
+
+groupsLoop:
+	for s, group := range a.Groups {
+		for _, peer := range group.Peers {
+			if peerPubKey == peer {
+				peerGroups[s] = struct{}{}
+				continue groupsLoop
+			}
+		}
+	}
+
+	// Second, find all rules that have discovered source and destination groups
+	for _, rule := range a.Rules {
+		for _, g := range rule.Source {
+			if _, ok := peerGroups[g]; ok {
+				srcRules = append(srcRules, rule)
+			}
+		}
+		for _, g := range rule.Destination {
+			if _, ok := peerGroups[g]; ok {
+				dstRules = append(dstRules, rule)
+			}
+		}
+	}
+
+	return srcRules, dstRules
+}
+
+// GetPeers returns a list of all Account peers
+func (a *Account) GetPeers() []*Peer {
+	var peers []*Peer
+	for _, peer := range a.Peers {
+		peers = append(peers, peer)
+	}
+	return peers
+}
+
+// UpdatePeer saves new or replaces existing peer
+func (a *Account) UpdatePeer(update *Peer) {
+	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
+	a.Peers[update.Key] = update
+}
+
+// DeletePeer deletes peer from the account cleaning up all the references
+func (a *Account) DeletePeer(peerPubKey string) {
+	// TODO Peer.ID migration: we will need to replace search by Peer.ID here
+
+	// delete peer from groups
+	for _, g := range a.Groups {
+		for i, pk := range g.Peers {
+			if pk == peerPubKey {
+				g.Peers = append(g.Peers[:i], g.Peers[i+1:]...)
+				break
+			}
+		}
+	}
+	delete(a.Peers, peerPubKey)
+	a.Network.IncSerial()
+}
+
+// FindPeerByPubKey looks for a Peer by provided WireGuard public key in the Account or returns error if it wasn't found.
+// It will return an object copy of the peer.
+func (a *Account) FindPeerByPubKey(peerPubKey string) (*Peer, error) {
+	for _, peer := range a.Peers {
+		if peer.Key == peerPubKey {
+			return peer.Copy(), nil
+		}
+	}
+
+	return nil, status.Errorf(codes.NotFound, "peer with the public key %s not found", peerPubKey)
 }
 
 // FindUser looks for a given user in the Account or returns error if user wasn't found.
@@ -273,7 +367,7 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 	for i := 0; i < 2; i++ {
 		accountId := xid.New().String()
 
-		_, err := am.Store.GetAccount(accountId)
+		_, err := am.storeV2.GetAccount(accountId)
 		statusErr, _ := status.FromError(err)
 		if err == nil {
 			log.Warnf("an account with ID already exists, retrying...")
@@ -309,7 +403,7 @@ func (am *DefaultAccountManager) GetAccountById(accountId string) (*Account, err
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountId)
+	account, err := am.storeV2.GetAccount(accountId)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -514,7 +608,7 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(
 		account.DomainCategory = claims.DomainCategory
 	}
 
-	err := am.Store.SaveAccount(account)
+	err := am.storeV2.SaveAccount(account)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed saving updated account")
 	}
@@ -571,7 +665,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 	if domainAcc != nil {
 		account = domainAcc
 		account.Users[claims.UserId] = NewRegularUser(claims.UserId)
-		err = am.Store.SaveAccount(account)
+		err = am.storeV2.SaveAccount(account)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed saving updated account")
 		}
@@ -693,13 +787,13 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(
 	defer am.mux.Unlock()
 
 	// We checked if the domain has a primary account already
-	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
+	domainAccount, err := am.storeV2.GetAccountByPrivateDomain(claims.Domain)
 	accStatus, _ := status.FromError(err)
 	if accStatus.Code() != codes.OK && accStatus.Code() != codes.NotFound {
 		return nil, err
 	}
 
-	account, err := am.Store.GetUserAccount(claims.UserId)
+	account, err := am.storeV2.GetAccountByUser(claims.UserId)
 	if err == nil {
 		err = am.handleExistingUserAccount(account, domainAccount, claims)
 		if err != nil {
@@ -725,7 +819,7 @@ func (am *DefaultAccountManager) AccountExists(accountId string) (*bool, error) 
 	defer am.mux.Unlock()
 
 	var res bool
-	_, err := am.Store.GetAccount(accountId)
+	_, err := am.storeV2.GetAccount(accountId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			res = false

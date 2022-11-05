@@ -181,7 +181,7 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 		keyDuration = expiresIn
 	}
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -195,7 +195,7 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups)
 	account.SetupKeys[setupKey.Key] = setupKey
 
-	err = am.Store.SaveAccount(account)
+	err = am.storeV2.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding account key")
 	}
@@ -215,7 +215,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 		return nil, status.Errorf(codes.InvalidArgument, "provided setup key to update is nil")
 	}
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -240,7 +240,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 
 	account.SetupKeys[newKey.Key] = newKey
 
-	if err = am.Store.SaveAccount(account); err != nil {
+	if err = am.storeV2.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
@@ -251,7 +251,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -280,7 +280,7 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.storeV2.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
