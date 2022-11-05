@@ -1,6 +1,7 @@
 package server
 
 import (
+	nbdns "github.com/netbirdio/netbird/dns"
 	"net"
 	"strings"
 	"time"
@@ -43,7 +44,10 @@ type Peer struct {
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta
 	// Name is peer's name (machine name)
-	Name   string
+	Name string
+	// DNSLabel is the peer's dns label, used to form a fqdn with the DNS peer domain
+	DNSLabel string
+	// Status peer's management connection status
 	Status *PeerStatus
 	// The user ID that registered the peer
 	UserID string
@@ -65,6 +69,7 @@ func (p *Peer) Copy() *Peer {
 		UserID:     p.UserID,
 		SSHKey:     p.SSHKey,
 		SSHEnabled: p.SSHEnabled,
+		DNSLabel:   p.DNSLabel,
 	}
 }
 
@@ -157,6 +162,7 @@ func (am *DefaultAccountManager) RenamePeer(
 
 	peerCopy := peer.Copy()
 	peerCopy.Name = newName
+	// todo get the new peer DNSLabel
 	err = am.Store.SavePeer(accountId, peerCopy)
 	if err != nil {
 		return nil, err
@@ -535,11 +541,17 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	}
 
 	network := account.Network.Copy()
+	var zones []nbdns.CustomZone
+	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
+	if peersCustomZone.Domain != "" {
+		zones = append(zones, peersCustomZone)
+	}
 
 	for _, peer := range peers {
 		aclPeers := am.getPeersByACL(account, peer.Key)
 		peersUpdate := toRemotePeerConfig(aclPeers)
 		routesUpdate := toProtocolRoutes(am.getPeersRoutes(append(aclPeers, peer)))
+		dnsUpdate := toProtocolDNSUpdate(zones, getPeerNSGroups(account, peer.Key))
 		err = am.peersUpdateManager.SendUpdate(peer.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
@@ -553,6 +565,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 						RemotePeersIsEmpty: len(peersUpdate) == 0,
 						PeerConfig:         toPeerConfig(peer, network),
 						Routes:             routesUpdate,
+						DNSUpdate:          dnsUpdate,
 					},
 				},
 			})

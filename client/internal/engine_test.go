@@ -761,7 +761,7 @@ func startManagement(port int, dataDir string) (*grpc.Server, error) {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	peersUpdateManager := server.NewPeersUpdateManager()
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "")
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "")
 	if err != nil {
 		return nil, err
 	}

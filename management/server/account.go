@@ -113,6 +113,8 @@ type DefaultAccountManager struct {
 	singleAccountMode bool
 	// singleAccountModeDomain is a domain to use in singleAccountMode setup
 	singleAccountModeDomain string
+	// dnsDomain is used for peer resolution. This is appended to the peer's name
+	dnsDomain string
 }
 
 // Account represents a unique account of the system
@@ -203,7 +205,7 @@ func (a *Account) GetGroupAll() (*Group, error) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string) (*DefaultAccountManager, error) {
+	singleAccountModeDomain string, dnsDomain string) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:              store,
 		mux:                sync.Mutex{},
@@ -212,6 +214,7 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 		ctx:                context.Background(),
 		cacheMux:           sync.Mutex{},
 		cacheLoading:       map[string]chan struct{}{},
+		dnsDomain:          dnsDomain,
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -227,10 +230,23 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 	// we create 'all' group and add all peers into it
 	// also we create default rule with source as destination
 	for _, account := range allAccounts {
+		shouldSave := false
+
 		_, err := account.GetGroupAll()
 		if err != nil {
 			addAllGroup(account)
-			if err := store.SaveAccount(account); err != nil {
+			shouldSave = true
+		}
+
+		existingLabels := account.getPeerDNSLabels()
+		if len(existingLabels) != len(account.Peers) {
+			addPeerLabelsToAccount(account, existingLabels)
+			shouldSave = true
+		}
+
+		if shouldSave {
+			err = store.SaveAccount(account)
+			if err != nil {
 				return nil, err
 			}
 		}

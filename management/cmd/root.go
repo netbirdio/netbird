@@ -13,23 +13,13 @@ const (
 )
 
 var (
-	defaultMgmtConfigDir       string
-	defaultMgmtDataDir         string
-	defaultMgmtConfig          string
-	defaultSingleAccModeDomain string
-	defaultLogDir              string
-	defaultLogFile             string
-	oldDefaultMgmtConfigDir    string
-	oldDefaultMgmtDataDir      string
-	oldDefaultMgmtConfig       string
-	oldDefaultLogDir           string
-	oldDefaultLogFile          string
-	mgmtDataDir                string
-	mgmtConfig                 string
-	logLevel                   string
-	logFile                    string
-	disableMetrics             bool
-	disableSingleAccMode       bool
+	dnsDomain            string
+	mgmtDataDir          string
+	mgmtConfig           string
+	logLevel             string
+	logFile              string
+	disableMetrics       bool
+	disableSingleAccMode bool
 
 	rootCmd = &cobra.Command{
 		Use:   "netbird-mgmt",
@@ -48,22 +38,6 @@ func Execute() error {
 
 func init() {
 	stopCh = make(chan int)
-
-	defaultMgmtDataDir = "/var/lib/netbird/"
-	defaultSingleAccModeDomain = "netbird.selfhosted"
-	defaultMgmtConfigDir = "/etc/netbird"
-	defaultLogDir = "/var/log/netbird"
-
-	oldDefaultMgmtDataDir = "/var/lib/wiretrustee/"
-	oldDefaultMgmtConfigDir = "/etc/wiretrustee"
-	oldDefaultLogDir = "/var/log/wiretrustee"
-
-	defaultMgmtConfig = defaultMgmtConfigDir + "/management.json"
-	defaultLogFile = defaultLogDir + "/management.log"
-
-	oldDefaultMgmtConfig = oldDefaultMgmtConfigDir + "/management.json"
-	oldDefaultLogFile = oldDefaultLogDir + "/management.log"
-
 	mgmtCmd.Flags().IntVar(&mgmtPort, "port", 80, "server port to listen on (defaults to 443 if TLS is enabled, 80 otherwise")
 	mgmtCmd.Flags().IntVar(&mgmtMetricsPort, "metrics-port", 8081, "metrics endpoint http port. Metrics are accessible under host:metrics-port/metrics")
 	mgmtCmd.Flags().StringVar(&mgmtDataDir, "datadir", defaultMgmtDataDir, "server data directory location")
@@ -74,6 +48,7 @@ func init() {
 	mgmtCmd.Flags().StringVar(&certFile, "cert-file", "", "Location of your SSL certificate. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	mgmtCmd.Flags().StringVar(&certKey, "cert-key", "", "Location of your SSL certificate private key. Can be used when you have an existing certificate and don't want a new certificate be generated automatically. If letsencrypt-domain is specified this property has no effect")
 	mgmtCmd.Flags().BoolVar(&disableMetrics, "disable-anonymous-metrics", false, "disables push of anonymous usage metrics to NetBird")
+	mgmtCmd.Flags().StringVar(&dnsDomain, "dns-domain", defaultSingleAccModeDomain, fmt.Sprintf("Domain used for peer resolution. This is appended to the peer's name, e.g. pi-server. %s. Max lenght is 192 characters to allow appending to a peer name with up to 63 characters.", defaultSingleAccModeDomain))
 	rootCmd.MarkFlagRequired("config") //nolint
 
 	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "")
