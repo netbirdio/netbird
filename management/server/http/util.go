@@ -56,16 +56,22 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 func getJWTAccount(accountManager server.AccountManager,
 	jwtExtractor jwtclaims.ClaimsExtractor,
-	authAudience string, r *http.Request) (*server.Account, error) {
+	authAudience string, r *http.Request) (*server.Account, *server.User, error) {
 
-	jwtClaims := jwtExtractor.ExtractClaimsFromRequestContext(r, authAudience)
+	claims := jwtExtractor.ExtractClaimsFromRequestContext(r, authAudience)
 
-	account, err := accountManager.GetAccountFromToken(jwtClaims)
+	account, err := accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		return nil, fmt.Errorf("failed getting account of a user %s: %v", jwtClaims.UserId, err)
+		return nil, nil, fmt.Errorf("failed getting account of a user %s: %v", claims.UserId, err)
 	}
 
-	return account, nil
+	user := account.Users[claims.UserId]
+	if user == nil {
+		// this is not really possible because we got an account by user ID
+		return nil, nil, fmt.Errorf("user %s not found", claims.UserId)
+	}
+
+	return account, user, nil
 }
 
 func toHTTPError(err error, w http.ResponseWriter) {

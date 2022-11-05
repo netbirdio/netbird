@@ -1,15 +1,10 @@
 package middleware
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-)
-
-const (
-	IsUserAdminProperty = "isAdminUser"
 )
 
 type IsUserAdminFunc func(claims jwtclaims.AuthorizationClaims) (bool, error)
@@ -49,10 +44,6 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 				return
 			}
 		}
-
-		newRequest := r.Clone(context.WithValue(r.Context(), IsUserAdminProperty, ok)) //nolint
-		// Update the current request with the new context information.
-		*r = *newRequest
 
 		h.ServeHTTP(w, r)
 	})

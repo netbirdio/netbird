@@ -56,7 +56,7 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 }
 
 func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -95,15 +95,20 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+		account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 		if err != nil {
 			log.Error(err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
 			return
 		}
 
+		peers, err := h.accountManager.GetPeers(account.Id, user.Id)
+		if err != nil {
+			return
+		}
+
 		respBody := []*api.Peer{}
-		for _, peer := range account.Peers {
+		for _, peer := range peers {
 			respBody = append(respBody, toPeerResponse(peer, account))
 		}
 		writeJSONObject(w, respBody)

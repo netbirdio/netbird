@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -98,6 +99,15 @@ func (key *SetupKey) Copy() *SetupKey {
 		LastUsed:   key.LastUsed,
 		AutoGroups: autoGroups,
 	}
+}
+
+// HiddenCopy returns a copy of the key with a Key value hidden with "*" and a 5 character prefix.
+// E.g., "831F6*******************************"
+func (key *SetupKey) HiddenCopy() *SetupKey {
+	k := key.Copy()
+	prefix := k.Key[0:5]
+	k.Key = prefix + strings.Repeat("*", utf8.RuneCountInString(key.Key)-len(prefix))
+	return k
 }
 
 // IncrementUsage makes a copy of a key, increments the UsedTimes by 1 and sets LastUsed to now
@@ -238,7 +248,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 }
 
 // ListSetupKeys returns a list of all setup keys of the account
-func (am *DefaultAccountManager) ListSetupKeys(accountID string) ([]*SetupKey, error) {
+func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 	account, err := am.Store.GetAccount(accountID)
@@ -246,22 +256,38 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID string) ([]*SetupKey, e
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
 	keys := make([]*SetupKey, 0, len(account.SetupKeys))
 	for _, key := range account.SetupKeys {
-		keys = append(keys, key.Copy())
+		var k *SetupKey
+		if !user.IsAdmin() {
+			k = key.HiddenCopy()
+		} else {
+			k = key.Copy()
+		}
+		keys = append(keys, k)
 	}
 
 	return keys, nil
 }
 
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
-func (am *DefaultAccountManager) GetSetupKey(accountID, keyID string) (*SetupKey, error) {
+func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*SetupKey, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
 	}
 
 	var foundKey *SetupKey
@@ -278,6 +304,10 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, keyID string) (*SetupKey
 	// the UpdatedAt field was introduced later, so there might be that some keys have a Zero value (e.g, null in the store file)
 	if foundKey.UpdatedAt.IsZero() {
 		foundKey.UpdatedAt = foundKey.CreatedAt
+	}
+
+	if !user.IsAdmin() {
+		foundKey = foundKey.HiddenCopy()
 	}
 
 	return foundKey, nil

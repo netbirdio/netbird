@@ -134,7 +134,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	rules, err := manager.ListRules(account.Id)
+	rules, err := manager.ListRules(account.Id, userId)
 	if err != nil {
 		t.Errorf("expecting to get a list of rules, got failure %v", err)
 		return
