@@ -27,7 +27,7 @@ func initUsers(user ...*server.User) *UserHandler {
 					Users:  users,
 				}, nil
 			},
-			GetUsersFromAccountFunc: func(accountID string) ([]*server.UserInfo, error) {
+			GetUsersFromAccountFunc: func(accountID, userID string) ([]*server.UserInfo, error) {
 				users := make([]*server.UserInfo, 0)
 				for _, v := range user {
 					users = append(users, &server.UserInfo{
@@ -44,7 +44,7 @@ func initUsers(user ...*server.User) *UserHandler {
 		jwtExtractor: jwtclaims.ClaimsExtractor{
 			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
-					UserId:    "test_user",
+					UserId:    "1",
 					Domain:    "hotmail.com",
 					AccountId: "test_id",
 				}

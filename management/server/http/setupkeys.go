@@ -6,15 +6,12 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
-	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 // SetupKeys is a handler that returns a list of setup keys of the account
@@ -34,7 +31,7 @@ func NewSetupKeysHandler(accountManager server.AccountManager, authAudience stri
 
 // CreateSetupKeyHandler is a POST requests that creates a new SetupKey
 func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -84,7 +81,7 @@ func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 
 // GetSetupKeyHandler is a GET request to get a SetupKey by ID
 func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -98,7 +95,7 @@ func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key, err := h.accountManager.GetSetupKey(account.Id, keyID)
+	key, err := h.accountManager.GetSetupKey(account.Id, user.Id, keyID)
 	if err != nil {
 		errStatus, ok := status.FromError(err)
 		if ok && errStatus.Code() == codes.NotFound {
@@ -110,17 +107,12 @@ func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isUserAdmin, ok := r.Context().Value(middleware.IsUserAdminProperty).(bool)
-	if !ok || !isUserAdmin {
-		key = hideKey(key)
-	}
-
 	writeSuccess(w, key)
 }
 
 // UpdateSetupKeyHandler is a PUT request to update server.SetupKey
 func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -176,19 +168,14 @@ func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 // GetAllSetupKeysHandler is a GET request that returns a list of SetupKey
 func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Request) {
 
-	account, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	isUserAdmin, ok := r.Context().Value(middleware.IsUserAdminProperty).(bool)
-	if !ok {
-		isUserAdmin = false
-	}
-
-	setupKeys, err := h.accountManager.ListSetupKeys(account.Id)
+	setupKeys, err := h.accountManager.ListSetupKeys(account.Id, user.Id)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -196,21 +183,10 @@ func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Reques
 	}
 	apiSetupKeys := make([]*api.SetupKey, 0)
 	for _, key := range setupKeys {
-		k := key.Copy()
-		if !isUserAdmin {
-			k = hideKey(key)
-		}
-		apiSetupKeys = append(apiSetupKeys, toResponseBody(k))
+		apiSetupKeys = append(apiSetupKeys, toResponseBody(key))
 	}
 
 	writeJSONObject(w, apiSetupKeys)
-}
-
-func hideKey(key *server.SetupKey) *server.SetupKey {
-	k := key.Copy()
-	prefix := k.Key[0:5]
-	k.Key = prefix + strings.Repeat("*", utf8.RuneCountInString(key.Key)-len(prefix))
-	return k
 }
 
 func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {

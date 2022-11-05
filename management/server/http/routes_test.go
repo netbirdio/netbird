@@ -51,12 +51,15 @@ var testingAccount = &server.Account{
 			IP:  netip.MustParseAddr(existingPeerID).AsSlice(),
 		},
 	},
+	Users: map[string]*server.User{
+		"test_user": server.NewAdminUser("test_user"),
+	},
 }
 
 func initRoutesTestData() *Routes {
 	return &Routes{
 		accountManager: &mock_server.MockAccountManager{
-			GetRouteFunc: func(_, routeID string) (*route.Route, error) {
+			GetRouteFunc: func(_, routeID, _ string) (*route.Route, error) {
 				if routeID == existingRouteID {
 					return baseExistingRoute, nil
 				}

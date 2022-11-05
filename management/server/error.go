@@ -11,6 +11,12 @@ const (
 	AccountNotFound ErrorType = iota
 	// PreconditionFailed indicates that some pre-condition for the operation hasn't been fulfilled
 	PreconditionFailed ErrorType = iota
+
+	// UserNotFound indicates that user wasn't found in the system (or under a given Account)
+	UserNotFound ErrorType = iota
+
+	// PermissionDenied indicates that user has no permissions to view data
+	PermissionDenied ErrorType = iota
 )
 
 // ErrorType is a type of the Error

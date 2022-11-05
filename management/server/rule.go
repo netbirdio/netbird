@@ -89,13 +89,22 @@ func (r *Rule) Copy() *Rule {
 }
 
 // GetRule of ACL from the store
-func (am *DefaultAccountManager) GetRule(accountID, ruleID string) (*Rule, error) {
+func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rule, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdmin() {
+		return nil, Errorf(PermissionDenied, "only admins are allowed to view rules")
 	}
 
 	rule, ok := account.Rules[ruleID]
@@ -222,13 +231,22 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
 }
 
 // ListRules of ACL from the store
-func (am *DefaultAccountManager) ListRules(accountID string) ([]*Rule, error) {
+func (am *DefaultAccountManager) ListRules(accountID, userID string) ([]*Rule, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdmin() {
+		return nil, Errorf(PermissionDenied, "Only Administrators can view Access Rules")
 	}
 
 	rules := make([]*Rule, 0, len(account.Rules))

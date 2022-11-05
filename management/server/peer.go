@@ -81,6 +81,33 @@ func (am *DefaultAccountManager) GetPeer(peerKey string) (*Peer, error) {
 	return peer, nil
 }
 
+// GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
+// the current user is not an admin.
+func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, error) {
+	am.mux.Lock()
+	defer am.mux.Unlock()
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	peers := make([]*Peer, 0, len(account.Peers))
+	for _, peer := range account.Peers {
+		if !user.IsAdmin() && user.Id != peer.UserID {
+			// only display peers that belong to the current user if the current user is not an admin
+			continue
+		}
+		peers = append(peers, peer.Copy())
+	}
+
+	return peers, nil
+}
+
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected bool) error {
 	am.mux.Lock()
