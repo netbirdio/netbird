@@ -3,9 +3,11 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
 	nbstatus "github.com/netbirdio/netbird/client/status"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 	"github.com/stretchr/testify/assert"
@@ -562,6 +564,183 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
 			assert.Len(t, input.inputRoutes, testCase.expectedLen, "routes len should match")
 			assert.Equal(t, testCase.expectedRoutes, input.inputRoutes, "routes should match")
+		})
+	}
+}
+
+func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
+	testCases := []struct {
+		name                string
+		inputErr            error
+		networkMap          *mgmtProto.NetworkMap
+		expectedZonesLen    int
+		expectedZones       []nbdns.CustomZone
+		expectedNSGroupsLen int
+		expectedNSGroups    []*nbdns.NameServerGroup
+		expectedSerial      uint64
+	}{
+		{
+			name: "DNS Update Should Be Passed To DNS Server",
+			networkMap: &mgmtProto.NetworkMap{
+				Serial:             1,
+				PeerConfig:         nil,
+				RemotePeersIsEmpty: false,
+				Routes:             nil,
+				DNSUpdate: &mgmtProto.DNSUpdate{
+					ServiceEnable: true,
+					CustomZones: []*mgmtProto.CustomZone{
+						{
+							Domain: "netbird.cloud.",
+							Records: []*mgmtProto.SimpleRecord{
+								{
+									Name:  "peer-a.netbird.cloud.",
+									Type:  1,
+									Class: nbdns.DefaultClass,
+									TTL:   300,
+									RData: "100.64.0.1",
+								},
+							},
+						},
+					},
+					NameServerGroups: []*mgmtProto.NameServerGroup{
+						{
+							Primary: true,
+							NameServers: []*mgmtProto.NameServer{
+								{
+									IP:     "8.8.8.8",
+									NSType: 1,
+									Port:   53,
+								},
+							},
+						},
+					},
+				},
+			},
+			expectedZonesLen: 1,
+			expectedZones: []nbdns.CustomZone{
+				{
+					Domain: "netbird.cloud.",
+					Records: []nbdns.SimpleRecord{
+						{
+							Name:  "peer-a.netbird.cloud.",
+							Type:  1,
+							Class: nbdns.DefaultClass,
+							TTL:   300,
+							RData: "100.64.0.1",
+						},
+					},
+				},
+			},
+			expectedNSGroupsLen: 1,
+			expectedNSGroups: []*nbdns.NameServerGroup{
+				{
+					Primary: true,
+					NameServers: []nbdns.NameServer{
+						{
+							IP:     netip.MustParseAddr("8.8.8.8"),
+							NSType: 1,
+							Port:   53,
+						},
+					},
+				},
+			},
+			expectedSerial: 1,
+		},
+		{
+			name: "Empty DNS Update Should Be OK",
+			networkMap: &mgmtProto.NetworkMap{
+				Serial:             1,
+				PeerConfig:         nil,
+				RemotePeersIsEmpty: false,
+				Routes:             nil,
+				DNSUpdate:          nil,
+			},
+			expectedZonesLen:    0,
+			expectedZones:       []nbdns.CustomZone{},
+			expectedNSGroupsLen: 0,
+			expectedNSGroups:    []*nbdns.NameServerGroup{},
+			expectedSerial:      1,
+		},
+		{
+			name:     "Error Shouldn't Break Engine",
+			inputErr: fmt.Errorf("mocking error"),
+			networkMap: &mgmtProto.NetworkMap{
+				Serial:             1,
+				PeerConfig:         nil,
+				RemotePeersIsEmpty: false,
+				Routes:             nil,
+			},
+			expectedZonesLen:    0,
+			expectedZones:       []nbdns.CustomZone{},
+			expectedNSGroupsLen: 0,
+			expectedNSGroups:    []*nbdns.NameServerGroup{},
+			expectedSerial:      1,
+		},
+	}
+
+	for n, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// test setup
+			key, err := wgtypes.GeneratePrivateKey()
+			if err != nil {
+				t.Fatal(err)
+				return
+			}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			wgIfaceName := fmt.Sprintf("utun%d", 104+n)
+			wgAddr := fmt.Sprintf("100.66.%d.1/24", n)
+
+			engine := NewEngine(ctx, cancel, &signal.MockClient{}, &mgmt.MockClient{}, &EngineConfig{
+				WgIfaceName:  wgIfaceName,
+				WgAddr:       wgAddr,
+				WgPrivateKey: key,
+				WgPort:       33100,
+			}, nbstatus.NewRecorder())
+			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU)
+			assert.NoError(t, err, "shouldn't return error")
+
+			mockRouteManager := &routemanager.MockManager{
+				UpdateRoutesFunc: func(updateSerial uint64, newRoutes []*route.Route) error {
+					return nil
+				},
+			}
+
+			engine.routeManager = mockRouteManager
+
+			input := struct {
+				inputSerial   uint64
+				inputNSGroups []*nbdns.NameServerGroup
+				inputZones    []nbdns.CustomZone
+			}{}
+
+			mockDNSServer := &dns.MockServer{
+				UpdateDNSServerFunc: func(serial uint64, update nbdns.Update) error {
+					input.inputSerial = serial
+					input.inputZones = update.CustomZones
+					input.inputNSGroups = update.NameServerGroups
+					return testCase.inputErr
+				},
+			}
+
+			engine.dnsServer = mockDNSServer
+
+			defer func() {
+				exitErr := engine.Stop()
+				if exitErr != nil {
+					return
+				}
+			}()
+
+			err = engine.updateNetworkMap(testCase.networkMap)
+			assert.NoError(t, err, "shouldn't return error")
+			assert.Equal(t, testCase.expectedSerial, input.inputSerial, "serial should match")
+			assert.Len(t, input.inputNSGroups, testCase.expectedZonesLen, "zones len should match")
+			assert.Equal(t, testCase.expectedZones, input.inputZones, "custom zones should match")
+			assert.Len(t, input.inputNSGroups, testCase.expectedNSGroupsLen, "ns groups len should match")
+			assert.Equal(t, testCase.expectedNSGroups, input.inputNSGroups, "ns groups should match")
 		})
 	}
 }

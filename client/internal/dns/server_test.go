@@ -189,7 +189,7 @@ func TestUpdateDNSServer(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx := context.Background()
-			dnsServer := NewServer(ctx)
+			dnsServer := NewDefaultServer(ctx)
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
@@ -231,7 +231,7 @@ func TestUpdateDNSServer(t *testing.T) {
 
 func TestDNSServerStartStop(t *testing.T) {
 	ctx := context.Background()
-	dnsServer := NewServer(ctx)
+	dnsServer := NewDefaultServer(ctx)
 	if runtime.GOOS == "windows" && os.Getenv("CI") == "true" {
 		// todo review why this test is not working only on github actions workflows
 		t.Skip("skipping test in Windows CI workflows.")

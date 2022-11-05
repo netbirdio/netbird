@@ -275,13 +275,9 @@ message SimpleRecord {
 
 // NameServerGroup represents a dns.NameServerGroup
 message NameServerGroup {
-  string ID = 1;
-  string Name = 2;
-  repeated NameServer NameServers = 3;
-  repeated string Groups = 4;
-  bool Primary = 5;
-  repeated string Domains = 6;
-  bool Enabled = 7;
+  repeated NameServer NameServers = 1;
+  bool Primary = 2;
+  repeated string Domains = 3;
 }
 
 // NameServer represents a dns.NameServer

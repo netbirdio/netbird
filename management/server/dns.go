@@ -32,10 +32,8 @@ func toProtocolDNSUpdate(update nbdns.Update) *proto.DNSUpdate {
 
 	for _, nsGroup := range update.NameServerGroups {
 		protoGroup := &proto.NameServerGroup{
-			ID:      nsGroup.ID,
-			Name:    nsGroup.Name,
-			Domains: nsGroup.Domains,
 			Primary: nsGroup.Primary,
+			Domains: nsGroup.Domains,
 		}
 		for _, ns := range nsGroup.NameServers {
 			protoNS := &proto.NameServer{

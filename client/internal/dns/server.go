@@ -15,8 +15,15 @@ const (
 	defaultIP = "0.0.0.0"
 )
 
-// Server dns server object
-type Server struct {
+// Server is a dns server interface
+type Server interface {
+	Start()
+	Stop()
+	UpdateDNSServer(serial uint64, update nbdns.Update) error
+}
+
+// DefaultServer dns server object
+type DefaultServer struct {
 	ctx               context.Context
 	stop              context.CancelFunc
 	mux               sync.Mutex
@@ -35,8 +42,8 @@ type muxUpdate struct {
 	handler dns.Handler
 }
 
-// NewServer returns a new dns server
-func NewServer(ctx context.Context) *Server {
+// NewDefaultServer returns a new dns server
+func NewDefaultServer(ctx context.Context) *DefaultServer {
 	mux := dns.NewServeMux()
 
 	dnsServer := &dns.Server{
@@ -48,7 +55,7 @@ func NewServer(ctx context.Context) *Server {
 
 	ctx, stop := context.WithCancel(ctx)
 
-	return &Server{
+	return &DefaultServer{
 		ctx:       ctx,
 		stop:      stop,
 		server:    dnsServer,
@@ -61,7 +68,7 @@ func NewServer(ctx context.Context) *Server {
 }
 
 // Start runs the listener in a go routine
-func (s *Server) Start() {
+func (s *DefaultServer) Start() {
 	log.Debugf("starting dns on %s:%d", defaultIP, port)
 	go func() {
 		s.setListenerStatus(true)
@@ -73,12 +80,12 @@ func (s *Server) Start() {
 	}()
 }
 
-func (s *Server) setListenerStatus(running bool) {
+func (s *DefaultServer) setListenerStatus(running bool) {
 	s.listenerIsRunning = running
 }
 
 // Stop stops the server
-func (s *Server) Stop() {
+func (s *DefaultServer) Stop() {
 	s.stop()
 
 	err := s.stopListener()
@@ -87,7 +94,7 @@ func (s *Server) Stop() {
 	}
 }
 
-func (s *Server) stopListener() error {
+func (s *DefaultServer) stopListener() error {
 	if !s.listenerIsRunning {
 		return nil
 	}
@@ -103,7 +110,7 @@ func (s *Server) stopListener() error {
 }
 
 // UpdateDNSServer processes an update received from the management service
-func (s *Server) UpdateDNSServer(serial uint64, update nbdns.Update) error {
+func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Update) error {
 	select {
 	case <-s.ctx.Done():
 		log.Infof("not updating DNS server as context is closed")
@@ -147,7 +154,7 @@ func (s *Server) UpdateDNSServer(serial uint64, update nbdns.Update) error {
 	}
 }
 
-func (s *Server) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxUpdate, map[string]nbdns.SimpleRecord, error) {
+func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxUpdate, map[string]nbdns.SimpleRecord, error) {
 	var muxUpdates []muxUpdate
 	localRecords := make(map[string]nbdns.SimpleRecord, 0)
 
@@ -169,7 +176,7 @@ func (s *Server) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxU
 	return muxUpdates, localRecords, nil
 }
 
-func (s *Server) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]muxUpdate, error) {
+func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]muxUpdate, error) {
 	var muxUpdates []muxUpdate
 	for _, nsGroup := range nameServerGroups {
 		if len(nsGroup.NameServers) == 0 {
@@ -219,7 +226,7 @@ func (s *Server) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServer
 	return muxUpdates, nil
 }
 
-func (s *Server) updateMux(muxUpdates []muxUpdate) {
+func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 	muxUpdateMap := make(registrationMap)
 
 	for _, update := range muxUpdates {
@@ -237,7 +244,7 @@ func (s *Server) updateMux(muxUpdates []muxUpdate) {
 	s.dnsMuxMap = muxUpdateMap
 }
 
-func (s *Server) updateLocalResolver(update map[string]nbdns.SimpleRecord) {
+func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord) {
 	for key := range s.localResolver.registeredMap {
 		_, found := update[key]
 		if !found {
@@ -261,10 +268,10 @@ func getNSHostPort(ns nbdns.NameServer) string {
 	return fmt.Sprintf("%s:%d", ns.IP.String(), ns.Port)
 }
 
-func (s *Server) registerMux(pattern string, handler dns.Handler) {
+func (s *DefaultServer) registerMux(pattern string, handler dns.Handler) {
 	s.dnsMux.Handle(pattern, handler)
 }
 
-func (s *Server) deregisterMux(pattern string) {
+func (s *DefaultServer) deregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
 }
