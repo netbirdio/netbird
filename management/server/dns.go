@@ -5,7 +5,9 @@ import (
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+	"net/netip"
 	"strconv"
 )
 
@@ -159,4 +161,63 @@ func getUniqueHostLabel(name string, peerLabels lookupMap) string {
 		}
 	}
 	return ""
+}
+
+func addDefaultDNSGroups(account *Account) {
+	groupInfo := make(map[string][]nbdns.NameServer)
+	groupInfo["Default Google DNS"] = []nbdns.NameServer{
+		{
+			IP:     netip.MustParseAddr("8.8.8.8"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+		{
+			IP:     netip.MustParseAddr("8.8.4.4"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+	}
+	groupInfo["Default Cloudflare DNS"] = []nbdns.NameServer{
+		{
+			IP:     netip.MustParseAddr("1.1.1.1"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+		{
+			IP:     netip.MustParseAddr("1.0.0.1"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+	}
+	groupInfo["Default Quad9 DNS"] = []nbdns.NameServer{
+		{
+			IP:     netip.MustParseAddr("9.9.9.9"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+		{
+			IP:     netip.MustParseAddr("149.112.112.112"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+	}
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		log.Errorf("unable to find group all for account. That should never happen. err: %v", err)
+		return
+	}
+	defaultNSGroups := make(map[string]*nbdns.NameServerGroup)
+	for name, nsList := range groupInfo {
+		newID := xid.New().String()
+		nsGroup := &nbdns.NameServerGroup{
+			ID:          newID,
+			Name:        name,
+			Primary:     true,
+			Enabled:     false,
+			NameServers: nsList,
+			Groups:      []string{allGroup.ID},
+		}
+		defaultNSGroups[newID] = nsGroup
+	}
+	account.NameServerGroups = defaultNSGroups
 }

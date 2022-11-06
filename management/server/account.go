@@ -255,6 +255,10 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 			shouldSave = true
 		}
 
+		if shouldSave && len(account.NameServerGroups) == 0 {
+			addDefaultDNSGroups(account)
+		}
+
 		if shouldSave {
 			err = store.SaveAccount(account)
 			if err != nil {
@@ -809,6 +813,7 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	}
 
 	addAllGroup(acc)
+	addDefaultDNSGroups(acc)
 	return acc
 }
 
