@@ -165,7 +165,7 @@ func getUniqueHostLabel(name string, peerLabels lookupMap) string {
 
 func addDefaultDNSGroups(account *Account) {
 	groupInfo := make(map[string][]nbdns.NameServer)
-	groupInfo["Default Google DNS"] = []nbdns.NameServer{
+	groupInfo["Google DNS"] = []nbdns.NameServer{
 		{
 			IP:     netip.MustParseAddr("8.8.8.8"),
 			NSType: nbdns.UDPNameServerType,
@@ -177,7 +177,7 @@ func addDefaultDNSGroups(account *Account) {
 			Port:   53,
 		},
 	}
-	groupInfo["Default Cloudflare DNS"] = []nbdns.NameServer{
+	groupInfo["Cloudflare DNS"] = []nbdns.NameServer{
 		{
 			IP:     netip.MustParseAddr("1.1.1.1"),
 			NSType: nbdns.UDPNameServerType,
@@ -189,7 +189,7 @@ func addDefaultDNSGroups(account *Account) {
 			Port:   53,
 		},
 	}
-	groupInfo["Default Quad9 DNS"] = []nbdns.NameServer{
+	groupInfo["Quad9 DNS"] = []nbdns.NameServer{
 		{
 			IP:     netip.MustParseAddr("9.9.9.9"),
 			NSType: nbdns.UDPNameServerType,
