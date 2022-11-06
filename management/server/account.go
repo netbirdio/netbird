@@ -313,16 +313,19 @@ func (a *Account) Copy() *Account {
 	}
 
 	return &Account{
-		Id:               a.Id,
-		CreatedBy:        a.CreatedBy,
-		SetupKeys:        setupKeys,
-		Network:          a.Network.Copy(),
-		Peers:            peers,
-		Users:            users,
-		Groups:           groups,
-		Rules:            rules,
-		Routes:           routes,
-		NameServerGroups: nsGroups,
+		Id:                     a.Id,
+		CreatedBy:              a.CreatedBy,
+		Domain:                 a.Domain,
+		DomainCategory:         a.DomainCategory,
+		IsDomainPrimaryAccount: a.IsDomainPrimaryAccount,
+		SetupKeys:              setupKeys,
+		Network:                a.Network.Copy(),
+		Peers:                  peers,
+		Users:                  users,
+		Groups:                 groups,
+		Rules:                  rules,
+		Routes:                 routes,
+		NameServerGroups:       nsGroups,
 	}
 }
 

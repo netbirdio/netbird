@@ -139,31 +139,21 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 	if !accountIDFound {
 		return nil, status.Errorf(
 			codes.NotFound,
-			"provided domain is not registered or is not private",
+			"account not found: provided domain is not registered or is not private",
 		)
 	}
 
-	account, err := s.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	return account.Copy(), nil
+	return s.GetAccount(accountID)
 }
 
 // GetAccountBySetupKey returns account by setup key id
 func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 	accountID, accountIDFound := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !accountIDFound {
-		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
+		return nil, status.Errorf(codes.NotFound, "account not found: provided setup key doesn't exists")
 	}
 
-	account, err := s.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	return account.Copy(), nil
+	return s.GetAccount(accountID)
 }
 
 // GetAllAccounts returns all accounts

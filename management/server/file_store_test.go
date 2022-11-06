@@ -2,12 +2,17 @@ package server
 
 import (
 	"github.com/netbirdio/netbird/util"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+type accounts struct {
+	Accounts map[string]*Account
+}
 
 func TestNewStore(t *testing.T) {
 	store := newStore(t)
@@ -169,6 +174,48 @@ func TestGetAccountByPrivateDomain(t *testing.T) {
 
 	_, err = store.GetAccountByPrivateDomain("missing-domain.com")
 	require.Error(t, err, "should return error on domain lookup")
+}
+
+func TestFileStore_GetAccount(t *testing.T) {
+	storeDir := t.TempDir()
+	storeFile := filepath.Join(storeDir, "store.json")
+	err := util.CopyFileContents("testdata/store.json", storeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	accounts := &accounts{}
+	_, err = util.ReadJson(storeFile, accounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewStore(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+	if expected == nil {
+		t.Errorf("expected account doesn't exist")
+	}
+
+	account, err := store.GetAccount(expected.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, expected.IsDomainPrimaryAccount, account.IsDomainPrimaryAccount)
+	assert.Equal(t, expected.DomainCategory, account.DomainCategory)
+	assert.Equal(t, expected.Domain, account.Domain)
+	assert.Equal(t, expected.CreatedBy, account.CreatedBy)
+	assert.Equal(t, expected.Network.Id, account.Network.Id)
+	assert.Len(t, account.Peers, len(expected.Peers))
+	assert.Len(t, account.Users, len(expected.Users))
+	assert.Len(t, account.SetupKeys, len(expected.SetupKeys))
+	assert.Len(t, account.Rules, len(expected.Rules))
+	assert.Len(t, account.Routes, len(expected.Routes))
+	assert.Len(t, account.NameServerGroups, len(expected.NameServerGroups))
 }
 
 func newStore(t *testing.T) *FileStore {
