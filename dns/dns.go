@@ -63,7 +63,11 @@ func (s SimpleRecord) String() string {
 // GetParsedDomainLabel returns a domain label with max 59 characters,
 // parsed for old Hosts.txt requirements, and converted to ASCII and lowercase
 func GetParsedDomainLabel(name string) (string, error) {
-	rawLabel := dns.SplitDomainName(name)[0]
+	labels := dns.SplitDomainName(name)
+	if len(labels) == 0 {
+		return "", fmt.Errorf("got empty label list for name \"%s\"", name)
+	}
+	rawLabel := labels[0]
 	ascii, err := idna.Punycode.ToASCII(rawLabel)
 	if err != nil {
 		return "", fmt.Errorf("unable to convert host lavel to ASCII, error: %v", err)

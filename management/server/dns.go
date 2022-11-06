@@ -120,8 +120,12 @@ func addPeerLabelsToAccount(account *Account, peerLabels lookupMap) {
 	for _, peer := range account.Peers {
 		label, err := getPeerHostLabel(peer.Name, peerLabels)
 		if err != nil {
-			log.Errorf("got an error while generating a peer host label. Peer name %s, error: %v", peer.Name, err)
-			continue
+			log.Errorf("got an error while generating a peer host label. Peer name %s, error: %v. Trying with the peer's meta hostname", peer.Name, err)
+			label, err = getPeerHostLabel(peer.Meta.Hostname, peerLabels)
+			if err != nil {
+				log.Errorf("got another error while generating a peer host label with hostname. Peer hostname %s, error: %v. Skiping", peer.Meta.Hostname, err)
+				continue
+			}
 		}
 		peer.DNSLabel = label
 		peerLabels[label] = struct{}{}
