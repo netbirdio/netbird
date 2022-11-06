@@ -380,6 +380,11 @@ func TestSaveRoute(t *testing.T) {
 				return
 			}
 
+			account, err = am.GetAccountById(account.Id)
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			savedRoute, saved := account.Routes[testCase.expectedRoute.ID]
 			require.True(t, saved)
 
@@ -840,5 +845,5 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		return nil, err
 	}
 
-	return account, nil
+	return am.GetAccountById(accountID)
 }
