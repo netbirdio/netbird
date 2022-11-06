@@ -142,7 +142,7 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain, "")
+			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain, dnsDomain)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
