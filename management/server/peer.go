@@ -73,7 +73,7 @@ func (am *DefaultAccountManager) GetPeer(peerPubKey string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (am *DefaultAccountManager) GetPeer(peerPubKey string) (*Peer, error) {
 func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
 	}
@@ -128,7 +128,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 
 	account.UpdatePeer(peer)
 
-	err = am.storeV2.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
@@ -140,7 +140,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -158,7 +158,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 
 	account.UpdatePeer(peer)
 
-	err = am.storeV2.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +176,7 @@ func (am *DefaultAccountManager) DeletePeer(accountID string, peerPubKey string)
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -188,7 +188,7 @@ func (am *DefaultAccountManager) DeletePeer(accountID string, peerPubKey string)
 
 	account.DeletePeer(peerPubKey)
 
-	err = am.storeV2.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -244,13 +244,13 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerPubKey)
 	}
 
 	aclPeers := am.getPeersByACL(account, peerPubKey)
-	routesUpdate := am.getPeersRoutes(append(aclPeers, account.Peers[peerPubKey]))
+	routesUpdate := account.GetPeersRoutes(append(aclPeers, account.Peers[peerPubKey]))
 
 	return &NetworkMap{
 		Peers:   aclPeers,
@@ -264,7 +264,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(peerPubKey string) (*Network, er
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "invalid peer key %s", peerPubKey)
 	}
@@ -291,7 +291,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	// auto-assign groups that are coming with a SetupKey or a User
 	var groupsToAdd []string
 	if len(upperKey) != 0 {
-		account, err = am.storeV2.GetAccountBySetupKey(upperKey)
+		account, err = am.Store.GetAccountBySetupKey(upperKey)
 		if err != nil {
 			return nil, status.Errorf(
 				codes.NotFound,
@@ -320,7 +320,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 		groupsToAdd = sk.AutoGroups
 
 	} else if len(userID) != 0 {
-		account, err = am.storeV2.GetAccountByUser(userID)
+		account, err = am.Store.GetAccountByUser(userID)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown user with ID: %s", userID)
 		}
@@ -380,7 +380,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	}
 	account.Network.IncSerial()
 
-	err = am.storeV2.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")
 	}
@@ -398,7 +398,7 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey stri
 		return nil
 	}
 
-	account, err := am.storeV2.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
 	}
@@ -416,7 +416,7 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey stri
 	peer.SSHKey = sshKey
 	account.UpdatePeer(peer)
 
-	err = am.storeV2.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
@@ -430,7 +430,7 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSyst
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
 	}
@@ -448,7 +448,7 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSyst
 	peer.Meta = meta
 	account.UpdatePeer(peer)
 
-	err = am.storeV2.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
@@ -521,7 +521,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	for _, peer := range peers {
 		aclPeers := am.getPeersByACL(account, peer.Key)
 		peersUpdate := toRemotePeerConfig(aclPeers)
-		routesUpdate := toProtocolRoutes(am.getPeersRoutes(append(aclPeers, peer)))
+		routesUpdate := toProtocolRoutes(account.GetPeersRoutes(append(aclPeers, peer)))
 		err := am.peersUpdateManager.SendUpdate(peer.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{

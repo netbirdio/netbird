@@ -96,8 +96,7 @@ type AccountManager interface {
 }
 
 type DefaultAccountManager struct {
-	Store   Store
-	storeV2 StoreV2
+	Store Store
 	// mux to synchronise account operations (e.g. generating Peer IP address inside the Network)
 	mux sync.Mutex
 	// cacheMux and cacheLoading helps to make sure that only a single cache reload runs at a time per accountID
@@ -144,19 +143,49 @@ type UserInfo struct {
 	Status     string   `json:"-"`
 }
 
+// GetPeersRoutes returns all active routes of provided peers
+func (a *Account) GetPeersRoutes(givenPeers []*Peer) []*route.Route {
+	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
+	routes := make([]*route.Route, 0)
+	for _, peer := range givenPeers {
+		peerRoutes := a.GetPeerRoutes(peer.Key)
+		activeRoutes := make([]*route.Route, 0)
+		for _, pr := range peerRoutes {
+			if pr.Enabled {
+				activeRoutes = append(activeRoutes, pr)
+			}
+		}
+		if len(activeRoutes) > 0 {
+			routes = append(routes, activeRoutes...)
+		}
+	}
+	return routes
+}
+
+// GetPeerRoutes returns a list of routes of a given peer
+func (a *Account) GetPeerRoutes(peerPubKey string) []*route.Route {
+	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
+	var routes []*route.Route
+	for _, r := range a.Routes {
+		if r.Peer == peerPubKey {
+			routes = append(routes, r)
+			continue
+		}
+	}
+	return routes
+}
+
 // GetRoutesByPrefix return list of routes by account and route prefix
-func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) ([]*route.Route, error) {
+func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
 
 	var routes []*route.Route
-	for _, route := range a.Routes {
-		if route.ID == a
-		route, found := a.Routes[id]
-		if found {
-			routes = append(routes, route)
+	for _, r := range a.Routes {
+		if r.Network.String() == prefix.String() {
+			routes = append(routes, r)
 		}
 	}
 
-	return routes, nil
+	return routes
 }
 
 // GetPeerRules returns a list of source or destination rules of a given peer.
@@ -367,7 +396,7 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 	for i := 0; i < 2; i++ {
 		accountId := xid.New().String()
 
-		_, err := am.storeV2.GetAccount(accountId)
+		_, err := am.Store.GetAccount(accountId)
 		statusErr, _ := status.FromError(err)
 		if err == nil {
 			log.Warnf("an account with ID already exists, retrying...")
@@ -403,7 +432,7 @@ func (am *DefaultAccountManager) GetAccountById(accountId string) (*Account, err
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -608,7 +637,7 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(
 		account.DomainCategory = claims.DomainCategory
 	}
 
-	err := am.storeV2.SaveAccount(account)
+	err := am.Store.SaveAccount(account)
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed saving updated account")
 	}
@@ -665,7 +694,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 	if domainAcc != nil {
 		account = domainAcc
 		account.Users[claims.UserId] = NewRegularUser(claims.UserId)
-		err = am.storeV2.SaveAccount(account)
+		err = am.Store.SaveAccount(account)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed saving updated account")
 		}
@@ -787,13 +816,13 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(
 	defer am.mux.Unlock()
 
 	// We checked if the domain has a primary account already
-	domainAccount, err := am.storeV2.GetAccountByPrivateDomain(claims.Domain)
+	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
 	accStatus, _ := status.FromError(err)
 	if accStatus.Code() != codes.OK && accStatus.Code() != codes.NotFound {
 		return nil, err
 	}
 
-	account, err := am.storeV2.GetAccountByUser(claims.UserId)
+	account, err := am.Store.GetAccountByUser(claims.UserId)
 	if err == nil {
 		err = am.handleExistingUserAccount(account, domainAccount, claims)
 		if err != nil {
@@ -819,7 +848,7 @@ func (am *DefaultAccountManager) AccountExists(accountId string) (*bool, error) 
 	defer am.mux.Unlock()
 
 	var res bool
-	_, err := am.storeV2.GetAccount(accountId)
+	_, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			res = false

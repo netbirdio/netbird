@@ -130,7 +130,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 		return nil, fmt.Errorf("provided user update is nil")
 	}
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, Errorf(AccountNotFound, "account %s doesn't exist", accountID)
 	}
@@ -167,7 +167,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	}
 	account.Users[idpUser.ID] = newUser
 
-	err = am.storeV2.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 		return nil, status.Errorf(codes.InvalidArgument, "provided user update is nil")
 	}
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -216,7 +216,7 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 
 	account.Users[newUser.Id] = newUser
 
-	if err = am.storeV2.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
@@ -240,14 +240,14 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 
 	lowerDomain := strings.ToLower(domain)
 
-	account, err := am.storeV2.GetAccountByUser(userId)
+	account, err := am.Store.GetAccountByUser(userId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			account, err = am.newAccount(userId, lowerDomain)
 			if err != nil {
 				return nil, err
 			}
-			err = am.storeV2.SaveAccount(account)
+			err = am.Store.SaveAccount(account)
 			if err != nil {
 				return nil, status.Errorf(codes.Internal, "failed creating account")
 			}
@@ -261,7 +261,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 
 	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
 		account.Domain = lowerDomain
-		err = am.storeV2.SaveAccount(account)
+		err = am.Store.SaveAccount(account)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "failed updating account with domain")
 		}
@@ -275,7 +275,7 @@ func (am *DefaultAccountManager) GetAccountByUser(userId string) (*Account, erro
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	return am.storeV2.GetAccountByUser(userId)
+	return am.Store.GetAccountByUser(userId)
 }
 
 // IsUserAdmin flag for current user authenticated by JWT token

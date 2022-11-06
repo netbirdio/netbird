@@ -1,9 +1,6 @@
 package server
 
 import (
-	"fmt"
-	"github.com/netbirdio/netbird/route"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,14 +18,10 @@ const storeFileName = "store.json"
 // FileStore represents an account storage backed by a file persisted to disk
 type FileStore struct {
 	Accounts                map[string]*Account
-	SetupKeyId2AccountId    map[string]string              `json:"-"`
-	PeerKeyId2AccountId     map[string]string              `json:"-"`
-	UserId2AccountId        map[string]string              `json:"-"`
-	PrivateDomain2AccountId map[string]string              `json:"-"`
-	PeerKeyId2SrcRulesId    map[string]map[string]struct{} `json:"-"`
-	PeerKeyId2DstRulesId    map[string]map[string]struct{} `json:"-"`
-	PeerKeyID2RouteIDs      map[string]map[string]struct{} `json:"-"`
-	AccountPrefix2RouteIDs  map[string]map[string][]string `json:"-"`
+	SetupKeyID2AccountID    map[string]string `json:"-"`
+	PeerKeyID2AccountID     map[string]string `json:"-"`
+	UserID2AccountID        map[string]string `json:"-"`
+	PrivateDomain2AccountID map[string]string `json:"-"`
 	InstallationID          string
 
 	// mutex to synchronise Store read/write operations
@@ -43,7 +36,7 @@ func NewStore(dataDir string) (*FileStore, error) {
 	return restore(filepath.Join(dataDir, storeFileName))
 }
 
-// restore restores the state of the store from the file.
+// restore the state of the store from the file.
 // Creates a new empty store file if doesn't exist
 func restore(file string) (*FileStore, error) {
 	if _, err := os.Stat(file); os.IsNotExist(err) {
@@ -51,14 +44,10 @@ func restore(file string) (*FileStore, error) {
 		s := &FileStore{
 			Accounts:                make(map[string]*Account),
 			mux:                     sync.Mutex{},
-			SetupKeyId2AccountId:    make(map[string]string),
-			PeerKeyId2AccountId:     make(map[string]string),
-			UserId2AccountId:        make(map[string]string),
-			PrivateDomain2AccountId: make(map[string]string),
-			PeerKeyId2SrcRulesId:    make(map[string]map[string]struct{}),
-			PeerKeyID2RouteIDs:      make(map[string]map[string]struct{}),
-			PeerKeyId2DstRulesId:    make(map[string]map[string]struct{}),
-			AccountPrefix2RouteIDs:  make(map[string]map[string][]string),
+			SetupKeyID2AccountID:    make(map[string]string),
+			PeerKeyID2AccountID:     make(map[string]string),
+			UserID2AccountID:        make(map[string]string),
+			PrivateDomain2AccountID: make(map[string]string),
 			storeFile:               file,
 		}
 
@@ -77,185 +66,39 @@ func restore(file string) (*FileStore, error) {
 
 	store := read.(*FileStore)
 	store.storeFile = file
-	store.SetupKeyId2AccountId = make(map[string]string)
-	store.PeerKeyId2AccountId = make(map[string]string)
-	store.UserId2AccountId = make(map[string]string)
-	store.PrivateDomain2AccountId = make(map[string]string)
-	store.PeerKeyId2SrcRulesId = make(map[string]map[string]struct{})
-	store.PeerKeyId2DstRulesId = make(map[string]map[string]struct{})
-	store.PeerKeyID2RouteIDs = make(map[string]map[string]struct{})
-	store.AccountPrefix2RouteIDs = make(map[string]map[string][]string)
+	store.SetupKeyID2AccountID = make(map[string]string)
+	store.PeerKeyID2AccountID = make(map[string]string)
+	store.UserID2AccountID = make(map[string]string)
+	store.PrivateDomain2AccountID = make(map[string]string)
 
-	for accountId, account := range store.Accounts {
+	for accountID, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
-			store.SetupKeyId2AccountId[strings.ToUpper(setupKeyId)] = accountId
+			store.SetupKeyID2AccountID[strings.ToUpper(setupKeyId)] = accountID
 		}
-		for _, rule := range account.Rules {
-			for _, groupID := range rule.Source {
-				if group, ok := account.Groups[groupID]; ok {
-					for _, peerID := range group.Peers {
-						rules := store.PeerKeyId2SrcRulesId[peerID]
-						if rules == nil {
-							rules = map[string]struct{}{}
-							store.PeerKeyId2SrcRulesId[peerID] = rules
-						}
-						rules[rule.ID] = struct{}{}
-					}
-				}
-			}
-			for _, groupID := range rule.Destination {
-				if group, ok := account.Groups[groupID]; ok {
-					for _, peerID := range group.Peers {
-						rules := store.PeerKeyId2DstRulesId[peerID]
-						if rules == nil {
-							rules = map[string]struct{}{}
-							store.PeerKeyId2DstRulesId[peerID] = rules
-						}
-						rules[rule.ID] = struct{}{}
-					}
-				}
-			}
-		}
+
 		for _, peer := range account.Peers {
-			store.PeerKeyId2AccountId[peer.Key] = accountId
+			store.PeerKeyID2AccountID[peer.Key] = accountID
 		}
 		for _, user := range account.Users {
-			store.UserId2AccountId[user.Id] = accountId
+			store.UserID2AccountID[user.Id] = accountID
 		}
 		for _, user := range account.Users {
-			store.UserId2AccountId[user.Id] = accountId
+			store.UserID2AccountID[user.Id] = accountID
 		}
-		for _, route := range account.Routes {
-			if route.Peer == "" {
-				continue
-			}
-			if store.PeerKeyID2RouteIDs[route.Peer] == nil {
-				store.PeerKeyID2RouteIDs[route.Peer] = make(map[string]struct{})
-			}
-			store.PeerKeyID2RouteIDs[route.Peer][route.ID] = struct{}{}
-			if store.AccountPrefix2RouteIDs[account.Id] == nil {
-				store.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
-			}
-			if _, ok := store.AccountPrefix2RouteIDs[account.Id][route.Network.String()]; !ok {
-				store.AccountPrefix2RouteIDs[account.Id][route.Network.String()] = make([]string, 0)
-			}
-			store.AccountPrefix2RouteIDs[account.Id][route.Network.String()] = append(
-				store.AccountPrefix2RouteIDs[account.Id][route.Network.String()],
-				route.ID,
-			)
-		}
+
 		if account.Domain != "" && account.DomainCategory == PrivateCategory &&
 			account.IsDomainPrimaryAccount {
-			store.PrivateDomain2AccountId[account.Domain] = accountId
+			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
 	}
 
 	return store, nil
 }
 
-// persist persists account data to a file
+// persist account data to a file
 // It is recommended to call it with locking FileStore.mux
 func (s *FileStore) persist(file string) error {
 	return util.WriteJson(file, s)
-}
-
-// SavePeer saves updated peer
-func (s *FileStore) SavePeer(accountId string, peer *Peer) error {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	account, err := s.GetAccount(accountId)
-	if err != nil {
-		return err
-	}
-
-	// if it is new peer, add it to default 'All' group
-	allGroup, err := account.GetGroupAll()
-	if err != nil {
-		return err
-	}
-
-	ind := -1
-	for i, pid := range allGroup.Peers {
-		if pid == peer.Key {
-			ind = i
-			break
-		}
-	}
-
-	if ind < 0 {
-		allGroup.Peers = append(allGroup.Peers, peer.Key)
-	}
-
-	account.Peers[peer.Key] = peer
-	return s.persist(s.storeFile)
-}
-
-// DeletePeer deletes peer from the Store
-func (s *FileStore) DeletePeer(accountId string, peerKey string) (*Peer, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	account, err := s.GetAccount(accountId)
-	if err != nil {
-		return nil, err
-	}
-
-	peer := account.Peers[peerKey]
-	if peer == nil {
-		return nil, status.Errorf(codes.NotFound, "peer not found")
-	}
-	peerRoutes := s.PeerKeyID2RouteIDs[peerKey]
-	delete(account.Peers, peerKey)
-	delete(s.PeerKeyId2AccountId, peerKey)
-	delete(s.PeerKeyId2DstRulesId, peerKey)
-	delete(s.PeerKeyId2SrcRulesId, peerKey)
-	delete(s.PeerKeyID2RouteIDs, peerKey)
-
-	// cleanup groups
-	for _, g := range account.Groups {
-		var peers []string
-		for _, p := range g.Peers {
-			if p != peerKey {
-				peers = append(peers, p)
-			}
-		}
-		g.Peers = peers
-	}
-
-	for routeID := range peerRoutes {
-		account.Routes[routeID].Enabled = false
-		account.Routes[routeID].Peer = ""
-	}
-
-	err = s.persist(s.storeFile)
-	if err != nil {
-		return nil, err
-	}
-
-	return peer, nil
-}
-
-// GetPeer returns a peer from a Store
-func (s *FileStore) GetPeer(peerKey string) (*Peer, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	accountId, accountIdFound := s.PeerKeyId2AccountId[peerKey]
-	if !accountIdFound {
-		return nil, status.Errorf(codes.NotFound, "peer not found")
-	}
-
-	account, err := s.GetAccount(accountId)
-	if err != nil {
-		return nil, err
-	}
-
-	if peer, ok := account.Peers[peerKey]; ok {
-		return peer, nil
-	}
-
-	return nil, status.Errorf(codes.NotFound, "peer not found")
 }
 
 // SaveAccount updates an existing account or adds a new one
@@ -269,95 +112,20 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	// todo check that account.Id and keyId are not exist already
 	// because if keyId exists for other accounts this can be bad
 	for keyId := range account.SetupKeys {
-		s.SetupKeyId2AccountId[strings.ToUpper(keyId)] = account.Id
+		s.SetupKeyID2AccountID[strings.ToUpper(keyId)] = account.Id
 	}
 
 	// enforce peer to account index and delete peer to route indexes for rebuild
 	for _, peer := range account.Peers {
-		s.PeerKeyId2AccountId[peer.Key] = account.Id
-		delete(s.PeerKeyID2RouteIDs, peer.Key)
-	}
-
-	delete(s.AccountPrefix2RouteIDs, account.Id)
-
-	// remove all peers related to account from rules indexes
-	cleanIDs := make([]string, 0)
-	for key := range s.PeerKeyId2SrcRulesId {
-		if accountID, ok := s.PeerKeyId2AccountId[key]; ok && accountID == account.Id {
-			cleanIDs = append(cleanIDs, key)
-		}
-	}
-	for _, key := range cleanIDs {
-		delete(s.PeerKeyId2SrcRulesId, key)
-	}
-	cleanIDs = cleanIDs[:0]
-	for key := range s.PeerKeyId2DstRulesId {
-		if accountID, ok := s.PeerKeyId2AccountId[key]; ok && accountID == account.Id {
-			cleanIDs = append(cleanIDs, key)
-		}
-	}
-	for _, key := range cleanIDs {
-		delete(s.PeerKeyId2DstRulesId, key)
-	}
-
-	// rebuild rule indexes
-	for _, rule := range account.Rules {
-		for _, gid := range rule.Source {
-			g, ok := account.Groups[gid]
-			if !ok {
-				break
-			}
-			for _, pid := range g.Peers {
-				rules := s.PeerKeyId2SrcRulesId[pid]
-				if rules == nil {
-					rules = map[string]struct{}{}
-					s.PeerKeyId2SrcRulesId[pid] = rules
-				}
-				rules[rule.ID] = struct{}{}
-			}
-		}
-		for _, gid := range rule.Destination {
-			g, ok := account.Groups[gid]
-			if !ok {
-				break
-			}
-			for _, pid := range g.Peers {
-				rules := s.PeerKeyId2DstRulesId[pid]
-				if rules == nil {
-					rules = map[string]struct{}{}
-					s.PeerKeyId2DstRulesId[pid] = rules
-				}
-				rules[rule.ID] = struct{}{}
-			}
-		}
-	}
-
-	for _, route := range account.Routes {
-		if route.Peer == "" {
-			continue
-		}
-		if s.PeerKeyID2RouteIDs[route.Peer] == nil {
-			s.PeerKeyID2RouteIDs[route.Peer] = make(map[string]struct{})
-		}
-		s.PeerKeyID2RouteIDs[route.Peer][route.ID] = struct{}{}
-		if s.AccountPrefix2RouteIDs[account.Id] == nil {
-			s.AccountPrefix2RouteIDs[account.Id] = make(map[string][]string)
-		}
-		if _, ok := s.AccountPrefix2RouteIDs[account.Id][route.Network.String()]; !ok {
-			s.AccountPrefix2RouteIDs[account.Id][route.Network.String()] = make([]string, 0)
-		}
-		s.AccountPrefix2RouteIDs[account.Id][route.Network.String()] = append(
-			s.AccountPrefix2RouteIDs[account.Id][route.Network.String()],
-			route.ID,
-		)
+		s.PeerKeyID2AccountID[peer.Key] = account.Id
 	}
 
 	for _, user := range account.Users {
-		s.UserId2AccountId[user.Id] = account.Id
+		s.UserID2AccountID[user.Id] = account.Id
 	}
 
 	if account.DomainCategory == PrivateCategory && account.IsDomainPrimaryAccount {
-		s.PrivateDomain2AccountId[account.Domain] = account.Id
+		s.PrivateDomain2AccountID[account.Domain] = account.Id
 	}
 
 	return s.persist(s.storeFile)
@@ -365,7 +133,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 // GetAccountByPrivateDomain returns account by private domain
 func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
-	accountId, accountIdFound := s.PrivateDomain2AccountId[strings.ToLower(domain)]
+	accountId, accountIdFound := s.PrivateDomain2AccountID[strings.ToLower(domain)]
 	if !accountIdFound {
 		return nil, status.Errorf(
 			codes.NotFound,
@@ -383,7 +151,7 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 
 // GetAccountBySetupKey returns account by setup key id
 func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
-	accountId, accountIdFound := s.SetupKeyId2AccountId[strings.ToUpper(setupKey)]
+	accountId, accountIdFound := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !accountIdFound {
 		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
 	}
@@ -394,24 +162,6 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 	}
 
 	return account, nil
-}
-
-// GetAccountPeers returns account peers
-func (s *FileStore) GetAccountPeers(accountId string) ([]*Peer, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	account, err := s.GetAccount(accountId)
-	if err != nil {
-		return nil, err
-	}
-
-	var peers []*Peer
-	for _, peer := range account.Peers {
-		peers = append(peers, peer)
-	}
-
-	return peers, nil
 }
 
 // GetAllAccounts returns all accounts
@@ -426,8 +176,8 @@ func (s *FileStore) GetAllAccounts() (all []*Account) {
 }
 
 // GetAccount returns an account for id
-func (s *FileStore) GetAccount(accountId string) (*Account, error) {
-	account, accountFound := s.Accounts[accountId]
+func (s *FileStore) GetAccount(accountID string) (*Account, error) {
+	account, accountFound := s.Accounts[accountID]
 	if !accountFound {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -435,139 +185,30 @@ func (s *FileStore) GetAccount(accountId string) (*Account, error) {
 	return account, nil
 }
 
-// GetUserAccount returns a user account
-func (s *FileStore) GetUserAccount(userId string) (*Account, error) {
+// GetAccountByUser returns a user account
+func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	accountId, accountIdFound := s.UserId2AccountId[userId]
-	if !accountIdFound {
+	accountID, accountIDFound := s.UserID2AccountID[userID]
+	if !accountIDFound {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	return s.GetAccount(accountId)
+	return s.GetAccount(accountID)
 }
 
-func (s *FileStore) getPeerAccount(peerKey string) (*Account, error) {
-	accountId, accountIdFound := s.PeerKeyId2AccountId[peerKey]
-	if !accountIdFound {
+// GetAccountByPeerPubKey returns an account for a given peer WireGuard public key
+func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, accountIDFound := s.PeerKeyID2AccountID[peerKey]
+	if !accountIDFound {
 		return nil, status.Errorf(codes.NotFound, "Provided peer key doesn't exists %s", peerKey)
 	}
 
-	return s.GetAccount(accountId)
-}
-
-// GetPeerAccount returns user account if exists
-func (s *FileStore) GetPeerAccount(peerKey string) (*Account, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	return s.getPeerAccount(peerKey)
-}
-
-// GetPeerSrcRules return list of source rules for peer
-func (s *FileStore) GetPeerSrcRules(accountId, peerKey string) ([]*Rule, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	account, err := s.GetAccount(accountId)
-	if err != nil {
-		return nil, err
-	}
-
-	ruleIDs, ok := s.PeerKeyId2SrcRulesId[peerKey]
-	if !ok {
-		return nil, fmt.Errorf("no rules for peer: %v", ruleIDs)
-	}
-
-	rules := []*Rule{}
-	for id := range ruleIDs {
-		rule, ok := account.Rules[id]
-		if ok {
-			rules = append(rules, rule)
-		}
-	}
-
-	return rules, nil
-}
-
-// GetPeerDstRules return list of destination rules for peer
-func (s *FileStore) GetPeerDstRules(accountId, peerKey string) ([]*Rule, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	account, err := s.GetAccount(accountId)
-	if err != nil {
-		return nil, err
-	}
-
-	ruleIDs, ok := s.PeerKeyId2DstRulesId[peerKey]
-	if !ok {
-		return nil, fmt.Errorf("no rules for peer: %v", ruleIDs)
-	}
-
-	rules := []*Rule{}
-	for id := range ruleIDs {
-		rule, ok := account.Rules[id]
-		if ok {
-			rules = append(rules, rule)
-		}
-	}
-
-	return rules, nil
-}
-
-// GetPeerRoutes return list of routes for peer
-func (s *FileStore) GetPeerRoutes(peerKey string) ([]*route.Route, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	account, err := s.getPeerAccount(peerKey)
-	if err != nil {
-		return nil, err
-	}
-
-	var routes []*route.Route
-
-	routeIDs, ok := s.PeerKeyID2RouteIDs[peerKey]
-	if !ok {
-		return routes, nil
-	}
-
-	for id := range routeIDs {
-		route, found := account.Routes[id]
-		if found {
-			routes = append(routes, route)
-		}
-	}
-
-	return routes, nil
-}
-
-// GetRoutesByPrefix return list of routes by account and route prefix
-func (s *FileStore) GetRoutesByPrefix(accountID string, prefix netip.Prefix) ([]*route.Route, error) {
-	s.mux.Lock()
-	defer s.mux.Unlock()
-
-	account, err := s.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	routeIDs, ok := s.AccountPrefix2RouteIDs[accountID][prefix.String()]
-	if !ok {
-		return nil, status.Errorf(codes.NotFound, "no routes for prefix: %v", prefix.String())
-	}
-
-	var routes []*route.Route
-	for _, id := range routeIDs {
-		route, found := account.Routes[id]
-		if found {
-			routes = append(routes, route)
-		}
-	}
-
-	return routes, nil
+	return s.GetAccount(accountID)
 }
 
 // GetInstallationID returns the installation ID from the store

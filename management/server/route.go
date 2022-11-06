@@ -64,7 +64,7 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*r
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -93,7 +93,12 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, p
 		return nil
 	}
 
-	routesWithPrefix, err := am.Store.GetRoutesByPrefix(accountID, prefix)
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	routesWithPrefix := account.GetRoutesByPrefix(prefix)
 
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
@@ -114,7 +119,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -161,7 +166,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 	account.Routes[newRoute.ID] = &newRoute
 
 	account.Network.IncSerial()
-	if err = am.storeV2.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
@@ -194,7 +199,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 		return status.Errorf(codes.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -209,7 +214,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 	account.Routes[routeToSave.ID] = routeToSave
 
 	account.Network.IncSerial()
-	if err = am.storeV2.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(account); err != nil {
 		return err
 	}
 
@@ -221,7 +226,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -302,7 +307,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 	account.Routes[routeID] = newRoute
 
 	account.Network.IncSerial()
-	if err = am.storeV2.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
@@ -318,7 +323,7 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return status.Errorf(codes.NotFound, "account not found")
 	}
@@ -326,7 +331,7 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
 	delete(account.Routes, routeID)
 
 	account.Network.IncSerial()
-	if err = am.storeV2.SaveAccount(account); err != nil {
+	if err = am.Store.SaveAccount(account); err != nil {
 		return err
 	}
 
@@ -338,7 +343,7 @@ func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.storeV2.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -370,30 +375,6 @@ func toProtocolRoute(route *route.Route) *proto.Route {
 		Metric:      int64(route.Metric),
 		Masquerade:  route.Masquerade,
 	}
-}
-
-func (am *DefaultAccountManager) getPeersRoutes(peers []*Peer) []*route.Route {
-	routes := make([]*route.Route, 0)
-	for _, peer := range peers {
-		peerRoutes, err := am.Store.GetPeerRoutes(peer.Key)
-		if err != nil {
-			errorStatus, ok := status.FromError(err)
-			if !ok && errorStatus.Code() != codes.NotFound {
-				log.Error(err)
-			}
-			continue
-		}
-		activeRoutes := make([]*route.Route, 0)
-		for _, pr := range peerRoutes {
-			if pr.Enabled {
-				activeRoutes = append(activeRoutes, pr)
-			}
-		}
-		if len(activeRoutes) > 0 {
-			routes = append(routes, activeRoutes...)
-		}
-	}
-	return routes
 }
 
 func toProtocolRoutes(routes []*route.Route) []*proto.Route {

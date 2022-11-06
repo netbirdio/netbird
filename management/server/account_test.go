@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/netbirdio/netbird/route"
 	"net"
 	"sync"
 	"testing"
@@ -1020,6 +1021,96 @@ func TestAccount_GetPeerRules(t *testing.T) {
 
 	assert.Equal(t, 2, len(srcRules))
 	assert.Equal(t, 1, len(dstRules))
+
+}
+
+func TestFileStore_GetRoutesByPrefix(t *testing.T) {
+	_, prefix, err := route.ParseNetwork("192.168.64.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := &Account{
+		Routes: map[string]*route.Route{
+			"route-1": {
+				ID:          "route-1",
+				Network:     prefix,
+				NetID:       "network-1",
+				Description: "network-1",
+				Peer:        "peer-1",
+				NetworkType: 0,
+				Masquerade:  false,
+				Metric:      999,
+				Enabled:     true,
+			},
+			"route-2": {
+				ID:          "route-2",
+				Network:     prefix,
+				NetID:       "network-1",
+				Description: "network-1",
+				Peer:        "peer-2",
+				NetworkType: 0,
+				Masquerade:  false,
+				Metric:      999,
+				Enabled:     true,
+			},
+		},
+	}
+
+	routes := account.GetRoutesByPrefix(prefix)
+
+	assert.Len(t, routes, 2)
+	routeIDs := make(map[string]struct{}, 2)
+	for _, r := range routes {
+		routeIDs[r.ID] = struct{}{}
+	}
+	assert.Contains(t, routeIDs, "route-1")
+	assert.Contains(t, routeIDs, "route-2")
+}
+
+func TestAccount_GetPeersRoutes(t *testing.T) {
+	_, prefix, err := route.ParseNetwork("192.168.64.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	account := &Account{
+		Peers: map[string]*Peer{
+			"peer-1": {Key: "peer-1"}, "peer-2": {Key: "peer-2"}, "peer-3": {Key: "peer-1"},
+		},
+		Routes: map[string]*route.Route{
+			"route-1": {
+				ID:          "route-1",
+				Network:     prefix,
+				NetID:       "network-1",
+				Description: "network-1",
+				Peer:        "peer-1",
+				NetworkType: 0,
+				Masquerade:  false,
+				Metric:      999,
+				Enabled:     true,
+			},
+			"route-2": {
+				ID:          "route-2",
+				Network:     prefix,
+				NetID:       "network-1",
+				Description: "network-1",
+				Peer:        "peer-2",
+				NetworkType: 0,
+				Masquerade:  false,
+				Metric:      999,
+				Enabled:     true,
+			},
+		},
+	}
+
+	routes := account.GetPeersRoutes([]*Peer{{Key: "peer-1"}, {Key: "peer-2"}, {Key: "non-existing-peer"}})
+
+	assert.Len(t, routes, 2)
+	routeIDs := make(map[string]struct{}, 2)
+	for _, r := range routes {
+		routeIDs[r.ID] = struct{}{}
+	}
+	assert.Contains(t, routeIDs, "route-1")
+	assert.Contains(t, routeIDs, "route-2")
 
 }
 
