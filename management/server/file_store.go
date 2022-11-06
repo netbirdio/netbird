@@ -106,26 +106,28 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
+	accountCopy := account.Copy()
+
 	// todo will override, handle existing keys
-	s.Accounts[account.Id] = account
+	s.Accounts[accountCopy.Id] = accountCopy
 
 	// todo check that account.Id and keyId are not exist already
 	// because if keyId exists for other accounts this can be bad
-	for keyId := range account.SetupKeys {
-		s.SetupKeyID2AccountID[strings.ToUpper(keyId)] = account.Id
+	for keyId := range accountCopy.SetupKeys {
+		s.SetupKeyID2AccountID[strings.ToUpper(keyId)] = accountCopy.Id
 	}
 
 	// enforce peer to account index and delete peer to route indexes for rebuild
-	for _, peer := range account.Peers {
-		s.PeerKeyID2AccountID[peer.Key] = account.Id
+	for _, peer := range accountCopy.Peers {
+		s.PeerKeyID2AccountID[peer.Key] = accountCopy.Id
 	}
 
-	for _, user := range account.Users {
-		s.UserID2AccountID[user.Id] = account.Id
+	for _, user := range accountCopy.Users {
+		s.UserID2AccountID[user.Id] = accountCopy.Id
 	}
 
-	if account.DomainCategory == PrivateCategory && account.IsDomainPrimaryAccount {
-		s.PrivateDomain2AccountID[account.Domain] = account.Id
+	if accountCopy.DomainCategory == PrivateCategory && accountCopy.IsDomainPrimaryAccount {
+		s.PrivateDomain2AccountID[accountCopy.Domain] = accountCopy.Id
 	}
 
 	return s.persist(s.storeFile)
@@ -146,7 +148,7 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 		return nil, err
 	}
 
-	return account, nil
+	return account.Copy(), nil
 }
 
 // GetAccountBySetupKey returns account by setup key id
@@ -161,7 +163,7 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 		return nil, err
 	}
 
-	return account, nil
+	return account.Copy(), nil
 }
 
 // GetAllAccounts returns all accounts
@@ -182,7 +184,7 @@ func (s *FileStore) GetAccount(accountID string) (*Account, error) {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	return account, nil
+	return account.Copy(), nil
 }
 
 // GetAccountByUser returns a user account
