@@ -188,6 +188,7 @@ func addDefaultDNSGroups(account *Account) {
 		nsGroup := &nbdns.NameServerGroup{
 			ID:          newID,
 			Name:        name,
+			Description: "",
 			Primary:     true,
 			Enabled:     false,
 			NameServers: nsList,
