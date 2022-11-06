@@ -242,6 +242,9 @@ type Peer struct {
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
+	// DnsLabel Peer's DNS Label
+	DnsLabel string `json:"dns_label"`
+
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
 
