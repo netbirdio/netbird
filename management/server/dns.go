@@ -177,30 +177,6 @@ func addDefaultDNSGroups(account *Account) {
 			Port:   53,
 		},
 	}
-	groupInfo["Cloudflare DNS"] = []nbdns.NameServer{
-		{
-			IP:     netip.MustParseAddr("1.1.1.1"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   53,
-		},
-		{
-			IP:     netip.MustParseAddr("1.0.0.1"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   53,
-		},
-	}
-	groupInfo["Quad9 DNS"] = []nbdns.NameServer{
-		{
-			IP:     netip.MustParseAddr("9.9.9.9"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   53,
-		},
-		{
-			IP:     netip.MustParseAddr("149.112.112.112"),
-			NSType: nbdns.UDPNameServerType,
-			Port:   53,
-		},
-	}
 	allGroup, err := account.GetGroupAll()
 	if err != nil {
 		log.Errorf("unable to find group all for account. That should never happen. err: %v", err)
