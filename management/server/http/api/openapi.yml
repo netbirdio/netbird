@@ -480,7 +480,7 @@ components:
             path:
               description: Nameserver group field to update in form /<field>
               type: string
-              enum: [ "name","description","enabled","groups","nameservers" ]
+              enum: [ "name", "description", "enabled", "groups", "nameservers", "primary", "domains"  ]
           required:
             - path
 

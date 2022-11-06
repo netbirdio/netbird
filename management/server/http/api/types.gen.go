@@ -39,10 +39,12 @@ const (
 // Defines values for NameserverGroupPatchOperationPath.
 const (
 	NameserverGroupPatchOperationPathDescription NameserverGroupPatchOperationPath = "description"
+	NameserverGroupPatchOperationPathDomains     NameserverGroupPatchOperationPath = "domains"
 	NameserverGroupPatchOperationPathEnabled     NameserverGroupPatchOperationPath = "enabled"
 	NameserverGroupPatchOperationPathGroups      NameserverGroupPatchOperationPath = "groups"
 	NameserverGroupPatchOperationPathName        NameserverGroupPatchOperationPath = "name"
 	NameserverGroupPatchOperationPathNameservers NameserverGroupPatchOperationPath = "nameservers"
+	NameserverGroupPatchOperationPathPrimary     NameserverGroupPatchOperationPath = "primary"
 )
 
 // Defines values for PatchMinimumOp.
