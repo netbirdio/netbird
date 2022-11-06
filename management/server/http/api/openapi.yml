@@ -137,7 +137,7 @@ components:
               description: Peer's desktop UI version
               type: string
             dns_label:
-              description: Peer's DNS Label
+              description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
               type: string
           required:
           - ip

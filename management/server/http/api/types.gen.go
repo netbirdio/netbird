@@ -242,7 +242,7 @@ type Peer struct {
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
 
-	// DnsLabel Peer's DNS Label
+	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DnsLabel string `json:"dns_label"`
 
 	// Groups Groups that the peer belongs to

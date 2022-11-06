@@ -45,7 +45,8 @@ type Peer struct {
 	Meta PeerSystemMeta
 	// Name is peer's name (machine name)
 	Name string
-	// DNSLabel is the peer's dns label, used to form a fqdn with the DNS peer domain
+	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
+	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
 	DNSLabel string
 	// Status peer's management connection status
 	Status *PeerStatus
