@@ -981,6 +981,11 @@ func TestAccount_GetPeerRules(t *testing.T) {
 			Name:  "group_4",
 			Peers: []string{"peer-1"},
 		},
+		"group_5": {
+			ID:    "group_5",
+			Name:  "group_5",
+			Peers: []string{"peer-1"},
+		},
 	}
 	rules := map[string]*Rule{
 		"rule-1": {
@@ -988,7 +993,7 @@ func TestAccount_GetPeerRules(t *testing.T) {
 			Name:        "rule-1",
 			Description: "rule-1",
 			Disabled:    false,
-			Source:      []string{"group_1"},
+			Source:      []string{"group_1", "group_5"},
 			Destination: []string{"group_2"},
 			Flow:        0,
 		},

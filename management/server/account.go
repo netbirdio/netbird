@@ -195,26 +195,29 @@ func (a *Account) GetPeerRules(peerPubKey string) (srcRules []*Rule, dstRules []
 	// First, find all groups that the given peer belongs to
 	peerGroups := make(map[string]struct{})
 
-groupsLoop:
 	for s, group := range a.Groups {
 		for _, peer := range group.Peers {
 			if peerPubKey == peer {
 				peerGroups[s] = struct{}{}
-				continue groupsLoop
+				break
 			}
 		}
 	}
 
 	// Second, find all rules that have discovered source and destination groups
+	srcRulesMap := make(map[string]*Rule)
+	dstRulesMap := make(map[string]*Rule)
 	for _, rule := range a.Rules {
 		for _, g := range rule.Source {
-			if _, ok := peerGroups[g]; ok {
+			if _, ok := peerGroups[g]; ok && srcRulesMap[rule.ID] == nil {
 				srcRules = append(srcRules, rule)
+				srcRulesMap[rule.ID] = rule
 			}
 		}
 		for _, g := range rule.Destination {
-			if _, ok := peerGroups[g]; ok {
+			if _, ok := peerGroups[g]; ok && dstRulesMap[rule.ID] == nil {
 				dstRules = append(dstRules, rule)
+				dstRulesMap[rule.ID] = rule
 			}
 		}
 	}
