@@ -113,6 +113,8 @@ func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *htt
 		ID:          nsGroupID,
 		Name:        req.Name,
 		Description: req.Description,
+		Primary:     req.Primary,
+		Domains:     req.Domains,
 		NameServers: nsList,
 		Groups:      req.Groups,
 		Enabled:     req.Enabled,
@@ -166,6 +168,16 @@ func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http
 		case api.NameserverGroupPatchOperationPathDescription:
 			operations = append(operations, server.NameServerGroupUpdateOperation{
 				Type:   server.UpdateNameServerGroupDescription,
+				Values: patch.Value,
+			})
+		case api.NameserverGroupPatchOperationPathPrimary:
+			operations = append(operations, server.NameServerGroupUpdateOperation{
+				Type:   server.UpdateNameServerGroupPrimary,
+				Values: patch.Value,
+			})
+		case api.NameserverGroupPatchOperationPathDomains:
+			operations = append(operations, server.NameServerGroupUpdateOperation{
+				Type:   server.UpdateNameServerGroupDomains,
 				Values: patch.Value,
 			})
 		case api.NameserverGroupPatchOperationPathNameservers:
@@ -279,6 +291,8 @@ func toNameserverGroupResponse(serverNSGroup *nbdns.NameServerGroup) *api.Namese
 		Id:          serverNSGroup.ID,
 		Name:        serverNSGroup.Name,
 		Description: serverNSGroup.Description,
+		Primary:     serverNSGroup.Primary,
+		Domains:     serverNSGroup.Domains,
 		Groups:      serverNSGroup.Groups,
 		Nameservers: nsList,
 		Enabled:     serverNSGroup.Enabled,

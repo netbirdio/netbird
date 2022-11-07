@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/netbirdio/netbird/route"
 	gPeer "google.golang.org/grpc/peer"
 	"strings"
 	"time"
@@ -253,17 +252,15 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
 	}
-
 	// notify other peers of our registration
 	for _, remotePeer := range networkMap.Peers {
-		// exclude notified peer and add ourselves
-		peersToSend := []*Peer{peer}
-		for _, p := range networkMap.Peers {
-			if remotePeer.Key != p.Key {
-				peersToSend = append(peersToSend, p)
-			}
+		// todo update this once we have store v2 to avoid lock/peer
+		remotePeerNetworkMap, err := s.accountManager.GetNetworkMap(remotePeer.Key)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
 		}
-		update := toSyncResponse(s.config, remotePeer, peersToSend, networkMap.Routes, nil, networkMap.Network.CurrentSerial(), networkMap.Network)
+
+		update := toSyncResponse(s.config, remotePeer, nil, remotePeerNetworkMap)
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
@@ -451,14 +448,16 @@ func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
 	return remotePeers
 }
 
-func toSyncResponse(config *Config, peer *Peer, peers []*Peer, routes []*route.Route, turnCredentials *TURNCredentials, serial uint64, network *Network) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap) *proto.SyncResponse {
 	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
-	pConfig := toPeerConfig(peer, network)
+	pConfig := toPeerConfig(peer, networkMap.Network)
 
-	remotePeers := toRemotePeerConfig(peers)
+	remotePeers := toRemotePeerConfig(networkMap.Peers)
 
-	routesUpdate := toProtocolRoutes(routes)
+	routesUpdate := toProtocolRoutes(networkMap.Routes)
+
+	dnsUpdate := toProtocolDNSConfig(networkMap.DNSConfig)
 
 	return &proto.SyncResponse{
 		WiretrusteeConfig:  wtConfig,
@@ -466,11 +465,12 @@ func toSyncResponse(config *Config, peer *Peer, peers []*Peer, routes []*route.R
 		RemotePeers:        remotePeers,
 		RemotePeersIsEmpty: len(remotePeers) == 0,
 		NetworkMap: &proto.NetworkMap{
-			Serial:             serial,
+			Serial:             networkMap.Network.CurrentSerial(),
 			PeerConfig:         pConfig,
 			RemotePeers:        remotePeers,
 			RemotePeersIsEmpty: len(remotePeers) == 0,
 			Routes:             routesUpdate,
+			DNSConfig:          dnsUpdate,
 		},
 	}
 }
@@ -496,7 +496,7 @@ func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.
 	} else {
 		turnCredentials = nil
 	}
-	plainResp := toSyncResponse(s.config, peer, networkMap.Peers, networkMap.Routes, turnCredentials, networkMap.Network.CurrentSerial(), networkMap.Network)
+	plainResp := toSyncResponse(s.config, peer, turnCredentials, networkMap)
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {

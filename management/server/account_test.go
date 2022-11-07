@@ -1124,7 +1124,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "")
+	return BuildManager(store, NewPeersUpdateManager(), nil, "", "")
 }
 
 func createStore(t *testing.T) (Store, error) {

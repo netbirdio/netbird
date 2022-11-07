@@ -172,6 +172,7 @@ func TestNameserversHandlers(t *testing.T) {
 				},
 				Groups:  []string{"group"},
 				Enabled: true,
+				Primary: true,
 			},
 		},
 		{
@@ -204,6 +205,7 @@ func TestNameserversHandlers(t *testing.T) {
 				},
 				Groups:  []string{"group"},
 				Enabled: true,
+				Primary: true,
 			},
 		},
 		{
@@ -238,6 +240,7 @@ func TestNameserversHandlers(t *testing.T) {
 				Nameservers: toNameserverGroupResponse(baseExistingNSGroup).Nameservers,
 				Groups:      baseExistingNSGroup.Groups,
 				Enabled:     baseExistingNSGroup.Enabled,
+				Primary:     baseExistingNSGroup.Primary,
 			},
 		},
 		{

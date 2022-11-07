@@ -7,9 +7,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbstatus "github.com/netbirdio/netbird/client/status"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	"math/rand"
 	"net"
+	"net/netip"
 	"reflect"
 	"runtime"
 	"strings"
@@ -105,7 +107,7 @@ type Engine struct {
 
 	routeManager routemanager.Manager
 
-	dnsServer *dns.Server
+	dnsServer dns.Server
 }
 
 // Peer is an instance of the Connection Peer
@@ -133,7 +135,7 @@ func NewEngine(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		dnsServer:      dns.NewServer(ctx),
+		dnsServer:      dns.NewDefaultServer(ctx),
 	}
 }
 
@@ -646,6 +648,15 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update routes, err: %v", err)
 	}
 
+	protoDNSConfig := networkMap.GetDNSConfig()
+	if protoDNSConfig == nil {
+		protoDNSConfig = &mgmProto.DNSConfig{}
+	}
+	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
+	if err != nil {
+		log.Errorf("failed to update dns server, err: %v", err)
+	}
+
 	e.networkSerial = serial
 	return nil
 }
@@ -666,6 +677,48 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 		routes = append(routes, convertedRoute)
 	}
 	return routes
+}
+
+func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
+	dnsUpdate := nbdns.Config{
+		ServiceEnable:    protoDNSConfig.GetServiceEnable(),
+		CustomZones:      make([]nbdns.CustomZone, 0),
+		NameServerGroups: make([]*nbdns.NameServerGroup, 0),
+	}
+
+	for _, zone := range protoDNSConfig.GetCustomZones() {
+		dnsZone := nbdns.CustomZone{
+			Domain: zone.GetDomain(),
+		}
+		for _, record := range zone.Records {
+			dnsRecord := nbdns.SimpleRecord{
+				Name:  record.GetName(),
+				Type:  int(record.GetType()),
+				Class: record.GetClass(),
+				TTL:   int(record.GetTTL()),
+				RData: record.GetRData(),
+			}
+			dnsZone.Records = append(dnsZone.Records, dnsRecord)
+		}
+		dnsUpdate.CustomZones = append(dnsUpdate.CustomZones, dnsZone)
+	}
+
+	for _, nsGroup := range protoDNSConfig.GetNameServerGroups() {
+		dnsNSGroup := &nbdns.NameServerGroup{
+			Primary: nsGroup.GetPrimary(),
+			Domains: nsGroup.GetDomains(),
+		}
+		for _, ns := range nsGroup.GetNameServers() {
+			dnsNS := nbdns.NameServer{
+				IP:     netip.MustParseAddr(ns.GetIP()),
+				NSType: nbdns.NameServerType(ns.GetNSType()),
+				Port:   int(ns.GetPort()),
+			}
+			dnsNSGroup.NameServers = append(dnsNSGroup.NameServers, dnsNS)
+		}
+		dnsUpdate.NameServerGroups = append(dnsUpdate.NameServerGroups, dnsNSGroup)
+	}
+	return dnsUpdate
 }
 
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update
