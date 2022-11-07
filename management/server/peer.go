@@ -74,17 +74,17 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
-// GetPeer returns a peer from a Store
-func (am *DefaultAccountManager) GetPeer(peerKey string) (*Peer, error) {
+// GetPeer looks up peer by its public WireGuard key
+func (am *DefaultAccountManager) GetPeer(peerPubKey string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	peer, err := am.Store.GetPeer(peerKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return nil, err
 	}
 
-	return peer, nil
+	return account.FindPeerByPubKey(peerPubKey)
 }
 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
@@ -115,24 +115,26 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 }
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
-func (am *DefaultAccountManager) MarkPeerConnected(peerKey string, connected bool) error {
+func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	peer, err := am.Store.GetPeer(peerKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
 	}
 
-	account, err := am.Store.GetPeerAccount(peerKey)
+	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
 		return err
 	}
 
-	peerCopy := peer.Copy()
-	peerCopy.Status.LastSeen = time.Now()
-	peerCopy.Status.Connected = connected
-	err = am.Store.SavePeer(account.Id, peerCopy)
+	peer.Status.LastSeen = time.Now()
+	peer.Status.Connected = connected
+
+	account.UpdatePeer(peer)
+
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
@@ -149,28 +151,29 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	peer, err := am.Store.GetPeer(update.Key)
+	//TODO Peer.ID migration: we will need to replace search by ID here
+	peer, err := account.FindPeerByPubKey(update.Key)
 	if err != nil {
 		return nil, err
 	}
 
-	peerCopy := peer.Copy()
 	if peer.Name != "" {
-		peerCopy.Name = update.Name
+		peer.Name = update.Name
 	}
+	peer.SSHEnabled = update.SSHEnabled
 
 	existingLabels := account.getPeerDNSLabels()
 
-	newLabel, err := getPeerHostLabel(peerCopy.Name, existingLabels)
+	newLabel, err := getPeerHostLabel(peer.Name, existingLabels)
 	if err != nil {
 		return nil, err
 	}
 
-	peerCopy.DNSLabel = newLabel
+	peer.DNSLabel = newLabel
 
-	peerCopy.SSHEnabled = update.SSHEnabled
+	account.UpdatePeer(peer)
 
-	err = am.Store.SavePeer(accountID, peerCopy)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
@@ -180,81 +183,32 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 		return nil, err
 	}
 
-	return peerCopy, nil
-
+	return peer, nil
 }
 
-// RenamePeer changes peer's name
-func (am *DefaultAccountManager) RenamePeer(
-	accountId string,
-	peerKey string,
-	newName string,
-) (*Peer, error) {
+// DeletePeer removes peer from the account by its IP
+func (am *DefaultAccountManager) DeletePeer(accountID string, peerPubKey string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	peer, err := am.Store.GetPeer(peerKey)
-	if err != nil {
-		return nil, err
-	}
-
-	peerCopy := peer.Copy()
-	peerCopy.Name = newName
-
-	account, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		return nil, err
-	}
-
-	existingLabels := account.getPeerDNSLabels()
-
-	newLabel, err := getPeerHostLabel(peerCopy.Name, existingLabels)
-	if err != nil {
-		return nil, err
-	}
-
-	peerCopy.DNSLabel = newLabel
-
-	err = am.Store.SavePeer(accountId, peerCopy)
-	if err != nil {
-		return nil, err
-	}
-
-	return peerCopy, nil
-}
-
-// DeletePeer removes peer from the account by it's IP
-func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*Peer, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	account, err := am.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	// delete peer from groups
-	for _, g := range account.Groups {
-		for i, pk := range g.Peers {
-			if pk == peerKey {
-				g.Peers = append(g.Peers[:i], g.Peers[i+1:]...)
-				break
-			}
-		}
-	}
-
-	peer, err := am.Store.DeletePeer(accountId, peerKey)
+	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
 		return nil, err
 	}
 
-	account.Network.IncSerial()
+	account.DeletePeer(peerPubKey)
+
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
 
-	err = am.peersUpdateManager.SendUpdate(peerKey,
+	err = am.peersUpdateManager.SendUpdate(peerPubKey,
 		&UpdateMessage{
 			Update: &proto.SyncResponse{
 				// fill those field for backward compatibility
@@ -272,20 +226,21 @@ func (am *DefaultAccountManager) DeletePeer(accountId string, peerKey string) (*
 		return nil, err
 	}
 
+	// TODO Peer.ID migration: we will need to replace search by Peer.ID here
 	if err := am.updateAccountPeers(account); err != nil {
 		return nil, err
 	}
 
-	am.peersUpdateManager.CloseChannel(peerKey)
+	am.peersUpdateManager.CloseChannel(peerPubKey)
 	return peer, nil
 }
 
-// GetPeerByIP returns peer by it's IP
-func (am *DefaultAccountManager) GetPeerByIP(accountId string, peerIP string) (*Peer, error) {
+// GetPeerByIP returns peer by its IP
+func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetAccount(accountId)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
@@ -300,17 +255,17 @@ func (am *DefaultAccountManager) GetPeerByIP(accountId string, peerIP string) (*
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
-func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, error) {
+func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetPeerAccount(peerKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
+		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerPubKey)
 	}
 
-	aclPeers := am.getPeersByACL(account, peerKey)
-	routesUpdate := am.getPeersRoutes(append(aclPeers, account.Peers[peerKey]))
+	aclPeers := am.getPeersByACL(account, peerPubKey)
+	routesUpdate := account.GetPeersRoutes(append(aclPeers, account.Peers[peerPubKey]))
 
 	// todo extract this with the store v2
 	// this should become part of the method parameters
@@ -336,13 +291,13 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 }
 
 // GetPeerNetwork returns the Network for a given peer
-func (am *DefaultAccountManager) GetPeerNetwork(peerKey string) (*Network, error) {
+func (am *DefaultAccountManager) GetPeerNetwork(peerPubKey string) (*Network, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	account, err := am.Store.GetPeerAccount(peerKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerKey)
+		return nil, status.Errorf(codes.Internal, "invalid peer key %s", peerPubKey)
 	}
 
 	return account.Network.Copy(), err
@@ -355,11 +310,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(peerKey string) (*Network, error
 // to it. We also add the User ID to the peer metadata to identify registrant.
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(
-	setupKey string,
-	userID string,
-	peer *Peer,
-) (*Peer, error) {
+func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *Peer) (*Peer, error) {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
@@ -400,7 +351,7 @@ func (am *DefaultAccountManager) AddPeer(
 		groupsToAdd = sk.AutoGroups
 
 	} else if len(userID) != 0 {
-		account, err = am.Store.GetUserAccount(userID)
+		account, err = am.Store.GetAccountByUser(userID)
 		if err != nil {
 			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown user with ID: %s", userID)
 		}
@@ -481,34 +432,34 @@ func (am *DefaultAccountManager) AddPeer(
 }
 
 // UpdatePeerSSHKey updates peer's public SSH key
-func (am *DefaultAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string) error {
+func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey string) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
 	if sshKey == "" {
-		log.Debugf("empty SSH key provided for peer %s, skipping update", peerKey)
+		log.Debugf("empty SSH key provided for peer %s, skipping update", peerPubKey)
 		return nil
 	}
 
-	peer, err := am.Store.GetPeer(peerKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	if err != nil {
+		return err
+	}
+
+	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
 		return err
 	}
 
 	if peer.SSHKey == sshKey {
-		log.Debugf("same SSH key provided for peer %s, skipping update", peerKey)
+		log.Debugf("same SSH key provided for peer %s, skipping update", peerPubKey)
 		return nil
 	}
 
-	account, err := am.Store.GetPeerAccount(peerKey)
-	if err != nil {
-		return err
-	}
+	peer.SSHKey = sshKey
+	account.UpdatePeer(peer)
 
-	peerCopy := peer.Copy()
-	peerCopy.SSHKey = sshKey
-
-	err = am.Store.SavePeer(account.Id, peerCopy)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
@@ -518,29 +469,29 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string)
 }
 
 // UpdatePeerMeta updates peer's system metadata
-func (am *DefaultAccountManager) UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error {
+func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSystemMeta) error {
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	peer, err := am.Store.GetPeer(peerKey)
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
 	}
 
-	account, err := am.Store.GetPeerAccount(peerKey)
+	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
 		return err
 	}
 
-	peerCopy := peer.Copy()
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
-		meta.UIVersion = peerCopy.Meta.UIVersion
+		meta.UIVersion = peer.Meta.UIVersion
 	}
 
-	peerCopy.Meta = meta
+	peer.Meta = meta
+	account.UpdatePeer(peer)
 
-	err = am.Store.SavePeer(account.Id, peerCopy)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
@@ -548,17 +499,9 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerKey string, meta PeerSystemM
 }
 
 // getPeersByACL returns all peers that given peer has access to.
-func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string) []*Peer {
+func (am *DefaultAccountManager) getPeersByACL(account *Account, peerPubKey string) []*Peer {
 	var peers []*Peer
-	srcRules, err := am.Store.GetPeerSrcRules(account.Id, peerKey)
-	if err != nil {
-		srcRules = []*Rule{}
-	}
-
-	dstRules, err := am.Store.GetPeerDstRules(account.Id, peerKey)
-	if err != nil {
-		dstRules = []*Rule{}
-	}
+	srcRules, dstRules := account.GetPeerRules(peerPubKey)
 
 	groups := map[string]*Group{}
 	for _, r := range srcRules {
@@ -601,7 +544,7 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 				continue
 			}
 			// exclude original peer
-			if _, ok := peersSet[peer.Key]; peer.Key != peerKey && !ok {
+			if _, ok := peersSet[peer.Key]; peer.Key != peerPubKey && !ok {
 				peersSet[peer.Key] = struct{}{}
 				peers = append(peers, peer.Copy())
 			}
@@ -615,11 +558,7 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerKey string)
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	// notify other peers of the change
-	peers, err := am.Store.GetAccountPeers(account.Id)
-	if err != nil {
-		return err
-	}
-
+	peers := account.GetPeers()
 	network := account.Network.Copy()
 	var zones []nbdns.CustomZone
 	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
@@ -630,13 +569,13 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	for _, peer := range peers {
 		aclPeers := am.getPeersByACL(account, peer.Key)
 		peersUpdate := toRemotePeerConfig(aclPeers)
-		routesUpdate := toProtocolRoutes(am.getPeersRoutes(append(aclPeers, peer)))
+		routesUpdate := toProtocolRoutes(account.GetPeersRoutes(append(aclPeers, peer)))
 		dnsUpdate := toProtocolDNSUpdate(nbdns.Config{
 			ServiceEnable:    true,
 			CustomZones:      zones,
 			NameServerGroups: getPeerNSGroups(account, peer.Key),
 		})
-		err = am.peersUpdateManager.SendUpdate(peer.Key,
+		err := am.peersUpdateManager.SendUpdate(peer.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
 					// fill deprecated fields for backward compatibility

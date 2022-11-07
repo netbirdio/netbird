@@ -191,8 +191,6 @@ var (
 				return err
 			}
 
-			fmt.Println("metrics ", disableMetrics)
-
 			if !disableMetrics {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
