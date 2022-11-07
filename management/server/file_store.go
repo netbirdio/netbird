@@ -118,6 +118,7 @@ func (s *FileStore) persist(file string) error {
 	return util.WriteJson(file, s)
 }
 
+// AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
 func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 	log.Debugf("acquiring global lock")
 	start := time.Now()
