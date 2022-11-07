@@ -78,6 +78,10 @@ func restore(file string) (*FileStore, error) {
 
 		for _, peer := range account.Peers {
 			store.PeerKeyID2AccountID[peer.Key] = accountID
+			// reset all peers to status = Disconnected
+			if peer.Status != nil && peer.Status.Connected {
+				peer.Status.Connected = false
+			}
 		}
 		for _, user := range account.Users {
 			store.UserID2AccountID[user.Id] = accountID
@@ -90,6 +94,12 @@ func restore(file string) (*FileStore, error) {
 			account.IsDomainPrimaryAccount {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
+	}
+
+	// we need this persist to apply changes we made to account.Peers (we set them to Disconnected)
+	err = store.persist(store.storeFile)
+	if err != nil {
+		return nil, err
 	}
 
 	return store, nil
