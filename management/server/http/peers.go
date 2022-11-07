@@ -152,5 +152,6 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 		Hostname:   peer.Meta.Hostname,
 		UserId:     &peer.UserID,
 		UiVersion:  &peer.Meta.UIVersion,
+		DnsLabel:   peer.DNSLabel,
 	}
 }

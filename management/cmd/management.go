@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/miekg/dns"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -89,6 +90,11 @@ var (
 				}
 			}
 
+			_, valid := dns.IsDomainName(dnsDomain)
+			if !valid || len(dnsDomain) > 192 {
+				return fmt.Errorf("failed parsing the provided dns-domain. Valid status: %t, Lenght: %d", valid, len(dnsDomain))
+			}
+
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -136,7 +142,7 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain)
+			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain, dnsDomain)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}

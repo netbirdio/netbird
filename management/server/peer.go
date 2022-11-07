@@ -1,6 +1,7 @@
 package server
 
 import (
+	nbdns "github.com/netbirdio/netbird/dns"
 	"net"
 	"strings"
 	"time"
@@ -43,7 +44,11 @@ type Peer struct {
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta
 	// Name is peer's name (machine name)
-	Name   string
+	Name string
+	// DNSLabel is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's
+	// domain to the peer label. e.g. peer-dns-label.netbird.cloud
+	DNSLabel string
+	// Status peer's management connection status
 	Status *PeerStatus
 	// The user ID that registered the peer
 	UserID string
@@ -65,6 +70,7 @@ func (p *Peer) Copy() *Peer {
 		UserID:     p.UserID,
 		SSHKey:     p.SSHKey,
 		SSHEnabled: p.SSHEnabled,
+		DNSLabel:   p.DNSLabel,
 	}
 }
 
@@ -155,6 +161,15 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 		peer.Name = update.Name
 	}
 	peer.SSHEnabled = update.SSHEnabled
+
+	existingLabels := account.getPeerDNSLabels()
+
+	newLabel, err := getPeerHostLabel(peer.Name, existingLabels)
+	if err != nil {
+		return nil, err
+	}
+
+	peer.DNSLabel = newLabel
 
 	account.UpdatePeer(peer)
 
@@ -252,10 +267,26 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 	aclPeers := am.getPeersByACL(account, peerPubKey)
 	routesUpdate := account.GetPeersRoutes(append(aclPeers, account.Peers[peerPubKey]))
 
+	// todo extract this with the store v2
+	// this should become part of the method parameters
+	// to prevent slow performance when called in a parent loop
+	var zones []nbdns.CustomZone
+	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
+	if peersCustomZone.Domain != "" {
+		zones = append(zones, peersCustomZone)
+	}
+
+	dnsUpdate := nbdns.Config{
+		ServiceEnable:    true,
+		CustomZones:      zones,
+		NameServerGroups: getPeerNSGroups(account, peerPubKey),
+	}
+
 	return &NetworkMap{
-		Peers:   aclPeers,
-		Network: account.Network.Copy(),
-		Routes:  routesUpdate,
+		Peers:     aclPeers,
+		Network:   account.Network.Copy(),
+		Routes:    routesUpdate,
+		DNSConfig: dnsUpdate,
 	}, err
 }
 
@@ -337,9 +368,20 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	}
 
 	var takenIps []net.IP
-	for _, peer := range account.Peers {
-		takenIps = append(takenIps, peer.IP)
+	existingLabels := make(lookupMap)
+	for _, existingPeer := range account.Peers {
+		takenIps = append(takenIps, existingPeer.IP)
+		if existingPeer.DNSLabel != "" {
+			existingLabels[existingPeer.DNSLabel] = struct{}{}
+		}
 	}
+
+	newLabel, err := getPeerHostLabel(peer.Name, existingLabels)
+	if err != nil {
+		return nil, err
+	}
+
+	peer.DNSLabel = newLabel
 
 	network := account.Network
 	nextIp, err := AllocatePeerIP(network.Net, takenIps)
@@ -353,6 +395,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 		IP:         nextIp,
 		Meta:       peer.Meta,
 		Name:       peer.Name,
+		DNSLabel:   newLabel,
 		UserID:     userID,
 		Status:     &PeerStatus{Connected: false, LastSeen: time.Now()},
 		SSHEnabled: false,
@@ -517,11 +560,21 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	// notify other peers of the change
 	peers := account.GetPeers()
 	network := account.Network.Copy()
+	var zones []nbdns.CustomZone
+	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
+	if peersCustomZone.Domain != "" {
+		zones = append(zones, peersCustomZone)
+	}
 
 	for _, peer := range peers {
 		aclPeers := am.getPeersByACL(account, peer.Key)
 		peersUpdate := toRemotePeerConfig(aclPeers)
 		routesUpdate := toProtocolRoutes(account.GetPeersRoutes(append(aclPeers, peer)))
+		dnsUpdate := toProtocolDNSConfig(nbdns.Config{
+			ServiceEnable:    true,
+			CustomZones:      zones,
+			NameServerGroups: getPeerNSGroups(account, peer.Key),
+		})
 		err := am.peersUpdateManager.SendUpdate(peer.Key,
 			&UpdateMessage{
 				Update: &proto.SyncResponse{
@@ -535,6 +588,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 						RemotePeersIsEmpty: len(peersUpdate) == 0,
 						PeerConfig:         toPeerConfig(peer, network),
 						Routes:             routesUpdate,
+						DNSConfig:          dnsUpdate,
 					},
 				},
 			})

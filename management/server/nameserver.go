@@ -4,6 +4,7 @@ import (
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"strconv"
@@ -113,6 +114,12 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 		return nil, err
 	}
 
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		log.Error(err)
+		return newNSGroup.Copy(), status.Errorf(codes.Unavailable, "failed to update peers after create nameserver %s", name)
+	}
+
 	return newNSGroup.Copy(), nil
 }
 
@@ -141,6 +148,12 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupTo
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
+	}
+
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		log.Error(err)
+		return status.Errorf(codes.Unavailable, "failed to update peers after update nameserver %s", nsGroupToSave.Name)
 	}
 
 	return nil
@@ -239,6 +252,12 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 		return nil, err
 	}
 
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		log.Error(err)
+		return newNSGroup.Copy(), status.Errorf(codes.Unavailable, "failed to update peers after update nameserver %s", newNSGroup.Name)
+	}
+
 	return newNSGroup.Copy(), nil
 }
 
@@ -258,6 +277,12 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID stri
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
+	}
+
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		log.Error(err)
+		return status.Errorf(codes.Unavailable, "failed to update peers after deleting nameserver %s", nsGroupID)
 	}
 
 	return nil

@@ -39,10 +39,12 @@ const (
 // Defines values for NameserverGroupPatchOperationPath.
 const (
 	NameserverGroupPatchOperationPathDescription NameserverGroupPatchOperationPath = "description"
+	NameserverGroupPatchOperationPathDomains     NameserverGroupPatchOperationPath = "domains"
 	NameserverGroupPatchOperationPathEnabled     NameserverGroupPatchOperationPath = "enabled"
 	NameserverGroupPatchOperationPathGroups      NameserverGroupPatchOperationPath = "groups"
 	NameserverGroupPatchOperationPathName        NameserverGroupPatchOperationPath = "name"
 	NameserverGroupPatchOperationPathNameservers NameserverGroupPatchOperationPath = "nameservers"
+	NameserverGroupPatchOperationPathPrimary     NameserverGroupPatchOperationPath = "primary"
 )
 
 // Defines values for PatchMinimumOp.
@@ -239,6 +241,9 @@ type PatchMinimumOp string
 type Peer struct {
 	// Connected Peer to Management connection status
 	Connected bool `json:"connected"`
+
+	// DnsLabel Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
+	DnsLabel string `json:"dns_label"`
 
 	// Groups Groups that the peer belongs to
 	Groups []GroupMinimum `json:"groups"`
