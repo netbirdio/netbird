@@ -254,7 +254,6 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 	}
 	// notify other peers of our registration
 	for _, remotePeer := range networkMap.Peers {
-		// todo update this once we have store v2 to avoid lock/peer
 		remotePeerNetworkMap, err := s.accountManager.GetNetworkMap(remotePeer.Key)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
