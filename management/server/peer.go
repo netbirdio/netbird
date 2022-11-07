@@ -279,7 +279,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 	dnsUpdate := nbdns.Config{
 		ServiceEnable:    true,
 		CustomZones:      zones,
-		NameServerGroups: getPeerNSGroups(account, peerKey),
+		NameServerGroups: getPeerNSGroups(account, peerPubKey),
 	}
 
 	return &NetworkMap{
