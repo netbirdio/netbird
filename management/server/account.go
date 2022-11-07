@@ -281,6 +281,17 @@ func (a *Account) FindUser(userID string) (*User, error) {
 	return user, nil
 }
 
+// getPeerDNSLabels return the account's peers' dns labels
+func (a *Account) getPeerDNSLabels() lookupMap {
+	existingLabels := make(lookupMap)
+	for _, peer := range a.Peers {
+		if peer.DNSLabel != "" {
+			existingLabels[peer.DNSLabel] = struct{}{}
+		}
+	}
+	return existingLabels
+}
+
 func (a *Account) Copy() *Account {
 	peers := map[string]*Peer{}
 	for id, peer := range a.Peers {

@@ -13,7 +13,7 @@ type lookupMap map[string]struct{}
 
 const defaultTTL = 300
 
-func toProtocolDNSUpdate(update nbdns.Config) *proto.DNSConfig {
+func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
 	protoUpdate := &proto.DNSConfig{ServiceEnable: update.ServiceEnable}
 
 	for _, zone := range update.CustomZones {
@@ -104,16 +104,6 @@ func getPeerNSGroups(account *Account, peerID string) []*nbdns.NameServerGroup {
 	}
 
 	return peerNSGroups
-}
-
-func (a *Account) getPeerDNSLabels() lookupMap {
-	existingLabels := make(lookupMap)
-	for _, peer := range a.Peers {
-		if peer.DNSLabel != "" {
-			existingLabels[peer.DNSLabel] = struct{}{}
-		}
-	}
-	return existingLabels
 }
 
 func addPeerLabelsToAccount(account *Account, peerLabels lookupMap) {

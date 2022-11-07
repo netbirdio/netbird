@@ -286,7 +286,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 		Peers:     aclPeers,
 		Network:   account.Network.Copy(),
 		Routes:    routesUpdate,
-		DNSUpdate: dnsUpdate,
+		DNSConfig: dnsUpdate,
 	}, err
 }
 
@@ -570,7 +570,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 		aclPeers := am.getPeersByACL(account, peer.Key)
 		peersUpdate := toRemotePeerConfig(aclPeers)
 		routesUpdate := toProtocolRoutes(account.GetPeersRoutes(append(aclPeers, peer)))
-		dnsUpdate := toProtocolDNSUpdate(nbdns.Config{
+		dnsUpdate := toProtocolDNSConfig(nbdns.Config{
 			ServiceEnable:    true,
 			CustomZones:      zones,
 			NameServerGroups: getPeerNSGroups(account, peer.Key),

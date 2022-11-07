@@ -457,7 +457,7 @@ func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials
 
 	routesUpdate := toProtocolRoutes(networkMap.Routes)
 
-	dnsUpdate := toProtocolDNSUpdate(networkMap.DNSUpdate)
+	dnsUpdate := toProtocolDNSConfig(networkMap.DNSConfig)
 
 	return &proto.SyncResponse{
 		WiretrusteeConfig:  wtConfig,

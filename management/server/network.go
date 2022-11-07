@@ -27,7 +27,7 @@ type NetworkMap struct {
 	Peers     []*Peer
 	Network   *Network
 	Routes    []*route.Route
-	DNSUpdate nbdns.Config
+	DNSConfig nbdns.Config
 }
 
 type Network struct {
