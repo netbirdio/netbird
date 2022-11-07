@@ -122,6 +122,7 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 	log.Debugf("acquiring global lock")
 	start := time.Now()
 	s.globalAccountLock.Lock()
+
 	unlock = func() {
 		s.globalAccountLock.Unlock()
 		log.Debugf("released global lock in %v", time.Since(start))

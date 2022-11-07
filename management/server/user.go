@@ -288,7 +288,7 @@ func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaim
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
 // based on provided user role.
 func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error) {
-	account, err := am.GetAccountByID(accountID)
+	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
 	}

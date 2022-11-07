@@ -83,9 +83,6 @@ func (am *DefaultAccountManager) GetPeer(peerPubKey string) (*Peer, error) {
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, error) {
 
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
@@ -118,6 +115,12 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 
 	unlock := am.Store.AcquireAccountLock(account.Id)
 	defer unlock()
+
+	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return err
+	}
 
 	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
@@ -337,6 +340,12 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	unlock := am.Store.AcquireAccountLock(account.Id)
 	defer unlock()
 
+	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return nil, err
+	}
+
 	var takenIps []net.IP
 	for _, peer := range account.Peers {
 		takenIps = append(takenIps, peer.IP)
@@ -404,6 +413,12 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey stri
 
 	unlock := am.Store.AcquireAccountLock(account.Id)
 	defer unlock()
+
+	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return err
+	}
 
 	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {

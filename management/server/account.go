@@ -50,8 +50,7 @@ type AccountManager interface {
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID string, key *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
-	GetAccountByID(accountId string) (*Account, error)
-	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
+	GetAccountByUserOrAccountID(userId, accountId, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
@@ -429,33 +428,17 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	return nil
 }
 
-// GetAccountByID returns an existing account using its ID or error (NotFound) if doesn't exist
-func (am *DefaultAccountManager) GetAccountByID(accountID string) (*Account, error) {
-
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
-	}
-
-	return account, nil
-}
-
-// GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
-// user id doesn't have an account associated with it, one account is created
-func (am *DefaultAccountManager) GetAccountByUserOrAccountId(
-	userId, accountId, domain string,
-) (*Account, error) {
-	if accountId != "" {
-		return am.GetAccountByID(accountId)
-	} else if userId != "" {
-		account, err := am.GetOrCreateAccountByUser(userId, domain)
+// GetAccountByUserOrAccountID looks for an account by user or accountID, if no account is provided and
+// userID doesn't have an account associated with it, one account is created
+func (am *DefaultAccountManager) GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error) {
+	if accountID != "" {
+		return am.Store.GetAccount(accountID)
+	} else if userID != "" {
+		account, err := am.GetOrCreateAccountByUser(userID, domain)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
+			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userID)
 		}
-		err = am.addAccountIDToIDPAppMeta(userId, account)
+		err = am.addAccountIDToIDPAppMeta(userID, account)
 		if err != nil {
 			return nil, err
 		}
@@ -795,15 +778,13 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 // Existing user + Existing account + Existing Indexed Domain -> Nothing changes
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
-func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(
-	claims jwtclaims.AuthorizationClaims,
-) (*Account, error) {
+func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
 	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
-		return am.GetAccountByUserOrAccountId(claims.UserId, claims.AccountId, claims.Domain)
+		return am.GetAccountByUserOrAccountID(claims.UserId, claims.AccountId, claims.Domain)
 	} else if claims.AccountId != "" {
-		accountFromID, err := am.GetAccountByID(claims.AccountId)
+		accountFromID, err := am.Store.GetAccount(claims.AccountId)
 		if err != nil {
 			return nil, err
 		}
