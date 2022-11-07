@@ -19,7 +19,7 @@ const (
 type Server interface {
 	Start()
 	Stop()
-	UpdateDNSServer(serial uint64, update nbdns.Update) error
+	UpdateDNSServer(serial uint64, update nbdns.Config) error
 }
 
 // DefaultServer dns server object
@@ -110,7 +110,7 @@ func (s *DefaultServer) stopListener() error {
 }
 
 // UpdateDNSServer processes an update received from the management service
-func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Update) error {
+func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
 	select {
 	case <-s.ctx.Done():
 		log.Infof("not updating DNS server as context is closed")

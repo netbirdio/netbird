@@ -648,11 +648,11 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update routes, err: %v", err)
 	}
 
-	protoDNSUpdate := networkMap.GetDNSUpdate()
-	if protoDNSUpdate == nil {
-		protoDNSUpdate = &mgmProto.DNSUpdate{}
+	protoDNSConfig := networkMap.GetDNSConfig()
+	if protoDNSConfig == nil {
+		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
-	err = e.dnsServer.UpdateDNSServer(serial, toDNSUpdate(protoDNSUpdate))
+	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
 	if err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
@@ -679,14 +679,14 @@ func toRoutes(protoRoutes []*mgmProto.Route) []*route.Route {
 	return routes
 }
 
-func toDNSUpdate(protoDNSUpdate *mgmProto.DNSUpdate) nbdns.Update {
-	dnsUpdate := nbdns.Update{
-		ServiceEnable:    protoDNSUpdate.GetServiceEnable(),
+func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
+	dnsUpdate := nbdns.Config{
+		ServiceEnable:    protoDNSConfig.GetServiceEnable(),
 		CustomZones:      make([]nbdns.CustomZone, 0),
 		NameServerGroups: make([]*nbdns.NameServerGroup, 0),
 	}
 
-	for _, zone := range protoDNSUpdate.GetCustomZones() {
+	for _, zone := range protoDNSConfig.GetCustomZones() {
 		dnsZone := nbdns.CustomZone{
 			Domain: zone.GetDomain(),
 		}
@@ -703,7 +703,7 @@ func toDNSUpdate(protoDNSUpdate *mgmProto.DNSUpdate) nbdns.Update {
 		dnsUpdate.CustomZones = append(dnsUpdate.CustomZones, dnsZone)
 	}
 
-	for _, nsGroup := range protoDNSUpdate.GetNameServerGroups() {
+	for _, nsGroup := range protoDNSConfig.GetNameServerGroups() {
 		dnsNSGroup := &nbdns.NameServerGroup{
 			Primary: nsGroup.GetPrimary(),
 			Domains: nsGroup.GetDomains(),

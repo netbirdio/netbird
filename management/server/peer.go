@@ -321,7 +321,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerKey string) (*NetworkMap, err
 		zones = append(zones, peersCustomZone)
 	}
 
-	dnsUpdate := nbdns.Update{
+	dnsUpdate := nbdns.Config{
 		ServiceEnable:    true,
 		CustomZones:      zones,
 		NameServerGroups: getPeerNSGroups(account, peerKey),
@@ -631,7 +631,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 		aclPeers := am.getPeersByACL(account, peer.Key)
 		peersUpdate := toRemotePeerConfig(aclPeers)
 		routesUpdate := toProtocolRoutes(am.getPeersRoutes(append(aclPeers, peer)))
-		dnsUpdate := toProtocolDNSUpdate(nbdns.Update{
+		dnsUpdate := toProtocolDNSUpdate(nbdns.Config{
 			ServiceEnable:    true,
 			CustomZones:      zones,
 			NameServerGroups: getPeerNSGroups(account, peer.Key),
@@ -649,7 +649,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 						RemotePeersIsEmpty: len(peersUpdate) == 0,
 						PeerConfig:         toPeerConfig(peer, network),
 						Routes:             routesUpdate,
-						DNSUpdate:          dnsUpdate,
+						DNSConfig:          dnsUpdate,
 					},
 				},
 			})

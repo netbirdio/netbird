@@ -21,8 +21,8 @@ const (
 
 const invalidHostLabel = "[^a-zA-Z0-9-]+"
 
-// Update represents a dns update that is exchanged between management and peers
-type Update struct {
+// Config represents a dns configuration that is exchanged between management and peers
+type Config struct {
 	// ServiceEnable indicates if the service should be enabled
 	ServiceEnable bool
 	// NameServerGroups contains a list of nameserver group

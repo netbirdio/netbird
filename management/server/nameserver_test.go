@@ -471,7 +471,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 		expectedNSGroup *nbdns.NameServerGroup
 	}{
 		{
-			name:            "Should Update Name Server Group",
+			name:            "Should Config Name Server Group",
 			existingNSGroup: existingNSGroup,
 			newName:         &validName,
 			newGroups:       validGroups,
@@ -492,77 +492,77 @@ func TestSaveNameServerGroup(t *testing.T) {
 			},
 		},
 		{
-			name:            "Should Not Update If Name Is Small",
+			name:            "Should Not Config If Name Is Small",
 			existingNSGroup: existingNSGroup,
 			newName:         &invalidNameSmall,
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Name Is Large",
+			name:            "Should Not Config If Name Is Large",
 			existingNSGroup: existingNSGroup,
 			newName:         &invalidNameLarge,
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Name Exists",
+			name:            "Should Not Config If Name Exists",
 			existingNSGroup: existingNSGroup,
 			newName:         &invalidNameExisting,
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If ID Don't Exist",
+			name:            "Should Not Config If ID Don't Exist",
 			existingNSGroup: existingNSGroup,
 			newID:           &invalidID,
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Nameserver List Is Small",
+			name:            "Should Not Config If Nameserver List Is Small",
 			existingNSGroup: existingNSGroup,
 			newNSList:       []nbdns.NameServer{},
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Nameserver List Is Large",
+			name:            "Should Not Config If Nameserver List Is Large",
 			existingNSGroup: existingNSGroup,
 			newNSList:       invalidNameServerListLarge,
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Groups List Is Empty",
+			name:            "Should Not Config If Groups List Is Empty",
 			existingNSGroup: existingNSGroup,
 			newGroups:       []string{},
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Groups List Has Empty ID",
+			name:            "Should Not Config If Groups List Has Empty ID",
 			existingNSGroup: existingNSGroup,
 			newGroups:       []string{""},
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Groups List Has Non Existing Group ID",
+			name:            "Should Not Config If Groups List Has Non Existing Group ID",
 			existingNSGroup: existingNSGroup,
 			newGroups:       invalidGroups,
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Domains List Is Empty",
+			name:            "Should Not Config If Domains List Is Empty",
 			existingNSGroup: existingNSGroup,
 			newPrimary:      &disabledPrimary,
 			errFunc:         require.Error,
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Primary And Domains",
+			name:            "Should Not Config If Primary And Domains",
 			existingNSGroup: existingNSGroup,
 			newPrimary:      &existingNSGroup.Primary,
 			newDomains:      validDomains,
@@ -570,7 +570,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 			shouldCreate:    false,
 		},
 		{
-			name:            "Should Not Update If Domains List Is Invalid",
+			name:            "Should Not Config If Domains List Is Invalid",
 			existingNSGroup: existingNSGroup,
 			newPrimary:      &disabledPrimary,
 			newDomains:      invalidDomains,
@@ -680,7 +680,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 		expectedNSGroup *nbdns.NameServerGroup
 	}{
 		{
-			name:            "Should Update Single Property",
+			name:            "Should Config Single Property",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -713,7 +713,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			},
 		},
 		{
-			name:            "Should Update Multiple Properties",
+			name:            "Should Config Multiple Properties",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -771,20 +771,20 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			},
 		},
 		{
-			name:            "Should Not Update On Invalid ID",
+			name:            "Should Not Config On Invalid ID",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       "nonExistingNSGroup",
 			errFunc:         require.Error,
 		},
 		{
-			name:            "Should Not Update On Empty Operations",
+			name:            "Should Not Config On Empty Operations",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations:      []NameServerGroupUpdateOperation{},
 			errFunc:         require.Error,
 		},
 		{
-			name:            "Should Not Update On Empty Values",
+			name:            "Should Not Config On Empty Values",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -795,7 +795,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Empty String",
+			name:            "Should Not Config On Empty String",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -807,7 +807,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Invalid Name Large String",
+			name:            "Should Not Config On Invalid Name Large String",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -819,7 +819,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Invalid On Existing Name",
+			name:            "Should Not Config On Invalid On Existing Name",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -831,7 +831,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Invalid On Multiple Name Values",
+			name:            "Should Not Config On Invalid On Multiple Name Values",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -843,7 +843,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Invalid Boolean",
+			name:            "Should Not Config On Invalid Boolean",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -855,7 +855,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Invalid Nameservers Wrong Schema",
+			name:            "Should Not Config On Invalid Nameservers Wrong Schema",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -867,7 +867,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Invalid Nameservers Wrong IP",
+			name:            "Should Not Config On Invalid Nameservers Wrong IP",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -879,7 +879,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Large Number Of Nameservers",
+			name:            "Should Not Config On Large Number Of Nameservers",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -891,7 +891,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Invalid GroupID",
+			name:            "Should Not Config On Invalid GroupID",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -903,7 +903,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Invalid Domains",
+			name:            "Should Not Config On Invalid Domains",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{
@@ -915,7 +915,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 			errFunc: require.Error,
 		},
 		{
-			name:            "Should Not Update On Invalid Primary Status",
+			name:            "Should Not Config On Invalid Primary Status",
 			existingNSGroup: existingNSGroup,
 			nsGroupID:       existingNSGroup.ID,
 			operations: []NameServerGroupUpdateOperation{

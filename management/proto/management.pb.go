@@ -982,8 +982,8 @@ type NetworkMap struct {
 	RemotePeersIsEmpty bool `protobuf:"varint,4,opt,name=remotePeersIsEmpty,proto3" json:"remotePeersIsEmpty,omitempty"`
 	// List of routes to be applied
 	Routes []*Route `protobuf:"bytes,5,rep,name=Routes,proto3" json:"Routes,omitempty"`
-	// DNS update to be applied
-	DNSUpdate *DNSUpdate `protobuf:"bytes,6,opt,name=DNSUpdate,proto3" json:"DNSUpdate,omitempty"`
+	// DNS config to be applied
+	DNSConfig *DNSConfig `protobuf:"bytes,6,opt,name=DNSConfig,proto3" json:"DNSConfig,omitempty"`
 }
 
 func (x *NetworkMap) Reset() {
@@ -1053,9 +1053,9 @@ func (x *NetworkMap) GetRoutes() []*Route {
 	return nil
 }
 
-func (x *NetworkMap) GetDNSUpdate() *DNSUpdate {
+func (x *NetworkMap) GetDNSConfig() *DNSConfig {
 	if x != nil {
-		return x.DNSUpdate
+		return x.DNSConfig
 	}
 	return nil
 }
@@ -1476,8 +1476,8 @@ func (x *Route) GetNetID() string {
 	return ""
 }
 
-// Update represents a dns.Update
-type DNSUpdate struct {
+// DNSConfig represents a dns.Update
+type DNSConfig struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
@@ -1487,8 +1487,8 @@ type DNSUpdate struct {
 	CustomZones      []*CustomZone      `protobuf:"bytes,3,rep,name=CustomZones,proto3" json:"CustomZones,omitempty"`
 }
 
-func (x *DNSUpdate) Reset() {
-	*x = DNSUpdate{}
+func (x *DNSConfig) Reset() {
+	*x = DNSConfig{}
 	if protoimpl.UnsafeEnabled {
 		mi := &file_management_proto_msgTypes[20]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1496,13 +1496,13 @@ func (x *DNSUpdate) Reset() {
 	}
 }
 
-func (x *DNSUpdate) String() string {
+func (x *DNSConfig) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*DNSUpdate) ProtoMessage() {}
+func (*DNSConfig) ProtoMessage() {}
 
-func (x *DNSUpdate) ProtoReflect() protoreflect.Message {
+func (x *DNSConfig) ProtoReflect() protoreflect.Message {
 	mi := &file_management_proto_msgTypes[20]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1514,26 +1514,26 @@ func (x *DNSUpdate) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use DNSUpdate.ProtoReflect.Descriptor instead.
-func (*DNSUpdate) Descriptor() ([]byte, []int) {
+// Deprecated: Use DNSConfig.ProtoReflect.Descriptor instead.
+func (*DNSConfig) Descriptor() ([]byte, []int) {
 	return file_management_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *DNSUpdate) GetServiceEnable() bool {
+func (x *DNSConfig) GetServiceEnable() bool {
 	if x != nil {
 		return x.ServiceEnable
 	}
 	return false
 }
 
-func (x *DNSUpdate) GetNameServerGroups() []*NameServerGroup {
+func (x *DNSConfig) GetNameServerGroups() []*NameServerGroup {
 	if x != nil {
 		return x.NameServerGroups
 	}
 	return nil
 }
 
-func (x *DNSUpdate) GetCustomZones() []*CustomZone {
+func (x *DNSConfig) GetCustomZones() []*CustomZone {
 	if x != nil {
 		return x.CustomZones
 	}
@@ -1936,10 +1936,10 @@ var file_management_proto_rawDesc = []byte{
 	0x74, 0x79, 0x12, 0x29, 0x0a, 0x06, 0x52, 0x6f, 0x75, 0x74, 0x65, 0x73, 0x18, 0x05, 0x20, 0x03,
 	0x28, 0x0b, 0x32, 0x11, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e,
 	0x52, 0x6f, 0x75, 0x74, 0x65, 0x52, 0x06, 0x52, 0x6f, 0x75, 0x74, 0x65, 0x73, 0x12, 0x33, 0x0a,
-	0x09, 0x44, 0x4e, 0x53, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b,
+	0x09, 0x44, 0x4e, 0x53, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x18, 0x06, 0x20, 0x01, 0x28, 0x0b,
 	0x32, 0x15, 0x2e, 0x6d, 0x61, 0x6e, 0x61, 0x67, 0x65, 0x6d, 0x65, 0x6e, 0x74, 0x2e, 0x44, 0x4e,
-	0x53, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x52, 0x09, 0x44, 0x4e, 0x53, 0x55, 0x70, 0x64, 0x61,
-	0x74, 0x65, 0x22, 0x83, 0x01, 0x0a, 0x10, 0x52, 0x65, 0x6d, 0x6f, 0x74, 0x65, 0x50, 0x65, 0x65,
+	0x53, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x09, 0x44, 0x4e, 0x53, 0x43, 0x6f, 0x6e, 0x66,
+	0x69, 0x67, 0x22, 0x83, 0x01, 0x0a, 0x10, 0x52, 0x65, 0x6d, 0x6f, 0x74, 0x65, 0x50, 0x65, 0x65,
 	0x72, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x1a, 0x0a, 0x08, 0x77, 0x67, 0x50, 0x75, 0x62,
 	0x4b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x77, 0x67, 0x50, 0x75, 0x62,
 	0x4b, 0x65, 0x79, 0x12, 0x1e, 0x0a, 0x0a, 0x61, 0x6c, 0x6c, 0x6f, 0x77, 0x65, 0x64, 0x49, 0x70,
@@ -1992,7 +1992,7 @@ var file_management_proto_rawDesc = []byte{
 	0x72, 0x61, 0x64, 0x65, 0x18, 0x06, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0a, 0x4d, 0x61, 0x73, 0x71,
 	0x75, 0x65, 0x72, 0x61, 0x64, 0x65, 0x12, 0x14, 0x0a, 0x05, 0x4e, 0x65, 0x74, 0x49, 0x44, 0x18,
 	0x07, 0x20, 0x01, 0x28, 0x09, 0x52, 0x05, 0x4e, 0x65, 0x74, 0x49, 0x44, 0x22, 0xb4, 0x01, 0x0a,
-	0x09, 0x44, 0x4e, 0x53, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x12, 0x24, 0x0a, 0x0d, 0x53, 0x65,
+	0x09, 0x44, 0x4e, 0x53, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x24, 0x0a, 0x0d, 0x53, 0x65,
 	0x72, 0x76, 0x69, 0x63, 0x65, 0x45, 0x6e, 0x61, 0x62, 0x6c, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28,
 	0x08, 0x52, 0x0d, 0x53, 0x65, 0x72, 0x76, 0x69, 0x63, 0x65, 0x45, 0x6e, 0x61, 0x62, 0x6c, 0x65,
 	0x12, 0x47, 0x0a, 0x10, 0x4e, 0x61, 0x6d, 0x65, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x47, 0x72,
@@ -2093,7 +2093,7 @@ var file_management_proto_goTypes = []interface{}{
 	(*DeviceAuthorizationFlow)(nil),        // 19: management.DeviceAuthorizationFlow
 	(*ProviderConfig)(nil),                 // 20: management.ProviderConfig
 	(*Route)(nil),                          // 21: management.Route
-	(*DNSUpdate)(nil),                      // 22: management.DNSUpdate
+	(*DNSConfig)(nil),                      // 22: management.DNSConfig
 	(*CustomZone)(nil),                     // 23: management.CustomZone
 	(*SimpleRecord)(nil),                   // 24: management.SimpleRecord
 	(*NameServerGroup)(nil),                // 25: management.NameServerGroup
@@ -2119,12 +2119,12 @@ var file_management_proto_depIdxs = []int32{
 	14, // 15: management.NetworkMap.peerConfig:type_name -> management.PeerConfig
 	16, // 16: management.NetworkMap.remotePeers:type_name -> management.RemotePeerConfig
 	21, // 17: management.NetworkMap.Routes:type_name -> management.Route
-	22, // 18: management.NetworkMap.DNSUpdate:type_name -> management.DNSUpdate
+	22, // 18: management.NetworkMap.DNSConfig:type_name -> management.DNSConfig
 	17, // 19: management.RemotePeerConfig.sshConfig:type_name -> management.SSHConfig
 	1,  // 20: management.DeviceAuthorizationFlow.Provider:type_name -> management.DeviceAuthorizationFlow.provider
 	20, // 21: management.DeviceAuthorizationFlow.ProviderConfig:type_name -> management.ProviderConfig
-	25, // 22: management.DNSUpdate.NameServerGroups:type_name -> management.NameServerGroup
-	23, // 23: management.DNSUpdate.CustomZones:type_name -> management.CustomZone
+	25, // 22: management.DNSConfig.NameServerGroups:type_name -> management.NameServerGroup
+	23, // 23: management.DNSConfig.CustomZones:type_name -> management.CustomZone
 	24, // 24: management.CustomZone.Records:type_name -> management.SimpleRecord
 	26, // 25: management.NameServerGroup.NameServers:type_name -> management.NameServer
 	2,  // 26: management.ManagementService.Login:input_type -> management.EncryptedMessage
@@ -2391,7 +2391,7 @@ func file_management_proto_init() {
 			}
 		}
 		file_management_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DNSUpdate); i {
+			switch v := v.(*DNSConfig); i {
 			case 0:
 				return &v.state
 			case 1:

@@ -442,7 +442,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 		expectedSerial uint64
 	}{
 		{
-			name: "Routes Update Should Be Passed To Manager",
+			name: "Routes Config Should Be Passed To Manager",
 			networkMap: &mgmtProto.NetworkMap{
 				Serial:             1,
 				PeerConfig:         nil,
@@ -488,7 +488,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			expectedSerial: 1,
 		},
 		{
-			name: "Empty Routes Update Should Be Passed",
+			name: "Empty Routes Config Should Be Passed",
 			networkMap: &mgmtProto.NetworkMap{
 				Serial:             1,
 				PeerConfig:         nil,
@@ -580,13 +580,13 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 		expectedSerial      uint64
 	}{
 		{
-			name: "DNS Update Should Be Passed To DNS Server",
+			name: "DNS Config Should Be Passed To DNS Server",
 			networkMap: &mgmtProto.NetworkMap{
 				Serial:             1,
 				PeerConfig:         nil,
 				RemotePeersIsEmpty: false,
 				Routes:             nil,
-				DNSUpdate: &mgmtProto.DNSUpdate{
+				DNSConfig: &mgmtProto.DNSConfig{
 					ServiceEnable: true,
 					CustomZones: []*mgmtProto.CustomZone{
 						{
@@ -647,13 +647,13 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			expectedSerial: 1,
 		},
 		{
-			name: "Empty DNS Update Should Be OK",
+			name: "Empty DNS Config Should Be OK",
 			networkMap: &mgmtProto.NetworkMap{
 				Serial:             1,
 				PeerConfig:         nil,
 				RemotePeersIsEmpty: false,
 				Routes:             nil,
-				DNSUpdate:          nil,
+				DNSConfig:          nil,
 			},
 			expectedZonesLen:    0,
 			expectedZones:       []nbdns.CustomZone{},
@@ -717,7 +717,7 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 			}{}
 
 			mockDNSServer := &dns.MockServer{
-				UpdateDNSServerFunc: func(serial uint64, update nbdns.Update) error {
+				UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error {
 					input.inputSerial = serial
 					input.inputZones = update.CustomZones
 					input.inputNSGroups = update.NameServerGroups

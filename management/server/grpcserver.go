@@ -470,7 +470,7 @@ func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials
 			RemotePeers:        remotePeers,
 			RemotePeersIsEmpty: len(remotePeers) == 0,
 			Routes:             routesUpdate,
-			DNSUpdate:          dnsUpdate,
+			DNSConfig:          dnsUpdate,
 		},
 	}
 }

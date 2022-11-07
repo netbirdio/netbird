@@ -9,7 +9,7 @@ import (
 type MockServer struct {
 	StartFunc           func()
 	StopFunc            func()
-	UpdateDNSServerFunc func(serial uint64, update nbdns.Update) error
+	UpdateDNSServerFunc func(serial uint64, update nbdns.Config) error
 }
 
 // Start mock implementation of Start from Server interface
@@ -27,7 +27,7 @@ func (m *MockServer) Stop() {
 }
 
 // UpdateDNSServer mock implementation of UpdateDNSServer from Server interface
-func (m *MockServer) UpdateDNSServer(serial uint64, update nbdns.Update) error {
+func (m *MockServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
 	if m.UpdateDNSServerFunc != nil {
 		return m.UpdateDNSServerFunc(serial, update)
 	}

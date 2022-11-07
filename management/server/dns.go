@@ -13,8 +13,8 @@ type lookupMap map[string]struct{}
 
 const defaultTTL = 300
 
-func toProtocolDNSUpdate(update nbdns.Update) *proto.DNSUpdate {
-	protoUpdate := &proto.DNSUpdate{ServiceEnable: update.ServiceEnable}
+func toProtocolDNSUpdate(update nbdns.Config) *proto.DNSConfig {
+	protoUpdate := &proto.DNSConfig{ServiceEnable: update.ServiceEnable}
 
 	for _, zone := range update.CustomZones {
 		protoZone := &proto.CustomZone{Domain: zone.Domain}

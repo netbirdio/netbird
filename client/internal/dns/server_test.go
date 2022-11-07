@@ -43,18 +43,18 @@ func TestUpdateDNSServer(t *testing.T) {
 		initLocalMap        registrationMap
 		initSerial          uint64
 		inputSerial         uint64
-		inputUpdate         nbdns.Update
+		inputUpdate         nbdns.Config
 		shouldFail          bool
 		expectedUpstreamMap registrationMap
 		expectedLocalMap    registrationMap
 	}{
 		{
-			name:            "Initial Update Should Succeed",
+			name:            "Initial Config Should Succeed",
 			initLocalMap:    make(registrationMap),
 			initUpstreamMap: make(registrationMap),
 			initSerial:      0,
 			inputSerial:     1,
-			inputUpdate: nbdns.Update{
+			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
@@ -77,12 +77,12 @@ func TestUpdateDNSServer(t *testing.T) {
 			expectedLocalMap:    registrationMap{zoneRecords[0].Name: struct{}{}},
 		},
 		{
-			name:            "New Update Should Succeed",
+			name:            "New Config Should Succeed",
 			initLocalMap:    registrationMap{"netbird.cloud": struct{}{}},
 			initUpstreamMap: registrationMap{zoneRecords[0].Name: struct{}{}},
 			initSerial:      0,
 			inputSerial:     1,
-			inputUpdate: nbdns.Update{
+			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
@@ -101,7 +101,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			expectedLocalMap:    registrationMap{zoneRecords[0].Name: struct{}{}},
 		},
 		{
-			name:            "Smaller Update Serial Should Be Skipped",
+			name:            "Smaller Config Serial Should Be Skipped",
 			initLocalMap:    make(registrationMap),
 			initUpstreamMap: make(registrationMap),
 			initSerial:      2,
@@ -114,7 +114,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			initUpstreamMap: make(registrationMap),
 			initSerial:      0,
 			inputSerial:     1,
-			inputUpdate: nbdns.Update{
+			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
@@ -136,7 +136,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			initUpstreamMap: make(registrationMap),
 			initSerial:      0,
 			inputSerial:     1,
-			inputUpdate: nbdns.Update{
+			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
@@ -158,7 +158,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			initUpstreamMap: make(registrationMap),
 			initSerial:      0,
 			inputSerial:     1,
-			inputUpdate: nbdns.Update{
+			inputUpdate: nbdns.Config{
 				ServiceEnable: true,
 				CustomZones: []nbdns.CustomZone{
 					{
@@ -175,12 +175,12 @@ func TestUpdateDNSServer(t *testing.T) {
 			shouldFail: true,
 		},
 		{
-			name:                "Empty Update Should Succeed and Clean Maps",
+			name:                "Empty Config Should Succeed and Clean Maps",
 			initLocalMap:        registrationMap{"netbird.cloud": struct{}{}},
 			initUpstreamMap:     registrationMap{zoneRecords[0].Name: struct{}{}},
 			initSerial:          0,
 			inputSerial:         1,
-			inputUpdate:         nbdns.Update{ServiceEnable: true},
+			inputUpdate:         nbdns.Config{ServiceEnable: true},
 			expectedUpstreamMap: make(registrationMap),
 			expectedLocalMap:    make(registrationMap),
 		},

@@ -179,8 +179,8 @@ message NetworkMap {
   // List of routes to be applied
   repeated Route Routes = 5;
 
-  // DNS update to be applied
-  DNSUpdate DNSUpdate = 6;
+  // DNS config to be applied
+  DNSConfig DNSConfig = 6;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -251,8 +251,8 @@ message Route {
   string NetID = 7;
 }
 
-// Update represents a dns.Update
-message DNSUpdate {
+// DNSConfig represents a dns.Update
+message DNSConfig {
   bool ServiceEnable = 1;
   repeated NameServerGroup NameServerGroups = 2;
   repeated CustomZone CustomZones = 3;
