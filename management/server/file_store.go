@@ -181,6 +181,9 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 // GetAccountByPrivateDomain returns account by private domain
 func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
 	accountID, accountIDFound := s.PrivateDomain2AccountID[strings.ToLower(domain)]
 	if !accountIDFound {
 		return nil, status.Errorf(
@@ -189,17 +192,20 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 		)
 	}
 
-	return s.GetAccount(accountID)
+	return s.getAccount(accountID)
 }
 
 // GetAccountBySetupKey returns account by setup key id
 func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
 	accountID, accountIDFound := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !accountIDFound {
 		return nil, status.Errorf(codes.NotFound, "account not found: provided setup key doesn't exists")
 	}
 
-	return s.GetAccount(accountID)
+	return s.getAccount(accountID)
 }
 
 // GetAllAccounts returns all accounts
@@ -213,14 +219,21 @@ func (s *FileStore) GetAllAccounts() (all []*Account) {
 	return all
 }
 
-// GetAccount returns an account for id
-func (s *FileStore) GetAccount(accountID string) (*Account, error) {
+func (s *FileStore) getAccount(accountID string) (*Account, error) {
 	account, accountFound := s.Accounts[accountID]
 	if !accountFound {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
 	return account.Copy(), nil
+}
+
+// GetAccount returns an account for ID
+func (s *FileStore) GetAccount(accountID string) (*Account, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	return s.getAccount(accountID)
 }
 
 // GetAccountByUser returns a user account
@@ -233,7 +246,7 @@ func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	return s.GetAccount(accountID)
+	return s.getAccount(accountID)
 }
 
 // GetAccountByPeerPubKey returns an account for a given peer WireGuard public key
@@ -246,7 +259,7 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 		return nil, status.Errorf(codes.NotFound, "Provided peer key doesn't exists %s", peerKey)
 	}
 
-	return s.GetAccount(accountID)
+	return s.getAccount(accountID)
 }
 
 // GetInstallationID returns the installation ID from the store
