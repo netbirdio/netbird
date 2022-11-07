@@ -1,10 +1,12 @@
 package server
 
 import (
+	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,6 +29,10 @@ type FileStore struct {
 	// mutex to synchronise Store read/write operations
 	mux       sync.Mutex `json:"-"`
 	storeFile string     `json:"-"`
+
+	// sync.Mutex indexed by accountID
+	accountLocks      sync.Map   `json:"-"`
+	globalAccountLock sync.Mutex `json:"-"`
 }
 
 type StoredAccount struct{}
@@ -44,6 +50,7 @@ func restore(file string) (*FileStore, error) {
 		s := &FileStore{
 			Accounts:                make(map[string]*Account),
 			mux:                     sync.Mutex{},
+			globalAccountLock:       sync.Mutex{},
 			SetupKeyID2AccountID:    make(map[string]string),
 			PeerKeyID2AccountID:     make(map[string]string),
 			UserID2AccountID:        make(map[string]string),
@@ -111,7 +118,34 @@ func (s *FileStore) persist(file string) error {
 	return util.WriteJson(file, s)
 }
 
-// SaveAccount updates an existing account or adds a new one
+func (s *FileStore) AcquireGlobalLock() (unlock func()) {
+	log.Debugf("acquiring global lock")
+	start := time.Now()
+	s.globalAccountLock.Lock()
+	unlock = func() {
+		s.globalAccountLock.Unlock()
+		log.Debugf("released global lock in %v", time.Since(start))
+	}
+
+	return unlock
+}
+
+// AcquireAccountLock acquires account lock and returns a function that releases the lock
+func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
+	log.Debugf("acquiring lock for account %s", accountID)
+	start := time.Now()
+	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
+	mtx := value.(*sync.Mutex)
+	mtx.Lock()
+
+	unlock = func() {
+		mtx.Unlock()
+		log.Debugf("released lock for account %s in %v", accountID, time.Since(start))
+	}
+
+	return unlock
+}
+
 func (s *FileStore) SaveAccount(account *Account) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()

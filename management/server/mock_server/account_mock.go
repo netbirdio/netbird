@@ -115,11 +115,11 @@ func (am *MockAccountManager) CreateSetupKey(
 }
 
 // GetAccountById mock implementation of GetAccountById from server.AccountManager interface
-func (am *MockAccountManager) GetAccountById(accountId string) (*server.Account, error) {
+func (am *MockAccountManager) GetAccountByID(accountId string) (*server.Account, error) {
 	if am.GetAccountByIdFunc != nil {
 		return am.GetAccountByIdFunc(accountId)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetAccountById is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByID is not implemented")
 }
 
 // GetAccountByUserOrAccountId mock implementation of GetAccountByUserOrAccountId from server.AccountManager interface

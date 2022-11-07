@@ -635,7 +635,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 				return
 			}
 
-			account, err = am.GetAccountById(account.Id)
+			account, err = am.GetAccountByID(account.Id)
 			if err != nil {
 				t.Fatal(err)
 			}

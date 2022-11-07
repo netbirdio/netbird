@@ -61,8 +61,8 @@ type RouteUpdateOperation struct {
 
 // GetRoute gets a route object from account and route IDs
 func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*route.Route, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -116,8 +116,8 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, p
 
 // CreateRoute creates and saves a new route
 func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, description, netID string, masquerade bool, metric int, enabled bool) (*route.Route, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -180,8 +180,8 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 
 // SaveRoute saves route
 func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.Route) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	if routeToSave == nil {
 		return status.Errorf(codes.InvalidArgument, "route provided is nil")
@@ -223,8 +223,8 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 
 // UpdateRoute updates existing route with set of operations
 func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operations []RouteUpdateOperation) (*route.Route, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -320,8 +320,8 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 
 // DeleteRoute deletes route with routeID
 func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -340,8 +340,8 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
 
 // ListRoutes returns a list of routes from account
 func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.Route, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {

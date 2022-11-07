@@ -90,8 +90,8 @@ func (r *Rule) Copy() *Rule {
 
 // GetRule of ACL from the store
 func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rule, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -117,8 +117,8 @@ func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rul
 
 // SaveRule of ACL in the store
 func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -138,8 +138,8 @@ func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
 // UpdateRule updates a rule using a list of operations
 func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 	operations []RuleUpdateOperation) (*Rule, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -212,8 +212,8 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 
 // DeleteRule of ACL from the store
 func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -232,8 +232,8 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
 
 // ListRules of ACL from the store
 func (am *DefaultAccountManager) ListRules(accountID, userID string) ([]*Rule, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {

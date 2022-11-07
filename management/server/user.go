@@ -119,8 +119,8 @@ func NewAdminUser(id string) *User {
 
 // CreateUser creates a new user under the given account. Effectively this is a user invite.
 func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) (*UserInfo, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	if am.idpManager == nil {
 		return nil, Errorf(PreconditionFailed, "IdP manager must be enabled to send user invites")
@@ -184,8 +184,8 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 // SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.
 // Only User.AutoGroups field is allowed to be updated for now.
 func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*UserInfo, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	if update == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "provided user update is nil")
@@ -234,16 +234,16 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
-func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string) (*Account, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string) (*Account, error) {
+	unlock := am.Store.AcquireGlobalLock()
+	defer unlock()
 
 	lowerDomain := strings.ToLower(domain)
 
-	account, err := am.Store.GetAccountByUser(userId)
+	account, err := am.Store.GetAccountByUser(userID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			account, err = am.newAccount(userId, lowerDomain)
+			account, err = am.newAccount(userID, lowerDomain)
 			if err != nil {
 				return nil, err
 			}
@@ -257,7 +257,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 		}
 	}
 
-	userObj := account.Users[userId]
+	userObj := account.Users[userID]
 
 	if account.Domain != lowerDomain && userObj.Role == UserRoleAdmin {
 		account.Domain = lowerDomain
@@ -268,14 +268,6 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 	}
 
 	return account, nil
-}
-
-// GetAccountByUser returns an existing account for a given user id, NotFound if account couldn't be found
-func (am *DefaultAccountManager) GetAccountByUser(userId string) (*Account, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	return am.Store.GetAccountByUser(userId)
 }
 
 // IsUserAdmin flag for current user authenticated by JWT token
@@ -296,7 +288,7 @@ func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaim
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
 // based on provided user role.
 func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error) {
-	account, err := am.GetAccountById(accountID)
+	account, err := am.GetAccountByID(accountID)
 	if err != nil {
 		return nil, err
 	}
