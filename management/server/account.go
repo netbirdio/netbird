@@ -38,7 +38,6 @@ func cacheEntryExpiration() time.Duration {
 
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
-	GetAccountByUser(userId string) (*Account, error)
 	CreateSetupKey(
 		accountId string,
 		keyName string,
@@ -51,8 +50,7 @@ type AccountManager interface {
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID string, key *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
-	GetAccountById(accountId string) (*Account, error)
-	GetAccountByUserOrAccountId(userId, accountId, domain string) (*Account, error)
+	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
@@ -97,8 +95,6 @@ type AccountManager interface {
 
 type DefaultAccountManager struct {
 	Store Store
-	// mux to synchronise account operations (e.g. generating Peer IP address inside the Network)
-	mux sync.Mutex
 	// cacheMux and cacheLoading helps to make sure that only a single cache reload runs at a time per accountID
 	cacheMux sync.Mutex
 	// cacheLoading keeps the accountIDs that are currently reloading. The accountID has to be removed once cache has been reloaded
@@ -359,7 +355,6 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 	singleAccountModeDomain string, dnsDomain string) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:              store,
-		mux:                sync.Mutex{},
 		peersUpdateManager: peersUpdateManager,
 		idpManager:         idpManager,
 		ctx:                context.Background(),
@@ -460,32 +455,17 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	return nil
 }
 
-// GetAccountById returns an existing account using its ID or error (NotFound) if doesn't exist
-func (am *DefaultAccountManager) GetAccountById(accountId string) (*Account, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
-
-	account, err := am.Store.GetAccount(accountId)
-	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
-	}
-
-	return account, nil
-}
-
-// GetAccountByUserOrAccountId look for an account by user or account Id, if no account is provided and
-// user id doesn't have an account associated with it, one account is created
-func (am *DefaultAccountManager) GetAccountByUserOrAccountId(
-	userId, accountId, domain string,
-) (*Account, error) {
-	if accountId != "" {
-		return am.GetAccountById(accountId)
-	} else if userId != "" {
-		account, err := am.GetOrCreateAccountByUser(userId, domain)
+// GetAccountByUserOrAccountID looks for an account by user or accountID, if no account is provided and
+// userID doesn't have an account associated with it, one account is created
+func (am *DefaultAccountManager) GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error) {
+	if accountID != "" {
+		return am.Store.GetAccount(accountID)
+	} else if userID != "" {
+		account, err := am.GetOrCreateAccountByUser(userID, domain)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userId)
+			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userID)
 		}
-		err = am.addAccountIDToIDPAppMeta(userId, account)
+		err = am.addAccountIDToIDPAppMeta(userID, account)
 		if err != nil {
 			return nil, err
 		}
@@ -825,15 +805,13 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 // Existing user + Existing account + Existing Indexed Domain -> Nothing changes
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
-func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(
-	claims jwtclaims.AuthorizationClaims,
-) (*Account, error) {
+func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
 	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
-		return am.GetAccountByUserOrAccountId(claims.UserId, claims.AccountId, claims.Domain)
+		return am.GetAccountByUserOrAccountID(claims.UserId, claims.AccountId, claims.Domain)
 	} else if claims.AccountId != "" {
-		accountFromID, err := am.GetAccountById(claims.AccountId)
+		accountFromID, err := am.Store.GetAccount(claims.AccountId)
 		if err != nil {
 			return nil, err
 		}
@@ -845,8 +823,8 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(
 		}
 	}
 
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireGlobalLock()
+	defer unlock()
 
 	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
@@ -876,12 +854,13 @@ func isDomainValid(domain string) bool {
 }
 
 // AccountExists checks whether account exists (returns true) or not (returns false)
-func (am *DefaultAccountManager) AccountExists(accountId string) (*bool, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+func (am *DefaultAccountManager) AccountExists(accountID string) (*bool, error) {
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	var res bool
-	_, err := am.Store.GetAccount(accountId)
+	_, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			res = false

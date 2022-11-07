@@ -173,8 +173,8 @@ func Hash(s string) uint32 {
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
 func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string, keyType SetupKeyType,
 	expiresIn time.Duration, autoGroups []string) (*SetupKey, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	keyDuration := DefaultSetupKeyDuration
 	if expiresIn != 0 {
@@ -208,8 +208,8 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 // (e.g. the key itself, creation date, ID, etc).
 // These properties are overwritten: Name, AutoGroups, Revoked. The rest is copied from the existing key.
 func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *SetupKey) (*SetupKey, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	if keyToSave == nil {
 		return nil, status.Errorf(codes.InvalidArgument, "provided setup key to update is nil")
@@ -249,8 +249,8 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 
 // ListSetupKeys returns a list of all setup keys of the account
 func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*SetupKey, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "account not found")
@@ -277,8 +277,8 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 
 // GetSetupKey looks up a SetupKey by KeyID, returns NotFound error if not found.
 func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*SetupKey, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
