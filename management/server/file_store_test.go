@@ -197,7 +197,7 @@ func TestFileStore_GetAccount(t *testing.T) {
 
 	expected := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
 	if expected == nil {
-		t.Errorf("expected account doesn't exist")
+		t.Fatalf("expected account doesn't exist")
 	}
 
 	account, err := store.GetAccount(expected.Id)

@@ -113,8 +113,8 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	// todo check that account.Id and keyId are not exist already
 	// because if keyId exists for other accounts this can be bad
-	for keyId := range accountCopy.SetupKeys {
-		s.SetupKeyID2AccountID[strings.ToUpper(keyId)] = accountCopy.Id
+	for keyID := range accountCopy.SetupKeys {
+		s.SetupKeyID2AccountID[strings.ToUpper(keyID)] = accountCopy.Id
 	}
 
 	// enforce peer to account index and delete peer to route indexes for rebuild
