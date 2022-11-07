@@ -47,8 +47,9 @@ func (g *Group) Copy() *Group {
 
 // GetGroup object of the peers
 func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -65,8 +66,9 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 
 // SaveGroup object of the peers
 func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -86,8 +88,9 @@ func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error
 // UpdateGroup updates a group using a list of operations
 func (am *DefaultAccountManager) UpdateGroup(accountID string,
 	groupID string, operations []GroupUpdateOperation) (*Group, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -135,8 +138,9 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 
 // DeleteGroup object of the peers
 func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -155,8 +159,9 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 
 // ListGroups objects of the peers
 func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -173,8 +178,9 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) 
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -207,8 +213,9 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey string) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -235,8 +242,9 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 
 // GroupListPeers returns list of the peers from the group
 func (am *DefaultAccountManager) GroupListPeers(accountID, groupID string) ([]*Peer, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {

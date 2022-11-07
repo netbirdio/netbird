@@ -60,8 +60,9 @@ type NameServerGroupUpdateOperation struct {
 
 // GetNameServerGroup gets a nameserver group object from account and nameserver group IDs
 func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -78,8 +79,9 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 
 // CreateNameServerGroup creates and saves a new nameserver group
 func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool) (*nbdns.NameServerGroup, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -125,8 +127,9 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 
 // SaveNameServerGroup saves nameserver group
 func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupToSave *nbdns.NameServerGroup) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	if nsGroupToSave == nil {
 		return status.Errorf(codes.InvalidArgument, "nameserver group provided is nil")
@@ -161,8 +164,9 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupTo
 
 // UpdateNameServerGroup updates existing nameserver group with set of operations
 func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -263,8 +267,9 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 
 // DeleteNameServerGroup deletes nameserver group with nsGroupID
 func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID string) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -290,8 +295,9 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID stri
 
 // ListNameServerGroups returns a list of nameserver groups from account
 func (am *DefaultAccountManager) ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {

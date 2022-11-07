@@ -76,8 +76,6 @@ func (p *Peer) Copy() *Peer {
 
 // GetPeer looks up peer by its public WireGuard key
 func (am *DefaultAccountManager) GetPeer(peerPubKey string) (*Peer, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
@@ -90,8 +88,7 @@ func (am *DefaultAccountManager) GetPeer(peerPubKey string) (*Peer, error) {
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
@@ -116,10 +113,17 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	if err != nil {
+		return err
+	}
+
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
+	account, err = am.Store.GetAccount(account.Id)
 	if err != nil {
 		return err
 	}
@@ -143,8 +147,9 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 
 // UpdatePeer updates peer. Only Peer.Name and Peer.SSHEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Peer, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -188,8 +193,9 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(accountID string, peerPubKey string) (*Peer, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -237,8 +243,9 @@ func (am *DefaultAccountManager) DeletePeer(accountID string, peerPubKey string)
 
 // GetPeerByIP returns peer by its IP
 func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*Peer, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
@@ -256,8 +263,6 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
 func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
@@ -292,8 +297,6 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 
 // GetPeerNetwork returns the Network for a given peer
 func (am *DefaultAccountManager) GetPeerNetwork(peerPubKey string) (*Network, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
@@ -311,8 +314,6 @@ func (am *DefaultAccountManager) GetPeerNetwork(peerPubKey string) (*Network, er
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
 func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *Peer) (*Peer, error) {
-	am.mux.Lock()
-	defer am.mux.Unlock()
 
 	upperKey := strings.ToUpper(setupKey)
 
@@ -365,6 +366,15 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	} else {
 		// Empty setup key and jwt fail
 		return nil, status.Errorf(codes.InvalidArgument, "no setup key or user id provided")
+	}
+
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return nil, err
 	}
 
 	var takenIps []net.IP
@@ -433,8 +443,6 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 
 // UpdatePeerSSHKey updates peer's public SSH key
 func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey string) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
 
 	if sshKey == "" {
 		log.Debugf("empty SSH key provided for peer %s, skipping update", peerPubKey)
@@ -442,6 +450,15 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey stri
 	}
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	if err != nil {
+		return err
+	}
+
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
+	account, err = am.Store.GetAccount(account.Id)
 	if err != nil {
 		return err
 	}
@@ -470,13 +487,14 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey stri
 
 // UpdatePeerMeta updates peer's system metadata
 func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSystemMeta) error {
-	am.mux.Lock()
-	defer am.mux.Unlock()
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
 	}
+
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
 
 	peer, err := account.FindPeerByPubKey(peerPubKey)
 	if err != nil {
