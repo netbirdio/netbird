@@ -101,6 +101,12 @@ func restore(file string) (*FileStore, error) {
 			account.IsDomainPrimaryAccount {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
+
+		// for data migration. Can be removed once most base will be with labels
+		existingLabels := account.getPeerDNSLabels()
+		if len(existingLabels) != len(account.Peers) {
+			addPeerLabelsToAccount(account, existingLabels)
+		}
 	}
 
 	// we need this persist to apply changes we made to account.Peers (we set them to Disconnected)
