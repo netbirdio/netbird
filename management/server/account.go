@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"math/rand"
+	"net/netip"
 	"reflect"
 	"regexp"
 	"strings"
@@ -58,7 +59,6 @@ type AccountManager interface {
 	GetPeer(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
-	RenamePeer(accountId string, peerKey string, newName string) (*Peer, error)
 	DeletePeer(accountId string, peerKey string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID string, peer *Peer) (*Peer, error)
@@ -143,6 +143,132 @@ type UserInfo struct {
 	Status     string   `json:"-"`
 }
 
+// GetPeersRoutes returns all active routes of provided peers
+func (a *Account) GetPeersRoutes(givenPeers []*Peer) []*route.Route {
+	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
+	routes := make([]*route.Route, 0)
+	for _, peer := range givenPeers {
+		peerRoutes := a.GetPeerRoutes(peer.Key)
+		activeRoutes := make([]*route.Route, 0)
+		for _, pr := range peerRoutes {
+			if pr.Enabled {
+				activeRoutes = append(activeRoutes, pr)
+			}
+		}
+		if len(activeRoutes) > 0 {
+			routes = append(routes, activeRoutes...)
+		}
+	}
+	return routes
+}
+
+// GetPeerRoutes returns a list of routes of a given peer
+func (a *Account) GetPeerRoutes(peerPubKey string) []*route.Route {
+	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
+	var routes []*route.Route
+	for _, r := range a.Routes {
+		if r.Peer == peerPubKey {
+			routes = append(routes, r)
+			continue
+		}
+	}
+	return routes
+}
+
+// GetRoutesByPrefix return list of routes by account and route prefix
+func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
+
+	var routes []*route.Route
+	for _, r := range a.Routes {
+		if r.Network.String() == prefix.String() {
+			routes = append(routes, r)
+		}
+	}
+
+	return routes
+}
+
+// GetPeerRules returns a list of source or destination rules of a given peer.
+func (a *Account) GetPeerRules(peerPubKey string) (srcRules []*Rule, dstRules []*Rule) {
+
+	// Rules are group based so there is no direct access to peers.
+	// First, find all groups that the given peer belongs to
+	peerGroups := make(map[string]struct{})
+
+	for s, group := range a.Groups {
+		for _, peer := range group.Peers {
+			if peerPubKey == peer {
+				peerGroups[s] = struct{}{}
+				break
+			}
+		}
+	}
+
+	// Second, find all rules that have discovered source and destination groups
+	srcRulesMap := make(map[string]*Rule)
+	dstRulesMap := make(map[string]*Rule)
+	for _, rule := range a.Rules {
+		for _, g := range rule.Source {
+			if _, ok := peerGroups[g]; ok && srcRulesMap[rule.ID] == nil {
+				srcRules = append(srcRules, rule)
+				srcRulesMap[rule.ID] = rule
+			}
+		}
+		for _, g := range rule.Destination {
+			if _, ok := peerGroups[g]; ok && dstRulesMap[rule.ID] == nil {
+				dstRules = append(dstRules, rule)
+				dstRulesMap[rule.ID] = rule
+			}
+		}
+	}
+
+	return srcRules, dstRules
+}
+
+// GetPeers returns a list of all Account peers
+func (a *Account) GetPeers() []*Peer {
+	var peers []*Peer
+	for _, peer := range a.Peers {
+		peers = append(peers, peer)
+	}
+	return peers
+}
+
+// UpdatePeer saves new or replaces existing peer
+func (a *Account) UpdatePeer(update *Peer) {
+	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
+	a.Peers[update.Key] = update
+}
+
+// DeletePeer deletes peer from the account cleaning up all the references
+func (a *Account) DeletePeer(peerPubKey string) {
+	// TODO Peer.ID migration: we will need to replace search by Peer.ID here
+
+	// delete peer from groups
+	for _, g := range a.Groups {
+		for i, pk := range g.Peers {
+			if pk == peerPubKey {
+				g.Peers = append(g.Peers[:i], g.Peers[i+1:]...)
+				break
+			}
+		}
+	}
+	delete(a.Peers, peerPubKey)
+	a.Network.IncSerial()
+}
+
+// FindPeerByPubKey looks for a Peer by provided WireGuard public key in the Account or returns error if it wasn't found.
+// It will return an object copy of the peer.
+func (a *Account) FindPeerByPubKey(peerPubKey string) (*Peer, error) {
+	for _, peer := range a.Peers {
+		if peer.Key == peerPubKey {
+			return peer.Copy(), nil
+		}
+	}
+
+	return nil, status.Errorf(codes.NotFound, "peer with the public key %s not found", peerPubKey)
+}
+
 // FindUser looks for a given user in the Account or returns error if user wasn't found.
 func (a *Account) FindUser(userID string) (*User, error) {
 	user := a.Users[userID]
@@ -190,16 +316,19 @@ func (a *Account) Copy() *Account {
 	}
 
 	return &Account{
-		Id:               a.Id,
-		CreatedBy:        a.CreatedBy,
-		SetupKeys:        setupKeys,
-		Network:          a.Network.Copy(),
-		Peers:            peers,
-		Users:            users,
-		Groups:           groups,
-		Rules:            rules,
-		Routes:           routes,
-		NameServerGroups: nsGroups,
+		Id:                     a.Id,
+		CreatedBy:              a.CreatedBy,
+		Domain:                 a.Domain,
+		DomainCategory:         a.DomainCategory,
+		IsDomainPrimaryAccount: a.IsDomainPrimaryAccount,
+		SetupKeys:              setupKeys,
+		Network:                a.Network.Copy(),
+		Peers:                  peers,
+		Users:                  users,
+		Groups:                 groups,
+		Rules:                  rules,
+		Routes:                 routes,
+		NameServerGroups:       nsGroups,
 	}
 }
 
@@ -699,7 +828,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(
 		return nil, err
 	}
 
-	account, err := am.Store.GetUserAccount(claims.UserId)
+	account, err := am.Store.GetAccountByUser(claims.UserId)
 	if err == nil {
 		err = am.handleExistingUserAccount(account, domainAccount, claims)
 		if err != nil {

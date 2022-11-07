@@ -22,7 +22,6 @@ type MockAccountManager struct {
 	GetPeerFunc                     func(peerKey string) (*server.Peer, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
 	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
-	RenamePeerFunc                  func(accountId string, peerKey string, newName string) (*server.Peer, error)
 	DeletePeerFunc                  func(accountId string, peerKey string) (*server.Peer, error)
 	GetPeerByIPFunc                 func(accountId string, peerIP string) (*server.Peer, error)
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
@@ -70,6 +69,14 @@ func (am *MockAccountManager) GetUsersFromAccount(accountID string, userID strin
 		return am.GetUsersFromAccountFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetUsersFromAccount is not implemented")
+}
+
+// DeletePeer mock implementation of DeletePeer from server.AccountManager interface
+func (am *MockAccountManager) DeletePeer(accountId string, peerKey string) (*server.Peer, error) {
+	if am.DeletePeerFunc != nil {
+		return am.DeletePeerFunc(accountId, peerKey)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method DeletePeer is not implemented")
 }
 
 // GetOrCreateAccountByUser mock implementation of GetOrCreateAccountByUser from server.AccountManager interface
@@ -150,26 +157,6 @@ func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool) 
 		return am.MarkPeerConnectedFunc(peerKey, connected)
 	}
 	return status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
-}
-
-// RenamePeer mock implementation of RenamePeer from server.AccountManager interface
-func (am *MockAccountManager) RenamePeer(
-	accountId string,
-	peerKey string,
-	newName string,
-) (*server.Peer, error) {
-	if am.RenamePeerFunc != nil {
-		return am.RenamePeerFunc(accountId, peerKey, newName)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method RenamePeer is not implemented")
-}
-
-// DeletePeer mock implementation of DeletePeer from server.AccountManager interface
-func (am *MockAccountManager) DeletePeer(accountId string, peerKey string) (*server.Peer, error) {
-	if am.DeletePeerFunc != nil {
-		return am.DeletePeerFunc(accountId, peerKey)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method DeletePeer is not implemented")
 }
 
 // GetPeerByIP mock implementation of GetPeerByIP from server.AccountManager interface

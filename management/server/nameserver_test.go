@@ -635,6 +635,11 @@ func TestSaveNameServerGroup(t *testing.T) {
 				return
 			}
 
+			account, err = am.GetAccountById(account.Id)
+			if err != nil {
+				t.Fatal(err)
+			}
+
 			savedNSGroup, saved := account.NameServerGroups[testCase.expectedNSGroup.ID]
 			require.True(t, saved)
 

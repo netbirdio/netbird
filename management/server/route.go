@@ -93,7 +93,12 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, p
 		return nil
 	}
 
-	routesWithPrefix, err := am.Store.GetRoutesByPrefix(accountID, prefix)
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	routesWithPrefix := account.GetRoutesByPrefix(prefix)
 
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
@@ -370,30 +375,6 @@ func toProtocolRoute(route *route.Route) *proto.Route {
 		Metric:      int64(route.Metric),
 		Masquerade:  route.Masquerade,
 	}
-}
-
-func (am *DefaultAccountManager) getPeersRoutes(peers []*Peer) []*route.Route {
-	routes := make([]*route.Route, 0)
-	for _, peer := range peers {
-		peerRoutes, err := am.Store.GetPeerRoutes(peer.Key)
-		if err != nil {
-			errorStatus, ok := status.FromError(err)
-			if !ok && errorStatus.Code() != codes.NotFound {
-				log.Error(err)
-			}
-			continue
-		}
-		activeRoutes := make([]*route.Route, 0)
-		for _, pr := range peerRoutes {
-			if pr.Enabled {
-				activeRoutes = append(activeRoutes, pr)
-			}
-		}
-		if len(activeRoutes) > 0 {
-			routes = append(routes, activeRoutes...)
-		}
-	}
-	return routes
 }
 
 func toProtocolRoutes(routes []*route.Route) []*proto.Route {

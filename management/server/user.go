@@ -240,7 +240,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userId, domain string)
 
 	lowerDomain := strings.ToLower(domain)
 
-	account, err := am.Store.GetUserAccount(userId)
+	account, err := am.Store.GetAccountByUser(userId)
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			account, err = am.newAccount(userId, lowerDomain)
@@ -275,7 +275,7 @@ func (am *DefaultAccountManager) GetAccountByUser(userId string) (*Account, erro
 	am.mux.Lock()
 	defer am.mux.Unlock()
 
-	return am.Store.GetUserAccount(userId)
+	return am.Store.GetAccountByUser(userId)
 }
 
 // IsUserAdmin flag for current user authenticated by JWT token
