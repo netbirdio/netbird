@@ -1,8 +1,11 @@
 package server
 
 import (
+	"fmt"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	"net"
+	"reflect"
 	"sync"
 	"testing"
 
@@ -1117,6 +1120,85 @@ func TestAccount_GetPeersRoutes(t *testing.T) {
 	assert.Contains(t, routeIDs, "route-1")
 	assert.Contains(t, routeIDs, "route-2")
 
+}
+
+func TestAccount_Copy(t *testing.T) {
+	account := &Account{
+		Id:                     "account1",
+		CreatedBy:              "tester",
+		Domain:                 "test.com",
+		DomainCategory:         "public",
+		IsDomainPrimaryAccount: true,
+		SetupKeys: map[string]*SetupKey{
+			"setup1": {
+				Id:         "setup1",
+				AutoGroups: []string{"group1"},
+			},
+		},
+		Network: &Network{
+			Id: "net1",
+		},
+		Peers: map[string]*Peer{
+			"peer1": {
+				Key: "key1",
+			},
+		},
+		Users: map[string]*User{
+			"user1": {
+				Id:         "user1",
+				Role:       UserRoleAdmin,
+				AutoGroups: []string{"group1"},
+			},
+		},
+		Groups: map[string]*Group{
+			"group1": {
+				ID: "group1",
+			},
+		},
+		Rules: map[string]*Rule{
+			"rule1": {
+				ID: "rule1",
+			},
+		},
+		Routes: map[string]*route.Route{
+			"route1": {
+				ID: "route1",
+			},
+		},
+		NameServerGroups: map[string]*nbdns.NameServerGroup{
+			"nsGroup1": {
+				ID: "nsGroup1",
+			},
+		},
+	}
+	err := hasNilField(account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountCopy := account.Copy()
+	assert.Equal(t, account, accountCopy, "account copy returned a different value than expected")
+}
+
+// hasNilField validates pointers, maps and slices if they are nil
+func hasNilField(x interface{}) error {
+	rv := reflect.ValueOf(x)
+	rv = rv.Elem()
+	for i := 0; i < rv.NumField(); i++ {
+		if f := rv.Field(i); f.IsValid() {
+			k := f.Kind()
+			switch k {
+			case reflect.Ptr:
+				if f.IsNil() {
+					return fmt.Errorf("field %s is nil", f.String())
+				}
+			case reflect.Map, reflect.Slice:
+				if f.Len() == 0 || f.IsNil() {
+					return fmt.Errorf("field %s is nil", f.String())
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func createManager(t *testing.T) (*DefaultAccountManager, error) {
