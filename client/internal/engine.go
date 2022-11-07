@@ -969,6 +969,10 @@ func (e* Engine) parseNATExternalIPMappings() []string {
 			log.Infof("parsed external IP mapping of '%s' as '%s'", mapping, mappedIP)
 		}
 	}
+	if len(mappedIPs) != len(e.config.NATExternalIPs) {
+		log.Warnf("one or more external IP mappings failed to parse, ignoring all mappings")
+		return nil
+	}
 	return mappedIPs
 }
 
