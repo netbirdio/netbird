@@ -2,12 +2,17 @@ package server
 
 import (
 	"github.com/netbirdio/netbird/util"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"net"
 	"path/filepath"
 	"testing"
 	"time"
 )
+
+type accounts struct {
+	Accounts map[string]*Account
+}
 
 func TestNewStore(t *testing.T) {
 	store := newStore(t)
@@ -16,16 +21,16 @@ func TestNewStore(t *testing.T) {
 		t.Errorf("expected to create a new empty Accounts map when creating a new FileStore")
 	}
 
-	if store.SetupKeyId2AccountId == nil || len(store.SetupKeyId2AccountId) != 0 {
-		t.Errorf("expected to create a new empty SetupKeyId2AccountId map when creating a new FileStore")
+	if store.SetupKeyID2AccountID == nil || len(store.SetupKeyID2AccountID) != 0 {
+		t.Errorf("expected to create a new empty SetupKeyID2AccountID map when creating a new FileStore")
 	}
 
-	if store.PeerKeyId2AccountId == nil || len(store.PeerKeyId2AccountId) != 0 {
-		t.Errorf("expected to create a new empty PeerKeyId2AccountId map when creating a new FileStore")
+	if store.PeerKeyID2AccountID == nil || len(store.PeerKeyID2AccountID) != 0 {
+		t.Errorf("expected to create a new empty PeerKeyID2AccountID map when creating a new FileStore")
 	}
 
-	if store.UserId2AccountId == nil || len(store.UserId2AccountId) != 0 {
-		t.Errorf("expected to create a new empty UserId2AccountId map when creating a new FileStore")
+	if store.UserID2AccountID == nil || len(store.UserID2AccountID) != 0 {
+		t.Errorf("expected to create a new empty UserID2AccountID map when creating a new FileStore")
 	}
 
 }
@@ -55,16 +60,16 @@ func TestSaveAccount(t *testing.T) {
 		t.Errorf("expecting Account to be stored after SaveAccount()")
 	}
 
-	if store.PeerKeyId2AccountId["peerkey"] == "" {
-		t.Errorf("expecting PeerKeyId2AccountId index updated after SaveAccount()")
+	if store.PeerKeyID2AccountID["peerkey"] == "" {
+		t.Errorf("expecting PeerKeyID2AccountID index updated after SaveAccount()")
 	}
 
-	if store.UserId2AccountId["testuser"] == "" {
-		t.Errorf("expecting UserId2AccountId index updated after SaveAccount()")
+	if store.UserID2AccountID["testuser"] == "" {
+		t.Errorf("expecting UserID2AccountID index updated after SaveAccount()")
 	}
 
-	if store.SetupKeyId2AccountId[setupKey.Key] == "" {
-		t.Errorf("expecting SetupKeyId2AccountId index updated after SaveAccount()")
+	if store.SetupKeyID2AccountID[setupKey.Key] == "" {
+		t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount()")
 	}
 
 }
@@ -141,11 +146,11 @@ func TestRestore(t *testing.T) {
 
 	require.NotNil(t, account.SetupKeys["A2C8E62B-38F5-4553-B31E-DD66C696CEBB"], "failed to restore a FileStore file - missing Account SetupKey A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
 
-	require.Len(t, store.UserId2AccountId, 2, "failed to restore a FileStore wrong UserId2AccountId mapping length")
+	require.Len(t, store.UserID2AccountID, 2, "failed to restore a FileStore wrong UserID2AccountID mapping length")
 
-	require.Len(t, store.SetupKeyId2AccountId, 1, "failed to restore a FileStore wrong SetupKeyId2AccountId mapping length")
+	require.Len(t, store.SetupKeyID2AccountID, 1, "failed to restore a FileStore wrong SetupKeyID2AccountID mapping length")
 
-	require.Len(t, store.PrivateDomain2AccountId, 1, "failed to restore a FileStore wrong PrivateDomain2AccountId mapping length")
+	require.Len(t, store.PrivateDomain2AccountID, 1, "failed to restore a FileStore wrong PrivateDomain2AccountID mapping length")
 }
 
 func TestGetAccountByPrivateDomain(t *testing.T) {
@@ -169,6 +174,48 @@ func TestGetAccountByPrivateDomain(t *testing.T) {
 
 	_, err = store.GetAccountByPrivateDomain("missing-domain.com")
 	require.Error(t, err, "should return error on domain lookup")
+}
+
+func TestFileStore_GetAccount(t *testing.T) {
+	storeDir := t.TempDir()
+	storeFile := filepath.Join(storeDir, "store.json")
+	err := util.CopyFileContents("testdata/store.json", storeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	accounts := &accounts{}
+	_, err = util.ReadJson(storeFile, accounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewStore(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+	if expected == nil {
+		t.Fatalf("expected account doesn't exist")
+	}
+
+	account, err := store.GetAccount(expected.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, expected.IsDomainPrimaryAccount, account.IsDomainPrimaryAccount)
+	assert.Equal(t, expected.DomainCategory, account.DomainCategory)
+	assert.Equal(t, expected.Domain, account.Domain)
+	assert.Equal(t, expected.CreatedBy, account.CreatedBy)
+	assert.Equal(t, expected.Network.Id, account.Network.Id)
+	assert.Len(t, account.Peers, len(expected.Peers))
+	assert.Len(t, account.Users, len(expected.Users))
+	assert.Len(t, account.SetupKeys, len(expected.SetupKeys))
+	assert.Len(t, account.Rules, len(expected.Rules))
+	assert.Len(t, account.Routes, len(expected.Routes))
+	assert.Len(t, account.NameServerGroups, len(expected.NameServerGroups))
 }
 
 func newStore(t *testing.T) *FileStore {

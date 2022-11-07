@@ -1,26 +1,13 @@
 package server
 
-import (
-	"github.com/netbirdio/netbird/route"
-	"net/netip"
-)
-
 type Store interface {
-	GetPeer(peerKey string) (*Peer, error)
-	DeletePeer(accountId string, peerKey string) (*Peer, error)
-	SavePeer(accountId string, peer *Peer) error
 	GetAllAccounts() []*Account
-	GetAccount(accountId string) (*Account, error)
-	GetUserAccount(userId string) (*Account, error)
-	GetAccountPeers(accountId string) ([]*Peer, error)
-	GetPeerAccount(peerKey string) (*Account, error)
-	GetPeerSrcRules(accountId, peerKey string) ([]*Rule, error)
-	GetPeerDstRules(accountId, peerKey string) ([]*Rule, error)
-	GetAccountBySetupKey(setupKey string) (*Account, error)
+	GetAccount(accountID string) (*Account, error)
+	GetAccountByUser(userID string) (*Account, error)
+	GetAccountByPeerPubKey(peerKey string) (*Account, error)
+	GetAccountBySetupKey(setupKey string) (*Account, error) //todo use key hash later
 	GetAccountByPrivateDomain(domain string) (*Account, error)
 	SaveAccount(account *Account) error
-	GetPeerRoutes(peerKey string) ([]*route.Route, error)
-	GetRoutesByPrefix(accountID string, prefix netip.Prefix) ([]*route.Route, error)
 	GetInstallationID() string
 	SaveInstallationID(id string) error
 }

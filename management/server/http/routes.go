@@ -112,7 +112,7 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // UpdateRouteHandler handles update to a route identified by a given ID
 func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -125,7 +125,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.accountManager.GetRoute(account.Id, routeID, "")
+	_, err = h.accountManager.GetRoute(account.Id, routeID, user.Id)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("couldn't find route for ID %s", routeID), http.StatusNotFound)
 		return
@@ -185,7 +185,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // PatchRouteHandler handles patch updates to a route identified by a given ID
 func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -198,7 +198,7 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = h.accountManager.GetRoute(account.Id, routeID, "")
+	_, err = h.accountManager.GetRoute(account.Id, routeID, user.Id)
 	if err != nil {
 		log.Error(err)
 		http.Error(w, fmt.Sprintf("couldn't find route ID %s", routeID), http.StatusNotFound)
