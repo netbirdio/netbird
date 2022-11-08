@@ -130,7 +130,7 @@ func getPeerHostLabel(name string, peerLabels lookupMap) (string, error) {
 
 	uniqueLabel := getUniqueHostLabel(label, peerLabels)
 	if uniqueLabel == "" {
-		return "", fmt.Errorf("couldn't find a unique valid lavel for %s, parsed label %s", name, label)
+		return "", fmt.Errorf("couldn't find a unique valid label for %s, parsed label %s", name, label)
 	}
 	return uniqueLabel, nil
 }

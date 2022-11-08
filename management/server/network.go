@@ -5,8 +5,6 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"math/rand"
 	"net"
 	"sync"
@@ -95,7 +93,7 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	ips, _ := generateIPs(&ipNet, takenIPMap)
 
 	if len(ips) == 0 {
-		return nil, status.Errorf(codes.OutOfRange, "failed allocating new IP for the ipNet %s - network is out of IPs", ipNet.String())
+		return nil, Errorf(PreconditionFailed, "failed allocating new IP for the ipNet %s - network is out of IPs", ipNet.String())
 	}
 
 	// pick a random IP
