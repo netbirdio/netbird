@@ -40,7 +40,7 @@ func InitLog(logLevel string, logPath string) error {
 		return "", fileName
 	}
 
-	if level == log.DebugLevel {
+	if level > log.WarnLevel {
 		log.SetReportCaller(true)
 	}
 
