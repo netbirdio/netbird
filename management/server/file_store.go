@@ -37,8 +37,8 @@ type FileStore struct {
 
 type StoredAccount struct{}
 
-// NewStore restores a store from the file located in the datadir
-func NewStore(dataDir string) (*FileStore, error) {
+// NewFileStore restores a store from the file located in the datadir
+func NewFileStore(dataDir string) (*FileStore, error) {
 	return restore(filepath.Join(dataDir, storeFileName))
 }
 
@@ -322,4 +322,14 @@ func (s *FileStore) SavePeerStatus(accountID, peerKey string, peerStatus PeerSta
 	peer.Status = &peerStatus
 
 	return nil
+}
+
+// Close the FileStore persisting data to disk
+func (s *FileStore) Close() error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	log.Infof("closing FileStore")
+
+	return s.persist(s.storeFile)
 }

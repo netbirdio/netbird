@@ -93,7 +93,7 @@ func TestStore(t *testing.T) {
 		return
 	}
 
-	restored, err := NewStore(store.storeFile)
+	restored, err := NewFileStore(store.storeFile)
 	if err != nil {
 		return
 	}
@@ -129,7 +129,7 @@ func TestRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewStore(storeDir)
+	store, err := NewFileStore(storeDir)
 	if err != nil {
 		return
 	}
@@ -161,7 +161,7 @@ func TestGetAccountByPrivateDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewStore(storeDir)
+	store, err := NewFileStore(storeDir)
 	if err != nil {
 		return
 	}
@@ -190,7 +190,7 @@ func TestFileStore_GetAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewStore(storeDir)
+	store, err := NewFileStore(storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +226,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewStore(storeDir)
+	store, err := NewFileStore(storeDir)
 	if err != nil {
 		return
 	}
@@ -270,7 +270,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 }
 
 func newStore(t *testing.T) *FileStore {
-	store, err := NewStore(t.TempDir())
+	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Errorf("failed creating a new store")
 	}

@@ -15,4 +15,6 @@ type Store interface {
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock() func()
 	SavePeerStatus(accountID, peerKey string, status PeerStatus) error
+	// Close should close the store persisting all unsaved data.
+	Close() error
 }

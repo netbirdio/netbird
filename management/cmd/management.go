@@ -116,7 +116,7 @@ var (
 				}
 			}
 
-			store, err := server.NewStore(config.Datadir)
+			store, err := server.NewFileStore(config.Datadir)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}
@@ -250,6 +250,7 @@ var (
 				_ = certManager.Listener().Close()
 			}
 			gRPCAPIHandler.Stop()
+			_ = store.Close()
 			log.Infof("stopped Management Service")
 
 			return nil
