@@ -281,9 +281,6 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 	aclPeers := am.getPeersByACL(account, peerPubKey)
 	routesUpdate := account.GetPeersRoutes(append(aclPeers, account.Peers[peerPubKey]))
 
-	// todo extract this with the store v2
-	// this should become part of the method parameters
-	// to prevent slow performance when called in a parent loop
 	var zones []nbdns.CustomZone
 	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
 	if peersCustomZone.Domain != "" {
@@ -584,43 +581,18 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerPubKey stri
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
-	// notify other peers of the change
 	peers := account.GetPeers()
-	network := account.Network.Copy()
-	var zones []nbdns.CustomZone
-	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
-	if peersCustomZone.Domain != "" {
-		zones = append(zones, peersCustomZone)
-	}
 
 	for _, peer := range peers {
-		aclPeers := am.getPeersByACL(account, peer.Key)
-		peersUpdate := toRemotePeerConfig(aclPeers)
-		routesUpdate := toProtocolRoutes(account.GetPeersRoutes(append(aclPeers, peer)))
-		dnsUpdate := toProtocolDNSConfig(nbdns.Config{
-			ServiceEnable:    true,
-			CustomZones:      zones,
-			NameServerGroups: getPeerNSGroups(account, peer.Key),
-		})
-		err := am.peersUpdateManager.SendUpdate(peer.Key,
-			&UpdateMessage{
-				Update: &proto.SyncResponse{
-					// fill deprecated fields for backward compatibility
-					RemotePeers:        peersUpdate,
-					RemotePeersIsEmpty: len(peersUpdate) == 0,
-					// new field
-					NetworkMap: &proto.NetworkMap{
-						Serial:             account.Network.CurrentSerial(),
-						RemotePeers:        peersUpdate,
-						RemotePeersIsEmpty: len(peersUpdate) == 0,
-						PeerConfig:         toPeerConfig(peer, network),
-						Routes:             routesUpdate,
-						DNSConfig:          dnsUpdate,
-					},
-				},
-			})
+		remotePeerNetworkMap, err := am.GetNetworkMap(peer.Key)
 		if err != nil {
-			return err
+			return status.Errorf(codes.Internal, "unable to fetch network map for peer %s, error: %v", peer.Key, err)
+		}
+
+		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap)
+		err = am.peersUpdateManager.SendUpdate(peer.Key, &UpdateMessage{Update: update})
+		if err != nil {
+			return status.Errorf(codes.Internal, "unable to send update for peer %s, error: %v", peer.Key, err)
 		}
 	}
 
