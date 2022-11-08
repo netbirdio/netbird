@@ -74,6 +74,7 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
+// Copy PeerStatus
 func (p *PeerStatus) Copy() *PeerStatus {
 	return &PeerStatus{
 		LastSeen:  p.LastSeen,
