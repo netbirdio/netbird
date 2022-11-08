@@ -74,6 +74,13 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
+func (p *PeerStatus) Copy() *PeerStatus {
+	return &PeerStatus{
+		LastSeen:  p.LastSeen,
+		Connected: p.Connected,
+	}
+}
+
 // GetPeer looks up peer by its public WireGuard key
 func (am *DefaultAccountManager) GetPeer(peerPubKey string) (*Peer, error) {
 
@@ -133,12 +140,13 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 		return err
 	}
 
-	peer.Status.LastSeen = time.Now()
-	peer.Status.Connected = connected
-
+	newStatus := peer.Status.Copy()
+	newStatus.LastSeen = time.Now()
+	newStatus.Connected = connected
+	peer.Status = newStatus
 	account.UpdatePeer(peer)
 
-	err = am.Store.SaveAccount(account)
+	err = am.Store.SavePeerStatus(account.Id, peerPubKey, *newStatus)
 	if err != nil {
 		return err
 	}

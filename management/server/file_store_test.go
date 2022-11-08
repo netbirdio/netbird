@@ -218,6 +218,57 @@ func TestFileStore_GetAccount(t *testing.T) {
 	assert.Len(t, account.NameServerGroups, len(expected.NameServerGroups))
 }
 
+func TestFileStore_SavePeerStatus(t *testing.T) {
+	storeDir := t.TempDir()
+
+	err := util.CopyFileContents("testdata/store.json", filepath.Join(storeDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewStore(storeDir)
+	if err != nil {
+		return
+	}
+
+	account, err := store.getAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// save status of non-existing peer
+	newStatus := PeerStatus{Connected: true, LastSeen: time.Now()}
+	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
+	assert.Error(t, err)
+
+	// save new status of existing peer
+	account.Peers["testpeer"] = &Peer{
+		Key:      "peerkey",
+		SetupKey: "peerkeysetupkey",
+		IP:       net.IP{127, 0, 0, 1},
+		Meta:     PeerSystemMeta{},
+		Name:     "peer name",
+		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
+	}
+
+	err = store.SaveAccount(account)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = store.SavePeerStatus(account.Id, "testpeer", newStatus)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err = store.getAccount(account.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	actual := account.Peers["testpeer"].Status
+	assert.Equal(t, newStatus, *actual)
+}
+
 func newStore(t *testing.T) *FileStore {
 	store, err := NewStore(t.TempDir())
 	if err != nil {

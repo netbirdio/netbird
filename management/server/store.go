@@ -14,4 +14,5 @@ type Store interface {
 	AcquireAccountLock(accountID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
 	AcquireGlobalLock() func()
+	SavePeerStatus(accountID, peerKey string, status PeerStatus) error
 }
