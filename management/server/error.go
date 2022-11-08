@@ -17,6 +17,9 @@ const (
 
 	// PermissionDenied indicates that user has no permissions to view data
 	PermissionDenied ErrorType = iota
+
+	// SetupKeyNotFound indicates that the setup key wasn't found in the system (or under a given Account)
+	SetupKeyNotFound ErrorType = iota
 )
 
 // ErrorType is a type of the Error

@@ -319,59 +319,20 @@ func (am *DefaultAccountManager) GetPeerNetwork(peerPubKey string) (*Network, er
 // to it. We also add the User ID to the peer metadata to identify registrant.
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *Peer) (*Peer, error) {
+func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*Peer, error) {
 
 	upperKey := strings.ToUpper(setupKey)
-
 	var account *Account
 	var err error
-	var sk *SetupKey
-	// auto-assign groups that are coming with a SetupKey or a User
-	var groupsToAdd []string
-	if len(upperKey) != 0 {
-		account, err = am.Store.GetAccountBySetupKey(upperKey)
-		if err != nil {
-			return nil, status.Errorf(
-				codes.NotFound,
-				"unable to register peer, unable to find account with setupKey %s",
-				upperKey,
-			)
-		}
-
-		sk = getAccountSetupKeyByKey(account, upperKey)
-		if sk == nil {
-			// shouldn't happen actually
-			return nil, status.Errorf(
-				codes.NotFound,
-				"unable to register peer, unknown setupKey %s",
-				upperKey,
-			)
-		}
-
-		if !sk.IsValid() {
-			return nil, status.Errorf(
-				codes.FailedPrecondition,
-				"unable to register peer, its setup key is invalid (expired, overused or revoked)",
-			)
-		}
-
-		groupsToAdd = sk.AutoGroups
-
-	} else if len(userID) != 0 {
+	addedByUser := false
+	if len(userID) > 0 {
+		addedByUser = true
 		account, err = am.Store.GetAccountByUser(userID)
-		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown user with ID: %s", userID)
-		}
-		user, ok := account.Users[userID]
-		if !ok {
-			return nil, status.Errorf(codes.NotFound, "unable to register peer, unknown user with ID: %s", userID)
-		}
-
-		groupsToAdd = user.AutoGroups
-
 	} else {
-		// Empty setup key and jwt fail
-		return nil, status.Errorf(codes.InvalidArgument, "no setup key or user id provided")
+		account, err = am.Store.GetAccountBySetupKey(setupKey)
+	}
+	if err != nil {
+		return nil, Errorf(AccountNotFound, "failed adding new peer: account not found")
 	}
 
 	unlock := am.Store.AcquireAccountLock(account.Id)
@@ -383,14 +344,22 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 		return nil, err
 	}
 
-	var takenIps []net.IP
-	existingLabels := make(lookupMap)
-	for _, existingPeer := range account.Peers {
-		takenIps = append(takenIps, existingPeer.IP)
-		if existingPeer.DNSLabel != "" {
-			existingLabels[existingPeer.DNSLabel] = struct{}{}
+	if !addedByUser {
+		// validate the setup key if adding with a key
+		sk, err := account.FindSetupKey(upperKey)
+		if err != nil {
+			return nil, err
 		}
+
+		if !sk.IsValid() {
+			return nil, Errorf(PreconditionFailed, "couldn't add peer: setup key is invalid")
+		}
+
+		account.SetupKeys[sk.Key] = sk.IncrementUsage()
 	}
+
+	takenIps := account.getTakenIPs()
+	existingLabels := account.getPeerDNSLabels()
 
 	newLabel, err := getPeerHostLabel(peer.Name, existingLabels)
 	if err != nil {
@@ -398,7 +367,6 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	}
 
 	peer.DNSLabel = newLabel
-
 	network := account.Network
 	nextIp, err := AllocatePeerIP(network.Net, takenIps)
 	if err != nil {
@@ -425,6 +393,19 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	}
 	group.Peers = append(group.Peers, newPeer.Key)
 
+	var groupsToAdd []string
+	if addedByUser {
+		groupsToAdd, err = account.getUserGroups(userID)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		groupsToAdd, err = account.getSetupKeyGroups(upperKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if len(groupsToAdd) > 0 {
 		for _, s := range groupsToAdd {
 			if g, ok := account.Groups[s]; ok && g.Name != "All" {
@@ -434,11 +415,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey string, userID string, peer *P
 	}
 
 	account.Peers[newPeer.Key] = newPeer
-	if len(upperKey) != 0 {
-		account.SetupKeys[sk.Key] = sk.IncrementUsage()
-	}
 	account.Network.IncSerial()
-
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed adding peer")

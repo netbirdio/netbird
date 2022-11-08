@@ -185,7 +185,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
 	var (
 		reqSetupKey string
-		userId      string
+		userID      string
 	)
 
 	if req.GetJwtToken() != "" {
@@ -204,12 +204,11 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
 		}
-		userId = claims.UserId
+		userID = claims.UserId
 	} else {
 		log.Debugln("using setup key to register peer")
-
 		reqSetupKey = req.GetSetupKey()
-		userId = ""
+		userID = ""
 	}
 
 	meta := req.GetMeta()
@@ -222,7 +221,7 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 		sshKey = req.GetPeerKeys().GetSshPubKey()
 	}
 
-	peer, err := s.accountManager.AddPeer(reqSetupKey, userId, &Peer{
+	peer, err := s.accountManager.AddPeer(reqSetupKey, userID, &Peer{
 		Key:    peerKey.String(),
 		Name:   meta.GetHostname(),
 		SSHKey: string(sshKey),
@@ -238,13 +237,18 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 		},
 	})
 	if err != nil {
-		s, ok := status.FromError(err)
-		if ok {
-			if s.Code() == codes.FailedPrecondition || s.Code() == codes.OutOfRange {
-				return nil, err
+		if e, ok := FromError(err); ok {
+			switch e.Type() {
+			case PreconditionFailed:
+				return nil, status.Errorf(codes.FailedPrecondition, e.message)
+			case AccountNotFound:
+			case SetupKeyNotFound:
+			case UserNotFound:
+				return nil, status.Errorf(codes.NotFound, e.message)
+			default:
 			}
 		}
-		return nil, status.Errorf(codes.NotFound, "provided setup key doesn't exists")
+		return nil, status.Errorf(codes.Internal, "failed registering new peer")
 	}
 
 	// todo move to DefaultAccountManager the code below
