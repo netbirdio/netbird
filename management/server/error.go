@@ -20,6 +20,15 @@ const (
 
 	// SetupKeyNotFound indicates that the setup key wasn't found in the system (or under a given Account)
 	SetupKeyNotFound
+
+	// GroupNotFound indicates that the group wasn't found in the system (or under a given Account)
+	GroupNotFound
+
+	// RouteNotFound indicates that the route wasn't found in the system (or under a given Account)
+	RouteNotFound
+
+	// RuleNotFound indicates that the rule wasn't found in the system (or under a given Account)
+	RuleNotFound
 )
 
 // ErrorType is a type of the Error

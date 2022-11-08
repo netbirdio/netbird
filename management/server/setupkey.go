@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -183,12 +182,12 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	for _, group := range autoGroups {
 		if _, ok := account.Groups[group]; !ok {
-			return nil, fmt.Errorf("group %s doesn't exist", group)
+			return nil, Errorf(GroupNotFound, "group %s doesn't exist", group)
 		}
 	}
 
@@ -217,7 +216,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	var oldKey *SetupKey
@@ -253,7 +252,7 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 	defer unlock()
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)
@@ -282,7 +281,7 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)

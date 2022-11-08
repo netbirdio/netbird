@@ -192,10 +192,7 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 
 	accountID, accountIDFound := s.PrivateDomain2AccountID[strings.ToLower(domain)]
 	if !accountIDFound {
-		return nil, status.Errorf(
-			codes.NotFound,
-			"account not found: provided domain is not registered or is not private",
-		)
+		return nil, Errorf(AccountNotFound, "account not found: provided domain is not registered or is not private")
 	}
 
 	account, err := s.getAccount(accountID)
@@ -239,7 +236,7 @@ func (s *FileStore) GetAllAccounts() (all []*Account) {
 func (s *FileStore) getAccount(accountID string) (*Account, error) {
 	account, accountFound := s.Accounts[accountID]
 	if !accountFound {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, Errorf(AccountNotFound, "account not found")
 	}
 
 	return account, nil
@@ -265,7 +262,7 @@ func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 
 	accountID, accountIDFound := s.UserID2AccountID[userID]
 	if !accountIDFound {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, Errorf(AccountNotFound, "account not found")
 	}
 
 	account, err := s.getAccount(accountID)

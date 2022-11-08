@@ -454,11 +454,11 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 		accountId := xid.New().String()
 
 		_, err := am.Store.GetAccount(accountId)
-		statusErr, _ := status.FromError(err)
+		statusErr, _ := FromError(err)
 		if err == nil {
 			log.Warnf("an account with ID already exists, retrying...")
 			continue
-		} else if statusErr.Code() == codes.NotFound {
+		} else if statusErr.Type() == AccountNotFound {
 			return newAccountWithId(accountId, userID, domain), nil
 		} else {
 			return nil, err
@@ -723,10 +723,7 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 
 // handleNewUserAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
 // otherwise it will create a new account and make it primary account for the domain.
-func (am *DefaultAccountManager) handleNewUserAccount(
-	domainAcc *Account,
-	claims jwtclaims.AuthorizationClaims,
-) (*Account, error) {
+func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims jwtclaims.AuthorizationClaims) (*Account, error) {
 	var (
 		account *Account
 		err     error
@@ -857,9 +854,12 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 
 	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
-	accStatus, _ := status.FromError(err)
-	if accStatus.Code() != codes.OK && accStatus.Code() != codes.NotFound {
-		return nil, err
+	if err != nil {
+		// if AccountNotFound we are good to continue, otherwise return error
+		e, ok := FromError(err)
+		if !ok || e.Type() != AccountNotFound {
+			return nil, err
+		}
 	}
 
 	account, err := am.Store.GetAccountByUser(claims.UserId)
@@ -869,7 +869,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 			return nil, err
 		}
 		return account, nil
-	} else if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+	} else if s, ok := FromError(err); ok && s.Type() == AccountNotFound {
 		return am.handleNewUserAccount(domainAccount, claims)
 	} else {
 		// other error
@@ -891,7 +891,7 @@ func (am *DefaultAccountManager) AccountExists(accountID string) (*bool, error) 
 	var res bool
 	_, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		if s, ok := FromError(err); ok && s.Type() == AccountNotFound {
 			res = false
 			return &res, nil
 		} else {

@@ -95,7 +95,7 @@ func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rul
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)
@@ -122,7 +122,7 @@ func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	account.Rules[rule.ID] = rule
@@ -143,12 +143,12 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	ruleToUpdate, ok := account.Rules[ruleID]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "rule %s no longer exists", ruleID)
+		return nil, Errorf(RuleNotFound, "rule %s no longer exists", ruleID)
 	}
 
 	rule := ruleToUpdate.Copy()
@@ -217,7 +217,7 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	delete(account.Rules, ruleID)
@@ -237,7 +237,7 @@ func (am *DefaultAccountManager) ListRules(accountID, userID string) ([]*Rule, e
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)

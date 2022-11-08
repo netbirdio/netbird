@@ -66,7 +66,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	nsGroup, found := account.NameServerGroups[nsGroupID]
@@ -85,7 +85,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	newNSGroup := &nbdns.NameServerGroup{
@@ -137,7 +137,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupTo
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	err = validateNameServerGroup(true, nsGroupToSave, account)
@@ -170,7 +170,7 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	if len(operations) == 0 {
@@ -273,7 +273,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID stri
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	delete(account.NameServerGroups, nsGroupID)
@@ -301,7 +301,7 @@ func (am *DefaultAccountManager) ListNameServerGroups(accountID string) ([]*nbdn
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	nsGroups := make([]*nbdns.NameServerGroup, 0, len(account.NameServerGroups))

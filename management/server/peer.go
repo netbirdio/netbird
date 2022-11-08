@@ -162,7 +162,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	//TODO Peer.ID migration: we will need to replace search by ID here
@@ -208,7 +208,7 @@ func (am *DefaultAccountManager) DeletePeer(accountID string, peerPubKey string)
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	peer, err := account.FindPeerByPubKey(peerPubKey)
@@ -258,7 +258,7 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	for _, peer := range account.Peers {

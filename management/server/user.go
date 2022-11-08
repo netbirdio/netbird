@@ -193,7 +193,7 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	for _, newGroupID := range update.AutoGroups {

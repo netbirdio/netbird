@@ -66,7 +66,7 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*r
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)
@@ -121,7 +121,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	var newRoute route.Route
@@ -201,7 +201,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	if routeToSave.Peer != "" {
@@ -228,12 +228,12 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	routeToUpdate, ok := account.Routes[routeID]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "route %s no longer exists", routeID)
+		return nil, Errorf(RouteNotFound, "route %s no longer exists", routeID)
 	}
 
 	newRoute := routeToUpdate.Copy()
@@ -325,7 +325,7 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	delete(account.Routes, routeID)
@@ -345,7 +345,7 @@ func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)
