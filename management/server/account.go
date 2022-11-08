@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"math/rand"
+	"net"
 	"net/netip"
 	"reflect"
 	"regexp"
@@ -62,7 +63,7 @@ type AccountManager interface {
 	UpdatePeer(accountID string, peer *Peer) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
 	GetPeerNetwork(peerKey string) (*Network, error)
-	AddPeer(setupKey string, userId string, peer *Peer) (*Peer, error)
+	AddPeer(setupKey, userID string, peer *Peer) (*Peer, error)
 	UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error
 	UpdatePeerSSHKey(peerKey string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
@@ -277,7 +278,41 @@ func (a *Account) FindUser(userID string) (*User, error) {
 	return user, nil
 }
 
-// getPeerDNSLabels return the account's peers' dns labels
+// FindSetupKey looks for a given SetupKey in the Account or returns error if it wasn't found.
+func (a *Account) FindSetupKey(setupKey string) (*SetupKey, error) {
+	key := a.SetupKeys[setupKey]
+	if key == nil {
+		return nil, Errorf(SetupKeyNotFound, "setup key not found")
+	}
+
+	return key, nil
+}
+
+func (a *Account) getUserGroups(userID string) ([]string, error) {
+	user, err := a.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+	return user.AutoGroups, nil
+}
+
+func (a *Account) getSetupKeyGroups(setupKey string) ([]string, error) {
+	key, err := a.FindSetupKey(setupKey)
+	if err != nil {
+		return nil, err
+	}
+	return key.AutoGroups, nil
+}
+
+func (a *Account) getTakenIPs() []net.IP {
+	var takenIps []net.IP
+	for _, existingPeer := range a.Peers {
+		takenIps = append(takenIps, existingPeer.IP)
+	}
+
+	return takenIps
+}
+
 func (a *Account) getPeerDNSLabels() lookupMap {
 	existingLabels := make(lookupMap)
 	for _, peer := range a.Peers {
@@ -923,15 +958,6 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 
 	addAllGroup(acc)
 	return acc
-}
-
-func getAccountSetupKeyByKey(acc *Account, key string) *SetupKey {
-	for _, k := range acc.SetupKeys {
-		if key == k.Key {
-			return k
-		}
-	}
-	return nil
 }
 
 func removeFromList(inputList []string, toRemove []string) []string {

@@ -6,17 +6,20 @@ import (
 
 const (
 	// UserAlreadyExists indicates that user already exists
-	UserAlreadyExists ErrorType = 1
+	UserAlreadyExists ErrorType = iota
 	// AccountNotFound indicates that specified account hasn't been found
-	AccountNotFound ErrorType = iota
+	AccountNotFound
 	// PreconditionFailed indicates that some pre-condition for the operation hasn't been fulfilled
-	PreconditionFailed ErrorType = iota
+	PreconditionFailed
 
 	// UserNotFound indicates that user wasn't found in the system (or under a given Account)
-	UserNotFound ErrorType = iota
+	UserNotFound
 
 	// PermissionDenied indicates that user has no permissions to view data
-	PermissionDenied ErrorType = iota
+	PermissionDenied
+
+	// SetupKeyNotFound indicates that the setup key wasn't found in the system (or under a given Account)
+	SetupKeyNotFound
 )
 
 // ErrorType is a type of the Error
