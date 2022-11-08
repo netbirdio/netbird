@@ -389,6 +389,9 @@ func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 }
 
 func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *proto.WiretrusteeConfig {
+	if config == nil {
+		return nil
+	}
 	var stuns []*proto.HostConfig
 	for _, stun := range config.Stuns {
 		stuns = append(stuns, &proto.HostConfig{
