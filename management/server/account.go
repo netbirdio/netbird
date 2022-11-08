@@ -384,12 +384,6 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 			shouldSave = true
 		}
 
-		existingLabels := account.getPeerDNSLabels()
-		if len(existingLabels) != len(account.Peers) {
-			addPeerLabelsToAccount(account, existingLabels)
-			shouldSave = true
-		}
-
 		if shouldSave {
 			err = store.SaveAccount(account)
 			if err != nil {
