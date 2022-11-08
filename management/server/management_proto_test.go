@@ -398,7 +398,7 @@ func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, erro
 		return nil, err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := NewStore(config.Datadir)
+	store, err := NewFileStore(config.Datadir)
 	if err != nil {
 		return nil, err
 	}

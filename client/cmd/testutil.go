@@ -62,7 +62,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, err := mgmt.NewStore(config.Datadir)
+	store, err := mgmt.NewFileStore(config.Datadir)
 	if err != nil {
 		t.Fatal(err)
 	}
