@@ -120,7 +120,8 @@ jobs:
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
       - name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
+        if: ${{ always() }}
         with:
           name: release-ui
           path: dist/
@@ -169,7 +170,7 @@ jobs:
 
   trigger_windows_signer:
     runs-on: ubuntu-latest
-    needs: [release,release_ui]
+    needs: [release,release_ui,release_ui_darwin]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger Windows binaries sign pipeline
@@ -183,7 +184,7 @@ jobs:
 
   trigger_darwin_signer:
     runs-on: ubuntu-latest
-    needs: release_ui_darwin
+    needs: [release,release_ui,release_ui_darwin]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Trigger Darwin App binaries sign pipeline
