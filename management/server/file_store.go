@@ -268,11 +268,11 @@ func (s *FileStore) GetInstallationID() string {
 }
 
 // SaveInstallationID saves the installation ID
-func (s *FileStore) SaveInstallationID(id string) error {
+func (s *FileStore) SaveInstallationID(ID string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	s.InstallationID = id
+	s.InstallationID = ID
 
 	return s.persist(s.storeFile)
 }

@@ -9,7 +9,7 @@ type Store interface {
 	GetAccountByPrivateDomain(domain string) (*Account, error)
 	SaveAccount(account *Account) error
 	GetInstallationID() string
-	SaveInstallationID(id string) error
+	SaveInstallationID(ID string) error
 	// AcquireAccountLock should attempt to acquire account lock and return a function that releases the lock
 	AcquireAccountLock(accountID string) func()
 	// AcquireGlobalLock should attempt to acquire a global lock and return a function that releases the lock
