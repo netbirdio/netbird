@@ -935,7 +935,7 @@ func startManagement(port int, dataDir string) (*grpc.Server, error) {
 		return nil, err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := server.NewStore(config.Datadir)
+	store, err := server.NewFileStore(config.Datadir)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}

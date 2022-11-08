@@ -37,8 +37,8 @@ type FileStore struct {
 
 type StoredAccount struct{}
 
-// NewStore restores a store from the file located in the datadir
-func NewStore(dataDir string) (*FileStore, error) {
+// NewFileStore restores a store from the file located in the datadir
+func NewFileStore(dataDir string) (*FileStore, error) {
 	return restore(filepath.Join(dataDir, storeFileName))
 }
 
@@ -198,7 +198,12 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 		)
 	}
 
-	return s.getAccount(accountID)
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Copy(), nil
 }
 
 // GetAccountBySetupKey returns account by setup key id
@@ -211,7 +216,12 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 		return nil, status.Errorf(codes.NotFound, "account not found: provided setup key doesn't exists")
 	}
 
-	return s.getAccount(accountID)
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Copy(), nil
 }
 
 // GetAllAccounts returns all accounts
@@ -225,13 +235,14 @@ func (s *FileStore) GetAllAccounts() (all []*Account) {
 	return all
 }
 
+// getAccount returns a reference to the Account. Should not return a copy.
 func (s *FileStore) getAccount(accountID string) (*Account, error) {
 	account, accountFound := s.Accounts[accountID]
 	if !accountFound {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	return account.Copy(), nil
+	return account, nil
 }
 
 // GetAccount returns an account for ID
@@ -239,7 +250,12 @@ func (s *FileStore) GetAccount(accountID string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	return s.getAccount(accountID)
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Copy(), nil
 }
 
 // GetAccountByUser returns a user account
@@ -252,7 +268,12 @@ func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 		return nil, status.Errorf(codes.NotFound, "account not found")
 	}
 
-	return s.getAccount(accountID)
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Copy(), nil
 }
 
 // GetAccountByPeerPubKey returns an account for a given peer WireGuard public key
@@ -265,7 +286,12 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 		return nil, status.Errorf(codes.NotFound, "Provided peer key doesn't exists %s", peerKey)
 	}
 
-	return s.getAccount(accountID)
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Copy(), nil
 }
 
 // GetInstallationID returns the installation ID from the store
@@ -274,11 +300,42 @@ func (s *FileStore) GetInstallationID() string {
 }
 
 // SaveInstallationID saves the installation ID
-func (s *FileStore) SaveInstallationID(id string) error {
+func (s *FileStore) SaveInstallationID(ID string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	s.InstallationID = id
+	s.InstallationID = ID
+
+	return s.persist(s.storeFile)
+}
+
+// SavePeerStatus stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
+// PeerStatus will be saved eventually when some other changes occur.
+func (s *FileStore) SavePeerStatus(accountID, peerKey string, peerStatus PeerStatus) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	peer := account.Peers[peerKey]
+	if peer == nil {
+		return status.Errorf(codes.NotFound, "peer %s not found", peerKey)
+	}
+
+	peer.Status = &peerStatus
+
+	return nil
+}
+
+// Close the FileStore persisting data to disk
+func (s *FileStore) Close() error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	log.Infof("closing FileStore")
 
 	return s.persist(s.storeFile)
 }
