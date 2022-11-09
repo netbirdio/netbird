@@ -104,7 +104,7 @@ jobs:
         run: git --no-pager diff --exit-code
 
       - name: Install dependencies
-        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libappindicator3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-mingw-w64-x86-64
+        run: sudo apt update && sudo apt install -y -q libgtk-3-dev libappindicator3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-mingw-w64
       - name: Install rsrc
         run: go install github.com/akavel/rsrc@v0.10.2
       - name: Generate windows rsrc
