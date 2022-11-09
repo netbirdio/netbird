@@ -43,7 +43,7 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 			switch r.Method {
 
 			case http.MethodDelete, http.MethodPost, http.MethodPatch, http.MethodPut:
-				util.WriteError(status.Errorf(status.PermissionDenied, "WriteError"), w)
+				util.WriteError(status.Errorf(status.PermissionDenied, "only admin can perform this operation"), w)
 				return
 			}
 		}

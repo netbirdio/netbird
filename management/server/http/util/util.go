@@ -79,9 +79,17 @@ func WriteError(err error, w http.ResponseWriter) {
 		log.Error(unhandledMSG)
 	}
 
+	type errorResponse struct {
+		Message string `json:"message"`
+		Code    int    `json:"code"`
+	}
+
 	w.WriteHeader(httpStatus)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	err = json.NewEncoder(w).Encode(errors.New(msg))
+	err = json.NewEncoder(w).Encode(&errorResponse{
+		Message: msg,
+		Code:    httpStatus,
+	})
 	if err != nil {
 		http.Error(w, "failed handling request", http.StatusInternalServerError)
 	}
