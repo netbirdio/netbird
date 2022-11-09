@@ -2,11 +2,9 @@ package http
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/netbirdio/netbird/management/server/status"
 	"net/http"
 
 	"github.com/netbirdio/netbird/management/server"
@@ -55,45 +53,45 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	groupID, ok := vars["id"]
 	if !ok {
-		http.Error(w, "group ID field is missing", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "group ID field is missing"), w)
 		return
 	}
 	if len(groupID) == 0 {
-		http.Error(w, "group ID can't be empty", http.StatusUnprocessableEntity)
+		util.WriteError(status.Errorf(status.InvalidArgument, "group ID can't be empty"), w)
 		return
 	}
 
 	_, ok = account.Groups[groupID]
 	if !ok {
-		http.Error(w, fmt.Sprintf("couldn't find group with ID %s", groupID), http.StatusNotFound)
+		util.WriteError(status.Errorf(status.NotFound, "couldn't find group with ID %s", groupID), w)
 		return
 	}
 
 	allGroup, err := account.GetGroupAll()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 	if allGroup.ID == groupID {
-		http.Error(w, "updating group ALL is not allowed", http.StatusMethodNotAllowed)
+		util.WriteError(status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
 		return
 	}
 
 	var req api.PutApiGroupsIdJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	if *req.Name == "" {
-		http.Error(w, "group name shouldn't be empty", http.StatusUnprocessableEntity)
+		util.WriteError(status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
 		return
 	}
 
@@ -105,7 +103,7 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.accountManager.SaveGroup(account.Id, &group); err != nil {
 		log.Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -117,42 +115,42 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	groupID := vars["id"]
 	if len(groupID) == 0 {
-		http.Error(w, "invalid group Id", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid group ID"), w)
 		return
 	}
 
 	_, ok := account.Groups[groupID]
 	if !ok {
-		http.Error(w, fmt.Sprintf("couldn't find group id %s", groupID), http.StatusNotFound)
+		util.WriteError(status.Errorf(status.NotFound, "couldn't find group ID %s", groupID), w)
 		return
 	}
 
 	allGroup, err := account.GetGroupAll()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	if allGroup.ID == groupID {
-		http.Error(w, "updating group ALL is not allowed", http.StatusMethodNotAllowed)
+		util.WriteError(status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
 		return
 	}
 
 	var req api.PatchApiGroupsIdJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	if len(req) == 0 {
-		http.Error(w, "no patch instruction received", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "no patch instruction received"), w)
 		return
 	}
 
@@ -162,13 +160,13 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 		switch patch.Path {
 		case api.GroupPatchOperationPathName:
 			if patch.Op != api.GroupPatchOperationOpReplace {
-				http.Error(w, fmt.Sprintf("Name field only accepts replace operation, got %s", patch.Op),
-					http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"Name field only accepts replace operation, got %s", patch.Op), w)
 				return
 			}
 
 			if len(patch.Value) == 0 || patch.Value[0] == "" {
-				http.Error(w, "Group name shouldn't be empty", http.StatusUnprocessableEntity)
+				util.WriteError(status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
 				return
 			}
 
@@ -197,31 +195,18 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 					Values: peerKeys,
 				})
 			default:
-				http.Error(w, "invalid operation, \"%s\", for Peers field", http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument, "invalid operation, \"%s\", for Peers field"), w)
 				return
 			}
 		default:
-			http.Error(w, "invalid patch path", http.StatusBadRequest)
+			util.WriteError(status.Errorf(status.InvalidArgument, "invalid patch path"), w)
 			return
 		}
 	}
 
 	group, err := h.accountManager.UpdateGroup(account.Id, groupID, operations)
-
 	if err != nil {
-		errStatus, ok := status.FromError(err)
-		if ok && errStatus.Code() == codes.Internal {
-			http.Error(w, errStatus.String(), http.StatusInternalServerError)
-			return
-		}
-
-		if ok && errStatus.Code() == codes.NotFound {
-			http.Error(w, errStatus.String(), http.StatusNotFound)
-			return
-		}
-
-		log.Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -233,18 +218,18 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	var req api.PostApiGroupsJSONRequestBody
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	if req.Name == "" {
-		http.Error(w, "Group name shouldn't be empty", http.StatusUnprocessableEntity)
+		util.WriteError(status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
 		return
 	}
 
@@ -254,9 +239,9 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		Peers: peerIPsToKeys(account, req.Peers),
 	}
 
-	if err := h.accountManager.SaveGroup(account.Id, &group); err != nil {
-		log.Errorf("failed creating group \"%s\" under account %s %v", req.Name, account.Id, err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+	err = h.accountManager.SaveGroup(account.Id, &group)
+	if err != nil {
+		util.WriteError(err, w)
 		return
 	}
 
@@ -268,31 +253,31 @@ func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 	aID := account.Id
 
 	groupID := mux.Vars(r)["id"]
 	if len(groupID) == 0 {
-		http.Error(w, "invalid group ID", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid group ID"), w)
 		return
 	}
 
 	allGroup, err := account.GetGroupAll()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	if allGroup.ID == groupID {
-		http.Error(w, "deleting group ALL is not allowed", http.StatusMethodNotAllowed)
+		util.WriteError(status.Errorf(status.InvalidArgument, "deleting group ALL is not allowed"), w)
 		return
 	}
 
-	if err := h.accountManager.DeleteGroup(aID, groupID); err != nil {
-		log.Errorf("failed delete group %s under account %s %v", groupID, aID, err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+	err = h.accountManager.DeleteGroup(aID, groupID)
+	if err != nil {
+		util.WriteError(err, w)
 		return
 	}
 
@@ -304,7 +289,7 @@ func (h *Groups) GetGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -312,19 +297,22 @@ func (h *Groups) GetGroupHandler(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		groupID := mux.Vars(r)["id"]
 		if len(groupID) == 0 {
-			http.Error(w, "invalid group ID", http.StatusBadRequest)
+			util.WriteError(status.Errorf(status.InvalidArgument, "invalid group ID"), w)
 			return
 		}
 
 		group, err := h.accountManager.GetGroup(account.Id, groupID)
 		if err != nil {
-			http.Error(w, "group not found", http.StatusNotFound)
+			util.WriteError(err, w)
 			return
 		}
 
 		util.WriteJSONObject(w, toGroupResponse(account, group))
 	default:
-		http.Error(w, "", http.StatusNotFound)
+		if err != nil {
+			util.WriteError(status.Errorf(status.NotFound, "HTTP method not found"), w)
+			return
+		}
 	}
 }
 
