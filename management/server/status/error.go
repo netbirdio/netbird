@@ -1,4 +1,4 @@
-package server
+package status
 
 import (
 	"fmt"
@@ -6,42 +6,51 @@ import (
 
 const (
 	// UserAlreadyExists indicates that user already exists
-	UserAlreadyExists ErrorType = iota
+	UserAlreadyExists Type = 1
 
 	// PreconditionFailed indicates that some pre-condition for the operation hasn't been fulfilled
-	PreconditionFailed
+	PreconditionFailed Type = 2
 
 	// PermissionDenied indicates that user has no permissions to view data
-	PermissionDenied
+	PermissionDenied Type = 3
 
 	// NotFound indicates that the object wasn't found in the system (or under a given Account)
-	NotFound
+	NotFound Type = 4
+
+	// Internal indicates some generic internal error
+	Internal Type = 5
+
+	// InvalidArgument indicates some generic invalid argument error
+	InvalidArgument Type = 6
+
+	// AlreadyExists indicates a generic error when an object already exists in the system
+	AlreadyExists Type = 7
 )
 
-// ErrorType is a type of the Error
-type ErrorType int32
+// Type is a type of the Error
+type Type int32
 
 // Error is an internal error
 type Error struct {
-	errorType ErrorType
-	message   string
+	ErrorType Type
+	Message   string
 }
 
 // Type returns the Type of the error
-func (e *Error) Type() ErrorType {
-	return e.errorType
+func (e *Error) Type() Type {
+	return e.ErrorType
 }
 
 // Error is an error string
 func (e *Error) Error() string {
-	return e.message
+	return e.Message
 }
 
-// Errorf returns Error(errorType, fmt.Sprintf(format, a...)).
-func Errorf(errorType ErrorType, format string, a ...interface{}) error {
+// Errorf returns Error(ErrorType, fmt.Sprintf(format, a...)).
+func Errorf(errorType Type, format string, a ...interface{}) error {
 	return &Error{
-		errorType: errorType,
-		message:   fmt.Sprintf(format, a...),
+		ErrorType: errorType,
+		Message:   fmt.Sprintf(format, a...),
 	}
 }
 

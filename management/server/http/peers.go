@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	log "github.com/sirupsen/logrus"
 	"net/http"
@@ -42,7 +43,7 @@ func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.Re
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
-	writeJSONObject(w, toPeerResponse(peer, account))
+	util.WriteJSONObject(w, toPeerResponse(peer, account))
 }
 
 func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
@@ -52,11 +53,12 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
-	writeJSONObject(w, "")
+	util.WriteJSONObject(w, "")
 }
 
 func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -83,7 +85,7 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		h.updatePeer(account, peer, w, r)
 		return
 	case http.MethodGet:
-		writeJSONObject(w, toPeerResponse(peer, account))
+		util.WriteJSONObject(w, toPeerResponse(peer, account))
 		return
 
 	default:
@@ -95,7 +97,8 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+		claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+		account, user, err := h.accountManager.GetAccountFromToken(claims)
 		if err != nil {
 			log.Error(err)
 			http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -111,7 +114,7 @@ func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 		for _, peer := range peers {
 			respBody = append(respBody, toPeerResponse(peer, account))
 		}
-		writeJSONObject(w, respBody)
+		util.WriteJSONObject(w, respBody)
 		return
 	default:
 		http.Error(w, "", http.StatusNotFound)

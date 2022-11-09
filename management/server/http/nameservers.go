@@ -7,6 +7,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	log "github.com/sirupsen/logrus"
 	"net/http"
@@ -30,7 +31,8 @@ func NewNameservers(accountManager server.AccountManager, authAudience string) *
 
 // GetAllNameserversHandler returns the list of nameserver groups for the account
 func (h *Nameservers) GetAllNameserversHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -39,7 +41,7 @@ func (h *Nameservers) GetAllNameserversHandler(w http.ResponseWriter, r *http.Re
 
 	nsGroups, err := h.accountManager.ListNameServerGroups(account.Id)
 	if err != nil {
-		toHTTPError(err, w)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -48,12 +50,13 @@ func (h *Nameservers) GetAllNameserversHandler(w http.ResponseWriter, r *http.Re
 		apiNameservers = append(apiNameservers, toNameserverGroupResponse(r))
 	}
 
-	writeJSONObject(w, apiNameservers)
+	util.WriteJSONObject(w, apiNameservers)
 }
 
 // CreateNameserverGroupHandler handles nameserver group creation request
 func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -73,18 +76,19 @@ func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *htt
 
 	nsGroup, err := h.accountManager.CreateNameServerGroup(account.Id, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled)
 	if err != nil {
-		toHTTPError(err, w)
+		util.WriteError(err, w)
 		return
 	}
 
 	resp := toNameserverGroupResponse(nsGroup)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 }
 
 // UpdateNameserverGroupHandler handles update to a nameserver group identified by a given ID
 func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -122,18 +126,19 @@ func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *htt
 
 	err = h.accountManager.SaveNameServerGroup(account.Id, updatedNSGroup)
 	if err != nil {
-		toHTTPError(err, w)
+		util.WriteError(err, w)
 		return
 	}
 
 	resp := toNameserverGroupResponse(updatedNSGroup)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 }
 
 // PatchNameserverGroupHandler handles patch updates to a nameserver group identified by a given ID
 func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -203,18 +208,19 @@ func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http
 
 	updatedNSGroup, err := h.accountManager.UpdateNameServerGroup(account.Id, nsGroupID, operations)
 	if err != nil {
-		toHTTPError(err, w)
+		util.WriteError(err, w)
 		return
 	}
 
 	resp := toNameserverGroupResponse(updatedNSGroup)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 }
 
 // DeleteNameserverGroupHandler handles nameserver group deletion request
 func (h *Nameservers) DeleteNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -229,16 +235,17 @@ func (h *Nameservers) DeleteNameserverGroupHandler(w http.ResponseWriter, r *htt
 
 	err = h.accountManager.DeleteNameServerGroup(account.Id, nsGroupID)
 	if err != nil {
-		toHTTPError(err, w)
+		util.WriteError(err, w)
 		return
 	}
 
-	writeJSONObject(w, "")
+	util.WriteJSONObject(w, "")
 }
 
 // GetNameserverGroupHandler handles a nameserver group Get request identified by ID
 func (h *Nameservers) GetNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -253,13 +260,13 @@ func (h *Nameservers) GetNameserverGroupHandler(w http.ResponseWriter, r *http.R
 
 	nsGroup, err := h.accountManager.GetNameServerGroup(account.Id, nsGroupID)
 	if err != nil {
-		toHTTPError(err, w)
+		util.WriteError(err, w)
 		return
 	}
 
 	resp := toNameserverGroupResponse(nsGroup)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 
 }
 

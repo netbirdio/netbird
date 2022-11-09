@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net/http"
 
 	"github.com/netbirdio/netbird/management/server"
@@ -34,7 +34,8 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "", http.StatusBadRequest)
 	}
 
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -68,8 +69,8 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if e, ok := status.FromError(err); ok {
-			switch e.Code() {
-			case codes.NotFound:
+			switch e.Type() {
+			case status.NotFound:
 				http.Error(w, fmt.Sprintf("couldn't find a user for ID %s", userID), http.StatusNotFound)
 			default:
 				http.Error(w, "failed to update user", http.StatusInternalServerError)
@@ -77,7 +78,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	writeJSONObject(w, toUserResponse(newUser))
+	util.WriteJSONObject(w, toUserResponse(newUser))
 
 }
 
@@ -87,7 +88,8 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "", http.StatusNotFound)
 	}
 
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 	}
@@ -111,9 +113,9 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		AutoGroups: req.AutoGroups,
 	})
 	if err != nil {
-		if e, ok := server.FromError(err); ok {
+		if e, ok := status.FromError(err); ok {
 			switch e.Type() {
-			case server.UserAlreadyExists:
+			case status.UserAlreadyExists:
 				http.Error(w, "You can't invite users with an existing NetBird account.", http.StatusPreconditionFailed)
 				return
 			default:
@@ -122,7 +124,7 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "failed to invite", http.StatusInternalServerError)
 		return
 	}
-	writeJSONObject(w, toUserResponse(newUser))
+	util.WriteJSONObject(w, toUserResponse(newUser))
 }
 
 // GetUsers returns a list of users of the account this user belongs to.
@@ -132,7 +134,8 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "", http.StatusBadRequest)
 	}
 
-	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -150,7 +153,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		users = append(users, toUserResponse(r))
 	}
 
-	writeJSONObject(w, users)
+	util.WriteJSONObject(w, users)
 }
 
 func toUserResponse(user *server.UserInfo) *api.User {

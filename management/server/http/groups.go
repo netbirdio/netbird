@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"net/http"
@@ -33,7 +34,8 @@ func NewGroups(accountManager server.AccountManager, authAudience string) *Group
 
 // GetAllGroupsHandler list for the account
 func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -45,12 +47,13 @@ func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
 		groups = append(groups, toGroupResponse(account, g))
 	}
 
-	writeJSONObject(w, groups)
+	util.WriteJSONObject(w, groups)
 }
 
 // UpdateGroupHandler handles update to a group identified by a given ID
 func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -106,12 +109,13 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, toGroupResponse(account, &group))
+	util.WriteJSONObject(w, toGroupResponse(account, &group))
 }
 
 // PatchGroupHandler handles patch updates to a group identified by a given ID
 func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -221,12 +225,13 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, toGroupResponse(account, group))
+	util.WriteJSONObject(w, toGroupResponse(account, group))
 }
 
 // CreateGroupHandler handles group creation request
 func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -255,12 +260,13 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, toGroupResponse(account, &group))
+	util.WriteJSONObject(w, toGroupResponse(account, &group))
 }
 
 // DeleteGroupHandler handles group deletion request
 func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -290,12 +296,13 @@ func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, "")
+	util.WriteJSONObject(w, "")
 }
 
 // GetGroupHandler returns a group
 func (h *Groups) GetGroupHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -315,7 +322,7 @@ func (h *Groups) GetGroupHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSONObject(w, toGroupResponse(account, group))
+		util.WriteJSONObject(w, toGroupResponse(account, group))
 	default:
 		http.Error(w, "", http.StatusNotFound)
 	}

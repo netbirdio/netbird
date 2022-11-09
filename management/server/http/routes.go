@@ -6,11 +6,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net/http"
 	"unicode/utf8"
 )
@@ -33,7 +33,8 @@ func NewRoutes(accountManager server.AccountManager, authAudience string) *Route
 
 // GetAllRoutesHandler returns the list of routes for the account
 func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
-	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -43,9 +44,9 @@ func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
 	routes, err := h.accountManager.ListRoutes(account.Id, user.Id)
 	if err != nil {
 		log.Error(err)
-		if e, ok := server.FromError(err); ok {
+		if e, ok := status.FromError(err); ok {
 			switch e.Type() {
-			case server.PermissionDenied:
+			case status.PermissionDenied:
 				http.Error(w, e.Error(), http.StatusForbidden)
 				return
 			default:
@@ -59,12 +60,13 @@ func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
 		apiRoutes = append(apiRoutes, toRouteResponse(account, r))
 	}
 
-	writeJSONObject(w, apiRoutes)
+	util.WriteJSONObject(w, apiRoutes)
 }
 
 // CreateRouteHandler handles route creation request
 func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -107,12 +109,13 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp := toRouteResponse(account, newRoute)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 }
 
 // UpdateRouteHandler handles update to a route identified by a given ID
 func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -180,12 +183,13 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp := toRouteResponse(account, newRoute)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 }
 
 // PatchRouteHandler handles patch updates to a route identified by a given ID
 func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -315,18 +319,18 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		errStatus, ok := status.FromError(err)
-		if ok && errStatus.Code() == codes.Internal {
-			http.Error(w, errStatus.String(), http.StatusInternalServerError)
+		if ok && errStatus.Type() == status.Internal {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		if ok && errStatus.Code() == codes.NotFound {
-			http.Error(w, errStatus.String(), http.StatusNotFound)
+		if ok && errStatus.Type() == status.NotFound {
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 
-		if ok && errStatus.Code() == codes.InvalidArgument {
-			http.Error(w, errStatus.String(), http.StatusBadRequest)
+		if ok && errStatus.Type() == status.InvalidArgument {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -337,12 +341,13 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp := toRouteResponse(account, route)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 }
 
 // DeleteRouteHandler handles route deletion request
 func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -357,7 +362,7 @@ func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 	err = h.accountManager.DeleteRoute(account.Id, routeID)
 	if err != nil {
 		errStatus, ok := status.FromError(err)
-		if ok && errStatus.Code() == codes.NotFound {
+		if ok && errStatus.Type() == status.NotFound {
 			http.Error(w, fmt.Sprintf("route %s not found under account %s", routeID, account.Id), http.StatusNotFound)
 			return
 		}
@@ -366,12 +371,13 @@ func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, "")
+	util.WriteJSONObject(w, "")
 }
 
 // GetRouteHandler handles a route Get request identified by ID
 func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
-	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -389,7 +395,7 @@ func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, toRouteResponse(account, foundRoute))
+	util.WriteJSONObject(w, toRouteResponse(account, foundRoute))
 }
 
 func toRouteResponse(account *server.Account, serverRoute *route.Route) *api.Route {

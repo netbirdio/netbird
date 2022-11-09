@@ -3,8 +3,7 @@ package server
 import (
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/netbirdio/netbird/management/server/status"
 	"strings"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -123,7 +122,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	defer unlock()
 
 	if am.idpManager == nil {
-		return nil, Errorf(PreconditionFailed, "IdP manager must be enabled to send user invites")
+		return nil, status.Errorf(status.PreconditionFailed, "IdP manager must be enabled to send user invites")
 	}
 
 	if invite == nil {
@@ -132,7 +131,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, Errorf(NotFound, "account %s doesn't exist", accountID)
+		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
 	}
 
 	// check if the user is already registered with this email => reject
@@ -142,7 +141,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	}
 
 	if user != nil {
-		return nil, Errorf(UserAlreadyExists, "user has an existing account")
+		return nil, status.Errorf(status.UserAlreadyExists, "user has an existing account")
 	}
 
 	users, err := am.idpManager.GetUserByEmail(invite.Email)
@@ -151,7 +150,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	}
 
 	if len(users) > 0 {
-		return nil, Errorf(UserAlreadyExists, "user has an existing account")
+		return nil, status.Errorf(status.UserAlreadyExists, "user has an existing account")
 	}
 
 	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID)
@@ -188,7 +187,7 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 	defer unlock()
 
 	if update == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "provided user update is nil")
+		return nil, status.Errorf(status.InvalidArgument, "provided user update is nil")
 	}
 
 	account, err := am.Store.GetAccount(accountID)
@@ -198,15 +197,14 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 
 	for _, newGroupID := range update.AutoGroups {
 		if _, ok := account.Groups[newGroupID]; !ok {
-			return nil,
-				status.Errorf(codes.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
-					newGroupID, update.Id)
+			return nil, status.Errorf(status.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
+				newGroupID, update.Id)
 		}
 	}
 
 	oldUser := account.Users[update.Id]
 	if oldUser == nil {
-		return nil, status.Errorf(codes.NotFound, "update not found")
+		return nil, status.Errorf(status.NotFound, "update not found")
 	}
 
 	// only auto groups, revoked status, and name can be updated for now
@@ -226,7 +224,7 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 			return nil, err
 		}
 		if userData == nil {
-			return nil, status.Errorf(codes.NotFound, "user %s not found in the IdP", newUser.Id)
+			return nil, status.Errorf(status.NotFound, "user %s not found in the IdP", newUser.Id)
 		}
 		return newUser.toUserInfo(userData)
 	}
@@ -242,14 +240,14 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string)
 
 	account, err := am.Store.GetAccountByUser(userID)
 	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 			account, err = am.newAccount(userID, lowerDomain)
 			if err != nil {
 				return nil, err
 			}
 			err = am.Store.SaveAccount(account)
 			if err != nil {
-				return nil, status.Errorf(codes.Internal, "failed creating account")
+				return nil, err
 			}
 		} else {
 			// other error
@@ -263,7 +261,7 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string)
 		account.Domain = lowerDomain
 		err = am.Store.SaveAccount(account)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed updating account with domain")
+			return nil, status.Errorf(status.Internal, "failed updating account with domain")
 		}
 	}
 
@@ -272,14 +270,14 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string)
 
 // IsUserAdmin flag for current user authenticated by JWT token
 func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
-	account, err := am.GetAccountFromToken(claims)
+	account, _, err := am.GetAccountFromToken(claims)
 	if err != nil {
 		return false, fmt.Errorf("get account: %v", err)
 	}
 
 	user, ok := account.Users[claims.UserId]
 	if !ok {
-		return false, fmt.Errorf("no such user")
+		return false, status.Errorf(status.NotFound, "user not found")
 	}
 
 	return user.Role == UserRoleAdmin, nil

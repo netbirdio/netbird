@@ -2,11 +2,10 @@ package server
 
 import (
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net/netip"
 	"strconv"
 	"unicode/utf8"
@@ -75,7 +74,7 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*r
 	}
 
 	if !user.IsAdmin() {
-		return nil, Errorf(PermissionDenied, "Only administrators can view Network Routes")
+		return nil, status.Errorf(status.PermissionDenied, "Only administrators can view Network Routes")
 	}
 
 	wantedRoute, found := account.Routes[routeID]
@@ -83,7 +82,7 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*r
 		return wantedRoute, nil
 	}
 
-	return nil, status.Errorf(codes.NotFound, "route with ID %s not found", routeID)
+	return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 }
 
 // checkPrefixPeerExists checks the combination of prefix and peer id, if it exists returns an error, otherwise returns nil
@@ -101,14 +100,14 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, p
 	routesWithPrefix := account.GetRoutesByPrefix(prefix)
 
 	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 			return nil
 		}
-		return status.Errorf(codes.InvalidArgument, "failed to parse prefix %s", prefix.String())
+		return status.Errorf(status.InvalidArgument, "failed to parse prefix %s", prefix.String())
 	}
 	for _, prefixRoute := range routesWithPrefix {
 		if prefixRoute.Peer == peer {
-			return status.Errorf(codes.AlreadyExists, "failed a route with prefix %s and peer already exist", prefix.String())
+			return status.Errorf(status.AlreadyExists, "failed a route with prefix %s and peer already exist", prefix.String())
 		}
 	}
 	return nil
@@ -127,7 +126,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 	var newRoute route.Route
 	prefixType, newPrefix, err := route.ParseNetwork(network)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", network)
+		return nil, status.Errorf(status.InvalidArgument, "failed to parse IP %s", network)
 	}
 	err = am.checkPrefixPeerExists(accountID, peer, newPrefix)
 	if err != nil {
@@ -137,16 +136,16 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 	if peer != "" {
 		_, peerExist := account.Peers[peer]
 		if !peerExist {
-			return nil, status.Errorf(codes.InvalidArgument, "failed to find Peer %s", peer)
+			return nil, status.Errorf(status.InvalidArgument, "failed to find Peer %s", peer)
 		}
 	}
 
 	if metric < route.MinMetric || metric > route.MaxMetric {
-		return nil, status.Errorf(codes.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
+		return nil, status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
 	}
 
 	if utf8.RuneCountInString(netID) > route.MaxNetIDChar || netID == "" {
-		return nil, status.Errorf(codes.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
+		return nil, status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
 	newRoute.Peer = peer
@@ -173,7 +172,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 	err = am.updateAccountPeers(account)
 	if err != nil {
 		log.Error(err)
-		return &newRoute, status.Errorf(codes.Unavailable, "failed to update peers after create route %s", newPrefix)
+		return &newRoute, status.Errorf(status.Internal, "failed to update peers after create route %s", newPrefix)
 	}
 	return &newRoute, nil
 }
@@ -184,19 +183,19 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 	defer unlock()
 
 	if routeToSave == nil {
-		return status.Errorf(codes.InvalidArgument, "route provided is nil")
+		return status.Errorf(status.InvalidArgument, "route provided is nil")
 	}
 
 	if !routeToSave.Network.IsValid() {
-		return status.Errorf(codes.InvalidArgument, "invalid Prefix %s", routeToSave.Network.String())
+		return status.Errorf(status.InvalidArgument, "invalid Prefix %s", routeToSave.Network.String())
 	}
 
 	if routeToSave.Metric < route.MinMetric || routeToSave.Metric > route.MaxMetric {
-		return status.Errorf(codes.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
+		return status.Errorf(status.InvalidArgument, "metric should be between %d and %d", route.MinMetric, route.MaxMetric)
 	}
 
 	if utf8.RuneCountInString(routeToSave.NetID) > route.MaxNetIDChar || routeToSave.NetID == "" {
-		return status.Errorf(codes.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
+		return status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
 	account, err := am.Store.GetAccount(accountID)
@@ -207,7 +206,7 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 	if routeToSave.Peer != "" {
 		_, peerExist := account.Peers[routeToSave.Peer]
 		if !peerExist {
-			return status.Errorf(codes.InvalidArgument, "failed to find Peer %s", routeToSave.Peer)
+			return status.Errorf(status.InvalidArgument, "failed to find Peer %s", routeToSave.Peer)
 		}
 	}
 
@@ -233,7 +232,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 
 	routeToUpdate, ok := account.Routes[routeID]
 	if !ok {
-		return nil, Errorf(NotFound, "route %s no longer exists", routeID)
+		return nil, status.Errorf(status.NotFound, "route %s no longer exists", routeID)
 	}
 
 	newRoute := routeToUpdate.Copy()
@@ -241,7 +240,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 	for _, operation := range operations {
 
 		if len(operation.Values) != 1 {
-			return nil, status.Errorf(codes.InvalidArgument, "operation %s contains invalid number of values, it should be 1", operation.Type.String())
+			return nil, status.Errorf(status.InvalidArgument, "operation %s contains invalid number of values, it should be 1", operation.Type.String())
 		}
 
 		switch operation.Type {
@@ -249,13 +248,13 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 			newRoute.Description = operation.Values[0]
 		case UpdateRouteNetworkIdentifier:
 			if utf8.RuneCountInString(operation.Values[0]) > route.MaxNetIDChar || operation.Values[0] == "" {
-				return nil, status.Errorf(codes.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
+				return nil, status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 			}
 			newRoute.NetID = operation.Values[0]
 		case UpdateRouteNetwork:
 			prefixType, prefix, err := route.ParseNetwork(operation.Values[0])
 			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse IP %s", operation.Values[0])
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse IP %s", operation.Values[0])
 			}
 			err = am.checkPrefixPeerExists(accountID, routeToUpdate.Peer, prefix)
 			if err != nil {
@@ -267,7 +266,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 			if operation.Values[0] != "" {
 				_, peerExist := account.Peers[operation.Values[0]]
 				if !peerExist {
-					return nil, status.Errorf(codes.InvalidArgument, "failed to find Peer %s", operation.Values[0])
+					return nil, status.Errorf(status.InvalidArgument, "failed to find Peer %s", operation.Values[0])
 				}
 			}
 
@@ -279,10 +278,10 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 		case UpdateRouteMetric:
 			metric, err := strconv.Atoi(operation.Values[0])
 			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse metric %s, not int", operation.Values[0])
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse metric %s, not int", operation.Values[0])
 			}
 			if metric < route.MinMetric || metric > route.MaxMetric {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse metric %s, value should be %d > N < %d",
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse metric %s, value should be %d > N < %d",
 					operation.Values[0],
 					route.MinMetric,
 					route.MaxMetric,
@@ -292,13 +291,13 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 		case UpdateRouteMasquerade:
 			masquerade, err := strconv.ParseBool(operation.Values[0])
 			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse masquerade %s, not boolean", operation.Values[0])
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse masquerade %s, not boolean", operation.Values[0])
 			}
 			newRoute.Masquerade = masquerade
 		case UpdateRouteEnabled:
 			enabled, err := strconv.ParseBool(operation.Values[0])
 			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
 			}
 			newRoute.Enabled = enabled
 		}
@@ -313,7 +312,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 
 	err = am.updateAccountPeers(account)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update account peers")
+		return nil, status.Errorf(status.Internal, "failed to update account peers")
 	}
 	return newRoute, nil
 }
@@ -354,7 +353,7 @@ func (am *DefaultAccountManager) ListRoutes(accountID, userID string) ([]*route.
 	}
 
 	if !user.IsAdmin() {
-		return nil, Errorf(PermissionDenied, "Only administrators can view Network Routes")
+		return nil, status.Errorf(status.PermissionDenied, "Only administrators can view Network Routes")
 	}
 
 	routes := make([]*route.Route, 0, len(account.Routes))

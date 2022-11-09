@@ -1,15 +1,13 @@
 package server
 
 import (
+	"github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -192,7 +190,7 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 
 	accountID, accountIDFound := s.PrivateDomain2AccountID[strings.ToLower(domain)]
 	if !accountIDFound {
-		return nil, Errorf(NotFound, "account not found: provided domain is not registered or is not private")
+		return nil, status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
 	}
 
 	account, err := s.getAccount(accountID)
@@ -210,7 +208,7 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 
 	accountID, accountIDFound := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
 	if !accountIDFound {
-		return nil, status.Errorf(codes.NotFound, "account not found: provided setup key doesn't exists")
+		return nil, status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
 	}
 
 	account, err := s.getAccount(accountID)
@@ -236,7 +234,7 @@ func (s *FileStore) GetAllAccounts() (all []*Account) {
 func (s *FileStore) getAccount(accountID string) (*Account, error) {
 	account, accountFound := s.Accounts[accountID]
 	if !accountFound {
-		return nil, Errorf(NotFound, "account not found")
+		return nil, status.Errorf(status.NotFound, "account not found")
 	}
 
 	return account, nil
@@ -262,7 +260,7 @@ func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 
 	accountID, accountIDFound := s.UserID2AccountID[userID]
 	if !accountIDFound {
-		return nil, Errorf(NotFound, "account not found")
+		return nil, status.Errorf(status.NotFound, "account not found")
 	}
 
 	account, err := s.getAccount(accountID)
@@ -280,7 +278,7 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 
 	accountID, accountIDFound := s.PeerKeyID2AccountID[peerKey]
 	if !accountIDFound {
-		return nil, status.Errorf(codes.NotFound, "Provided peer key doesn't exists %s", peerKey)
+		return nil, status.Errorf(status.NotFound, "provided peer key doesn't exists %s", peerKey)
 	}
 
 	account, err := s.getAccount(accountID)
@@ -319,7 +317,7 @@ func (s *FileStore) SavePeerStatus(accountID, peerKey string, peerStatus PeerSta
 
 	peer := account.Peers[peerKey]
 	if peer == nil {
-		return status.Errorf(codes.NotFound, "peer %s not found", peerKey)
+		return status.Errorf(status.NotFound, "peer %s not found", peerKey)
 	}
 
 	peer.Status = &peerStatus

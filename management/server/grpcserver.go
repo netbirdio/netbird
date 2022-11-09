@@ -14,6 +14,7 @@ import (
 	"github.com/golang/protobuf/ptypes/timestamp"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
+	internalStatus "github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
@@ -200,10 +201,6 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 			return nil, status.Errorf(codes.Internal, "invalid jwt token, err: %v", err)
 		}
 		claims := jwtclaims.ExtractClaimsWithToken(token, s.config.HttpConfig.AuthAudience)
-		_, err = s.accountManager.GetAccountFromToken(claims)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
-		}
 		userID = claims.UserId
 	} else {
 		log.Debugln("using setup key to register peer")
@@ -237,12 +234,12 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 		},
 	})
 	if err != nil {
-		if e, ok := FromError(err); ok {
+		if e, ok := internalStatus.FromError(err); ok {
 			switch e.Type() {
-			case PreconditionFailed:
-				return nil, status.Errorf(codes.FailedPrecondition, e.message)
-			case NotFound:
-				return nil, status.Errorf(codes.NotFound, e.message)
+			case internalStatus.PreconditionFailed:
+				return nil, status.Errorf(codes.FailedPrecondition, e.Message)
+			case internalStatus.NotFound:
+				return nil, status.Errorf(codes.NotFound, e.Message)
 			default:
 			}
 		}
@@ -299,7 +296,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	peer, err := s.accountManager.GetPeer(peerKey.String())
 	if err != nil {
-		if errStatus, ok := status.FromError(err); ok && errStatus.Code() == codes.NotFound {
+		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
 			// peer doesn't exist -> check if setup key was provided
 			if loginReq.GetJwtToken() == "" && loginReq.GetSetupKey() == "" {
 				// absent setup key or jwt -> permission denied
@@ -385,7 +382,6 @@ func ToResponseProto(configProto Protocol) proto.HostConfig_Protocol {
 	case TCP:
 		return proto.HostConfig_TCP
 	default:
-		// mbragin: todo something better?
 		panic(fmt.Errorf("unexpected config protocol type %v", configProto))
 	}
 }

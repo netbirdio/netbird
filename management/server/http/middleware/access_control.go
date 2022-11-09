@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/status"
 	"net/http"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -39,8 +41,9 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 
 		if !ok {
 			switch r.Method {
+
 			case http.MethodDelete, http.MethodPost, http.MethodPatch, http.MethodPut:
-				http.Error(w, "user is not admin", http.StatusForbidden)
+				util.WriteError(status.Errorf(status.PermissionDenied, "WriteError"), w)
 				return
 			}
 		}

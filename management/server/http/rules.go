@@ -6,11 +6,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net/http"
 )
 
@@ -31,7 +31,8 @@ func NewRules(accountManager server.AccountManager, authAudience string) *Rules 
 
 // GetAllRulesHandler list for the account
 func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
-	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
@@ -41,9 +42,9 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 	accountRules, err := h.accountManager.ListRules(account.Id, user.Id)
 	if err != nil {
 		log.Error(err)
-		if e, ok := server.FromError(err); ok {
+		if e, ok := status.FromError(err); ok {
 			switch e.Type() {
-			case server.PermissionDenied:
+			case status.PermissionDenied:
 				http.Error(w, e.Error(), http.StatusForbidden)
 				return
 			default:
@@ -57,12 +58,13 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 		rules = append(rules, toRuleResponse(account, r))
 	}
 
-	writeJSONObject(w, rules)
+	util.WriteJSONObject(w, rules)
 }
 
 // UpdateRuleHandler handles update to a rule identified by a given ID
 func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -127,12 +129,13 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp := toRuleResponse(account, &rule)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 }
 
 // PatchRuleHandler handles patch updates to a rule identified by a given ID
 func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -262,18 +265,18 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		errStatus, ok := status.FromError(err)
-		if ok && errStatus.Code() == codes.Internal {
-			http.Error(w, errStatus.String(), http.StatusInternalServerError)
+		if ok && errStatus.Type() == status.Internal {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 
-		if ok && errStatus.Code() == codes.NotFound {
-			http.Error(w, errStatus.String(), http.StatusNotFound)
+		if ok && errStatus.Type() == status.NotFound {
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 
-		if ok && errStatus.Code() == codes.InvalidArgument {
-			http.Error(w, errStatus.String(), http.StatusBadRequest)
+		if ok && errStatus.Type() == status.InvalidArgument {
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -284,12 +287,13 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp := toRuleResponse(account, rule)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 }
 
 // CreateRuleHandler handles rule creation request
 func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -341,12 +345,13 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 	resp := toRuleResponse(account, &rule)
 
-	writeJSONObject(w, &resp)
+	util.WriteJSONObject(w, &resp)
 }
 
 // DeleteRuleHandler handles rule deletion request
 func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -365,12 +370,13 @@ func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSONObject(w, "")
+	util.WriteJSONObject(w, "")
 }
 
 // GetRuleHandler handles a group Get request identified by ID
 func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
-	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
@@ -390,7 +396,7 @@ func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		writeJSONObject(w, toRuleResponse(account, rule))
+		util.WriteJSONObject(w, toRuleResponse(account, rule))
 	default:
 		http.Error(w, "", http.StatusNotFound)
 	}
