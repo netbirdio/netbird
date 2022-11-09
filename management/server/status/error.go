@@ -25,6 +25,9 @@ const (
 
 	// AlreadyExists indicates a generic error when an object already exists in the system
 	AlreadyExists Type = 7
+
+	// Unauthorized indicates that user is not authorized
+	Unauthorized Type = 8
 )
 
 // Type is a type of the Error

@@ -9,6 +9,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
 	"net/http"
 )
@@ -58,19 +59,20 @@ func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *htt
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
+
 	var req api.PostApiDnsNameserversJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	nsList, err := toServerNSList(req.Nameservers)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid NS servers format"), w)
 		return
 	}
 
@@ -90,26 +92,26 @@ func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *htt
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	nsGroupID := mux.Vars(r)["id"]
 	if len(nsGroupID) == 0 {
-		http.Error(w, "invalid nameserver group ID", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
 		return
 	}
 
 	var req api.PutApiDnsNameserversIdJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	nsList, err := toServerNSList(req.Nameservers)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid NS servers format"), w)
 		return
 	}
 
@@ -140,28 +142,28 @@ func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	nsGroupID := mux.Vars(r)["id"]
 	if len(nsGroupID) == 0 {
-		http.Error(w, "invalid nameserver group ID", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
 		return
 	}
 
 	var req api.PatchApiDnsNameserversIdJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	var operations []server.NameServerGroupUpdateOperation
 	for _, patch := range req {
 		if patch.Op != api.NameserverGroupPatchOperationOpReplace {
-			http.Error(w, fmt.Sprintf("nameserver groups only accepts replace operations, got %s", patch.Op),
-				http.StatusBadRequest)
+			util.WriteError(status.Errorf(status.InvalidArgument,
+				"nameserver groups only accepts replace operations, got %s", patch.Op), w)
 			return
 		}
 		switch patch.Path {
@@ -201,7 +203,7 @@ func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http
 				Values: patch.Value,
 			})
 		default:
-			http.Error(w, "invalid patch path", http.StatusBadRequest)
+			util.WriteError(status.Errorf(status.InvalidArgument, "invalid patch path"), w)
 			return
 		}
 	}
@@ -222,14 +224,13 @@ func (h *Nameservers) DeleteNameserverGroupHandler(w http.ResponseWriter, r *htt
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	nsGroupID := mux.Vars(r)["id"]
 	if len(nsGroupID) == 0 {
-		http.Error(w, "invalid nameserver group ID", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
 		return
 	}
 
@@ -254,7 +255,7 @@ func (h *Nameservers) GetNameserverGroupHandler(w http.ResponseWriter, r *http.R
 
 	nsGroupID := mux.Vars(r)["id"]
 	if len(nsGroupID) == 0 {
-		http.Error(w, "invalid nameserver group ID", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid nameserver group ID"), w)
 		return
 	}
 

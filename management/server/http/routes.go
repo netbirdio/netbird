@@ -2,7 +2,6 @@ package http
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -10,7 +9,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	log "github.com/sirupsen/logrus"
 	"net/http"
 	"unicode/utf8"
 )
@@ -36,23 +34,13 @@ func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	routes, err := h.accountManager.ListRoutes(account.Id, user.Id)
 	if err != nil {
-		log.Error(err)
-		if e, ok := status.FromError(err); ok {
-			switch e.Type() {
-			case status.PermissionDenied:
-				http.Error(w, e.Error(), http.StatusForbidden)
-				return
-			default:
-			}
-		}
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 	apiRoutes := make([]*api.Route, 0)
@@ -68,13 +56,14 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	var req api.PostApiRoutesJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
@@ -82,8 +71,7 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	if req.Peer != "" {
 		peer, err := h.accountManager.GetPeerByIP(account.Id, req.Peer)
 		if err != nil {
-			log.Error(err)
-			http.Redirect(w, r, "/", http.StatusUnprocessableEntity)
+			util.WriteError(err, w)
 			return
 		}
 		peerKey = peer.Key
@@ -91,19 +79,19 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	_, newPrefix, err := route.ParseNetwork(req.Network)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("couldn't parse update prefix %s", req.Network), http.StatusBadRequest)
+		util.WriteError(err, w)
 		return
 	}
 
 	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
-		http.Error(w, fmt.Sprintf("identifier should be between 1 and %d", route.MaxNetIDChar), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d",
+			route.MaxNetIDChar), w)
 		return
 	}
 
 	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), peerKey, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Enabled)
 	if err != nil {
-		log.Error(err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -117,32 +105,34 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	routeID := vars["id"]
 	if len(routeID) == 0 {
-		http.Error(w, "invalid route Id", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
 	}
 
 	_, err = h.accountManager.GetRoute(account.Id, routeID, user.Id)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("couldn't find route for ID %s", routeID), http.StatusNotFound)
+		util.WriteError(err, w)
 		return
 	}
 
 	var req api.PutApiRoutesIdJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	prefixType, newPrefix, err := route.ParseNetwork(req.Network)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("couldn't parse update prefix %s for route ID %s", req.Network, routeID), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse update prefix %s for route ID %s",
+			req.Network, routeID), w)
 		return
 	}
 
@@ -150,15 +140,15 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	if req.Peer != "" {
 		peer, err := h.accountManager.GetPeerByIP(account.Id, req.Peer)
 		if err != nil {
-			log.Error(err)
-			http.Redirect(w, r, "/", http.StatusUnprocessableEntity)
+			util.WriteError(err, w)
 			return
 		}
 		peerKey = peer.Key
 	}
 
 	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
-		http.Error(w, fmt.Sprintf("identifier should be between 1 and %d", route.MaxNetIDChar), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument,
+			"identifier should be between 1 and %d", route.MaxNetIDChar), w)
 		return
 	}
 
@@ -176,8 +166,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	err = h.accountManager.SaveRoute(account.Id, newRoute)
 	if err != nil {
-		log.Errorf("failed updating route \"%s\" under account %s %v", routeID, account.Id, err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -191,32 +180,32 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	routeID := vars["id"]
 	if len(routeID) == 0 {
-		http.Error(w, "invalid route ID", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
 	}
 
 	_, err = h.accountManager.GetRoute(account.Id, routeID, user.Id)
 	if err != nil {
-		log.Error(err)
-		http.Error(w, fmt.Sprintf("couldn't find route ID %s", routeID), http.StatusNotFound)
+		util.WriteError(err, w)
 		return
 	}
 
 	var req api.PatchApiRoutesIdJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	if len(req) == 0 {
-		http.Error(w, "no patch instruction received", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "no patch instruction received"), w)
 		return
 	}
 
@@ -226,8 +215,8 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 		switch patch.Path {
 		case api.RoutePatchOperationPathNetwork:
 			if patch.Op != api.RoutePatchOperationOpReplace {
-				http.Error(w, fmt.Sprintf("Network field only accepts replace operation, got %s", patch.Op),
-					http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"network field only accepts replace operation, got %s", patch.Op), w)
 				return
 			}
 			operations = append(operations, server.RouteUpdateOperation{
@@ -236,8 +225,8 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		case api.RoutePatchOperationPathDescription:
 			if patch.Op != api.RoutePatchOperationOpReplace {
-				http.Error(w, fmt.Sprintf("Description field only accepts replace operation, got %s", patch.Op),
-					http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"description field only accepts replace operation, got %s", patch.Op), w)
 				return
 			}
 			operations = append(operations, server.RouteUpdateOperation{
@@ -246,8 +235,8 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		case api.RoutePatchOperationPathNetworkId:
 			if patch.Op != api.RoutePatchOperationOpReplace {
-				http.Error(w, fmt.Sprintf("Network Identifier field only accepts replace operation, got %s", patch.Op),
-					http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"network Identifier field only accepts replace operation, got %s", patch.Op), w)
 				return
 			}
 			operations = append(operations, server.RouteUpdateOperation{
@@ -256,22 +245,20 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		case api.RoutePatchOperationPathPeer:
 			if patch.Op != api.RoutePatchOperationOpReplace {
-				http.Error(w, fmt.Sprintf("Peer field only accepts replace operation, got %s", patch.Op),
-					http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"peer field only accepts replace operation, got %s", patch.Op), w)
 				return
 			}
 			if len(patch.Value) > 1 {
-				http.Error(w, fmt.Sprintf("Value field only accepts 1 value, got %d", len(patch.Value)),
-					http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"value field only accepts 1 value, got %d", len(patch.Value)), w)
 				return
 			}
 			peerValue := patch.Value
 			if patch.Value[0] != "" {
 				peer, err := h.accountManager.GetPeerByIP(account.Id, patch.Value[0])
 				if err != nil {
-					log.Error(err)
-					http.Redirect(w, r, "/", http.StatusUnprocessableEntity)
-					return
+					util.WriteError(err, w)
 				}
 				peerValue = []string{peer.Key}
 			}
@@ -281,8 +268,9 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		case api.RoutePatchOperationPathMetric:
 			if patch.Op != api.RoutePatchOperationOpReplace {
-				http.Error(w, fmt.Sprintf("Metric field only accepts replace operation, got %s", patch.Op),
-					http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"metric field only accepts replace operation, got %s", patch.Op), w)
+
 				return
 			}
 			operations = append(operations, server.RouteUpdateOperation{
@@ -291,8 +279,8 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		case api.RoutePatchOperationPathMasquerade:
 			if patch.Op != api.RoutePatchOperationOpReplace {
-				http.Error(w, fmt.Sprintf("Masquerade field only accepts replace operation, got %s", patch.Op),
-					http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"masquerade field only accepts replace operation, got %s", patch.Op), w)
 				return
 			}
 			operations = append(operations, server.RouteUpdateOperation{
@@ -301,8 +289,8 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		case api.RoutePatchOperationPathEnabled:
 			if patch.Op != api.RoutePatchOperationOpReplace {
-				http.Error(w, fmt.Sprintf("Enabled field only accepts replace operation, got %s", patch.Op),
-					http.StatusBadRequest)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"enabled field only accepts replace operation, got %s", patch.Op), w)
 				return
 			}
 			operations = append(operations, server.RouteUpdateOperation{
@@ -310,32 +298,14 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 				Values: patch.Value,
 			})
 		default:
-			http.Error(w, "invalid patch path", http.StatusBadRequest)
+			util.WriteError(status.Errorf(status.InvalidArgument, "invalid patch path"), w)
 			return
 		}
 	}
 
 	route, err := h.accountManager.UpdateRoute(account.Id, routeID, operations)
-
 	if err != nil {
-		errStatus, ok := status.FromError(err)
-		if ok && errStatus.Type() == status.Internal {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		if ok && errStatus.Type() == status.NotFound {
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-
-		if ok && errStatus.Type() == status.InvalidArgument {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		log.Errorf("failed updating route %s under account %s %v", routeID, account.Id, err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -349,25 +319,19 @@ func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	routeID := mux.Vars(r)["id"]
 	if len(routeID) == 0 {
-		http.Error(w, "invalid route ID", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
 	}
 
 	err = h.accountManager.DeleteRoute(account.Id, routeID)
 	if err != nil {
-		errStatus, ok := status.FromError(err)
-		if ok && errStatus.Type() == status.NotFound {
-			http.Error(w, fmt.Sprintf("route %s not found under account %s", routeID, account.Id), http.StatusNotFound)
-			return
-		}
-		log.Errorf("failed delete route %s under account %s %v", routeID, account.Id, err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -379,19 +343,19 @@ func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	routeID := mux.Vars(r)["id"]
 	if len(routeID) == 0 {
-		http.Error(w, "invalid route ID", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
 	}
 
 	foundRoute, err := h.accountManager.GetRoute(account.Id, routeID, user.Id)
 	if err != nil {
-		http.Error(w, "route not found", http.StatusNotFound)
+		util.WriteError(status.Errorf(status.NotFound, "route not found"), w)
 		return
 	}
 

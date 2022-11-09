@@ -8,7 +8,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	log "github.com/sirupsen/logrus"
+	"github.com/netbirdio/netbird/management/server/status"
 	"net/http"
 )
 
@@ -29,18 +29,16 @@ func NewPeers(accountManager server.AccountManager, authAudience string) *Peers 
 
 func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
 	req := &api.PutApiPeersIdJSONBody{}
-	peerIp := peer.IP
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	update := &server.Peer{Key: peer.Key, SSHEnabled: req.SshEnabled, Name: req.Name}
 	peer, err = h.accountManager.UpdatePeer(account.Id, update)
 	if err != nil {
-		log.Errorf("failed updating peer %s under account %s %v", peerIp, account.Id, err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 	util.WriteJSONObject(w, toPeerResponse(peer, account))
@@ -49,8 +47,7 @@ func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.Re
 func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
 	_, err := h.accountManager.DeletePeer(accountId, peer.Key)
 	if err != nil {
-		log.Errorf("failed deleteing peer %s, %v", peer.IP, err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 	util.WriteJSONObject(w, "")
@@ -60,20 +57,19 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 	vars := mux.Vars(r)
 	peerId := vars["id"] //effectively peer IP address
 	if len(peerId) == 0 {
-		http.Error(w, "invalid peer Id", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
 		return
 	}
 
 	peer, err := h.accountManager.GetPeerByIP(account.Id, peerId)
 	if err != nil {
-		http.Error(w, "peer not found", http.StatusNotFound)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -89,7 +85,7 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		return
 
 	default:
-		http.Error(w, "", http.StatusNotFound)
+		util.WriteError(status.Errorf(status.NotFound, "unknown METHOD"), w)
 	}
 
 }
@@ -100,13 +96,13 @@ func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 		claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
 		account, user, err := h.accountManager.GetAccountFromToken(claims)
 		if err != nil {
-			log.Error(err)
-			http.Redirect(w, r, "/", http.StatusInternalServerError)
+			util.WriteError(err, w)
 			return
 		}
 
 		peers, err := h.accountManager.GetPeers(account.Id, user.Id)
 		if err != nil {
+			util.WriteError(err, w)
 			return
 		}
 
@@ -117,7 +113,7 @@ func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 		util.WriteJSONObject(w, respBody)
 		return
 	default:
-		http.Error(w, "", http.StatusNotFound)
+		util.WriteError(status.Errorf(status.NotFound, "unknown METHOD"), w)
 	}
 }
 

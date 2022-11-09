@@ -2,12 +2,12 @@ package http
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/status"
 	"net/http"
 	"time"
 )
@@ -39,19 +39,18 @@ func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 	req := &api.PostApiSetupKeysJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	if req.Name == "" {
-		http.Error(w, "Setup key name shouldn't be empty", http.StatusUnprocessableEntity)
+		util.WriteError(status.Errorf(status.InvalidArgument, "setup key name shouldn't be empty"), w)
 		return
 	}
 
 	if !(server.SetupKeyType(req.Type) == server.SetupKeyReusable ||
 		server.SetupKeyType(req.Type) == server.SetupKeyOneOff) {
-
-		http.Error(w, "unknown setup key type "+string(req.Type), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "unknown setup key type %s", string(req.Type)), w)
 		return
 	}
 
@@ -60,8 +59,7 @@ func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 	if req.AutoGroups == nil {
 		req.AutoGroups = []string{}
 	}
-	// newExpiresIn := time.Duration(req.ExpiresIn) * time.Second
-	// newKey.ExpiresAt = time.Now().Add(newExpiresIn)
+
 	setupKey, err := h.accountManager.CreateSetupKey(account.Id, req.Name, server.SetupKeyType(req.Type), expiresIn,
 		req.AutoGroups)
 	if err != nil {
@@ -84,7 +82,7 @@ func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	keyID := vars["id"]
 	if len(keyID) == 0 {
-		http.Error(w, "invalid key Id", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid key ID"), w)
 		return
 	}
 
@@ -109,24 +107,25 @@ func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 	vars := mux.Vars(r)
 	keyID := vars["id"]
 	if len(keyID) == 0 {
-		http.Error(w, "invalid key Id", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid key ID"), w)
 		return
 	}
 
 	req := &api.PutApiSetupKeysIdJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
 		return
 	}
 
 	if req.Name == "" {
-		http.Error(w, fmt.Sprintf("setup key name field is invalid: %s", req.Name), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "setup key name field is invalid: %s", req.Name), w)
 		return
 	}
 
 	if req.AutoGroups == nil {
-		http.Error(w, fmt.Sprintf("setup key AutoGroups field is invalid: %s", req.AutoGroups), http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "setup key AutoGroups field is invalid: %s",
+			req.AutoGroups, req.Name), w)
 		return
 	}
 
@@ -173,7 +172,7 @@ func writeSuccess(w http.ResponseWriter, key *server.SetupKey) {
 	w.Header().Set("Content-Type", "application/json")
 	err := json.NewEncoder(w).Encode(toResponseBody(key))
 	if err != nil {
-		http.Error(w, "failed handling request", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 }

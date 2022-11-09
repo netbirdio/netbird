@@ -16,7 +16,7 @@ func WriteJSONObject(w http.ResponseWriter, obj interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	err := json.NewEncoder(w).Encode(obj)
 	if err != nil {
-		http.Error(w, "failed handling request", http.StatusInternalServerError)
+		WriteError(err, w)
 		return
 	}
 }
