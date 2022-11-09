@@ -241,9 +241,7 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 			switch e.Type() {
 			case PreconditionFailed:
 				return nil, status.Errorf(codes.FailedPrecondition, e.message)
-			case AccountNotFound:
-			case SetupKeyNotFound:
-			case UserNotFound:
+			case NotFound:
 				return nil, status.Errorf(codes.NotFound, e.message)
 			default:
 			}

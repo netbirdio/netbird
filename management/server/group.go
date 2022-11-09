@@ -99,7 +99,7 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 
 	groupToUpdate, ok := account.Groups[groupID]
 	if !ok {
-		return nil, Errorf(GroupNotFound, "group with ID %s no longer exists", groupID)
+		return nil, Errorf(NotFound, "group with ID %s no longer exists", groupID)
 	}
 
 	group := groupToUpdate.Copy()
@@ -224,7 +224,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 
 	group, ok := account.Groups[groupID]
 	if !ok {
-		return Errorf(GroupNotFound, "group with ID %s not found", groupID)
+		return Errorf(NotFound, "group with ID %s not found", groupID)
 	}
 
 	account.Network.IncSerial()

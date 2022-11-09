@@ -233,7 +233,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 
 	routeToUpdate, ok := account.Routes[routeID]
 	if !ok {
-		return nil, Errorf(RouteNotFound, "route %s no longer exists", routeID)
+		return nil, Errorf(NotFound, "route %s no longer exists", routeID)
 	}
 
 	newRoute := routeToUpdate.Copy()

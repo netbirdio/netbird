@@ -272,7 +272,7 @@ func (a *Account) FindPeerByPubKey(peerPubKey string) (*Peer, error) {
 func (a *Account) FindUser(userID string) (*User, error) {
 	user := a.Users[userID]
 	if user == nil {
-		return nil, Errorf(UserNotFound, "user %s not found", userID)
+		return nil, Errorf(NotFound, "user %s not found", userID)
 	}
 
 	return user, nil
@@ -282,7 +282,7 @@ func (a *Account) FindUser(userID string) (*User, error) {
 func (a *Account) FindSetupKey(setupKey string) (*SetupKey, error) {
 	key := a.SetupKeys[setupKey]
 	if key == nil {
-		return nil, Errorf(SetupKeyNotFound, "setup key not found")
+		return nil, Errorf(NotFound, "setup key not found")
 	}
 
 	return key, nil
@@ -458,7 +458,7 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 		if err == nil {
 			log.Warnf("an account with ID already exists, retrying...")
 			continue
-		} else if statusErr.Type() == AccountNotFound {
+		} else if statusErr.Type() == NotFound {
 			return newAccountWithId(accountId, userID, domain), nil
 		} else {
 			return nil, err
@@ -855,9 +855,9 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
 	if err != nil {
-		// if AccountNotFound we are good to continue, otherwise return error
+		// if NotFound we are good to continue, otherwise return error
 		e, ok := FromError(err)
-		if !ok || e.Type() != AccountNotFound {
+		if !ok || e.Type() != NotFound {
 			return nil, err
 		}
 	}
@@ -869,7 +869,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 			return nil, err
 		}
 		return account, nil
-	} else if s, ok := FromError(err); ok && s.Type() == AccountNotFound {
+	} else if s, ok := FromError(err); ok && s.Type() == NotFound {
 		return am.handleNewUserAccount(domainAccount, claims)
 	} else {
 		// other error
@@ -891,7 +891,7 @@ func (am *DefaultAccountManager) AccountExists(accountID string) (*bool, error) 
 	var res bool
 	_, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		if s, ok := FromError(err); ok && s.Type() == AccountNotFound {
+		if s, ok := FromError(err); ok && s.Type() == NotFound {
 			res = false
 			return &res, nil
 		} else {

@@ -148,7 +148,7 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 
 	ruleToUpdate, ok := account.Rules[ruleID]
 	if !ok {
-		return nil, Errorf(RuleNotFound, "rule %s no longer exists", ruleID)
+		return nil, Errorf(NotFound, "rule %s no longer exists", ruleID)
 	}
 
 	rule := ruleToUpdate.Copy()

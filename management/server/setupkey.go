@@ -187,7 +187,7 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 
 	for _, group := range autoGroups {
 		if _, ok := account.Groups[group]; !ok {
-			return nil, Errorf(GroupNotFound, "group %s doesn't exist", group)
+			return nil, Errorf(NotFound, "group %s doesn't exist", group)
 		}
 	}
 

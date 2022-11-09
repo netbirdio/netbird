@@ -132,7 +132,7 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, Errorf(AccountNotFound, "account %s doesn't exist", accountID)
+		return nil, Errorf(NotFound, "account %s doesn't exist", accountID)
 	}
 
 	// check if the user is already registered with this email => reject

@@ -332,7 +332,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		account, err = am.Store.GetAccountBySetupKey(setupKey)
 	}
 	if err != nil {
-		return nil, Errorf(AccountNotFound, "failed adding new peer: account not found")
+		return nil, Errorf(NotFound, "failed adding new peer: account not found")
 	}
 
 	unlock := am.Store.AcquireAccountLock(account.Id)
