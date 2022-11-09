@@ -8,7 +8,6 @@ builds:
     goos:
       - linux
     goarch:
-      - arm
       - amd64
       - arm64
     ldflags:
