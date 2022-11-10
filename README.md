@@ -26,7 +26,7 @@
 <strong>
   Start using NetBird at <a href="https://app.netbird.io/">app.netbird.io</a>
   <br/>
-  See <a href="https://netbird.io/docs/">DocumentNetBird uses NAT traversal techniques to automatically create an overlay peer-to-peer network connecting machines regardless of location (home, office, data center, container, cloud, or edge environments), unifying virtual private network management experience.ation</a>
+  See <a href="https://netbird.io/docs/">Documentation</a>
   <br/>
    Join our <a href="https://join.slack.com/t/netbirdio/shared_invite/zt-vrahf41g-ik1v7fV8du6t0RwxSrJ96A">Slack channel</a>
   <br/>
