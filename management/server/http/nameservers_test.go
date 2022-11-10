@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +61,7 @@ func initNameserversTestData() *Nameservers {
 				if nsGroupID == existingNSGroupID {
 					return baseExistingNSGroup.Copy(), nil
 				}
-				return nil, status.Errorf(codes.NotFound, "nameserver group with ID %s not found", nsGroupID)
+				return nil, status.Errorf(status.NotFound, "nameserver group with ID %s not found", nsGroupID)
 			},
 			CreateNameServerGroupFunc: func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool) (*nbdns.NameServerGroup, error) {
 				return &nbdns.NameServerGroup{
@@ -83,12 +82,12 @@ func initNameserversTestData() *Nameservers {
 				if nsGroupToSave.ID == existingNSGroupID {
 					return nil
 				}
-				return status.Errorf(codes.NotFound, "nameserver group with ID %s was not found", nsGroupToSave.ID)
+				return status.Errorf(status.NotFound, "nameserver group with ID %s was not found", nsGroupToSave.ID)
 			},
 			UpdateNameServerGroupFunc: func(accountID, nsGroupID string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error) {
 				nsGroupToUpdate := baseExistingNSGroup.Copy()
 				if nsGroupID != nsGroupToUpdate.ID {
-					return nil, status.Errorf(codes.NotFound, "nameserver group ID %s no longer exists", nsGroupID)
+					return nil, status.Errorf(status.NotFound, "nameserver group ID %s no longer exists", nsGroupID)
 				}
 				for _, operation := range operations {
 					switch operation.Type {
@@ -110,8 +109,8 @@ func initNameserversTestData() *Nameservers {
 				}
 				return nsGroupToUpdate, nil
 			},
-			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, error) {
-				return testingNSAccount, nil
+			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+				return testingNSAccount, nil, nil
 			},
 		},
 		authAudience: "",
@@ -181,7 +180,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestPath: "/api/dns/nameservers",
 			requestBody: bytes.NewBuffer(
 				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"1000\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true,\"primary\":true}")),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -223,7 +222,7 @@ func TestNameserversHandlers(t *testing.T) {
 			requestPath: "/api/dns/nameservers/" + notFoundNSGroupID,
 			requestBody: bytes.NewBuffer(
 				[]byte("{\"name\":\"name\",\"Description\":\"Post\",\"nameservers\":[{\"ip\":\"100\",\"ns_type\":\"udp\",\"port\":53}],\"groups\":[\"group\"],\"enabled\":true,\"primary\":true}")),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{

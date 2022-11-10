@@ -107,7 +107,7 @@ func (r *Route) IsEqual(other *Route) bool {
 func ParseNetwork(networkString string) (NetworkType, netip.Prefix, error) {
 	prefix, err := netip.ParsePrefix(networkString)
 	if err != nil {
-		return InvalidNetwork, netip.Prefix{}, err
+		return InvalidNetwork, netip.Prefix{}, status.Errorf(status.InvalidArgument, "invalid network %s", networkString)
 	}
 
 	masked := prefix.Masked()

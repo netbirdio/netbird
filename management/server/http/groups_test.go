@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
 	"io"
 	"net"
 	"net/http"
@@ -36,7 +37,7 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *Groups {
 			},
 			GetGroupFunc: func(_, groupID string) (*server.Group, error) {
 				if groupID != "idofthegroup" {
-					return nil, fmt.Errorf("not found")
+					return nil, status.Errorf(status.NotFound, "not found")
 				}
 				return &server.Group{
 					ID:   "idofthegroup",
@@ -67,7 +68,7 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *Groups {
 				}
 				return nil, fmt.Errorf("peer not found")
 			},
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
@@ -78,7 +79,7 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *Groups {
 					Groups: map[string]*server.Group{
 						"id-existed": {ID: "id-existed", Peers: []string{"A", "B"}},
 						"id-all":     {ID: "id-all", Name: "All"}},
-				}, nil
+				}, user, nil
 			},
 		},
 		authAudience: "",
@@ -223,7 +224,7 @@ func TestWriteGroup(t *testing.T) {
 			requestPath: "/api/groups/id-all",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{"Name":"super"}`)),
-			expectedStatus: http.StatusMethodNotAllowed,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -244,7 +245,7 @@ func TestWriteGroup(t *testing.T) {
 			requestPath: "/api/groups/id-existed",
 			requestBody: bytes.NewBuffer(
 				[]byte(`[{"op":"insert","path":"name","value":[""]}]`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{

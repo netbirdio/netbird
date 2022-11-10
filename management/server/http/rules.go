@@ -74,7 +74,7 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	var req api.PutApiRulesIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 	}
 
 	if req.Name == "" {
@@ -145,7 +145,7 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 	var req api.PatchApiRulesIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -276,7 +276,7 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	var req api.PostApiRulesJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 

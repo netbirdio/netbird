@@ -66,7 +66,7 @@ func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *htt
 	var req api.PostApiDnsNameserversJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -105,7 +105,7 @@ func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *htt
 	var req api.PutApiDnsNameserversIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -155,7 +155,7 @@ func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http
 	var req api.PatchApiDnsNameserversIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 

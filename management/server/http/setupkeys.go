@@ -39,7 +39,7 @@ func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 	req := &api.PostApiSetupKeysJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -114,7 +114,7 @@ func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 	req := &api.PutApiSetupKeysIdJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -124,8 +124,7 @@ func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	if req.AutoGroups == nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "setup key AutoGroups field is invalid: %s",
-			req.AutoGroups, req.Name), w)
+		util.WriteError(status.Errorf(status.InvalidArgument, "setup key AutoGroups field is invalid"), w)
 		return
 	}
 

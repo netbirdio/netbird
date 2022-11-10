@@ -85,8 +85,9 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req api.PutApiGroupsIdJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -144,8 +145,9 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req api.PatchApiGroupsIdJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -161,7 +163,7 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 		case api.GroupPatchOperationPathName:
 			if patch.Op != api.GroupPatchOperationOpReplace {
 				util.WriteError(status.Errorf(status.InvalidArgument,
-					"Name field only accepts replace operation, got %s", patch.Op), w)
+					"name field only accepts replace operation, got %s", patch.Op), w)
 				return
 			}
 
@@ -195,7 +197,8 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 					Values: peerKeys,
 				})
 			default:
-				util.WriteError(status.Errorf(status.InvalidArgument, "invalid operation, \"%s\", for Peers field"), w)
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"invalid operation, \"%v\", for Peers field", patch.Op), w)
 				return
 			}
 		default:
@@ -223,8 +226,9 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req api.PostApiGroupsJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 

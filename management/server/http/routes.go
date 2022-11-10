@@ -63,7 +63,7 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	var req api.PostApiRoutesJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -125,7 +125,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	var req api.PutApiRoutesIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -200,7 +200,7 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 	var req api.PatchApiRoutesIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
@@ -259,6 +259,7 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 				peer, err := h.accountManager.GetPeerByIP(account.Id, patch.Value[0])
 				if err != nil {
 					util.WriteError(err, w)
+					return
 				}
 				peerValue = []string{peer.Key}
 			}

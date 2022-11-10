@@ -28,6 +28,9 @@ const (
 
 	// Unauthorized indicates that user is not authorized
 	Unauthorized Type = 8
+
+	// BadRequest indicates that user is not authorized
+	BadRequest Type = 9
 )
 
 // Type is a type of the Error

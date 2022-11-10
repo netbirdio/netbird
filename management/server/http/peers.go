@@ -31,7 +31,7 @@ func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.Re
 	req := &api.PutApiPeersIdJSONBody{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "couldn't parse JSON request"), w)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 

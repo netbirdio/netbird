@@ -51,6 +51,24 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	}
 }
 
+// WriteErrorResponse prepares and writes an error response i nJSON
+func WriteErrorResponse(errMsg string, httpStatus int, w http.ResponseWriter) {
+	type errorResponse struct {
+		Message string `json:"message"`
+		Code    int    `json:"code"`
+	}
+
+	w.WriteHeader(httpStatus)
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	err := json.NewEncoder(w).Encode(&errorResponse{
+		Message: errMsg,
+		Code:    httpStatus,
+	})
+	if err != nil {
+		http.Error(w, "failed handling request", http.StatusInternalServerError)
+	}
+}
+
 // WriteError converts an error to an JSON error response.
 // If it is known internal error of type server.Error then it sets the messages from the error, a generic message otherwise
 func WriteError(err error, w http.ResponseWriter) {
@@ -70,7 +88,7 @@ func WriteError(err error, w http.ResponseWriter) {
 		case status.Internal:
 			httpStatus = http.StatusInternalServerError
 		case status.InvalidArgument:
-			httpStatus = http.StatusBadRequest
+			httpStatus = http.StatusUnprocessableEntity
 		default:
 		}
 		msg = err.Error()
@@ -79,18 +97,5 @@ func WriteError(err error, w http.ResponseWriter) {
 		log.Error(unhandledMSG)
 	}
 
-	type errorResponse struct {
-		Message string `json:"message"`
-		Code    int    `json:"code"`
-	}
-
-	w.WriteHeader(httpStatus)
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	err = json.NewEncoder(w).Encode(&errorResponse{
-		Message: msg,
-		Code:    httpStatus,
-	})
-	if err != nil {
-		http.Error(w, "failed handling request", http.StatusInternalServerError)
-	}
+	WriteErrorResponse(msg, httpStatus, w)
 }
