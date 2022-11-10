@@ -26,10 +26,12 @@ type Duration struct {
 	time.Duration
 }
 
+// MarshalJSON marshals the duration
 func (d Duration) MarshalJSON() ([]byte, error) {
 	return json.Marshal(d.String())
 }
 
+// UnmarshalJSON unmarshals the duration
 func (d *Duration) UnmarshalJSON(b []byte) error {
 	var v interface{}
 	if err := json.Unmarshal(b, &v); err != nil {
