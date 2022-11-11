@@ -8,12 +8,11 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -52,7 +51,7 @@ type AccountManager interface {
 	SaveUser(accountID string, key *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
-	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error)
+	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeer(peerKey string) (*Peer, error)
@@ -265,14 +264,14 @@ func (a *Account) FindPeerByPubKey(peerPubKey string) (*Peer, error) {
 		}
 	}
 
-	return nil, status.Errorf(codes.NotFound, "peer with the public key %s not found", peerPubKey)
+	return nil, status.Errorf(status.NotFound, "peer with the public key %s not found", peerPubKey)
 }
 
 // FindUser looks for a given user in the Account or returns error if user wasn't found.
 func (a *Account) FindUser(userID string) (*User, error) {
 	user := a.Users[userID]
 	if user == nil {
-		return nil, Errorf(UserNotFound, "user %s not found", userID)
+		return nil, status.Errorf(status.NotFound, "user %s not found", userID)
 	}
 
 	return user, nil
@@ -282,7 +281,7 @@ func (a *Account) FindUser(userID string) (*User, error) {
 func (a *Account) FindSetupKey(setupKey string) (*SetupKey, error) {
 	key := a.SetupKeys[setupKey]
 	if key == nil {
-		return nil, Errorf(SetupKeyNotFound, "setup key not found")
+		return nil, status.Errorf(status.NotFound, "setup key not found")
 	}
 
 	return key, nil
@@ -458,14 +457,14 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 		if err == nil {
 			log.Warnf("an account with ID already exists, retrying...")
 			continue
-		} else if statusErr.Code() == codes.NotFound {
+		} else if statusErr.Type() == status.NotFound {
 			return newAccountWithId(accountId, userID, domain), nil
 		} else {
 			return nil, err
 		}
 	}
 
-	return nil, status.Errorf(codes.Internal, "error while creating new account")
+	return nil, status.Errorf(status.Internal, "error while creating new account")
 }
 
 func (am *DefaultAccountManager) warmupIDPCache() error {
@@ -492,7 +491,7 @@ func (am *DefaultAccountManager) GetAccountByUserOrAccountID(userID, accountID, 
 	} else if userID != "" {
 		account, err := am.GetOrCreateAccountByUser(userID, domain)
 		if err != nil {
-			return nil, status.Errorf(codes.NotFound, "account not found using user id: %s", userID)
+			return nil, status.Errorf(status.NotFound, "account not found using user id: %s", userID)
 		}
 		err = am.addAccountIDToIDPAppMeta(userID, account)
 		if err != nil {
@@ -501,7 +500,7 @@ func (am *DefaultAccountManager) GetAccountByUserOrAccountID(userID, accountID, 
 		return account, nil
 	}
 
-	return nil, status.Errorf(codes.NotFound, "no valid user or account Id provided")
+	return nil, status.Errorf(status.NotFound, "no valid user or account Id provided")
 }
 
 func isNil(i idp.Manager) bool {
@@ -531,11 +530,7 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 		}
 
 		if err != nil {
-			return status.Errorf(
-				codes.Internal,
-				"updating user's app metadata failed with: %v",
-				err,
-			)
+			return status.Errorf(status.Internal, "updating user's app metadata failed with: %v", err)
 		}
 		// refresh cache to reflect the update
 		_, err = am.refreshCache(account.Id)
@@ -662,11 +657,8 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 }
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
-func (am *DefaultAccountManager) updateAccountDomainAttributes(
-	account *Account,
-	claims jwtclaims.AuthorizationClaims,
-	primaryDomain bool,
-) error {
+func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims,
+	primaryDomain bool) error {
 	account.IsDomainPrimaryAccount = primaryDomain
 
 	lowerDomain := strings.ToLower(claims.Domain)
@@ -681,7 +673,7 @@ func (am *DefaultAccountManager) updateAccountDomainAttributes(
 
 	err := am.Store.SaveAccount(account)
 	if err != nil {
-		return status.Errorf(codes.Internal, "failed saving updated account")
+		return err
 	}
 	return nil
 }
@@ -723,10 +715,7 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 
 // handleNewUserAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
 // otherwise it will create a new account and make it primary account for the domain.
-func (am *DefaultAccountManager) handleNewUserAccount(
-	domainAcc *Account,
-	claims jwtclaims.AuthorizationClaims,
-) (*Account, error) {
+func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims jwtclaims.AuthorizationClaims) (*Account, error) {
 	var (
 		account *Account
 		err     error
@@ -738,7 +727,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(
 		account.Users[claims.UserId] = NewRegularUser(claims.UserId)
 		err = am.Store.SaveAccount(account)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "failed saving updated account")
+			return nil, err
 		}
 	} else {
 		account, err = am.newAccount(claims.UserId, lowerDomain)
@@ -773,7 +762,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	}
 
 	if user == nil {
-		return status.Errorf(codes.NotFound, "user %s not found in the IdP", userID)
+		return status.Errorf(status.NotFound, "user %s not found in the IdP", userID)
 	}
 
 	if user.AppMetadata.WTPendingInvite != nil && *user.AppMetadata.WTPendingInvite {
@@ -794,7 +783,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 }
 
 // GetAccountFromToken returns an account associated with this token
-func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error) {
 
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
@@ -806,15 +795,21 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 
 	account, err := am.getAccountWithAuthorizationClaims(claims)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+
+	user := account.Users[claims.UserId]
+	if user == nil {
+		// this is not really possible because we got an account by user ID
+		return nil, nil, status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
 	err = am.redeemInvite(account, claims.UserId)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return account, nil
+	return account, user, nil
 }
 
 // getAccountWithAuthorizationClaims retrievs an account using JWT Claims.
@@ -857,9 +852,12 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 
 	// We checked if the domain has a primary account already
 	domainAccount, err := am.Store.GetAccountByPrivateDomain(claims.Domain)
-	accStatus, _ := status.FromError(err)
-	if accStatus.Code() != codes.OK && accStatus.Code() != codes.NotFound {
-		return nil, err
+	if err != nil {
+		// if NotFound we are good to continue, otherwise return error
+		e, ok := status.FromError(err)
+		if !ok || e.Type() != status.NotFound {
+			return nil, err
+		}
 	}
 
 	account, err := am.Store.GetAccountByUser(claims.UserId)
@@ -869,7 +867,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 			return nil, err
 		}
 		return account, nil
-	} else if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+	} else if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 		return am.handleNewUserAccount(domainAccount, claims)
 	} else {
 		// other error
@@ -891,7 +889,7 @@ func (am *DefaultAccountManager) AccountExists(accountID string) (*bool, error) 
 	var res bool
 	_, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
+		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 			res = false
 			return &res, nil
 		} else {

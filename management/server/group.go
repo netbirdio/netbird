@@ -1,9 +1,6 @@
 package server
 
-import (
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-)
+import "github.com/netbirdio/netbird/management/server/status"
 
 // Group of the peers for ACL
 type Group struct {
@@ -53,7 +50,7 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	group, ok := account.Groups[groupID]
@@ -61,7 +58,7 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 		return group, nil
 	}
 
-	return nil, status.Errorf(codes.NotFound, "group with ID %s not found", groupID)
+	return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 }
 
 // SaveGroup object of the peers
@@ -72,7 +69,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	account.Groups[group.ID] = group
@@ -94,12 +91,12 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	groupToUpdate, ok := account.Groups[groupID]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "group %s no longer exists", groupID)
+		return nil, status.Errorf(status.NotFound, "group with ID %s no longer exists", groupID)
 	}
 
 	group := groupToUpdate.Copy()
@@ -130,7 +127,7 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 
 	err = am.updateAccountPeers(account)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update account peers")
+		return nil, err
 	}
 
 	return group, nil
@@ -144,7 +141,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	delete(account.Groups, groupID)
@@ -165,7 +162,7 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) 
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	groups := make([]*Group, 0, len(account.Groups))
@@ -184,12 +181,12 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	group, ok := account.Groups[groupID]
 	if !ok {
-		return status.Errorf(codes.NotFound, "group with ID %s not found", groupID)
+		return status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 	}
 
 	add := true
@@ -219,12 +216,12 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	group, ok := account.Groups[groupID]
 	if !ok {
-		return status.Errorf(codes.NotFound, "group with ID %s not found", groupID)
+		return status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 	}
 
 	account.Network.IncSerial()
@@ -232,7 +229,7 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 		if itemID == peerKey {
 			group.Peers = append(group.Peers[:i], group.Peers[i+1:]...)
 			if err := am.Store.SaveAccount(account); err != nil {
-				return status.Errorf(codes.Internal, "can't save account")
+				return err
 			}
 		}
 	}
@@ -248,12 +245,12 @@ func (am *DefaultAccountManager) GroupListPeers(accountID, groupID string) ([]*P
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, status.Errorf(status.NotFound, "account not found")
 	}
 
 	group, ok := account.Groups[groupID]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "group with ID %s not found", groupID)
+		return nil, status.Errorf(status.NotFound, "group with ID %s not found", groupID)
 	}
 
 	peers := make([]*Peer, 0, len(account.Groups))

@@ -314,7 +314,7 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 				testCase.inputClaims.AccountId = initAccount.Id
 			}
 
-			account, err := manager.GetAccountFromToken(testCase.inputClaims)
+			account, _, err := manager.GetAccountFromToken(testCase.inputClaims)
 			require.NoError(t, err, "support function failed")
 			verifyNewAccountHasDefaultFields(t, account, testCase.expectedCreatedBy, testCase.inputClaims.Domain, testCase.expectedUsers)
 			verifyCanAddPeerToAccount(t, manager, account, testCase.expectedCreatedBy)

@@ -1,8 +1,7 @@
 package route
 
 import (
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/netbirdio/netbird/management/server/status"
 	"net/netip"
 )
 
@@ -108,13 +107,13 @@ func (r *Route) IsEqual(other *Route) bool {
 func ParseNetwork(networkString string) (NetworkType, netip.Prefix, error) {
 	prefix, err := netip.ParsePrefix(networkString)
 	if err != nil {
-		return InvalidNetwork, netip.Prefix{}, err
+		return InvalidNetwork, netip.Prefix{}, status.Errorf(status.InvalidArgument, "invalid network %s", networkString)
 	}
 
 	masked := prefix.Masked()
 
 	if !masked.IsValid() {
-		return InvalidNetwork, netip.Prefix{}, status.Errorf(codes.InvalidArgument, "invalid range %s", networkString)
+		return InvalidNetwork, netip.Prefix{}, status.Errorf(status.InvalidArgument, "invalid range %s", networkString)
 	}
 
 	if masked.Addr().Is6() {

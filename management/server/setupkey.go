@@ -1,10 +1,8 @@
 package server
 
 import (
-	"fmt"
 	"github.com/google/uuid"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/netbirdio/netbird/management/server/status"
 	"hash/fnv"
 	"strconv"
 	"strings"
@@ -183,12 +181,12 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	for _, group := range autoGroups {
 		if _, ok := account.Groups[group]; !ok {
-			return nil, fmt.Errorf("group %s doesn't exist", group)
+			return nil, status.Errorf(status.NotFound, "group %s doesn't exist", group)
 		}
 	}
 
@@ -197,7 +195,7 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 
 	err = am.Store.SaveAccount(account)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed adding account key")
+		return nil, status.Errorf(status.Internal, "failed adding account key")
 	}
 
 	return setupKey, nil
@@ -212,12 +210,12 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	defer unlock()
 
 	if keyToSave == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "provided setup key to update is nil")
+		return nil, status.Errorf(status.InvalidArgument, "provided setup key to update is nil")
 	}
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	var oldKey *SetupKey
@@ -228,7 +226,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 		}
 	}
 	if oldKey == nil {
-		return nil, status.Errorf(codes.NotFound, "setup key not found")
+		return nil, status.Errorf(status.NotFound, "setup key not found")
 	}
 
 	// only auto groups, revoked status, and name can be updated for now
@@ -253,7 +251,7 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 	defer unlock()
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)
@@ -282,7 +280,7 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)
@@ -298,7 +296,7 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 		}
 	}
 	if foundKey == nil {
-		return nil, status.Errorf(codes.NotFound, "setup key not found")
+		return nil, status.Errorf(status.NotFound, "setup key not found")
 	}
 
 	// the UpdatedAt field was introduced later, so there might be that some keys have a Zero value (e.g, null in the store file)

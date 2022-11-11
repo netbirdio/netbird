@@ -16,7 +16,7 @@ import (
 func initUsers(user ...*server.User) *UserHandler {
 	return &UserHandler{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				users := make(map[string]*server.User, 0)
 				for _, u := range user {
 					users[u.Id] = u
@@ -25,7 +25,7 @@ func initUsers(user ...*server.User) *UserHandler {
 					Id:     "12345",
 					Domain: "netbird.io",
 					Users:  users,
-				}, nil
+				}, users[claims.UserId], nil
 			},
 			GetUsersFromAccountFunc: func(accountID, userID string) ([]*server.UserInfo, error) {
 				users := make([]*server.UserInfo, 0)
@@ -66,7 +66,6 @@ func TestGetUsers(t *testing.T) {
 		expectedResult []*server.User
 	}{
 		{name: "GetAllUsers", requestType: http.MethodGet, requestPath: "/api/users/", expectedStatus: http.StatusOK, expectedResult: users},
-		{name: "WrongRequestMethod", requestType: http.MethodPost, requestPath: "/api/users/", expectedStatus: http.StatusBadRequest},
 	}
 
 	for _, tc := range tt {

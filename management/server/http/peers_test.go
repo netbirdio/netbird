@@ -22,7 +22,8 @@ func initTestMetaData(peers ...*server.Peer) *Peers {
 			GetPeersFunc: func(accountID, userID string) ([]*server.Peer, error) {
 				return peers, nil
 			},
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+				user := server.NewAdminUser("test_user")
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
@@ -30,9 +31,9 @@ func initTestMetaData(peers ...*server.Peer) *Peers {
 						"test_peer": peers[0],
 					},
 					Users: map[string]*server.User{
-						"test_user": server.NewAdminUser("test_user"),
+						"test_user": user,
 					},
-				}, nil
+				}, user, nil
 			},
 		},
 		authAudience: "",

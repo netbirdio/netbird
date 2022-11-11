@@ -3,10 +3,9 @@ package server
 import (
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"strconv"
 	"unicode/utf8"
 )
@@ -66,7 +65,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	nsGroup, found := account.NameServerGroups[nsGroupID]
@@ -74,7 +73,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 		return nsGroup.Copy(), nil
 	}
 
-	return nil, status.Errorf(codes.NotFound, "nameserver group with ID %s not found", nsGroupID)
+	return nil, status.Errorf(status.NotFound, "nameserver group with ID %s not found", nsGroupID)
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
@@ -85,7 +84,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	newNSGroup := &nbdns.NameServerGroup{
@@ -119,7 +118,7 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 	err = am.updateAccountPeers(account)
 	if err != nil {
 		log.Error(err)
-		return newNSGroup.Copy(), status.Errorf(codes.Unavailable, "failed to update peers after create nameserver %s", name)
+		return newNSGroup.Copy(), status.Errorf(status.Internal, "failed to update peers after create nameserver %s", name)
 	}
 
 	return newNSGroup.Copy(), nil
@@ -132,12 +131,12 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupTo
 	defer unlock()
 
 	if nsGroupToSave == nil {
-		return status.Errorf(codes.InvalidArgument, "nameserver group provided is nil")
+		return status.Errorf(status.InvalidArgument, "nameserver group provided is nil")
 	}
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	err = validateNameServerGroup(true, nsGroupToSave, account)
@@ -156,7 +155,7 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupTo
 	err = am.updateAccountPeers(account)
 	if err != nil {
 		log.Error(err)
-		return status.Errorf(codes.Unavailable, "failed to update peers after update nameserver %s", nsGroupToSave.Name)
+		return status.Errorf(status.Internal, "failed to update peers after update nameserver %s", nsGroupToSave.Name)
 	}
 
 	return nil
@@ -170,16 +169,16 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	if len(operations) == 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "operations shouldn't be empty")
+		return nil, status.Errorf(status.InvalidArgument, "operations shouldn't be empty")
 	}
 
 	nsGroupToUpdate, ok := account.NameServerGroups[nsGroupID]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "nameserver group ID %s no longer exists", nsGroupID)
+		return nil, status.Errorf(status.NotFound, "nameserver group ID %s no longer exists", nsGroupID)
 	}
 
 	newNSGroup := nsGroupToUpdate.Copy()
@@ -187,12 +186,12 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 	for _, operation := range operations {
 		valuesCount := len(operation.Values)
 		if valuesCount < 1 {
-			return nil, status.Errorf(codes.InvalidArgument, "operation %s contains invalid number of values, it should be at least 1", operation.Type.String())
+			return nil, status.Errorf(status.InvalidArgument, "operation %s contains invalid number of values, it should be at least 1", operation.Type.String())
 		}
 
 		for _, value := range operation.Values {
 			if value == "" {
-				return nil, status.Errorf(codes.InvalidArgument, "operation %s contains invalid empty string value", operation.Type.String())
+				return nil, status.Errorf(status.InvalidArgument, "operation %s contains invalid empty string value", operation.Type.String())
 			}
 		}
 		switch operation.Type {
@@ -200,7 +199,7 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 			newNSGroup.Description = operation.Values[0]
 		case UpdateNameServerGroupName:
 			if valuesCount > 1 {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse name values, expected 1 value got %d", valuesCount)
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse name values, expected 1 value got %d", valuesCount)
 			}
 			err = validateNSGroupName(operation.Values[0], nsGroupID, account.NameServerGroups)
 			if err != nil {
@@ -230,13 +229,13 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 		case UpdateNameServerGroupEnabled:
 			enabled, err := strconv.ParseBool(operation.Values[0])
 			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
 			}
 			newNSGroup.Enabled = enabled
 		case UpdateNameServerGroupPrimary:
 			primary, err := strconv.ParseBool(operation.Values[0])
 			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse primary status %s, not boolean", operation.Values[0])
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse primary status %s, not boolean", operation.Values[0])
 			}
 			newNSGroup.Primary = primary
 		case UpdateNameServerGroupDomains:
@@ -259,7 +258,7 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 	err = am.updateAccountPeers(account)
 	if err != nil {
 		log.Error(err)
-		return newNSGroup.Copy(), status.Errorf(codes.Unavailable, "failed to update peers after update nameserver %s", newNSGroup.Name)
+		return newNSGroup.Copy(), status.Errorf(status.Internal, "failed to update peers after update nameserver %s", newNSGroup.Name)
 	}
 
 	return newNSGroup.Copy(), nil
@@ -273,7 +272,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID stri
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	delete(account.NameServerGroups, nsGroupID)
@@ -287,7 +286,7 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID stri
 	err = am.updateAccountPeers(account)
 	if err != nil {
 		log.Error(err)
-		return status.Errorf(codes.Unavailable, "failed to update peers after deleting nameserver %s", nsGroupID)
+		return status.Errorf(status.Internal, "failed to update peers after deleting nameserver %s", nsGroupID)
 	}
 
 	return nil
@@ -301,7 +300,7 @@ func (am *DefaultAccountManager) ListNameServerGroups(accountID string) ([]*nbdn
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	nsGroups := make([]*nbdns.NameServerGroup, 0, len(account.NameServerGroups))
@@ -318,7 +317,7 @@ func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServ
 		nsGroupID = nameserverGroup.ID
 		_, found := account.NameServerGroups[nsGroupID]
 		if !found {
-			return status.Errorf(codes.NotFound, "nameserver group with ID %s was not found", nsGroupID)
+			return status.Errorf(status.NotFound, "nameserver group with ID %s was not found", nsGroupID)
 		}
 	}
 
@@ -347,17 +346,17 @@ func validateNameServerGroup(existingGroup bool, nameserverGroup *nbdns.NameServ
 
 func validateDomainInput(primary bool, domains []string) error {
 	if !primary && len(domains) == 0 {
-		return status.Errorf(codes.InvalidArgument, "nameserver group primary status is false and domains are empty,"+
+		return status.Errorf(status.InvalidArgument, "nameserver group primary status is false and domains are empty,"+
 			" it should be primary or have at least one domain")
 	}
 	if primary && len(domains) != 0 {
-		return status.Errorf(codes.InvalidArgument, "nameserver group primary status is true and domains are not empty,"+
+		return status.Errorf(status.InvalidArgument, "nameserver group primary status is true and domains are not empty,"+
 			" you should set either primary or domain")
 	}
 	for _, domain := range domains {
 		_, valid := dns.IsDomainName(domain)
 		if !valid {
-			return status.Errorf(codes.InvalidArgument, "nameserver group got an invalid domain: %s", domain)
+			return status.Errorf(status.InvalidArgument, "nameserver group got an invalid domain: %s", domain)
 		}
 	}
 	return nil
@@ -365,12 +364,12 @@ func validateDomainInput(primary bool, domains []string) error {
 
 func validateNSGroupName(name, nsGroupID string, nsGroupMap map[string]*nbdns.NameServerGroup) error {
 	if utf8.RuneCountInString(name) > nbdns.MaxGroupNameChar || name == "" {
-		return status.Errorf(codes.InvalidArgument, "nameserver group name should be between 1 and %d", nbdns.MaxGroupNameChar)
+		return status.Errorf(status.InvalidArgument, "nameserver group name should be between 1 and %d", nbdns.MaxGroupNameChar)
 	}
 
 	for _, nsGroup := range nsGroupMap {
 		if name == nsGroup.Name && nsGroup.ID != nsGroupID {
-			return status.Errorf(codes.InvalidArgument, "a nameserver group with name %s already exist", name)
+			return status.Errorf(status.InvalidArgument, "a nameserver group with name %s already exist", name)
 		}
 	}
 
@@ -380,19 +379,19 @@ func validateNSGroupName(name, nsGroupID string, nsGroupMap map[string]*nbdns.Na
 func validateNSList(list []nbdns.NameServer) error {
 	nsListLenght := len(list)
 	if nsListLenght == 0 || nsListLenght > 2 {
-		return status.Errorf(codes.InvalidArgument, "the list of nameservers should be 1 or 2, got %d", len(list))
+		return status.Errorf(status.InvalidArgument, "the list of nameservers should be 1 or 2, got %d", len(list))
 	}
 	return nil
 }
 
 func validateGroups(list []string, groups map[string]*Group) error {
 	if len(list) == 0 {
-		return status.Errorf(codes.InvalidArgument, "the list of group IDs should not be empty")
+		return status.Errorf(status.InvalidArgument, "the list of group IDs should not be empty")
 	}
 
 	for _, id := range list {
 		if id == "" {
-			return status.Errorf(codes.InvalidArgument, "group ID should not be empty string")
+			return status.Errorf(status.InvalidArgument, "group ID should not be empty string")
 		}
 		found := false
 		for groupID := range groups {
@@ -402,7 +401,7 @@ func validateGroups(list []string, groups map[string]*Group) error {
 			}
 		}
 		if !found {
-			return status.Errorf(codes.InvalidArgument, "group id %s not found", id)
+			return status.Errorf(status.InvalidArgument, "group id %s not found", id)
 		}
 	}
 
