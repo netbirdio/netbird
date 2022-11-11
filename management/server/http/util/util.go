@@ -80,7 +80,9 @@ func WriteError(err error, w http.ResponseWriter) {
 	if ok {
 		switch errStatus.Type() {
 		case status.UserAlreadyExists:
+			httpStatus = http.StatusConflict
 		case status.AlreadyExists:
+			httpStatus = http.StatusConflict
 		case status.PreconditionFailed:
 			httpStatus = http.StatusPreconditionFailed
 		case status.PermissionDenied:
