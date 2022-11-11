@@ -29,7 +29,7 @@ func NewUserHandler(accountManager server.AccountManager, authAudience string) *
 // UpdateUser is a PUT requests to update User data
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
-		util.WriteError(status.Errorf(status.InvalidArgument, "wrong HTTP method"), w)
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
 
@@ -76,7 +76,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 // CreateUserHandler creates a User in the system with a status "invited" (effectively this is a user invite).
 func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		util.WriteError(status.Errorf(status.InvalidArgument, "wrong HTTP method"), w)
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
 
@@ -116,7 +116,7 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 // It also gathers additional user data (like email and name) from the IDP manager.
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		util.WriteError(status.Errorf(status.InvalidArgument, "wrong HTTP method"), w)
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
 	}
 
