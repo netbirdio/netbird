@@ -2,12 +2,10 @@ package http
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server/http/api"
-	log "github.com/sirupsen/logrus"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/status"
 	"net/http"
 
 	"github.com/netbirdio/netbird/management/server"
@@ -31,33 +29,34 @@ func NewUserHandler(accountManager server.AccountManager, authAudience string) *
 // UpdateUser is a PUT requests to update User data
 func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
-		http.Error(w, "", http.StatusBadRequest)
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
 	}
 
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	vars := mux.Vars(r)
 	userID := vars["id"]
 	if len(userID) == 0 {
-		http.Error(w, "invalid user ID", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
 	req := &api.PutApiUsersIdJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
 	userRole := server.StrRoleToUserRole(req.Role)
 	if userRole == server.UserRoleUnknown {
-		http.Error(w, "invalid user role", http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user role"), w)
 		return
 	}
 
@@ -67,40 +66,36 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		AutoGroups: req.AutoGroups,
 	})
 	if err != nil {
-		if e, ok := status.FromError(err); ok {
-			switch e.Code() {
-			case codes.NotFound:
-				http.Error(w, fmt.Sprintf("couldn't find a user for ID %s", userID), http.StatusNotFound)
-			default:
-				http.Error(w, "failed to update user", http.StatusInternalServerError)
-			}
-		}
+		util.WriteError(err, w)
 		return
 	}
-	writeJSONObject(w, toUserResponse(newUser))
+	util.WriteJSONObject(w, toUserResponse(newUser))
 
 }
 
 // CreateUserHandler creates a User in the system with a status "invited" (effectively this is a user invite).
 func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		http.Error(w, "", http.StatusNotFound)
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
 	}
 
-	account, _, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		log.Error(err)
+		util.WriteError(err, w)
+		return
 	}
 
 	req := &api.PostApiUsersJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
 
 	if server.StrRoleToUserRole(req.Role) == server.UserRoleUnknown {
-		http.Error(w, "unknown user role "+req.Role, http.StatusBadRequest)
+		util.WriteError(status.Errorf(status.InvalidArgument, "unknown user role %s", req.Role), w)
 		return
 	}
 
@@ -111,37 +106,30 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		AutoGroups: req.AutoGroups,
 	})
 	if err != nil {
-		if e, ok := server.FromError(err); ok {
-			switch e.Type() {
-			case server.UserAlreadyExists:
-				http.Error(w, "You can't invite users with an existing NetBird account.", http.StatusPreconditionFailed)
-				return
-			default:
-			}
-		}
-		http.Error(w, "failed to invite", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
-	writeJSONObject(w, toUserResponse(newUser))
+	util.WriteJSONObject(w, toUserResponse(newUser))
 }
 
 // GetUsers returns a list of users of the account this user belongs to.
 // It also gathers additional user data (like email and name) from the IDP manager.
 func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
-		http.Error(w, "", http.StatusBadRequest)
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
 	}
 
-	account, user, err := getJWTAccount(h.accountManager, h.jwtExtractor, h.authAudience, r)
+	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
 	data, err := h.accountManager.GetUsersFromAccount(account.Id, user.Id)
 	if err != nil {
-		log.Error(err)
-		http.Redirect(w, r, "/", http.StatusInternalServerError)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -150,7 +138,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		users = append(users, toUserResponse(r))
 	}
 
-	writeJSONObject(w, users)
+	util.WriteJSONObject(w, users)
 }
 
 func toUserResponse(user *server.UserInfo) *api.User {

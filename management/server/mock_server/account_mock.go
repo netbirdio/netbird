@@ -59,7 +59,7 @@ type MockAccountManager struct {
 	DeleteNameServerGroupFunc       func(accountID, nsGroupID string) error
 	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                  func(accountID string, key *server.UserInfo) (*server.UserInfo, error)
-	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, error)
+	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -113,7 +113,7 @@ func (am *MockAccountManager) CreateSetupKey(
 	return nil, status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
 }
 
-// GetAccountByUserOrAccountId mock implementation of GetAccountByUserOrAccountId from server.AccountManager interface
+// GetAccountByUserOrAccountID mock implementation of GetAccountByUserOrAccountID from server.AccountManager interface
 func (am *MockAccountManager) GetAccountByUserOrAccountID(
 	userId, accountId, domain string,
 ) (*server.Account, error) {
@@ -462,11 +462,12 @@ func (am *MockAccountManager) CreateUser(accountID string, invite *server.UserIn
 }
 
 // GetAccountFromToken mocks GetAccountFromToken of the AccountManager interface
-func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User,
+	error) {
 	if am.GetAccountFromTokenFunc != nil {
 		return am.GetAccountFromTokenFunc(claims)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetAccountFromToken is not implemented")
+	return nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromToken is not implemented")
 }
 
 // GetPeers mocks GetPeers of the AccountManager interface

@@ -7,12 +7,12 @@ import (
 	"net/http"
 )
 
-//Jwks is a collection of JSONWebKeys obtained from Config.HttpServerConfig.AuthKeysLocation
+// Jwks is a collection of JSONWebKeys obtained from Config.HttpServerConfig.AuthKeysLocation
 type Jwks struct {
 	Keys []JSONWebKeys `json:"keys"`
 }
 
-//JSONWebKeys is a representation of a Jason Web Key
+// JSONWebKeys is a representation of a Jason Web Key
 type JSONWebKeys struct {
 	Kty string   `json:"kty"`
 	Kid string   `json:"kid"`
@@ -22,7 +22,7 @@ type JSONWebKeys struct {
 	X5c []string `json:"x5c"`
 }
 
-//NewJwtMiddleware creates new middleware to verify the JWT token sent via Authorization header
+// NewJwtMiddleware creates new middleware to verify the JWT token sent via Authorization header
 func NewJwtMiddleware(issuer string, audience string, keysLocation string) (*JWTMiddleware, error) {
 
 	keys, err := getPemKeys(keysLocation)
@@ -66,7 +66,6 @@ func getPemKeys(keysLocation string) (*Jwks, error) {
 
 	var jwks = &Jwks{}
 	err = json.NewDecoder(resp.Body).Decode(jwks)
-
 	if err != nil {
 		return jwks, err
 	}

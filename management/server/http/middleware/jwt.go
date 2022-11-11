@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/status"
 	"log"
 	"net/http"
 	"strings"
@@ -57,7 +59,7 @@ type JWTMiddleware struct {
 }
 
 func OnError(w http.ResponseWriter, r *http.Request, err string) {
-	http.Error(w, err, http.StatusUnauthorized)
+	util.WriteError(status.Errorf(status.Unauthorized, ""), w)
 }
 
 // New constructs a new Secure instance with supplied options.

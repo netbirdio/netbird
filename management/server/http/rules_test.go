@@ -66,7 +66,8 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 				}
 				return &rule, nil
 			},
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
+				user := server.NewAdminUser("test_user")
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
@@ -76,9 +77,9 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 						"G": {ID: "G"},
 					},
 					Users: map[string]*server.User{
-						"test_user": server.NewAdminUser("test_user"),
+						"test_user": user,
 					},
-				}, nil
+				}, user, nil
 			},
 		},
 		authAudience: "",
@@ -238,7 +239,7 @@ func TestRulesWriteRule(t *testing.T) {
 			requestPath: "/api/rules/id-existed",
 			requestBody: bytes.NewBuffer(
 				[]byte(`[{"op":"insert","path":"name","value":[""]}]`)),
-			expectedStatus: http.StatusBadRequest,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
