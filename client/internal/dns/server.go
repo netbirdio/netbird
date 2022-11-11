@@ -86,7 +86,16 @@ func (s *DefaultServer) setListenerStatus(running bool) {
 
 // Stop stops the server
 func (s *DefaultServer) Stop() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	s.stop()
+
+	var domainsToRemove []string
+	for domain := range s.dnsMuxMap {
+		domainsToRemove = append(domainsToRemove, domain)
+	}
+	domainsToRemove = append(domainsToRemove, searchFilePrefix)
+	removeSplitDNS(domainsToRemove)
 
 	err := s.stopListener()
 	if err != nil {
@@ -144,9 +153,18 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		}
 
 		muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...)
+		var domains []string
+		for _, u := range muxUpdates {
+			domains = append(domains, u.domain)
+		}
 
-		s.updateMux(muxUpdates)
+		domainsToRemove := s.updateMux(muxUpdates)
 		s.updateLocalResolver(localRecords)
+		removeSplitDNS(domainsToRemove)
+		applySplitDNS(domains)
+		for _, localMuxUpdate := range localMuxUpdates {
+			addSearchDomain(localMuxUpdate.domain)
+		}
 
 		s.updateSerial = serial
 
@@ -226,7 +244,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	return muxUpdates, nil
 }
 
-func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
+func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) []string {
 	muxUpdateMap := make(registrationMap)
 
 	for _, update := range muxUpdates {
@@ -234,14 +252,17 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 		muxUpdateMap[update.domain] = struct{}{}
 	}
 
+	var removed []string
 	for key := range s.dnsMuxMap {
 		_, found := muxUpdateMap[key]
 		if !found {
 			s.deregisterMux(key)
+			removed = append(removed, key)
 		}
 	}
 
 	s.dnsMuxMap = muxUpdateMap
+	return removed
 }
 
 func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord) {

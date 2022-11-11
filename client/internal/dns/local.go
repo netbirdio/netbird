@@ -14,16 +14,13 @@ type localResolver struct {
 
 // ServeDNS handles a DNS request
 func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-	log.Tracef("received question: %#v\n", r.Question[0])
-	response := d.lookupRecord(r)
-	if response == nil {
-		log.Debugf("got empty response for question: %#v\n", r.Question[0])
-		return
-	}
-
+	log.Debugf("received question: %#v\n", r.Question[0])
 	replyMessage := &dns.Msg{}
 	replyMessage.SetReply(r)
-	replyMessage.Answer = append(replyMessage.Answer, response)
+	response := d.lookupRecord(r)
+	if response != nil {
+		replyMessage.Answer = append(replyMessage.Answer, response)
+	}
 
 	err := w.WriteMsg(replyMessage)
 	if err != nil {
