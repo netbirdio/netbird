@@ -64,7 +64,7 @@ func TestLocalResolver_ServeDNS(t *testing.T) {
 
 			resolver.ServeDNS(responseWriter, testCase.inputMSG)
 
-			if responseMSG == nil {
+			if responseMSG == nil || len(responseMSG.Answer) == 0 {
 				if testCase.responseShouldBeNil {
 					return
 				}
