@@ -135,7 +135,6 @@ func NewEngine(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
-		dnsServer:      dns.NewDefaultServer(ctx),
 	}
 }
 
@@ -251,6 +250,8 @@ func (e *Engine) Start() error {
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
+
+	e.dnsServer = dns.NewDefaultServer(e.ctx, e.wgInterface)
 
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()

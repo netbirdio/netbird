@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
 	"net"
 	"net/netip"
 	"os"
@@ -188,15 +189,19 @@ func TestUpdateDNSServer(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
+			wgInterface, err := iface.NewWGIFace("utun10000", "127.0.0.1/32", iface.DefaultMTU)
+			if err != nil {
+				t.Error(err)
+			}
 			ctx := context.Background()
-			dnsServer := NewDefaultServer(ctx)
+			dnsServer := NewDefaultServer(ctx, wgInterface)
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
 			dnsServer.updateSerial = testCase.initSerial
 			dnsServer.listenerIsRunning = true
 
-			err := dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
+			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
 				if testCase.shouldFail {
 					return
@@ -231,7 +236,12 @@ func TestUpdateDNSServer(t *testing.T) {
 
 func TestDNSServerStartStop(t *testing.T) {
 	ctx := context.Background()
-	dnsServer := NewDefaultServer(ctx)
+	wgInterface, err := iface.NewWGIFace("utun10000", "127.0.0.1/32", iface.DefaultMTU)
+	if err != nil {
+		t.Error(err)
+	}
+
+	dnsServer := NewDefaultServer(ctx, wgInterface)
 	if runtime.GOOS == "windows" && os.Getenv("CI") == "true" {
 		// todo review why this test is not working only on github actions workflows
 		t.Skip("skipping test in Windows CI workflows.")
@@ -239,7 +249,7 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	dnsServer.Start()
 
-	err := dnsServer.localResolver.registerRecord(zoneRecords[0])
+	err = dnsServer.localResolver.registerRecord(zoneRecords[0])
 	if err != nil {
 		t.Error(err)
 	}
