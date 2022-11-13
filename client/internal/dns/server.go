@@ -5,14 +5,16 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"sync"
 	"time"
 )
 
 const (
-	port      = 5053
-	defaultIP = "0.0.0.0"
+	port       = 53
+	customPort = 5053
+	defaultIP  = "127.0.0.1"
 )
 
 // Server is a dns server interface
@@ -31,8 +33,11 @@ type DefaultServer struct {
 	dnsMux            *dns.ServeMux
 	dnsMuxMap         registrationMap
 	localResolver     *localResolver
+	wgInterface       *iface.WGIface
+	hostManager       hostManager
 	updateSerial      uint64
 	listenerIsRunning bool
+	runtimePort       int
 }
 
 type registrationMap map[string]struct{}
@@ -43,7 +48,7 @@ type muxUpdate struct {
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(ctx context.Context) *DefaultServer {
+func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultServer {
 	mux := dns.NewServeMux()
 
 	dnsServer := &dns.Server{
@@ -64,6 +69,8 @@ func NewDefaultServer(ctx context.Context) *DefaultServer {
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
+		wgInterface: wgInterface,
+		hostManager: newHostManager(),
 	}
 }
 
@@ -73,9 +80,16 @@ func (s *DefaultServer) Start() {
 	go func() {
 		s.setListenerStatus(true)
 		defer s.setListenerStatus(false)
+		s.runtimePort = port
 		err := s.server.ListenAndServe()
 		if err != nil {
-			log.Errorf("dns server returned an error: %v", err)
+			log.Errorf("dns server returned an error using the default port, will try with custom port %d: %v", customPort, err)
+			s.server.Addr = fmt.Sprintf("%s:%d", defaultIP, customPort)
+			s.runtimePort = customPort
+			err = s.server.ListenAndServe()
+			if err != nil {
+				log.Errorf("dns server running with custom port returned an error: %v. Will not retry", err)
+			}
 		}
 	}()
 }
@@ -90,14 +104,12 @@ func (s *DefaultServer) Stop() {
 	defer s.mux.Unlock()
 	s.stop()
 
-	var domainsToRemove []string
-	for domain := range s.dnsMuxMap {
-		domainsToRemove = append(domainsToRemove, domain)
+	err := s.hostManager.removeDNSSettings()
+	if err != nil {
+		log.Error(err)
 	}
-	domainsToRemove = append(domainsToRemove, searchFilePrefix)
-	removeSplitDNS(domainsToRemove)
 
-	err := s.stopListener()
+	err = s.stopListener()
 	if err != nil {
 		log.Error(err)
 	}
@@ -160,10 +172,26 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 
 		domainsToRemove := s.updateMux(muxUpdates)
 		s.updateLocalResolver(localRecords)
-		removeSplitDNS(domainsToRemove)
-		applySplitDNS(domains)
+
+		for s.runtimePort == 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		err = s.hostManager.removeDomainSettings(domainsToRemove)
+		if err != nil {
+			log.Error(err)
+		}
+
+		err = s.hostManager.applyDNSSettings(domains, defaultIP, s.runtimePort)
+		if err != nil {
+			log.Error(err)
+		}
+
 		for _, localMuxUpdate := range localMuxUpdates {
-			addSearchDomain(localMuxUpdate.domain)
+			err = s.hostManager.addSearchDomain(localMuxUpdate.domain, defaultIP, s.runtimePort)
+			if err != nil {
+				log.Error(err)
+			}
 		}
 
 		s.updateSerial = serial

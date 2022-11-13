@@ -1,76 +1,239 @@
 package dns
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/miekg/dns"
+	nbdns "github.com/netbirdio/netbird/dns"
 	log "github.com/sirupsen/logrus"
-	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 )
 
 const (
-	darwinResolverContent     = "domain %s\nnameserver %s\nport %d"
-	darwinSearchDomainContent = "search %s"
-	fileSuffix                = "netbird"
-	searchFilePrefix          = "search." + fileSuffix
-	resolverPath              = "/etc/resolver"
+	netbirdDNSStateKeyFormat            = "State:/Network/Service/NetBird-%s/DNS"
+	globalIPv4State                     = "State:/Network/Global/IPv4"
+	primaryServiceSetupKeyFormat        = "Setup:/Network/Service/%s/DNS"
+	keyDomainName                       = "DomainName"
+	keySupplementalMatchDomains         = "SupplementalMatchDomains"
+	keySupplementalMatchDomainsNoSearch = "SupplementalMatchDomainsNoSearch"
+	keyServerAddresses                  = "ServerAddresses"
+	ServerPort                          = "ServerPort"
+	arraySymbol                         = "* "
+	digitSymbol                         = "# "
+	scutilPath                          = "/usr/sbin/scutil"
+	searchSuffix                        = "Search"
 )
 
-func applySplitDNS(domains []string) {
-	err := createResolverPath()
-	if err != nil {
-		log.Debugf("got an error creating resolver path: %s", err)
-	}
-	for _, domain := range domains {
-		log.Debugf("creating file for domain: %s", domain)
-		content := fmt.Sprintf(darwinResolverContent, domain, "127.0.0.1", port)
-		fileName := buildPath(domain)
-		writeDNSConfig(content, fileName, 0755)
+type systemConfigurator struct {
+	primaryServiceID string
+	createdKeys      map[string]struct{}
+}
+
+func newHostManager() hostManager {
+	return &systemConfigurator{
+		createdKeys: make(map[string]struct{}),
 	}
 }
 
-func removeSplitDNS(domainsToRemove []string) {
-	for _, toRemove := range domainsToRemove {
-		fileName := buildPath(toRemove)
-		log.Debugf("removing file %s for domain %s", fileName, toRemove)
-		_, err := os.Stat(fileName)
-		if err == nil {
-			err = os.RemoveAll(fileName)
+func (s *systemConfigurator) applyDNSSettings(domains []string, ip string, port int) error {
+	var err error
+	for _, domain := range domains {
+		if domain == nbdns.RootZone || domain == "" {
+			err = s.addDNSSetupForAll(ip, port)
 			if err != nil {
-				log.Debugf("got an error while removing resolver dns file %s for domain %s", fileName, toRemove)
+				log.Error(err)
 			}
+			continue
+		}
+		err = s.addDNSStateForDomain(domain, ip, port)
+		if err != nil {
+			log.Error(err)
 		}
 	}
+	return nil
 }
 
-func addSearchDomain(domain string) {
-	content := fmt.Sprintf(darwinSearchDomainContent, domain)
-	fileName := buildPath(searchFilePrefix)
-	writeDNSConfig(content, fileName, 0755)
-}
-
-func writeDNSConfig(content, fileName string, permissions os.FileMode) {
-	err := createResolverPath()
+func (s *systemConfigurator) addSearchDomain(domain string, ip string, port int) error {
+	key := getKeyWithInput(netbirdDNSStateKeyFormat, domain+searchSuffix)
+	err := s.addDNSState(key, domain, ip, port, true)
 	if err != nil {
-		log.Debugf("got an error creating resolver path: %s", err)
+		return err
 	}
-	log.Debugf("creating file %s", fileName)
-	var buf bytes.Buffer
-	buf.WriteString(content)
-	err = os.WriteFile(fileName, buf.Bytes(), permissions)
+
+	s.createdKeys[key] = struct{}{}
+
+	return nil
+}
+
+func (s *systemConfigurator) removeDNSSettings() error {
+	lines := ""
+	for key := range s.createdKeys {
+		lines += buildRemoveKeyOperation(key)
+	}
+	if s.primaryServiceID != "" {
+		lines += buildRemoveKeyOperation(getKeyWithInput(primaryServiceSetupKeyFormat, s.primaryServiceID))
+	}
+	_, err := runSystemConfigCommand(wrapCommand(lines))
 	if err != nil {
-		log.Debugf("got an creating resolver file %s err: %s", fileName, err)
+		log.Errorf("got an error while cleaning the system configuration: %s", err)
+		return err
 	}
+
+	return nil
 }
 
-func buildPath(domain string) string {
-	return resolverPath + "/" + dns.Fqdn(domain) + fileSuffix
+func (s *systemConfigurator) removeDomainSettings(domains []string) error {
+	var err error
+	for _, domain := range domains {
+		if domain == nbdns.RootZone || domain == "" {
+			if s.primaryServiceID != "" {
+				err = removeKeyFromSystemConfig(getKeyWithInput(primaryServiceSetupKeyFormat, s.primaryServiceID))
+				if err != nil {
+					log.Errorf("unable to remove primary service configuration, got error: %s", err)
+					continue
+				}
+				s.primaryServiceID = ""
+			}
+			continue
+		}
+
+		key := getKeyWithInput(netbirdDNSStateKeyFormat, domain)
+		err = removeKeyFromSystemConfig(key)
+		if err != nil {
+			log.Errorf("unable to remove system configuration for domain %s and key %s", domain, key)
+			continue
+		}
+
+		delete(s.createdKeys, key)
+	}
+	return nil
 }
 
-func createResolverPath() error {
-	err := os.MkdirAll(resolverPath, 0755)
+func removeKeyFromSystemConfig(key string) error {
+	line := buildRemoveKeyOperation(key)
+	_, err := runSystemConfigCommand(wrapCommand(line))
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func (s *systemConfigurator) addDNSStateForDomain(domain, dnsServer string, port int) error {
+	key := getKeyWithInput(netbirdDNSStateKeyFormat, domain)
+	err := s.addDNSState(key, domain, dnsServer, port, false)
+	if err != nil {
+		return err
+	}
+
+	s.createdKeys[key] = struct{}{}
+
+	return nil
+}
+
+func (s *systemConfigurator) addDNSState(state, domain, dnsServer string, port int, enableSearch bool) error {
+	noSearch := "1"
+	if enableSearch {
+		noSearch = "0"
+	}
+	lines := buildAddCommandLine(keyDomainName, domain)
+	lines += buildAddCommandLine(keySupplementalMatchDomains, arraySymbol+domain)
+	lines += buildAddCommandLine(keySupplementalMatchDomainsNoSearch, digitSymbol+noSearch)
+	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer)
+	lines += buildAddCommandLine(ServerPort, digitSymbol+strconv.Itoa(port))
+
+	addDomainCommand := buildCreateStateWithOperation(state, lines)
+	stdinCommands := wrapCommand(addDomainCommand)
+
+	_, err := runSystemConfigCommand(stdinCommands)
+	if err != nil {
+		return fmt.Errorf("got error while applying dns state for domain %s, error: %s", domain, err)
+	}
+	return nil
+}
+
+func (s *systemConfigurator) addDNSSetupForAll(dnsServer string, port int) error {
+	primaryServiceKey := s.getPrimaryService()
+	if primaryServiceKey == "" {
+		return fmt.Errorf("couldn't find the primary service key")
+	}
+
+	err := s.addDNSSetup(getKeyWithInput(primaryServiceSetupKeyFormat, primaryServiceKey), dnsServer, port)
+	if err != nil {
+		return err
+	}
+
+	s.primaryServiceID = primaryServiceKey
+	return nil
+}
+
+func (s *systemConfigurator) getPrimaryService() string {
+	line := buildCommandLine("show", globalIPv4State, "")
+	stdinCommands := wrapCommand(line)
+	b, err := runSystemConfigCommand(stdinCommands)
+	if err != nil {
+		log.Error("got error while sending the command: ", err)
+		return ""
+	}
+	fmt.Printf("original command \n%s\ncommand out: %s\n,err: %v\n", stdinCommands, string(b), err)
+	scanner := bufio.NewScanner(bytes.NewReader(b))
+	for scanner.Scan() {
+		text := scanner.Text()
+		if strings.Contains(text, "PrimaryService") {
+			return strings.TrimSpace(strings.Split(text, ":")[1])
+		}
+	}
+	return ""
+}
+
+func (s *systemConfigurator) addDNSSetup(setupKey, dnsServer string, port int) error {
+	lines := buildAddCommandLine(keySupplementalMatchDomainsNoSearch, digitSymbol+strconv.Itoa(0))
+	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer)
+	lines += buildAddCommandLine(ServerPort, digitSymbol+strconv.Itoa(port))
+	addDomainCommand := buildCreateStateWithOperation(setupKey, lines)
+	stdinCommands := wrapCommand(addDomainCommand)
+	_, err := runSystemConfigCommand(stdinCommands)
+	if err != nil {
+		return fmt.Errorf("got error while applying dns setup, error: %s", err)
+	}
+	return nil
+}
+
+func getKeyWithInput(format, key string) string {
+	return fmt.Sprintf(format, key)
+}
+
+func buildAddCommandLine(key, value string) string {
+	return buildCommandLine("d.add", key, value)
+}
+
+func buildCommandLine(action, key, value string) string {
+	return fmt.Sprintf("%s %s %s\n", action, key, value)
+}
+
+func wrapCommand(commands string) string {
+	return fmt.Sprintf("open\n%s\nquit\n", commands)
+}
+
+func buildRemoveKeyOperation(key string) string {
+	return fmt.Sprintf("remove %s\n", key)
+}
+
+func buildCreateStateWithOperation(state, commands string) string {
+	return buildWriteStateOperation("set", state, commands)
+}
+
+func buildWriteStateOperation(operation, state, commands string) string {
+	return fmt.Sprintf("d.init\n%s %s\n%s\nset %s\n", operation, state, commands, state)
+}
+
+func runSystemConfigCommand(command string) ([]byte, error) {
+	cmd := exec.Command(scutilPath)
+	cmd.Stdin = strings.NewReader(command)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("got error while running system configuration command: \"%s\", error: %s", command, err)
+	}
+	return out, nil
 }
