@@ -7,6 +7,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 	"golang.zx2c4.com/wireguard/windows/driver"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
+	"strings"
 )
 
 const (
@@ -23,20 +24,23 @@ const (
 	interfaceConfigPath          = "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces"
 	interfaceConfigNameServerKey = "NameServer"
 	interfaceConfigSearchListKey = "SearchList"
+	tcpipParametersPath          = "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters"
 )
 
 type windowsConfigurator struct {
-	luid             winipcfg.LUID
-	primaryServiceID string
-	createdKeys      map[string]struct{}
+	luid               winipcfg.LUID
+	primaryServiceID   string
+	createdKeys        map[string]struct{}
+	addedSearchDomains map[string]struct{}
 }
 
 func newHostManager(wgInterface *iface.WGIface) hostManager {
 	windowsDevice := wgInterface.Interface.(*driver.Adapter)
 	luid := windowsDevice.LUID()
 	return &windowsConfigurator{
-		luid:        luid,
-		createdKeys: make(map[string]struct{}),
+		luid:               luid,
+		createdKeys:        make(map[string]struct{}),
+		addedSearchDomains: make(map[string]struct{}),
 	}
 }
 
@@ -105,7 +109,9 @@ func (w *windowsConfigurator) addDNSStateForDomain(domain, ip string) error {
 		return fmt.Errorf("unable to set registry value for %s, error: %s", dnsPolicyConfigVersionKey, err)
 	}
 
-	err = regKey.SetStringsValue(dnsPolicyConfigNameKey, []string{domain})
+	prefixDotedDomain := "." + domain
+
+	err = regKey.SetStringsValue(dnsPolicyConfigNameKey, []string{prefixDotedDomain})
 	if err != nil {
 		return fmt.Errorf("unable to set registry value for %s, error: %s", dnsPolicyConfigNameKey, err)
 	}
@@ -126,10 +132,27 @@ func (w *windowsConfigurator) addDNSStateForDomain(domain, ip string) error {
 }
 
 func (w *windowsConfigurator) addSearchDomain(domain string, ip string, port int) error {
-	err := w.setInterfaceRegistryKeyStringValue(interfaceConfigSearchListKey, domain)
+	value, err := getLocalMachineRegistryKeyStringValue(tcpipParametersPath, interfaceConfigSearchListKey)
+	if err != nil {
+		return fmt.Errorf("unable to get current search domains failed with error: %s", err)
+	}
+
+	valueList := strings.Split(value, ",")
+	for _, existingDomain := range valueList {
+		if existingDomain == domain {
+			log.Debugf("not adding domain %s to the search list. Already exist", domain)
+			return nil
+		}
+	}
+
+	valueList = append(valueList, domain)
+
+	err = setLocalMachineRegistryKeyStringValue(tcpipParametersPath, interfaceConfigSearchListKey, strings.Join(valueList, ","))
 	if err != nil {
 		return fmt.Errorf("adding search domain failed with error: %s", err)
 	}
+
+	w.addedSearchDomains[domain] = struct{}{}
 
 	return nil
 }
@@ -164,7 +187,22 @@ func (w *windowsConfigurator) removeDNSSettings() error {
 			log.Error(err)
 		}
 	}
-	return nil
+
+	value, err := getLocalMachineRegistryKeyStringValue(tcpipParametersPath, interfaceConfigSearchListKey)
+	if err != nil {
+		return fmt.Errorf("unable to get current search domains failed with error: %s", err)
+	}
+
+	existingValueList := strings.Split(value, ",")
+	var newValueList []string
+	for _, existingDomain := range existingValueList {
+		_, found := w.addedSearchDomains[existingDomain]
+		if !found {
+			newValueList = append(newValueList, existingDomain)
+		}
+	}
+
+	return setLocalMachineRegistryKeyStringValue(tcpipParametersPath, interfaceConfigSearchListKey, strings.Join(newValueList, ","))
 }
 
 func getRegistryKeyPath(format, input string) string {
@@ -172,8 +210,9 @@ func getRegistryKeyPath(format, input string) string {
 }
 
 func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
-	_, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.QUERY_VALUE)
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.QUERY_VALUE)
 	if err == nil {
+		k.Close()
 		err = registry.DeleteKey(registry.LOCAL_MACHINE, regKeyPath)
 		if err != nil {
 			return fmt.Errorf("unable to remove existing key from registry, key: HKEY_LOCAL_MACHINE\\%s, error: %s", regKeyPath, err)
@@ -182,11 +221,42 @@ func removeRegistryKeyFromDNSPolicyConfig(regKeyPath string) error {
 	return nil
 }
 
+func getLocalMachineRegistryKeyStringValue(keyPath, key string) (string, error) {
+	regKey, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.QUERY_VALUE)
+	if err != nil {
+		return "", fmt.Errorf("unable to open existing key from registry, key path: HKEY_LOCAL_MACHINE\\%s, error: %s", keyPath, err)
+	}
+	defer regKey.Close()
+
+	val, _, err := regKey.GetStringValue(key)
+	if err != nil {
+		return "", fmt.Errorf("getting %s value for key path HKEY_LOCAL_MACHINE\\%s failed with error: %s", key, keyPath, err)
+	}
+
+	return val, nil
+}
+
+func setLocalMachineRegistryKeyStringValue(keyPath, key, value string) error {
+	regKey, err := registry.OpenKey(registry.LOCAL_MACHINE, keyPath, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("unable to open existing key from registry, key path: HKEY_LOCAL_MACHINE\\%s, error: %s", keyPath, err)
+	}
+	defer regKey.Close()
+
+	err = regKey.SetStringValue(key, value)
+	if err != nil {
+		return fmt.Errorf("setting %s value %s for key path HKEY_LOCAL_MACHINE\\%s failed with error: %s", key, value, keyPath, err)
+	}
+
+	return nil
+}
+
 func (w *windowsConfigurator) setInterfaceRegistryKeyStringValue(key, value string) error {
 	regKey, err := w.getInterfaceRegistryKey()
 	if err != nil {
 		return err
 	}
+	defer regKey.Close()
 
 	err = regKey.SetStringValue(key, value)
 	if err != nil {
@@ -201,6 +271,7 @@ func (w *windowsConfigurator) deleteInterfaceRegistryKey(key string) error {
 	if err != nil {
 		return err
 	}
+	defer regKey.Close()
 
 	err = regKey.DeleteValue(key)
 	if err != nil {
