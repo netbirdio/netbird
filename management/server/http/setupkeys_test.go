@@ -6,9 +6,8 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +31,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 	user *server.User) *SetupKeys {
 	return &SetupKeys{
 		accountManager: &mock_server.MockAccountManager{
-			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, error) {
+			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return &server.Account{
 					Id:     testAccountID,
 					Domain: "hotmail.com",
@@ -45,7 +44,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 					Groups: map[string]*server.Group{
 						"group-1": {ID: "group-1", Peers: []string{"A", "B"}},
 						"id-all":  {ID: "id-all", Name: "All"}},
-				}, nil
+				}, user, nil
 			},
 			CreateSetupKeyFunc: func(_ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string) (*server.SetupKey, error) {
 				if keyName == newKey.Name || typ != newKey.Type {
@@ -60,7 +59,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				case newKey.Id:
 					return newKey, nil
 				default:
-					return nil, status.Errorf(codes.NotFound, "key %s not found", keyID)
+					return nil, status.Errorf(status.NotFound, "key %s not found", keyID)
 				}
 			},
 
@@ -68,7 +67,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				if key.Id == updatedSetupKey.Id {
 					return updatedSetupKey, nil
 				}
-				return nil, status.Errorf(codes.NotFound, "key %s not found", key.Id)
+				return nil, status.Errorf(status.NotFound, "key %s not found", key.Id)
 			},
 
 			ListSetupKeysFunc: func(accountID, userID string) ([]*server.SetupKey, error) {

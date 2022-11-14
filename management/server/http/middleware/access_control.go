@@ -1,7 +1,8 @@
 package middleware
 
 import (
-	"fmt"
+	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/status"
 	"net/http"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -33,14 +34,15 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 
 		ok, err := a.isUserAdmin(jwtClaims)
 		if err != nil {
-			http.Error(w, fmt.Sprintf("error get user from JWT: %v", err), http.StatusUnauthorized)
+			util.WriteError(status.Errorf(status.Unauthorized, "invalid JWT"), w)
 			return
 		}
 
 		if !ok {
 			switch r.Method {
+
 			case http.MethodDelete, http.MethodPost, http.MethodPatch, http.MethodPut:
-				http.Error(w, "user is not admin", http.StatusForbidden)
+				util.WriteError(status.Errorf(status.PermissionDenied, "only admin can perform this operation"), w)
 				return
 			}
 		}

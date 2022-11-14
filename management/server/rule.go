@@ -1,8 +1,7 @@
 package server
 
 import (
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/netbirdio/netbird/management/server/status"
 	"strings"
 )
 
@@ -95,7 +94,7 @@ func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rul
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)
@@ -104,7 +103,7 @@ func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rul
 	}
 
 	if !user.IsAdmin() {
-		return nil, Errorf(PermissionDenied, "only admins are allowed to view rules")
+		return nil, status.Errorf(status.PermissionDenied, "only admins are allowed to view rules")
 	}
 
 	rule, ok := account.Rules[ruleID]
@@ -112,7 +111,7 @@ func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rul
 		return rule, nil
 	}
 
-	return nil, status.Errorf(codes.NotFound, "rule with ID %s not found", ruleID)
+	return nil, status.Errorf(status.NotFound, "rule with ID %s not found", ruleID)
 }
 
 // SaveRule of ACL in the store
@@ -122,7 +121,7 @@ func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	account.Rules[rule.ID] = rule
@@ -143,12 +142,12 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	ruleToUpdate, ok := account.Rules[ruleID]
 	if !ok {
-		return nil, status.Errorf(codes.NotFound, "rule %s no longer exists", ruleID)
+		return nil, status.Errorf(status.NotFound, "rule %s no longer exists", ruleID)
 	}
 
 	rule := ruleToUpdate.Copy()
@@ -161,7 +160,7 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 			rule.Description = operation.Values[0]
 		case UpdateRuleFlow:
 			if operation.Values[0] != TrafficFlowBidirectString {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse flow")
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse flow")
 			}
 			rule.Flow = TrafficFlowBidirect
 		case UpdateRuleStatus:
@@ -170,7 +169,7 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 			} else if strings.ToLower(operation.Values[0]) == "false" {
 				rule.Disabled = false
 			} else {
-				return nil, status.Errorf(codes.InvalidArgument, "failed to parse status")
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse status")
 			}
 		case UpdateSourceGroups:
 			rule.Source = operation.Values
@@ -204,7 +203,7 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 
 	err = am.updateAccountPeers(account)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update account peers")
+		return nil, status.Errorf(status.Internal, "failed to update account peers")
 	}
 
 	return rule, nil
@@ -217,7 +216,7 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return status.Errorf(codes.NotFound, "account not found")
+		return err
 	}
 
 	delete(account.Rules, ruleID)
@@ -237,7 +236,7 @@ func (am *DefaultAccountManager) ListRules(accountID, userID string) ([]*Rule, e
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	user, err := account.FindUser(userID)
@@ -246,7 +245,7 @@ func (am *DefaultAccountManager) ListRules(accountID, userID string) ([]*Rule, e
 	}
 
 	if !user.IsAdmin() {
-		return nil, Errorf(PermissionDenied, "Only Administrators can view Access Rules")
+		return nil, status.Errorf(status.PermissionDenied, "Only Administrators can view Access Rules")
 	}
 
 	rules := make([]*Rule, 0, len(account.Rules))

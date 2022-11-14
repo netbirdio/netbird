@@ -2,6 +2,7 @@ package server
 
 import (
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/status"
 	"net"
 	"strings"
 	"time"
@@ -9,8 +10,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 // PeerSystemMeta is a metadata of a Peer machine system
@@ -162,7 +161,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	//TODO Peer.ID migration: we will need to replace search by ID here
@@ -208,7 +207,7 @@ func (am *DefaultAccountManager) DeletePeer(accountID string, peerPubKey string)
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	peer, err := account.FindPeerByPubKey(peerPubKey)
@@ -258,7 +257,7 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "account not found")
+		return nil, err
 	}
 
 	for _, peer := range account.Peers {
@@ -267,7 +266,7 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 		}
 	}
 
-	return nil, status.Errorf(codes.NotFound, "peer with IP %s not found", peerIP)
+	return nil, status.Errorf(status.NotFound, "peer with IP %s not found", peerIP)
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
@@ -275,7 +274,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Invalid peer key %s", peerPubKey)
+		return nil, err
 	}
 
 	aclPeers := am.getPeersByACL(account, peerPubKey)
@@ -306,7 +305,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(peerPubKey string) (*Network, er
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "invalid peer key %s", peerPubKey)
+		return nil, err
 	}
 
 	return account.Network.Copy(), err
@@ -332,7 +331,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		account, err = am.Store.GetAccountBySetupKey(setupKey)
 	}
 	if err != nil {
-		return nil, Errorf(AccountNotFound, "failed adding new peer: account not found")
+		return nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
 	}
 
 	unlock := am.Store.AcquireAccountLock(account.Id)
@@ -352,7 +351,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		}
 
 		if !sk.IsValid() {
-			return nil, Errorf(PreconditionFailed, "couldn't add peer: setup key is invalid")
+			return nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
 		}
 
 		account.SetupKeys[sk.Key] = sk.IncrementUsage()
@@ -418,7 +417,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	account.Network.IncSerial()
 	err = am.Store.SaveAccount(account)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed adding peer")
+		return nil, err
 	}
 
 	return newPeer, nil
@@ -563,13 +562,13 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	for _, peer := range peers {
 		remotePeerNetworkMap, err := am.GetNetworkMap(peer.Key)
 		if err != nil {
-			return status.Errorf(codes.Internal, "unable to fetch network map for peer %s, error: %v", peer.Key, err)
+			return err
 		}
 
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap)
 		err = am.peersUpdateManager.SendUpdate(peer.Key, &UpdateMessage{Update: update})
 		if err != nil {
-			return status.Errorf(codes.Internal, "unable to send update for peer %s, error: %v", peer.Key, err)
+			return err
 		}
 	}
 
