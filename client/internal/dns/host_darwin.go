@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	nbdns "github.com/netbirdio/netbird/dns"
 	log "github.com/sirupsen/logrus"
 	"os/exec"
 	"strconv"
@@ -31,7 +30,7 @@ type systemConfigurator struct {
 	createdKeys      map[string]struct{}
 }
 
-func newHostManager() hostManager {
+func newHostManager(_, iface.WGIface) hostManager {
 	return &systemConfigurator{
 		createdKeys: make(map[string]struct{}),
 	}
@@ -40,7 +39,7 @@ func newHostManager() hostManager {
 func (s *systemConfigurator) applyDNSSettings(domains []string, ip string, port int) error {
 	var err error
 	for _, domain := range domains {
-		if domain == nbdns.RootZone || domain == "" {
+		if isRootZoneDomain(domain) {
 			err = s.addDNSSetupForAll(ip, port)
 			if err != nil {
 				log.Error(err)
@@ -87,7 +86,7 @@ func (s *systemConfigurator) removeDNSSettings() error {
 func (s *systemConfigurator) removeDomainSettings(domains []string) error {
 	var err error
 	for _, domain := range domains {
-		if domain == nbdns.RootZone || domain == "" {
+		if isRootZoneDomain(domain) {
 			if s.primaryServiceID != "" {
 				err = removeKeyFromSystemConfig(getKeyWithInput(primaryServiceSetupKeyFormat, s.primaryServiceID))
 				if err != nil {
