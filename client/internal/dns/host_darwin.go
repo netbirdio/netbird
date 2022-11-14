@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"os/exec"
 	"strconv"
@@ -30,7 +31,7 @@ type systemConfigurator struct {
 	createdKeys      map[string]struct{}
 }
 
-func newHostManager(_, iface.WGIface) hostManager {
+func newHostManager(_ *iface.WGIface) hostManager {
 	return &systemConfigurator{
 		createdKeys: make(map[string]struct{}),
 	}

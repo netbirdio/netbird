@@ -7,6 +7,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
+	"strings"
 	"sync"
 	"time"
 )
@@ -70,7 +71,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultS
 			registeredMap: make(registrationMap),
 		},
 		wgInterface: wgInterface,
-		hostManager: newHostManager(),
+		hostManager: newHostManager(wgInterface),
 	}
 }
 
@@ -167,7 +168,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...)
 		var domains []string
 		for _, u := range muxUpdates {
-			domains = append(domains, u.domain)
+			domains = append(domains, strings.TrimSuffix(u.domain, "."))
 		}
 
 		domainsToRemove := s.updateMux(muxUpdates)
@@ -188,7 +189,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		}
 
 		for _, localMuxUpdate := range localMuxUpdates {
-			err = s.hostManager.addSearchDomain(localMuxUpdate.domain, defaultIP, s.runtimePort)
+			err = s.hostManager.addSearchDomain(strings.TrimSuffix(localMuxUpdate.domain, "."), defaultIP, s.runtimePort)
 			if err != nil {
 				log.Error(err)
 			}
