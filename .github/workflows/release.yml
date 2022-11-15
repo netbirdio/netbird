@@ -105,6 +105,7 @@ jobs:
 
       - name: Install dependencies
         run: sudo apt update && sudo apt install -y -q libgtk-3-dev libappindicator3-dev libayatana-appindicator3-dev libgl1-mesa-dev xorg-dev gcc-mingw-w64
+      - run: which x86_64-w64-mingw32-gcc
       - name: Install rsrc
         run: go install github.com/akavel/rsrc@v0.10.2
       - name: Generate windows rsrc
