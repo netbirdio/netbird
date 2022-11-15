@@ -202,7 +202,6 @@ func TestUpdateDNSServer(t *testing.T) {
 			dnsServer.updateSerial = testCase.initSerial
 			// pretend we are running
 			dnsServer.listenerIsRunning = true
-			dnsServer.runtimePort = 53
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {

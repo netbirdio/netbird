@@ -7,6 +7,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -84,19 +85,23 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultS
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
 	log.Debugf("starting dns on %s:%d", defaultIP, port)
+	s.runtimePort = port
+	probeListener, err := net.Listen("udp", s.server.Addr)
+	if err != nil {
+		s.runtimePort = customPort
+		s.server.Addr = fmt.Sprintf("%s:%d", defaultIP, customPort)
+	}
+	err = probeListener.Close()
+	if err != nil {
+		log.Errorf("got an error closing the probe listener, error: %s", err)
+	}
 	go func() {
 		s.setListenerStatus(true)
 		defer s.setListenerStatus(false)
-		s.runtimePort = port
-		err := s.server.ListenAndServe()
+
+		err = s.server.ListenAndServe()
 		if err != nil {
-			log.Errorf("dns server returned an error using the default port, will try with custom port %d: %v", customPort, err)
-			s.server.Addr = fmt.Sprintf("%s:%d", defaultIP, customPort)
-			s.runtimePort = customPort
-			err = s.server.ListenAndServe()
-			if err != nil {
-				log.Errorf("dns server running with custom port returned an error: %v. Will not retry", err)
-			}
+			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.runtimePort, err)
 		}
 	}()
 }
@@ -179,10 +184,6 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 
 		domainsToRemove := s.updateMux(muxUpdates)
 		s.updateLocalResolver(localRecords)
-
-		for s.runtimePort == 0 {
-			time.Sleep(10 * time.Millisecond)
-		}
 
 		err = s.hostManager.removeDomainSettings(domainsToRemove)
 		if err != nil {
