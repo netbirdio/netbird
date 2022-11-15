@@ -6,7 +6,8 @@ builds:
     env:
       - CGO_ENABLED=1
     overrides:
-      - goarch: arm64
+      - goos: linux
+        goarch: arm64
         env:
           - CGO_ENABLED=1
           - CC=gcc-aarch64-linux-gnu
