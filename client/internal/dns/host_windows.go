@@ -27,9 +27,8 @@ const (
 	tcpipParametersPath          = "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters"
 )
 
-type windowsConfigurator struct {
+type registryConfigurator struct {
 	luid               winipcfg.LUID
-	primaryServiceID   string
 	createdKeys        map[string]struct{}
 	addedSearchDomains map[string]struct{}
 }
@@ -37,24 +36,24 @@ type windowsConfigurator struct {
 func newHostManager(wgInterface *iface.WGIface) hostManager {
 	windowsDevice := wgInterface.Interface.(*driver.Adapter)
 	luid := windowsDevice.LUID()
-	return &windowsConfigurator{
+	return &registryConfigurator{
 		luid:               luid,
 		createdKeys:        make(map[string]struct{}),
 		addedSearchDomains: make(map[string]struct{}),
 	}
 }
 
-func (w *windowsConfigurator) applyDNSSettings(domains []string, ip string, _ int) error {
+func (r *registryConfigurator) applyDNSSettings(domains []string, ip string, _ int) error {
 	var err error
 	for _, domain := range domains {
 		if isRootZoneDomain(domain) {
-			err = w.addDNSSetupForAll(ip)
+			err = r.addDNSSetupForAll(ip)
 			if err != nil {
 				log.Error(err)
 			}
 			continue
 		}
-		err = w.addDNSStateForDomain(domain, ip)
+		err = r.addDNSStateForDomain(domain, ip)
 		if err != nil {
 			log.Error(err)
 		}
@@ -62,8 +61,8 @@ func (w *windowsConfigurator) applyDNSSettings(domains []string, ip string, _ in
 	return nil
 }
 
-func (w *windowsConfigurator) addDNSSetupForAll(ip string) error {
-	err := w.setInterfaceRegistryKeyStringValue(interfaceConfigNameServerKey, ip)
+func (r *registryConfigurator) addDNSSetupForAll(ip string) error {
+	err := r.setInterfaceRegistryKeyStringValue(interfaceConfigNameServerKey, ip)
 	if err != nil {
 		return fmt.Errorf("adding dns setup for all failed with error: %s", err)
 	}
@@ -71,10 +70,10 @@ func (w *windowsConfigurator) addDNSSetupForAll(ip string) error {
 	return nil
 }
 
-func (w *windowsConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
+func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 	var regKey registry.Key
 
-	guid, err := w.luid.GUID()
+	guid, err := r.luid.GUID()
 	if err != nil {
 		return regKey, fmt.Errorf("unable to get interface GUID, error: %s", err)
 	}
@@ -89,7 +88,7 @@ func (w *windowsConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 	return regKey, nil
 }
 
-func (w *windowsConfigurator) addDNSStateForDomain(domain, ip string) error {
+func (r *registryConfigurator) addDNSStateForDomain(domain, ip string) error {
 	regKeyPath := getRegistryKeyPath(dnsPolicyConfigPathFormat, domain)
 
 	_, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.QUERY_VALUE)
@@ -126,12 +125,12 @@ func (w *windowsConfigurator) addDNSStateForDomain(domain, ip string) error {
 		return fmt.Errorf("unable to set registry value for %s, error: %s", dnsPolicyConfigConfigOptionsKey, err)
 	}
 
-	w.createdKeys[regKeyPath] = struct{}{}
+	r.createdKeys[regKeyPath] = struct{}{}
 
 	return nil
 }
 
-func (w *windowsConfigurator) addSearchDomain(domain string, ip string, port int) error {
+func (r *registryConfigurator) addSearchDomain(domain string, ip string, port int) error {
 	value, err := getLocalMachineRegistryKeyStringValue(tcpipParametersPath, interfaceConfigSearchListKey)
 	if err != nil {
 		return fmt.Errorf("unable to get current search domains failed with error: %s", err)
@@ -152,16 +151,16 @@ func (w *windowsConfigurator) addSearchDomain(domain string, ip string, port int
 		return fmt.Errorf("adding search domain failed with error: %s", err)
 	}
 
-	w.addedSearchDomains[domain] = struct{}{}
+	r.addedSearchDomains[domain] = struct{}{}
 
 	return nil
 }
 
-func (w *windowsConfigurator) removeDomainSettings(domains []string) error {
+func (r *registryConfigurator) removeDomainSettings(domains []string) error {
 	var err error
 	for _, domain := range domains {
 		if isRootZoneDomain(domain) {
-			err = w.deleteInterfaceRegistryKey(interfaceConfigNameServerKey)
+			err = r.deleteInterfaceRegistryKey(interfaceConfigNameServerKey)
 			if err != nil {
 				log.Error(err)
 			}
@@ -175,13 +174,13 @@ func (w *windowsConfigurator) removeDomainSettings(domains []string) error {
 			continue
 		}
 
-		delete(w.createdKeys, regKeyPath)
+		delete(r.createdKeys, regKeyPath)
 	}
 	return nil
 }
 
-func (w *windowsConfigurator) removeDNSSettings() error {
-	for key := range w.createdKeys {
+func (r *registryConfigurator) removeDNSSettings() error {
+	for key := range r.createdKeys {
 		err := removeRegistryKeyFromDNSPolicyConfig(key)
 		if err != nil {
 			log.Error(err)
@@ -196,7 +195,7 @@ func (w *windowsConfigurator) removeDNSSettings() error {
 	existingValueList := strings.Split(value, ",")
 	var newValueList []string
 	for _, existingDomain := range existingValueList {
-		_, found := w.addedSearchDomains[existingDomain]
+		_, found := r.addedSearchDomains[existingDomain]
 		if !found {
 			newValueList = append(newValueList, existingDomain)
 		}
@@ -251,8 +250,8 @@ func setLocalMachineRegistryKeyStringValue(keyPath, key, value string) error {
 	return nil
 }
 
-func (w *windowsConfigurator) setInterfaceRegistryKeyStringValue(key, value string) error {
-	regKey, err := w.getInterfaceRegistryKey()
+func (r *registryConfigurator) setInterfaceRegistryKeyStringValue(key, value string) error {
+	regKey, err := r.getInterfaceRegistryKey()
 	if err != nil {
 		return err
 	}
@@ -266,8 +265,8 @@ func (w *windowsConfigurator) setInterfaceRegistryKeyStringValue(key, value stri
 	return nil
 }
 
-func (w *windowsConfigurator) deleteInterfaceRegistryKey(key string) error {
-	regKey, err := w.getInterfaceRegistryKey()
+func (r *registryConfigurator) deleteInterfaceRegistryKey(key string) error {
+	regKey, err := r.getInterfaceRegistryKey()
 	if err != nil {
 		return err
 	}
