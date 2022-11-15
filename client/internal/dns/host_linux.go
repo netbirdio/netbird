@@ -28,26 +28,31 @@ const (
 )
 
 const (
-	systemdDbusInterface                       = "org.freedesktop.resolve1.Manager"
-	systemdResolvedDest                        = "org.freedesktop.resolve1"
-	systemdDbusObjectNode                      = "/org/freedesktop/resolve1"
-	systemdDbusGetLinkMethod                   = systemdDbusInterface + ".GetLink"
-	systemdDbusRevertMethodSuffix              = ".RevertLink"
-	systemdDbusSetLinkDNSExMethodSuffix        = ".SetLinkDNSEx"
-	systemdDbusSetLinkDefaultRouteMethodSuffix = ".SetLinkDefaultRoute"
-	systemdDbusSetLinkDomainsMethodSuffix      = ".SetLinkDomains"
-	systemdDbusDefaultFlag                     = 0
+	systemdDbusManagerInterface            = "org.freedesktop.resolve1.Manager"
+	systemdResolvedDest                    = "org.freedesktop.resolve1"
+	systemdDbusObjectNode                  = "/org/freedesktop/resolve1"
+	systemdDbusGetLinkMethod               = systemdDbusManagerInterface + ".GetLink"
+	systemdDbusFlushCachesMethod           = systemdDbusManagerInterface + ".FlushCaches"
+	systemdDbusLinkInterface               = "org.freedesktop.resolve1.Link"
+	systemdDbusRevertMethodSuffix          = systemdDbusLinkInterface + ".Revert"
+	systemdDbusSetDNSExMethodSuffix        = systemdDbusLinkInterface + ".SetDNSEx"
+	systemdDbusSetDefaultRouteMethodSuffix = systemdDbusLinkInterface + ".SetDefaultRoute"
+	systemdDbusSetDomainsMethodSuffix      = systemdDbusLinkInterface + ".SetDomains"
+	systemdDbusDefaultFlag                 = 0
 )
 
 type systemdDbusConfigurator struct {
-	dbusLinkInterface    string
+	dbusLinkInterface    dbus.ObjectPath
 	createdLinkedDomains map[string]systemdDbusLinkDomainsInput
 }
 
+// https://dbus.freedesktop.org/doc/dbus-specification.html
+// https://www.freedesktop.org/software/systemd/man/org.freedesktop.resolve1.html
 type systemdDbusDNSExInput struct {
-	Family  int
+	Family  int32
 	Address []byte
-	Port    int
+	Port    uint16
+	Domain  string
 }
 
 type systemdDbusLinkDomainsInput struct {
@@ -84,8 +89,10 @@ func newSystemdDbusConfigurator(wgInterface *iface.WGIface) hostManager {
 		panic(err)
 	}
 
+	log.Debugf("got dbus Link interface: %s from net interface %s and index %d", s, iface.Name, iface.Index)
+
 	return &systemdDbusConfigurator{
-		dbusLinkInterface:    s,
+		dbusLinkInterface:    dbus.ObjectPath(s),
 		createdLinkedDomains: make(map[string]systemdDbusLinkDomainsInput),
 	}
 }
@@ -121,9 +128,9 @@ func (s *systemdDbusConfigurator) applyDNSSettings(domains []string, ip string, 
 	defaultLinkInput := systemdDbusDNSExInput{
 		Family:  unix.AF_INET,
 		Address: parsedIP[:],
-		Port:    port,
+		Port:    uint16(port),
 	}
-	err := s.callLinkMethod(systemdDbusSetLinkDNSExMethodSuffix, defaultLinkInput)
+	err := s.callLinkMethod(systemdDbusSetDNSExMethodSuffix, []systemdDbusDNSExInput{defaultLinkInput})
 	if err != nil {
 		return fmt.Errorf("setting the interface DNS server %s:%d failed with error: %s", ip, port, err)
 	}
@@ -132,11 +139,10 @@ func (s *systemdDbusConfigurator) applyDNSSettings(domains []string, ip string, 
 
 	for _, domain := range domains {
 		if isRootZoneDomain(domain) {
-			err = s.callLinkMethod(systemdDbusSetLinkDefaultRouteMethodSuffix, true)
+			err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
 			if err != nil {
 				log.Errorf("setting link as default dns router, failed with error: %s", err)
 			}
-			continue
 		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
 			Domain:    dns.Fqdn(domain),
@@ -151,7 +157,7 @@ func (s *systemdDbusConfigurator) applyDNSSettings(domains []string, ip string, 
 }
 
 func (s *systemdDbusConfigurator) addDNSSetupForAll() error {
-	err := s.callLinkMethod(systemdDbusSetLinkDefaultRouteMethodSuffix, true)
+	err := s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
 	if err != nil {
 		return fmt.Errorf("setting link as default dns router, failed with error: %s", err)
 	}
@@ -159,7 +165,7 @@ func (s *systemdDbusConfigurator) addDNSSetupForAll() error {
 }
 
 func (s *systemdDbusConfigurator) addDNSStateForDomain(domainsInput []systemdDbusLinkDomainsInput) error {
-	err := s.callLinkMethod(systemdDbusSetLinkDomainsMethodSuffix, domainsInput)
+	err := s.callLinkMethod(systemdDbusSetDomainsMethodSuffix, domainsInput)
 	if err != nil {
 		return fmt.Errorf("setting domains configuration failed with error: %s", err)
 	}
@@ -194,13 +200,13 @@ func (s *systemdDbusConfigurator) addSearchDomain(domain string, ip string, port
 		return fmt.Errorf("setting domains configuration with search domain %s failed with error: %s", domain, err)
 	}
 
-	return nil
+	return s.flushCaches()
 }
 func (s *systemdDbusConfigurator) removeDomainSettings(domains []string) error {
 	var err error
 	for _, domain := range domains {
 		if isRootZoneDomain(domain) {
-			err = s.callLinkMethod(systemdDbusSetLinkDefaultRouteMethodSuffix, false)
+			err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, false)
 			if err != nil {
 				log.Errorf("setting link as non default dns router, failed with error: %s", err)
 			}
@@ -211,36 +217,53 @@ func (s *systemdDbusConfigurator) removeDomainSettings(domains []string) error {
 	// cleaning the configuration as it gets rebuild
 	emptyList := make([]systemdDbusLinkDomainsInput, 0)
 
-	err = s.callLinkMethod(systemdDbusSetLinkDomainsMethodSuffix, emptyList)
+	err = s.callLinkMethod(systemdDbusSetDomainsMethodSuffix, emptyList)
 	if err != nil {
 		log.Error(err)
 	}
 
 	s.createdLinkedDomains = make(map[string]systemdDbusLinkDomainsInput)
 
-	return nil
+	return s.flushCaches()
 }
 func (s *systemdDbusConfigurator) removeDNSSettings() error {
 	err := s.callLinkMethod(systemdDbusRevertMethodSuffix, nil)
 	if err != nil {
 		return fmt.Errorf("unable to revert link configuration, got error: %s", err)
 	}
+	return s.flushCaches()
+}
+
+func (s *systemdDbusConfigurator) flushCaches() error {
+	obj, closeConn, err := getDbusObject(systemdResolvedDest, systemdDbusObjectNode)
+	if err != nil {
+		return fmt.Errorf("got error while attempting to retrieve the object %s, err: %s", systemdDbusObjectNode, err)
+	}
+	defer closeConn()
+	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	defer cancel()
+
+	err = obj.CallWithContext(ctx, systemdDbusFlushCachesMethod, systemdDbusDefaultFlag).Store()
+	if err != nil {
+		return fmt.Errorf("got error while calling the FlushCaches method with context, err: %s", err)
+	}
+
 	return nil
 }
 
-func (s *systemdDbusConfigurator) callLinkMethod(methodSuffix string, value any) error {
-	obj, closeConn, err := getDbusObject(systemdResolvedDest, systemdDbusObjectNode)
+func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error {
+	obj, closeConn, err := getDbusObject(systemdResolvedDest, s.dbusLinkInterface)
 	if err != nil {
-		return err
+		return fmt.Errorf("got error while attempting to retrieve the object, err: %s", err)
 	}
 	defer closeConn()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
-	err = obj.CallWithContext(ctx, s.dbusLinkInterface+methodSuffix, systemdDbusDefaultFlag, value).Store()
+	err = obj.CallWithContext(ctx, method, systemdDbusDefaultFlag, value).Store()
 	if err != nil {
-		return err
+		return fmt.Errorf("got error while calling command with context, err: %s", err)
 	}
 
 	return nil

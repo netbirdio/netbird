@@ -195,6 +195,8 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 			}
 		}
 
+		log.Debugf("applied dns update, added %d peer records, %d domain records and removed %d", len(localRecords), len(muxUpdates), len(domainsToRemove))
+
 		s.updateSerial = serial
 
 		return nil
