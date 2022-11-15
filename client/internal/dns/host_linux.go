@@ -270,7 +270,7 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 }
 
 func getDbusObject(dest string, path dbus.ObjectPath) (dbus.BusObject, func() error, error) {
-	conn, err := dbus.ConnectSessionBus()
+	conn, err := dbus.SystemBus()
 	if err != nil {
 		return nil, nil, err
 	}
