@@ -61,7 +61,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultS
 
 	ctx, stop := context.WithCancel(ctx)
 
-	return &DefaultServer{
+	defaultServer := &DefaultServer{
 		ctx:       ctx,
 		stop:      stop,
 		server:    dnsServer,
@@ -71,8 +71,14 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultS
 			registeredMap: make(registrationMap),
 		},
 		wgInterface: wgInterface,
-		hostManager: newHostManager(wgInterface),
 	}
+	// this should only happen on tests
+	if wgInterface.Interface == nil {
+		log.Debugf("returning a server without host manager")
+		return defaultServer
+	}
+	defaultServer.hostManager = newHostManager(wgInterface)
+	return defaultServer
 }
 
 // Start runs the listener in a go routine

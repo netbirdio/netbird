@@ -195,11 +195,14 @@ func TestUpdateDNSServer(t *testing.T) {
 			}
 			ctx := context.Background()
 			dnsServer := NewDefaultServer(ctx, wgInterface)
+			dnsServer.hostManager = newNoopHostMocker()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
 			dnsServer.updateSerial = testCase.initSerial
+			// pretend we are running
 			dnsServer.listenerIsRunning = true
+			dnsServer.runtimePort = 53
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
@@ -246,6 +249,8 @@ func TestDNSServerStartStop(t *testing.T) {
 		// todo review why this test is not working only on github actions workflows
 		t.Skip("skipping test in Windows CI workflows.")
 	}
+
+	dnsServer.hostManager = newNoopHostMocker()
 
 	dnsServer.Start()
 
