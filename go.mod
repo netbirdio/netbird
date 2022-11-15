@@ -35,7 +35,7 @@ require (
 	github.com/eko/gocache/v3 v3.1.1
 	github.com/getlantern/systray v1.2.1
 	github.com/gliderlabs/ssh v0.3.4
-	github.com/godbus/dbus/v5 v5.0.4
+	github.com/godbus/dbus/v5 v5.1.0
 	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
 	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
