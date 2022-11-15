@@ -80,7 +80,7 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 	}
 
 	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
-		"Tailscale", "tailscale", "docker", "vet"}
+		"Tailscale", "tailscale", "docker", "veth", "br-"}
 
 	err = util.WriteJson(configPath, config)
 	if err != nil {
