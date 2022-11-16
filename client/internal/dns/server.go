@@ -8,6 +8,7 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"net"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -84,21 +85,22 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultS
 
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
-	log.Debugf("starting dns on %s:%d", defaultIP, port)
 	s.runtimePort = port
-	probeListener, err := net.Listen("udp", s.server.Addr)
+	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(s.server.Addr))
+	probeListener, err := net.ListenUDP("udp", udpAddr)
 	if err != nil {
 		log.Warnf("using a custom port for dns server")
 		s.runtimePort = customPort
 		s.server.Addr = fmt.Sprintf("%s:%d", defaultIP, customPort)
 	} else {
-		log.Infof("using the default DNS port for dns server")
 		err = probeListener.Close()
+		if err != nil {
+			log.Errorf("got an error closing the probe listener, error: %s", err)
+		}
 	}
 
-	if err != nil {
-		log.Errorf("got an error closing the probe listener, error: %s", err)
-	}
+	log.Debugf("starting dns on %s", s.server.Addr)
+
 	go func() {
 		s.setListenerStatus(true)
 		defer s.setListenerStatus(false)

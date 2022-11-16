@@ -176,7 +176,6 @@ func (s *systemConfigurator) getPrimaryService() string {
 		log.Error("got error while sending the command: ", err)
 		return ""
 	}
-	fmt.Printf("original command \n%s\ncommand out: %s\n,err: %v\n", stdinCommands, string(b), err)
 	scanner := bufio.NewScanner(bytes.NewReader(b))
 	for scanner.Scan() {
 		text := scanner.Text()
