@@ -35,7 +35,7 @@ const (
 	systemdDbusFlushCachesMethod           = systemdDbusManagerInterface + ".FlushCaches"
 	systemdDbusLinkInterface               = "org.freedesktop.resolve1.Link"
 	systemdDbusRevertMethodSuffix          = systemdDbusLinkInterface + ".Revert"
-	systemdDbusSetDNSExMethodSuffix        = systemdDbusLinkInterface + ".SetDNSEx"
+	systemdDbusSetDNSMethodSuffix          = systemdDbusLinkInterface + ".SetDNS"
 	systemdDbusSetDefaultRouteMethodSuffix = systemdDbusLinkInterface + ".SetDefaultRoute"
 	systemdDbusSetDomainsMethodSuffix      = systemdDbusLinkInterface + ".SetDomains"
 	systemdDbusDefaultFlag                 = 0
@@ -48,11 +48,9 @@ type systemdDbusConfigurator struct {
 
 // https://dbus.freedesktop.org/doc/dbus-specification.html
 // https://www.freedesktop.org/software/systemd/man/org.freedesktop.resolve1.html
-type systemdDbusDNSExInput struct {
+type systemdDbusDNSInput struct {
 	Family  int32
 	Address []byte
-	Port    uint16
-	Domain  string
 }
 
 type systemdDbusLinkDomainsInput struct {
@@ -113,7 +111,7 @@ func getOSDNSManagerType() osManagerType {
 		if strings.Contains(text, "NetworkManager") {
 			return networkManager
 		}
-		if strings.Contains(text, "systemd-resolved") {
+		if strings.Contains(text, "systemd-resolved") && isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
 			return systemdManager
 		}
 		if strings.Contains(text, "resolvconf") {
@@ -125,12 +123,11 @@ func getOSDNSManagerType() osManagerType {
 
 func (s *systemdDbusConfigurator) applyDNSSettings(domains []string, ip string, port int) error {
 	parsedIP := netip.MustParseAddr(ip).As4()
-	defaultLinkInput := systemdDbusDNSExInput{
+	defaultLinkInput := systemdDbusDNSInput{
 		Family:  unix.AF_INET,
 		Address: parsedIP[:],
-		Port:    uint16(port),
 	}
-	err := s.callLinkMethod(systemdDbusSetDNSExMethodSuffix, []systemdDbusDNSExInput{defaultLinkInput})
+	err := s.callLinkMethod(systemdDbusSetDNSMethodSuffix, defaultLinkInput)
 	if err != nil {
 		return fmt.Errorf("setting the interface DNS server %s:%d failed with error: %s", ip, port, err)
 	}
@@ -267,6 +264,23 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	}
 
 	return nil
+}
+
+func isDbusListenerRunning(dest string, path dbus.ObjectPath) bool {
+	obj, closeConn, err := getDbusObject(dest, path)
+	if err != nil {
+		return false
+	}
+	defer closeConn()
+
+	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	defer cancel()
+
+	err = obj.CallWithContext(ctx, "org.freedesktop.DBus.Peer.Ping", 0).Store()
+	if err != nil {
+		return false
+	}
+	return true
 }
 
 func getDbusObject(dest string, path dbus.ObjectPath) (dbus.BusObject, func() error, error) {
