@@ -153,14 +153,6 @@ func (s *systemdDbusConfigurator) applyDNSSettings(domains []string, ip string, 
 	return nil
 }
 
-func (s *systemdDbusConfigurator) addDNSSetupForAll() error {
-	err := s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
-	if err != nil {
-		return fmt.Errorf("setting link as default dns router, failed with error: %s", err)
-	}
-	return nil
-}
-
 func (s *systemdDbusConfigurator) addDNSStateForDomain(domainsInput []systemdDbusLinkDomainsInput) error {
 	err := s.callLinkMethod(systemdDbusSetDomainsMethodSuffix, domainsInput)
 	if err != nil {
@@ -277,18 +269,22 @@ func isDbusListenerRunning(dest string, path dbus.ObjectPath) bool {
 	defer cancel()
 
 	err = obj.CallWithContext(ctx, "org.freedesktop.DBus.Peer.Ping", 0).Store()
-	if err != nil {
-		return false
-	}
-	return true
+	return err == nil
 }
 
-func getDbusObject(dest string, path dbus.ObjectPath) (dbus.BusObject, func() error, error) {
+func getDbusObject(dest string, path dbus.ObjectPath) (dbus.BusObject, func(), error) {
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		return nil, nil, err
 	}
 	obj := conn.Object(dest, path)
 
-	return obj, conn.Close, nil
+	closeFunc := func() {
+		closeErr := conn.Close()
+		if closeErr != nil {
+			log.Warnf("got an error closing dbus connection, err: %s", closeErr)
+		}
+	}
+
+	return obj, closeFunc, nil
 }

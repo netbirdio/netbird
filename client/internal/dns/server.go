@@ -88,10 +88,14 @@ func (s *DefaultServer) Start() {
 	s.runtimePort = port
 	probeListener, err := net.Listen("udp", s.server.Addr)
 	if err != nil {
+		log.Warnf("using a custom port for dns server")
 		s.runtimePort = customPort
 		s.server.Addr = fmt.Sprintf("%s:%d", defaultIP, customPort)
+	} else {
+		log.Infof("using the default DNS port for dns server")
+		err = probeListener.Close()
 	}
-	err = probeListener.Close()
+
 	if err != nil {
 		log.Errorf("got an error closing the probe listener, error: %s", err)
 	}
