@@ -10,7 +10,7 @@ builds:
         goarch: arm64
         env:
           - CGO_ENABLED=1
-          - CC=gcc-aarch64-linux-gnu
+          - CC=aarch64-linux-gnu-gcc
     goos:
       - linux
     goarch:
