@@ -36,6 +36,7 @@ require (
 	github.com/getlantern/systray v1.2.1
 	github.com/gliderlabs/ssh v0.3.4
 	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
+	github.com/hashicorp/go-version v1.6.0
 	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
 	github.com/miekg/dns v1.1.41
