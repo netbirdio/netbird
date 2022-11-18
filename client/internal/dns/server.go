@@ -9,7 +9,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"net"
 	"net/netip"
-	"strings"
 	"sync"
 	"time"
 )
@@ -122,7 +121,7 @@ func (s *DefaultServer) Stop() {
 	defer s.mux.Unlock()
 	s.stop()
 
-	err := s.hostManager.removeDNSSettings()
+	err := s.hostManager.restoreHostDNS()
 	if err != nil {
 		log.Error(err)
 	}
@@ -183,32 +182,14 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		}
 
 		muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...)
-		var domains []string
-		for _, u := range muxUpdates {
-			domains = append(domains, strings.TrimSuffix(u.domain, "."))
-		}
 
-		domainsToRemove := s.updateMux(muxUpdates)
+		s.updateMux(muxUpdates)
 		s.updateLocalResolver(localRecords)
 
-		err = s.hostManager.removeDomainSettings(domainsToRemove)
+		err = s.hostManager.applyDNSConfig(dnsConfigToHostDNSConfig(update, defaultIP, s.runtimePort))
 		if err != nil {
 			log.Error(err)
 		}
-
-		err = s.hostManager.applyDNSSettings(domains, defaultIP, s.runtimePort)
-		if err != nil {
-			log.Error(err)
-		}
-
-		for _, localMuxUpdate := range localMuxUpdates {
-			err = s.hostManager.addSearchDomain(strings.TrimSuffix(localMuxUpdate.domain, "."), defaultIP, s.runtimePort)
-			if err != nil {
-				log.Error(err)
-			}
-		}
-
-		log.Debugf("applied dns update, added %d peer records, %d domain records and removed %d", len(localRecords), len(muxUpdates), len(domainsToRemove))
 
 		s.updateSerial = serial
 
@@ -288,7 +269,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	return muxUpdates, nil
 }
 
-func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) []string {
+func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 	muxUpdateMap := make(registrationMap)
 
 	for _, update := range muxUpdates {
@@ -296,17 +277,14 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) []string {
 		muxUpdateMap[update.domain] = struct{}{}
 	}
 
-	var removed []string
 	for key := range s.dnsMuxMap {
 		_, found := muxUpdateMap[key]
 		if !found {
 			s.deregisterMux(key)
-			removed = append(removed, key)
 		}
 	}
 
 	s.dnsMuxMap = muxUpdateMap
-	return removed
 }
 
 func (s *DefaultServer) updateLocalResolver(update map[string]nbdns.SimpleRecord) {
