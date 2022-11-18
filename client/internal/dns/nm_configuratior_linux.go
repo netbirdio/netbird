@@ -5,10 +5,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"github.com/godbus/dbus/v5"
+	"github.com/hashicorp/go-version"
 	"github.com/miekg/dns"
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"net/netip"
+	"regexp"
+	"sort"
 	"time"
 )
 
@@ -273,19 +276,47 @@ func (n *networkManagerDbusConfigurator) reApplyConnectionSettings(connSettings 
 	return nil
 }
 
-//func isNetworkManagerSupportedVersion() bool {
-//	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusDnsManagerObjectNode)
-//	if err != nil {
-//		log.Errorf("got error while attempting to get the network manager object, err: %s", err)
-//		return false
-//	}
-//
-//	defer closeConn()
-//
-//	value, err := obj.GetProperty(networkManagerDbusDnsManagerModeProperty)
-//	if err != nil {
-//		log.Errorf("unable to retrieve network manager mode, got error: %s", err)
-//		return false
-//	}
-//	stringValue := value.Value().(string)
-//}
+func isNetworkManagerSupportedVersion() bool {
+	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusDnsManagerObjectNode)
+	if err != nil {
+		log.Errorf("got error while attempting to get the network manager object, err: %s", err)
+		return false
+	}
+
+	defer closeConn()
+
+	value, err := obj.GetProperty(networkManagerDbusDnsManagerModeProperty)
+	if err != nil {
+		log.Errorf("unable to retrieve network manager mode, got error: %s", err)
+		return false
+	}
+	stringValue := value.Value().(string)
+}
+
+func compareVersions(inputList []string) (string, string) {
+	reg, err := regexp.Compile(version.SemverRegexpRaw)
+	if err != nil {
+		return "", ""
+	}
+
+	versions := make([]*version.Version, 0)
+
+	for _, raw := range inputList {
+		if raw != "" && reg.MatchString(raw) {
+			v, err := version.NewVersion(raw)
+			if err == nil {
+				versions = append(versions, v)
+			}
+		}
+	}
+	switch len(versions) {
+	case 0:
+		return "", ""
+	case 1:
+		v := versions[0].String()
+		return v, v
+	default:
+		sort.Sort(version.Collection(versions))
+		return versions[0].String(), versions[len(versions)-1].String()
+	}
+}
