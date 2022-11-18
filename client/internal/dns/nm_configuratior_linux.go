@@ -15,6 +15,8 @@ import (
 const (
 	networkManagerDest                                                              = "org.freedesktop.NetworkManager"
 	networkManagerDbusObjectNode                                                    = "/org/freedesktop/NetworkManager"
+	networkManagerDbusDnsManagerObjectNode                                          = "/org/freedesktop/NetworkManager/DnsManager"
+	networkManagerDbusDnsManagerModeProperty                                        = "org.freedesktop.NetworkManager.DnsManager.Mode"
 	networkManagerDbusGetDeviceByIpIfaceMethod                                      = networkManagerDest + ".GetDeviceByIpIface"
 	networkManagerDbusDeviceInterface                                               = "org.freedesktop.NetworkManager.Device"
 	networkManagerDbusDeviceGetAppliedConnectionMethod                              = networkManagerDbusDeviceInterface + ".GetAppliedConnection"
@@ -27,7 +29,7 @@ const (
 	networkManagerDbusDNSPriorityKey                                                = "dns-priority"
 
 	// dns priority doc https://wiki.gnome.org/Projects/NetworkManager/DNS
-	networkManagerDbusPrimaryDNSPriority       int32 = -2147483648
+	networkManagerDbusPrimaryDNSPriority       int32 = -500
 	networkManagerDbusWithMatchDomainPriority  int32 = 0
 	networkManagerDbusSearchDomainOnlyPriority int32 = 50
 	networkManagerDbusSearchDefaultPriority    int32 = 100
@@ -87,11 +89,6 @@ func (n *networkManagerDbusConfigurator) applyDNSSettings(domains []string, ip s
 	}
 
 	connSettings.cleanDeprecatedSettings()
-	// todo remove this
-	_, found := connSettings[networkManagerDbusIPv4Key]["routes"]
-	if found {
-		panic("removing deprecated settings didn't work")
-	}
 
 	dnsIP := netip.MustParseAddr(ip)
 	convDNSIP := binary.LittleEndian.Uint32(dnsIP.AsSlice())
@@ -110,8 +107,14 @@ func (n *networkManagerDbusConfigurator) applyDNSSettings(domains []string, ip s
 			newDomainList = append(newDomainList, "~.")
 			continue
 		}
-		newDomainList = append(newDomainList, "~."+dns.Fqdn(domain))
+		matchDomain := "~." + dns.Fqdn(domain)
+		newDomainList = append(newDomainList, matchDomain)
 	}
+
+	if priority == networkManagerDbusPrimaryDNSPriority {
+		newDomainList = append(newDomainList, "~.")
+	}
+
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSPriorityKey] = dbus.MakeVariant(priority)
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
 
@@ -143,7 +146,7 @@ func (n *networkManagerDbusConfigurator) addSearchDomain(domain string, _ string
 		}
 	}
 
-	newDomainList = append(newDomainList, fqdnDomain)
+	newDomainList = append([]string{fqdnDomain}, newDomainList...)
 
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSSearchKey] = dbus.MakeVariant(newDomainList)
 
@@ -151,6 +154,7 @@ func (n *networkManagerDbusConfigurator) addSearchDomain(domain string, _ string
 	if err != nil {
 		log.Errorf("got an error while reapplying the connection with new search domain settings, error: %s", err)
 	}
+
 	return nil
 }
 func (n *networkManagerDbusConfigurator) removeDomainSettings(domains []string) error {
@@ -268,3 +272,20 @@ func (n *networkManagerDbusConfigurator) reApplyConnectionSettings(connSettings 
 
 	return nil
 }
+
+//func isNetworkManagerSupportedVersion() bool {
+//	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusDnsManagerObjectNode)
+//	if err != nil {
+//		log.Errorf("got error while attempting to get the network manager object, err: %s", err)
+//		return false
+//	}
+//
+//	defer closeConn()
+//
+//	value, err := obj.GetProperty(networkManagerDbusDnsManagerModeProperty)
+//	if err != nil {
+//		log.Errorf("unable to retrieve network manager mode, got error: %s", err)
+//		return false
+//	}
+//	stringValue := value.Value().(string)
+//}

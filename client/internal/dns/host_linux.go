@@ -46,7 +46,7 @@ func getOSDNSManagerType() osManagerType {
 		if text[0] != '#' {
 			return fileManager
 		}
-		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusDeviceInterface) {
+		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) {
 			return networkManager
 		}
 		if strings.Contains(text, "systemd-resolved") && isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
