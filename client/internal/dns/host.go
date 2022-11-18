@@ -6,10 +6,8 @@ import (
 )
 
 type hostManager interface {
-	applyDNSSettings(domains []string, ip string, port int) error
-	addSearchDomain(domain string, ip string, port int) error
-	removeDomainSettings(domains []string) error
-	removeDNSSettings() error
+	applyDNSConfig() error
+	restoreHostDNS() error
 }
 
 func isRootZoneDomain(domain string) bool {
@@ -17,45 +15,27 @@ func isRootZoneDomain(domain string) bool {
 }
 
 type mockHostConfigurator struct {
-	applyDNSSettingsFunc     func(domains []string, ip string, port int) error
-	addSearchDomainFunc      func(domain string, ip string, port int) error
-	removeDomainSettingsFunc func(domains []string) error
-	removeDNSSettingsFunc    func() error
+	applyDNSConfigFunc func() error
+	restoreHostDNSFunc func() error
 }
 
-func (m *mockHostConfigurator) applyDNSSettings(domains []string, ip string, port int) error {
-	if m.applyDNSSettingsFunc != nil {
-		return m.applyDNSSettingsFunc(domains, ip, port)
+func (m *mockHostConfigurator) applyDNSConfig() error {
+	if m.applyDNSConfigFunc != nil {
+		return m.applyDNSConfigFunc()
 	}
 	return fmt.Errorf("method applyDNSSettings is not implemented")
 }
 
-func (m *mockHostConfigurator) addSearchDomain(domain string, ip string, port int) error {
-	if m.addSearchDomainFunc != nil {
-		return m.addSearchDomainFunc(domain, ip, port)
+func (m *mockHostConfigurator) restoreHostDNS() error {
+	if m.restoreHostDNSFunc != nil {
+		return m.restoreHostDNSFunc()
 	}
-	return fmt.Errorf("method addSearchDomain is not implemented")
-}
-
-func (m *mockHostConfigurator) removeDomainSettings(domains []string) error {
-	if m.removeDomainSettingsFunc != nil {
-		return m.removeDomainSettingsFunc(domains)
-	}
-	return fmt.Errorf("method removeDomainSettings is not implemented")
-}
-
-func (m *mockHostConfigurator) removeDNSSettings() error {
-	if m.removeDNSSettingsFunc != nil {
-		return m.removeDNSSettingsFunc()
-	}
-	return fmt.Errorf("method removeDNSSettings is not implemented")
+	return fmt.Errorf("method restoreHostDNS is not implemented")
 }
 
 func newNoopHostMocker() hostManager {
 	return &mockHostConfigurator{
-		applyDNSSettingsFunc:     func(domains []string, ip string, port int) error { return nil },
-		addSearchDomainFunc:      func(domain string, ip string, port int) error { return nil },
-		removeDomainSettingsFunc: func(domains []string) error { return nil },
-		removeDNSSettingsFunc:    func() error { return nil },
+		applyDNSConfigFunc: func() error { return nil },
+		restoreHostDNSFunc: func() error { return nil },
 	}
 }
