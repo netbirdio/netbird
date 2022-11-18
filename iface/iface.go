@@ -79,7 +79,7 @@ func (w *WGIface) Close() error {
 		return err
 	}
 
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS != "windows" {
 		sockPath := "/var/run/wireguard/" + w.Name + ".sock"
 		if _, statErr := os.Stat(sockPath); statErr == nil {
 			statErr = os.Remove(sockPath)
