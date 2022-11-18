@@ -165,12 +165,15 @@ func (w *Worker) generateProperties() properties {
 		groups             int
 		routes             int
 		nameservers        int
+		uiClient           int
 		version            string
 		peerActiveVersions []string
+		osUIClients        map[string]int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
 	osPeers = make(map[string]int)
+	osUIClients = make(map[string]int)
 	uptime = time.Since(w.startupTime).Seconds()
 	connections := w.connManager.GetAllConnectedPeers()
 	version = system.NetbirdVersion()
@@ -196,6 +199,13 @@ func (w *Worker) generateProperties() properties {
 			osKey := strings.ToLower(fmt.Sprintf("peer_os_%s", peer.Meta.GoOS))
 			osCount := osPeers[osKey]
 			osPeers[osKey] = osCount + 1
+
+			if peer.Meta.UIVersion != "" {
+				uiClient++
+				uiOSKey := strings.ToLower(fmt.Sprintf("ui_client_os_%s", peer.Meta.GoOS))
+				osUICount := osUIClients[uiOSKey]
+				osUIClients[uiOSKey] = osUICount + 1
+			}
 
 			_, connected := connections[peer.Key]
 			if connected || peer.Status.LastSeen.After(w.lastRun) {
@@ -223,7 +233,12 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["version"] = version
 	metricsProperties["min_active_peer_version"] = minActivePeerVersion
 	metricsProperties["max_active_peer_version"] = maxActivePeerVersion
+	metricsProperties["ui_clients"] = uiClient
 	for os, count := range osPeers {
+		metricsProperties[os] = count
+	}
+
+	for os, count := range osUIClients {
 		metricsProperties[os] = count
 	}
 
