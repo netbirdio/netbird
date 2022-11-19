@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"net"
 	"net/netip"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -40,6 +41,7 @@ type DefaultServer struct {
 	updateSerial      uint64
 	listenerIsRunning bool
 	runtimePort       int
+	runtimeIP         string
 }
 
 type registrationMap map[string]struct{}
@@ -52,9 +54,13 @@ type muxUpdate struct {
 // NewDefaultServer returns a new dns server
 func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultServer {
 	mux := dns.NewServeMux()
+	listenIP := defaultIP
+	if runtime.GOOS != "darwin" && wgInterface != nil {
+		listenIP = wgInterface.GetAddress().IP.String()
+	}
 
 	dnsServer := &dns.Server{
-		Addr:    fmt.Sprintf("%s:%d", defaultIP, port),
+		Addr:    fmt.Sprintf("%s:%d", listenIP, port),
 		Net:     "udp",
 		Handler: mux,
 		UDPSize: 65535,
@@ -72,7 +78,10 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultS
 			registeredMap: make(registrationMap),
 		},
 		wgInterface: wgInterface,
+		runtimePort: port,
+		runtimeIP:   listenIP,
 	}
+
 	// this should only happen on tests
 	if wgInterface.Interface == nil {
 		log.Debugf("returning a server without host manager")
@@ -90,7 +99,7 @@ func (s *DefaultServer) Start() {
 	if err != nil {
 		log.Warnf("using a custom port for dns server")
 		s.runtimePort = customPort
-		s.server.Addr = fmt.Sprintf("%s:%d", defaultIP, customPort)
+		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, customPort)
 	} else {
 		err = probeListener.Close()
 		if err != nil {
@@ -186,7 +195,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		s.updateMux(muxUpdates)
 		s.updateLocalResolver(localRecords)
 
-		err = s.hostManager.applyDNSConfig(dnsConfigToHostDNSConfig(update, defaultIP, s.runtimePort))
+		err = s.hostManager.applyDNSConfig(dnsConfigToHostDNSConfig(update, s.runtimeIP, s.runtimePort))
 		if err != nil {
 			log.Error(err)
 		}
