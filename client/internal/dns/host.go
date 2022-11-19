@@ -62,8 +62,6 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) hostD
 	for _, nsConfig := range dnsConfig.NameServerGroups {
 		if nsConfig.Primary {
 			config.routeAll = true
-			config.domains = []domainConfig{}
-			break
 		}
 
 		for _, domain := range nsConfig.Domains {

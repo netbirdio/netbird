@@ -29,6 +29,7 @@ const (
 
 type registryConfigurator struct {
 	luid                  winipcfg.LUID
+	routingAll            bool
 	existingSearchDomains []string
 }
 
@@ -47,12 +48,13 @@ func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		if err != nil {
 			return err
 		}
-	} else {
+	} else if r.routingAll {
 		err = r.deleteInterfaceRegistryKeyProperty(interfaceConfigNameServerKey)
 		if err != nil {
 			return err
 		}
-		log.Infof("removed %s as main DNS server for this peer", config.serverIP)
+		r.routingAll = false
+		log.Infof("removed %s as main DNS forwarder for this peer", config.serverIP)
 	}
 
 	var (
@@ -89,7 +91,8 @@ func (r *registryConfigurator) addDNSSetupForAll(ip string) error {
 	if err != nil {
 		return fmt.Errorf("adding dns setup for all failed with error: %s", err)
 	}
-	log.Infof("configured %s:53 as main DNS server for this peer", ip)
+	r.routingAll = true
+	log.Infof("configured %s:53 as main DNS forwarder for this peer", ip)
 	return nil
 }
 
