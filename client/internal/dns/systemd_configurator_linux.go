@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/godbus/dbus/v5"
 	"github.com/miekg/dns"
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -27,8 +28,8 @@ const (
 )
 
 type systemdDbusConfigurator struct {
-	dbusLinkObject       dbus.ObjectPath
-	createdLinkedDomains map[string]systemdDbusLinkDomainsInput
+	dbusLinkObject dbus.ObjectPath
+	routingAll     bool
 }
 
 // the types below are based on dbus specification, each field is mapped to a dbus type
@@ -69,106 +70,72 @@ func newSystemdDbusConfigurator(wgInterface *iface.WGIface) hostManager {
 	log.Debugf("got dbus Link interface: %s from net interface %s and index %d", s, iface.Name, iface.Index)
 
 	return &systemdDbusConfigurator{
-		dbusLinkObject:       dbus.ObjectPath(s),
-		createdLinkedDomains: make(map[string]systemdDbusLinkDomainsInput),
+		dbusLinkObject: dbus.ObjectPath(s),
 	}
 }
 
-func (s *systemdDbusConfigurator) applyDNSSettings(domains []string, ip string, port int) error {
-	parsedIP := netip.MustParseAddr(ip).As4()
+func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
+	parsedIP := netip.MustParseAddr(config.serverIP).As4()
 	defaultLinkInput := systemdDbusDNSInput{
 		Family:  unix.AF_INET,
 		Address: parsedIP[:],
 	}
 	err := s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput})
 	if err != nil {
-		return fmt.Errorf("setting the interface DNS server %s:%d failed with error: %s", ip, port, err)
+		return fmt.Errorf("setting the interface DNS server %s:%d failed with error: %s", config.serverIP, config.serverPort, err)
 	}
 
-	var domainsInput []systemdDbusLinkDomainsInput
+	var (
+		searchDomains []string
+		matchDomains  []string
+		domainsInput  []systemdDbusLinkDomainsInput
+	)
+	for _, dConf := range config.domains {
+		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
+			Domain:    dns.Fqdn(dConf.domain),
+			MatchOnly: dConf.matchOnly,
+		})
 
-	for _, domain := range domains {
-		if isRootZoneDomain(domain) {
-			err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
-			if err != nil {
-				log.Errorf("setting link as default dns router, failed with error: %s", err)
-			}
+		if dConf.matchOnly {
+			matchDomains = append(matchDomains, dConf.domain)
+			continue
+		}
+		searchDomains = append(searchDomains, dConf.domain)
+	}
+
+	if config.routeAll {
+		log.Infof("configured %s:%d as main DNS forwarder for this peer", config.serverIP, config.serverPort)
+		err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, true)
+		if err != nil {
+			return fmt.Errorf("setting link as default dns router, failed with error: %s", err)
 		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
-			Domain:    dns.Fqdn(domain),
+			Domain:    nbdns.RootZone,
 			MatchOnly: true,
 		})
+		s.routingAll = true
+	} else if s.routingAll {
+		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.serverIP, config.serverPort)
 	}
-	err = s.addDNSStateForDomain(domainsInput)
+
+	log.Infof("adding %d search domains and %d match domains. Search list: %s , Match list: %s", len(searchDomains), len(matchDomains), searchDomains, matchDomains)
+	err = s.setDomainsForInterface(domainsInput)
 	if err != nil {
 		log.Error(err)
 	}
 	return nil
 }
 
-func (s *systemdDbusConfigurator) addDNSStateForDomain(domainsInput []systemdDbusLinkDomainsInput) error {
+func (s *systemdDbusConfigurator) setDomainsForInterface(domainsInput []systemdDbusLinkDomainsInput) error {
 	err := s.callLinkMethod(systemdDbusSetDomainsMethodSuffix, domainsInput)
 	if err != nil {
 		return fmt.Errorf("setting domains configuration failed with error: %s", err)
 	}
-	for _, input := range domainsInput {
-		s.createdLinkedDomains[input.Domain] = input
-	}
-	return nil
-}
-
-func (s *systemdDbusConfigurator) addSearchDomain(domain string, ip string, port int) error {
-	var newDomainsInput []systemdDbusLinkDomainsInput
-
-	fqdnDomain := dns.Fqdn(domain)
-
-	existingDomain, found := s.createdLinkedDomains[fqdnDomain]
-	if found && !existingDomain.MatchOnly {
-		return nil
-	}
-
-	delete(s.createdLinkedDomains, fqdnDomain)
-	for _, existingInput := range s.createdLinkedDomains {
-		newDomainsInput = append(newDomainsInput, existingInput)
-	}
-
-	newDomainsInput = append(newDomainsInput, systemdDbusLinkDomainsInput{
-		Domain:    fqdnDomain,
-		MatchOnly: false,
-	})
-
-	err := s.addDNSStateForDomain(newDomainsInput)
-	if err != nil {
-		return fmt.Errorf("setting domains configuration with search domain %s failed with error: %s", domain, err)
-	}
-
 	return s.flushCaches()
 }
-func (s *systemdDbusConfigurator) removeDomainSettings(domains []string) error {
-	var err error
-	for _, domain := range domains {
-		if isRootZoneDomain(domain) {
-			err = s.callLinkMethod(systemdDbusSetDefaultRouteMethodSuffix, false)
-			if err != nil {
-				log.Errorf("setting link as non default dns router, failed with error: %s", err)
-			}
-			break
-		}
-	}
 
-	// cleaning the configuration as it gets rebuild
-	emptyList := make([]systemdDbusLinkDomainsInput, 0)
-
-	err = s.callLinkMethod(systemdDbusSetDomainsMethodSuffix, emptyList)
-	if err != nil {
-		log.Error(err)
-	}
-
-	s.createdLinkedDomains = make(map[string]systemdDbusLinkDomainsInput)
-
-	return s.flushCaches()
-}
-func (s *systemdDbusConfigurator) removeDNSSettings() error {
+func (s *systemdDbusConfigurator) restoreHostDNS() error {
+	log.Infof("reverting link settings and flushing cache")
 	err := s.callLinkMethod(systemdDbusRevertMethodSuffix, nil)
 	if err != nil {
 		return fmt.Errorf("unable to revert link configuration, got error: %s", err)
