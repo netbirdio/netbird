@@ -136,6 +136,9 @@ func (s *systemdDbusConfigurator) setDomainsForInterface(domainsInput []systemdD
 
 func (s *systemdDbusConfigurator) restoreHostDNS() error {
 	log.Infof("reverting link settings and flushing cache")
+	if !isDbusListenerRunning(systemdResolvedDest, s.dbusLinkObject) {
+		return nil
+	}
 	err := s.callLinkMethod(systemdDbusRevertMethodSuffix, nil)
 	if err != nil {
 		return fmt.Errorf("unable to revert link configuration, got error: %s", err)
@@ -170,7 +173,12 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
-	err = obj.CallWithContext(ctx, method, dbusDefaultFlag, value).Store()
+	if value != nil {
+		err = obj.CallWithContext(ctx, method, dbusDefaultFlag, value).Store()
+	} else {
+		err = obj.CallWithContext(ctx, method, dbusDefaultFlag).Store()
+	}
+
 	if err != nil {
 		return fmt.Errorf("got error while calling command with context, err: %s", err)
 	}
