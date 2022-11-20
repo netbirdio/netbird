@@ -27,8 +27,11 @@ func newHostManager(wgInterface *iface.WGIface) hostManager {
 	switch osManager {
 	case networkManager:
 		return newNetworkManagerDbusConfigurator(wgInterface)
-	default:
+	case systemdManager:
 		return newSystemdDbusConfigurator(wgInterface)
+	default:
+		return newNoopHostMocker()
+		//return newSystemdDbusConfigurator(wgInterface)
 	}
 }
 
@@ -47,9 +50,13 @@ func getOSDNSManagerType() osManagerType {
 			return fileManager
 		}
 		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) {
+			log.Debugf("is nm running on supported v? %t", isNetworkManagerSupportedVersion())
 			return networkManager
 		}
 		if strings.Contains(text, "systemd-resolved") && isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
+			//if isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) {
+			//	return networkManager
+			//}
 			return systemdManager
 		}
 		if strings.Contains(text, "resolvconf") {
