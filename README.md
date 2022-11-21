@@ -99,7 +99,7 @@ See a complete [architecture overview](https://netbird.io/docs/overview/architec
 ### Community projects
 -  [NetBird on OpenWRT](https://github.com/messense/openwrt-netbird)
 
-### Funding acknowledgement
+### Support acknowledgement
 
 In November 2022, NetBird joined the [StartUpSecure program](https://www.forschung-it-sicherheit-kommunikationssysteme.de/foerderung/bekanntmachungen/startup-secure) sponsored by The Federal Ministry of Education and Research of The Federal Republic of Germany. Together with [CISPA Helmholtz Center for Information Security](https://cispa.de/en) NetBird brings the security best practices and simplicity to private networking.
 
