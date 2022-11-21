@@ -60,6 +60,7 @@ type MockAccountManager struct {
 	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
 	CreateUserFunc                  func(accountID string, key *server.UserInfo) (*server.UserInfo, error)
 	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
+	GetDNSDomainFunc                func() string
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -476,4 +477,12 @@ func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*server.Peer
 		return am.GetPeersFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeersFunc is not implemented")
+}
+
+// GetDNSDomain mocks GetDNSDomain of the AccountManager interface
+func (am *MockAccountManager) GetDNSDomain() string {
+	if am.GetDNSDomainFunc != nil {
+		return am.GetDNSDomainFunc()
+	}
+	return ""
 }
