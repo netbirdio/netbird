@@ -106,7 +106,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 		return nil, err
 	}
 
-	peers := make([]*Peer, 0, len(account.Peers))
+	peers := make([]*Peer, 0)
 	peersMap := make(map[string]*Peer)
 	for _, peer := range account.Peers {
 		if !user.IsAdmin() && user.Id != peer.UserID {
@@ -120,11 +120,9 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		if _, ok := peersMap[peer.Key]; !ok {
-			aclPeers := am.getPeersByACL(account, peer.Key)
-			for _, p := range aclPeers {
-				peersMap[p.Key] = p
-			}
+		aclPeers := am.getPeersByACL(account, peer.Key)
+		for _, p := range aclPeers {
+			peersMap[p.Key] = p
 		}
 	}
 
