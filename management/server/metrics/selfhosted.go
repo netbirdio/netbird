@@ -5,11 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/hashicorp/go-version"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/management/server"
 	log "github.com/sirupsen/logrus"
 	"io"
 	"net/http"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -85,6 +88,7 @@ func (w *Worker) Run() {
 			if err != nil {
 				log.Error(err)
 			}
+			w.lastRun = time.Now()
 		}
 	}
 }
@@ -161,11 +165,15 @@ func (w *Worker) generateProperties() properties {
 		groups             int
 		routes             int
 		nameservers        int
+		uiClient           int
 		version            string
+		peerActiveVersions []string
+		osUIClients        map[string]int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
 	osPeers = make(map[string]int)
+	osUIClients = make(map[string]int)
 	uptime = time.Since(w.startupTime).Seconds()
 	connections := w.connManager.GetAllConnectedPeers()
 	version = system.NetbirdVersion()
@@ -184,7 +192,7 @@ func (w *Worker) generateProperties() properties {
 
 		for _, peer := range account.Peers {
 			peers++
-			if peer.SetupKey != "" {
+			if peer.SetupKey == "" {
 				userPeers++
 			}
 
@@ -192,16 +200,25 @@ func (w *Worker) generateProperties() properties {
 			osCount := osPeers[osKey]
 			osPeers[osKey] = osCount + 1
 
+			if peer.Meta.UIVersion != "" {
+				uiClient++
+				uiOSKey := strings.ToLower(fmt.Sprintf("ui_client_os_%s", peer.Meta.GoOS))
+				osUICount := osUIClients[uiOSKey]
+				osUIClients[uiOSKey] = osUICount + 1
+			}
+
 			_, connected := connections[peer.Key]
 			if connected || peer.Status.LastSeen.After(w.lastRun) {
 				activePeersLastDay++
 				osActiveKey := osKey + "_active"
 				osActiveCount := osPeers[osActiveKey]
 				osPeers[osActiveKey] = osActiveCount + 1
+				peerActiveVersions = append(peerActiveVersions, peer.Meta.WtVersion)
 			}
 		}
 	}
 
+	minActivePeerVersion, maxActivePeerVersion := getMinMaxVersion(peerActiveVersions)
 	metricsProperties["uptime"] = uptime
 	metricsProperties["accounts"] = accounts
 	metricsProperties["users"] = users
@@ -214,8 +231,14 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["routes"] = routes
 	metricsProperties["nameservers"] = nameservers
 	metricsProperties["version"] = version
-
+	metricsProperties["min_active_peer_version"] = minActivePeerVersion
+	metricsProperties["max_active_peer_version"] = maxActivePeerVersion
+	metricsProperties["ui_clients"] = uiClient
 	for os, count := range osPeers {
+		metricsProperties[os] = count
+	}
+
+	for os, count := range osUIClients {
 		metricsProperties[os] = count
 	}
 
@@ -283,4 +306,32 @@ func createPostRequest(ctx context.Context, endpoint string, payloadStr string) 
 	req.Header.Add("content-type", "application/json")
 
 	return req, nil
+}
+
+func getMinMaxVersion(inputList []string) (string, string) {
+	reg, err := regexp.Compile(version.SemverRegexpRaw)
+	if err != nil {
+		return "", ""
+	}
+
+	versions := make([]*version.Version, 0)
+
+	for _, raw := range inputList {
+		if raw != "" && reg.MatchString(raw) {
+			v, err := version.NewVersion(raw)
+			if err == nil {
+				versions = append(versions, v)
+			}
+		}
+	}
+	switch len(versions) {
+	case 0:
+		return "", ""
+	case 1:
+		v := versions[0].String()
+		return v, v
+	default:
+		sort.Sort(version.Collection(versions))
+		return versions[0].String(), versions[len(versions)-1].String()
+	}
 }

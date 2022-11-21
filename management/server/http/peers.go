@@ -41,7 +41,8 @@ func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.Re
 		util.WriteError(err, w)
 		return
 	}
-	util.WriteJSONObject(w, toPeerResponse(peer, account))
+	dnsDomain := h.accountManager.GetDNSDomain()
+	util.WriteJSONObject(w, toPeerResponse(peer, account, dnsDomain))
 }
 
 func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
@@ -73,6 +74,8 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dnsDomain := h.accountManager.GetDNSDomain()
+
 	switch r.Method {
 	case http.MethodDelete:
 		h.deletePeer(account.Id, peer, w, r)
@@ -81,7 +84,7 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		h.updatePeer(account, peer, w, r)
 		return
 	case http.MethodGet:
-		util.WriteJSONObject(w, toPeerResponse(peer, account))
+		util.WriteJSONObject(w, toPeerResponse(peer, account, dnsDomain))
 		return
 
 	default:
@@ -106,9 +109,11 @@ func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		dnsDomain := h.accountManager.GetDNSDomain()
+
 		respBody := []*api.Peer{}
 		for _, peer := range peers {
-			respBody = append(respBody, toPeerResponse(peer, account))
+			respBody = append(respBody, toPeerResponse(peer, account, dnsDomain))
 		}
 		util.WriteJSONObject(w, respBody)
 		return
@@ -117,7 +122,7 @@ func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
+func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string) *api.Peer {
 	var groupsInfo []api.GroupMinimum
 	groupsChecked := make(map[string]struct{})
 	for _, group := range account.Groups {
@@ -138,6 +143,10 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 			}
 		}
 	}
+	fqdn := peer.DNSLabel
+	if dnsDomain != "" {
+		fqdn = peer.DNSLabel + "." + dnsDomain
+	}
 	return &api.Peer{
 		Id:         peer.IP.String(),
 		Name:       peer.Name,
@@ -151,6 +160,6 @@ func toPeerResponse(peer *server.Peer, account *server.Account) *api.Peer {
 		Hostname:   peer.Meta.Hostname,
 		UserId:     &peer.UserID,
 		UiVersion:  &peer.Meta.UIVersion,
-		DnsLabel:   peer.DNSLabel,
+		DnsLabel:   fqdn,
 	}
 }
