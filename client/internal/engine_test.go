@@ -202,7 +202,9 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	}, nbstatus.NewRecorder())
 	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU)
 	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), engine.wgInterface, engine.statusRecorder)
-	engine.dnsServer = dns.NewDefaultServer(ctx, engine.wgInterface)
+	engine.dnsServer = &dns.MockServer{
+		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
+	}
 
 	type testCase struct {
 		name       string

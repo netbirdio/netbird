@@ -75,12 +75,12 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 			},
 			expectedUpstreamMap: registrationMap{"netbird.io": struct{}{}, "netbird.cloud": struct{}{}, nbdns.RootZone: struct{}{}},
-			expectedLocalMap:    registrationMap{zoneRecords[0].Name: struct{}{}},
+			expectedLocalMap:    registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 		},
 		{
 			name:            "New Config Should Succeed",
 			initLocalMap:    registrationMap{"netbird.cloud": struct{}{}},
-			initUpstreamMap: registrationMap{zoneRecords[0].Name: struct{}{}},
+			initUpstreamMap: registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Config{
@@ -99,7 +99,7 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 			},
 			expectedUpstreamMap: registrationMap{"netbird.io": struct{}{}, "netbird.cloud": struct{}{}},
-			expectedLocalMap:    registrationMap{zoneRecords[0].Name: struct{}{}},
+			expectedLocalMap:    registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 		},
 		{
 			name:            "Smaller Config Serial Should Be Skipped",

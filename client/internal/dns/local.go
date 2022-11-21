@@ -60,8 +60,7 @@ func (d *localResolver) deleteRecord(recordKey string) {
 	d.records.Delete(dns.Fqdn(recordKey))
 }
 
-func buildRecordKey(name string, class, qtype uint16) string {
-	key := fmt.Sprintf("%s_%d_%d", name, class, qtype)
-	log.Debugf("generated the following key: %s", key)
+func buildRecordKey(name string, class, qType uint16) string {
+	key := fmt.Sprintf("%s_%d_%d", name, class, qType)
 	return key
 }
