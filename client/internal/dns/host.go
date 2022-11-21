@@ -49,10 +49,6 @@ func newNoopHostMocker() hostManager {
 	}
 }
 
-func isRootZoneDomain(domain string) bool {
-	return domain == nbdns.RootZone || domain == ""
-}
-
 func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) hostDNSConfig {
 	config := hostDNSConfig{
 		routeAll:   false,

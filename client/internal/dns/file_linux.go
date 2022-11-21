@@ -54,7 +54,6 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 			if err != nil {
 				return fmt.Errorf("unable to backup the resolv.conf file")
 			}
-			backupFileExist = true
 		}
 	default:
 		// todo improve this and maybe restart DNS manager from scratch
@@ -84,7 +83,10 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	content := fmt.Sprintf(fileGeneratedResolvConfContentFormat, fileDefaultResolvConfBackupLocation, config.serverIP, searchDomains)
 	err = writeDNSConfig(content, defaultResolvConfPath, f.originalPerms)
 	if err != nil {
-		f.restore()
+		err = f.restore()
+		if err != nil {
+			log.Errorf("attempt to restore default file failed with error: %s", err)
+		}
 		return err
 	}
 	log.Infof("created a NetBird managed %s file with your DNS settings", defaultResolvConfPath)

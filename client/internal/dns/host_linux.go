@@ -36,6 +36,7 @@ func newHostManager(wgInterface *iface.WGIface) hostManager {
 }
 
 func getOSDNSManagerType() osManagerType {
+
 	file, err := os.Open(defaultResolvConfPath)
 	if err != nil {
 		// todo add proper error handling
@@ -46,6 +47,9 @@ func getOSDNSManagerType() osManagerType {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		text := scanner.Text()
+		if len(text) == 0 {
+			continue
+		}
 		if text[0] != '#' {
 			return fileManager
 		}
