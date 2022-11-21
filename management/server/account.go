@@ -91,6 +91,7 @@ type AccountManager interface {
 	UpdateNameServerGroup(accountID, nsGroupID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
 	DeleteNameServerGroup(accountID, nsGroupID string) error
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
+	GetDNSDomain() string
 }
 
 type DefaultAccountManager struct {
@@ -899,6 +900,11 @@ func (am *DefaultAccountManager) AccountExists(accountID string) (*bool, error) 
 
 	res = true
 	return &res, nil
+}
+
+// GetDNSDomain returns the configured dnsDomain
+func (am *DefaultAccountManager) GetDNSDomain() string {
+	return am.dnsDomain
 }
 
 // addAllGroup to account object if it doesn't exists
