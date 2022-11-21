@@ -5,7 +5,6 @@ import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"os"
-	"os/exec"
 )
 
 const (
@@ -13,7 +12,7 @@ const (
 	fileGeneratedResolvConfSearchBeginContent = "search "
 	fileGeneratedResolvConfContentFormat      = fileGeneratedResolvConfContentHeader +
 		"\n# If needed you can restore the original file by copying back %s\n\nnameserver %s\n" +
-		fileGeneratedResolvConfSearchBeginContent + "%s"
+		fileGeneratedResolvConfSearchBeginContent + "%s\n"
 )
 const (
 	fileDefaultResolvConfBackupLocation = defaultResolvConfPath + ".original.netbird"
@@ -32,13 +31,20 @@ func newFileConfigurator() hostManager {
 }
 
 func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
-	if !config.routeAll {
-		return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group")
-	}
 	backupFileExist := false
 	_, err := os.Stat(fileDefaultResolvConfBackupLocation)
 	if err == nil {
 		backupFileExist = true
+	}
+
+	if !config.routeAll {
+		if backupFileExist {
+			err = f.restore()
+			if err != nil {
+				return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group. Restoring the original file return err: %s", err)
+			}
+		}
+		return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group")
 	}
 
 	switch getOSDNSManagerType() {
@@ -109,7 +115,8 @@ func (f *fileConfigurator) restore() error {
 	if err != nil {
 		return fmt.Errorf("got error while restoring the %s file from %s. Error: %s", defaultResolvConfPath, fileDefaultResolvConfBackupLocation, err)
 	}
-	return nil
+
+	return os.RemoveAll(fileDefaultResolvConfBackupLocation)
 }
 
 func writeDNSConfig(content, fileName string, permissions os.FileMode) error {
@@ -118,15 +125,25 @@ func writeDNSConfig(content, fileName string, permissions os.FileMode) error {
 	buf.WriteString(content)
 	err := os.WriteFile(fileName, buf.Bytes(), permissions)
 	if err != nil {
-		return fmt.Errorf("got an creating resolver file %s err: %s", fileName, err)
+		return fmt.Errorf("got an creating resolver file %s. Error: %s", fileName, err)
 	}
 	return nil
 }
 
 func copyFile(src, dest string) error {
-	_, err := exec.Command("cp", src, dest).CombinedOutput()
+	stats, err := os.Stat(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("got an error while checking stats for %s file when copying it. Error: %s", src, err)
+	}
+
+	bytesRead, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("got an error while reading the file %s file for copy. Error: %s", src, err)
+	}
+
+	err = os.WriteFile(dest, bytesRead, stats.Mode())
+	if err != nil {
+		return fmt.Errorf("got an writing the destination file %s for copy. Error: %s", dest, err)
 	}
 	return nil
 }
