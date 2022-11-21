@@ -13,7 +13,8 @@ const (
 )
 
 const (
-	fileManager osManagerType = iota
+	netbirdManager osManagerType = iota
+	fileManager
 	networkManager
 	systemdManager
 	resolvConfManager
@@ -30,7 +31,7 @@ func newHostManager(wgInterface *iface.WGIface) hostManager {
 	case systemdManager:
 		return newSystemdDbusConfigurator(wgInterface)
 	default:
-		return newNoopHostMocker()
+		return newNetworkManagerDbusConfigurator(wgInterface)
 		//return newSystemdDbusConfigurator(wgInterface)
 	}
 }
@@ -49,14 +50,14 @@ func getOSDNSManagerType() osManagerType {
 		if text[0] != '#' {
 			return fileManager
 		}
-		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) {
+		if strings.Contains(text, fileGeneratedResolvConfContentHeader) {
+			return netbirdManager
+		}
+		if strings.Contains(text, "NetworkManager") && isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) && isNetworkManagerSupported() {
 			log.Debugf("is nm running on supported v? %t", isNetworkManagerSupportedVersion())
 			return networkManager
 		}
 		if strings.Contains(text, "systemd-resolved") && isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
-			//if isDbusListenerRunning(networkManagerDest, networkManagerDbusObjectNode) {
-			//	return networkManager
-			//}
 			return systemdManager
 		}
 		if strings.Contains(text, "resolvconf") {

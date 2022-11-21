@@ -17,8 +17,9 @@ import (
 const (
 	networkManagerDest                                                              = "org.freedesktop.NetworkManager"
 	networkManagerDbusObjectNode                                                    = "/org/freedesktop/NetworkManager"
-	networkManagerDbusDnsManagerObjectNode                                          = "/org/freedesktop/NetworkManager/DnsManager"
-	networkManagerDbusDnsManagerModeProperty                                        = "org.freedesktop.NetworkManager.DnsManager.Mode"
+	networkManagerDbusDnsManagerInterface                                           = "org.freedesktop.NetworkManager.DnsManager"
+	networkManagerDbusDnsManagerModeProperty                                        = networkManagerDbusDnsManagerInterface + ".Mode"
+	networkManagerDbusDnsManagerRcManagerProperty                                   = networkManagerDbusDnsManagerInterface + ".RcManager"
 	networkManagerDbusVersionProperty                                               = "org.freedesktop.NetworkManager.Version"
 	networkManagerDbusGetDeviceByIpIfaceMethod                                      = networkManagerDest + ".GetDeviceByIpIface"
 	networkManagerDbusDeviceInterface                                               = "org.freedesktop.NetworkManager.Device"
@@ -35,7 +36,6 @@ const (
 	networkManagerDbusPrimaryDNSPriority       int32 = -500
 	networkManagerDbusWithMatchDomainPriority  int32 = 0
 	networkManagerDbusSearchDomainOnlyPriority int32 = 50
-	networkManagerDbusSearchDefaultPriority    int32 = 100
 	supportedNetworkManagerVersionConstraint         = ">= 1.16, < 1.28"
 )
 
@@ -141,6 +141,7 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) er
 }
 
 func (n *networkManagerDbusConfigurator) restoreHostDNS() error {
+	// once the interface is gone network manager cleans all config associated with it
 	return nil
 }
 
@@ -187,25 +188,48 @@ func (n *networkManagerDbusConfigurator) reApplyConnectionSettings(connSettings 
 	return nil
 }
 
-//func isNetworkManagerSupportedMode() bool {
-//	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusDnsManagerObjectNode)
-//	if err != nil {
-//		log.Errorf("got error while attempting to get the network manager object, err: %s", err)
-//		return false
-//	}
-//
-//	defer closeConn()
-//
-//	value, err := obj.GetProperty(networkManagerDbusDnsManagerModeProperty)
-//	if err != nil {
-//		log.Errorf("unable to retrieve network manager mode, got error: %s", err)
-//		return false
-//	}
-//	valueString := value.Value().(string)
-//	switch valueString {
-//	case
-//	}
-//}
+func isNetworkManagerSupported() bool {
+	return isNetworkManagerSupportedVersion() && isNetworkManagerSupportedMode()
+}
+
+func isNetworkManagerSupportedMode() bool {
+	var mode string
+	err := getNetworkManagerDNSProperty(networkManagerDbusDnsManagerModeProperty, &mode)
+	if err != nil {
+		log.Error(err)
+		return false
+	}
+	switch mode {
+	case "dnsmasq", "unbound", "systemd-resolved":
+		return true
+	default:
+		var rcManager string
+		err = getNetworkManagerDNSProperty(networkManagerDbusDnsManagerRcManagerProperty, &rcManager)
+		if err != nil {
+			log.Error(err)
+			return false
+		}
+		if rcManager == "unmanaged" {
+			return false
+		}
+	}
+	return true
+}
+
+func getNetworkManagerDNSProperty(property string, store any) error {
+	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
+	if err != nil {
+		return fmt.Errorf("got error while attempting to retrieve the network manager dns manager object, error: %s", err)
+	}
+	defer closeConn()
+
+	v, e := obj.GetProperty(property)
+	if e != nil {
+		return fmt.Errorf("got an error getting property %s: %v", property, e)
+	}
+
+	return v.Store(store)
+}
 
 func isNetworkManagerSupportedVersion() bool {
 	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
