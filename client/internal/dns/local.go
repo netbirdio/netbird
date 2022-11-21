@@ -18,10 +18,11 @@ func (d *localResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.Debugf("received question: %#v\n", r.Question[0])
 	replyMessage := &dns.Msg{}
 	replyMessage.SetReply(r)
-	replyMessage.Rcode = dns.RcodeNameError
+	replyMessage.RecursionAvailable = true
+	replyMessage.Rcode = dns.RcodeSuccess
+
 	response := d.lookupRecord(r)
 	if response != nil {
-		replyMessage.Rcode = dns.RcodeSuccess
 		replyMessage.Answer = append(replyMessage.Answer, response)
 	}
 
@@ -46,6 +47,8 @@ func (d *localResolver) registerRecord(record nbdns.SimpleRecord) error {
 	if err != nil {
 		return err
 	}
+
+	fullRecord.Header().Rdlength = record.Len()
 
 	header := fullRecord.Header()
 	d.records.Store(buildRecordKey(header.Name, header.Class, header.Rrtype), fullRecord)
