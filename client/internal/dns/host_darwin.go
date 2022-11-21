@@ -18,7 +18,7 @@ const (
 	keySupplementalMatchDomains         = "SupplementalMatchDomains"
 	keySupplementalMatchDomainsNoSearch = "SupplementalMatchDomainsNoSearch"
 	keyServerAddresses                  = "ServerAddresses"
-	ServerPort                          = "ServerPort"
+	keyServerPort                       = "ServerPort"
 	arraySymbol                         = "* "
 	digitSymbol                         = "# "
 	scutilPath                          = "/usr/sbin/scutil"
@@ -162,7 +162,7 @@ func (s *systemConfigurator) addDNSState(state, domains, dnsServer string, port 
 	lines := buildAddCommandLine(keySupplementalMatchDomains, arraySymbol+domains)
 	lines += buildAddCommandLine(keySupplementalMatchDomainsNoSearch, digitSymbol+noSearch)
 	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer)
-	lines += buildAddCommandLine(ServerPort, digitSymbol+strconv.Itoa(port))
+	lines += buildAddCommandLine(keyServerPort, digitSymbol+strconv.Itoa(port))
 
 	addDomainCommand := buildCreateStateWithOperation(state, lines)
 	stdinCommands := wrapCommand(addDomainCommand)
@@ -210,7 +210,7 @@ func (s *systemConfigurator) getPrimaryService() string {
 func (s *systemConfigurator) addDNSSetup(setupKey, dnsServer string, port int) error {
 	lines := buildAddCommandLine(keySupplementalMatchDomainsNoSearch, digitSymbol+strconv.Itoa(0))
 	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer)
-	lines += buildAddCommandLine(ServerPort, digitSymbol+strconv.Itoa(port))
+	lines += buildAddCommandLine(keyServerPort, digitSymbol+strconv.Itoa(port))
 	addDomainCommand := buildCreateStateWithOperation(setupKey, lines)
 	stdinCommands := wrapCommand(addDomainCommand)
 	_, err := runSystemConfigCommand(stdinCommands)

@@ -17,11 +17,11 @@ import (
 const (
 	networkManagerDest                                                              = "org.freedesktop.NetworkManager"
 	networkManagerDbusObjectNode                                                    = "/org/freedesktop/NetworkManager"
-	networkManagerDbusDnsManagerInterface                                           = "org.freedesktop.NetworkManager.DnsManager"
-	networkManagerDbusDnsManagerModeProperty                                        = networkManagerDbusDnsManagerInterface + ".Mode"
-	networkManagerDbusDnsManagerRcManagerProperty                                   = networkManagerDbusDnsManagerInterface + ".RcManager"
+	networkManagerDbusDNSManagerInterface                                           = "org.freedesktop.NetworkManager.DnsManager"
+	networkManagerDbusDNSManagerModeProperty                                        = networkManagerDbusDNSManagerInterface + ".Mode"
+	networkManagerDbusDNSManagerRcManagerProperty                                   = networkManagerDbusDNSManagerInterface + ".RcManager"
 	networkManagerDbusVersionProperty                                               = "org.freedesktop.NetworkManager.Version"
-	networkManagerDbusGetDeviceByIpIfaceMethod                                      = networkManagerDest + ".GetDeviceByIpIface"
+	networkManagerDbusGetDeviceByIPIfaceMethod                                      = networkManagerDest + ".GetDeviceByIpIface"
 	networkManagerDbusDeviceInterface                                               = "org.freedesktop.NetworkManager.Device"
 	networkManagerDbusDeviceGetAppliedConnectionMethod                              = networkManagerDbusDeviceInterface + ".GetAppliedConnection"
 	networkManagerDbusDeviceReapplyMethod                                           = networkManagerDbusDeviceInterface + ".Reapply"
@@ -74,7 +74,7 @@ func newNetworkManagerDbusConfigurator(wgInterface *iface.WGIface) hostManager {
 	}
 	defer closeConn()
 	var s string
-	err = obj.Call(networkManagerDbusGetDeviceByIpIfaceMethod, dbusDefaultFlag, wgInterface.GetName()).Store(&s)
+	err = obj.Call(networkManagerDbusGetDeviceByIPIfaceMethod, dbusDefaultFlag, wgInterface.GetName()).Store(&s)
 	if err != nil {
 		// todo add proper error handling
 		panic(err)
@@ -194,7 +194,7 @@ func isNetworkManagerSupported() bool {
 
 func isNetworkManagerSupportedMode() bool {
 	var mode string
-	err := getNetworkManagerDNSProperty(networkManagerDbusDnsManagerModeProperty, &mode)
+	err := getNetworkManagerDNSProperty(networkManagerDbusDNSManagerModeProperty, &mode)
 	if err != nil {
 		log.Error(err)
 		return false
@@ -204,7 +204,7 @@ func isNetworkManagerSupportedMode() bool {
 		return true
 	default:
 		var rcManager string
-		err = getNetworkManagerDNSProperty(networkManagerDbusDnsManagerRcManagerProperty, &rcManager)
+		err = getNetworkManagerDNSProperty(networkManagerDbusDNSManagerRcManagerProperty, &rcManager)
 		if err != nil {
 			log.Error(err)
 			return false
