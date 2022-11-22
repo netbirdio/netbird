@@ -44,7 +44,7 @@ func getOSDNSManagerType() (osManagerType, error) {
 
 	file, err := os.Open(defaultResolvConfPath)
 	if err != nil {
-		return 0, fmt.Errorf("unable to open %s for checking owner, got error: %s", err)
+		return 0, fmt.Errorf("unable to open %s for checking owner, got error: %s", defaultResolvConfPath, err)
 	}
 	defer file.Close()
 
