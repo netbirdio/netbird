@@ -52,7 +52,7 @@ type muxUpdate struct {
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultServer {
+func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) (*DefaultServer, error) {
 	mux := dns.NewServeMux()
 	listenIP := defaultIP
 	if runtime.GOOS != "darwin" && wgInterface != nil {
@@ -82,13 +82,12 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) *DefaultS
 		runtimeIP:   listenIP,
 	}
 
-	// this should only happen on tests
-	if wgInterface.Interface == nil {
-		log.Debugf("returning a server without host manager")
-		return defaultServer
+	hostmanager, err := newHostManager(wgInterface)
+	if err != nil {
+		return nil, err
 	}
-	defaultServer.hostManager = newHostManager(wgInterface)
-	return defaultServer
+	defaultServer.hostManager = hostmanager
+	return defaultServer, err
 }
 
 // Start runs the listener in a go routine

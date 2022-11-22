@@ -32,10 +32,10 @@ type systemConfigurator struct {
 	createdKeys      map[string]struct{}
 }
 
-func newHostManager(_ *iface.WGIface) hostManager {
+func newHostManager(_ *iface.WGIface) (hostManager, error) {
 	return &systemConfigurator{
 		createdKeys: make(map[string]struct{}),
-	}
+	}, nil
 }
 
 func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {

@@ -252,7 +252,11 @@ func (e *Engine) Start() error {
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
 
 	if e.dnsServer == nil {
-		e.dnsServer = dns.NewDefaultServer(e.ctx, e.wgInterface)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface)
+		if err != nil {
+			return err
+		}
+		e.dnsServer = dnsServer
 	}
 
 	e.receiveSignalEvents()

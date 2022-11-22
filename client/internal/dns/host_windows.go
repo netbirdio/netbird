@@ -5,8 +5,6 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows/registry"
-	"golang.zx2c4.com/wireguard/windows/driver"
-	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 	"strings"
 )
 
@@ -28,17 +26,19 @@ const (
 )
 
 type registryConfigurator struct {
-	luid                  winipcfg.LUID
+	guid                  string
 	routingAll            bool
 	existingSearchDomains []string
 }
 
-func newHostManager(wgInterface *iface.WGIface) hostManager {
-	windowsDevice := wgInterface.Interface.(*driver.Adapter)
-	luid := windowsDevice.LUID()
-	return &registryConfigurator{
-		luid: luid,
+func newHostManager(wgInterface *iface.WGIface) (hostManager, error) {
+	guid, err := wgInterface.GetInterfaceGUIDString()
+	if err != nil {
+		return nil, err
 	}
+	return &registryConfigurator{
+		guid: guid,
+	}, nil
 }
 
 func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
@@ -207,14 +207,9 @@ func (r *registryConfigurator) deleteInterfaceRegistryKeyProperty(propertyKey st
 func (r *registryConfigurator) getInterfaceRegistryKey() (registry.Key, error) {
 	var regKey registry.Key
 
-	guid, err := r.luid.GUID()
-	if err != nil {
-		return regKey, fmt.Errorf("unable to get interface GUID, error: %s", err)
-	}
+	regKeyPath := interfaceConfigPath + "\\" + r.guid
 
-	regKeyPath := interfaceConfigPath + "\\" + guid.String()
-
-	regKey, err = registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.SET_VALUE)
+	regKey, err := registry.OpenKey(registry.LOCAL_MACHINE, regKeyPath, registry.SET_VALUE)
 	if err != nil {
 		return regKey, fmt.Errorf("unable to open the interface registry key, key: HKEY_LOCAL_MACHINE\\%s, error: %s", regKeyPath, err)
 	}

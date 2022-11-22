@@ -58,6 +58,17 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 	return w.assignAddr(luid)
 }
 
+// GetInterfaceGUIDString returns an interface GUID string
+func (w *WGIface) GetInterfaceGUIDString() (string, error) {
+	windowsDevice := w.Interface.(*driver.Adapter)
+	luid := windowsDevice.LUID()
+	guid, err := luid.GUID()
+	if err != nil {
+		return "", err
+	}
+	return guid.String(), nil
+}
+
 // WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
 func WireguardModuleIsLoaded() bool {
 	return false

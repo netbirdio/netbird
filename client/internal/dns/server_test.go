@@ -194,7 +194,10 @@ func TestUpdateDNSServer(t *testing.T) {
 				t.Error(err)
 			}
 			ctx := context.Background()
-			dnsServer := NewDefaultServer(ctx, wgInterface)
+			dnsServer, err := NewDefaultServer(ctx, wgInterface)
+			if err != nil {
+				t.Error(err)
+			}
 			dnsServer.hostManager = newNoopHostMocker()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
@@ -243,7 +246,10 @@ func TestDNSServerStartStop(t *testing.T) {
 		t.Error(err)
 	}
 
-	dnsServer := NewDefaultServer(ctx, wgInterface)
+	dnsServer, err := NewDefaultServer(ctx, wgInterface)
+	if err != nil {
+		t.Error(err)
+	}
 	if runtime.GOOS == "windows" && os.Getenv("CI") == "true" {
 		// todo review why this test is not working only on github actions workflows
 		t.Skip("skipping test in Windows CI workflows.")

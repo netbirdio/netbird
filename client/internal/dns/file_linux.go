@@ -26,8 +26,8 @@ type fileConfigurator struct {
 	originalPerms os.FileMode
 }
 
-func newFileConfigurator() hostManager {
-	return &fileConfigurator{}
+func newFileConfigurator() (hostManager, error) {
+	return &fileConfigurator{}, nil
 }
 
 func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
@@ -46,8 +46,11 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		}
 		return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group")
 	}
-
-	switch getOSDNSManagerType() {
+	managerType, err := getOSDNSManagerType()
+	if err != nil {
+		return err
+	}
+	switch managerType {
 	case fileManager, netbirdManager:
 		if !backupFileExist {
 			err = f.backup()

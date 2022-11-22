@@ -47,31 +47,29 @@ type systemdDbusLinkDomainsInput struct {
 	MatchOnly bool
 }
 
-func newSystemdDbusConfigurator(wgInterface *iface.WGIface) hostManager {
+func newSystemdDbusConfigurator(wgInterface *iface.WGIface) (hostManager, error) {
 	iface, err := net.InterfaceByName(wgInterface.GetName())
 	if err != nil {
-		// todo add proper error handling
-		panic(err)
+		return nil, err
 	}
 
 	obj, closeConn, err := getDbusObject(systemdResolvedDest, systemdDbusObjectNode)
 	if err != nil {
-		// todo add proper error handling
-		panic(err)
+		return nil, err
 	}
 	defer closeConn()
+
 	var s string
 	err = obj.Call(systemdDbusGetLinkMethod, dbusDefaultFlag, iface.Index).Store(&s)
 	if err != nil {
-		// todo add proper error handling
-		panic(err)
+		return nil, err
 	}
 
 	log.Debugf("got dbus Link interface: %s from net interface %s and index %d", s, iface.Name, iface.Index)
 
 	return &systemdDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),
-	}
+	}, nil
 }
 
 func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
