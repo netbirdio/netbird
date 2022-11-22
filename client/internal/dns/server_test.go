@@ -189,10 +189,13 @@ func TestUpdateDNSServer(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			wgInterface, err := iface.NewWGIFace("utun10000", "127.0.0.1/32", iface.DefaultMTU)
+			wgInterface, err := iface.NewWGIFace("utun10000", "100.66.0.32/32", iface.DefaultMTU)
 			if err != nil {
 				t.Error(err)
 			}
+			_ = wgInterface.Create()
+			defer wgInterface.Close()
+
 			ctx := context.Background()
 			dnsServer, err := NewDefaultServer(ctx, wgInterface)
 			if err != nil {
@@ -241,7 +244,7 @@ func TestUpdateDNSServer(t *testing.T) {
 
 func TestDNSServerStartStop(t *testing.T) {
 	ctx := context.Background()
-	wgInterface, err := iface.NewWGIFace("utun10000", "127.0.0.1/32", iface.DefaultMTU)
+	wgInterface, err := iface.NewWGIFace("utun10001", "100.66.0.32/32", iface.DefaultMTU)
 	if err != nil {
 		t.Error(err)
 	}

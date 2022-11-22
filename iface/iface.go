@@ -73,7 +73,9 @@ func parseAddress(address string) (WGAddress, error) {
 func (w *WGIface) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-
+	if w.Interface == nil {
+		return nil
+	}
 	err := w.Interface.Close()
 	if err != nil {
 		return err
