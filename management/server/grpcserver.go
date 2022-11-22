@@ -202,6 +202,10 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 		}
 		claims := jwtclaims.ExtractClaimsWithToken(token, s.config.HttpConfig.AuthAudience)
 		userID = claims.UserId
+		_, _, err = s.accountManager.GetAccountFromToken(claims)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
+		}
 	} else {
 		log.Debugln("using setup key to register peer")
 		reqSetupKey = req.GetSetupKey()
