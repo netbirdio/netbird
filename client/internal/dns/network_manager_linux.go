@@ -18,6 +18,7 @@ const (
 	networkManagerDest                                                              = "org.freedesktop.NetworkManager"
 	networkManagerDbusObjectNode                                                    = "/org/freedesktop/NetworkManager"
 	networkManagerDbusDNSManagerInterface                                           = "org.freedesktop.NetworkManager.DnsManager"
+	networkManagerDbusDNSManagerObjectNode                                          = networkManagerDbusObjectNode + "/DnsManager"
 	networkManagerDbusDNSManagerModeProperty                                        = networkManagerDbusDNSManagerInterface + ".Mode"
 	networkManagerDbusDNSManagerRcManagerProperty                                   = networkManagerDbusDNSManagerInterface + ".RcManager"
 	networkManagerDbusVersionProperty                                               = "org.freedesktop.NetworkManager.Version"
@@ -25,6 +26,7 @@ const (
 	networkManagerDbusDeviceInterface                                               = "org.freedesktop.NetworkManager.Device"
 	networkManagerDbusDeviceGetAppliedConnectionMethod                              = networkManagerDbusDeviceInterface + ".GetAppliedConnection"
 	networkManagerDbusDeviceReapplyMethod                                           = networkManagerDbusDeviceInterface + ".Reapply"
+	networkManagerDbusDeviceDeleteMethod                                            = networkManagerDbusDeviceInterface + ".Delete"
 	networkManagerDbusDefaultBehaviorFlag              networkManagerConfigBehavior = 0
 	networkManagerDbusIPv4Key                                                       = "ipv4"
 	networkManagerDbusIPv6Key                                                       = "ipv6"
@@ -142,7 +144,7 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) er
 
 func (n *networkManagerDbusConfigurator) restoreHostDNS() error {
 	// once the interface is gone network manager cleans all config associated with it
-	return nil
+	return n.deleteConnectionSettings()
 }
 
 func (n *networkManagerDbusConfigurator) getAppliedConnectionSettings() (networkManagerConnSettings, networkManagerConfigVersion, error) {
@@ -163,7 +165,7 @@ func (n *networkManagerDbusConfigurator) getAppliedConnectionSettings() (network
 	err = obj.CallWithContext(ctx, networkManagerDbusDeviceGetAppliedConnectionMethod, dbusDefaultFlag,
 		networkManagerDbusDefaultBehaviorFlag).Store(&connSettings, &configVersion)
 	if err != nil {
-		return nil, 0, fmt.Errorf("got error while calling command with context, err: %s", err)
+		return nil, 0, fmt.Errorf("got error while calling GetAppliedConnection method with context, err: %s", err)
 	}
 
 	return connSettings, configVersion, nil
@@ -182,7 +184,25 @@ func (n *networkManagerDbusConfigurator) reApplyConnectionSettings(connSettings 
 	err = obj.CallWithContext(ctx, networkManagerDbusDeviceReapplyMethod, dbusDefaultFlag,
 		connSettings, configVersion, networkManagerDbusDefaultBehaviorFlag).Store()
 	if err != nil {
-		return fmt.Errorf("got error while calling command with context, err: %s", err)
+		return fmt.Errorf("got error while calling ReApply method with context, err: %s", err)
+	}
+
+	return nil
+}
+
+func (n *networkManagerDbusConfigurator) deleteConnectionSettings() error {
+	obj, closeConn, err := getDbusObject(networkManagerDest, n.dbusLinkObject)
+	if err != nil {
+		return fmt.Errorf("got error while attempting to retrieve the applied connection settings, err: %s", err)
+	}
+	defer closeConn()
+
+	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	defer cancel()
+
+	err = obj.CallWithContext(ctx, networkManagerDbusDeviceDeleteMethod, dbusDefaultFlag).Store()
+	if err != nil {
+		return fmt.Errorf("got error while calling delete method with context, err: %s", err)
 	}
 
 	return nil
@@ -217,7 +237,7 @@ func isNetworkManagerSupportedMode() bool {
 }
 
 func getNetworkManagerDNSProperty(property string, store any) error {
-	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
+	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusDNSManagerObjectNode)
 	if err != nil {
 		return fmt.Errorf("got error while attempting to retrieve the network manager dns manager object, error: %s", err)
 	}
