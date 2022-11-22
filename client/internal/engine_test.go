@@ -801,6 +801,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 				t.Errorf("unable to create the engine for peer %d with error %v", j, err)
 				return
 			}
+			engine.dnsServer = &dns.MockServer{}
 			mu.Lock()
 			defer mu.Unlock()
 			err = engine.Start()
