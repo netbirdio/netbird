@@ -3,10 +3,11 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/ssh"
-	nbStatus "github.com/netbirdio/netbird/client/status"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/client/ssh"
+	nbStatus "github.com/netbirdio/netbird/client/status"
 
 	"github.com/netbirdio/netbird/client/system"
 
@@ -184,12 +185,13 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
 
 	engineConf := &EngineConfig{
-		WgIfaceName:    config.WgIface,
-		WgAddr:         peerConfig.Address,
-		IFaceBlackList: config.IFaceBlackList,
-		WgPrivateKey:   key,
-		WgPort:         config.WgPort,
-		SSHKey:         []byte(config.SSHKey),
+		WgIfaceName:          config.WgIface,
+		WgAddr:               peerConfig.Address,
+		IFaceBlackList:       config.IFaceBlackList,
+		DisableIPv6Discovery: config.DisableIPv6Discovery,
+		WgPrivateKey:         key,
+		WgPort:               config.WgPort,
+		SSHKey:               []byte(config.SSHKey),
 	}
 
 	if config.PreSharedKey != "" {

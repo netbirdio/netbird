@@ -2,14 +2,15 @@ package peer
 
 import (
 	"context"
-	nbStatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/iface"
-	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	nbStatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/iface"
+	"golang.zx2c4.com/wireguard/wgctrl"
 
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/pion/ice/v2"
@@ -29,7 +30,8 @@ type ConnConfig struct {
 
 	// InterfaceBlackList is a list of machine interfaces that should be filtered out by ICE Candidate gathering
 	// (e.g. if eth0 is in the list, host candidate of this interface won't be used)
-	InterfaceBlackList []string
+	InterfaceBlackList   []string
+	DisableIPv6Discovery bool
 
 	Timeout time.Duration
 
@@ -143,16 +145,22 @@ func (conn *Conn) reCreateAgent() error {
 
 	failedTimeout := 6 * time.Second
 	var err error
-	conn.agent, err = ice.NewAgent(&ice.AgentConfig{
+	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
-		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4},
+		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
 		Urls:             conn.config.StunTurn,
 		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
 		FailedTimeout:    &failedTimeout,
 		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
 		UDPMux:           conn.config.UDPMux,
 		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
-	})
+	}
+
+	if conn.config.DisableIPv6Discovery {
+		agentConfig.NetworkTypes = []ice.NetworkType{ice.NetworkTypeUDP4}
+	}
+
+	conn.agent, err = ice.NewAgent(agentConfig)
 	if err != nil {
 		return err
 	}
