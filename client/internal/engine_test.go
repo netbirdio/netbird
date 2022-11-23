@@ -202,6 +202,9 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	}, nbstatus.NewRecorder())
 	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU)
 	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), engine.wgInterface, engine.statusRecorder)
+	engine.dnsServer = &dns.MockServer{
+		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
+	}
 
 	type testCase struct {
 		name       string
@@ -551,6 +554,7 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 			}
 
 			engine.routeManager = mockRouteManager
+			engine.dnsServer = &dns.MockServer{}
 
 			defer func() {
 				exitErr := engine.Stop()
@@ -797,6 +801,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 				t.Errorf("unable to create the engine for peer %d with error %v", j, err)
 				return
 			}
+			engine.dnsServer = &dns.MockServer{}
 			mu.Lock()
 			defer mu.Unlock()
 			err = engine.Start()

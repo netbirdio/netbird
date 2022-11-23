@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	"golang.org/x/net/idna"
+	"net"
 	"regexp"
 	"strings"
 )
@@ -58,6 +59,30 @@ type SimpleRecord struct {
 func (s SimpleRecord) String() string {
 	fqdn := dns.Fqdn(s.Name)
 	return fmt.Sprintf("%s %d %s %s %s", fqdn, s.TTL, s.Class, dns.Type(s.Type).String(), s.RData)
+}
+
+// Len returns the length of the RData field, based on its type
+func (s SimpleRecord) Len() uint16 {
+	emptyString := s.RData == ""
+	switch s.Type {
+	case 1:
+		if emptyString {
+			return 0
+		}
+		return net.IPv4len
+	case 5:
+		if emptyString || s.RData == "." {
+			return 1
+		}
+		return uint16(len(s.RData) + 1)
+	case 28:
+		if emptyString {
+			return 0
+		}
+		return net.IPv6len
+	default:
+		return 0
+	}
 }
 
 // GetParsedDomainLabel returns a domain label with max 59 characters,

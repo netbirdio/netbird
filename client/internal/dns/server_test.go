@@ -3,6 +3,7 @@ package dns
 import (
 	"context"
 	"fmt"
+	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"net"
 	"net/netip"
@@ -74,12 +75,12 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 			},
 			expectedUpstreamMap: registrationMap{"netbird.io": struct{}{}, "netbird.cloud": struct{}{}, nbdns.RootZone: struct{}{}},
-			expectedLocalMap:    registrationMap{zoneRecords[0].Name: struct{}{}},
+			expectedLocalMap:    registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 		},
 		{
 			name:            "New Config Should Succeed",
 			initLocalMap:    registrationMap{"netbird.cloud": struct{}{}},
-			initUpstreamMap: registrationMap{zoneRecords[0].Name: struct{}{}},
+			initUpstreamMap: registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Config{
@@ -98,7 +99,7 @@ func TestUpdateDNSServer(t *testing.T) {
 				},
 			},
 			expectedUpstreamMap: registrationMap{"netbird.io": struct{}{}, "netbird.cloud": struct{}{}},
-			expectedLocalMap:    registrationMap{zoneRecords[0].Name: struct{}{}},
+			expectedLocalMap:    registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 		},
 		{
 			name:            "Smaller Config Serial Should Be Skipped",
@@ -188,12 +189,14 @@ func TestUpdateDNSServer(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			ctx := context.Background()
-			dnsServer := NewDefaultServer(ctx)
+			dnsServer := getDefaultServerWithNoHostManager("127.0.0.1")
+
+			dnsServer.hostManager = newNoopHostMocker()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
 			dnsServer.updateSerial = testCase.initSerial
+			// pretend we are running
 			dnsServer.listenerIsRunning = true
 
 			err := dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
@@ -230,12 +233,14 @@ func TestUpdateDNSServer(t *testing.T) {
 }
 
 func TestDNSServerStartStop(t *testing.T) {
-	ctx := context.Background()
-	dnsServer := NewDefaultServer(ctx)
+	dnsServer := getDefaultServerWithNoHostManager("127.0.0.1")
+
 	if runtime.GOOS == "windows" && os.Getenv("CI") == "true" {
 		// todo review why this test is not working only on github actions workflows
 		t.Skip("skipping test in Windows CI workflows.")
 	}
+
+	dnsServer.hostManager = newNoopHostMocker()
 
 	dnsServer.Start()
 
@@ -276,10 +281,40 @@ func TestDNSServerStartStop(t *testing.T) {
 	}
 
 	dnsServer.Stop()
-	ctx, cancel := context.WithTimeout(ctx, time.Second*1)
+	ctx, cancel := context.WithTimeout(context.TODO(), time.Second*1)
 	defer cancel()
 	_, err = resolver.LookupHost(ctx, zoneRecords[0].Name)
 	if err == nil {
 		t.Fatalf("we should encounter an error when querying a stopped server")
+	}
+}
+
+func getDefaultServerWithNoHostManager(ip string) *DefaultServer {
+	mux := dns.NewServeMux()
+	listenIP := defaultIP
+	if ip != "" {
+		listenIP = ip
+	}
+
+	dnsServer := &dns.Server{
+		Addr:    fmt.Sprintf("%s:%d", ip, port),
+		Net:     "udp",
+		Handler: mux,
+		UDPSize: 65535,
+	}
+
+	ctx, stop := context.WithCancel(context.TODO())
+
+	return &DefaultServer{
+		ctx:       ctx,
+		stop:      stop,
+		server:    dnsServer,
+		dnsMux:    mux,
+		dnsMuxMap: make(registrationMap),
+		localResolver: &localResolver{
+			registeredMap: make(registrationMap),
+		},
+		runtimePort: port,
+		runtimeIP:   listenIP,
 	}
 }

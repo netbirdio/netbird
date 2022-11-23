@@ -73,13 +73,15 @@ func parseAddress(address string) (WGAddress, error) {
 func (w *WGIface) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-
+	if w.Interface == nil {
+		return nil
+	}
 	err := w.Interface.Close()
 	if err != nil {
 		return err
 	}
 
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS != "windows" {
 		sockPath := "/var/run/wireguard/" + w.Name + ".sock"
 		if _, statErr := os.Stat(sockPath); statErr == nil {
 			statErr = os.Remove(sockPath)

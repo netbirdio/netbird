@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"path/filepath"
 	"runtime"
 
 	"github.com/spf13/cobra"
@@ -32,8 +33,13 @@ var installCmd = &cobra.Command{
 		}
 
 		if managementURL != "" {
-			svcConfig.Arguments = append(svcConfig.Arguments, "--management-url")
-			svcConfig.Arguments = append(svcConfig.Arguments, managementURL)
+			svcConfig.Arguments = append(svcConfig.Arguments, "--management-url", managementURL)
+		}
+
+		if logFile != "console" {
+			svcConfig.Arguments = append(svcConfig.Arguments, "--log-file", logFile)
+			svcConfig.Option["LogOutput"] = true
+			svcConfig.Option["LogDirectory"] = filepath.Dir(logFile)
 		}
 
 		if runtime.GOOS == "linux" {
