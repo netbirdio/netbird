@@ -33,13 +33,14 @@ func init() {
 // Config Configuration type
 type Config struct {
 	// Wireguard private key of local peer
-	PrivateKey     string
-	PreSharedKey   string
-	ManagementURL  *url.URL
-	AdminURL       *url.URL
-	WgIface        string
-	WgPort         int
-	IFaceBlackList []string
+	PrivateKey           string
+	PreSharedKey         string
+	ManagementURL        *url.URL
+	AdminURL             *url.URL
+	WgIface              string
+	WgPort               int
+	IFaceBlackList       []string
+	DisableIPv6Discovery bool
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey         string
 
@@ -69,11 +70,12 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 		return nil, err
 	}
 	config := &Config{
-		SSHKey:         string(pem),
-		PrivateKey:     wgKey,
-		WgIface:        iface.WgInterfaceDefault,
-		WgPort:         iface.DefaultWgPort,
-		IFaceBlackList: []string{},
+		SSHKey:               string(pem),
+		PrivateKey:           wgKey,
+		WgIface:              iface.WgInterfaceDefault,
+		WgPort:               iface.DefaultWgPort,
+		IFaceBlackList:       []string{},
+		DisableIPv6Discovery: false,
 	}
 	if managementURL != "" {
 		URL, err := ParseURL("Management URL", managementURL)
