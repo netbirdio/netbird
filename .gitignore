@@ -11,3 +11,4 @@ infrastructure_files/docker-compose.yml
 *.syso
 client/.distfiles/
 infrastructure_files/setup.env
+.vscode
