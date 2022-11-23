@@ -5,14 +5,19 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
+	"net"
+	"net/netip"
+	"runtime"
 	"sync"
 	"time"
 )
 
 const (
-	port      = 5053
-	defaultIP = "0.0.0.0"
+	port       = 53
+	customPort = 5053
+	defaultIP  = "127.0.0.1"
 )
 
 // Server is a dns server interface
@@ -31,8 +36,12 @@ type DefaultServer struct {
 	dnsMux            *dns.ServeMux
 	dnsMuxMap         registrationMap
 	localResolver     *localResolver
+	wgInterface       *iface.WGIface
+	hostManager       hostManager
 	updateSerial      uint64
 	listenerIsRunning bool
+	runtimePort       int
+	runtimeIP         string
 }
 
 type registrationMap map[string]struct{}
@@ -43,11 +52,15 @@ type muxUpdate struct {
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(ctx context.Context) *DefaultServer {
+func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) (*DefaultServer, error) {
 	mux := dns.NewServeMux()
+	listenIP := defaultIP
+	if runtime.GOOS != "darwin" && wgInterface != nil {
+		listenIP = wgInterface.GetAddress().IP.String()
+	}
 
 	dnsServer := &dns.Server{
-		Addr:    fmt.Sprintf("%s:%d", defaultIP, port),
+		Addr:    fmt.Sprintf("%s:%d", listenIP, port),
 		Net:     "udp",
 		Handler: mux,
 		UDPSize: 65535,
@@ -55,7 +68,7 @@ func NewDefaultServer(ctx context.Context) *DefaultServer {
 
 	ctx, stop := context.WithCancel(ctx)
 
-	return &DefaultServer{
+	defaultServer := &DefaultServer{
 		ctx:       ctx,
 		stop:      stop,
 		server:    dnsServer,
@@ -64,18 +77,44 @@ func NewDefaultServer(ctx context.Context) *DefaultServer {
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
+		wgInterface: wgInterface,
+		runtimePort: port,
+		runtimeIP:   listenIP,
 	}
+
+	hostmanager, err := newHostManager(wgInterface)
+	if err != nil {
+		return nil, err
+	}
+	defaultServer.hostManager = hostmanager
+	return defaultServer, err
 }
 
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
-	log.Debugf("starting dns on %s:%d", defaultIP, port)
+	s.runtimePort = port
+	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(s.server.Addr))
+	probeListener, err := net.ListenUDP("udp", udpAddr)
+	if err != nil {
+		log.Warnf("using a custom port for dns server")
+		s.runtimePort = customPort
+		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, customPort)
+	} else {
+		err = probeListener.Close()
+		if err != nil {
+			log.Errorf("got an error closing the probe listener, error: %s", err)
+		}
+	}
+
+	log.Debugf("starting dns on %s", s.server.Addr)
+
 	go func() {
 		s.setListenerStatus(true)
 		defer s.setListenerStatus(false)
-		err := s.server.ListenAndServe()
+
+		err = s.server.ListenAndServe()
 		if err != nil {
-			log.Errorf("dns server returned an error: %v", err)
+			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.runtimePort, err)
 		}
 	}()
 }
@@ -86,9 +125,16 @@ func (s *DefaultServer) setListenerStatus(running bool) {
 
 // Stop stops the server
 func (s *DefaultServer) Stop() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 	s.stop()
 
-	err := s.stopListener()
+	err := s.hostManager.restoreHostDNS()
+	if err != nil {
+		log.Error(err)
+	}
+
+	err = s.stopListener()
 	if err != nil {
 		log.Error(err)
 	}
@@ -148,6 +194,11 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		s.updateMux(muxUpdates)
 		s.updateLocalResolver(localRecords)
 
+		err = s.hostManager.applyDNSConfig(dnsConfigToHostDNSConfig(update, s.runtimeIP, s.runtimePort))
+		if err != nil {
+			log.Error(err)
+		}
+
 		s.updateSerial = serial
 
 		return nil
@@ -170,7 +221,12 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 		})
 
 		for _, record := range customZone.Records {
-			localRecords[record.Name] = record
+			var class uint16 = dns.ClassINET
+			if record.Class != nbdns.DefaultClass {
+				return nil, nil, fmt.Errorf("received an invalid class type: %s", record.Class)
+			}
+			key := buildRecordKey(record.Name, class, uint16(record.Type))
+			localRecords[key] = record
 		}
 	}
 	return muxUpdates, localRecords, nil

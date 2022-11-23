@@ -75,3 +75,8 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 	w.Address = addr
 	return w.assignAddr()
 }
+
+// GetInterfaceGUIDString returns an interface GUID. This is useful on Windows only
+func (w *WGIface) GetInterfaceGUIDString() (string, error) {
+	return "", nil
+}
