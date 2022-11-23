@@ -3,8 +3,8 @@ package dns
 import (
 	"context"
 	"fmt"
+	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
 	"net"
 	"net/netip"
 	"os"
@@ -189,18 +189,8 @@ func TestUpdateDNSServer(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			wgInterface, err := iface.NewWGIFace("utun10000", "100.66.0.32/32", iface.DefaultMTU)
-			if err != nil {
-				t.Error(err)
-			}
-			_ = wgInterface.Create()
-			defer wgInterface.Close()
+			dnsServer := getDefaultServerWithNoHostManager("127.0.0.1")
 
-			ctx := context.Background()
-			dnsServer, err := NewDefaultServer(ctx, wgInterface)
-			if err != nil {
-				t.Error(err)
-			}
 			dnsServer.hostManager = newNoopHostMocker()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
@@ -209,7 +199,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			// pretend we are running
 			dnsServer.listenerIsRunning = true
 
-			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
+			err := dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
 				if testCase.shouldFail {
 					return
@@ -243,16 +233,8 @@ func TestUpdateDNSServer(t *testing.T) {
 }
 
 func TestDNSServerStartStop(t *testing.T) {
-	ctx := context.Background()
-	wgInterface, err := iface.NewWGIFace("utun10001", "100.66.0.32/32", iface.DefaultMTU)
-	if err != nil {
-		t.Error(err)
-	}
+	dnsServer := getDefaultServerWithNoHostManager("127.0.0.1")
 
-	dnsServer, err := NewDefaultServer(ctx, wgInterface)
-	if err != nil {
-		t.Error(err)
-	}
 	if runtime.GOOS == "windows" && os.Getenv("CI") == "true" {
 		// todo review why this test is not working only on github actions workflows
 		t.Skip("skipping test in Windows CI workflows.")
@@ -262,7 +244,7 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	dnsServer.Start()
 
-	err = dnsServer.localResolver.registerRecord(zoneRecords[0])
+	err := dnsServer.localResolver.registerRecord(zoneRecords[0])
 	if err != nil {
 		t.Error(err)
 	}
@@ -299,10 +281,40 @@ func TestDNSServerStartStop(t *testing.T) {
 	}
 
 	dnsServer.Stop()
-	ctx, cancel := context.WithTimeout(ctx, time.Second*1)
+	ctx, cancel := context.WithTimeout(context.TODO(), time.Second*1)
 	defer cancel()
 	_, err = resolver.LookupHost(ctx, zoneRecords[0].Name)
 	if err == nil {
 		t.Fatalf("we should encounter an error when querying a stopped server")
+	}
+}
+
+func getDefaultServerWithNoHostManager(ip string) *DefaultServer {
+	mux := dns.NewServeMux()
+	listenIP := defaultIP
+	if ip != "" {
+		listenIP = ip
+	}
+
+	dnsServer := &dns.Server{
+		Addr:    fmt.Sprintf("%s:%d", ip, port),
+		Net:     "udp",
+		Handler: mux,
+		UDPSize: 65535,
+	}
+
+	ctx, stop := context.WithCancel(context.TODO())
+
+	return &DefaultServer{
+		ctx:       ctx,
+		stop:      stop,
+		server:    dnsServer,
+		dnsMux:    mux,
+		dnsMuxMap: make(registrationMap),
+		localResolver: &localResolver{
+			registeredMap: make(registrationMap),
+		},
+		runtimePort: port,
+		runtimeIP:   listenIP,
 	}
 }
