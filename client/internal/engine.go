@@ -3,12 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/dns"
-	"github.com/netbirdio/netbird/client/internal/routemanager"
-	nbssh "github.com/netbirdio/netbird/client/ssh"
-	nbstatus "github.com/netbirdio/netbird/client/status"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/route"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -17,6 +11,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/routemanager"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
+	nbstatus "github.com/netbirdio/netbird/client/status"
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/route"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
@@ -66,6 +67,8 @@ type EngineConfig struct {
 
 	// SSHKey is a private SSH key in a PEM format
 	SSHKey []byte
+
+	NATExternalIPs []string
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -825,6 +828,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		UDPMuxSrflx:        e.udpMuxSrflx,
 		ProxyConfig:        proxyConfig,
 		LocalWgPort:        e.config.WgPort,
+		NATExternalIPs:		e.parseNATExternalIPMappings(),
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder)
@@ -917,4 +921,78 @@ func (e *Engine) receiveSignalEvents() {
 	}()
 
 	e.signal.WaitStreamConnected()
+}
+
+func (e* Engine) parseNATExternalIPMappings() []string {
+	var mappedIPs []string
+	var ignoredIFaces = make(map[string]interface{})
+	for _, iFace := range(e.config.IFaceBlackList) {
+		ignoredIFaces[iFace] = nil
+	}
+	for _, mapping := range e.config.NATExternalIPs {
+		var external, internal string
+		var externalIP, internalIP net.IP
+		var err error
+		split := strings.Split(mapping, "/")
+		if len(split) > 2 {
+			log.Warnf("ignoring invalid external mapping '%s', too many delimiters", mapping)
+			break
+		}
+		if len(split) > 1 {
+			internal = split[1]
+			internalIP = net.ParseIP(internal)
+			if internalIP == nil {
+				// not a properly formatted IP address, maybe it's interface name?
+				if _, present := ignoredIFaces[internal]; present {
+					log.Warnf("internal interface '%s' in blacklist, ignoring external mapping '%s'", internal, mapping)
+					break
+				}
+				internalIP, err = findIPFromInterfaceName(internal)
+				if err != nil {
+					log.Warnf("error finding interface IP for interface '%s', ignoring external mapping '%s': %v", internal, mapping, err)
+					break
+				}
+			}
+		}
+		external = split[0]
+		externalIP = net.ParseIP(external)
+		if externalIP == nil {
+			log.Warnf("invalid external IP, ignoring external IP mapping '%s'", mapping)
+			break
+		}
+		if externalIP != nil {
+			mappedIP := externalIP.String()
+			if internalIP != nil {
+				mappedIP = mappedIP + "/" + internalIP.String()
+			}
+			mappedIPs = append(mappedIPs, mappedIP)
+			log.Infof("parsed external IP mapping of '%s' as '%s'", mapping, mappedIP)
+		}
+	}
+	if len(mappedIPs) != len(e.config.NATExternalIPs) {
+		log.Warnf("one or more external IP mappings failed to parse, ignoring all mappings")
+		return nil
+	}
+	return mappedIPs
+}
+
+func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
+    iface, err := net.InterfaceByName(ifaceName)
+	if err != nil {
+        return nil, err
+    }
+    return findIPFromInterface(iface)
+}
+
+func findIPFromInterface(iface *net.Interface) (net.IP, error) {
+    ifaceAddrs, err := iface.Addrs()
+	if err != nil {
+        return nil, err
+    }
+    for _, addr := range ifaceAddrs {
+        if ipv4Addr := addr.(*net.IPNet).IP.To4(); ipv4Addr != nil {
+			return ipv4Addr, nil
+        }
+    }
+	return nil, fmt.Errorf("interface %s don't have an ipv4 address", iface.Name)
 }
