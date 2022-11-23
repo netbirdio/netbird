@@ -2,18 +2,18 @@ package peer
 
 import (
 	"context"
-	nbStatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/iface"
-	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/netbirdio/netbird/client/internal/proxy"
+	nbStatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/iface"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -39,6 +39,8 @@ type ConnConfig struct {
 	UDPMuxSrflx ice.UniversalUDPMux
 
 	LocalWgPort int
+
+	NATExternalIPs []string
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -152,6 +154,7 @@ func (conn *Conn) reCreateAgent() error {
 		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
 		UDPMux:           conn.config.UDPMux,
 		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
+		NAT1To1IPs:       conn.config.NATExternalIPs,
 	})
 	if err != nil {
 		return err
@@ -284,7 +287,7 @@ func (conn *Conn) Open() error {
 		host, _, _ := net.SplitHostPort(remoteConn.LocalAddr().String())
 		rhost, _, _ := net.SplitHostPort(remoteConn.RemoteAddr().String())
 		// direct Wireguard connection
-		log.Infof("directly connected to peer %s [laddr <-> raddr] [%s:%d <-> %s:%d]", conn.config.Key, host, iface.DefaultWgPort, rhost, iface.DefaultWgPort)
+		log.Infof("directly connected to peer %s [laddr <-> raddr] [%s:%d <-> %s:%d]", conn.config.Key, host, conn.config.LocalWgPort, rhost, remoteWgPort)
 	} else {
 		log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", conn.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
 	}
@@ -448,6 +451,7 @@ func (conn *Conn) SetSignalCandidate(handler func(candidate ice.Candidate) error
 // and then signals them to the remote peer
 func (conn *Conn) onICECandidate(candidate ice.Candidate) {
 	if candidate != nil {
+		// TODO: reported port is incorrect for CandidateTypeHost, makes understanding ICE use via logs confusing as port is ignored
 		log.Debugf("discovered local candidate %s", candidate.String())
 		go func() {
 			err := conn.signalCandidate(candidate)
