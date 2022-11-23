@@ -55,7 +55,8 @@ type EngineConfig struct {
 	WgPrivateKey wgtypes.Key
 
 	// IFaceBlackList is a list of network interfaces to ignore when discovering connection candidates (ICE related)
-	IFaceBlackList []string
+	IFaceBlackList       []string
+	DisableIPv6Discovery bool
 
 	PreSharedKey *wgtypes.Key
 
@@ -226,13 +227,18 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	e.udpMuxConn, err = net.ListenUDP("udp4", &net.UDPAddr{Port: e.config.UDPMuxPort})
+	networkName := "udp"
+	if e.config.DisableIPv6Discovery {
+		networkName = "udp4"
+	}
+
+	e.udpMuxConn, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxPort})
 	if err != nil {
 		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
 		return err
 	}
 
-	e.udpMuxConnSrflx, err = net.ListenUDP("udp4", &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
+	e.udpMuxConnSrflx, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
 	if err != nil {
 		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
 		return err
@@ -819,15 +825,16 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
-		Key:                pubKey,
-		LocalKey:           e.config.WgPrivateKey.PublicKey().String(),
-		StunTurn:           stunTurn,
-		InterfaceBlackList: e.config.IFaceBlackList,
-		Timeout:            timeout,
-		UDPMux:             e.udpMux,
-		UDPMuxSrflx:        e.udpMuxSrflx,
-		ProxyConfig:        proxyConfig,
-		LocalWgPort:        e.config.WgPort,
+		Key:                  pubKey,
+		LocalKey:             e.config.WgPrivateKey.PublicKey().String(),
+		StunTurn:             stunTurn,
+		InterfaceBlackList:   e.config.IFaceBlackList,
+		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
+		Timeout:              timeout,
+		UDPMux:               e.udpMux,
+		UDPMuxSrflx:          e.udpMuxSrflx,
+		ProxyConfig:          proxyConfig,
+		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:		e.parseNATExternalIPMappings(),
 	}
 
