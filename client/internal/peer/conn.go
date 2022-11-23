@@ -7,11 +7,6 @@ import (
 	"sync"
 	"time"
 
-	nbStatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/iface"
-	"golang.zx2c4.com/wireguard/wgctrl"
-
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	nbStatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
@@ -160,7 +155,7 @@ func (conn *Conn) reCreateAgent() error {
 		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
 		UDPMux:           conn.config.UDPMux,
 		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
-    NAT1To1IPs:       conn.config.NATExternalIPs,
+		NAT1To1IPs:       conn.config.NATExternalIPs,
 	}
 
 	if conn.config.DisableIPv6Discovery {
