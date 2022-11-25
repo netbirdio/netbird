@@ -252,6 +252,14 @@ func (a *Account) DeletePeer(peerPubKey string) {
 			}
 		}
 	}
+
+	for _, r := range a.Routes {
+		if r.Peer == peerPubKey {
+			r.Enabled = false
+			r.Peer = ""
+		}
+	}
+
 	delete(a.Peers, peerPubKey)
 	a.Network.IncSerial()
 }
