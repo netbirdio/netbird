@@ -10,6 +10,7 @@ import (
 type PeerState struct {
 	IP                     string
 	PubKey                 string
+	FQDN                   string
 	ConnStatus             string
 	ConnStatusUpdate       time.Time
 	Relayed                bool
@@ -23,6 +24,7 @@ type LocalPeerState struct {
 	IP              string
 	PubKey          string
 	KernelInterface bool
+	FQDN            string
 }
 
 // SignalState contains the latest state of a signal connection
@@ -132,6 +134,22 @@ func (d *Status) UpdatePeerState(receivedState PeerState) error {
 		close(ch)
 		d.changeNotify[receivedState.PubKey] = nil
 	}
+
+	return nil
+}
+
+// UpdatePeerFQDN update peer's state fqdn only
+func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+
+	peerState, ok := d.peers[peerPubKey]
+	if !ok {
+		return errors.New("peer doesn't exist")
+	}
+
+	peerState.FQDN = fqdn
+	d.peers[peerPubKey] = peerState
 
 	return nil
 }

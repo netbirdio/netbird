@@ -109,6 +109,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
 			KernelInterface: iface.WireguardModuleIsLoaded(),
+			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
 
 		statusRecorder.UpdateLocalPeerState(localPeerState)
@@ -192,7 +193,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		WgPrivateKey:         key,
 		WgPort:               config.WgPort,
 		SSHKey:               []byte(config.SSHKey),
-		NATExternalIPs:	config.NATExternalIPs,
+		NATExternalIPs:       config.NATExternalIPs,
 	}
 
 	if config.PreSharedKey != "" {

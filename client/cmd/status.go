@@ -122,6 +122,7 @@ func fromProtoFullStatus(pbFullStatus *proto.FullStatus) nbStatus.FullStatus {
 	fullStatus.LocalPeerState.IP = localPeerState.GetIP()
 	fullStatus.LocalPeerState.PubKey = localPeerState.GetPubKey()
 	fullStatus.LocalPeerState.KernelInterface = localPeerState.GetKernelInterface()
+	fullStatus.LocalPeerState.FQDN = localPeerState.GetFqdn()
 
 	var peersState []nbStatus.PeerState
 
@@ -136,6 +137,7 @@ func fromProtoFullStatus(pbFullStatus *proto.FullStatus) nbStatus.FullStatus {
 			Direct:                 pbPeerState.GetDirect(),
 			LocalIceCandidateType:  pbPeerState.GetLocalIceCandidateType(),
 			RemoteIceCandidateType: pbPeerState.GetRemoteIceCandidateType(),
+			FQDN:                   pbPeerState.GetFqdn(),
 		}
 		peersState = append(peersState, peerState)
 	}
@@ -196,6 +198,7 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 			"%s"+ // daemon status
 			"Management: %s%s\n"+
 			"Signal:  %s%s\n"+
+			"Domain Name: %s\n"+
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Peers count: %s\n",
@@ -206,6 +209,7 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 		managementStatusURL,
 		signalConnString,
 		signalStatusURL,
+		fullStatus.LocalPeerState.FQDN,
 		interfaceIP,
 		interfaceTypeString,
 		peersCountString,
@@ -267,6 +271,7 @@ func parsePeers(peers []nbStatus.PeerState, printDetail bool) (string, int) {
 
 			peerString := fmt.Sprintf(
 				"\n Peer:\n"+
+					"  Domain Name: %s\n"+
 					"  NetBird IP: %s\n"+
 					"  Public key: %s\n"+
 					"  Status: %s\n"+
@@ -275,6 +280,7 @@ func parsePeers(peers []nbStatus.PeerState, printDetail bool) (string, int) {
 					"  Direct: %t\n"+
 					"  ICE candidate (Local/Remote): %s/%s\n"+
 					"  Last connection update: %s\n",
+				peerState.FQDN,
 				peerState.IP,
 				peerState.PubKey,
 				peerState.ConnStatus,

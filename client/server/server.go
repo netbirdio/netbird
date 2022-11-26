@@ -475,6 +475,7 @@ func toProtoFullStatus(fullStatus nbStatus.FullStatus) *proto.FullStatus {
 	pbFullStatus.LocalPeerState.IP = fullStatus.LocalPeerState.IP
 	pbFullStatus.LocalPeerState.PubKey = fullStatus.LocalPeerState.PubKey
 	pbFullStatus.LocalPeerState.KernelInterface = fullStatus.LocalPeerState.KernelInterface
+	pbFullStatus.LocalPeerState.Fqdn = fullStatus.LocalPeerState.FQDN
 
 	for _, peerState := range fullStatus.Peers {
 		pbPeerState := &proto.PeerState{
@@ -486,6 +487,7 @@ func toProtoFullStatus(fullStatus nbStatus.FullStatus) *proto.FullStatus {
 			Direct:                 peerState.Direct,
 			LocalIceCandidateType:  peerState.LocalIceCandidateType,
 			RemoteIceCandidateType: peerState.RemoteIceCandidateType,
+			Fqdn:                   peerState.FQDN,
 		}
 		pbFullStatus.Peers = append(pbFullStatus.Peers, pbPeerState)
 	}

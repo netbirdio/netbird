@@ -766,6 +766,10 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 
 		go e.connWorker(conn, peerKey)
 	}
+	err := e.statusRecorder.UpdatePeerFQDN(peerKey, peerConfig.Fqdn)
+	if err != nil {
+		log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerKey, err)
+	}
 	return nil
 }
 
@@ -842,7 +846,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		UDPMuxSrflx:          e.udpMuxSrflx,
 		ProxyConfig:          proxyConfig,
 		LocalWgPort:          e.config.WgPort,
-		NATExternalIPs:		e.parseNATExternalIPMappings(),
+		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder)
@@ -937,10 +941,10 @@ func (e *Engine) receiveSignalEvents() {
 	e.signal.WaitStreamConnected()
 }
 
-func (e* Engine) parseNATExternalIPMappings() []string {
+func (e *Engine) parseNATExternalIPMappings() []string {
 	var mappedIPs []string
 	var ignoredIFaces = make(map[string]interface{})
-	for _, iFace := range(e.config.IFaceBlackList) {
+	for _, iFace := range e.config.IFaceBlackList {
 		ignoredIFaces[iFace] = nil
 	}
 	for _, mapping := range e.config.NATExternalIPs {
@@ -991,22 +995,22 @@ func (e* Engine) parseNATExternalIPMappings() []string {
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
-    iface, err := net.InterfaceByName(ifaceName)
+	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
-        return nil, err
-    }
-    return findIPFromInterface(iface)
+		return nil, err
+	}
+	return findIPFromInterface(iface)
 }
 
 func findIPFromInterface(iface *net.Interface) (net.IP, error) {
-    ifaceAddrs, err := iface.Addrs()
+	ifaceAddrs, err := iface.Addrs()
 	if err != nil {
-        return nil, err
-    }
-    for _, addr := range ifaceAddrs {
-        if ipv4Addr := addr.(*net.IPNet).IP.To4(); ipv4Addr != nil {
+		return nil, err
+	}
+	for _, addr := range ifaceAddrs {
+		if ipv4Addr := addr.(*net.IPNet).IP.To4(); ipv4Addr != nil {
 			return ipv4Addr, nil
-        }
-    }
+		}
+	}
 	return nil, fmt.Errorf("interface %s don't have an ipv4 address", iface.Name)
 }
