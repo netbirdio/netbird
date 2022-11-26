@@ -1,5 +1,5 @@
 <p align="center">
- <strong>:hatching_chick: New Release! User Invites.</strong>
+ <strong>:hatching_chick: New Release! DNS support.</strong>
   <a href="https://github.com/netbirdio/netbird/releases">
        Learn more
      </a>   
