@@ -549,6 +549,13 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		}
 	}
 
+	e.statusRecorder.UpdateLocalPeerState(nbstatus.LocalPeerState{
+		IP:              e.config.WgAddr,
+		PubKey:          e.config.WgPrivateKey.PublicKey().String(),
+		KernelInterface: iface.WireguardModuleIsLoaded(),
+		FQDN:            conf.GetFqdn(),
+	})
+
 	return nil
 }
 
