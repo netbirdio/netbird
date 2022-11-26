@@ -281,9 +281,15 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	// first, check if peers have been modified
 	var modified []*mgmProto.RemotePeerConfig
 	for _, p := range peersUpdate {
-		if peerConn, ok := e.peerConns[p.GetWgPubKey()]; ok {
+		peerPubKey := p.GetWgPubKey()
+		if peerConn, ok := e.peerConns[peerPubKey]; ok {
 			if peerConn.GetConf().ProxyConfig.AllowedIps != strings.Join(p.AllowedIps, ",") {
 				modified = append(modified, p)
+				continue
+			}
+			err := e.statusRecorder.UpdatePeerFQDN(peerPubKey, p.GetFqdn())
+			if err != nil {
+				log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerPubKey, err)
 			}
 		}
 	}
