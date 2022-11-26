@@ -54,6 +54,24 @@ func TestUpdatePeerState(t *testing.T) {
 	assert.Equal(t, ip, state.IP, "ip should be equal")
 }
 
+func TestStatus_UpdatePeerFQDN(t *testing.T) {
+	key := "abc"
+	fqdn := "peer-a.netbird.local"
+	status := NewRecorder()
+	peerState := PeerState{
+		PubKey: key,
+	}
+
+	status.peers[key] = peerState
+
+	err := status.UpdatePeerFQDN(key, fqdn)
+	assert.NoError(t, err, "shouldn't return error")
+
+	state, exists := status.peers[key]
+	assert.True(t, exists, "state should be found")
+	assert.Equal(t, fqdn, state.FQDN, "fqdn should be equal")
+}
+
 func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"

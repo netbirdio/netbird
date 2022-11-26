@@ -1,5 +1,5 @@
 <p align="center">
- <strong>:hatching_chick: New Release! User Invites.</strong>
+ <strong>:hatching_chick: New Release! DNS support.</strong>
   <a href="https://github.com/netbirdio/netbird/releases">
        Learn more
      </a>   
@@ -55,9 +55,9 @@ NetBird uses [NAT traversal techniques](https://en.wikipedia.org/wiki/Interactiv
 - \[x] Access Controls - groups & rules.
 - \[x] Remote SSH access without managing SSH keys.
 - \[x] Network Routes.  
+- \[x] Private DNS.
 
 **Coming soon:**
--  \[ ] Private DNS.
 -  \[ ] Mobile clients.
 -  \[ ] Network Activity Monitoring.
 
