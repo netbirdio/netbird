@@ -198,7 +198,7 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 			"%s"+ // daemon status
 			"Management: %s%s\n"+
 			"Signal:  %s%s\n"+
-			"Domain Name: %s\n"+
+			"Domain: %s\n"+
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Peers count: %s\n",
@@ -270,8 +270,7 @@ func parsePeers(peers []nbStatus.PeerState, printDetail bool) (string, int) {
 			}
 
 			peerString := fmt.Sprintf(
-				"\n Peer:\n"+
-					"  Domain Name: %s\n"+
+				"\n %s:\n"+
 					"  NetBird IP: %s\n"+
 					"  Public key: %s\n"+
 					"  Status: %s\n"+
