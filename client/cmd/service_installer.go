@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"runtime"
 
@@ -38,13 +39,29 @@ var installCmd = &cobra.Command{
 
 		if logFile != "console" {
 			svcConfig.Arguments = append(svcConfig.Arguments, "--log-file", logFile)
-			svcConfig.Option["LogOutput"] = true
-			svcConfig.Option["LogDirectory"] = filepath.Dir(logFile)
 		}
 
 		if runtime.GOOS == "linux" {
 			// Respected only by systemd systems
 			svcConfig.Dependencies = []string{"After=network.target syslog.target"}
+
+			if logFile != "console" {
+				setStdLogPath := true
+				dir := filepath.Dir(logFile)
+
+				_, err := os.Stat(dir)
+				if err != nil {
+					err = os.MkdirAll(dir, 0750)
+					if err != nil {
+						setStdLogPath = false
+					}
+				}
+
+				if setStdLogPath {
+					svcConfig.Option["LogOutput"] = true
+					svcConfig.Option["LogDirectory"] = dir
+				}
+			}
 		}
 
 		ctx, cancel := context.WithCancel(cmd.Context())

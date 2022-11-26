@@ -263,7 +263,7 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 			return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
 		}
 
-		update := toSyncResponse(s.config, remotePeer, nil, remotePeerNetworkMap)
+		update := toSyncResponse(s.config, remotePeer, nil, remotePeerNetworkMap, s.accountManager.GetDNSDomain())
 		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
@@ -361,7 +361,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
-		PeerConfig:        toPeerConfig(peer, network),
+		PeerConfig:        toPeerConfig(peer, network, s.accountManager.GetDNSDomain()),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
@@ -433,32 +433,42 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 	}
 }
 
-func toPeerConfig(peer *Peer, network *Network) *proto.PeerConfig {
+func toPeerConfig(peer *Peer, network *Network, dnsName string) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
+	fqdn := ""
+	if dnsName != "" {
+		fqdn = peer.DNSLabel + "." + dnsName
+	}
 	return &proto.PeerConfig{
 		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
 		SshConfig: &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
+		Fqdn:      fqdn,
 	}
 }
 
-func toRemotePeerConfig(peers []*Peer) []*proto.RemotePeerConfig {
+func toRemotePeerConfig(peers []*Peer, dnsName string) []*proto.RemotePeerConfig {
 	remotePeers := []*proto.RemotePeerConfig{}
 	for _, rPeer := range peers {
+		fqdn := ""
+		if dnsName != "" {
+			fqdn = rPeer.DNSLabel + "." + dnsName
+		}
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
 			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)},
 			SshConfig:  &proto.SSHConfig{SshPubKey: []byte(rPeer.SSHKey)},
+			Fqdn:       fqdn,
 		})
 	}
 	return remotePeers
 }
 
-func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap) *proto.SyncResponse {
+func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials, networkMap *NetworkMap, dnsName string) *proto.SyncResponse {
 	wtConfig := toWiretrusteeConfig(config, turnCredentials)
 
-	pConfig := toPeerConfig(peer, networkMap.Network)
+	pConfig := toPeerConfig(peer, networkMap.Network, dnsName)
 
-	remotePeers := toRemotePeerConfig(networkMap.Peers)
+	remotePeers := toRemotePeerConfig(networkMap.Peers, dnsName)
 
 	routesUpdate := toProtocolRoutes(networkMap.Routes)
 
@@ -501,7 +511,7 @@ func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.
 	} else {
 		turnCredentials = nil
 	}
-	plainResp := toSyncResponse(s.config, peer, turnCredentials, networkMap)
+	plainResp := toSyncResponse(s.config, peer, turnCredentials, networkMap, s.accountManager.GetDNSDomain())
 
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, plainResp)
 	if err != nil {
