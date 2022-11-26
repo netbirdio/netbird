@@ -105,6 +105,7 @@ message PeerState {
   bool direct = 6;
   string localIceCandidateType = 7;
   string remoteIceCandidateType =8;
+  string fqdn = 9;
 }
 
 // LocalPeerState contains the latest state of the local peer
@@ -112,6 +113,7 @@ message LocalPeerState {
   string IP = 1;
   string pubKey = 2;
   bool  kernelInterface =3;
+  string fqdn = 4;
 }
 
 // SignalState contains the latest state of a signal connection

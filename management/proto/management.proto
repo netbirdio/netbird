@@ -158,6 +158,8 @@ message PeerConfig {
 
   // SSHConfig of the peer.
   SSHConfig sshConfig = 3;
+  // Peer fully qualified domain name
+  string fqdn = 4;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections
@@ -195,6 +197,9 @@ message RemotePeerConfig {
 
   // SSHConfig is a SSH config of the remote peer. SSHConfig.sshPubKey should be ignored because peer knows it's SSH key.
   SSHConfig sshConfig = 3;
+
+  // Peer fully qualified domain name
+  string fqdn = 4;
 
 }
 

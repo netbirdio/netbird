@@ -581,7 +581,7 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 			return err
 		}
 
-		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap)
+		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
 		err = am.peersUpdateManager.SendUpdate(peer.Key, &UpdateMessage{Update: update})
 		if err != nil {
 			return err

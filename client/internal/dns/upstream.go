@@ -21,7 +21,7 @@ type upstreamResolver struct {
 // ServeDNS handles a DNS request
 func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
-	log.Debugf("received an upstream question: %#v", r.Question[0])
+	log.Tracef("received an upstream question: %#v", r.Question[0])
 
 	select {
 	case <-u.parentCTX.Done():
