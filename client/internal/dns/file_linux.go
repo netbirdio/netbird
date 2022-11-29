@@ -44,7 +44,7 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 				return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group. Restoring the original file return err: %s", err)
 			}
 		}
-		return fmt.Errorf("unable to configure DNS for this peer using file manager without a Primary nameserver group")
+		return fmt.Errorf("unable to configure DNS for this peer using file manager without a nameserver group with all domains configured")
 	}
 	managerType, err := getOSDNSManagerType()
 	if err != nil {
@@ -92,7 +92,7 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		}
 		return err
 	}
-	log.Infof("created a NetBird managed %s file with your DNS settings", defaultResolvConfPath)
+	log.Infof("created a NetBird managed %s file with your DNS settings. Added %d search domains. Search list: %s", defaultResolvConfPath, appendedDomains, searchDomains)
 	return nil
 }
 
