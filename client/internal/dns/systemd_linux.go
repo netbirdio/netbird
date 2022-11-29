@@ -20,11 +20,13 @@ const (
 	systemdDbusObjectNode                  = "/org/freedesktop/resolve1"
 	systemdDbusGetLinkMethod               = systemdDbusManagerInterface + ".GetLink"
 	systemdDbusFlushCachesMethod           = systemdDbusManagerInterface + ".FlushCaches"
+	systemdDbusResolvConfModeProperty      = systemdDbusManagerInterface + ".ResolvConfMode"
 	systemdDbusLinkInterface               = "org.freedesktop.resolve1.Link"
 	systemdDbusRevertMethodSuffix          = systemdDbusLinkInterface + ".Revert"
 	systemdDbusSetDNSMethodSuffix          = systemdDbusLinkInterface + ".SetDNS"
 	systemdDbusSetDefaultRouteMethodSuffix = systemdDbusLinkInterface + ".SetDefaultRoute"
 	systemdDbusSetDomainsMethodSuffix      = systemdDbusLinkInterface + ".SetDomains"
+	systemdDbusResolvConfModeForeign       = "foreign"
 )
 
 type systemdDbusConfigurator struct {
@@ -182,4 +184,19 @@ func (s *systemdDbusConfigurator) callLinkMethod(method string, value any) error
 	}
 
 	return nil
+}
+
+func getSystemdDbusProperty(property string, store any) error {
+	obj, closeConn, err := getDbusObject(systemdResolvedDest, systemdDbusObjectNode)
+	if err != nil {
+		return fmt.Errorf("got error while attempting to retrieve the systemd dns manager object, error: %s", err)
+	}
+	defer closeConn()
+
+	v, e := obj.GetProperty(property)
+	if e != nil {
+		return fmt.Errorf("got an error getting property %s: %v", property, e)
+	}
+
+	return v.Store(store)
 }
