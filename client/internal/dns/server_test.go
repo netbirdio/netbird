@@ -257,7 +257,7 @@ func TestDNSServerStartStop(t *testing.T) {
 			d := net.Dialer{
 				Timeout: time.Second * 5,
 			}
-			addr := fmt.Sprintf("127.0.0.1:%d", port)
+			addr := fmt.Sprintf("%s:%d", dnsServer.runtimeIP, dnsServer.runtimePort)
 			conn, err := d.DialContext(ctx, network, addr)
 			if err != nil {
 				t.Log(err)
@@ -297,7 +297,7 @@ func getDefaultServerWithNoHostManager(ip string) *DefaultServer {
 	}
 
 	dnsServer := &dns.Server{
-		Addr:    fmt.Sprintf("%s:%d", ip, port),
+		Addr:    fmt.Sprintf("%s:%d", ip, defaultPort),
 		Net:     "udp",
 		Handler: mux,
 		UDPSize: 65535,
@@ -314,7 +314,7 @@ func getDefaultServerWithNoHostManager(ip string) *DefaultServer {
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
-		runtimePort: port,
+		runtimePort: defaultPort,
 		runtimeIP:   listenIP,
 	}
 }
