@@ -35,6 +35,8 @@ func newHostManager(wgInterface *iface.WGIface) (hostManager, error) {
 		return newNetworkManagerDbusConfigurator(wgInterface)
 	case systemdManager:
 		return newSystemdDbusConfigurator(wgInterface)
+	case resolvConfManager:
+		return newResolvConfConfigurator(wgInterface)
 	default:
 		return newFileConfigurator()
 	}
