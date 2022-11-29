@@ -71,6 +71,10 @@ func TestEngine_SSH(t *testing.T) {
 		WgPort:       33100,
 	}, nbstatus.NewRecorder())
 
+	engine.dnsServer = &dns.MockServer{
+		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
+	}
+
 	var sshKeysAdded []string
 	var sshPeersRemoved []string
 
