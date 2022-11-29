@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	port       = 53
-	customPort = 5053
-	defaultIP  = "127.0.0.1"
+	defaultPort = 53
+	customPort  = 5053
+	defaultIP   = "127.0.0.1"
+	customIP    = "127.0.0.153"
 )
 
 // Server is a dns server interface
@@ -54,13 +55,8 @@ type muxUpdate struct {
 // NewDefaultServer returns a new dns server
 func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) (*DefaultServer, error) {
 	mux := dns.NewServeMux()
-	listenIP := defaultIP
-	if runtime.GOOS != "darwin" && wgInterface != nil {
-		listenIP = wgInterface.GetAddress().IP.String()
-	}
 
 	dnsServer := &dns.Server{
-		Addr:    fmt.Sprintf("%s:%d", listenIP, port),
 		Net:     "udp",
 		Handler: mux,
 		UDPSize: 65535,
@@ -78,8 +74,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) (*Default
 			registeredMap: make(registrationMap),
 		},
 		wgInterface: wgInterface,
-		runtimePort: port,
-		runtimeIP:   listenIP,
+		runtimePort: defaultPort,
 	}
 
 	hostmanager, err := newHostManager(wgInterface)
@@ -92,19 +87,15 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface) (*Default
 
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
-	s.runtimePort = port
-	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(s.server.Addr))
-	probeListener, err := net.ListenUDP("udp", udpAddr)
+
+	ip, port, err := s.getFirstListenerAvailable()
 	if err != nil {
-		log.Warnf("using a custom port for dns server")
-		s.runtimePort = customPort
-		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, customPort)
-	} else {
-		err = probeListener.Close()
-		if err != nil {
-			log.Errorf("got an error closing the probe listener, error: %s", err)
-		}
+		log.Error(err)
+		return
 	}
+	s.runtimeIP = ip
+	s.runtimePort = port
+	s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
 
 	log.Debugf("starting dns on %s", s.server.Addr)
 
@@ -117,6 +108,30 @@ func (s *DefaultServer) Start() {
 			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.runtimePort, err)
 		}
 	}()
+}
+
+func (s *DefaultServer) getFirstListenerAvailable() (string, int, error) {
+	ips := []string{defaultIP, customIP}
+	if runtime.GOOS != "darwin" && s.wgInterface != nil {
+		ips = append([]string{s.wgInterface.GetAddress().IP.String()}, ips...)
+	}
+	ports := []int{defaultPort, customPort}
+	for _, port := range ports {
+		for _, ip := range ips {
+			addrString := fmt.Sprintf("%s:%d", ip, port)
+			udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addrString))
+			probeListener, err := net.ListenUDP("udp", udpAddr)
+			if err == nil {
+				err = probeListener.Close()
+				if err != nil {
+					log.Errorf("got an error closing the probe listener, error: %s", err)
+				}
+				return ip, port, nil
+			}
+			log.Warnf("binding dns on %s is not available, error: %s", addrString, err)
+		}
+	}
+	return "", 0, fmt.Errorf("unable to find an unused ip and port combination. IPs tested: %v and ports %v", ips, ports)
 }
 
 func (s *DefaultServer) setListenerStatus(running bool) {
