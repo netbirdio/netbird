@@ -389,6 +389,10 @@ func TestEngine_Sync(t *testing.T) {
 		WgPort:       33100,
 	}, nbstatus.NewRecorder())
 
+	engine.dnsServer = &dns.MockServer{
+		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
+	}
+
 	defer func() {
 		err := engine.Stop()
 		if err != nil {
