@@ -68,6 +68,16 @@ func getOSDNSManagerType() (osManagerType, error) {
 			return systemdManager, nil
 		}
 		if strings.Contains(text, "resolvconf") {
+			if isDbusListenerRunning(systemdResolvedDest, systemdDbusObjectNode) {
+				var value string
+				err = getSystemdDbusProperty(systemdDbusResolvConfModeProperty, &value)
+				if err == nil {
+					if value == systemdDbusResolvConfModeForeign {
+						return systemdManager, nil
+					}
+				}
+				log.Errorf("got an error while checking systemd resolv conf mode, error: %s", err)
+			}
 			return resolvConfManager, nil
 		}
 	}
