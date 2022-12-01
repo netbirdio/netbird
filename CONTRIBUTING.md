@@ -31,7 +31,7 @@ If you haven't already, join our slack workspace [here](https://join.slack.com/t
 This project and everyone participating in it are governed by the Code of
 Conduct which can be found in the file [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 By participating, you are expected to uphold this code. Please report
-unacceptable behavior to dev@netbird.io.
+unacceptable behavior to community@netbird.io.
 
 ## Directory structure
 
