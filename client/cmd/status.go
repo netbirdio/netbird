@@ -3,6 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/netip"
+	"sort"
+	"strings"
+
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
@@ -11,10 +16,6 @@ import (
 	"github.com/netbirdio/netbird/util"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/status"
-	"net"
-	"net/netip"
-	"sort"
-	"strings"
 )
 
 var (
@@ -197,7 +198,7 @@ func parseFullStatus(fullStatus nbStatus.FullStatus, printDetail bool, daemonSta
 			"CLI version: %s\n"+
 			"%s"+ // daemon status
 			"Management: %s%s\n"+
-			"Signal:  %s%s\n"+
+			"Signal: %s%s\n"+
 			"Domain: %s\n"+
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
