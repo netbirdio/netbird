@@ -371,6 +371,11 @@ components:
         masquerade:
           description: Indicate if peer should masquerade traffic to this route's prefix
           type: boolean
+        groups:
+          description: Route group tag groups
+          type: array
+          items:
+            type: string
       required:
         - id
         - description
@@ -380,6 +385,7 @@ components:
         - network
         - metric
         - masquerade
+        - groups
     Route:
       allOf:
         - type: object
@@ -402,7 +408,7 @@ components:
             path:
               description: Route field to update in form /<field>
               type: string
-              enum: [ "network","network_id","description","enabled","peer","metric","masquerade" ]
+              enum: [ "network","network_id","description","enabled","peer","metric","masquerade", "groups" ]
           required:
             - path
     Nameserver:

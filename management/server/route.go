@@ -26,6 +26,8 @@ const (
 	UpdateRouteEnabled
 	// UpdateRouteNetworkIdentifier indicates a route net ID update operation
 	UpdateRouteNetworkIdentifier
+	// UpdateRouteGroups indicates a group list update operation
+	UpdateRouteGroups
 )
 
 // RouteUpdateOperationType operation type
@@ -47,6 +49,8 @@ func (t RouteUpdateOperationType) String() string {
 		return "UpdateRouteEnabled"
 	case UpdateRouteNetworkIdentifier:
 		return "UpdateRouteNetworkIdentifier"
+	case UpdateRouteGroups:
+		return "UpdateRouteGroups"
 	default:
 		return "InvalidOperation"
 	}
@@ -114,7 +118,7 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, p
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, description, netID string, masquerade bool, metric int, enabled bool) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -148,6 +152,11 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 		return nil, status.Errorf(status.InvalidArgument, "identifier should be between 1 and %d", route.MaxNetIDChar)
 	}
 
+	err = validateGroups(groups, account.Groups)
+	if err != nil {
+		return nil, err
+	}
+
 	newRoute.Peer = peer
 	newRoute.ID = xid.New().String()
 	newRoute.Network = newPrefix
@@ -157,6 +166,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 	newRoute.Masquerade = masquerade
 	newRoute.Metric = metric
 	newRoute.Enabled = enabled
+	newRoute.Groups = groups
 
 	if account.Routes == nil {
 		account.Routes = make(map[string]*route.Route)
@@ -208,6 +218,11 @@ func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.
 		if !peerExist {
 			return status.Errorf(status.InvalidArgument, "failed to find Peer %s", routeToSave.Peer)
 		}
+	}
+
+	err = validateGroups(routeToSave.Groups, account.Groups)
+	if err != nil {
+		return err
 	}
 
 	account.Routes[routeToSave.ID] = routeToSave
@@ -300,6 +315,12 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 				return nil, status.Errorf(status.InvalidArgument, "failed to parse enabled %s, not boolean", operation.Values[0])
 			}
 			newRoute.Enabled = enabled
+		case UpdateRouteGroups:
+			err = validateGroups(operation.Values, account.Groups)
+			if err != nil {
+				return nil, err
+			}
+			newRoute.Groups = operation.Values
 		}
 	}
 
