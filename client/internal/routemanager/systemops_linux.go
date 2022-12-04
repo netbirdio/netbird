@@ -2,9 +2,9 @@ package routemanager
 
 import (
 	"github.com/vishvananda/netlink"
-	"io/ioutil"
 	"net"
 	"net/netip"
+	"os"
 )
 
 const ipv4ForwardingPath = "/proc/sys/net/ipv4/ip_forward"
@@ -59,12 +59,12 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 }
 
 func enableIPForwarding() error {
-	err := ioutil.WriteFile(ipv4ForwardingPath, []byte("1"), 0644)
+	err := os.WriteFile(ipv4ForwardingPath, []byte("1"), 0644)
 	return err
 }
 
 func isNetForwardHistoryEnabled() bool {
-	out, err := ioutil.ReadFile(ipv4ForwardingPath)
+	out, err := os.ReadFile(ipv4ForwardingPath)
 	if err != nil {
 		// todo
 		panic(err)

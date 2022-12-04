@@ -7,7 +7,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"io"
-	"io/ioutil"
 	"os"
 )
 
@@ -25,7 +24,7 @@ var _ = Describe("Client", func() {
 
 	BeforeEach(func() {
 		var err error
-		tmpDir, err = ioutil.TempDir("", "wiretrustee_util_test_tmp_*")
+		tmpDir, err = os.MkdirTemp("", "wiretrustee_util_test_tmp_*")
 		Expect(err).NotTo(HaveOccurred())
 	})
 
