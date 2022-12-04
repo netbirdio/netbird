@@ -18,7 +18,6 @@ func (unimplementedFirewall) RemoveRoutingRules(pair routerPair) error {
 }
 
 func (unimplementedFirewall) CleanRoutingRules() {
-	return
 }
 
 // NewFirewall returns an unimplemented Firewall manager

@@ -8,8 +8,8 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 	"golang.org/x/sys/unix"
+	"io"
 	"io/fs"
-	"io/ioutil"
 	"math"
 	"os"
 	"path/filepath"
@@ -295,7 +295,7 @@ func loadModule(name, path string) error {
 	// first try finit_module(2), then init_module(2)
 	err = unix.FinitModule(int(f.Fd()), "", 0)
 	if errors.Is(err, unix.ENOSYS) {
-		buf, err := ioutil.ReadAll(f)
+		buf, err := io.ReadAll(f)
 		if err != nil {
 			return err
 		}

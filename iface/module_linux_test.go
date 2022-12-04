@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -133,7 +132,7 @@ func resetGlobals() {
 
 func createFiles(t *testing.T) (string, []module) {
 	writeFile := func(path, text string) {
-		if err := ioutil.WriteFile(path, []byte(text), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(text), 0644); err != nil {
 			t.Fatal(err)
 		}
 	}
