@@ -38,13 +38,8 @@ func cacheEntryExpiration() time.Duration {
 
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
-	CreateSetupKey(
-		accountId string,
-		keyName string,
-		keyType SetupKeyType,
-		expiresIn time.Duration,
-		autoGroups []string,
-	) (*SetupKey, error)
+	CreateSetupKey(accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
+		autoGroups []string, usageLimit int) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
 	CreateUser(accountID string, key *UserInfo) (*UserInfo, error)
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
@@ -945,7 +940,8 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 
 	setupKeys := make(map[string]*SetupKey)
 	defaultKey := GenerateDefaultSetupKey()
-	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration, []string{})
+	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration, []string{},
+		SetupKeyUnlimitedUsage)
 	setupKeys[defaultKey.Key] = defaultKey
 	setupKeys[oneOffKey.Key] = oneOffKey
 	network := NewNetwork()

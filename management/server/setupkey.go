@@ -20,6 +20,8 @@ const (
 	DefaultSetupKeyDuration = 24 * 30 * time.Hour
 	// DefaultSetupKeyName is a default name of the default setup key
 	DefaultSetupKeyName = "Default key"
+	// SetupKeyUnlimitedUsage indicates an unlimited usage of a setup key
+	SetupKeyUnlimitedUsage = 0
 
 	// UpdateSetupKeyName indicates a setup key name update operation
 	UpdateSetupKeyName SetupKeyUpdateOperationType = iota
@@ -75,6 +77,9 @@ type SetupKey struct {
 	LastUsed time.Time
 	// AutoGroups is a list of Group IDs that are auto assigned to a Peer when it uses this key to register
 	AutoGroups []string
+	// UsageLimit indicates the number of times this key can be used to enroll a machine.
+	// The value of 0 indicates the unlimited usage.
+	UsageLimit int
 }
 
 // Copy copies SetupKey to a new object
@@ -96,6 +101,7 @@ func (key *SetupKey) Copy() *SetupKey {
 		UsedTimes:  key.UsedTimes,
 		LastUsed:   key.LastUsed,
 		AutoGroups: autoGroups,
+		UsageLimit: key.UsageLimit,
 	}
 }
 
@@ -131,13 +137,16 @@ func (key *SetupKey) IsExpired() bool {
 	return time.Now().After(key.ExpiresAt)
 }
 
-// IsOverUsed if key was used too many times
+// IsOverUsed if the key was used too many times
 func (key *SetupKey) IsOverUsed() bool {
-	return key.Type == SetupKeyOneOff && key.UsedTimes >= 1
+	usageExceeded := key.UsageLimit > 0 && key.UsedTimes >= key.UsageLimit
+	oneOffUsed := key.Type == SetupKeyOneOff && key.UsedTimes >= 1
+	return oneOffUsed || usageExceeded
 }
 
 // GenerateSetupKey generates a new setup key
-func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoGroups []string) *SetupKey {
+func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoGroups []string,
+	usageLimit int) *SetupKey {
 	key := strings.ToUpper(uuid.New().String())
 	return &SetupKey{
 		Id:         strconv.Itoa(int(Hash(key))),
@@ -150,12 +159,14 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 		Revoked:    false,
 		UsedTimes:  0,
 		AutoGroups: autoGroups,
+		UsageLimit: usageLimit,
 	}
 }
 
-// GenerateDefaultSetupKey generates a default setup key
+// GenerateDefaultSetupKey generates a default reusable setup key with an unlimited usage and 30 days expiration
 func GenerateDefaultSetupKey() *SetupKey {
-	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{})
+	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{},
+		SetupKeyUnlimitedUsage)
 }
 
 func Hash(s string) uint32 {
@@ -170,7 +181,7 @@ func Hash(s string) uint32 {
 // CreateSetupKey generates a new setup key with a given name, type, list of groups IDs to auto-assign to peers registered with this key,
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
 func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string, keyType SetupKeyType,
-	expiresIn time.Duration, autoGroups []string) (*SetupKey, error) {
+	expiresIn time.Duration, autoGroups []string, usageLimit int) (*SetupKey, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -190,7 +201,7 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 		}
 	}
 
-	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups)
+	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit)
 	account.SetupKeys[setupKey.Key] = setupKey
 
 	err = am.Store.SaveAccount(account)
@@ -234,6 +245,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	newKey.Name = keyToSave.Name
 	newKey.AutoGroups = keyToSave.AutoGroups
 	newKey.Revoked = keyToSave.Revoked
+	newKey.UsageLimit = keyToSave.UsageLimit
 	newKey.UpdatedAt = time.Now()
 
 	account.SetupKeys[newKey.Key] = newKey
