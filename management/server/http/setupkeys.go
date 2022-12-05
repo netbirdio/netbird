@@ -133,7 +133,6 @@ func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 	newKey.Revoked = req.Revoked
 	newKey.Name = req.Name
 	newKey.Id = keyID
-	newKey.UsageLimit = req.UsageLimit
 
 	newKey, err = h.accountManager.SaveSetupKey(account.Id, newKey)
 	if err != nil {

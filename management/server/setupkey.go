@@ -245,7 +245,6 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	newKey.Name = keyToSave.Name
 	newKey.AutoGroups = keyToSave.AutoGroups
 	newKey.Revoked = keyToSave.Revoked
-	newKey.UsageLimit = keyToSave.UsageLimit
 	newKey.UpdatedAt = time.Now()
 
 	account.SetupKeys[newKey.Key] = newKey
