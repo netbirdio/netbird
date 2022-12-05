@@ -50,7 +50,7 @@ func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 
 	if !(server.SetupKeyType(req.Type) == server.SetupKeyReusable ||
 		server.SetupKeyType(req.Type) == server.SetupKeyOneOff) {
-		util.WriteError(status.Errorf(status.InvalidArgument, "unknown setup key type %s", string(req.Type)), w)
+		util.WriteError(status.Errorf(status.InvalidArgument, "unknown setup key type %s", req.Type), w)
 		return
 	}
 
@@ -61,7 +61,7 @@ func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	setupKey, err := h.accountManager.CreateSetupKey(account.Id, req.Name, server.SetupKeyType(req.Type), expiresIn,
-		req.AutoGroups)
+		req.AutoGroups, req.UsageLimit)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -201,5 +201,6 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 		State:      state,
 		AutoGroups: key.AutoGroups,
 		UpdatedAt:  key.UpdatedAt,
+		UsageLimit: key.UsageLimit,
 	}
 }
