@@ -139,17 +139,23 @@ func (key *SetupKey) IsExpired() bool {
 	return time.Now().After(key.ExpiresAt)
 }
 
-// IsOverUsed if the key was used too many times
+// IsOverUsed if the key was used too many times. SetupKey.UsageLimit == 0 indicates the unlimited usage.
 func (key *SetupKey) IsOverUsed() bool {
-	usageExceeded := key.UsageLimit > 0 && key.UsedTimes >= key.UsageLimit
-	oneOffUsed := key.Type == SetupKeyOneOff && key.UsedTimes >= 1
-	return oneOffUsed || usageExceeded
+	limit := key.UsageLimit
+	if key.Type == SetupKeyOneOff {
+		limit = 1
+	}
+	return limit > 0 && key.UsedTimes >= limit
 }
 
 // GenerateSetupKey generates a new setup key
 func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoGroups []string,
 	usageLimit int) *SetupKey {
 	key := strings.ToUpper(uuid.New().String())
+	limit := usageLimit
+	if t == SetupKeyOneOff {
+		limit = 1
+	}
 	return &SetupKey{
 		Id:         strconv.Itoa(int(Hash(key))),
 		Key:        key,
@@ -161,7 +167,7 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 		Revoked:    false,
 		UsedTimes:  0,
 		AutoGroups: autoGroups,
-		UsageLimit: usageLimit,
+		UsageLimit: limit,
 	}
 }
 
