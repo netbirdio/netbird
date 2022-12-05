@@ -193,6 +193,9 @@ components:
           description: Setup key last update date
           type: string
           format: date-time
+        usage_limit:
+          description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
+          type: integer
       required:
       - id
       - key
@@ -206,6 +209,7 @@ components:
       - state
       - auto_groups
       - updated_at
+      - usage_limit
     SetupKeyRequest:
       type: object
       properties:
@@ -226,12 +230,16 @@ components:
           type: array
           items:
             type: string
+        usage_limit:
+          description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
+          type: integer
       required:
         - name
         - type
         - expires_in
         - revoked
         - auto_groups
+        - usage_limit
     GroupMinimum:
       type: object
       properties:

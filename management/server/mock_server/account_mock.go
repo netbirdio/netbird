@@ -13,7 +13,7 @@ import (
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc    func(userId, domain string) (*server.Account, error)
 	GetAccountByUserFunc            func(userId string) (*server.Account, error)
-	CreateSetupKeyFunc              func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn time.Duration, autoGroups []string) (*server.SetupKey, error)
+	CreateSetupKeyFunc              func(accountId string, keyName string, keyType server.SetupKeyType, expiresIn time.Duration, autoGroups []string, usageLimit int) (*server.SetupKey, error)
 	GetSetupKeyFunc                 func(accountID, userID, keyID string) (*server.SetupKey, error)
 	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
 	IsUserAdminFunc                 func(claims jwtclaims.AuthorizationClaims) (bool, error)
@@ -102,14 +102,15 @@ func (am *MockAccountManager) GetAccountByUser(userId string) (*server.Account, 
 
 // CreateSetupKey mock implementation of CreateSetupKey from server.AccountManager interface
 func (am *MockAccountManager) CreateSetupKey(
-	accountId string,
+	accountID string,
 	keyName string,
 	keyType server.SetupKeyType,
 	expiresIn time.Duration,
 	autoGroups []string,
+	usageLimit int,
 ) (*server.SetupKey, error) {
 	if am.CreateSetupKeyFunc != nil {
-		return am.CreateSetupKeyFunc(accountId, keyName, keyType, expiresIn, autoGroups)
+		return am.CreateSetupKeyFunc(accountID, keyName, keyType, expiresIn, autoGroups, usageLimit)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateSetupKey is not implemented")
 }
