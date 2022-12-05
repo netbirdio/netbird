@@ -108,7 +108,7 @@ func restore(file string) (*FileStore, error) {
 
 		allGroup, err := account.GetGroupAll()
 		if err != nil {
-			log.Errorf("unable to find the All group, this should happen only when migrate from a version that didn't supported groups. Error: %v", err)
+			log.Errorf("unable to find the All group, this should happen only when migrate from a version that didn't support groups. Error: %v", err)
 			// if the All group didn't exist we probably don't have routes to update
 			continue
 		}
