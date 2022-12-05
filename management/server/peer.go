@@ -294,8 +294,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 	}
 
 	aclPeers := account.getPeersByACL(peerPubKey)
-	aclRoutes := account.GetPeersRoutes(append(aclPeers, account.Peers[peerPubKey]))
-	routesUpdate := account.filterRoutesByGroups(peerPubKey, aclRoutes)
+	routesUpdate := account.getRoutesToSync(peerPubKey, aclPeers)
 
 	var zones []nbdns.CustomZone
 	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
