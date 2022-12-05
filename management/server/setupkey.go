@@ -22,7 +22,9 @@ const (
 	DefaultSetupKeyName = "Default key"
 	// SetupKeyUnlimitedUsage indicates an unlimited usage of a setup key
 	SetupKeyUnlimitedUsage = 0
+)
 
+const (
 	// UpdateSetupKeyName indicates a setup key name update operation
 	UpdateSetupKeyName SetupKeyUpdateOperationType = iota
 	// UpdateSetupKeyRevoked indicates a setup key revoked filed update operation
