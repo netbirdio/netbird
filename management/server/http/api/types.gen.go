@@ -449,6 +449,9 @@ type SetupKey struct {
 	// UpdatedAt Setup key last update date
 	UpdatedAt time.Time `json:"updated_at"`
 
+	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
+	UsageLimit int `json:"usage_limit"`
+
 	// UsedTimes Usage count of setup key
 	UsedTimes int `json:"used_times"`
 
@@ -472,6 +475,9 @@ type SetupKeyRequest struct {
 
 	// Type Setup key type, one-off for single time usage and reusable
 	Type string `json:"type"`
+
+	// UsageLimit A number of times this key can be used. The value of 0 indicates the unlimited usage.
+	UsageLimit int `json:"usage_limit"`
 }
 
 // User defines model for User.
