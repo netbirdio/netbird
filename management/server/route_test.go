@@ -842,6 +842,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 		Masquerade:  false,
 		Metric:      9999,
 		Enabled:     true,
+		Groups:      []string{routeGroup1},
 	}
 
 	am, err := createRouterManager(t)
@@ -859,7 +860,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
 	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network.String(), baseRoute.Peer,
-		baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, []string{routeGroup1}, false)
+		baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false)
 	require.NoError(t, err)
 
 	noDisabledRoutes, err := am.GetNetworkMap(peer1Key)
@@ -879,7 +880,14 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 
 	peer2Routes, err := am.GetNetworkMap(peer2Key)
 	require.NoError(t, err)
-	require.Len(t, peer2Routes.Routes, 1, "we should receive one route for peer2")
+	require.Len(t, peer2Routes.Routes, 0, "no routes for peers not in the distribution group")
+
+	err = am.GroupAddPeer(account.Id, routeGroup1, peer2Key)
+	require.NoError(t, err)
+
+	peer2Routes, err = am.GetNetworkMap(peer2Key)
+	require.NoError(t, err)
+	require.Len(t, peer2Routes.Routes, 1, "we should receive one route")
 	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
 
 	newGroup := &Group{

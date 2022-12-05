@@ -78,15 +78,7 @@ func getPeersCustomZone(account *Account, dnsDomain string) nbdns.CustomZone {
 }
 
 func getPeerNSGroups(account *Account, peerID string) []*nbdns.NameServerGroup {
-	groupList := make(lookupMap)
-	for groupID, group := range account.Groups {
-		for _, id := range group.Peers {
-			if id == peerID {
-				groupList[groupID] = struct{}{}
-				break
-			}
-		}
-	}
+	groupList := account.getPeerGroups(peerID)
 
 	var peerNSGroups []*nbdns.NameServerGroup
 

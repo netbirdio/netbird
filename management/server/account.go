@@ -161,6 +161,26 @@ func (a *Account) GetPeersRoutes(givenPeers []*Peer) []*route.Route {
 	return routes
 }
 
+func (a *Account) filterRoutesByGroups(peerID string, routes []*route.Route) []*route.Route {
+	groupListMap := a.getPeerGroups(peerID)
+	var filteredRoutes []*route.Route
+	for _, r := range routes {
+		// as a routing peer, we should send this route to the peer
+		if r.Peer == peerID {
+			filteredRoutes = append(filteredRoutes, r)
+			continue
+		}
+		for _, groupID := range r.Groups {
+			_, found := groupListMap[groupID]
+			if found {
+				filteredRoutes = append(filteredRoutes, r)
+				break
+			}
+		}
+	}
+	return filteredRoutes
+}
+
 // GetPeerRoutes returns a list of routes of a given peer
 func (a *Account) GetPeerRoutes(peerPubKey string) []*route.Route {
 	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
@@ -302,6 +322,19 @@ func (a *Account) getUserGroups(userID string) ([]string, error) {
 		return nil, err
 	}
 	return user.AutoGroups, nil
+}
+
+func (a *Account) getPeerGroups(peerID string) lookupMap {
+	groupList := make(lookupMap)
+	for groupID, group := range a.Groups {
+		for _, id := range group.Peers {
+			if id == peerID {
+				groupList[groupID] = struct{}{}
+				break
+			}
+		}
+	}
+	return groupList
 }
 
 func (a *Account) getSetupKeyGroups(setupKey string) ([]string, error) {

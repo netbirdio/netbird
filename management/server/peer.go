@@ -120,7 +120,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		aclPeers := am.getPeersByACL(account, peer.Key)
+		aclPeers := account.getPeersByACL(peer.Key)
 		for _, p := range aclPeers {
 			peersMap[p.Key] = p
 		}
@@ -293,8 +293,9 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 		return nil, err
 	}
 
-	aclPeers := am.getPeersByACL(account, peerPubKey)
-	routesUpdate := account.GetPeersRoutes(append(aclPeers, account.Peers[peerPubKey]))
+	aclPeers := account.getPeersByACL(peerPubKey)
+	aclRoutes := account.GetPeersRoutes(append(aclPeers, account.Peers[peerPubKey]))
+	routesUpdate := account.filterRoutesByGroups(peerPubKey, aclRoutes)
 
 	var zones []nbdns.CustomZone
 	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
@@ -515,9 +516,9 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSyst
 }
 
 // getPeersByACL returns all peers that given peer has access to.
-func (am *DefaultAccountManager) getPeersByACL(account *Account, peerPubKey string) []*Peer {
+func (a *Account) getPeersByACL(peerPubKey string) []*Peer {
 	var peers []*Peer
-	srcRules, dstRules := account.GetPeerRules(peerPubKey)
+	srcRules, dstRules := a.GetPeerRules(peerPubKey)
 
 	groups := map[string]*Group{}
 	for _, r := range srcRules {
@@ -526,7 +527,7 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerPubKey stri
 		}
 		if r.Flow == TrafficFlowBidirect {
 			for _, gid := range r.Destination {
-				if group, ok := account.Groups[gid]; ok {
+				if group, ok := a.Groups[gid]; ok {
 					groups[gid] = group
 				}
 			}
@@ -539,7 +540,7 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerPubKey stri
 		}
 		if r.Flow == TrafficFlowBidirect {
 			for _, gid := range r.Source {
-				if group, ok := account.Groups[gid]; ok {
+				if group, ok := a.Groups[gid]; ok {
 					groups[gid] = group
 				}
 			}
@@ -549,13 +550,13 @@ func (am *DefaultAccountManager) getPeersByACL(account *Account, peerPubKey stri
 	peersSet := make(map[string]struct{})
 	for _, g := range groups {
 		for _, pid := range g.Peers {
-			peer, ok := account.Peers[pid]
+			peer, ok := a.Peers[pid]
 			if !ok {
 				log.Warnf(
 					"peer %s found in group %s but doesn't belong to account %s",
 					pid,
 					g.ID,
-					account.Id,
+					a.Id,
 				)
 				continue
 			}
