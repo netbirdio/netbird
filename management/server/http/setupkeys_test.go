@@ -46,7 +46,8 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 						"id-all":  {ID: "id-all", Name: "All"}},
 				}, user, nil
 			},
-			CreateSetupKeyFunc: func(_ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string) (*server.SetupKey, error) {
+			CreateSetupKeyFunc: func(_ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string,
+				_ int) (*server.SetupKey, error) {
 				if keyName == newKey.Name || typ != newKey.Type {
 					return newKey, nil
 				}
@@ -93,7 +94,8 @@ func TestSetupKeysHandlers(t *testing.T) {
 
 	adminUser := server.NewAdminUser("test_user")
 
-	newSetupKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"})
+	newSetupKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"},
+		server.SetupKeyUnlimitedUsage)
 	updatedDefaultSetupKey := defaultSetupKey.Copy()
 	updatedDefaultSetupKey.AutoGroups = []string{"group-1"}
 	updatedDefaultSetupKey.Name = updatedSetupKeyName
