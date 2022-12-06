@@ -3,13 +3,14 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"net/netip"
+	"runtime"
+	"testing"
+
 	"github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 	"github.com/stretchr/testify/require"
-	"net/netip"
-	"runtime"
-	"testing"
 )
 
 // send 5 routes, one for server and 4 for clients, one normal and 2 HA and one small
@@ -335,6 +336,55 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			shouldCheckServerRoutes:       true,
 			serverRoutesExpected:          0,
 			clientNetworkWatchersExpected: 0,
+		},
+		{
+			name: "HA server should not register routes from the same HA group",
+			inputRoutes: []*route.Route{
+				{
+					ID:          "l1",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "l2",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("8.8.9.8/32"),
+					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "r1",
+					NetID:       "routeA",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("100.64.251.250/30"),
+					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "r2",
+					NetID:       "routeC",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("8.8.9.9/32"),
+					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			shouldCheckServerRoutes:       runtime.GOOS == "linux",
+			serverRoutesExpected:          3,
+			clientNetworkWatchersExpected: 1,
 		},
 	}
 
