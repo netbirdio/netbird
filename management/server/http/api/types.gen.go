@@ -65,6 +65,7 @@ const (
 const (
 	RoutePatchOperationPathDescription RoutePatchOperationPath = "description"
 	RoutePatchOperationPathEnabled     RoutePatchOperationPath = "enabled"
+	RoutePatchOperationPathGroups      RoutePatchOperationPath = "groups"
 	RoutePatchOperationPathMasquerade  RoutePatchOperationPath = "masquerade"
 	RoutePatchOperationPathMetric      RoutePatchOperationPath = "metric"
 	RoutePatchOperationPathNetwork     RoutePatchOperationPath = "network"
@@ -296,6 +297,9 @@ type Route struct {
 	// Enabled Route status
 	Enabled bool `json:"enabled"`
 
+	// Groups Route group tag groups
+	Groups []string `json:"groups"`
+
 	// Id Route Id
 	Id string `json:"id"`
 
@@ -343,6 +347,9 @@ type RouteRequest struct {
 
 	// Enabled Route status
 	Enabled bool `json:"enabled"`
+
+	// Groups Route group tag groups
+	Groups []string `json:"groups"`
 
 	// Masquerade Indicate if peer should masquerade traffic to this route's prefix
 	Masquerade bool `json:"masquerade"`

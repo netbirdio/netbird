@@ -1075,7 +1075,7 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 	assert.Contains(t, routeIDs, "route-2")
 }
 
-func TestAccount_GetPeersRoutes(t *testing.T) {
+func TestAccount_GetRoutesToSync(t *testing.T) {
 	_, prefix, err := route.ParseNetwork("192.168.64.0/24")
 	if err != nil {
 		t.Fatal(err)
@@ -1084,6 +1084,7 @@ func TestAccount_GetPeersRoutes(t *testing.T) {
 		Peers: map[string]*Peer{
 			"peer-1": {Key: "peer-1"}, "peer-2": {Key: "peer-2"}, "peer-3": {Key: "peer-1"},
 		},
+		Groups: map[string]*Group{"group1": {ID: "group1", Peers: []string{"peer-1", "peer-2"}}},
 		Routes: map[string]*route.Route{
 			"route-1": {
 				ID:          "route-1",
@@ -1095,6 +1096,7 @@ func TestAccount_GetPeersRoutes(t *testing.T) {
 				Masquerade:  false,
 				Metric:      999,
 				Enabled:     true,
+				Groups:      []string{"group1"},
 			},
 			"route-2": {
 				ID:          "route-2",
@@ -1106,11 +1108,12 @@ func TestAccount_GetPeersRoutes(t *testing.T) {
 				Masquerade:  false,
 				Metric:      999,
 				Enabled:     true,
+				Groups:      []string{"group1"},
 			},
 		},
 	}
 
-	routes := account.GetPeersRoutes([]*Peer{{Key: "peer-1"}, {Key: "peer-2"}, {Key: "non-existing-peer"}})
+	routes := account.getRoutesToSync("peer-2", []*Peer{{Key: "peer-1"}, {Key: "peer-3"}})
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[string]struct{}, 2)
@@ -1120,6 +1123,9 @@ func TestAccount_GetPeersRoutes(t *testing.T) {
 	assert.Contains(t, routeIDs, "route-1")
 	assert.Contains(t, routeIDs, "route-2")
 
+	emptyRoutes := account.getRoutesToSync("peer-3", []*Peer{{Key: "peer-1"}, {Key: "peer-2"}})
+
+	assert.Len(t, emptyRoutes, 0)
 }
 
 func TestAccount_Copy(t *testing.T) {
