@@ -15,33 +15,35 @@ func TestNewSQLiteStore(t *testing.T) {
 	}
 
 	accountID := "account_1"
-	eventTime := time.Now()
-	_, err = store.Save(Event{
-		Timestamp:  eventTime,
-		Operation:  "cool operation",
-		Type:       ManagementEvent,
-		ModifierID: "user_1",
-		TargetID:   "peer_1",
-		AccountID:  accountID,
-	})
+
+	for i := 0; i < 10; i++ {
+		_, err = store.Save(Event{
+			Timestamp:  time.Now(),
+			Operation:  "cool_operation_" + fmt.Sprint(i),
+			Type:       ManagementEvent,
+			ModifierID: "user_" + fmt.Sprint(i),
+			TargetID:   "peer_" + fmt.Sprint(i),
+			AccountID:  accountID,
+		})
+		if err != nil {
+			t.Fatal(err)
+			return
+		}
+	}
+
+	result, err := store.GetSince(accountID, time.Now().Add(-30*time.Second))
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	result, err := store.GetSince(accountID, eventTime.Add(-10*time.Second))
+	fmt.Println(len(result))
+
+	result, err = store.GetLast(accountID, 5)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	fmt.Println(result)
-
-	result, err = store.GetLast(accountID, 10)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	fmt.Println(result)
+	fmt.Println(len(result))
 }
