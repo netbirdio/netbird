@@ -1,4 +1,4 @@
-package audit
+package event
 
 import (
 	"database/sql"
