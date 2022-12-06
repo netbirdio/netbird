@@ -2,6 +2,7 @@ package event
 
 import (
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 )
@@ -37,7 +38,7 @@ func TestNewSQLiteStore(t *testing.T) {
 		return
 	}
 
-	fmt.Println(len(result))
+	assert.Len(t, result, 10)
 
 	result, err = store.GetLast(accountID, 5)
 	if err != nil {
@@ -45,5 +46,5 @@ func TestNewSQLiteStore(t *testing.T) {
 		return
 	}
 
-	fmt.Println(len(result))
+	assert.Len(t, result, 5)
 }
