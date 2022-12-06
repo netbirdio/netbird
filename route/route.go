@@ -73,6 +73,7 @@ type Route struct {
 	Masquerade  bool
 	Metric      int
 	Enabled     bool
+	Groups      []string
 }
 
 // Copy copies a route object
@@ -87,6 +88,7 @@ func (r *Route) Copy() *Route {
 		Metric:      r.Metric,
 		Masquerade:  r.Masquerade,
 		Enabled:     r.Enabled,
+		Groups:      r.Groups,
 	}
 }
 
@@ -100,7 +102,8 @@ func (r *Route) IsEqual(other *Route) bool {
 		other.Peer == r.Peer &&
 		other.Metric == r.Metric &&
 		other.Masquerade == r.Masquerade &&
-		other.Enabled == r.Enabled
+		other.Enabled == r.Enabled &&
+		compareGroupsList(r.Groups, other.Groups)
 }
 
 // ParseNetwork Parses a network prefix string and returns a netip.Prefix object and if is invalid, IPv4 or IPv6
@@ -121,4 +124,24 @@ func ParseNetwork(networkString string) (NetworkType, netip.Prefix, error) {
 	}
 
 	return IPv4Network, masked, nil
+}
+
+func compareGroupsList(list, other []string) bool {
+	if len(list) != len(other) {
+		return false
+	}
+	for _, id := range list {
+		match := false
+		for _, otherID := range other {
+			if id == otherID {
+				match = true
+				break
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+
+	return true
 }
