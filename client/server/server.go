@@ -335,7 +335,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 }
 
 // Up starts engine work in the daemon.
-func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpResponse, error) {
+func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -375,7 +375,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 
 	go func() {
 		if err := internal.RunClient(ctx, s.config, s.statusRecorder); err != nil {
-			log.Errorf("run client connection: %v", state.Wrap(err))
+			log.Errorf("run client connection: %v", err)
 			return
 		}
 	}()
@@ -384,7 +384,7 @@ func (s *Server) Up(callerCtx context.Context, msg *proto.UpRequest) (*proto.UpR
 }
 
 // Down engine work in the daemon.
-func (s *Server) Down(ctx context.Context, msg *proto.DownRequest) (*proto.DownResponse, error) {
+func (s *Server) Down(_ context.Context, _ *proto.DownRequest) (*proto.DownResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
@@ -392,6 +392,8 @@ func (s *Server) Down(ctx context.Context, msg *proto.DownRequest) (*proto.DownR
 		return nil, fmt.Errorf("service is not up")
 	}
 	s.actCancel()
+	state := internal.CtxGetState(s.rootCtx)
+	state.Set(internal.StatusIdle)
 
 	return &proto.DownResponse{}, nil
 }
@@ -425,7 +427,7 @@ func (s *Server) Status(
 }
 
 // GetConfig of the daemon.
-func (s *Server) GetConfig(ctx context.Context, msg *proto.GetConfigRequest) (*proto.GetConfigResponse, error) {
+func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto.GetConfigResponse, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
