@@ -112,9 +112,6 @@ func (store *SQLiteStore) Save(event Event) (*Event, error) {
 
 	result, err := stmt.Exec(event.Operation, event.Timestamp, event.ModifierID, event.TargetID, event.AccountID, event.Type)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			// Handle the case of no rows returned.
-		}
 		return nil, err
 	}
 
