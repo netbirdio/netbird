@@ -76,7 +76,7 @@ type AccountManager interface {
 	DeleteRule(accountId, ruleID string) error
 	ListRules(accountID, userID string) ([]*Rule, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
-	CreateRoute(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, enabled bool) (*route.Route, error)
+	CreateRoute(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool) (*route.Route, error)
 	SaveRoute(accountID string, route *route.Route) error
 	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID string) error
@@ -139,31 +139,41 @@ type UserInfo struct {
 	Status     string   `json:"-"`
 }
 
-// GetPeersRoutes returns all active routes of provided peers
-func (a *Account) GetPeersRoutes(givenPeers []*Peer) []*route.Route {
-	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
-	routes := make([]*route.Route, 0)
-	for _, peer := range givenPeers {
-		peerRoutes := a.GetPeerRoutes(peer.Key)
-		activeRoutes := make([]*route.Route, 0)
-		for _, pr := range peerRoutes {
-			if pr.Enabled {
-				activeRoutes = append(activeRoutes, pr)
-			}
-		}
-		if len(activeRoutes) > 0 {
-			routes = append(routes, activeRoutes...)
-		}
+// getRoutesToSync returns the enabled routes for the peer ID and the routes
+// from the ACL peers that have distribution groups associated with the peer ID
+func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Route {
+	routes := a.getEnabledRoutesByPeer(peerID)
+	groupListMap := a.getPeerGroups(peerID)
+	for _, peer := range aclPeers {
+		activeRoutes := a.getEnabledRoutesByPeer(peer.Key)
+		filteredRoutes := a.filterRoutesByGroups(activeRoutes, groupListMap)
+		routes = append(routes, filteredRoutes...)
 	}
+
 	return routes
 }
 
-// GetPeerRoutes returns a list of routes of a given peer
-func (a *Account) GetPeerRoutes(peerPubKey string) []*route.Route {
+// filterRoutesByGroups returns a list with routes that have distribution groups in the group's map
+func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap lookupMap) []*route.Route {
+	var filteredRoutes []*route.Route
+	for _, r := range routes {
+		for _, groupID := range r.Groups {
+			_, found := groupListMap[groupID]
+			if found {
+				filteredRoutes = append(filteredRoutes, r)
+				break
+			}
+		}
+	}
+	return filteredRoutes
+}
+
+// getEnabledRoutesByPeer returns a list of routes of a given peer
+func (a *Account) getEnabledRoutesByPeer(peerPubKey string) []*route.Route {
 	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
 	var routes []*route.Route
 	for _, r := range a.Routes {
-		if r.Peer == peerPubKey {
+		if r.Peer == peerPubKey && r.Enabled {
 			routes = append(routes, r)
 			continue
 		}
@@ -299,6 +309,19 @@ func (a *Account) getUserGroups(userID string) ([]string, error) {
 		return nil, err
 	}
 	return user.AutoGroups, nil
+}
+
+func (a *Account) getPeerGroups(peerID string) lookupMap {
+	groupList := make(lookupMap)
+	for groupID, group := range a.Groups {
+		for _, id := range group.Peers {
+			if id == peerID {
+				groupList[groupID] = struct{}{}
+				break
+			}
+		}
+	}
+	return groupList
 }
 
 func (a *Account) getSetupKeyGroups(setupKey string) ([]string, error) {

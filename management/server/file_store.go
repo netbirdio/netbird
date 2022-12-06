@@ -105,6 +105,19 @@ func restore(file string) (*FileStore, error) {
 		if len(existingLabels) != len(account.Peers) {
 			addPeerLabelsToAccount(account, existingLabels)
 		}
+
+		allGroup, err := account.GetGroupAll()
+		if err != nil {
+			log.Errorf("unable to find the All group, this should happen only when migrate from a version that didn't support groups. Error: %v", err)
+			// if the All group didn't exist we probably don't have routes to update
+			continue
+		}
+
+		for _, route := range account.Routes {
+			if len(route.Groups) == 0 {
+				route.Groups = []string{allGroup.ID}
+			}
+		}
 	}
 
 	// we need this persist to apply changes we made to account.Peers (we set them to Disconnected)

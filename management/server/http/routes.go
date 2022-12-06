@@ -89,7 +89,7 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), peerKey, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Enabled)
+	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), peerKey, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -162,6 +162,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		Metric:      req.Metric,
 		Description: req.Description,
 		Enabled:     req.Enabled,
+		Groups:      req.Groups,
 	}
 
 	err = h.accountManager.SaveRoute(account.Id, newRoute)
@@ -298,6 +299,16 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 				Type:   server.UpdateRouteEnabled,
 				Values: patch.Value,
 			})
+		case api.RoutePatchOperationPathGroups:
+			if patch.Op != api.RoutePatchOperationOpReplace {
+				util.WriteError(status.Errorf(status.InvalidArgument,
+					"groups field only accepts replace operation, got %s", patch.Op), w)
+				return
+			}
+			operations = append(operations, server.RouteUpdateOperation{
+				Type:   server.UpdateRouteGroups,
+				Values: patch.Value,
+			})
 		default:
 			util.WriteError(status.Errorf(status.InvalidArgument, "invalid patch path"), w)
 			return
@@ -383,5 +394,6 @@ func toRouteResponse(account *server.Account, serverRoute *route.Route) *api.Rou
 		NetworkType: serverRoute.NetworkType.String(),
 		Masquerade:  serverRoute.Masquerade,
 		Metric:      serverRoute.Metric,
+		Groups:      serverRoute.Groups,
 	}
 }
