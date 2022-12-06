@@ -177,6 +177,9 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 	err = backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
+		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.PermissionDenied) {
+			state.Set(StatusNeedsLogin)
+		}
 		return err
 	}
 	return nil
