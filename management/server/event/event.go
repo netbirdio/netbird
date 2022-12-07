@@ -9,6 +9,7 @@ const (
 	ManagementEvent Type = "management"
 )
 
+// Type of the Event
 type Type string
 
 // Store provides an interface to store or stream events.
@@ -17,8 +18,8 @@ type Store interface {
 	Save(event Event) (*Event, error)
 	// GetSince returns a list of events from the store for a given account since the specified time
 	GetSince(accountID string, from time.Time) ([]Event, error)
-	// GetLast returns a top N of events from the store for a given account (ordered by timestamp desc)
-	GetLast(accountID string, limit int) ([]Event, error)
+	// Get returns "limit" number of events from the "offset" index ordered descending or ascending by a timestamp
+	Get(accountID string, offset, limit int, descending bool) ([]Event, error)
 	// Close the sink flushing events if necessary
 	Close() error
 }
