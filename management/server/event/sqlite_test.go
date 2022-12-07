@@ -40,7 +40,7 @@ func TestNewSQLiteStore(t *testing.T) {
 
 	assert.Len(t, result, 10)
 
-	result, err = store.GetLast(accountID, 5)
+	result, err = store.Get(accountID, 1, 5, true)
 	if err != nil {
 		t.Fatal(err)
 		return
