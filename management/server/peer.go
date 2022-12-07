@@ -2,6 +2,7 @@ package server
 
 import (
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/event"
 	"github.com/netbirdio/netbird/management/server/status"
 	"net"
 	"strings"
@@ -340,6 +341,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	var account *Account
 	var err error
 	addedByUser := false
+
 	if len(userID) > 0 {
 		addedByUser = true
 		account, err = am.Store.GetAccountByUser(userID)
@@ -359,6 +361,12 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, err
 	}
 
+	opEvent := event.Event{
+		Timestamp: time.Now(),
+		Type:      event.ManagementEvent,
+		AccountID: account.Id,
+	}
+
 	if !addedByUser {
 		// validate the setup key if adding with a key
 		sk, err := account.FindSetupKey(upperKey)
@@ -371,6 +379,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		}
 
 		account.SetupKeys[sk.Key] = sk.IncrementUsage()
+		opEvent.ModifierID = sk.Id
+		opEvent.OperationCode = event.AddPeerWithKeyOperation
+	} else {
+		opEvent.ModifierID = userID
+		opEvent.OperationCode = event.AddPeerByUserOperation
 	}
 
 	takenIps := account.getTakenIPs()
@@ -432,6 +445,12 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	account.Peers[newPeer.Key] = newPeer
 	account.Network.IncSerial()
 	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, err
+	}
+
+	opEvent.TargetID = newPeer.IP.String()
+	_, err = am.eventStore.Save(opEvent)
 	if err != nil {
 		return nil, err
 	}

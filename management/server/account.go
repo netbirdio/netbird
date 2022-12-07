@@ -6,6 +6,7 @@ import (
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/event"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -99,6 +100,7 @@ type DefaultAccountManager struct {
 	idpManager         idp.Manager
 	cacheManager       cache.CacheInterface[[]*idp.UserData]
 	ctx                context.Context
+	eventStore         event.Store
 
 	// singleAccountMode indicates whether the instance has a single account.
 	// If true, then every new user will end up under the same account.
@@ -390,7 +392,7 @@ func (a *Account) GetGroupAll() (*Group, error) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string) (*DefaultAccountManager, error) {
+	singleAccountModeDomain string, dnsDomain string, eventStore event.Store) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:              store,
 		peersUpdateManager: peersUpdateManager,
@@ -399,6 +401,7 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 		cacheMux:           sync.Mutex{},
 		cacheLoading:       map[string]chan struct{}{},
 		dnsDomain:          dnsDomain,
+		eventStore:         eventStore,
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/miekg/dns"
+	"github.com/netbirdio/netbird/management/server/event"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -142,7 +143,12 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain, dnsDomain)
+			eventStore, err := event.NewSQLiteStore(config.Datadir)
+			if err != nil {
+				return err
+			}
+			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
+				dnsDomain, eventStore)
 			if err != nil {
 				return fmt.Errorf("failed to build default manager: %v", err)
 			}
