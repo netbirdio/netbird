@@ -32,7 +32,7 @@ func TestNewSQLiteStore(t *testing.T) {
 		}
 	}
 
-	result, err := store.GetSince(accountID, time.Now().Add(-30*time.Second))
+	result, err := store.Get(accountID, 0, 10, true)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -40,7 +40,7 @@ func TestNewSQLiteStore(t *testing.T) {
 
 	assert.Len(t, result, 10)
 
-	result, err = store.Get(accountID, 1, 5, true)
+	result, err = store.Get(accountID, 0, 5, true)
 	if err != nil {
 		t.Fatal(err)
 		return
