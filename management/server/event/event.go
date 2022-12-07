@@ -9,8 +9,21 @@ const (
 	ManagementEvent Type = "management"
 )
 
+const (
+	AddPeerByUserOperation Operation = iota
+	AddPeerWithKeyOperation
+)
+
+const (
+	AddPeerByUserOperationMessage  string = "Add new peer"
+	AddPeerWithKeyOperationMessage string = AddPeerByUserOperationMessage
+)
+
 // Type of the Event
 type Type string
+
+// Operation is an action that triggered an Event
+type Operation int
 
 // Store provides an interface to store or stream events.
 type Store interface {
@@ -28,6 +41,8 @@ type Event struct {
 	Timestamp time.Time
 	// Operation that was performed during the event
 	Operation string
+	// OperationCode that was performed during the event
+	OperationCode Operation
 	// ID of the event (can be empty, meaning that it wasn't yet generated)
 	ID uint64
 	// Type of the event

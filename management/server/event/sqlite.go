@@ -12,7 +12,7 @@ const (
 	SQLiteEventSinkDB = "events.db"
 	createTableQuery  = "CREATE TABLE IF NOT EXISTS events " +
 		"(id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, " +
-		"operation TEXT, " +
+		"operation INTEGER, " +
 		"type TEXT, " +
 		"timestamp DATETIME, " +
 		"modifier TEXT," +
@@ -98,7 +98,7 @@ func (store *SQLiteStore) Save(event Event) (*Event, error) {
 		return nil, err
 	}
 
-	result, err := stmt.Exec(event.Operation, event.Timestamp, event.ModifierID, event.TargetID, event.AccountID, event.Type)
+	result, err := stmt.Exec(event.OperationCode, event.Timestamp, event.ModifierID, event.TargetID, event.AccountID, event.Type)
 	if err != nil {
 		return nil, err
 	}
