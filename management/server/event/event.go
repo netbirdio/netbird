@@ -16,8 +16,6 @@ type Type string
 type Store interface {
 	// Save an event in the store
 	Save(event Event) (*Event, error)
-	// GetSince returns a list of events from the store for a given account since the specified time
-	GetSince(accountID string, from time.Time) ([]Event, error)
 	// Get returns "limit" number of events from the "offset" index ordered descending or ascending by a timestamp
 	Get(accountID string, offset, limit int, descending bool) ([]Event, error)
 	// Close the sink flushing events if necessary

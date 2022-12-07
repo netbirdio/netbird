@@ -90,23 +90,6 @@ func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bo
 	return processResult(result)
 }
 
-// GetSince returns a list of events from the store for a given account since the specified time
-func (store *SQLiteStore) GetSince(accountID string, from time.Time) ([]Event, error) {
-	stmt, err := store.db.Prepare("SELECT id, operation, timestamp, modifier, target, account, type" +
-		" FROM events WHERE account = ? and timestamp >= ?;")
-	if err != nil {
-		return nil, err
-	}
-
-	result, err := stmt.Query(accountID, from)
-	if err != nil {
-		return nil, err
-	}
-
-	defer result.Close() //nolint
-	return processResult(result)
-}
-
 // Save an event in the SQLite events table
 func (store *SQLiteStore) Save(event Event) (*Event, error) {
 
