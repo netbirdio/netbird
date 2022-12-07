@@ -2,6 +2,7 @@ package event
 
 import (
 	"database/sql"
+	"fmt"
 	_ "github.com/mattn/go-sqlite3"
 	"path/filepath"
 	"time"
@@ -68,15 +69,19 @@ func processResult(result *sql.Rows) ([]Event, error) {
 	return events, nil
 }
 
-// GetLast returns a top N of events from the store for a given account (ordered by timestamp desc)
-func (store *SQLiteStore) GetLast(accountID string, limit int) ([]Event, error) {
-	stmt, err := store.db.Prepare("SELECT id, operation, timestamp, modifier, target, account, type" +
-		" FROM events WHERE account = ? ORDER BY timestamp DESC limit ?;")
+// Get returns "limit" number of events from index ordered descending or ascending by a timestamp
+func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bool) ([]Event, error) {
+	order := "DESC"
+	if !descending {
+		order = "ASC"
+	}
+	stmt, err := store.db.Prepare(fmt.Sprintf("SELECT id, operation, timestamp, modifier, target, account, type"+
+		" FROM events WHERE account = ? ORDER BY timestamp %s LIMIT ? OFFSET ?;", order))
 	if err != nil {
 		return nil, err
 	}
 
-	result, err := stmt.Query(accountID, limit)
+	result, err := stmt.Query(accountID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
