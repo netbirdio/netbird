@@ -74,11 +74,6 @@ nfpms:
     formats:
       - deb
 
-    replaces:
-      - wiretrustee
-    conflicts:
-      - wiretrustee
-
     scripts:
       postinstall: "release_files/post_install.sh"
       preremove: "release_files/pre_remove.sh"
@@ -92,12 +87,6 @@ nfpms:
       - netbird
     formats:
       - rpm
-
-    replaces:
-      - wiretrustee
-
-    conflicts:
-      - wiretrustee
 
     scripts:
       postinstall: "release_files/post_install.sh"
@@ -348,8 +337,6 @@ brews:
     license: "BSD3"
     test: |
       system "#{bin}/{{ .ProjectName	}} version"
-    conflicts:
-      - wiretrustee
 
 uploads:
   - name: debian
