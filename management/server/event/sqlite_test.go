@@ -32,13 +32,14 @@ func TestNewSQLiteStore(t *testing.T) {
 		}
 	}
 
-	result, err := store.Get(accountID, 0, 10, true)
+	result, err := store.Get(accountID, 0, 10, false)
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
 	assert.Len(t, result, 10)
+	assert.True(t, result[0].Timestamp.Before(result[len(result)-1].Timestamp))
 
 	result, err = store.Get(accountID, 0, 5, true)
 	if err != nil {
@@ -47,4 +48,5 @@ func TestNewSQLiteStore(t *testing.T) {
 	}
 
 	assert.Len(t, result, 5)
+	assert.True(t, result[0].Timestamp.After(result[len(result)-1].Timestamp))
 }
