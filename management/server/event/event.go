@@ -12,12 +12,28 @@ const (
 const (
 	AddPeerByUserOperation Operation = iota
 	AddPeerWithKeyOperation
+	UserJoinedOperation
 )
 
 const (
 	AddPeerByUserOperationMessage  string = "Add new peer"
 	AddPeerWithKeyOperationMessage string = AddPeerByUserOperationMessage
+	UserJoinedOperationMessage     string = "New user joined"
 )
+
+// MessageForOperation returns a string message for an Operation
+func MessageForOperation(op Operation) string {
+	switch op {
+	case AddPeerByUserOperation:
+		return AddPeerByUserOperationMessage
+	case AddPeerWithKeyOperation:
+		return AddPeerWithKeyOperationMessage
+	case UserJoinedOperation:
+		return UserJoinedOperationMessage
+	default:
+		return "UNKNOWN_OPERATION"
+	}
+}
 
 // Type of the Event
 type Type string
