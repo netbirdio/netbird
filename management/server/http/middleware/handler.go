@@ -94,10 +94,9 @@ func getPemCert(token *jwt.Token, jwks *Jwks) (string, error) {
 		if len(jwks.Keys[k].X5c) != 0 {
 			cert = "-----BEGIN CERTIFICATE-----\n" + jwks.Keys[k].X5c[0] + "\n-----END CERTIFICATE-----"
 			return cert, nil
-		} else {
-			log.Debugf("generating validation pem from JWK")
-			return generatePemFromJWK(jwks.Keys[k])
 		}
+		log.Debugf("generating validation pem from JWK")
+		return generatePemFromJWK(jwks.Keys[k])
 	}
 
 	return "", errors.New("unable to find appropriate key")
