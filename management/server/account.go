@@ -752,6 +752,20 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 		return nil, err
 	}
 
+	opEvent := event.Event{
+		Timestamp:     time.Now(),
+		Type:          event.ManagementEvent,
+		OperationCode: event.UserJoinedOperation,
+		AccountID:     account.Id,
+		TargetID:      claims.UserId,
+		ModifierID:    claims.UserId,
+	}
+
+	_, err = am.eventStore.Save(opEvent)
+	if err != nil {
+		return nil, err
+	}
+
 	return account, nil
 }
 
