@@ -59,10 +59,11 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 
 	expectedAudience := "ok"
 	expectedClientID := "bla"
+	expectedScope := "openid"
 	form := url.Values{}
 	form.Add("audience", expectedAudience)
-	form.Add("scope", "openid")
 	form.Add("client_id", expectedClientID)
+	form.Add("scope", expectedScope)
 	expectPayload := form.Encode()
 
 	testCase1 := test{
@@ -114,7 +115,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 			hosted := Hosted{
 				Audience:           expectedAudience,
 				ClientID:           expectedClientID,
-				Scope:              "openid",
+				Scope:              expectedScope,
 				TokenEndpoint:      "test.hosted.com/token",
 				DeviceAuthEndpoint: "test.hosted.com/device/auth",
 				HTTPClient:         &httpClient,

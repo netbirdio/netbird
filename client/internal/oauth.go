@@ -56,6 +56,8 @@ type Hosted struct {
 	Audience string
 	// Hosted Native application client id
 	ClientID string
+	// Hosted Native application request scope
+	Scope string
 	// TokenEndpoint to request access token
 	TokenEndpoint string
 	// DeviceAuthEndpoint to request device authorization code
@@ -68,6 +70,7 @@ type Hosted struct {
 type RequestDeviceCodePayload struct {
 	Audience string `json:"audience"`
 	ClientID string `json:"client_id"`
+	Scope 	 string `json:"scope"`
 }
 
 // TokenRequestPayload used for requesting the auth0 token
@@ -103,6 +106,7 @@ func NewHostedDeviceFlow(audience string, clientID string, tokenEndpoint string,
 	return &Hosted{
 		Audience:           audience,
 		ClientID:           clientID,
+		Scope:              "openid",
 		TokenEndpoint:      tokenEndpoint,
 		HTTPClient:         httpClient,
 		DeviceAuthEndpoint: deviceAuthEndpoint,
@@ -118,8 +122,8 @@ func (h *Hosted) GetClientID(ctx context.Context) string {
 func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
 	form := url.Values{}
 	form.Add("client_id", h.ClientID)
-	form.Add("scope", "openid")
 	form.Add("audience", h.Audience)
+	form.Add("scope", h.Scope)
 	req, err := http.NewRequest("POST", h.DeviceAuthEndpoint,
 		strings.NewReader(form.Encode()))
 	if err != nil {
