@@ -3,13 +3,14 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"sync"
+
 	"github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 	log "github.com/sirupsen/logrus"
-	"runtime"
-	"sync"
 )
 
 // Manager is a route manager interface
@@ -147,16 +148,24 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 
 		newClientRoutesIDMap := make(map[string][]*route.Route)
 		newServerRoutesMap := make(map[string]*route.Route)
+		ownNetworkIDs := make(map[string]bool)
 
 		for _, newRoute := range newRoutes {
-			// only linux is supported for now
+			networkID := route.GetHAUniqueID(newRoute)
 			if newRoute.Peer == m.pubKey {
+				ownNetworkIDs[networkID] = true
+				// only linux is supported for now
 				if runtime.GOOS != "linux" {
 					log.Warnf("received a route to manage, but agent doesn't support router mode on %s OS", runtime.GOOS)
 					continue
 				}
 				newServerRoutesMap[newRoute.ID] = newRoute
-			} else {
+			}
+		}
+
+		for _, newRoute := range newRoutes {
+			networkID := route.GetHAUniqueID(newRoute)
+			if !ownNetworkIDs[networkID] {
 				// if prefix is too small, lets assume is a possible default route which is not yet supported
 				// we skip this route management
 				if newRoute.Network.Bits() < 7 {
@@ -164,8 +173,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 						system.NetbirdVersion(), newRoute.Network)
 					continue
 				}
-				clientNetworkID := getClientNetworkID(newRoute)
-				newClientRoutesIDMap[clientNetworkID] = append(newClientRoutesIDMap[clientNetworkID], newRoute)
+				newClientRoutesIDMap[networkID] = append(newClientRoutesIDMap[networkID], newRoute)
 			}
 		}
 
