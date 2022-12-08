@@ -1077,6 +1077,9 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 
 func TestAccount_GetRoutesToSync(t *testing.T) {
 	_, prefix, err := route.ParseNetwork("192.168.64.0/24")
+	if err != nil {
+		t.Fatal(err)
+	}
 	_, prefix2, err := route.ParseNetwork("192.168.0.0/24")
 	if err != nil {
 		t.Fatal(err)
