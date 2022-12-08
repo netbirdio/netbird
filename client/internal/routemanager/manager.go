@@ -151,7 +151,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		ownNetworkIDs := make(map[string]bool)
 
 		for _, newRoute := range newRoutes {
-			networkID := getHANetworkID(newRoute)
+			networkID := route.GetHAUniqueID(newRoute)
 			if newRoute.Peer == m.pubKey {
 				ownNetworkIDs[networkID] = true
 				// only linux is supported for now
@@ -164,7 +164,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		}
 
 		for _, newRoute := range newRoutes {
-			networkID := getHANetworkID(newRoute)
+			networkID := route.GetHAUniqueID(newRoute)
 			if !ownNetworkIDs[networkID] {
 				// if prefix is too small, lets assume is a possible default route which is not yet supported
 				// we skip this route management
