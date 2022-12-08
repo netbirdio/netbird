@@ -157,7 +157,7 @@ func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Rout
 	return routes
 }
 
-// filterRoutesByHAMembership filters and returns a list of routes that doesn't share the same HA route membership
+// filterRoutesByHAMembership filters and returns a list of routes that don't share the same HA route membership
 func (a *Account) filterRoutesFromPeersOfSameHAGroup(routes []*route.Route, peerMemberships lookupMap) []*route.Route {
 	var filteredRoutes []*route.Route
 	for _, r := range routes {
@@ -184,7 +184,7 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 	return filteredRoutes
 }
 
-// getEnabledAndDisabledRoutesByPeer the enabled and disabled lists of routes that belongs to a peer
+// getEnabledAndDisabledRoutesByPeer returns the enabled and disabled lists of routes that belong to a peer
 func (a *Account) getEnabledAndDisabledRoutesByPeer(peerPubKey string) ([]*route.Route, []*route.Route) {
 	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
 	var enabledRoutes []*route.Route
