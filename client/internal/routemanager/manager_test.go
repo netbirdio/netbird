@@ -383,7 +383,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			},
 			inputSerial:                   1,
 			shouldCheckServerRoutes:       runtime.GOOS == "linux",
-			serverRoutesExpected:          3,
+			serverRoutesExpected:          2,
 			clientNetworkWatchersExpected: 1,
 		},
 	}

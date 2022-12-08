@@ -151,21 +151,21 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		ownNetworkIDs := make(map[string]bool)
 
 		for _, newRoute := range newRoutes {
-			if newRoute.Peer == m.pubKey {
-				ownNetworkIDs[getHANetworkID(newRoute)] = true
-			}
-		}
-
-		for _, newRoute := range newRoutes {
 			networkID := getHANetworkID(newRoute)
-			if ownNetworkIDs[networkID] {
+			if newRoute.Peer == m.pubKey {
+				ownNetworkIDs[networkID] = true
 				// only linux is supported for now
 				if runtime.GOOS != "linux" {
 					log.Warnf("received a route to manage, but agent doesn't support router mode on %s OS", runtime.GOOS)
 					continue
 				}
 				newServerRoutesMap[newRoute.ID] = newRoute
-			} else {
+			}
+		}
+
+		for _, newRoute := range newRoutes {
+			networkID := getHANetworkID(newRoute)
+			if !ownNetworkIDs[networkID] {
 				// if prefix is too small, lets assume is a possible default route which is not yet supported
 				// we skip this route management
 				if newRoute.Network.Bits() < 7 {
