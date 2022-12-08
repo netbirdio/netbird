@@ -145,3 +145,8 @@ func compareGroupsList(list, other []string) bool {
 
 	return true
 }
+
+// GetHAUniqueID returns a highly available route ID by combining Network ID and Network range address
+func GetHAUniqueID(input *Route) string {
+	return input.NetID + "-" + input.Network.String()
+}

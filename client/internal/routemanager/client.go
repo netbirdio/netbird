@@ -53,10 +53,6 @@ func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, st
 	return client
 }
 
-func getHANetworkID(input *route.Route) string {
-	return input.NetID + "-" + input.Network.String()
-}
-
 func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 	routePeerStatuses := make(map[string]routerPeerStatus)
 	for _, r := range c.routes {
