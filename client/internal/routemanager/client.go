@@ -3,12 +3,13 @@ package routemanager
 import (
 	"context"
 	"fmt"
+	"net/netip"
+
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 	log "github.com/sirupsen/logrus"
-	"net/netip"
 )
 
 type routerPeerStatus struct {
@@ -52,7 +53,7 @@ func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, st
 	return client
 }
 
-func getClientNetworkID(input *route.Route) string {
+func getHANetworkID(input *route.Route) string {
 	return input.NetID + "-" + input.Network.String()
 }
 
