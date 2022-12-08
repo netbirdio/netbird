@@ -1077,6 +1077,7 @@ func TestFileStore_GetRoutesByPrefix(t *testing.T) {
 
 func TestAccount_GetRoutesToSync(t *testing.T) {
 	_, prefix, err := route.ParseNetwork("192.168.64.0/24")
+	_, prefix2, err := route.ParseNetwork("192.168.0.0/24")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1100,6 +1101,18 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 			},
 			"route-2": {
 				ID:          "route-2",
+				Network:     prefix2,
+				NetID:       "network-2",
+				Description: "network-2",
+				Peer:        "peer-2",
+				NetworkType: 0,
+				Masquerade:  false,
+				Metric:      999,
+				Enabled:     true,
+				Groups:      []string{"group1"},
+			},
+			"route-3": {
+				ID:          "route-3",
 				Network:     prefix,
 				NetID:       "network-1",
 				Description: "network-1",
@@ -1120,8 +1133,8 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	for _, r := range routes {
 		routeIDs[r.ID] = struct{}{}
 	}
-	assert.Contains(t, routeIDs, "route-1")
 	assert.Contains(t, routeIDs, "route-2")
+	assert.Contains(t, routeIDs, "route-3")
 
 	emptyRoutes := account.getRoutesToSync("peer-3", []*Peer{{Key: "peer-1"}, {Key: "peer-2"}})
 
