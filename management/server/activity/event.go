@@ -1,4 +1,4 @@
-package event
+package activity
 
 import "time"
 
@@ -44,9 +44,9 @@ type Operation int
 // Store provides an interface to store or stream events.
 type Store interface {
 	// Save an event in the store
-	Save(event Event) (*Event, error)
+	Save(event *Event) (*Event, error)
 	// Get returns "limit" number of events from the "offset" index ordered descending or ascending by a timestamp
-	Get(accountID string, offset, limit int, descending bool) ([]Event, error)
+	Get(accountID string, offset, limit int, descending bool) ([]*Event, error)
 	// Close the sink flushing events if necessary
 	Close() error
 }

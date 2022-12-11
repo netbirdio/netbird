@@ -3,7 +3,7 @@ package http
 import (
 	"fmt"
 	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/event"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -30,19 +30,28 @@ func NewEvents(accountManager server.AccountManager, authAudience string) *Event
 // GetEvents list of the given account
 func (h *Events) GetEvents(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	_, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
 		http.Redirect(w, r, "/", http.StatusInternalServerError)
 		return
 	}
 
-	var groups []*api.Event
+	accountEvents, err := h.accountManager.GetEvents(account.Id, user.Id)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+	var events []*api.Event
+	for _, e := range accountEvents {
+		events = append(events, toEventResponse(e))
+	}
 
-	util.WriteJSONObject(w, groups)
+	util.WriteJSONObject(w, events)
 }
 
-func toEventResponse(event *event.Event) *api.Event {
+func toEventResponse(event *activity.Event) *api.Event {
+
 	return &api.Event{
 		Id:            fmt.Sprint(event.ID),
 		InitiatorId:   event.ModifierID,
@@ -50,6 +59,6 @@ func toEventResponse(event *event.Event) *api.Event {
 		OperationCode: int(event.OperationCode),
 		TargetId:      event.TargetID,
 		Timestamp:     event.Timestamp,
-		Type:          event.Type,
+		Type:          api.EventType(event.Type),
 	}
 }

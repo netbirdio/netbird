@@ -1,4 +1,4 @@
-package event
+package activity
 
 import (
 	"database/sql"
@@ -19,7 +19,7 @@ const (
 		" target TEXT);"
 )
 
-// SQLiteStore is the implementation of the event.Store interface backed by SQLite
+// SQLiteStore is the implementation of the activity.Store interface backed by SQLite
 type SQLiteStore struct {
 	db *sql.DB
 }
@@ -40,11 +40,11 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 	return &SQLiteStore{db: db}, nil
 }
 
-func processResult(result *sql.Rows) ([]Event, error) {
-	events := make([]Event, 0)
+func processResult(result *sql.Rows) ([]*Event, error) {
+	events := make([]*Event, 0)
 	for result.Next() {
 		var id int64
-		var operation string
+		var operation Operation
 		var timestamp time.Time
 		var modifier string
 		var target string
@@ -55,14 +55,15 @@ func processResult(result *sql.Rows) ([]Event, error) {
 			return nil, err
 		}
 
-		events = append(events, Event{
-			Timestamp:  timestamp,
-			Operation:  operation,
-			ID:         uint64(id),
-			Type:       typ,
-			ModifierID: modifier,
-			TargetID:   target,
-			AccountID:  account,
+		events = append(events, &Event{
+			Timestamp:     timestamp,
+			OperationCode: operation,
+			Operation:     MessageForOperation(operation),
+			ID:            uint64(id),
+			Type:          typ,
+			ModifierID:    modifier,
+			TargetID:      target,
+			AccountID:     account,
 		})
 	}
 
@@ -70,7 +71,7 @@ func processResult(result *sql.Rows) ([]Event, error) {
 }
 
 // Get returns "limit" number of events from index ordered descending or ascending by a timestamp
-func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bool) ([]Event, error) {
+func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bool) ([]*Event, error) {
 	order := "DESC"
 	if !descending {
 		order = "ASC"
@@ -91,7 +92,7 @@ func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bo
 }
 
 // Save an event in the SQLite events table
-func (store *SQLiteStore) Save(event Event) (*Event, error) {
+func (store *SQLiteStore) Save(event *Event) (*Event, error) {
 
 	stmt, err := store.db.Prepare("INSERT INTO events(operation, timestamp, modifier, target, account, type) VALUES(?, ?, ?, ?, ?, ?)")
 	if err != nil {

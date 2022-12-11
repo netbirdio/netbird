@@ -1,4 +1,4 @@
-package event
+package activity
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ func TestNewSQLiteStore(t *testing.T) {
 	accountID := "account_1"
 
 	for i := 0; i < 10; i++ {
-		_, err = store.Save(Event{
+		_, err = store.Save(&Event{
 			Timestamp:     time.Now(),
 			OperationCode: AddPeerByUserOperation,
 			Type:          ManagementEvent,
