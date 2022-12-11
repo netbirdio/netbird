@@ -2,7 +2,7 @@ package server
 
 import (
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/event"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"net"
 	"strings"
@@ -361,9 +361,9 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, err
 	}
 
-	opEvent := event.Event{
+	opEvent := &activity.Event{
 		Timestamp: time.Now(),
-		Type:      event.ManagementEvent,
+		Type:      activity.ManagementEvent,
 		AccountID: account.Id,
 	}
 
@@ -380,10 +380,10 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 
 		account.SetupKeys[sk.Key] = sk.IncrementUsage()
 		opEvent.ModifierID = sk.Id
-		opEvent.OperationCode = event.AddPeerWithKeyOperation
+		opEvent.OperationCode = activity.AddPeerWithKeyOperation
 	} else {
 		opEvent.ModifierID = userID
-		opEvent.OperationCode = event.AddPeerByUserOperation
+		opEvent.OperationCode = activity.AddPeerByUserOperation
 	}
 
 	takenIps := account.getTakenIPs()
