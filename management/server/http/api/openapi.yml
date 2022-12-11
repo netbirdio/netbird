@@ -18,6 +18,8 @@ tags:
     description: Interact with and view information about routes.
   - name: DNS
     description: Interact with and view information about DNS configuration.
+  - name: Events
+    description: View information about the account and network events.
 components:
   schemas:
     User:
@@ -501,7 +503,40 @@ components:
               enum: [ "name", "description", "enabled", "groups", "nameservers", "primary", "domains"  ]
           required:
             - path
-
+    Event:
+      type: object
+      properties:
+        id:
+          description: Event unique identifier
+          type: string
+        timestamp:
+          description: The date and time when the event occurred
+          type: string
+          format: date-time
+        operation:
+          description: The operation (or action) that occurred during the event
+          type: string
+        operation_code:
+          description: The numeric code of the operation (or action) that occurred during the event
+          type: integer
+        type:
+          description: The type of the event that occurred. Indicates whether it was a management or device event
+          type: string
+          enum: ["device", "management"]
+        initiator_id:
+          description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
+          type: string
+        target_id:
+          description: The ID of the target of the event. E.g., an ID of the peer that a user removed.
+          type: string
+      required:
+        - id
+        - timestamp
+        - operation
+        - operation_code
+        - type
+        - initiator_id
+        - target_id
   responses:
     not_found:
       description: Resource not found
@@ -1567,6 +1602,29 @@ paths:
         '200':
           description: Delete status code
           content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/events:
+    get:
+      summary: Returns a list of all events
+      tags: [ Events ]
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
