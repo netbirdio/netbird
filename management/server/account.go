@@ -42,7 +42,7 @@ type AccountManager interface {
 	CreateSetupKey(accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
 		autoGroups []string, usageLimit int) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
-	CreateUser(accountID string, key *UserInfo) (*UserInfo, error)
+	CreateUser(accountID, userID string, key *UserInfo) (*UserInfo, error)
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID string, key *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
