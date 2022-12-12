@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
 	"net"
 	"net/netip"
 	"os"
@@ -185,21 +186,42 @@ func TestUpdateDNSServer(t *testing.T) {
 			expectedUpstreamMap: make(registrationMap),
 			expectedLocalMap:    make(registrationMap),
 		},
+		{
+			name:                "Disabled Service Should clean map",
+			initLocalMap:        registrationMap{"netbird.cloud": struct{}{}},
+			initUpstreamMap:     registrationMap{zoneRecords[0].Name: struct{}{}},
+			initSerial:          0,
+			inputSerial:         1,
+			inputUpdate:         nbdns.Config{ServiceEnable: false},
+			expectedUpstreamMap: make(registrationMap),
+			expectedLocalMap:    make(registrationMap),
+		},
 	}
 
-	for _, testCase := range testCases {
+	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dnsServer := getDefaultServerWithNoHostManager("127.0.0.1")
+			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = wgIface.Create()
+			if err != nil {
+				t.Fatal(err)
+			}
+			dnsServer, err := NewDefaultServer(context.Background(), wgIface)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-			dnsServer.hostManager = newNoopHostMocker()
+			defer dnsServer.stopListener()
+			defer dnsServer.hostManager.restoreHostDNS()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
 			dnsServer.updateSerial = testCase.initSerial
 			// pretend we are running
-			dnsServer.listenerIsRunning = true
 
-			err := dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
+			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
 				if testCase.shouldFail {
 					return
