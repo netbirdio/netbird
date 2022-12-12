@@ -11,12 +11,12 @@ import (
 const (
 	SQLiteEventSinkDB = "events.db"
 	createTableQuery  = "CREATE TABLE IF NOT EXISTS events " +
-		"(id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, " +
-		"operation INTEGER, " +
-		"type TEXT, " +
+		"(id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+		"activity INTEGER, " +
 		"timestamp DATETIME, " +
-		"modifier TEXT," +
-		" target TEXT);"
+		"initiator_id TEXT," +
+		"account_id TEXT," +
+		" target_id TEXT);"
 )
 
 // SQLiteStore is the implementation of the activity.Store interface backed by SQLite
@@ -44,26 +44,23 @@ func processResult(result *sql.Rows) ([]*Event, error) {
 	events := make([]*Event, 0)
 	for result.Next() {
 		var id int64
-		var operation Operation
+		var operation Activity
 		var timestamp time.Time
-		var modifier string
+		var initiator string
 		var target string
 		var account string
-		var typ Type
-		err := result.Scan(&id, &operation, &timestamp, &modifier, &target, &account, &typ)
+		err := result.Scan(&id, &operation, &timestamp, &initiator, &target, &account)
 		if err != nil {
 			return nil, err
 		}
 
 		events = append(events, &Event{
-			Timestamp:     timestamp,
-			OperationCode: operation,
-			Operation:     MessageForOperation(operation),
-			ID:            uint64(id),
-			Type:          typ,
-			ModifierID:    modifier,
-			TargetID:      target,
-			AccountID:     account,
+			Timestamp:   timestamp,
+			Activity:    operation,
+			ID:          uint64(id),
+			InitiatorID: initiator,
+			TargetID:    target,
+			AccountID:   account,
 		})
 	}
 
@@ -76,8 +73,8 @@ func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bo
 	if !descending {
 		order = "ASC"
 	}
-	stmt, err := store.db.Prepare(fmt.Sprintf("SELECT id, operation, timestamp, modifier, target, account, type"+
-		" FROM events WHERE account = ? ORDER BY timestamp %s LIMIT ? OFFSET ?;", order))
+	stmt, err := store.db.Prepare(fmt.Sprintf("SELECT id, activity, timestamp, initiator_id, target_id, account_id"+
+		" FROM events WHERE account_id = ? ORDER BY timestamp %s LIMIT ? OFFSET ?;", order))
 	if err != nil {
 		return nil, err
 	}
@@ -94,12 +91,12 @@ func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bo
 // Save an event in the SQLite events table
 func (store *SQLiteStore) Save(event *Event) (*Event, error) {
 
-	stmt, err := store.db.Prepare("INSERT INTO events(operation, timestamp, modifier, target, account, type) VALUES(?, ?, ?, ?, ?, ?)")
+	stmt, err := store.db.Prepare("INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id) VALUES(?, ?, ?, ?, ?)")
 	if err != nil {
 		return nil, err
 	}
 
-	result, err := stmt.Exec(event.OperationCode, event.Timestamp, event.ModifierID, event.TargetID, event.AccountID, event.Type)
+	result, err := stmt.Exec(event.Activity, event.Timestamp, event.InitiatorID, event.TargetID, event.AccountID)
 	if err != nil {
 		return nil, err
 	}

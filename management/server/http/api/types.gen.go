@@ -11,10 +11,13 @@ const (
 	BearerAuthScopes = "BearerAuth.Scopes"
 )
 
-// Defines values for EventType.
+// Defines values for EventActivityCode.
 const (
-	EventTypeDevice     EventType = "device"
-	EventTypeManagement EventType = "management"
+	EventActivityCodeAccountCreate   EventActivityCode = "account.create"
+	EventActivityCodeSetupkeyPeerAdd EventActivityCode = "setupkey.peer.add"
+	EventActivityCodeUserInvite      EventActivityCode = "user.invite"
+	EventActivityCodeUserJoin        EventActivityCode = "user.join"
+	EventActivityCodeUserPeerAdd     EventActivityCode = "user.peer.add"
 )
 
 // Defines values for GroupPatchOperationOp.
@@ -105,30 +108,27 @@ const (
 
 // Event defines model for Event.
 type Event struct {
+	// Activity The activity that occurred during the event
+	Activity string `json:"activity"`
+
+	// ActivityCode The string code of the activity that occurred during the event
+	ActivityCode EventActivityCode `json:"activity_code"`
+
 	// Id Event unique identifier
 	Id string `json:"id"`
 
 	// InitiatorId The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
 	InitiatorId string `json:"initiator_id"`
 
-	// Operation The operation (or action) that occurred during the event
-	Operation string `json:"operation"`
-
-	// OperationCode The numeric code of the operation (or action) that occurred during the event
-	OperationCode int `json:"operation_code"`
-
 	// TargetId The ID of the target of the event. E.g., an ID of the peer that a user removed.
 	TargetId string `json:"target_id"`
 
 	// Timestamp The date and time when the event occurred
 	Timestamp time.Time `json:"timestamp"`
-
-	// Type The type of the event that occurred. Indicates whether it was a management or device event
-	Type EventType `json:"type"`
 }
 
-// EventType The type of the event that occurred. Indicates whether it was a management or device event
-type EventType string
+// EventActivityCode The string code of the activity that occurred during the event
+type EventActivityCode string
 
 // Group defines model for Group.
 type Group struct {

@@ -19,12 +19,11 @@ func TestNewSQLiteStore(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		_, err = store.Save(&Event{
-			Timestamp:     time.Now(),
-			OperationCode: AddPeerByUserOperation,
-			Type:          ManagementEvent,
-			ModifierID:    "user_" + fmt.Sprint(i),
-			TargetID:      "peer_" + fmt.Sprint(i),
-			AccountID:     accountID,
+			Timestamp:   time.Now(),
+			Activity:    PeerAddedByUser,
+			InitiatorID: "user_" + fmt.Sprint(i),
+			TargetID:    "peer_" + fmt.Sprint(i),
+			AccountID:   accountID,
 		})
 		if err != nil {
 			t.Fatal(err)

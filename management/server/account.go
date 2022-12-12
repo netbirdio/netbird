@@ -511,7 +511,18 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 			log.Warnf("an account with ID already exists, retrying...")
 			continue
 		} else if statusErr.Type() == status.NotFound {
-			return newAccountWithId(accountId, userID, domain), nil
+			newAccount := newAccountWithId(accountId, userID, domain)
+			_, err = am.eventStore.Save(&activity.Event{
+				Timestamp:   time.Now(),
+				Activity:    activity.AccountCreated,
+				AccountID:   newAccount.Id,
+				TargetID:    newAccount.Id,
+				InitiatorID: userID,
+			})
+			if err != nil {
+				return nil, err
+			}
+			return newAccount, nil
 		} else {
 			return nil, err
 		}
@@ -798,16 +809,15 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 		return nil, err
 	}
 
-	opEvent := &activity.Event{
-		Timestamp:     time.Now(),
-		Type:          activity.ManagementEvent,
-		OperationCode: activity.UserJoinedOperation,
-		AccountID:     account.Id,
-		TargetID:      claims.UserId,
-		ModifierID:    claims.UserId,
+	event := &activity.Event{
+		Timestamp:   time.Now(),
+		Activity:    activity.UserJoined,
+		AccountID:   account.Id,
+		TargetID:    claims.UserId,
+		InitiatorID: claims.UserId,
 	}
 
-	_, err = am.eventStore.Save(opEvent)
+	_, err = am.eventStore.Save(event)
 	if err != nil {
 		return nil, err
 	}

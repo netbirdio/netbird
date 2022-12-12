@@ -3,10 +3,9 @@ package server
 import (
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"strings"
-
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
 const (

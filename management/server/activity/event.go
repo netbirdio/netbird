@@ -3,43 +3,69 @@ package activity
 import "time"
 
 const (
-	// DeviceEvent describes an event that happened of a device (e.g, connected/disconnected)
-	DeviceEvent Type = "device"
-	// ManagementEvent describes an event that happened on a Management service (e.g., user added)
-	ManagementEvent Type = "management"
+	// PeerAddedByUser indicates that a user added a new peer to the system
+	PeerAddedByUser Activity = iota
+	// PeerAddedWithSetupKey indicates that a new peer joined the system using a setup key
+	PeerAddedWithSetupKey
+	// UserJoined indicates that a new user joined the account
+	UserJoined
+	// UserInvited indicates that a new user was invited to join the account
+	UserInvited
+	// AccountCreated indicates that a new account has been created
+	AccountCreated
 )
 
 const (
-	AddPeerByUserOperation Operation = iota
-	AddPeerWithKeyOperation
-	UserJoinedOperation
+	// PeerAddedByUserMessage is a human-readable text message of the PeerAddedByUser activity
+	PeerAddedByUserMessage string = "New peer added by a user"
+	// PeerAddedWithSetupKeyMessage is a human-readable text message of the PeerAddedWithSetupKey activity
+	PeerAddedWithSetupKeyMessage = "New peer added with a setup key"
+	//UserJoinedMessage is a human-readable text message of the UserJoined activity
+	UserJoinedMessage string = "New user joined"
+	//UserInvitedMessage is a human-readable text message of the UserInvited activity
+	UserInvitedMessage string = "New user invited"
+	//AccountCreatedMessage is a human-readable text message of the AccountCreated activity
+	AccountCreatedMessage string = "Account created"
 )
 
-const (
-	AddPeerByUserOperationMessage  string = "Add new peer"
-	AddPeerWithKeyOperationMessage string = AddPeerByUserOperationMessage
-	UserJoinedOperationMessage     string = "New user joined"
-)
+// Activity that triggered an Event
+type Activity int
 
-// MessageForOperation returns a string message for an Operation
-func MessageForOperation(op Operation) string {
-	switch op {
-	case AddPeerByUserOperation:
-		return AddPeerByUserOperationMessage
-	case AddPeerWithKeyOperation:
-		return AddPeerWithKeyOperationMessage
-	case UserJoinedOperation:
-		return UserJoinedOperationMessage
+// Message returns a string representation of an activity
+func (a Activity) Message() string {
+	switch a {
+	case PeerAddedByUser:
+		return PeerAddedByUserMessage
+	case PeerAddedWithSetupKey:
+		return PeerAddedWithSetupKeyMessage
+	case UserJoined:
+		return UserJoinedMessage
+	case UserInvited:
+		return UserInvitedMessage
+	case AccountCreated:
+		return AccountCreatedMessage
 	default:
-		return "UNKNOWN_OPERATION"
+		return "UNKNOWN_ACTIVITY"
 	}
 }
 
-// Type of the Event
-type Type string
-
-// Operation is an action that triggered an Event
-type Operation int
+// StringCode returns a string code of the activity
+func (a Activity) StringCode() string {
+	switch a {
+	case PeerAddedByUser:
+		return "user.peer.add"
+	case PeerAddedWithSetupKey:
+		return "setupkey.peer.add"
+	case UserJoined:
+		return "user.join"
+	case UserInvited:
+		return "user.invite"
+	case AccountCreated:
+		return "account.create"
+	default:
+		return "UNKNOWN_ACTIVITY"
+	}
+}
 
 // Store provides an interface to store or stream events.
 type Store interface {
@@ -55,31 +81,26 @@ type Store interface {
 type Event struct {
 	// Timestamp of the event
 	Timestamp time.Time
-	// Operation that was performed during the event
-	Operation string
-	// OperationCode that was performed during the event
-	OperationCode Operation
+	// Activity that was performed during the event
+	Activity Activity
 	// ID of the event (can be empty, meaning that it wasn't yet generated)
 	ID uint64
-	// Type of the event
-	Type Type
-	// ModifierID is the ID of an object that modifies a Target
-	ModifierID string
-	// TargetID is the ID of an object that a Modifier modifies
+	// InitiatorID is the ID of an object that initiated the event (e.g., a user)
+	InitiatorID string
+	// TargetID is the ID of an object that was effected by the event (e.g., a peer)
 	TargetID string
-	// AccountID where event happened
+	// AccountID is the ID of an account where the event happened
 	AccountID string
 }
 
 // Copy the event
 func (e *Event) Copy() *Event {
 	return &Event{
-		Timestamp:  e.Timestamp,
-		Operation:  e.Operation,
-		ID:         e.ID,
-		Type:       e.Type,
-		ModifierID: e.ModifierID,
-		TargetID:   e.TargetID,
-		AccountID:  e.AccountID,
+		Timestamp:   e.Timestamp,
+		Activity:    e.Activity,
+		ID:          e.ID,
+		InitiatorID: e.InitiatorID,
+		TargetID:    e.TargetID,
+		AccountID:   e.AccountID,
 	}
 }
