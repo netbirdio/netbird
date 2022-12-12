@@ -3,6 +3,7 @@ package mock_server
 import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/route"
 	"google.golang.org/grpc/codes"
@@ -58,9 +59,10 @@ type MockAccountManager struct {
 	UpdateNameServerGroupFunc       func(accountID, nsGroupID string, operations []server.NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error)
 	DeleteNameServerGroupFunc       func(accountID, nsGroupID string) error
 	ListNameServerGroupsFunc        func(accountID string) ([]*nbdns.NameServerGroup, error)
-	CreateUserFunc                  func(accountID string, key *server.UserInfo) (*server.UserInfo, error)
+	CreateUserFunc                  func(accountID, userID string, key *server.UserInfo) (*server.UserInfo, error)
 	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
 	GetDNSDomainFunc                func() string
+	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -456,9 +458,9 @@ func (am *MockAccountManager) ListNameServerGroups(accountID string) ([]*nbdns.N
 }
 
 // CreateUser mocks CreateUser of the AccountManager interface
-func (am *MockAccountManager) CreateUser(accountID string, invite *server.UserInfo) (*server.UserInfo, error) {
+func (am *MockAccountManager) CreateUser(accountID, userID string, invite *server.UserInfo) (*server.UserInfo, error) {
 	if am.CreateUserFunc != nil {
-		return am.CreateUserFunc(accountID, invite)
+		return am.CreateUserFunc(accountID, userID, invite)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method CreateUser is not implemented")
 }
@@ -477,7 +479,7 @@ func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*server.Peer
 	if am.GetAccountFromTokenFunc != nil {
 		return am.GetPeersFunc(accountID, userID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetPeersFunc is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
 }
 
 // GetDNSDomain mocks GetDNSDomain of the AccountManager interface
@@ -486,4 +488,12 @@ func (am *MockAccountManager) GetDNSDomain() string {
 		return am.GetDNSDomainFunc()
 	}
 	return ""
+}
+
+// GetEvents mocks GetEvents of the AccountManager interface
+func (am *MockAccountManager) GetEvents(accountID, userID string) ([]*activity.Event, error) {
+	if am.GetEventsFunc != nil {
+		return am.GetEventsFunc(accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetEvents is not implemented")
 }

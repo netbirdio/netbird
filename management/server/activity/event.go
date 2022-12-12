@@ -17,7 +17,7 @@ const (
 
 const (
 	// PeerAddedByUserMessage is a human-readable text message of the PeerAddedByUser activity
-	PeerAddedByUserMessage string = "New peer added by a user"
+	PeerAddedByUserMessage string = "User added a new peer"
 	// PeerAddedWithSetupKeyMessage is a human-readable text message of the PeerAddedWithSetupKey activity
 	PeerAddedWithSetupKeyMessage = "New peer added with a setup key"
 	//UserJoinedMessage is a human-readable text message of the UserJoined activity

@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/route"
 	"net"
 	"reflect"
@@ -1228,7 +1229,11 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "")
+	eventStore, err := activity.NewSQLiteStore(t.TempDir())
+	if err != nil {
+		return nil, err
+	}
+	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore)
 }
 
 func createStore(t *testing.T) (Store, error) {
