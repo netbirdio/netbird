@@ -212,14 +212,18 @@ func TestUpdateDNSServer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-
-			defer dnsServer.stopListener()
-			defer dnsServer.hostManager.restoreHostDNS()
+			defer func() {
+				err = dnsServer.hostManager.restoreHostDNS()
+				if err != nil {
+					t.Log(err)
+				}
+			}()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
 			dnsServer.updateSerial = testCase.initSerial
 			// pretend we are running
+			dnsServer.listenerIsRunning = true
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
@@ -263,9 +267,12 @@ func TestDNSServerStartStop(t *testing.T) {
 	}
 
 	dnsServer.hostManager = newNoopHostMocker()
-
 	dnsServer.Start()
-
+	time.Sleep(100 * time.Millisecond)
+	if !dnsServer.listenerIsRunning {
+		t.Fatal("dns server listener is not running")
+	}
+	defer dnsServer.Stop()
 	err := dnsServer.localResolver.registerRecord(zoneRecords[0])
 	if err != nil {
 		t.Error(err)
