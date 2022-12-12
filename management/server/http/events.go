@@ -42,7 +42,7 @@ func (h *Events) GetEvents(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(err, w)
 		return
 	}
-	var events []*api.Event
+	events := make([]*api.Event, 0)
 	for _, e := range accountEvents {
 		events = append(events, toEventResponse(e))
 	}
@@ -53,12 +53,11 @@ func (h *Events) GetEvents(w http.ResponseWriter, r *http.Request) {
 func toEventResponse(event *activity.Event) *api.Event {
 
 	return &api.Event{
-		Id:            fmt.Sprint(event.ID),
-		InitiatorId:   event.ModifierID,
-		Operation:     event.Operation,
-		OperationCode: int(event.OperationCode),
-		TargetId:      event.TargetID,
-		Timestamp:     event.Timestamp,
-		Type:          api.EventType(event.Type),
+		Id:           fmt.Sprint(event.ID),
+		InitiatorId:  event.InitiatorID,
+		Activity:     event.Activity.Message(),
+		ActivityCode: api.EventActivityCode(event.Activity.StringCode()),
+		TargetId:     event.TargetID,
+		Timestamp:    event.Timestamp,
 	}
 }

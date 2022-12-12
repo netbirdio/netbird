@@ -363,7 +363,6 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 
 	opEvent := &activity.Event{
 		Timestamp: time.Now(),
-		Type:      activity.ManagementEvent,
 		AccountID: account.Id,
 	}
 
@@ -379,11 +378,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		}
 
 		account.SetupKeys[sk.Key] = sk.IncrementUsage()
-		opEvent.ModifierID = sk.Id
-		opEvent.OperationCode = activity.AddPeerWithKeyOperation
+		opEvent.InitiatorID = sk.Id
+		opEvent.Activity = activity.PeerAddedWithSetupKey
 	} else {
-		opEvent.ModifierID = userID
-		opEvent.OperationCode = activity.AddPeerByUserOperation
+		opEvent.InitiatorID = userID
+		opEvent.Activity = activity.PeerAddedByUser
 	}
 
 	takenIps := account.getTakenIPs()
