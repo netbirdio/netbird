@@ -75,12 +75,16 @@ func newSystemdDbusConfigurator(wgInterface *iface.WGIface) (hostManager, error)
 }
 
 func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
-	parsedIP := netip.MustParseAddr(config.serverIP).As4()
+	parsedIP, err := netip.ParseAddr(config.serverIP)
+	if err != nil {
+		return fmt.Errorf("unable to parse ip address, error: %s", err)
+	}
+	ipAs4 := parsedIP.As4()
 	defaultLinkInput := systemdDbusDNSInput{
 		Family:  unix.AF_INET,
-		Address: parsedIP[:],
+		Address: ipAs4[:],
 	}
-	err := s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput})
+	err = s.callLinkMethod(systemdDbusSetDNSMethodSuffix, []systemdDbusDNSInput{defaultLinkInput})
 	if err != nil {
 		return fmt.Errorf("setting the interface DNS server %s:%d failed with error: %s", config.serverIP, config.serverPort, err)
 	}
