@@ -22,9 +22,10 @@ var (
 	disableSingleAccMode bool
 
 	rootCmd = &cobra.Command{
-		Use:   "netbird-mgmt",
-		Short: "",
-		Long:  "",
+		Use:          "netbird-mgmt",
+		Short:        "",
+		Long:         "",
+		SilenceUsage: true,
 	}
 
 	// Execution control channel for stopCh signal
