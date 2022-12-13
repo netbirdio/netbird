@@ -856,6 +856,17 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 				return
 			}
 			log.Debugf("user %s of account %s redeemed invite", user.ID, account.Id)
+			_, err = am.eventStore.Save(&activity.Event{
+				Timestamp:   time.Now(),
+				Activity:    activity.UserJoined,
+				AccountID:   account.Id,
+				TargetID:    userID,
+				InitiatorID: userID,
+			})
+			if err != nil {
+				log.Warnf("failed saving activity event %v", err)
+				return
+			}
 		}()
 	}
 
