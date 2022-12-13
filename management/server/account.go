@@ -449,6 +449,9 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
 	am.singleAccountMode = singleAccountModeDomain != "" && len(allAccounts) <= 1
 	if am.singleAccountMode {
+		if !isDomainValid(singleAccountModeDomain) {
+			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for single accound mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
+		}
 		am.singleAccountModeDomain = singleAccountModeDomain
 		log.Infof("single account mode enabled, accounts number %d", len(allAccounts))
 	} else {
