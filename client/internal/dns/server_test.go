@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
 	"net"
 	"net/netip"
 	"os"
@@ -185,13 +186,44 @@ func TestUpdateDNSServer(t *testing.T) {
 			expectedUpstreamMap: make(registrationMap),
 			expectedLocalMap:    make(registrationMap),
 		},
+		{
+			name:                "Disabled Service Should clean map",
+			initLocalMap:        registrationMap{"netbird.cloud": struct{}{}},
+			initUpstreamMap:     registrationMap{zoneRecords[0].Name: struct{}{}},
+			initSerial:          0,
+			inputSerial:         1,
+			inputUpdate:         nbdns.Config{ServiceEnable: false},
+			expectedUpstreamMap: make(registrationMap),
+			expectedLocalMap:    make(registrationMap),
+		},
 	}
 
-	for _, testCase := range testCases {
+	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dnsServer := getDefaultServerWithNoHostManager("127.0.0.1")
-
-			dnsServer.hostManager = newNoopHostMocker()
+			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = wgIface.Create()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				err = wgIface.Close()
+				if err != nil {
+					t.Log(err)
+				}
+			}()
+			dnsServer, err := NewDefaultServer(context.Background(), wgIface)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				err = dnsServer.hostManager.restoreHostDNS()
+				if err != nil {
+					t.Log(err)
+				}
+			}()
 
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
@@ -199,7 +231,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			// pretend we are running
 			dnsServer.listenerIsRunning = true
 
-			err := dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
+			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
 				if testCase.shouldFail {
 					return
@@ -241,9 +273,12 @@ func TestDNSServerStartStop(t *testing.T) {
 	}
 
 	dnsServer.hostManager = newNoopHostMocker()
-
 	dnsServer.Start()
-
+	time.Sleep(100 * time.Millisecond)
+	if !dnsServer.listenerIsRunning {
+		t.Fatal("dns server listener is not running")
+	}
+	defer dnsServer.Stop()
 	err := dnsServer.localResolver.registerRecord(zoneRecords[0])
 	if err != nil {
 		t.Error(err)
