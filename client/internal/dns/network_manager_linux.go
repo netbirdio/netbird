@@ -95,7 +95,10 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) er
 
 	connSettings.cleanDeprecatedSettings()
 
-	dnsIP := netip.MustParseAddr(config.serverIP)
+	dnsIP, err := netip.ParseAddr(config.serverIP)
+	if err != nil {
+		return fmt.Errorf("unable to parse ip address, error: %s", err)
+	}
 	convDNSIP := binary.LittleEndian.Uint32(dnsIP.AsSlice())
 	connSettings[networkManagerDbusIPv4Key][networkManagerDbusDNSKey] = dbus.MakeVariant([]uint32{convDNSIP})
 	var (
