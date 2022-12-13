@@ -208,6 +208,12 @@ func TestUpdateDNSServer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			defer func() {
+				err = wgIface.Close()
+				if err != nil {
+					t.Log(err)
+				}
+			}()
 			dnsServer, err := NewDefaultServer(context.Background(), wgIface)
 			if err != nil {
 				t.Fatal(err)
