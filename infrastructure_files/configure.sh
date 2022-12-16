@@ -49,6 +49,7 @@ fi
 # local development or tests
 if [[ $NETBIRD_DOMAIN == "localhost" || $NETBIRD_DOMAIN == "127.0.0.1" ]]
 then
+  export NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN="netbird.selfhosted"
   export NETBIRD_MGMT_API_ENDPOINT=http://$NETBIRD_DOMAIN:$NETBIRD_MGMT_API_PORT
   unset NETBIRD_MGMT_API_CERT_FILE
   unset NETBIRD_MGMT_API_CERT_KEY_FILE
