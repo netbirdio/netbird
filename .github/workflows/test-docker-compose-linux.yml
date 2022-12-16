@@ -39,7 +39,7 @@ jobs:
         working-directory: infrastructure_files
         run: bash -x configure.sh
         env:
-          CI_NETBIRD_AUTH_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH_CLIENT_ID }}
+          CI_NETBIRD_AUTH_CLIENT_ID: testing.clietn.id
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
           CI_NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT: https://example.eu.auth0.com/.well-known/openid-configuration
           CI_NETBIRD_USE_AUTH0: true
@@ -47,7 +47,7 @@ jobs:
       - name: check values
         working-directory: infrastructure_files
         env:
-          CI_NETBIRD_AUTH_CLIENT_ID: ${{ secrets.CI_NETBIRD_AUTH_CLIENT_ID }}
+          CI_NETBIRD_AUTH_CLIENT_ID: testing.clietn.id
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
           CI_NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT: https://example.eu.auth0.com/.well-known/openid-configuration
           CI_NETBIRD_USE_AUTH0: true
