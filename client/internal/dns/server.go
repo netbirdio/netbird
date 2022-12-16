@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/miekg/dns"
+	"github.com/mitchellh/hashstructure/v2"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
@@ -30,19 +31,20 @@ type Server interface {
 
 // DefaultServer dns server object
 type DefaultServer struct {
-	ctx               context.Context
-	stop              context.CancelFunc
-	mux               sync.Mutex
-	server            *dns.Server
-	dnsMux            *dns.ServeMux
-	dnsMuxMap         registrationMap
-	localResolver     *localResolver
-	wgInterface       *iface.WGIface
-	hostManager       hostManager
-	updateSerial      uint64
-	listenerIsRunning bool
-	runtimePort       int
-	runtimeIP         string
+	ctx                context.Context
+	stop               context.CancelFunc
+	mux                sync.Mutex
+	server             *dns.Server
+	dnsMux             *dns.ServeMux
+	dnsMuxMap          registrationMap
+	localResolver      *localResolver
+	wgInterface        *iface.WGIface
+	hostManager        hostManager
+	updateSerial       uint64
+	listenerIsRunning  bool
+	runtimePort        int
+	runtimeIP          string
+	previousConfigHash uint64
 }
 
 type registrationMap map[string]struct{}
@@ -184,6 +186,20 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
+		hash, err := hashstructure.Hash(update, hashstructure.FormatV2, &hashstructure.HashOptions{
+			ZeroNil:         true,
+			IgnoreZeroValue: true,
+			SlicesAsSets:    true,
+		})
+		if err != nil {
+			log.Errorf("unable to hash the dns configuration update, got error: %s", err)
+		}
+
+		if s.previousConfigHash == hash {
+			log.Debugf("not applying the dns configuration update as there is nothing new")
+			s.updateSerial = serial
+			return nil
+		}
 		// is the service should be disabled, we stop the listener
 		// and proceed with a regular update to clean up the handlers and records
 		if !update.ServiceEnable {
@@ -215,6 +231,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		}
 
 		s.updateSerial = serial
+		s.previousConfigHash = hash
 
 		return nil
 	}
