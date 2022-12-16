@@ -65,7 +65,7 @@ jobs:
           grep AUTH_AUDIENCE docker-compose.yml | grep $CI_NETBIRD_AUTH_AUDIENCE
           grep AUTH_SUPPORTED_SCOPES docker-compose.yml | grep "$CI_NETBIRD_AUTH_SUPPORTED_SCOPES"
           grep USE_AUTH0 docker-compose.yml | grep $CI_NETBIRD_USE_AUTH0
-          grep NETBIRD_MGMT_API_ENDPOINT docker-compose.yml | grep "http://$CI_NETBIRD_DOMAIN:33073"
+          grep NETBIRD_MGMT_API_ENDPOINT docker-compose.yml | grep "https://$CI_NETBIRD_DOMAIN:33073"
           grep AUTH_REDIRECT_URI docker-compose.yml | grep $CI_NETBIRD_AUTH_REDIRECT_URI
           grep AUTH_SILENT_REDIRECT_URI docker-compose.yml | egrep 'AUTH_SILENT_REDIRECT_URI=$'
 
