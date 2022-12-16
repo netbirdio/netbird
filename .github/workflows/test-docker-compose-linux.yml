@@ -72,6 +72,8 @@ jobs:
         run: | 
           docker-compose up -d
           sleep 5
+          docker-compose ps
+          docker-compose logs --tail=20
 
       - name: test running containers
         run: |
