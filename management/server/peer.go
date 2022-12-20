@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -72,6 +73,19 @@ func (p *Peer) Copy() *Peer {
 		SSHEnabled: p.SSHEnabled,
 		DNSLabel:   p.DNSLabel,
 	}
+}
+
+// FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
+func (p *Peer) FQDN(dnsDomain string) string {
+	if dnsDomain == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s.%s", p.DNSLabel, dnsDomain)
+}
+
+// EventMeta returns activity event meta related to the peer
+func (p *Peer) EventMeta(dnsDomain string) map[string]any {
+	return map[string]any{"name": p.Name, "dns": p.FQDN(dnsDomain), "ip": p.IP}
 }
 
 // Copy PeerStatus
@@ -217,7 +231,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 }
 
 // DeletePeer removes peer from the account by its IP
-func (am *DefaultAccountManager) DeletePeer(accountID string, peerPubKey string) (*Peer, error) {
+func (am *DefaultAccountManager) DeletePeer(accountID, peerPubKey, userID string) (*Peer, error) {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -263,6 +277,18 @@ func (am *DefaultAccountManager) DeletePeer(accountID string, peerPubKey string)
 	}
 
 	am.peersUpdateManager.CloseChannel(peerPubKey)
+	event := &activity.Event{
+		Timestamp:   time.Now(),
+		AccountID:   account.Id,
+		InitiatorID: userID,
+		TargetID:    peer.IP.String(),
+		Activity:    activity.PeerRemovedByUser,
+		Meta:        peer.EventMeta(am.GetDNSDomain()),
+	}
+	_, err = am.eventStore.Save(event)
+	if err != nil {
+		return nil, err
+	}
 	return peer, nil
 }
 
@@ -449,6 +475,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	}
 
 	opEvent.TargetID = newPeer.IP.String()
+	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
 	_, err = am.eventStore.Save(opEvent)
 	if err != nil {
 		return nil, err

@@ -51,7 +51,12 @@ func (h *Events) GetEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func toEventResponse(event *activity.Event) *api.Event {
-
+	meta := make(map[string]string)
+	if event.Meta != nil {
+		for s, a := range event.Meta {
+			meta[s] = fmt.Sprintf("%v", a)
+		}
+	}
 	return &api.Event{
 		Id:           fmt.Sprint(event.ID),
 		InitiatorId:  event.InitiatorID,
@@ -59,5 +64,6 @@ func toEventResponse(event *activity.Event) *api.Event {
 		ActivityCode: api.EventActivityCode(event.Activity.StringCode()),
 		TargetId:     event.TargetID,
 		Timestamp:    event.Timestamp,
+		Meta:         meta,
 	}
 }

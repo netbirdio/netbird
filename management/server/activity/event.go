@@ -13,19 +13,35 @@ const (
 	UserInvited
 	// AccountCreated indicates that a new account has been created
 	AccountCreated
+	// PeerRemovedByUser indicates that a user removed a peer from the system
+	PeerRemovedByUser
+	// RuleAdded indicates that a user added a new rule
+	RuleAdded
+	// RuleUpdated indicates that a user updated a rule
+	RuleUpdated
+	// RuleRemoved indicates that a user removed a rule
+	RuleRemoved
 )
 
 const (
 	// PeerAddedByUserMessage is a human-readable text message of the PeerAddedByUser activity
-	PeerAddedByUserMessage string = "User added a new peer"
+	PeerAddedByUserMessage string = "Peer added"
 	// PeerAddedWithSetupKeyMessage is a human-readable text message of the PeerAddedWithSetupKey activity
-	PeerAddedWithSetupKeyMessage = "New peer added with a setup key"
+	PeerAddedWithSetupKeyMessage = PeerAddedByUserMessage
 	//UserJoinedMessage is a human-readable text message of the UserJoined activity
-	UserJoinedMessage string = "New user joined"
+	UserJoinedMessage string = "User joined"
 	//UserInvitedMessage is a human-readable text message of the UserInvited activity
-	UserInvitedMessage string = "New user invited"
+	UserInvitedMessage string = "User invited"
 	//AccountCreatedMessage is a human-readable text message of the AccountCreated activity
 	AccountCreatedMessage string = "Account created"
+	// PeerRemovedByUserMessage is a human-readable text message of the PeerRemovedByUser activity
+	PeerRemovedByUserMessage string = "Peer deleted"
+	// RuleAddedMessage is a human-readable text message of the RuleAdded activity
+	RuleAddedMessage string = "Rule added"
+	// RuleRemovedMessage is a human-readable text message of the RuleRemoved activity
+	RuleRemovedMessage string = "Rule deleted"
+	// RuleUpdatedMessage is a human-readable text message of the RuleRemoved activity
+	RuleUpdatedMessage string = "Rule updated"
 )
 
 // Activity that triggered an Event
@@ -36,6 +52,8 @@ func (a Activity) Message() string {
 	switch a {
 	case PeerAddedByUser:
 		return PeerAddedByUserMessage
+	case PeerRemovedByUser:
+		return PeerRemovedByUserMessage
 	case PeerAddedWithSetupKey:
 		return PeerAddedWithSetupKeyMessage
 	case UserJoined:
@@ -44,6 +62,12 @@ func (a Activity) Message() string {
 		return UserInvitedMessage
 	case AccountCreated:
 		return AccountCreatedMessage
+	case RuleAdded:
+		return RuleAddedMessage
+	case RuleRemoved:
+		return RuleRemovedMessage
+	case RuleUpdated:
+		return RuleUpdatedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -54,6 +78,8 @@ func (a Activity) StringCode() string {
 	switch a {
 	case PeerAddedByUser:
 		return "user.peer.add"
+	case PeerRemovedByUser:
+		return "user.peer.delete"
 	case PeerAddedWithSetupKey:
 		return "setupkey.peer.add"
 	case UserJoined:
@@ -62,6 +88,12 @@ func (a Activity) StringCode() string {
 		return "user.invite"
 	case AccountCreated:
 		return "account.create"
+	case RuleAdded:
+		return "rule.add"
+	case RuleRemoved:
+		return "rule.delete"
+	case RuleUpdated:
+		return "rule.update"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -91,10 +123,18 @@ type Event struct {
 	TargetID string
 	// AccountID is the ID of an account where the event happened
 	AccountID string
+	// Meta of the event, e.g. deleted peer information like name, IP, etc
+	Meta map[string]any
 }
 
 // Copy the event
 func (e *Event) Copy() *Event {
+
+	meta := make(map[string]any, len(e.Meta))
+	for key, value := range e.Meta {
+		meta[key] = value
+	}
+
 	return &Event{
 		Timestamp:   e.Timestamp,
 		Activity:    e.Activity,
@@ -102,5 +142,6 @@ func (e *Event) Copy() *Event {
 		InitiatorID: e.InitiatorID,
 		TargetID:    e.TargetID,
 		AccountID:   e.AccountID,
+		Meta:        meta,
 	}
 }
