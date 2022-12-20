@@ -45,8 +45,8 @@ func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.Re
 	util.WriteJSONObject(w, toPeerResponse(peer, account, dnsDomain))
 }
 
-func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
-	_, err := h.accountManager.DeletePeer(accountId, peer.Key)
+func (h *Peers) deletePeer(accountID, userID string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
+	_, err := h.accountManager.DeletePeer(accountID, peer.Key, userID)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -56,7 +56,7 @@ func (h *Peers) deletePeer(accountId string, peer *server.Peer, w http.ResponseW
 
 func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -78,7 +78,7 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodDelete:
-		h.deletePeer(account.Id, peer, w, r)
+		h.deletePeer(account.Id, user.Id, peer, w, r)
 		return
 	case http.MethodPut:
 		h.updatePeer(account, peer, w, r)
@@ -143,9 +143,10 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 			}
 		}
 	}
-	fqdn := peer.DNSLabel
-	if dnsDomain != "" {
-		fqdn = peer.DNSLabel + "." + dnsDomain
+
+	fqdn := peer.FQDN(dnsDomain)
+	if fqdn == "" {
+		fqdn = peer.DNSLabel
 	}
 	return &api.Peer{
 		Id:         peer.IP.String(),

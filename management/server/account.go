@@ -53,7 +53,7 @@ type AccountManager interface {
 	GetPeer(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
-	DeletePeer(accountId string, peerKey string) (*Peer, error)
+	DeletePeer(accountID, peerKey, userID string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID string, peer *Peer) (*Peer, error)
 	GetNetworkMap(peerKey string) (*NetworkMap, error)
@@ -71,9 +71,9 @@ type AccountManager interface {
 	GroupDeletePeer(accountId, groupID, peerKey string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
 	GetRule(accountID, ruleID, userID string) (*Rule, error)
-	SaveRule(accountID string, rule *Rule) error
+	SaveRule(accountID, userID string, rule *Rule) error
 	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
-	DeleteRule(accountId, ruleID string) error
+	DeleteRule(accountId, ruleID, userID string) error
 	ListRules(accountID, userID string) ([]*Rule, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
 	CreateRoute(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool) (*route.Route, error)

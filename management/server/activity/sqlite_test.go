@@ -1,29 +1,27 @@
 package activity
 
 import (
-	"fmt"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 )
 
 func TestNewSQLiteStore(t *testing.T) {
-	dataDir := t.TempDir()
-	store, err := NewSQLiteStore(dataDir)
+	//dataDir := t.TempDir()
+	store, err := NewSQLiteStore("/home/braginini/wiretrustee/test/")
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 
-	accountID := "account_1"
+	//accountID := "account_1"
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 10000; i++ {
 		_, err = store.Save(&Event{
-			Timestamp:   time.Now(),
+			Timestamp:   time.Now().Add(-1 * time.Minute),
 			Activity:    PeerAddedByUser,
-			InitiatorID: "user_" + fmt.Sprint(i),
-			TargetID:    "peer_" + fmt.Sprint(i),
-			AccountID:   accountID,
+			InitiatorID: "google-oauth2|110866222733584764488",
+			TargetID:    "100.101.249.29",
+			AccountID:   "cebi9h3lo1hkhn1qc7cg",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -31,7 +29,7 @@ func TestNewSQLiteStore(t *testing.T) {
 		}
 	}
 
-	result, err := store.Get(accountID, 0, 10, false)
+	/*result, err := store.Get(accountID, 0, 10, false)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -47,5 +45,5 @@ func TestNewSQLiteStore(t *testing.T) {
 	}
 
 	assert.Len(t, result, 5)
-	assert.True(t, result[0].Timestamp.After(result[len(result)-1].Timestamp))
+	assert.True(t, result[0].Timestamp.After(result[len(result)-1].Timestamp))*/
 }

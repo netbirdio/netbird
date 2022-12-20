@@ -14,10 +14,14 @@ const (
 // Defines values for EventActivityCode.
 const (
 	EventActivityCodeAccountCreate   EventActivityCode = "account.create"
+	EventActivityCodeRuleAdd         EventActivityCode = "rule.add"
+	EventActivityCodeRuleDelete      EventActivityCode = "rule.delete"
+	EventActivityCodeRuleUpdate      EventActivityCode = "rule.update"
 	EventActivityCodeSetupkeyPeerAdd EventActivityCode = "setupkey.peer.add"
 	EventActivityCodeUserInvite      EventActivityCode = "user.invite"
 	EventActivityCodeUserJoin        EventActivityCode = "user.join"
 	EventActivityCodeUserPeerAdd     EventActivityCode = "user.peer.add"
+	EventActivityCodeUserPeerDelete  EventActivityCode = "user.peer.delete"
 )
 
 // Defines values for GroupPatchOperationOp.
@@ -119,6 +123,9 @@ type Event struct {
 
 	// InitiatorId The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
 	InitiatorId string `json:"initiator_id"`
+
+	// Meta The metadata of the event
+	Meta map[string]string `json:"meta"`
 
 	// TargetId The ID of the target of the event. E.g., an ID of the peer that a user removed.
 	TargetId string `json:"target_id"`

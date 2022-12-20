@@ -519,13 +519,18 @@ components:
         activity_code:
           description: The string code of the activity that occurred during the event
           type: string
-          enum: [ "account.create", "user.join", "user.invite", "user.peer.add", "setupkey.peer.add" ]
+          enum: [ "account.create", "user.join", "user.invite", "user.peer.add", "setupkey.peer.add", "user.peer.delete", "rule.add", "rule.delete", "rule.update"]
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
           type: string
         target_id:
           description: The ID of the target of the event. E.g., an ID of the peer that a user removed.
           type: string
+        meta:
+          description: The metadata of the event
+          type: object
+          additionalProperties:
+            type: string
       required:
         - id
         - timestamp
@@ -533,6 +538,7 @@ components:
         - activity_code
         - initiator_id
         - target_id
+        - meta
   responses:
     not_found:
       description: Resource not found
