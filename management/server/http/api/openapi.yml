@@ -522,6 +522,7 @@ components:
           enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add",
                   "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
                   "rule.add", "rule.delete", "rule.update",
+                  "group.add", "group.update",
                   "account.create",
           ]
         initiator_id:

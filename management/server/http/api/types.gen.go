@@ -14,6 +14,8 @@ const (
 // Defines values for EventActivityCode.
 const (
 	EventActivityCodeAccountCreate   EventActivityCode = "account.create"
+	EventActivityCodeGroupAdd        EventActivityCode = "group.add"
+	EventActivityCodeGroupUpdate     EventActivityCode = "group.update"
 	EventActivityCodeRuleAdd         EventActivityCode = "rule.add"
 	EventActivityCodeRuleDelete      EventActivityCode = "rule.delete"
 	EventActivityCodeRuleUpdate      EventActivityCode = "rule.update"

@@ -29,6 +29,10 @@ const (
 	SetupKeyRevoked
 	// SetupKeyOverused indicates that setup key usage exhausted
 	SetupKeyOverused
+	// GroupCreated indicates that a user created a group
+	GroupCreated
+	// GroupUpdated indicates that a user updated a group
+	GroupUpdated
 )
 
 const (
@@ -58,6 +62,10 @@ const (
 	SetupKeyRevokedMessage string = "Setup key revoked"
 	// SetupKeyOverusedMessage is a human-readable text message of the SetupKeyOverused activity
 	SetupKeyOverusedMessage string = "Setup key overused"
+	// GroupCreatedMessage is a human-readable text message of the GroupCreated activity
+	GroupCreatedMessage string = "Group created"
+	// GroupUpdatedMessage is a human-readable text message of the GroupUpdated activity
+	GroupUpdatedMessage string = "Group updated"
 )
 
 // Activity that triggered an Event
@@ -92,6 +100,10 @@ func (a Activity) Message() string {
 		return SetupKeyRevokedMessage
 	case SetupKeyOverused:
 		return SetupKeyOverusedMessage
+	case GroupCreated:
+		return GroupCreatedMessage
+	case GroupUpdated:
+		return GroupUpdatedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -126,6 +138,10 @@ func (a Activity) StringCode() string {
 		return "setupkey.overuse"
 	case SetupKeyUpdated:
 		return "setupkey.update"
+	case GroupCreated:
+		return "group.add"
+	case GroupUpdated:
+		return "group.update"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
