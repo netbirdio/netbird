@@ -108,7 +108,7 @@ func (key *SetupKey) Copy() *SetupKey {
 	}
 }
 
-// EventMeta returns activity event meta related to the peer
+// EventMeta returns activity event meta related to the setup key
 func (key *SetupKey) EventMeta() map[string]any {
 	return map[string]any{"name": key.Name, "type": key.Type, "key": key.HiddenCopy(1).Key}
 }
