@@ -519,7 +519,11 @@ components:
         activity_code:
           description: The string code of the activity that occurred during the event
           type: string
-          enum: [ "account.create", "user.join", "user.invite", "user.peer.add", "setupkey.peer.add", "user.peer.delete", "rule.add", "rule.delete", "rule.update"]
+          enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add",
+                  "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
+                  "rule.add", "rule.delete", "rule.update",
+                  "account.create",
+          ]
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
           type: string

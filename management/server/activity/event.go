@@ -21,6 +21,14 @@ const (
 	RuleUpdated
 	// RuleRemoved indicates that a user removed a rule
 	RuleRemoved
+	// SetupKeyCreated indicates that a user created a new setup key
+	SetupKeyCreated
+	// SetupKeyUpdated indicates that a user updated a setup key
+	SetupKeyUpdated
+	// SetupKeyRevoked indicates that a user revoked a setup key
+	SetupKeyRevoked
+	// SetupKeyOverused indicates that setup key usage exhausted
+	SetupKeyOverused
 )
 
 const (
@@ -42,6 +50,14 @@ const (
 	RuleRemovedMessage string = "Rule deleted"
 	// RuleUpdatedMessage is a human-readable text message of the RuleRemoved activity
 	RuleUpdatedMessage string = "Rule updated"
+	// SetupKeyCreatedMessage is a human-readable text message of the SetupKeyCreated activity
+	SetupKeyCreatedMessage string = "Setup key created"
+	// SetupKeyUpdatedMessage is a human-readable text message of the SetupKeyUpdated activity
+	SetupKeyUpdatedMessage string = "Setup key updated"
+	// SetupKeyRevokedMessage is a human-readable text message of the SetupKeyRevoked activity
+	SetupKeyRevokedMessage string = "Setup key revoked"
+	// SetupKeyOverusedMessage is a human-readable text message of the SetupKeyOverused activity
+	SetupKeyOverusedMessage string = "Setup key overused"
 )
 
 // Activity that triggered an Event
@@ -68,6 +84,14 @@ func (a Activity) Message() string {
 		return RuleRemovedMessage
 	case RuleUpdated:
 		return RuleUpdatedMessage
+	case SetupKeyCreated:
+		return SetupKeyCreatedMessage
+	case SetupKeyUpdated:
+		return SetupKeyUpdatedMessage
+	case SetupKeyRevoked:
+		return SetupKeyRevokedMessage
+	case SetupKeyOverused:
+		return SetupKeyOverusedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -94,6 +118,14 @@ func (a Activity) StringCode() string {
 		return "rule.delete"
 	case RuleUpdated:
 		return "rule.update"
+	case SetupKeyCreated:
+		return "setupkey.add"
+	case SetupKeyRevoked:
+		return "setupkey.revoke"
+	case SetupKeyOverused:
+		return "setupkey.overuse"
+	case SetupKeyUpdated:
+		return "setupkey.update"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}

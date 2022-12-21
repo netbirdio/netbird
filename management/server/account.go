@@ -40,8 +40,8 @@ func cacheEntryExpiration() time.Duration {
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	CreateSetupKey(accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
-		autoGroups []string, usageLimit int) (*SetupKey, error)
-	SaveSetupKey(accountID string, key *SetupKey) (*SetupKey, error)
+		autoGroups []string, usageLimit int, userID string) (*SetupKey, error)
+	SaveSetupKey(accountID string, key *SetupKey, userID string) (*SetupKey, error)
 	CreateUser(accountID, userID string, key *UserInfo) (*UserInfo, error)
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID string, key *User) (*UserInfo, error)
