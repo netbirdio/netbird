@@ -73,7 +73,7 @@ type AccountManager interface {
 	GetRule(accountID, ruleID, userID string) (*Rule, error)
 	SaveRule(accountID, userID string, rule *Rule) error
 	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
-	DeleteRule(accountId, ruleID, userID string) error
+	DeleteRule(accountID, ruleID, userID string) error
 	ListRules(accountID, userID string) ([]*Rule, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
 	CreateRoute(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool) (*route.Route, error)

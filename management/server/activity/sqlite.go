@@ -4,12 +4,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	// sqlite driver
 	_ "github.com/mattn/go-sqlite3"
 	"path/filepath"
 	"time"
 )
 
 const (
+	//SQLiteEventSinkDB is the default name of the events database
 	SQLiteEventSinkDB = "events.db"
 	createTableQuery  = "CREATE TABLE IF NOT EXISTS events " +
 		"(id INTEGER PRIMARY KEY AUTOINCREMENT, " +

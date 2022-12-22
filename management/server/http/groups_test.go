@@ -29,7 +29,7 @@ var TestPeers = map[string]*server.Peer{
 func initGroupTestData(user *server.User, groups ...*server.Group) *Groups {
 	return &Groups{
 		accountManager: &mock_server.MockAccountManager{
-			SaveGroupFunc: func(accountID string, group *server.Group) error {
+			SaveGroupFunc: func(accountID, userID string, group *server.Group) error {
 				if !strings.HasPrefix(group.ID, "id-") {
 					group.ID = "id-was-set"
 				}
