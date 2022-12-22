@@ -33,6 +33,8 @@ const (
 	GroupCreated
 	// GroupUpdated indicates that a user updated a group
 	GroupUpdated
+	// PeerGroupsUpdated indicates that a user updated groups of a peer
+	PeerGroupsUpdated
 )
 
 const (
@@ -66,6 +68,8 @@ const (
 	GroupCreatedMessage string = "Group created"
 	// GroupUpdatedMessage is a human-readable text message of the GroupUpdated activity
 	GroupUpdatedMessage string = "Group updated"
+	// PeerGroupsUpdatedMessage is a human-readable text message of the PeerGroupsUpdated activity
+	PeerGroupsUpdatedMessage string = "Peer groups updated"
 )
 
 // Activity that triggered an Event
@@ -104,6 +108,8 @@ func (a Activity) Message() string {
 		return GroupCreatedMessage
 	case GroupUpdated:
 		return GroupUpdatedMessage
+	case PeerGroupsUpdated:
+		return PeerGroupsUpdatedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -142,6 +148,8 @@ func (a Activity) StringCode() string {
 		return "group.add"
 	case GroupUpdated:
 		return "group.update"
+	case PeerGroupsUpdated:
+		return "peer.groups.update"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
