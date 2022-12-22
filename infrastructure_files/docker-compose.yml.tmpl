@@ -58,6 +58,9 @@ services:
     #      - ./privkey.pem:/etc/coturn/private/privkey.pem:ro
     #      - ./cert.pem:/etc/coturn/certs/cert.pem:ro
     network_mode: host
+    command:
+      - -c /etc/turnserver.conf
+      
 volumes:
   $MGMT_VOLUMENAME:
   $SIGNAL_VOLUMENAME:
