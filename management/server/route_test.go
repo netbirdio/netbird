@@ -1,7 +1,7 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/server/activity"
+	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"

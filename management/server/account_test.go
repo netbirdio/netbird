@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/activity"
+	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
 	"github.com/netbirdio/netbird/route"
 	"net"
 	"reflect"

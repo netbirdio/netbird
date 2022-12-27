@@ -165,6 +165,26 @@ type Store interface {
 	Close() error
 }
 
+// NoopEventStore implements the Store interface without doing any operations
+type NoopEventStore struct {
+}
+
+// Save sets the Event.ID to 1
+func (store *NoopEventStore) Save(event *Event) (*Event, error) {
+	event.ID = 1
+	return event, nil
+}
+
+// Get returns an empty list of events
+func (store *NoopEventStore) Get(accountID string, offset, limit int, descending bool) ([]*Event, error) {
+	return []*Event{}, nil
+}
+
+// Close doesn't close anything
+func (store *NoopEventStore) Close() error {
+	return nil
+}
+
 // Event represents a network/system activity event.
 type Event struct {
 	// Timestamp of the event

@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/activity"
+	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
 	"net"
 	"os"
 	"path/filepath"

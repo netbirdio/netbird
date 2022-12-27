@@ -2,7 +2,7 @@ package server
 
 import (
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/activity"
+	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
 	"github.com/stretchr/testify/require"
 	"net/netip"
 	"testing"

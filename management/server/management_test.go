@@ -2,7 +2,7 @@ package server_test
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/management/server/activity"
+	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
 	"math/rand"
 	"net"
 	"os"
