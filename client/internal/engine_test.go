@@ -9,6 +9,7 @@ import (
 	nbstatus "github.com/netbirdio/netbird/client/status"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/route"
 	"github.com/stretchr/testify/assert"
 	"net"
@@ -953,7 +954,12 @@ func startManagement(port int, dataDir string) (*grpc.Server, error) {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	peersUpdateManager := server.NewPeersUpdateManager()
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "")
+	eventStore := &activity.NoopEventStore{}
+	if err != nil {
+		return nil, nil
+	}
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
+		eventStore)
 	if err != nil {
 		return nil, err
 	}

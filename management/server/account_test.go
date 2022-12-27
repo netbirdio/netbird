@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	nbdns "github.com/netbirdio/netbird/dns"
+	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
 	"github.com/netbirdio/netbird/route"
 	"net"
 	"reflect"
@@ -632,7 +633,9 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		return
 	}
 
-	account, err := createAccount(manager, "test_account", "account_creator", "")
+	userID := "account_creator"
+
+	account, err := createAccount(manager, "test_account", userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -714,7 +717,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.SaveGroup(account.Id, &group); err != nil {
+		if err := manager.SaveGroup(account.Id, userID, &group); err != nil {
 			t.Errorf("save group: %v", err)
 			return
 		}
@@ -739,7 +742,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			defaultRule = r
 		}
 
-		if err := manager.DeleteRule(account.Id, defaultRule.ID); err != nil {
+		if err := manager.DeleteRule(account.Id, defaultRule.ID, userID); err != nil {
 			t.Errorf("delete default rule: %v", err)
 			return
 		}
@@ -759,7 +762,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.SaveRule(account.Id, &rule); err != nil {
+		if err := manager.SaveRule(account.Id, userID, &rule); err != nil {
 			t.Errorf("delete default rule: %v", err)
 			return
 		}
@@ -779,7 +782,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if _, err := manager.DeletePeer(account.Id, peer3.Key); err != nil {
+		if _, err := manager.DeletePeer(account.Id, peer3.Key, userID); err != nil {
 			t.Errorf("delete peer: %v", err)
 			return
 		}
@@ -814,8 +817,8 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-
-	account, err := createAccount(manager, "test_account", "account_creator", "")
+	userID := "account_creator"
+	account, err := createAccount(manager, "test_account", userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -843,7 +846,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	_, err = manager.DeletePeer(account.Id, peerKey)
+	_, err = manager.DeletePeer(account.Id, peerKey, userID)
 	if err != nil {
 		return
 	}
@@ -1228,7 +1231,11 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "")
+	eventStore, err := activity.NewSQLiteStore(t.TempDir())
+	if err != nil {
+		return nil, err
+	}
+	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore)
 }
 
 func createStore(t *testing.T) (Store, error) {

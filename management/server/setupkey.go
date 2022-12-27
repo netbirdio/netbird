@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"hash/fnv"
 	"strconv"
@@ -107,12 +108,20 @@ func (key *SetupKey) Copy() *SetupKey {
 	}
 }
 
+// EventMeta returns activity event meta related to the setup key
+func (key *SetupKey) EventMeta() map[string]any {
+	return map[string]any{"name": key.Name, "type": key.Type, "key": key.HiddenCopy(1).Key}
+}
+
 // HiddenCopy returns a copy of the key with a Key value hidden with "*" and a 5 character prefix.
 // E.g., "831F6*******************************"
-func (key *SetupKey) HiddenCopy() *SetupKey {
+func (key *SetupKey) HiddenCopy(length int) *SetupKey {
 	k := key.Copy()
 	prefix := k.Key[0:5]
-	k.Key = prefix + strings.Repeat("*", utf8.RuneCountInString(key.Key)-len(prefix))
+	if length > utf8.RuneCountInString(key.Key) {
+		length = utf8.RuneCountInString(key.Key) - len(prefix)
+	}
+	k.Key = prefix + strings.Repeat("*", length)
 	return k
 }
 
@@ -189,7 +198,7 @@ func Hash(s string) uint32 {
 // CreateSetupKey generates a new setup key with a given name, type, list of groups IDs to auto-assign to peers registered with this key,
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
 func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string, keyType SetupKeyType,
-	expiresIn time.Duration, autoGroups []string, usageLimit int) (*SetupKey, error) {
+	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string) (*SetupKey, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -211,10 +220,21 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 
 	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit)
 	account.SetupKeys[setupKey.Key] = setupKey
-
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed adding account key")
+	}
+
+	_, err = am.eventStore.Save(&activity.Event{
+		Timestamp:   time.Now(),
+		Activity:    activity.SetupKeyCreated,
+		InitiatorID: userID,
+		TargetID:    setupKey.Id,
+		AccountID:   accountID,
+		Meta:        setupKey.EventMeta(),
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return setupKey, nil
@@ -224,7 +244,7 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 // Due to the unique nature of a SetupKey certain properties must not be overwritten
 // (e.g. the key itself, creation date, ID, etc).
 // These properties are overwritten: Name, AutoGroups, Revoked. The rest is copied from the existing key.
-func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *SetupKey) (*SetupKey, error) {
+func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *SetupKey, userID string) (*SetupKey, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -261,6 +281,20 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 		return nil, err
 	}
 
+	if !oldKey.Revoked && newKey.Revoked {
+		_, err = am.eventStore.Save(&activity.Event{
+			Timestamp:   time.Now(),
+			Activity:    activity.SetupKeyRevoked,
+			InitiatorID: userID,
+			TargetID:    newKey.Id,
+			AccountID:   accountID,
+			Meta:        newKey.EventMeta(),
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return newKey, am.updateAccountPeers(account)
 }
 
@@ -282,7 +316,7 @@ func (am *DefaultAccountManager) ListSetupKeys(accountID, userID string) ([]*Set
 	for _, key := range account.SetupKeys {
 		var k *SetupKey
 		if !user.IsAdmin() {
-			k = key.HiddenCopy()
+			k = key.HiddenCopy(999)
 		} else {
 			k = key.Copy()
 		}
@@ -324,7 +358,7 @@ func (am *DefaultAccountManager) GetSetupKey(accountID, userID, keyID string) (*
 	}
 
 	if !user.IsAdmin() {
-		foundKey = foundKey.HiddenCopy()
+		foundKey = foundKey.HiddenCopy(999)
 	}
 
 	return foundKey, nil
