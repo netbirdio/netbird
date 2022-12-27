@@ -46,7 +46,7 @@ builds:
 
   - id: netbird-signal
     dir: signal
-    env: [CGO_ENABLED=0]
+    env: [CGO_ENABLED=1]
     binary: netbird-signal
     goos:
       - linux
