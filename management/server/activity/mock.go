@@ -4,7 +4,7 @@ type NoopEventStore struct {
 }
 
 func (store *NoopEventStore) Save(event *Event) (*Event, error) {
-	event.ID = -1
+	event.ID = 1
 	return event, nil
 }
 
