@@ -742,7 +742,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			defaultRule = r
 		}
 
-		if err := manager.DeleteRule(account.Id, userID, defaultRule.ID); err != nil {
+		if err := manager.DeleteRule(account.Id, defaultRule.ID, userID); err != nil {
 			t.Errorf("delete default rule: %v", err)
 			return
 		}

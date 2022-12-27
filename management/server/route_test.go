@@ -912,7 +912,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	err = am.SaveRule(account.Id, userID, newRule)
 	require.NoError(t, err)
 
-	err = am.DeleteRule(account.Id, userID, defaultRule.ID)
+	err = am.DeleteRule(account.Id, defaultRule.ID, userID)
 	require.NoError(t, err)
 
 	peer1GroupRoutes, err := am.GetNetworkMap(peer1Key)
