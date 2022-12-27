@@ -29,7 +29,6 @@ builds:
     mod_timestamp: '{{ .CommitTimestamp }}'
     tags:
       - load_wgnt_from_rsrc
-      - sqlite_omit_load_extension
 
   - id: netbird-mgmt
     dir: management
@@ -44,8 +43,6 @@ builds:
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/client/system.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
-    tags:
-      - sqlite_omit_load_extension
 
   - id: netbird-signal
     dir: signal
@@ -60,8 +57,6 @@ builds:
     ldflags:
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
-    tags:
-      - sqlite_omit_load_extension
 
 archives:
   - builds:
