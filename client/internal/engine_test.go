@@ -954,7 +954,7 @@ func startManagement(port int, dataDir string) (*grpc.Server, error) {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	peersUpdateManager := server.NewPeersUpdateManager()
-	eventStore, err := activity.NewSQLiteStore(config.Datadir)
+	eventStore := &activity.NoopEventStore{}
 	if err != nil {
 		return nil, nil
 	}
