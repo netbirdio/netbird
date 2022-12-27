@@ -2,7 +2,7 @@ package client
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/management/server/activity"
+	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
 	"net"
 	"path/filepath"
 	"sync"
