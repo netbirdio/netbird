@@ -15,6 +15,7 @@ func TestNewSQLiteStore(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
+        defer store.Close() //nolint
 
 	accountID := "account_1"
 
