@@ -51,7 +51,7 @@ func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
 // UpdateGroupHandler handles update to a group identified by a given ID
 func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -102,7 +102,7 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		Peers: peerIPsToKeys(account, req.Peers),
 	}
 
-	if err := h.accountManager.SaveGroup(account.Id, &group); err != nil {
+	if err := h.accountManager.SaveGroup(account.Id, user.Id, &group); err != nil {
 		log.Errorf("failed updating group %s under account %s %v", groupID, account.Id, err)
 		util.WriteError(err, w)
 		return
@@ -219,7 +219,7 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 // CreateGroupHandler handles group creation request
 func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -243,7 +243,7 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		Peers: peerIPsToKeys(account, req.Peers),
 	}
 
-	err = h.accountManager.SaveGroup(account.Id, &group)
+	err = h.accountManager.SaveGroup(account.Id, user.Id, &group)
 	if err != nil {
 		util.WriteError(err, w)
 		return

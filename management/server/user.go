@@ -2,11 +2,12 @@ package server
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"strings"
-
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"time"
 )
 
 const (
@@ -117,7 +118,7 @@ func NewAdminUser(id string) *User {
 }
 
 // CreateUser creates a new user under the given account. Effectively this is a user invite.
-func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) (*UserInfo, error) {
+func (am *DefaultAccountManager) CreateUser(accountID, userID string, invite *UserInfo) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -172,6 +173,19 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 	}
 
 	_, err = am.refreshCache(account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	event := &activity.Event{
+		Timestamp:   time.Now(),
+		Activity:    activity.UserInvited,
+		AccountID:   account.Id,
+		TargetID:    newUser.Id,
+		InitiatorID: userID,
+	}
+
+	_, err = am.eventStore.Save(event)
 	if err != nil {
 		return nil, err
 	}

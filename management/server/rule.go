@@ -1,8 +1,10 @@
 package server
 
 import (
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"strings"
+	"time"
 )
 
 // TrafficFlowType defines allowed direction of the traffic in the rule
@@ -87,6 +89,11 @@ func (r *Rule) Copy() *Rule {
 	}
 }
 
+// EventMeta returns activity event meta related to this rule
+func (r *Rule) EventMeta() map[string]any {
+	return map[string]any{"name": r.Name}
+}
+
 // GetRule of ACL from the store
 func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rule, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
@@ -115,7 +122,7 @@ func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rul
 }
 
 // SaveRule of ACL in the store
-func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
+func (am *DefaultAccountManager) SaveRule(accountID, userID string, rule *Rule) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -124,10 +131,30 @@ func (am *DefaultAccountManager) SaveRule(accountID string, rule *Rule) error {
 		return err
 	}
 
+	_, exists := account.Rules[rule.ID]
+
 	account.Rules[rule.ID] = rule
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	action := activity.RuleAdded
+	if exists {
+		action = activity.RuleUpdated
+	}
+
+	_, err = am.eventStore.Save(&activity.Event{
+		Timestamp:   time.Now(),
+		Activity:    action,
+		InitiatorID: userID,
+		TargetID:    rule.ID,
+		AccountID:   accountID,
+		Meta:        rule.EventMeta(),
+	})
+
+	if err != nil {
 		return err
 	}
 
@@ -210,7 +237,7 @@ func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
 }
 
 // DeleteRule of ACL from the store
-func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
+func (am *DefaultAccountManager) DeleteRule(accountID, ruleID, userID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -219,10 +246,27 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID string) error {
 		return err
 	}
 
+	rule := account.Rules[ruleID]
+	if rule == nil {
+		return status.Errorf(status.NotFound, "rule with ID %s doesn't exist", ruleID)
+	}
 	delete(account.Rules, ruleID)
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	_, err = am.eventStore.Save(&activity.Event{
+		Timestamp:   time.Now(),
+		Activity:    activity.RuleRemoved,
+		InitiatorID: userID,
+		TargetID:    ruleID,
+		AccountID:   accountID,
+		Meta:        rule.EventMeta(),
+	})
+
+	if err != nil {
 		return err
 	}
 

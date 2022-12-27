@@ -1,6 +1,10 @@
 package server
 
-import "github.com/netbirdio/netbird/management/server/status"
+import (
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/status"
+	"time"
+)
 
 // Group of the peers for ACL
 type Group struct {
@@ -34,6 +38,11 @@ type GroupUpdateOperation struct {
 	Values []string
 }
 
+// EventMeta returns activity event meta related to the group
+func (g *Group) EventMeta() map[string]any {
+	return map[string]any{"name": g.Name}
+}
+
 func (g *Group) Copy() *Group {
 	return &Group{
 		ID:    g.ID,
@@ -62,7 +71,7 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 }
 
 // SaveGroup object of the peers
-func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error {
+func (am *DefaultAccountManager) SaveGroup(accountID, userID string, group *Group) error {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -71,12 +80,26 @@ func (am *DefaultAccountManager) SaveGroup(accountID string, group *Group) error
 	if err != nil {
 		return err
 	}
-
+	_, exists := account.Groups[group.ID]
 	account.Groups[group.ID] = group
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
 		return err
+	}
+
+	if !exists {
+		_, err = am.eventStore.Save(&activity.Event{
+			Timestamp:   time.Now(),
+			Activity:    activity.GroupCreated,
+			InitiatorID: userID,
+			TargetID:    group.ID,
+			AccountID:   accountID,
+			Meta:        group.EventMeta(),
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	return am.updateAccountPeers(account)

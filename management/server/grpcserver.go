@@ -435,10 +435,7 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 
 func toPeerConfig(peer *Peer, network *Network, dnsName string) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
-	fqdn := ""
-	if dnsName != "" {
-		fqdn = peer.DNSLabel + "." + dnsName
-	}
+	fqdn := peer.FQDN(dnsName)
 	return &proto.PeerConfig{
 		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
 		SshConfig: &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
@@ -449,10 +446,7 @@ func toPeerConfig(peer *Peer, network *Network, dnsName string) *proto.PeerConfi
 func toRemotePeerConfig(peers []*Peer, dnsName string) []*proto.RemotePeerConfig {
 	remotePeers := []*proto.RemotePeerConfig{}
 	for _, rPeer := range peers {
-		fqdn := ""
-		if dnsName != "" {
-			fqdn = rPeer.DNSLabel + "." + dnsName
-		}
+		fqdn := rPeer.FQDN(dnsName)
 		remotePeers = append(remotePeers, &proto.RemotePeerConfig{
 			WgPubKey:   rPeer.Key,
 			AllowedIps: []string{fmt.Sprintf(AllowedIPsFormat, rPeer.IP)},

@@ -81,7 +81,7 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -99,7 +99,7 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	newUser, err := h.accountManager.CreateUser(account.Id, &server.UserInfo{
+	newUser, err := h.accountManager.CreateUser(account.Id, user.Id, &server.UserInfo{
 		Email:      req.Email,
 		Name:       *req.Name,
 		Role:       req.Role,
