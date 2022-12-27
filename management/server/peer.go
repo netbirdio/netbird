@@ -85,7 +85,7 @@ func (p *Peer) FQDN(dnsDomain string) string {
 
 // EventMeta returns activity event meta related to the peer
 func (p *Peer) EventMeta(dnsDomain string) map[string]any {
-	return map[string]any{"name": p.Name, "dns": p.FQDN(dnsDomain), "ip": p.IP}
+	return map[string]any{"name": p.Name, "fqdn": p.FQDN(dnsDomain), "ip": p.IP}
 }
 
 // Copy PeerStatus
@@ -367,7 +367,6 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	var account *Account
 	var err error
 	addedByUser := false
-
 	if len(userID) > 0 {
 		addedByUser = true
 		account, err = am.Store.GetAccountByUser(userID)
