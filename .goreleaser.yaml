@@ -3,7 +3,7 @@ builds:
   - id: netbird
     dir: client
     binary: netbird
-    env: [CGO_ENABLED=1]
+    env: [CGO_ENABLED=0]
     goos:
       - linux
       - darwin
@@ -32,7 +32,7 @@ builds:
 
   - id: netbird-mgmt
     dir: management
-    env: [CGO_ENABLED=1]
+    env: [CGO_ENABLED=0]
     binary: netbird-mgmt
     goos:
       - linux
@@ -46,7 +46,7 @@ builds:
 
   - id: netbird-signal
     dir: signal
-    env: [CGO_ENABLED=1]
+    env: [CGO_ENABLED=0]
     binary: netbird-signal
     goos:
       - linux

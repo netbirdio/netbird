@@ -37,7 +37,7 @@ jobs:
         run: go mod tidy
 
       - name: Test
-        run: GOARCH=${{ matrix.arch }} go test -exec 'sudo --preserve-env=CI' -timeout 5m -p 1 ./...
+        run: CGO_ENABLED=1 GOARCH=${{ matrix.arch }} go test -exec 'sudo --preserve-env=CI' -timeout 5m -p 1 ./...
 
   test_client_on_docker:
     runs-on: ubuntu-latest
