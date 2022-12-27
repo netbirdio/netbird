@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	//SQLiteEventSinkDB is the default name of the events database
-	SQLiteEventSinkDB = "events.db"
-	createTableQuery  = "CREATE TABLE IF NOT EXISTS events " +
+	//eventSinkDB is the default name of the events database
+	eventSinkDB      = "events.db"
+	createTableQuery = "CREATE TABLE IF NOT EXISTS events " +
 		"(id INTEGER PRIMARY KEY AUTOINCREMENT, " +
 		"activity INTEGER, " +
 		"timestamp DATETIME, " +
@@ -25,14 +25,14 @@ const (
 		" target_id TEXT);"
 )
 
-// SQLiteStore is the implementation of the activity.Store interface backed by SQLite
-type SQLiteStore struct {
+// Store is the implementation of the activity.Store interface backed by SQLite
+type Store struct {
 	db *sql.DB
 }
 
-// NewSQLiteStore creates a new SQLiteStore with an event table if not exists.
-func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
-	dbFile := filepath.Join(dataDir, SQLiteEventSinkDB)
+// NewSQLiteStore creates a new Store with an event table if not exists.
+func NewSQLiteStore(dataDir string) (*Store, error) {
+	dbFile := filepath.Join(dataDir, eventSinkDB)
 	db, err := sql.Open("sqlite3", dbFile)
 	if err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 		return nil, err
 	}
 
-	return &SQLiteStore{db: db}, nil
+	return &Store{db: db}, nil
 }
 
 func processResult(result *sql.Rows) ([]*activity.Event, error) {
@@ -84,7 +84,7 @@ func processResult(result *sql.Rows) ([]*activity.Event, error) {
 }
 
 // Get returns "limit" number of events from index ordered descending or ascending by a timestamp
-func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bool) ([]*activity.Event, error) {
+func (store *Store) Get(accountID string, offset, limit int, descending bool) ([]*activity.Event, error) {
 	order := "DESC"
 	if !descending {
 		order = "ASC"
@@ -105,7 +105,7 @@ func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bo
 }
 
 // Save an event in the SQLite events table
-func (store *SQLiteStore) Save(event *activity.Event) (*activity.Event, error) {
+func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 
 	stmt, err := store.db.Prepare("INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) VALUES(?, ?, ?, ?, ?, ?)")
 	if err != nil {
@@ -136,8 +136,8 @@ func (store *SQLiteStore) Save(event *activity.Event) (*activity.Event, error) {
 	return eventCopy, nil
 }
 
-// Close the SQLiteStore
-func (store *SQLiteStore) Close() error {
+// Close the Store
+func (store *Store) Close() error {
 	if store.db != nil {
 		return store.db.Close()
 	}
