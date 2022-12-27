@@ -1,7 +1,8 @@
-package activity
+package sqlite
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -18,9 +19,9 @@ func TestNewSQLiteStore(t *testing.T) {
 	accountID := "account_1"
 
 	for i := 0; i < 10; i++ {
-		_, err = store.Save(&Event{
+		_, err = store.Save(&activity.Event{
 			Timestamp:   time.Now(),
-			Activity:    PeerAddedByUser,
+			Activity:    activity.PeerAddedByUser,
 			InitiatorID: "user_" + fmt.Sprint(i),
 			TargetID:    "peer_" + fmt.Sprint(i),
 			AccountID:   accountID,

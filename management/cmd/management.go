@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"github.com/miekg/dns"
-	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/activity/sqlite"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/metrics"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -143,7 +143,7 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			eventStore, err := activity.NewSQLiteStore(config.Datadir)
+			eventStore, err := sqlite.NewSQLiteStore(config.Datadir)
 			if err != nil {
 				return err
 			}

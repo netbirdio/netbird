@@ -1,9 +1,11 @@
-package activity
+package sqlite
 
 import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/activity"
+
 	// sqlite driver
 	_ "github.com/mattn/go-sqlite3"
 	"path/filepath"
@@ -44,11 +46,11 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 	return &SQLiteStore{db: db}, nil
 }
 
-func processResult(result *sql.Rows) ([]*Event, error) {
-	events := make([]*Event, 0)
+func processResult(result *sql.Rows) ([]*activity.Event, error) {
+	events := make([]*activity.Event, 0)
 	for result.Next() {
 		var id int64
-		var operation Activity
+		var operation activity.Activity
 		var timestamp time.Time
 		var initiator string
 		var target string
@@ -67,7 +69,7 @@ func processResult(result *sql.Rows) ([]*Event, error) {
 			}
 		}
 
-		events = append(events, &Event{
+		events = append(events, &activity.Event{
 			Timestamp:   timestamp,
 			Activity:    operation,
 			ID:          uint64(id),
@@ -82,7 +84,7 @@ func processResult(result *sql.Rows) ([]*Event, error) {
 }
 
 // Get returns "limit" number of events from index ordered descending or ascending by a timestamp
-func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bool) ([]*Event, error) {
+func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bool) ([]*activity.Event, error) {
 	order := "DESC"
 	if !descending {
 		order = "ASC"
@@ -103,7 +105,7 @@ func (store *SQLiteStore) Get(accountID string, offset, limit int, descending bo
 }
 
 // Save an event in the SQLite events table
-func (store *SQLiteStore) Save(event *Event) (*Event, error) {
+func (store *SQLiteStore) Save(event *activity.Event) (*activity.Event, error) {
 
 	stmt, err := store.db.Prepare("INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) VALUES(?, ?, ?, ?, ?, ?)")
 	if err != nil {
