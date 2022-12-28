@@ -98,6 +98,7 @@ See a complete [architecture overview](https://netbird.io/docs/overview/architec
 
 ### Community projects
 -  [NetBird on OpenWRT](https://github.com/messense/openwrt-netbird)
+-  [NetBird installer script](https://github.com/physk/netbird-installer)
 
 ### Support acknowledgement
 
