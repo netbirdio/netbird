@@ -1,7 +1,7 @@
 package server
 
 import (
-	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
@@ -937,10 +937,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	eventStore, err := activity.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		return nil, err
-	}
+	eventStore := &activity.NoopEventStore{}
 	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore)
 }
 

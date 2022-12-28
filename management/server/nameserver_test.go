@@ -2,7 +2,7 @@ package server
 
 import (
 	nbdns "github.com/netbirdio/netbird/dns"
-	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/stretchr/testify/require"
 	"net/netip"
 	"testing"
@@ -1057,10 +1057,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	eventStore, err := activity.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		return nil, err
-	}
+	eventStore := &activity.NoopEventStore{}
 	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore)
 }
 

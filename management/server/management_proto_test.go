@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"net"
 	"os"
 	"path/filepath"
@@ -404,10 +404,7 @@ func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, erro
 		return nil, err
 	}
 	peersUpdateManager := NewPeersUpdateManager()
-	eventStore, err := activity.NewSQLiteStore(t.TempDir())
-	if err != nil {
-		return nil, err
-	}
+	eventStore := &activity.NoopEventStore{}
 	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "",
 		eventStore)
 	if err != nil {

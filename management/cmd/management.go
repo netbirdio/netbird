@@ -257,6 +257,7 @@ var (
 			}
 			gRPCAPIHandler.Stop()
 			_ = store.Close()
+			_ = eventStore.Close()
 			log.Infof("stopped Management Service")
 
 			return nil

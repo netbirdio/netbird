@@ -2,7 +2,7 @@ package server_test
 
 import (
 	"context"
-	activity "github.com/netbirdio/netbird/management/server/activity/sqlite"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"math/rand"
 	"net"
 	"os"
@@ -494,10 +494,7 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	peersUpdateManager := server.NewPeersUpdateManager()
-	eventStore, err := activity.NewSQLiteStore(config.Datadir)
-	if err != nil {
-		log.Fatalf("failed creating a event store: %s: %v", config.Datadir, err)
-	}
+	eventStore := &activity.NoopEventStore{}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
 		eventStore)
 	if err != nil {
