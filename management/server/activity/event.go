@@ -1,6 +1,9 @@
 package activity
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 const (
 	// PeerAddedByUser indicates that a user added a new peer to the system
@@ -165,23 +168,44 @@ type Store interface {
 	Close() error
 }
 
-// NoopEventStore implements the Store interface without doing any operations
+// NoopEventStore implements the Store interface storing data in-memory
 type NoopEventStore struct {
+	mu     sync.Mutex
+	nextID uint64
+	events []*Event
 }
 
 // Save sets the Event.ID to 1
 func (store *NoopEventStore) Save(event *Event) (*Event, error) {
-	event.ID = 1
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.events == nil {
+		store.events = make([]*Event, 0)
+	}
+	event.ID = store.nextID
+	store.nextID++
+	store.events = append(store.events, event)
 	return event, nil
 }
 
-// Get returns an empty list of events
+// Get returns a list of ALL events that belong to the given accountID without taking offset, limit and order into consideration
 func (store *NoopEventStore) Get(accountID string, offset, limit int, descending bool) ([]*Event, error) {
-	return []*Event{}, nil
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	events := make([]*Event, 0)
+	for _, event := range store.events {
+		if event.AccountID == accountID {
+			events = append(events, event)
+		}
+	}
+	return events, nil
 }
 
-// Close doesn't close anything
+// Close cleans up the event list
 func (store *NoopEventStore) Close() error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.events = make([]*Event, 0)
 	return nil
 }
 
