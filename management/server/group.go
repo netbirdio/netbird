@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
 	"time"
 )
 
@@ -71,7 +72,7 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 }
 
 // SaveGroup object of the peers
-func (am *DefaultAccountManager) SaveGroup(accountID, userID string, group *Group) error {
+func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *Group) error {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -80,8 +81,8 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, group *Grou
 	if err != nil {
 		return err
 	}
-	_, exists := account.Groups[group.ID]
-	account.Groups[group.ID] = group
+	oldGroup, exists := account.Groups[newGroup.ID]
+	account.Groups[newGroup.ID] = newGroup
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
@@ -93,9 +94,58 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, group *Grou
 			Timestamp:   time.Now(),
 			Activity:    activity.GroupCreated,
 			InitiatorID: userID,
-			TargetID:    group.ID,
+			TargetID:    newGroup.ID,
 			AccountID:   accountID,
-			Meta:        group.EventMeta(),
+			Meta:        newGroup.EventMeta(),
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	addedPeers := make([]string, 0)
+	removedPeers := make([]string, 0)
+	if !exists {
+		addedPeers = append(addedPeers, newGroup.Peers...)
+	} else {
+		addedPeers = difference(newGroup.Peers, oldGroup.Peers)
+		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
+	}
+
+	for _, p := range addedPeers {
+		peer := account.Peers[p]
+		if peer == nil {
+			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
+			continue
+		}
+		_, err = am.eventStore.Save(&activity.Event{
+			Timestamp:   time.Now(),
+			Activity:    activity.GroupAddedToPeer,
+			InitiatorID: userID,
+			TargetID:    peer.IP.String(),
+			AccountID:   accountID,
+			Meta: map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
+				"peer_fqdn": peer.FQDN(am.GetDNSDomain())},
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, p := range removedPeers {
+		peer := account.Peers[p]
+		if peer == nil {
+			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
+			continue
+		}
+		_, err = am.eventStore.Save(&activity.Event{
+			Timestamp:   time.Now(),
+			Activity:    activity.GroupRemovedFromPeer,
+			InitiatorID: userID,
+			TargetID:    peer.IP.String(),
+			AccountID:   accountID,
+			Meta: map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
+				"peer_fqdn": peer.FQDN(am.GetDNSDomain())},
 		})
 		if err != nil {
 			return err
@@ -103,6 +153,21 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, group *Grou
 	}
 
 	return am.updateAccountPeers(account)
+}
+
+// difference returns the elements in `a` that aren't in `b`.
+func difference(a, b []string) []string {
+	mb := make(map[string]struct{}, len(b))
+	for _, x := range b {
+		mb[x] = struct{}{}
+	}
+	var diff []string
+	for _, x := range a {
+		if _, found := mb[x]; !found {
+			diff = append(diff, x)
+		}
+	}
+	return diff
 }
 
 // UpdateGroup updates a group using a list of operations

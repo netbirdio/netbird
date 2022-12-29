@@ -36,8 +36,10 @@ const (
 	GroupCreated
 	// GroupUpdated indicates that a user updated a group
 	GroupUpdated
-	// PeerGroupsUpdated indicates that a user updated groups of a peer
-	PeerGroupsUpdated
+	// GroupAddedToPeer indicates that a user added group to a peer
+	GroupAddedToPeer
+	// GroupRemovedFromPeer indicates that a user removed peer group
+	GroupRemovedFromPeer
 )
 
 const (
@@ -71,8 +73,10 @@ const (
 	GroupCreatedMessage string = "Group created"
 	// GroupUpdatedMessage is a human-readable text message of the GroupUpdated activity
 	GroupUpdatedMessage string = "Group updated"
-	// PeerGroupsUpdatedMessage is a human-readable text message of the PeerGroupsUpdated activity
-	PeerGroupsUpdatedMessage string = "Peer groups updated"
+	// GroupAddedToPeerMessage is a human-readable text message of the GroupAddedToPeer activity
+	GroupAddedToPeerMessage string = "Group added to peer"
+	// GroupRemovedFromPeerMessage is a human-readable text message of the GroupRemovedFromPeer activity
+	GroupRemovedFromPeerMessage string = "Group removed from peer"
 )
 
 // Activity that triggered an Event
@@ -111,8 +115,10 @@ func (a Activity) Message() string {
 		return GroupCreatedMessage
 	case GroupUpdated:
 		return GroupUpdatedMessage
-	case PeerGroupsUpdated:
-		return PeerGroupsUpdatedMessage
+	case GroupAddedToPeer:
+		return GroupAddedToPeerMessage
+	case GroupRemovedFromPeer:
+		return GroupRemovedFromPeerMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -151,8 +157,10 @@ func (a Activity) StringCode() string {
 		return "group.add"
 	case GroupUpdated:
 		return "group.update"
-	case PeerGroupsUpdated:
-		return "peer.groups.update"
+	case GroupRemovedFromPeer:
+		return "peer.group.delete"
+	case GroupAddedToPeer:
+		return "peer.group.add"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
