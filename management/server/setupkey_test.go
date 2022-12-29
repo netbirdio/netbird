@@ -73,6 +73,8 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	assert.Equal(t, newKeyName, ev.Meta["name"])
 	assert.Equal(t, fmt.Sprint(key.Type), fmt.Sprint(ev.Meta["type"]))
 	assert.NotEmpty(t, ev.Meta["key"])
+	assert.Equal(t, userID, ev.InitiatorID)
+	assert.Equal(t, key.Id, ev.TargetID)
 }
 
 func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
