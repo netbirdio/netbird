@@ -630,7 +630,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		return
 	}
 	expectedPeerKey := key.PublicKey().String()
-	expectedUserId := userID
+	expectedUserID := userID
 
 	peer, err := manager.AddPeer("", userID, &Peer{
 		Key:  expectedPeerKey,
@@ -656,8 +656,8 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		t.Errorf("expecting just added peer's IP %s to be in a network range %s", peer.IP.String(), account.Network.Net.String())
 	}
 
-	if peer.UserID != expectedUserId {
-		t.Errorf("expecting just added peer to have UserID = %s, got %s", expectedUserId, peer.UserID)
+	if peer.UserID != expectedUserID {
+		t.Errorf("expecting just added peer to have UserID = %s, got %s", expectedUserID, peer.UserID)
 	}
 
 	if account.Network.CurrentSerial() != 1 {
