@@ -171,7 +171,6 @@ func generateEvents(accountID, userID string) []*activity.Event {
 		AccountID:   accountID,
 		Meta:        map[string]any{"some": "meta"},
 	})
-	ID++
 	return events
 }
 
