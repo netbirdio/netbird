@@ -59,7 +59,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 		InitiatorID: userID,
 		TargetID:    "100.64.0.2",
 		AccountID:   accountID,
-		Meta:        map[string]any{},
+		Meta:        map[string]any{"some": "meta"},
 	})
 	ID++
 	events = append(events, &activity.Event{
@@ -242,6 +242,7 @@ func TestEvents_GetEvents(t *testing.T) {
 				assert.Equal(t, expected.TargetID, event.TargetId)
 				assert.Equal(t, expected.Activity.Message(), event.Activity)
 				assert.Equal(t, expected.Activity.StringCode(), string(event.ActivityCode))
+				assert.Equal(t, expected.Meta["some"], event.Meta["some"])
 				assert.True(t, expected.Timestamp.Equal(event.Timestamp))
 			}
 
