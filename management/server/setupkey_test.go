@@ -1,7 +1,9 @@
 package server
 
 import (
+	"fmt"
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/stretchr/testify/assert"
 	"strconv"
 	"testing"
@@ -53,6 +55,24 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 
 	assertKey(t, newKey, newKeyName, revoked, "reusable", 0, key.CreatedAt, key.ExpiresAt,
 		key.Id, time.Now(), autoGroups)
+
+	events, err := manager.GetEvents(account.Id, userID)
+	if err != nil {
+		return
+	}
+
+	var ev *activity.Event
+	for _, event := range events {
+		if event.Activity == activity.SetupKeyRevoked {
+			ev = event
+		}
+	}
+
+	assert.NotNil(t, ev)
+	assert.Equal(t, account.Id, ev.AccountID)
+	assert.Equal(t, newKeyName, ev.Meta["name"])
+	assert.Equal(t, fmt.Sprint(key.Type), fmt.Sprint(ev.Meta["type"]))
+	assert.NotEmpty(t, ev.Meta["key"])
 }
 
 func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
@@ -137,6 +157,24 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 			assertKey(t, key, tCase.expectedKeyName, false, tCase.expectedType, tCase.expectedUsedTimes,
 				tCase.expectedCreatedAt, tCase.expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))),
 				tCase.expectedUpdatedAt, tCase.expectedGroups)
+
+			events, err := manager.GetEvents(account.Id, userID)
+			if err != nil {
+				return
+			}
+
+			var ev *activity.Event
+			for _, event := range events {
+				if event.Activity == activity.SetupKeyCreated {
+					ev = event
+				}
+			}
+
+			assert.NotNil(t, ev)
+			assert.Equal(t, account.Id, ev.AccountID)
+			assert.Equal(t, tCase.expectedKeyName, ev.Meta["name"])
+			assert.Equal(t, tCase.expectedType, fmt.Sprint(ev.Meta["type"]))
+			assert.NotEmpty(t, ev.Meta["key"])
 		})
 	}
 
