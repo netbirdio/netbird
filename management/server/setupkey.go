@@ -4,6 +4,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
 	"hash/fnv"
 	"strconv"
 	"strings"
@@ -294,6 +295,53 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 			return nil, err
 		}
 	}
+
+	defer func() {
+		addedGroups := difference(newKey.AutoGroups, oldKey.AutoGroups)
+		removedGroups := difference(oldKey.AutoGroups, newKey.AutoGroups)
+		for _, g := range removedGroups {
+			group := account.GetGroup(g)
+			if group != nil {
+				_, err := am.eventStore.Save(&activity.Event{
+					Timestamp:   time.Now(),
+					Activity:    activity.GroupRemovedFromSetupKey,
+					InitiatorID: userID,
+					TargetID:    oldKey.Id,
+					AccountID:   accountID,
+					Meta:        map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name},
+				})
+				if err != nil {
+					log.Errorf("failed saving setup key activity event %s: %v",
+						activity.GroupRemovedFromSetupKey.StringCode(), err)
+					return
+				}
+			} else {
+				log.Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
+			}
+
+		}
+
+		for _, g := range addedGroups {
+			group := account.GetGroup(g)
+			if group != nil {
+				_, err := am.eventStore.Save(&activity.Event{
+					Timestamp:   time.Now(),
+					Activity:    activity.GroupAddedToSetupKey,
+					InitiatorID: userID,
+					TargetID:    oldKey.Id,
+					AccountID:   accountID,
+					Meta:        map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": newKey.Name},
+				})
+				if err != nil {
+					log.Errorf("failed saving setup key activity event %s: %v",
+						activity.GroupAddedToSetupKey.StringCode(), err)
+					return
+				}
+			} else {
+				log.Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
+			}
+		}
+	}()
 
 	return newKey, am.updateAccountPeers(account)
 }

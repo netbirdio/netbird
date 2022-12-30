@@ -41,6 +41,10 @@ const (
 	GroupRemovedFromUser
 	// UserRoleUpdated indicates that a user changed the role of a user
 	UserRoleUpdated
+	// GroupAddedToSetupKey indicates that a user added group to a setup key
+	GroupAddedToSetupKey
+	// GroupRemovedFromSetupKey indicates that a user removed a group from a setup key
+	GroupRemovedFromSetupKey
 )
 
 const (
@@ -84,6 +88,10 @@ const (
 	GroupRemovedFromUserMessage string = "Group removed from user"
 	// UserRoleUpdatedMessage is a human-readable text message of the UserRoleUpdatedMessage activity
 	UserRoleUpdatedMessage string = "User role updated"
+	// GroupAddedToSetupKeyMessage is a human-readable text message of the GroupAddedToSetupKey activity
+	GroupAddedToSetupKeyMessage string = "Group added to setup key"
+	// GroupRemovedFromSetupKeyMessage is a human-readable text message of the GroupRemovedFromSetupKey activity
+	GroupRemovedFromSetupKeyMessage string = "Group removed from user setup key"
 )
 
 // Activity that triggered an Event
@@ -132,6 +140,10 @@ func (a Activity) Message() string {
 		return GroupAddedToUserMessage
 	case UserRoleUpdated:
 		return UserRoleUpdatedMessage
+	case GroupAddedToSetupKey:
+		return GroupAddedToSetupKeyMessage
+	case GroupRemovedFromSetupKey:
+		return GroupRemovedFromSetupKeyMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -180,6 +192,10 @@ func (a Activity) StringCode() string {
 		return "user.group.delete"
 	case UserRoleUpdated:
 		return "user.role.update"
+	case GroupAddedToSetupKey:
+		return "setupkey.group.add"
+	case GroupRemovedFromSetupKey:
+		return "setupkey.group.delete"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}

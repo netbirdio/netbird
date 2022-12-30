@@ -292,7 +292,6 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 			} else {
 				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 			}
-
 		}
 	}()
 
