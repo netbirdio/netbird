@@ -34,7 +34,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -60,7 +60,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newUser, err := h.accountManager.SaveUser(account.Id, &server.User{
+	newUser, err := h.accountManager.SaveUser(account.Id, user.Id, &server.User{
 		Id:         userID,
 		Role:       userRole,
 		AutoGroups: req.AutoGroups,

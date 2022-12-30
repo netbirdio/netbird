@@ -44,7 +44,7 @@ type AccountManager interface {
 	SaveSetupKey(accountID string, key *SetupKey, userID string) (*SetupKey, error)
 	CreateUser(accountID, userID string, key *UserInfo) (*UserInfo, error)
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
-	SaveUser(accountID string, key *User) (*UserInfo, error)
+	SaveUser(accountID, userID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
@@ -252,6 +252,11 @@ func (a *Account) GetPeerRules(peerPubKey string) (srcRules []*Rule, dstRules []
 	}
 
 	return srcRules, dstRules
+}
+
+// GetGroup returns a group by ID if exists, nil otherwise
+func (a *Account) GetGroup(groupID string) *Group {
+	return a.Groups[groupID]
 }
 
 // GetPeers returns a list of all Account peers

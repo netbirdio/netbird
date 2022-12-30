@@ -30,6 +30,7 @@ const (
 	EventActivityCodeUserJoin        EventActivityCode = "user.join"
 	EventActivityCodeUserPeerAdd     EventActivityCode = "user.peer.add"
 	EventActivityCodeUserPeerDelete  EventActivityCode = "user.peer.delete"
+	EventActivityCodeUserRoleUpdate  EventActivityCode = "user.role.update"
 )
 
 // Defines values for GroupPatchOperationOp.
