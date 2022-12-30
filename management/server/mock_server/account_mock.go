@@ -53,7 +53,7 @@ type MockAccountManager struct {
 	ListRoutesFunc                  func(accountID, userID string) ([]*route.Route, error)
 	SaveSetupKeyFunc                func(accountID string, key *server.SetupKey, userID string) (*server.SetupKey, error)
 	ListSetupKeysFunc               func(accountID, userID string) ([]*server.SetupKey, error)
-	SaveUserFunc                    func(accountID string, user *server.User) (*server.UserInfo, error)
+	SaveUserFunc                    func(accountID, userID string, user *server.User) (*server.UserInfo, error)
 	GetNameServerGroupFunc          func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroupFunc       func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroupFunc         func(accountID string, nsGroupToSave *nbdns.NameServerGroup) error
@@ -404,9 +404,9 @@ func (am *MockAccountManager) ListSetupKeys(accountID, userID string) ([]*server
 }
 
 // SaveUser mocks SaveUser of the AccountManager interface
-func (am *MockAccountManager) SaveUser(accountID string, user *server.User) (*server.UserInfo, error) {
+func (am *MockAccountManager) SaveUser(accountID, userID string, user *server.User) (*server.UserInfo, error) {
 	if am.SaveUserFunc != nil {
-		return am.SaveUserFunc(accountID, user)
+		return am.SaveUserFunc(accountID, userID, user)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SaveUser is not implemented")
 }
