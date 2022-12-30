@@ -24,6 +24,8 @@ const (
 	EventActivityCodeSetupkeyPeerAdd EventActivityCode = "setupkey.peer.add"
 	EventActivityCodeSetupkeyRevoke  EventActivityCode = "setupkey.revoke"
 	EventActivityCodeSetupkeyUpdate  EventActivityCode = "setupkey.update"
+	EventActivityCodeUserGroupAdd    EventActivityCode = "user.group.add"
+	EventActivityCodeUserGroupDelete EventActivityCode = "user.group.delete"
 	EventActivityCodeUserInvite      EventActivityCode = "user.invite"
 	EventActivityCodeUserJoin        EventActivityCode = "user.join"
 	EventActivityCodeUserPeerAdd     EventActivityCode = "user.peer.add"

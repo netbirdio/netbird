@@ -1312,7 +1312,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	eventStore := &activity.NoopEventStore{}
+	eventStore := &activity.InMemoryEventStore{}
 	return BuildManager(store, NewPeersUpdateManager(), nil, "", "netbird.cloud", eventStore)
 }
 

@@ -404,7 +404,7 @@ func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, erro
 		return nil, err
 	}
 	peersUpdateManager := NewPeersUpdateManager()
-	eventStore := &activity.NoopEventStore{}
+	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "",
 		eventStore)
 	if err != nil {

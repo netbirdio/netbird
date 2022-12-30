@@ -69,7 +69,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 	}
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager()
-	eventStore := &activity.NoopEventStore{}
+	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
 		return nil, nil
 	}

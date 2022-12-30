@@ -519,7 +519,8 @@ components:
         activity_code:
           description: The string code of the activity that occurred during the event
           type: string
-          enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add",
+          enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add", "user.group.add", "user.group.delete",
+                  "user.role.update",
                   "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
                   "rule.add", "rule.delete", "rule.update",
                   "group.add", "group.update",
