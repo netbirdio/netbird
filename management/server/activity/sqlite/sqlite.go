@@ -23,6 +23,11 @@ const (
 		"account_id TEXT," +
 		"meta TEXT," +
 		" target_id TEXT);"
+
+	selectStatement = "SELECT id, activity, timestamp, initiator_id, target_id, account_id, meta" +
+		" FROM events WHERE account_id = ? ORDER BY timestamp %s LIMIT ? OFFSET ?;"
+	insertStatement = "INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) " +
+		"VALUES(?, ?, ?, ?, ?, ?)"
 )
 
 // Store is the implementation of the activity.Store interface backed by SQLite
@@ -89,8 +94,7 @@ func (store *Store) Get(accountID string, offset, limit int, descending bool) ([
 	if !descending {
 		order = "ASC"
 	}
-	stmt, err := store.db.Prepare(fmt.Sprintf("SELECT id, activity, timestamp, initiator_id, target_id, account_id, meta"+
-		" FROM events WHERE account_id = ? ORDER BY timestamp %s LIMIT ? OFFSET ?;", order))
+	stmt, err := store.db.Prepare(fmt.Sprintf(selectStatement, order))
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +111,7 @@ func (store *Store) Get(accountID string, offset, limit int, descending bool) ([
 // Save an event in the SQLite events table
 func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 
-	stmt, err := store.db.Prepare("INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) VALUES(?, ?, ?, ?, ?, ?)")
+	stmt, err := store.db.Prepare(insertStatement)
 	if err != nil {
 		return nil, err
 	}
