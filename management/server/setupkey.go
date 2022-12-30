@@ -238,6 +238,27 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 		return nil, err
 	}
 
+	for _, g := range setupKey.AutoGroups {
+		group := account.GetGroup(g)
+		if group != nil {
+			_, err := am.eventStore.Save(&activity.Event{
+				Timestamp:   time.Now(),
+				Activity:    activity.GroupAddedToSetupKey,
+				InitiatorID: userID,
+				TargetID:    setupKey.Id,
+				AccountID:   accountID,
+				Meta:        map[string]any{"group": group.Name, "group_id": group.ID, "setupkey": setupKey.Name},
+			})
+			if err != nil {
+				log.Errorf("failed saving setup key activity event %s: %v",
+					activity.GroupAddedToSetupKey.StringCode(), err)
+				continue
+			}
+		} else {
+			log.Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
+		}
+	}
+
 	return setupKey, nil
 }
 
@@ -313,7 +334,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 				if err != nil {
 					log.Errorf("failed saving setup key activity event %s: %v",
 						activity.GroupRemovedFromSetupKey.StringCode(), err)
-					return
+					continue
 				}
 			} else {
 				log.Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)
@@ -335,7 +356,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 				if err != nil {
 					log.Errorf("failed saving setup key activity event %s: %v",
 						activity.GroupAddedToSetupKey.StringCode(), err)
-					return
+					continue
 				}
 			} else {
 				log.Errorf("group %s not found while saving setup key activity event of account %s", g, account.Id)

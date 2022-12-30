@@ -265,7 +265,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 				if err != nil {
 					log.Errorf("failed saving user activity event %s %v",
 						activity.GroupRemovedFromUser.StringCode(), err)
-					return
+					continue
 				}
 			} else {
 				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
@@ -287,7 +287,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 				if err != nil {
 					log.Errorf("failed saving user activity event %s: %v",
 						activity.GroupAddedToUser.StringCode(), err)
-					return
+					continue
 				}
 			} else {
 				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
