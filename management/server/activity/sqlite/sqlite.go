@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/activity"
+	log "github.com/sirupsen/logrus"
 
 	// sqlite driver
 	_ "github.com/mattn/go-sqlite3"
@@ -28,6 +29,8 @@ const (
 		" FROM events WHERE account_id = ? ORDER BY timestamp %s LIMIT ? OFFSET ?;"
 	insertStatement = "INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) " +
 		"VALUES(?, ?, ?, ?, ?, ?)"
+
+	cleanupStatement = "DELETE FROM events where timestamp <= ?;"
 )
 
 // Store is the implementation of the activity.Store interface backed by SQLite
@@ -47,8 +50,37 @@ func NewSQLiteStore(dataDir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	store := &Store{db: db}
+	go func() {
+		for {
+			now := time.Now()
+			threshold := 14 * 24 * time.Hour
+			sleepFor := time.Hour
+			stmt, err := store.db.Prepare(cleanupStatement)
+			if err != nil {
+				log.Errorf("failed cleaning up SQLite store: %v", err)
+				continue
+			}
+			result, err := stmt.Exec(now.Add(-threshold))
+			if err != nil {
+				log.Errorf("failed cleaning up SQLite store: %v", err)
+				continue
+			}
 
-	return &Store{db: db}, nil
+			rowsAffected, err := result.RowsAffected()
+			if err != nil {
+				log.Errorf("failed cleaning up SQLite store: %v", err)
+				continue
+			} //nolint
+
+			log.Infof("cleaned up SQLite event store - removed events older than %v, took %v, rows affected %v",
+				now.Add(-threshold), time.Now().Sub(now), rowsAffected)
+
+			time.Sleep(sleepFor)
+		}
+	}()
+
+	return store, nil
 }
 
 func processResult(result *sql.Rows) ([]*activity.Event, error) {
