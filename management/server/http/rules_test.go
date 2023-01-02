@@ -22,7 +22,7 @@ import (
 func initRulesTestData(rules ...*server.Rule) *Rules {
 	return &Rules{
 		accountManager: &mock_server.MockAccountManager{
-			SaveRuleFunc: func(_ string, rule *server.Rule) error {
+			SaveRuleFunc: func(_, _ string, rule *server.Rule) error {
 				if !strings.HasPrefix(rule.ID, "id-") {
 					rule.ID = "id-was-set"
 				}

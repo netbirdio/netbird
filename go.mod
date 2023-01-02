@@ -40,6 +40,7 @@ require (
 	github.com/hashicorp/go-version v1.6.0
 	github.com/libp2p/go-netroute v0.2.0
 	github.com/magiconair/properties v1.8.5
+	github.com/mattn/go-sqlite3 v1.14.16
 	github.com/miekg/dns v1.1.41
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/patrickmn/go-cache v2.1.0+incompatible

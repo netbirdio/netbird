@@ -1,7 +1,9 @@
 package server
 
 import (
+	"fmt"
 	"github.com/google/uuid"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/stretchr/testify/assert"
 	"strconv"
 	"testing"
@@ -20,7 +22,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(account.Id, &Group{
+	err = manager.SaveGroup(account.Id, userID, &Group{
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
@@ -33,7 +35,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	keyName := "my-test-key"
 
 	key, err := manager.CreateSetupKey(account.Id, keyName, SetupKeyReusable, expiresIn, []string{},
-		SetupKeyUnlimitedUsage)
+		SetupKeyUnlimitedUsage, userID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,13 +48,33 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 		Name:       newKeyName,
 		Revoked:    revoked,
 		AutoGroups: autoGroups,
-	})
+	}, userID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	assertKey(t, newKey, newKeyName, revoked, "reusable", 0, key.CreatedAt, key.ExpiresAt,
 		key.Id, time.Now(), autoGroups)
+
+	events, err := manager.GetEvents(account.Id, userID)
+	if err != nil {
+		return
+	}
+
+	var ev *activity.Event
+	for _, event := range events {
+		if event.Activity == activity.SetupKeyRevoked {
+			ev = event
+		}
+	}
+
+	assert.NotNil(t, ev)
+	assert.Equal(t, account.Id, ev.AccountID)
+	assert.Equal(t, newKeyName, ev.Meta["name"])
+	assert.Equal(t, fmt.Sprint(key.Type), fmt.Sprint(ev.Meta["type"]))
+	assert.NotEmpty(t, ev.Meta["key"])
+	assert.Equal(t, userID, ev.InitiatorID)
+	assert.Equal(t, key.Id, ev.TargetID)
 }
 
 func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
@@ -67,7 +89,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(account.Id, &Group{
+	err = manager.SaveGroup(account.Id, userID, &Group{
 		ID:    "group_1",
 		Name:  "group_name_1",
 		Peers: []string{},
@@ -76,7 +98,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = manager.SaveGroup(account.Id, &Group{
+	err = manager.SaveGroup(account.Id, userID, &Group{
 		ID:    "group_2",
 		Name:  "group_name_2",
 		Peers: []string{},
@@ -121,7 +143,7 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 	for _, tCase := range []testCase{testCase1, testCase2} {
 		t.Run(tCase.name, func(t *testing.T) {
 			key, err := manager.CreateSetupKey(account.Id, tCase.expectedKeyName, SetupKeyReusable, expiresIn,
-				tCase.expectedGroups, SetupKeyUnlimitedUsage)
+				tCase.expectedGroups, SetupKeyUnlimitedUsage, userID)
 
 			if tCase.expectedFailure {
 				if err == nil {
@@ -137,6 +159,24 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 			assertKey(t, key, tCase.expectedKeyName, false, tCase.expectedType, tCase.expectedUsedTimes,
 				tCase.expectedCreatedAt, tCase.expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))),
 				tCase.expectedUpdatedAt, tCase.expectedGroups)
+
+			events, err := manager.GetEvents(account.Id, userID)
+			if err != nil {
+				return
+			}
+
+			var ev *activity.Event
+			for _, event := range events {
+				if event.Activity == activity.SetupKeyCreated {
+					ev = event
+				}
+			}
+
+			assert.NotNil(t, ev)
+			assert.Equal(t, account.Id, ev.AccountID)
+			assert.Equal(t, tCase.expectedKeyName, ev.Meta["name"])
+			assert.Equal(t, tCase.expectedType, fmt.Sprint(ev.Meta["type"]))
+			assert.NotEmpty(t, ev.Meta["key"])
 		})
 	}
 

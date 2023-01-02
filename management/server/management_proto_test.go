@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"net"
 	"os"
 	"path/filepath"
@@ -403,7 +404,9 @@ func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, erro
 		return nil, err
 	}
 	peersUpdateManager := NewPeersUpdateManager()
-	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "")
+	eventStore := &activity.InMemoryEventStore{}
+	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "",
+		eventStore)
 	if err != nil {
 		return nil, err
 	}
