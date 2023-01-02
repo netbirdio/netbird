@@ -51,6 +51,11 @@ func NewSQLiteStore(dataDir string) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{db: db}
+	store.runCleanupRoutine()
+	return store, nil
+}
+
+func (store *Store) runCleanupRoutine() {
 	go func() {
 		for {
 			now := time.Now()
@@ -79,8 +84,6 @@ func NewSQLiteStore(dataDir string) (*Store, error) {
 			time.Sleep(sleepFor)
 		}
 	}()
-
-	return store, nil
 }
 
 func processResult(result *sql.Rows) ([]*activity.Event, error) {
