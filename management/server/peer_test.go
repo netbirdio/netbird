@@ -87,9 +87,9 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	expectedId := "test_account"
-	userId := "account_creator"
-	account, err := createAccount(manager, expectedId, userId, "")
+	expectedID := "test_account"
+	userID := "account_creator"
+	account, err := createAccount(manager, expectedID, userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,13 +134,13 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	rules, err := manager.ListRules(account.Id, userId)
+	rules, err := manager.ListRules(account.Id, userID)
 	if err != nil {
 		t.Errorf("expecting to get a list of rules, got failure %v", err)
 		return
 	}
 
-	err = manager.DeleteRule(account.Id, rules[0].ID)
+	err = manager.DeleteRule(account.Id, rules[0].ID, userID)
 	if err != nil {
 		t.Errorf("expecting to delete 1 group, got failure %v", err)
 		return
@@ -159,12 +159,12 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 	group1.Peers = append(group1.Peers, peerKey1.PublicKey().String())
 	group2.Peers = append(group2.Peers, peerKey2.PublicKey().String())
 
-	err = manager.SaveGroup(account.Id, &group1)
+	err = manager.SaveGroup(account.Id, userID, &group1)
 	if err != nil {
 		t.Errorf("expecting group1 to be added, got failure %v", err)
 		return
 	}
-	err = manager.SaveGroup(account.Id, &group2)
+	err = manager.SaveGroup(account.Id, userID, &group2)
 	if err != nil {
 		t.Errorf("expecting group2 to be added, got failure %v", err)
 		return
@@ -174,7 +174,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 	rule.Source = append(rule.Source, group1.ID)
 	rule.Destination = append(rule.Destination, group2.ID)
 	rule.Flow = TrafficFlowBidirect
-	err = manager.SaveRule(account.Id, &rule)
+	err = manager.SaveRule(account.Id, userID, &rule)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -222,7 +222,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 	}
 
 	rule.Disabled = true
-	err = manager.SaveRule(account.Id, &rule)
+	err = manager.SaveRule(account.Id, userID, &rule)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return

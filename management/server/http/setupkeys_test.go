@@ -47,7 +47,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				}, user, nil
 			},
 			CreateSetupKeyFunc: func(_ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string,
-				_ int) (*server.SetupKey, error) {
+				_ int, _ string) (*server.SetupKey, error) {
 				if keyName == newKey.Name || typ != newKey.Type {
 					return newKey, nil
 				}
@@ -64,7 +64,7 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				}
 			},
 
-			SaveSetupKeyFunc: func(accountID string, key *server.SetupKey) (*server.SetupKey, error) {
+			SaveSetupKeyFunc: func(accountID string, key *server.SetupKey, _ string) (*server.SetupKey, error) {
 				if key.Id == updatedSetupKey.Id {
 					return updatedSetupKey, nil
 				}

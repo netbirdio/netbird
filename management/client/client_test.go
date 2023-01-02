@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"net"
 	"path/filepath"
 	"sync"
@@ -55,7 +56,9 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 	}
 
 	peersUpdateManager := mgmt.NewPeersUpdateManager()
-	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "")
+	eventStore := &activity.InMemoryEventStore{}
+	accountManager, err := mgmt.BuildManager(store, peersUpdateManager, nil, "", "",
+		eventStore)
 	if err != nil {
 		t.Fatal(err)
 	}

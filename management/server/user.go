@@ -2,11 +2,13 @@ package server
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
-	"github.com/netbirdio/netbird/management/server/status"
-	"strings"
-
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/status"
+	log "github.com/sirupsen/logrus"
+	"strings"
+	"time"
 )
 
 const (
@@ -117,7 +119,7 @@ func NewAdminUser(id string) *User {
 }
 
 // CreateUser creates a new user under the given account. Effectively this is a user invite.
-func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) (*UserInfo, error) {
+func (am *DefaultAccountManager) CreateUser(accountID, userID string, invite *UserInfo) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -176,13 +178,26 @@ func (am *DefaultAccountManager) CreateUser(accountID string, invite *UserInfo) 
 		return nil, err
 	}
 
+	event := &activity.Event{
+		Timestamp:   time.Now(),
+		Activity:    activity.UserInvited,
+		AccountID:   account.Id,
+		TargetID:    newUser.Id,
+		InitiatorID: userID,
+	}
+
+	_, err = am.eventStore.Save(event)
+	if err != nil {
+		return nil, err
+	}
+
 	return newUser.toUserInfo(idpUser)
 
 }
 
 // SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.
 // Only User.AutoGroups field is allowed to be updated for now.
-func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*UserInfo, error) {
+func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -217,6 +232,68 @@ func (am *DefaultAccountManager) SaveUser(accountID string, update *User) (*User
 	if err = am.Store.SaveAccount(account); err != nil {
 		return nil, err
 	}
+
+	defer func() {
+		if oldUser.Role != newUser.Role {
+			_, err := am.eventStore.Save(&activity.Event{
+				Timestamp:   time.Now(),
+				Activity:    activity.UserRoleUpdated,
+				InitiatorID: userID,
+				TargetID:    oldUser.Id,
+				AccountID:   accountID,
+				Meta:        map[string]any{"role": newUser.Role},
+			})
+			if err != nil {
+				log.Errorf("failed saving user activity event %v", err)
+				return
+			}
+		}
+
+		removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
+		addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
+		for _, g := range removedGroups {
+			group := account.GetGroup(g)
+			if group != nil {
+				_, err := am.eventStore.Save(&activity.Event{
+					Timestamp:   time.Now(),
+					Activity:    activity.GroupRemovedFromUser,
+					InitiatorID: userID,
+					TargetID:    oldUser.Id,
+					AccountID:   accountID,
+					Meta:        map[string]any{"group": group.Name, "group_id": group.ID},
+				})
+				if err != nil {
+					log.Errorf("failed saving user activity event %s %v",
+						activity.GroupRemovedFromUser.StringCode(), err)
+					continue
+				}
+			} else {
+				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+			}
+
+		}
+
+		for _, g := range addedGroups {
+			group := account.GetGroup(g)
+			if group != nil {
+				_, err := am.eventStore.Save(&activity.Event{
+					Timestamp:   time.Now(),
+					Activity:    activity.GroupAddedToUser,
+					InitiatorID: userID,
+					TargetID:    oldUser.Id,
+					AccountID:   accountID,
+					Meta:        map[string]any{"group": group.Name, "group_id": group.ID},
+				})
+				if err != nil {
+					log.Errorf("failed saving user activity event %s: %v",
+						activity.GroupAddedToUser.StringCode(), err)
+					continue
+				}
+			} else {
+				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+			}
+		}
+	}()
 
 	if !isNil(am.idpManager) {
 		userData, err := am.lookupUserInCache(newUser.Id, account)

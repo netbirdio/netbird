@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/route"
 	"net"
 	"reflect"
@@ -112,23 +113,43 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 		return
 	}
 
-	userId := "test_user"
-	account, err := manager.GetOrCreateAccountByUser(userId, "")
+	account, err := manager.GetOrCreateAccountByUser(userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if account == nil {
-		t.Fatalf("expected to create an account for a user %s", userId)
+		t.Fatalf("expected to create an account for a user %s", userID)
+		return
 	}
 
-	account, err = manager.Store.GetAccountByUser(userId)
+	account, err = manager.Store.GetAccountByUser(userID)
 	if err != nil {
-		t.Errorf("expected to get existing account after creation, no account was found for a user %s", userId)
+		t.Errorf("expected to get existing account after creation, no account was found for a user %s", userID)
+		return
 	}
 
-	if account != nil && account.Users[userId] == nil {
-		t.Fatalf("expected to create an account for a user %s but no user was found after creation udner the account %s", userId, account.Id)
+	if account != nil && account.Users[userID] == nil {
+		t.Fatalf("expected to create an account for a user %s but no user was found after creation udner the account %s", userID, account.Id)
+		return
 	}
+
+	// check the corresponding events that should have been generated
+	events, err := manager.GetEvents(account.Id, userID)
+	if err != nil {
+		return
+	}
+
+	var ev *activity.Event
+	for _, event := range events {
+		if event.Activity == activity.AccountCreated {
+			ev = event
+		}
+	}
+
+	assert.NotNil(t, ev)
+	assert.Equal(t, account.Id, ev.AccountID)
+	assert.Equal(t, userID, ev.InitiatorID)
+	assert.Equal(t, account.Id, ev.TargetID)
 }
 
 func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
@@ -500,7 +521,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	account, err := createAccount(manager, "test_account", "account_creator", "")
+	account, err := createAccount(manager, "test_account", "account_creator", "netbird.cloud")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,6 +582,27 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	if account.Network.CurrentSerial() != 1 {
 		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
 	}
+
+	// check the corresponding events that should have been generated
+	events, err := manager.GetEvents(account.Id, userID)
+	if err != nil {
+		return
+	}
+
+	var ev *activity.Event
+	for _, event := range events {
+		if event.Activity == activity.PeerAddedWithSetupKey {
+			ev = event
+		}
+	}
+
+	assert.NotNil(t, ev)
+	assert.Equal(t, account.Id, ev.AccountID)
+	assert.Equal(t, peer.Name, ev.Meta["name"])
+	assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
+	assert.Equal(t, setupKey.Id, ev.InitiatorID)
+	assert.Equal(t, peer.IP.String(), ev.TargetID)
+	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
 func TestAccountManager_AddPeerWithUserID(t *testing.T) {
@@ -570,9 +612,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		return
 	}
 
-	userId := "account_creator"
-
-	account, err := manager.GetOrCreateAccountByUser(userId, "")
+	account, err := manager.GetOrCreateAccountByUser(userID, "netbird.cloud")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,9 +630,9 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		return
 	}
 	expectedPeerKey := key.PublicKey().String()
-	expectedUserId := userId
+	expectedUserID := userID
 
-	peer, err := manager.AddPeer("", userId, &Peer{
+	peer, err := manager.AddPeer("", userID, &Peer{
 		Key:  expectedPeerKey,
 		Meta: PeerSystemMeta{},
 		Name: expectedPeerKey,
@@ -616,13 +656,34 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		t.Errorf("expecting just added peer's IP %s to be in a network range %s", peer.IP.String(), account.Network.Net.String())
 	}
 
-	if peer.UserID != expectedUserId {
-		t.Errorf("expecting just added peer to have UserID = %s, got %s", expectedUserId, peer.UserID)
+	if peer.UserID != expectedUserID {
+		t.Errorf("expecting just added peer to have UserID = %s, got %s", expectedUserID, peer.UserID)
 	}
 
 	if account.Network.CurrentSerial() != 1 {
 		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
 	}
+
+	// check the corresponding events that should have been generated
+	events, err := manager.GetEvents(account.Id, userID)
+	if err != nil {
+		return
+	}
+
+	var ev *activity.Event
+	for _, event := range events {
+		if event.Activity == activity.PeerAddedByUser {
+			ev = event
+		}
+	}
+
+	assert.NotNil(t, ev)
+	assert.Equal(t, account.Id, ev.AccountID)
+	assert.Equal(t, peer.Name, ev.Meta["name"])
+	assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
+	assert.Equal(t, userID, ev.InitiatorID)
+	assert.Equal(t, peer.IP.String(), ev.TargetID)
+	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
 func TestAccountManager_NetworkUpdates(t *testing.T) {
@@ -632,7 +693,9 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		return
 	}
 
-	account, err := createAccount(manager, "test_account", "account_creator", "")
+	userID := "account_creator"
+
+	account, err := createAccount(manager, "test_account", userID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -714,7 +777,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.SaveGroup(account.Id, &group); err != nil {
+		if err := manager.SaveGroup(account.Id, userID, &group); err != nil {
 			t.Errorf("save group: %v", err)
 			return
 		}
@@ -739,7 +802,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			defaultRule = r
 		}
 
-		if err := manager.DeleteRule(account.Id, defaultRule.ID); err != nil {
+		if err := manager.DeleteRule(account.Id, defaultRule.ID, userID); err != nil {
 			t.Errorf("delete default rule: %v", err)
 			return
 		}
@@ -759,7 +822,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.SaveRule(account.Id, &rule); err != nil {
+		if err := manager.SaveRule(account.Id, userID, &rule); err != nil {
 			t.Errorf("delete default rule: %v", err)
 			return
 		}
@@ -779,7 +842,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if _, err := manager.DeletePeer(account.Id, peer3.Key); err != nil {
+		if _, err := manager.DeletePeer(account.Id, peer3.Key, userID); err != nil {
 			t.Errorf("delete peer: %v", err)
 			return
 		}
@@ -814,8 +877,8 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-
-	account, err := createAccount(manager, "test_account", "account_creator", "")
+	userID := "account_creator"
+	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -833,7 +896,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 
 	peerKey := key.PublicKey().String()
 
-	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
+	peer, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey,
 		Meta: PeerSystemMeta{},
 		Name: peerKey,
@@ -843,7 +906,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		return
 	}
 
-	_, err = manager.DeletePeer(account.Id, peerKey)
+	_, err = manager.DeletePeer(account.Id, peerKey, userID)
 	if err != nil {
 		return
 	}
@@ -857,6 +920,27 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	if account.Network.CurrentSerial() != 2 {
 		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.CurrentSerial())
 	}
+
+	// check the corresponding events that should have been generated
+	events, err := manager.GetEvents(account.Id, userID)
+	if err != nil {
+		return
+	}
+
+	var ev *activity.Event
+	for _, event := range events {
+		if event.Activity == activity.PeerRemovedByUser {
+			ev = event
+		}
+	}
+
+	assert.NotNil(t, ev)
+	assert.Equal(t, account.Id, ev.AccountID)
+	assert.Equal(t, peer.Name, ev.Meta["name"])
+	assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
+	assert.Equal(t, userID, ev.InitiatorID)
+	assert.Equal(t, peer.IP.String(), ev.TargetID)
+	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
 func TestGetUsersFromAccount(t *testing.T) {
@@ -1228,7 +1312,8 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "")
+	eventStore := &activity.InMemoryEventStore{}
+	return BuildManager(store, NewPeersUpdateManager(), nil, "", "netbird.cloud", eventStore)
 }
 
 func createStore(t *testing.T) (Store, error) {

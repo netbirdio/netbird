@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"math/rand"
 	"net"
 	"os"
@@ -493,7 +494,9 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	peersUpdateManager := server.NewPeersUpdateManager()
-	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "")
+	eventStore := &activity.InMemoryEventStore{}
+	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
+		eventStore)
 	if err != nil {
 		log.Fatalf("failed creating a manager: %v", err)
 	}

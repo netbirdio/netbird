@@ -18,6 +18,8 @@ tags:
     description: Interact with and view information about routes.
   - name: DNS
     description: Interact with and view information about DNS configuration.
+  - name: Events
+    description: View information about the account and network events.
 components:
   schemas:
     User:
@@ -45,12 +47,12 @@ components:
           items:
             type: string
       required:
-      - id
-      - email
-      - name
-      - role
-      - auto_groups
-      - status
+        - id
+        - email
+        - name
+        - role
+        - auto_groups
+        - status
     UserRequest:
       type: object
       properties:
@@ -96,8 +98,8 @@ components:
           description: Peer's hostname
           type: string
       required:
-      - id
-      - name
+        - id
+        - name
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -140,15 +142,15 @@ components:
               description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
               type: string
           required:
-          - ip
-          - connected
-          - last_seen
-          - os
-          - version
-          - groups
-          - ssh_enabled
-          - hostname
-          - dns_label
+            - ip
+            - connected
+            - last_seen
+            - os
+            - version
+            - groups
+            - ssh_enabled
+            - hostname
+            - dns_label
     SetupKey:
       type: object
       properties:
@@ -197,19 +199,19 @@ components:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
       required:
-      - id
-      - key
-      - name
-      - expires
-      - type
-      - valid
-      - revoked
-      - used_times
-      - last_used
-      - state
-      - auto_groups
-      - updated_at
-      - usage_limit
+        - id
+        - key
+        - name
+        - expires
+        - type
+        - valid
+        - revoked
+        - used_times
+        - last_used
+        - state
+        - auto_groups
+        - updated_at
+        - usage_limit
     SetupKeyRequest:
       type: object
       properties:
@@ -253,9 +255,9 @@ components:
           description: Count of peers associated to the group
           type: integer
       required:
-      - id
-      - name
-      - peers_count
+        - id
+        - name
+        - peers_count
     Group:
       allOf:
         - $ref: '#/components/schemas/GroupMinimum'
@@ -267,7 +269,7 @@ components:
               items:
                 $ref: '#/components/schemas/PeerMinimum'
           required:
-          - peers
+            - peers
     PatchMinimum:
       type: object
       properties:
@@ -311,10 +313,10 @@ components:
           description: Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
           type: string
       required:
-      - name
-      - description
-      - disabled
-      - flow
+        - name
+        - description
+        - disabled
+        - flow
     Rule:
       allOf:
         - type: object
@@ -323,7 +325,7 @@ components:
               description: Rule ID
               type: string
           required:
-          - id
+            - id
         - $ref: '#/components/schemas/RuleMinimum'
         - type: object
           properties:
@@ -338,8 +340,8 @@ components:
               items:
                 $ref: '#/components/schemas/GroupMinimum'
           required:
-          - sources
-          - destinations
+            - sources
+            - destinations
     RulePatchOperation:
       allOf:
         - $ref: '#/components/schemas/PatchMinimum'
@@ -428,7 +430,7 @@ components:
         ns_type:
           description: Nameserver Type
           type: string
-          enum: ["udp"]
+          enum: [ "udp" ]
         port:
           description: Nameserver Port
           type: integer
@@ -498,32 +500,74 @@ components:
             path:
               description: Nameserver group field to update in form /<field>
               type: string
-              enum: [ "name", "description", "enabled", "groups", "nameservers", "primary", "domains"  ]
+              enum: [ "name", "description", "enabled", "groups", "nameservers", "primary", "domains" ]
           required:
             - path
-
+    Event:
+      type: object
+      properties:
+        id:
+          description: Event unique identifier
+          type: string
+        timestamp:
+          description: The date and time when the event occurred
+          type: string
+          format: date-time
+        activity:
+          description: The activity that occurred during the event
+          type: string
+        activity_code:
+          description: The string code of the activity that occurred during the event
+          type: string
+          enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add", "user.group.add", "user.group.delete",
+                  "user.role.update",
+                  "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
+                  "setupkey.group.delete", "setupkey.group.add"
+                  "rule.add", "rule.delete", "rule.update",
+                  "group.add", "group.update",
+                  "account.create",
+          ]
+        initiator_id:
+          description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
+          type: string
+        target_id:
+          description: The ID of the target of the event. E.g., an ID of the peer that a user removed.
+          type: string
+        meta:
+          description: The metadata of the event
+          type: object
+          additionalProperties:
+            type: string
+      required:
+        - id
+        - timestamp
+        - activity
+        - activity_code
+        - initiator_id
+        - target_id
+        - meta
   responses:
     not_found:
       description: Resource not found
-      content: {}
+      content: { }
     validation_failed_simple:
       description: Validation failed
-      content: {}
+      content: { }
     bad_request:
       description: Bad Request
-      content: {}
+      content: { }
     internal_error:
       description: Internal Server Error
       content: { }
     validation_failed:
       description: Validation failed
-      content: {}
+      content: { }
     forbidden:
       description: Forbidden
-      content: {}
+      content: { }
     requires_authentication:
       description: Requires authentication
-      content: {}
+      content: { }
   securitySchemes:
     BearerAuth:
       type: http
@@ -535,9 +579,9 @@ paths:
   /api/users:
     get:
       summary: Returns a list of all users
-      tags: [Users]
+      tags: [ Users ]
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       responses:
         '200':
           description: A JSON array of Users
@@ -558,7 +602,7 @@ paths:
   /api/users/:
     post:
       summary: Create a User (invite)
-      tags: [ Users]
+      tags: [ Users ]
       security:
         - BearerAuth: [ ]
       requestBody:
@@ -585,7 +629,7 @@ paths:
   /api/users/{id}:
     put:
       summary: Update information about a User
-      tags: [ Users]
+      tags: [ Users ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -619,9 +663,9 @@ paths:
   /api/peers:
     get:
       summary: Returns a list of all peers
-      tags: [Peers]
+      tags: [ Peers ]
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
       responses:
         '200':
           description: A JSON Array of Peers
@@ -642,7 +686,7 @@ paths:
   /api/peers/{id}:
     get:
       summary: Get information about a peer
-      tags: [Peers]
+      tags: [ Peers ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -669,7 +713,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update information about a peer
-      tags: [Peers]
+      tags: [ Peers ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -710,7 +754,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a peer
-      tags: [Peers]
+      tags: [ Peers ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -723,7 +767,7 @@ paths:
       responses:
         '200':
           description: Delete status code
-          content: {}
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -735,7 +779,7 @@ paths:
   /api/setup-keys:
     get:
       summary: Returns a list of all Setup Keys
-      tags: [Setup Keys]
+      tags: [ Setup Keys ]
       security:
         - BearerAuth: [ ]
       responses:
@@ -757,7 +801,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       summary: Creates a Setup Key
-      tags: [Setup Keys]
+      tags: [ Setup Keys ]
       security:
         - BearerAuth: [ ]
       requestBody:
@@ -784,7 +828,7 @@ paths:
   /api/setup-keys/{id}:
     get:
       summary: Get information about a Setup Key
-      tags: [Setup Keys]
+      tags: [ Setup Keys ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -811,7 +855,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update information about a Setup Key
-      tags: [Setup Keys]
+      tags: [ Setup Keys ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -844,7 +888,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Setup Key
-      tags: [Setup Keys]
+      tags: [ Setup Keys ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -857,7 +901,7 @@ paths:
       responses:
         '200':
           description: Delete status code
-          content: {}
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -869,7 +913,7 @@ paths:
   /api/groups:
     get:
       summary: Returns a list of all Groups
-      tags: [Groups]
+      tags: [ Groups ]
       security:
         - BearerAuth: [ ]
       responses:
@@ -891,7 +935,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       summary: Creates a Group
-      tags: [Groups]
+      tags: [ Groups ]
       security:
         - BearerAuth: [ ]
       requestBody:
@@ -927,7 +971,7 @@ paths:
   /api/groups/{id}:
     get:
       summary: Get information about a Group
-      tags: [Groups]
+      tags: [ Groups ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -954,7 +998,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update/Replace a Group
-      tags: [Groups]
+      tags: [ Groups ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -1029,7 +1073,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Group
-      tags: [Groups]
+      tags: [ Groups ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -1042,7 +1086,7 @@ paths:
       responses:
         '200':
           description: Delete status code
-          content: {}
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -1054,7 +1098,7 @@ paths:
   /api/rules:
     get:
       summary: Returns a list of all Rules
-      tags: [Rules]
+      tags: [ Rules ]
       security:
         - BearerAuth: [ ]
       responses:
@@ -1076,7 +1120,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     post:
       summary: Creates a Rule
-      tags: [Rules]
+      tags: [ Rules ]
       security:
         - BearerAuth: [ ]
       requestBody:
@@ -1106,7 +1150,7 @@ paths:
   /api/rules/{id}:
     get:
       summary: Get information about a Rules
-      tags: [Rules]
+      tags: [ Rules ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -1133,7 +1177,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     put:
       summary: Update/Replace a Rule
-      tags: [Rules]
+      tags: [ Rules ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -1212,7 +1256,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Rule
-      tags: [Rules]
+      tags: [ Rules ]
       security:
         - BearerAuth: [ ]
       parameters:
@@ -1225,7 +1269,7 @@ paths:
       responses:
         '200':
           description: Delete status code
-          content: {}
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
@@ -1567,6 +1611,29 @@ paths:
         '200':
           description: Delete status code
           content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/events:
+    get:
+      summary: Returns a list of all events
+      tags: [ Events ]
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

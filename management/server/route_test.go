@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
@@ -14,6 +15,7 @@ const (
 	routeGroup1        = "routeGroup1"
 	routeGroup2        = "routeGroup2"
 	routeInvalidGroup1 = "routeInvalidGroup1"
+	userID             = "testingUser"
 )
 
 func TestCreateRoute(t *testing.T) {
@@ -831,7 +833,6 @@ func TestDeleteRoute(t *testing.T) {
 func TestGetNetworkMap_RouteSync(t *testing.T) {
 	// no routes for peer in different groups
 	// no routes when route is deleted
-
 	baseRoute := &route.Route{
 		ID:          "testingRoute",
 		Network:     netip.MustParsePrefix("192.168.0.0/16"),
@@ -895,7 +896,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 		Name:  "peer1 group",
 		Peers: []string{peer1Key},
 	}
-	err = am.SaveGroup(account.Id, newGroup)
+	err = am.SaveGroup(account.Id, userID, newGroup)
 	require.NoError(t, err)
 
 	rules, err := am.ListRules(account.Id, "testingUser")
@@ -908,10 +909,10 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	newRule.Source = []string{newGroup.ID}
 	newRule.Destination = []string{newGroup.ID}
 
-	err = am.SaveRule(account.Id, newRule)
+	err = am.SaveRule(account.Id, userID, newRule)
 	require.NoError(t, err)
 
-	err = am.DeleteRule(account.Id, defaultRule.ID)
+	err = am.DeleteRule(account.Id, defaultRule.ID, userID)
 	require.NoError(t, err)
 
 	peer1GroupRoutes, err := am.GetNetworkMap(peer1Key)
@@ -936,7 +937,8 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "")
+	eventStore := &activity.InMemoryEventStore{}
+	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore)
 }
 
 func createRouterStore(t *testing.T) (Store, error) {
@@ -980,7 +982,6 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	}
 
 	accountID := "testingAcc"
-	userID := "testingUser"
 	domain := "example.com"
 
 	account := newAccountWithId(accountID, userID, domain)
@@ -1002,7 +1003,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		Name:  routeGroup1,
 		Peers: []string{peer1Key},
 	}
-	err = am.SaveGroup(accountID, newGroup)
+	err = am.SaveGroup(accountID, userID, newGroup)
 	if err != nil {
 		return nil, err
 	}
@@ -1013,7 +1014,7 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 		Peers: []string{peer1Key},
 	}
 
-	err = am.SaveGroup(accountID, newGroup)
+	err = am.SaveGroup(accountID, userID, newGroup)
 	if err != nil {
 		return nil, err
 	}
