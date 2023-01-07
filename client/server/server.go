@@ -78,9 +78,17 @@ func (s *Server) Start() error {
 
 	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
 	// on failure we return error to retry
-	config, err := internal.ReadConfig(s.managementURL, s.adminURL, s.configPath, nil)
+	config, err := internal.ReadConfig(internal.ConfigInput{
+		ManagementURL: s.managementURL,
+		AdminURL:      s.adminURL,
+		ConfigPath:    s.configPath,
+	})
 	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
-		config, err = internal.GetConfig(s.managementURL, s.adminURL, s.configPath, "")
+		config, err = internal.GetConfig(internal.ConfigInput{
+			ManagementURL: s.managementURL,
+			AdminURL:      s.adminURL,
+			ConfigPath:    s.configPath,
+		})
 		if err != nil {
 			log.Warnf("unable to create configuration file: %v", err)
 			return err
@@ -165,7 +173,12 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}
 	s.mutex.Unlock()
 
-	config, err := internal.GetConfig(managementURL, adminURL, s.configPath, msg.PreSharedKey)
+	config, err := internal.GetConfig(internal.ConfigInput{
+		ManagementURL: managementURL,
+		AdminURL:      adminURL,
+		ConfigPath:    s.configPath,
+		PreSharedKey:  &msg.PreSharedKey,
+	})
 	if err != nil {
 		return nil, err
 	}

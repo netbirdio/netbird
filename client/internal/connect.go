@@ -306,7 +306,10 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 		}
 
 		// everything is alright => update the config
-		newConfig, err := ReadConfig(newURL.String(), "", configPath, nil)
+		newConfig, err := ReadConfig(ConfigInput{
+			ManagementURL: newURL.String(),
+			ConfigPath:    configPath,
+		})
 		if err != nil {
 			log.Infof("couldn't switch to the new Management %s", newURL.String())
 			return config, fmt.Errorf("failed updating config file: %v", err)
