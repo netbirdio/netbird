@@ -20,7 +20,12 @@ func TestGetConfig(t *testing.T) {
 	preSharedKey := "preSharedKey"
 
 	// case 1: new config has to be generated
-	config, err := GetConfig(managementURL, adminURL, path, preSharedKey)
+	config, err := GetConfig(ConfigInput{
+		ManagementURL: managementURL,
+		AdminURL:      adminURL,
+		ConfigPath:    path,
+		PreSharedKey:  &preSharedKey,
+	})
 	if err != nil {
 		return
 	}
@@ -33,7 +38,12 @@ func TestGetConfig(t *testing.T) {
 	}
 
 	// case 2: existing config -> fetch it
-	config, err = GetConfig(managementURL, adminURL, path, preSharedKey)
+	config, err = GetConfig(ConfigInput{
+		ManagementURL: managementURL,
+		AdminURL:      adminURL,
+		ConfigPath:    path,
+		PreSharedKey:  &preSharedKey,
+	})
 	if err != nil {
 		return
 	}
@@ -43,7 +53,12 @@ func TestGetConfig(t *testing.T) {
 
 	// case 3: existing config, but new managementURL has been provided -> update config
 	newManagementURL := "https://test.newManagement.url:33071"
-	config, err = GetConfig(newManagementURL, adminURL, path, preSharedKey)
+	config, err = GetConfig(ConfigInput{
+		ManagementURL: newManagementURL,
+		AdminURL:      adminURL,
+		ConfigPath:    path,
+		PreSharedKey:  &preSharedKey,
+	})
 	if err != nil {
 		return
 	}
