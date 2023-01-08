@@ -30,6 +30,14 @@ func init() {
 	managementURLDefault = managementURL
 }
 
+// ConfigInput carries configuration changes to the client
+type ConfigInput struct {
+	ManagementURL string
+	AdminURL      string
+	ConfigPath    string
+	PreSharedKey  *string
+}
+
 // Config Configuration type
 type Config struct {
 	// Wireguard private key of local peer
@@ -42,7 +50,7 @@ type Config struct {
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
 	// SSHKey is a private SSH key in a PEM format
-	SSHKey         string
+	SSHKey string
 
 	// ExternalIP mappings, if different than the host interface IP
 	//
@@ -63,7 +71,7 @@ type Config struct {
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
-func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (*Config, error) {
+func createNewConfig(input ConfigInput) (*Config, error) {
 	wgKey := generateKey()
 	pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
 	if err != nil {
@@ -77,8 +85,8 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 		IFaceBlackList:       []string{},
 		DisableIPv6Discovery: false,
 	}
-	if managementURL != "" {
-		URL, err := ParseURL("Management URL", managementURL)
+	if input.ManagementURL != "" {
+		URL, err := ParseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return nil, err
 		}
@@ -87,22 +95,22 @@ func createNewConfig(managementURL, adminURL, configPath, preSharedKey string) (
 		config.ManagementURL = managementURLDefault
 	}
 
-	if preSharedKey != "" {
-		config.PreSharedKey = preSharedKey
+	if input.PreSharedKey != nil {
+		config.PreSharedKey = *input.PreSharedKey
 	}
 
-	if adminURL != "" {
-		newURL, err := ParseURL("Admin Panel URL", adminURL)
+	if input.AdminURL != "" {
+		newURL, err := ParseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return nil, err
 		}
 		config.AdminURL = newURL
 	}
 
-	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
+	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
 		"Tailscale", "tailscale", "docker", "veth", "br-"}
 
-	err = util.WriteJson(configPath, config)
+	err = util.WriteJson(input.ConfigPath, config)
 	if err != nil {
 		return nil, err
 	}
@@ -128,22 +136,22 @@ func ParseURL(serviceName, managementURL string) (*url.URL, error) {
 }
 
 // ReadConfig reads existing config. In case provided managementURL is not empty overrides the read property
-func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string) (*Config, error) {
+func ReadConfig(input ConfigInput) (*Config, error) {
 	config := &Config{}
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+	if _, err := os.Stat(input.ConfigPath); os.IsNotExist(err) {
 		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
 	}
 
-	if _, err := util.ReadJson(configPath, config); err != nil {
+	if _, err := util.ReadJson(input.ConfigPath, config); err != nil {
 		return nil, err
 	}
 
 	refresh := false
 
-	if managementURL != "" && config.ManagementURL.String() != managementURL {
+	if input.ManagementURL != "" && config.ManagementURL.String() != input.ManagementURL {
 		log.Infof("new Management URL provided, updated to %s (old value %s)",
-			managementURL, config.ManagementURL)
-		newURL, err := ParseURL("Management URL", managementURL)
+			input.ManagementURL, config.ManagementURL)
+		newURL, err := ParseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return nil, err
 		}
@@ -151,10 +159,10 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 		refresh = true
 	}
 
-	if adminURL != "" && (config.AdminURL == nil || config.AdminURL.String() != adminURL) {
+	if input.AdminURL != "" && (config.AdminURL == nil || config.AdminURL.String() != input.AdminURL) {
 		log.Infof("new Admin Panel URL provided, updated to %s (old value %s)",
-			adminURL, config.AdminURL)
-		newURL, err := ParseURL("Admin Panel URL", adminURL)
+			input.AdminURL, config.AdminURL)
+		newURL, err := ParseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return nil, err
 		}
@@ -162,10 +170,10 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 		refresh = true
 	}
 
-	if preSharedKey != nil && config.PreSharedKey != *preSharedKey {
+	if input.PreSharedKey != nil && config.PreSharedKey != *input.PreSharedKey {
 		log.Infof("new pre-shared key provided, updated to %s (old value %s)",
-			*preSharedKey, config.PreSharedKey)
-		config.PreSharedKey = *preSharedKey
+			*input.PreSharedKey, config.PreSharedKey)
+		config.PreSharedKey = *input.PreSharedKey
 		refresh = true
 	}
 	if config.SSHKey == "" {
@@ -184,7 +192,7 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 
 	if refresh {
 		// since we have new management URL, we need to update config file
-		if err := util.WriteJson(configPath, config); err != nil {
+		if err := util.WriteJson(input.ConfigPath, config); err != nil {
 			return nil, err
 		}
 	}
@@ -193,17 +201,16 @@ func ReadConfig(managementURL, adminURL, configPath string, preSharedKey *string
 }
 
 // GetConfig reads existing config or generates a new one
-func GetConfig(managementURL, adminURL, configPath, preSharedKey string) (*Config, error) {
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		log.Infof("generating new config %s", configPath)
-		return createNewConfig(managementURL, adminURL, configPath, preSharedKey)
+func GetConfig(input ConfigInput) (*Config, error) {
+	if _, err := os.Stat(input.ConfigPath); os.IsNotExist(err) {
+		log.Infof("generating new config %s", input.ConfigPath)
+		return createNewConfig(input)
 	} else {
 		// don't overwrite pre-shared key if we receive asterisks from UI
-		pk := &preSharedKey
-		if preSharedKey == "**********" {
-			pk = nil
+		if *input.PreSharedKey == "**********" {
+			input.PreSharedKey = nil
 		}
-		return ReadConfig(managementURL, adminURL, configPath, pk)
+		return ReadConfig(input)
 	}
 }
 

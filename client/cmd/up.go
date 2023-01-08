@@ -35,7 +35,12 @@ var upCmd = &cobra.Command{
 				return err
 			}
 
-			config, err := internal.GetConfig(managementURL, adminURL, configPath, preSharedKey)
+			config, err := internal.GetConfig(internal.ConfigInput{
+				ManagementURL: managementURL,
+				AdminURL:      adminURL,
+				ConfigPath:    configPath,
+				PreSharedKey:  &preSharedKey,
+			})
 			if err != nil {
 				return fmt.Errorf("get config file: %v", err)
 			}
