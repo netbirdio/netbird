@@ -36,6 +36,6 @@ func enableIPForwarding() error {
 }
 
 func isNetForwardHistoryEnabled() bool {
-	log.Infof("check netforwad history is not implemented on %s", runtime.GOOS)
+	log.Infof("check netforward history is not implemented on %s", runtime.GOOS)
 	return false
 }
