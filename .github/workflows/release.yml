@@ -127,7 +127,7 @@ jobs:
           retention-days: 3
 
   release_ui_darwin:
-    runs-on: macos-latest
+    runs-on: macos-11
     steps:
       -
         name: Checkout
