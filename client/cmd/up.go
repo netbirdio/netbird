@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 	"net"
-	"net/netip"
 	"strings"
 )
 
@@ -156,10 +155,16 @@ func validateNATExternalIPs(list []string) error {
 		if element == "" {
 			return fmt.Errorf("empty string is not a valid input for %s", externalIPMapFlag)
 		}
+
 		subElements := strings.Split(element, "/")
 		if len(subElements) > 2 {
 			return fmt.Errorf("%s is not a valid input for %s. it should be formated as \"String\" or \"String/String\"", element, externalIPMapFlag)
 		}
+
+		if len(subElements) == 1 && !isValidIP(subElements[0]) {
+			return fmt.Errorf("%s is not a valid input for %s. it should be formated as \"IP\" or \"IP/IP\", or \"IP/Interface Name\"", element, externalIPMapFlag)
+		}
+
 		last := 0
 		for _, singleElement := range subElements {
 			inputType, err := validateElement(singleElement)
@@ -192,11 +197,7 @@ func validateElement(element string) (int, error) {
 }
 
 func isValidIP(ip string) bool {
-	_, err := netip.ParseAddr(ip)
-	if err != nil {
-		return false
-	}
-	return true
+	return net.ParseIP(ip) != nil
 }
 
 func isValidInterface(name string) (bool, error) {

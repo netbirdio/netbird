@@ -964,6 +964,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 		var external, internal string
 		var externalIP, internalIP net.IP
 		var err error
+
 		split := strings.Split(mapping, "/")
 		if len(split) > 2 {
 			log.Warnf("ignoring invalid external mapping '%s', too many delimiters", mapping)
@@ -988,7 +989,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 		external = split[0]
 		externalIP = net.ParseIP(external)
 		if externalIP == nil {
-			log.Warnf("invalid external IP, ignoring external IP mapping '%s'", mapping)
+			log.Warnf("invalid external IP, %s, ignoring external IP mapping '%s'", external, mapping)
 			break
 		}
 		if externalIP != nil {

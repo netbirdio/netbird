@@ -21,6 +21,9 @@ import (
 // NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
 const ManagementLegacyPort = 33073
 
+var defaultInterfaceBlacklist = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
+	"Tailscale", "tailscale", "docker", "veth", "br-"}
+
 var managementURLDefault *url.URL
 
 func ManagementURLDefault() *url.URL {
@@ -115,8 +118,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.AdminURL = newURL
 	}
 
-	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
-		"Tailscale", "tailscale", "docker", "veth", "br-"}
+	config.IFaceBlackList = defaultInterfaceBlacklist
 
 	err = util.WriteJson(input.ConfigPath, config)
 	if err != nil {

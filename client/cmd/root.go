@@ -99,7 +99,7 @@ func init() {
 	rootCmd.AddCommand(sshCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
-	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil, "Sets external IPs maps between local addresses and interfaces. You can specify a comma-separated list with a single IP and IP/IP or IP/Interface. e.g. --external-ip-map 12.34.56.78/10.0.0.1 or --external-ip-map 12.34.56.200,12.34.56.78/10.0.0.1,12.34.56.80/eth1")
+	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil, "Sets external IPs maps between local addresses and interfaces. You can specify a comma-separated list with a single IP and IP/IP or IP/Interface Name. e.g. --external-ip-map 12.34.56.78/10.0.0.1 or --external-ip-map 12.34.56.200,12.34.56.78/10.0.0.1,12.34.56.80/eth1")
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
