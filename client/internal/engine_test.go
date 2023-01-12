@@ -892,8 +892,6 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 		}
 	}
 
-	net.InterfaceAddrs()
-
 	testCases := []struct {
 		name                    string
 		inputMapList            []string
