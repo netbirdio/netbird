@@ -245,11 +245,6 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte)
 	return loginResp, nil
 }
 
-// ManagementLegacyPort is the port that was used before by the Management gRPC server.
-// It is used for backward compatibility now.
-// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
-const ManagementLegacyPort = 33073
-
 // UpdateOldManagementPort checks whether client can switch to the new Management port 443.
 // If it can switch, then it updates the config and returns a new one. Otherwise, it returns the provided config.
 // The check is performed only for the NetBird's managed version.

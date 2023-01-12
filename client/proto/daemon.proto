@@ -41,6 +41,14 @@ message LoginRequest {
   // adminUrl to manage keys.
   string adminURL = 4;
 
+  // natExternalIPs map list of external IPs
+  repeated string natExternalIPs = 5;
+
+  // cleanNATExternalIPs clean map list of external IPs.
+  // This is needed because the generated code
+  // omits initialized empty slices due to omitempty tags
+  bool cleanNATExternalIPs = 6;
+
 }
 
 message LoginResponse {

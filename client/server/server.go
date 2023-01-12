@@ -24,10 +24,9 @@ type Server struct {
 	rootCtx   context.Context
 	actCancel context.CancelFunc
 
-	managementURL string
-	adminURL      string
-	configPath    string
-	logFile       string
+	latestConfigInput internal.ConfigInput
+
+	logFile string
 
 	oauthAuthFlow oauthAuthFlow
 
@@ -48,11 +47,13 @@ type oauthAuthFlow struct {
 // New server instance constructor.
 func New(ctx context.Context, managementURL, adminURL, configPath, logFile string) *Server {
 	return &Server{
-		rootCtx:       ctx,
-		managementURL: managementURL,
-		adminURL:      adminURL,
-		configPath:    configPath,
-		logFile:       logFile,
+		rootCtx: ctx,
+		latestConfigInput: internal.ConfigInput{
+			ManagementURL: managementURL,
+			AdminURL:      adminURL,
+			ConfigPath:    configPath,
+		},
+		logFile: logFile,
 	}
 }
 
@@ -78,17 +79,9 @@ func (s *Server) Start() error {
 
 	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
 	// on failure we return error to retry
-	config, err := internal.ReadConfig(internal.ConfigInput{
-		ManagementURL: s.managementURL,
-		AdminURL:      s.adminURL,
-		ConfigPath:    s.configPath,
-	})
+	config, err := internal.ReadConfig(s.latestConfigInput)
 	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
-		config, err = internal.GetConfig(internal.ConfigInput{
-			ManagementURL: s.managementURL,
-			AdminURL:      s.adminURL,
-			ConfigPath:    s.configPath,
-		})
+		config, err = internal.GetConfig(s.latestConfigInput)
 		if err != nil {
 			log.Warnf("unable to create configuration file: %v", err)
 			return err
@@ -101,7 +94,7 @@ func (s *Server) Start() error {
 	}
 
 	// if configuration exists, we just start connections.
-	config, _ = internal.UpdateOldManagementPort(ctx, config, s.configPath)
+	config, _ = internal.UpdateOldManagementPort(ctx, config, s.latestConfigInput.ConfigPath)
 
 	s.config = config
 
@@ -160,33 +153,39 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	}()
 
 	s.mutex.Lock()
-	managementURL := s.managementURL
+	inputConfig := s.latestConfigInput
+
 	if msg.ManagementUrl != "" {
-		managementURL = msg.ManagementUrl
-		s.managementURL = msg.ManagementUrl
+		inputConfig.ManagementURL = msg.ManagementUrl
+		s.latestConfigInput.ManagementURL = msg.ManagementUrl
 	}
 
-	adminURL := s.adminURL
 	if msg.AdminURL != "" {
-		adminURL = msg.AdminURL
-		s.adminURL = msg.AdminURL
+		inputConfig.AdminURL = msg.AdminURL
+		s.latestConfigInput.AdminURL = msg.AdminURL
 	}
+
+	if msg.CleanNATExternalIPs {
+		inputConfig.NATExternalIPs = make([]string, 0)
+		s.latestConfigInput.NATExternalIPs = nil
+	} else if msg.NatExternalIPs != nil {
+		inputConfig.NATExternalIPs = msg.NatExternalIPs
+		s.latestConfigInput.NATExternalIPs = msg.NatExternalIPs
+	}
+
 	s.mutex.Unlock()
 
-	config, err := internal.GetConfig(internal.ConfigInput{
-		ManagementURL: managementURL,
-		AdminURL:      adminURL,
-		ConfigPath:    s.configPath,
-		PreSharedKey:  &msg.PreSharedKey,
-	})
+	inputConfig.PreSharedKey = &msg.PreSharedKey
+
+	config, err := internal.GetConfig(inputConfig)
 	if err != nil {
 		return nil, err
 	}
 
 	if msg.ManagementUrl == "" {
-		config, _ = internal.UpdateOldManagementPort(ctx, config, s.configPath)
+		config, _ = internal.UpdateOldManagementPort(ctx, config, s.latestConfigInput.ConfigPath)
 		s.config = config
-		s.managementURL = config.ManagementURL.String()
+		s.latestConfigInput.ManagementURL = config.ManagementURL.String()
 	}
 
 	s.mutex.Lock()
@@ -444,8 +443,8 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
-	managementURL := s.managementURL
-	adminURL := s.adminURL
+	managementURL := s.latestConfigInput.ManagementURL
+	adminURL := s.latestConfigInput.AdminURL
 	preSharedKey := ""
 
 	if s.config != nil {
@@ -467,7 +466,7 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	return &proto.GetConfigResponse{
 		ManagementUrl: managementURL,
 		AdminURL:      adminURL,
-		ConfigFile:    s.configPath,
+		ConfigFile:    s.latestConfigInput.ConfigPath,
 		LogFile:       s.logFile,
 		PreSharedKey:  preSharedKey,
 	}, nil
