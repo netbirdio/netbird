@@ -875,14 +875,14 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("could create a new route instance, got error: %s", err)
 	}
-	iface, gateway, srcAddr, err := r.Route(net.ParseIP("0.0.0.0"))
+	iface, _, _, err := r.Route(net.ParseIP("0.0.0.0"))
 	if err != nil {
 		t.Fatalf("could get the default route interface, got error: %s", err)
 	}
 
-	ifaceIP := gateway
-	if gateway == nil {
-		ifaceIP = srcAddr
+	ifaceIP, err := findIPFromInterface(iface)
+	if err != nil {
+		t.Fatalf("could not get the ip address of interface %s, got error: %s", iface.Name, err)
 	}
 
 	testCases := []struct {
