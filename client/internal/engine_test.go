@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/libp2p/go-netroute"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/ssh"
@@ -871,19 +870,29 @@ loop:
 }
 
 func Test_ParseNATExternalIPMappings(t *testing.T) {
-	r, err := netroute.New()
+	ifaceList, err := net.Interfaces()
 	if err != nil {
-		t.Fatalf("could create a new route instance, got error: %s", err)
-	}
-	iface, _, _, err := r.Route(net.ParseIP("0.0.0.0"))
-	if err != nil {
-		t.Fatalf("could get the default route interface, got error: %s", err)
+		t.Fatalf("could get the interface list, got error: %s", err)
 	}
 
-	ifaceIP, err := findIPFromInterface(iface)
-	if err != nil {
-		t.Fatalf("could not get the ip address of interface %s, got error: %s", iface.Name, err)
+	var testingIP string
+	var testingInterface string
+
+	for _, iface := range ifaceList {
+		addrList, err := iface.Addrs()
+		if err != nil {
+			t.Fatalf("could get the addr list, got error: %s", err)
+		}
+		for _, addr := range addrList {
+			prefix := netip.MustParsePrefix(addr.String())
+			if prefix.Addr().Is4() && !prefix.Addr().IsLoopback() {
+				testingIP = prefix.Addr().String()
+				testingInterface = iface.Name
+			}
+		}
 	}
+
+	net.InterfaceAddrs()
 
 	testCases := []struct {
 		name                    string
@@ -894,13 +903,13 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 		{
 			name:                    "Parse Valid List Should Be OK",
 			inputBlacklistInterface: defaultInterfaceBlacklist,
-			inputMapList:            []string{"1.1.1.1", "8.8.8.8/" + iface.Name},
-			expectedOutput:          []string{"1.1.1.1", "8.8.8.8/" + ifaceIP.String()},
+			inputMapList:            []string{"1.1.1.1", "8.8.8.8/" + testingInterface},
+			expectedOutput:          []string{"1.1.1.1", "8.8.8.8/" + testingIP},
 		},
 		{
 			name:                    "Only Interface Name Should Return Nil",
 			inputBlacklistInterface: defaultInterfaceBlacklist,
-			inputMapList:            []string{iface.Name},
+			inputMapList:            []string{testingInterface},
 			expectedOutput:          nil,
 		},
 		{
