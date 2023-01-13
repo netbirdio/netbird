@@ -70,6 +70,8 @@ type EngineConfig struct {
 	SSHKey []byte
 
 	NATExternalIPs []string
+
+	CustomDNSAddress string
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -261,7 +263,8 @@ func (e *Engine) Start() error {
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
 
 	if e.dnsServer == nil {
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface)
+		// todo fix custom address
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
 		if err != nil {
 			return err
 		}

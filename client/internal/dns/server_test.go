@@ -8,8 +8,6 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	"net"
 	"net/netip"
-	"os"
-	"runtime"
 	"testing"
 	"time"
 )
@@ -214,7 +212,7 @@ func TestUpdateDNSServer(t *testing.T) {
 					t.Log(err)
 				}
 			}()
-			dnsServer, err := NewDefaultServer(context.Background(), wgIface)
+			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -265,74 +263,89 @@ func TestUpdateDNSServer(t *testing.T) {
 }
 
 func TestDNSServerStartStop(t *testing.T) {
-	dnsServer := getDefaultServerWithNoHostManager("127.0.0.1")
 
-	if runtime.GOOS == "windows" && os.Getenv("CI") == "true" {
-		// todo review why this test is not working only on github actions workflows
-		t.Skip("skipping test in Windows CI workflows.")
-	}
-
-	dnsServer.hostManager = newNoopHostMocker()
-	dnsServer.Start()
-	time.Sleep(100 * time.Millisecond)
-	if !dnsServer.listenerIsRunning {
-		t.Fatal("dns server listener is not running")
-	}
-	defer dnsServer.Stop()
-	err := dnsServer.localResolver.registerRecord(zoneRecords[0])
-	if err != nil {
-		t.Error(err)
-	}
-
-	dnsServer.dnsMux.Handle("netbird.cloud", dnsServer.localResolver)
-
-	resolver := &net.Resolver{
-		PreferGo: true,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			d := net.Dialer{
-				Timeout: time.Second * 5,
-			}
-			addr := fmt.Sprintf("%s:%d", dnsServer.runtimeIP, dnsServer.runtimePort)
-			conn, err := d.DialContext(ctx, network, addr)
-			if err != nil {
-				t.Log(err)
-				// retry test before exit, for slower systems
-				return d.DialContext(ctx, network, addr)
-			}
-
-			return conn, nil
+	testCases := []struct {
+		name     string
+		addrPort string
+	}{
+		{
+			name: "Should Pass With Port Discovery",
+		},
+		{
+			name:     "Should Pass With Custom Port",
+			addrPort: "127.0.0.1:3535",
 		},
 	}
 
-	ips, err := resolver.LookupHost(context.Background(), zoneRecords[0].Name)
-	if err != nil {
-		t.Fatalf("failed to connect to the server, error: %v", err)
-	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			dnsServer := getDefaultServerWithNoHostManager(t, testCase.addrPort)
 
-	t.Log(ips)
+			dnsServer.hostManager = newNoopHostMocker()
+			dnsServer.Start()
+			time.Sleep(100 * time.Millisecond)
+			if !dnsServer.listenerIsRunning {
+				t.Fatal("dns server listener is not running")
+			}
+			defer dnsServer.Stop()
+			err := dnsServer.localResolver.registerRecord(zoneRecords[0])
+			if err != nil {
+				t.Error(err)
+			}
 
-	if ips[0] != zoneRecords[0].RData {
-		t.Fatalf("got a different IP from the server: want %s, got %s", zoneRecords[0].RData, ips[0])
-	}
+			dnsServer.dnsMux.Handle("netbird.cloud", dnsServer.localResolver)
 
-	dnsServer.Stop()
-	ctx, cancel := context.WithTimeout(context.TODO(), time.Second*1)
-	defer cancel()
-	_, err = resolver.LookupHost(ctx, zoneRecords[0].Name)
-	if err == nil {
-		t.Fatalf("we should encounter an error when querying a stopped server")
+			resolver := &net.Resolver{
+				PreferGo: true,
+				Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+					d := net.Dialer{
+						Timeout: time.Second * 5,
+					}
+					addr := fmt.Sprintf("%s:%d", dnsServer.runtimeIP, dnsServer.runtimePort)
+					conn, err := d.DialContext(ctx, network, addr)
+					if err != nil {
+						t.Log(err)
+						// retry test before exit, for slower systems
+						return d.DialContext(ctx, network, addr)
+					}
+
+					return conn, nil
+				},
+			}
+
+			ips, err := resolver.LookupHost(context.Background(), zoneRecords[0].Name)
+			if err != nil {
+				t.Fatalf("failed to connect to the server, error: %v", err)
+			}
+
+			if ips[0] != zoneRecords[0].RData {
+				t.Fatalf("got a different IP from the server: want %s, got %s", zoneRecords[0].RData, ips[0])
+			}
+
+			dnsServer.Stop()
+			ctx, cancel := context.WithTimeout(context.TODO(), time.Second*1)
+			defer cancel()
+			_, err = resolver.LookupHost(ctx, zoneRecords[0].Name)
+			if err == nil {
+				t.Fatalf("we should encounter an error when querying a stopped server")
+			}
+		})
 	}
 }
 
-func getDefaultServerWithNoHostManager(ip string) *DefaultServer {
+func getDefaultServerWithNoHostManager(t *testing.T, addrPort string) *DefaultServer {
 	mux := dns.NewServeMux()
-	listenIP := defaultIP
-	if ip != "" {
-		listenIP = ip
+
+	var parsedAddrPort *netip.AddrPort
+	if addrPort != "" {
+		parsed, err := netip.ParseAddrPort(addrPort)
+		if err != nil {
+			t.Fatal(err)
+		}
+		parsedAddrPort = &parsed
 	}
 
 	dnsServer := &dns.Server{
-		Addr:    fmt.Sprintf("%s:%d", ip, defaultPort),
 		Net:     "udp",
 		Handler: mux,
 		UDPSize: 65535,
@@ -349,7 +362,6 @@ func getDefaultServerWithNoHostManager(ip string) *DefaultServer {
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
-		runtimePort: defaultPort,
-		runtimeIP:   listenIP,
+		customAddress: parsedAddrPort,
 	}
 }

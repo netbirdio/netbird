@@ -46,6 +46,7 @@ type ConfigInput struct {
 	PreSharedKey        *string
 	NATExternalIPs      []string
 	DNSListeningAddress string
+	CustomDNSAddress    string
 }
 
 // Config Configuration type
@@ -78,6 +79,8 @@ type Config struct {
 	//      "12.34.56.78/10.1.2.3" => interface IP 10.1.2.3 will be mapped to external IP of 12.34.56.78
 
 	NATExternalIPs []string
+	// CustomDNSAddress ip:port string with address for dns resolver to listen to
+	CustomDNSAddress string
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
@@ -95,6 +98,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		IFaceBlackList:       []string{},
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
+		CustomDNSAddress:     input.CustomDNSAddress,
 	}
 	if input.ManagementURL != "" {
 		URL, err := ParseURL("Management URL", input.ManagementURL)
@@ -202,6 +206,11 @@ func ReadConfig(input ConfigInput) (*Config, error) {
 	}
 	if input.NATExternalIPs != nil && len(config.NATExternalIPs) != len(input.NATExternalIPs) {
 		config.NATExternalIPs = input.NATExternalIPs
+		refresh = true
+	}
+
+	if config.CustomDNSAddress != input.CustomDNSAddress {
+		config.CustomDNSAddress = input.CustomDNSAddress
 		refresh = true
 	}
 

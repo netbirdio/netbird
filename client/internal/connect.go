@@ -197,6 +197,7 @@ func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.Pe
 		WgPort:               config.WgPort,
 		SSHKey:               []byte(config.SSHKey),
 		NATExternalIPs:       config.NATExternalIPs,
+		CustomDNSAddress:     config.CustomDNSAddress,
 	}
 
 	if config.PreSharedKey != "" {
