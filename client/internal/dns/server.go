@@ -71,6 +71,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 	if customAddress != "" {
 		parsedAddrPort, err := netip.ParseAddrPort(customAddress)
 		if err != nil {
+			stop()
 			return nil, fmt.Errorf("unable to parse the custom dns address, got error: %s", err)
 		}
 		addrPort = &parsedAddrPort
@@ -92,6 +93,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 
 	hostmanager, err := newHostManager(wgInterface)
 	if err != nil {
+		stop()
 		return nil, err
 	}
 	defaultServer.hostManager = hostmanager
