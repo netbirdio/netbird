@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/mux"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
@@ -28,7 +29,8 @@ const (
 )
 
 func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey,
-	user *server.User) *SetupKeys {
+	user *server.User,
+) *SetupKeys {
 	return &SetupKeys{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
@@ -43,11 +45,13 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 					},
 					Groups: map[string]*server.Group{
 						"group-1": {ID: "group-1", Peers: []string{"A", "B"}},
-						"id-all":  {ID: "id-all", Name: "All"}},
+						"id-all":  {ID: "id-all", Name: "All"},
+					},
 				}, user, nil
 			},
 			CreateSetupKeyFunc: func(_ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string,
-				_ int, _ string) (*server.SetupKey, error) {
+				_ int, _ string,
+			) (*server.SetupKey, error) {
 				if keyName == newKey.Name || typ != newKey.Type {
 					return newKey, nil
 				}
@@ -75,16 +79,15 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				return []*server.SetupKey{defaultKey}, nil
 			},
 		},
-		authAudience: "",
-		jwtExtractor: jwtclaims.ClaimsExtractor{
-			ExtractClaimsFromRequestContext: func(r *http.Request, authAudience string) jwtclaims.AuthorizationClaims {
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    user.Id,
 					Domain:    "hotmail.com",
 					AccountId: testAccountID,
 				}
-			},
-		},
+			}),
+		),
 	}
 }
 
@@ -209,7 +212,6 @@ func TestSetupKeysHandlers(t *testing.T) {
 				assertKeys(t, got[0], tc.expectedSetupKeys[0])
 				return
 			}
-
 		})
 	}
 }

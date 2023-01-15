@@ -7,15 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/miekg/dns"
-	"github.com/netbirdio/netbird/management/server/activity/sqlite"
-	httpapi "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/metrics"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"golang.org/x/crypto/acme/autocert"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"io"
 	"io/fs"
 	"net"
@@ -25,6 +16,16 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/miekg/dns"
+	"github.com/netbirdio/netbird/management/server/activity/sqlite"
+	httpapi "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/metrics"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"golang.org/x/crypto/acme/autocert"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -178,8 +179,13 @@ var (
 				tlsEnabled = true
 			}
 
-			httpAPIHandler, err := httpapi.APIHandler(accountManager, config.HttpConfig.AuthIssuer,
-				config.HttpConfig.AuthAudience, config.HttpConfig.AuthKeysLocation, appMetrics)
+			httpApiAuthCfg := httpapi.AuthCfg{
+				Issuer:       config.HttpConfig.AuthIssuer,
+				Audience:     config.HttpConfig.AuthAudience,
+				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
+				KeysLocation: config.HttpConfig.AuthKeysLocation,
+			}
+			httpAPIHandler, err := httpapi.APIHandler(accountManager, appMetrics, httpApiAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
@@ -415,7 +421,6 @@ type OIDCConfigResponse struct {
 
 // fetchOIDCConfig fetches OIDC configuration from the IDP
 func fetchOIDCConfig(oidcEndpoint string) (OIDCConfigResponse, error) {
-
 	res, err := http.Get(oidcEndpoint)
 	if err != nil {
 		return OIDCConfigResponse{}, fmt.Errorf("failed fetching OIDC configuration fro mendpoint %s %v", oidcEndpoint, err)
@@ -445,7 +450,6 @@ func fetchOIDCConfig(oidcEndpoint string) (OIDCConfigResponse, error) {
 	}
 
 	return config, nil
-
 }
 
 func loadTLSConfig(certFile string, certKey string) (*tls.Config, error) {

@@ -3,10 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	gPeer "google.golang.org/grpc/peer"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -31,12 +31,14 @@ type GRPCServer struct {
 	config                 *Config
 	turnCredentialsManager TURNCredentialsManager
 	jwtMiddleware          *middleware.JWTMiddleware
+	jwtClaimsExtractor     *jwtclaims.ClaimsExtractor
 	appMetrics             telemetry.AppMetrics
 }
 
 // NewServer creates a new Management server
 func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager,
-	turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics) (*GRPCServer, error) {
+	turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics,
+) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -66,6 +68,12 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		}
 	}
 
+	var audience string
+	if config.HttpConfig != nil {
+		audience = config.HttpConfig.AuthAudience
+	}
+	jwtClaimsExtractor := jwtclaims.NewClaimsExtractor(jwtclaims.WithAudience(audience))
+
 	return &GRPCServer{
 		wgKey: key,
 		// peerKey -> event channel
@@ -74,6 +82,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		config:                 config,
 		turnCredentialsManager: turnCredentialsManager,
 		jwtMiddleware:          jwtMiddleware,
+		jwtClaimsExtractor:     jwtClaimsExtractor,
 		appMetrics:             appMetrics,
 	}, nil
 }
@@ -113,7 +122,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 	peer, err := s.accountManager.GetPeerByKey(peerKey.String())
 	if err != nil {
-		p, _ := gPeer.FromContext(srv.Context())
+		p, _ := gRPCPeer.FromContext(srv.Context())
 		msg := status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered, remote addr is %s", peerKey.String(), p.Addr.String())
 		log.Debug(msg)
 		return msg
@@ -122,7 +131,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	syncReq := &proto.SyncRequest{}
 	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, syncReq)
 	if err != nil {
-		p, _ := gPeer.FromContext(srv.Context())
+		p, _ := gRPCPeer.FromContext(srv.Context())
 		msg := status.Errorf(codes.InvalidArgument, "invalid request message from %s,remote addr is %s", peerKey.String(), p.Addr.String())
 		log.Debug(msg)
 		return msg
@@ -200,7 +209,7 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "invalid jwt token, err: %v", err)
 		}
-		claims := jwtclaims.ExtractClaimsWithToken(token, s.config.HttpConfig.AuthAudience)
+		claims := s.jwtClaimsExtractor.FromToken(token) // jwtclaims.ExtractClaimsWithToken(token, s.config.HttpConfig.AuthAudience)
 		userID = claims.UserId
 		// we need to call this method because if user is new, we will automatically add it to existing or create a new account
 		_, _, err = s.accountManager.GetAccountFromToken(claims)
@@ -305,7 +314,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 			// peer doesn't exist -> check if setup key was provided
 			if loginReq.GetJwtToken() == "" && loginReq.GetSetupKey() == "" {
 				// absent setup key or jwt -> permission denied
-				p, _ := gPeer.FromContext(ctx)
+				p, _ := gRPCPeer.FromContext(ctx)
 				msg := status.Errorf(codes.PermissionDenied,
 					"provided peer with the key wgPubKey %s is not registered and no setup key or jwt was provided,"+
 						" remote addr is %s", peerKey.String(), p.Addr.String())

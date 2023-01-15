@@ -1,22 +1,29 @@
 package http
 
 import (
+	"net/http"
+
 	"github.com/gorilla/mux"
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/rs/cors"
-	"net/http"
 )
 
+// AuthCfg contains parameters for authentication middleware
+type AuthCfg struct {
+	Issuer       string
+	Audience     string
+	UserIDClaim  string
+	KeysLocation string
+}
+
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience string, authKeysLocation string,
-	appMetrics telemetry.AppMetrics) (http.Handler, error) {
+func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
 	jwtMiddleware, err := middleware.NewJwtMiddleware(
-		authIssuer,
-		authAudience,
-		authKeysLocation,
-	)
+		authCfg.Issuer,
+		authCfg.Audience,
+		authCfg.KeysLocation)
 	if err != nil {
 		return nil, err
 	}
@@ -24,7 +31,8 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	corsMiddleware := cors.AllowAll()
 
 	acMiddleware := middleware.NewAccessControl(
-		authAudience,
+		authCfg.Audience,
+		authCfg.UserIDClaim,
 		accountManager.IsUserAdmin)
 
 	rootRouter := mux.NewRouter()
@@ -33,15 +41,15 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	apiHandler := rootRouter.PathPrefix("/api").Subrouter()
 	apiHandler.Use(metricsMiddleware.Handler, corsMiddleware.Handler, jwtMiddleware.Handler, acMiddleware.Handler)
 
-	groupsHandler := NewGroups(accountManager, authAudience)
-	rulesHandler := NewRules(accountManager, authAudience)
-	peersHandler := NewPeers(accountManager, authAudience)
-	keysHandler := NewSetupKeysHandler(accountManager, authAudience)
-	userHandler := NewUserHandler(accountManager, authAudience)
-	routesHandler := NewRoutes(accountManager, authAudience)
-	nameserversHandler := NewNameservers(accountManager, authAudience)
-	eventsHandler := NewEvents(accountManager, authAudience)
-	dnsSettingsHandler := NewDNSSettings(accountManager, authAudience)
+	groupsHandler := NewGroups(accountManager, authCfg)
+	rulesHandler := NewRules(accountManager, authCfg)
+	peersHandler := NewPeers(accountManager, authCfg)
+	keysHandler := NewSetupKeysHandler(accountManager, authCfg)
+	userHandler := NewUserHandler(accountManager, authCfg)
+	routesHandler := NewRoutes(accountManager, authCfg)
+	nameserversHandler := NewNameservers(accountManager, authCfg)
+	eventsHandler := NewEvents(accountManager, authCfg)
+	dnsSettingsHandler := NewDNSSettings(accountManager, authCfg)
 
 	apiHandler.HandleFunc("/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/peers/{id}", peersHandler.HandlePeer).
@@ -88,7 +96,7 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	apiHandler.HandleFunc("/dns/settings", dnsSettingsHandler.GetDNSSettings).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/dns/settings", dnsSettingsHandler.UpdateDNSSettings).Methods("PUT", "OPTIONS")
 
-	err = apiHandler.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
+	err = apiHandler.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		methods, err := route.GetMethods()
 		if err != nil {
 			return err
@@ -110,5 +118,4 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	}
 
 	return rootRouter, nil
-
 }

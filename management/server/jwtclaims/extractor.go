@@ -1,8 +1,9 @@
 package jwtclaims
 
 import (
-	"github.com/golang-jwt/jwt"
 	"net/http"
+
+	"github.com/golang-jwt/jwt"
 )
 
 const (
@@ -14,51 +15,81 @@ const (
 )
 
 // Extract function type
-type ExtractClaims func(r *http.Request, authAudiance string) AuthorizationClaims
+type ExtractClaims func(r *http.Request) AuthorizationClaims
 
 // ClaimsExtractor struct that holds the extract function
 type ClaimsExtractor struct {
-	ExtractClaimsFromRequestContext ExtractClaims
+	authAudience string
+	userIDClaim  string
+
+	FromRequestContext ExtractClaims
+}
+
+// ClaimsExtractorOption is a function that configures the ClaimsExtractor
+type ClaimsExtractorOption func(*ClaimsExtractor)
+
+// WithAudience sets the audience for the extractor
+func WithAudience(audience string) ClaimsExtractorOption {
+	return func(c *ClaimsExtractor) {
+		c.authAudience = audience
+	}
+}
+
+// WithUserIDClaim sets the user id claim for the extractor
+func WithUserIDClaim(userIDClaim string) ClaimsExtractorOption {
+	return func(c *ClaimsExtractor) {
+		c.userIDClaim = userIDClaim
+	}
+}
+
+// WithFromRequestContext sets the function that extracts claims from the request context
+func WithFromRequestContext(ec ExtractClaims) ClaimsExtractorOption {
+	return func(c *ClaimsExtractor) {
+		c.FromRequestContext = ec
+	}
 }
 
 // NewClaimsExtractor returns an extractor, and if provided with a function with ExtractClaims signature,
 // then it will use that logic. Uses ExtractClaimsFromRequestContext by default
-func NewClaimsExtractor(e ExtractClaims) *ClaimsExtractor {
-	var extractFunc ExtractClaims
-	if extractFunc = e; extractFunc == nil {
-		extractFunc = ExtractClaimsFromRequestContext
+func NewClaimsExtractor(options ...ClaimsExtractorOption) *ClaimsExtractor {
+	ce := &ClaimsExtractor{}
+	for _, option := range options {
+		option(ce)
 	}
-
-	return &ClaimsExtractor{
-		ExtractClaimsFromRequestContext: extractFunc,
+	if ce.FromRequestContext == nil {
+		ce.FromRequestContext = ce.fromRequestContext
 	}
+	if ce.userIDClaim == "" {
+		ce.userIDClaim = UserIDClaim
+	}
+	return ce
 }
 
-// ExtractClaimsFromRequestContext extracts claims from the request context previously filled by the JWT token (after auth)
-func ExtractClaimsFromRequestContext(r *http.Request, authAudience string) AuthorizationClaims {
-	if r.Context().Value(TokenUserProperty) == nil {
-		return AuthorizationClaims{}
-	}
-	token := r.Context().Value(TokenUserProperty).(*jwt.Token)
-	return ExtractClaimsWithToken(token, authAudience)
-}
-
-// ExtractClaimsWithToken extracts claims from the token (after auth)
-func ExtractClaimsWithToken(token *jwt.Token, authAudience string) AuthorizationClaims {
+// FromToken extracts claims from the token (after auth)
+func (c *ClaimsExtractor) FromToken(token *jwt.Token) AuthorizationClaims {
 	claims := token.Claims.(jwt.MapClaims)
 	jwtClaims := AuthorizationClaims{}
-	jwtClaims.UserId = claims[UserIDClaim].(string)
-	accountIdClaim, ok := claims[authAudience+AccountIDSuffix]
+	jwtClaims.UserId = claims[c.userIDClaim].(string)
+	accountIdClaim, ok := claims[c.authAudience+AccountIDSuffix]
 	if ok {
 		jwtClaims.AccountId = accountIdClaim.(string)
 	}
-	domainClaim, ok := claims[authAudience+DomainIDSuffix]
+	domainClaim, ok := claims[c.authAudience+DomainIDSuffix]
 	if ok {
 		jwtClaims.Domain = domainClaim.(string)
 	}
-	domainCategoryClaim, ok := claims[authAudience+DomainCategorySuffix]
+	domainCategoryClaim, ok := claims[c.authAudience+DomainCategorySuffix]
 	if ok {
 		jwtClaims.DomainCategory = domainCategoryClaim.(string)
 	}
 	return jwtClaims
+}
+
+// fromRequestContext extracts claims from the request context previously filled by the JWT token (after auth)
+func (c *ClaimsExtractor) fromRequestContext(r *http.Request) AuthorizationClaims {
+	if r.Context().Value(TokenUserProperty) == nil {
+		return AuthorizationClaims{}
+	}
+	token := r.Context().Value(TokenUserProperty).(*jwt.Token)
+	return c.FromToken(token)
 }

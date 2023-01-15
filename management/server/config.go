@@ -7,8 +7,10 @@ import (
 	"github.com/netbirdio/netbird/util"
 )
 
-type Protocol string
-type Provider string
+type (
+	Protocol string
+	Provider string
+)
 
 const (
 	UDP   Protocol = "udp"
@@ -45,14 +47,16 @@ type TURNConfig struct {
 // HttpServerConfig is a config of the HTTP Management service server
 type HttpServerConfig struct {
 	LetsEncryptDomain string
-	//CertFile is the location of the certificate
+	// CertFile is the location of the certificate
 	CertFile string
-	//CertKey is the location of the certificate private key
+	// CertKey is the location of the certificate private key
 	CertKey string
 	// AuthAudience identifies the recipients that the JWT is intended for (aud in JWT)
 	AuthAudience string
-	// AuthIssuer identifies principal that issued the JWT.
+	// AuthIssuer identifies principal that issued the JWT
 	AuthIssuer string
+	// AuthUserIDClaim is the name of the claim that used as user ID
+	AuthUserIDClaim string
 	// AuthKeysLocation is a location of JWT key set containing the public keys used to verify JWT
 	AuthKeysLocation string
 	// OIDCConfigEndpoint is the endpoint of an IDP manager to get OIDC configuration
