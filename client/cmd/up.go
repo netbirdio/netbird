@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 	"net"
+	"net/netip"
 	"strings"
 )
 
@@ -41,7 +42,10 @@ var upCmd = &cobra.Command{
 			return err
 		}
 
-		log.Debugf("%#v", natExternalIPs)
+		customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+		if err != nil {
+			return err
+		}
 
 		// workaround to run without service
 		if logFile == "console" {
@@ -51,11 +55,12 @@ var upCmd = &cobra.Command{
 			}
 
 			config, err := internal.GetConfig(internal.ConfigInput{
-				ManagementURL:  managementURL,
-				AdminURL:       adminURL,
-				ConfigPath:     configPath,
-				PreSharedKey:   &preSharedKey,
-				NATExternalIPs: natExternalIPs,
+				ManagementURL:    managementURL,
+				AdminURL:         adminURL,
+				ConfigPath:       configPath,
+				PreSharedKey:     &preSharedKey,
+				NATExternalIPs:   natExternalIPs,
+				CustomDNSAddress: customDNSAddressConverted,
 			})
 			if err != nil {
 				return fmt.Errorf("get config file: %v", err)
@@ -106,6 +111,7 @@ var upCmd = &cobra.Command{
 			ManagementUrl:       managementURL,
 			NatExternalIPs:      natExternalIPs,
 			CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
+			CustomDNSAddress:    customDNSAddressConverted,
 		}
 
 		var loginErr error
@@ -211,4 +217,27 @@ func isValidInterface(name string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func parseCustomDNSAddress(modified bool) ([]byte, error) {
+	var parsed []byte
+	if modified {
+		if !isValidAddrPort(customDNSAddress) {
+			return nil, fmt.Errorf("%s is invalid, it should be formated as IP:Port string or as an empty string like \"\"", customDNSAddress)
+		}
+		if customDNSAddress == "" && logFile != "console" {
+			parsed = []byte("empty")
+		} else {
+			parsed = []byte(customDNSAddress)
+		}
+	}
+	return parsed, nil
+}
+
+func isValidAddrPort(input string) bool {
+	if input == "" {
+		return true
+	}
+	_, err := netip.ParseAddrPort(input)
+	return err == nil
 }

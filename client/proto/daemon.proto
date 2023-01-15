@@ -49,6 +49,8 @@ message LoginRequest {
   // omits initialized empty slices due to omitempty tags
   bool cleanNATExternalIPs = 6;
 
+  bytes customDNSAddress = 7;
+
 }
 
 message LoginResponse {

@@ -173,6 +173,13 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 		s.latestConfigInput.NATExternalIPs = msg.NatExternalIPs
 	}
 
+	inputConfig.CustomDNSAddress = msg.CustomDNSAddress
+	s.latestConfigInput.CustomDNSAddress = msg.CustomDNSAddress
+	if string(msg.CustomDNSAddress) == "empty" {
+		inputConfig.CustomDNSAddress = []byte{}
+		s.latestConfigInput.CustomDNSAddress = []byte{}
+	}
+
 	s.mutex.Unlock()
 
 	inputConfig.PreSharedKey = &msg.PreSharedKey

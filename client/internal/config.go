@@ -40,13 +40,12 @@ func init() {
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
-	ManagementURL       string
-	AdminURL            string
-	ConfigPath          string
-	PreSharedKey        *string
-	NATExternalIPs      []string
-	DNSListeningAddress string
-	CustomDNSAddress    string
+	ManagementURL    string
+	AdminURL         string
+	ConfigPath       string
+	PreSharedKey     *string
+	NATExternalIPs   []string
+	CustomDNSAddress []byte
 }
 
 // Config Configuration type
@@ -79,7 +78,7 @@ type Config struct {
 	//      "12.34.56.78/10.1.2.3" => interface IP 10.1.2.3 will be mapped to external IP of 12.34.56.78
 
 	NATExternalIPs []string
-	// CustomDNSAddress ip:port string with address for dns resolver to listen to
+	// CustomDNSAddress sets the DNS resolver listening address in format ip:port
 	CustomDNSAddress string
 }
 
@@ -98,7 +97,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		IFaceBlackList:       []string{},
 		DisableIPv6Discovery: false,
 		NATExternalIPs:       input.NATExternalIPs,
-		CustomDNSAddress:     input.CustomDNSAddress,
+		CustomDNSAddress:     string(input.CustomDNSAddress),
 	}
 	if input.ManagementURL != "" {
 		URL, err := ParseURL("Management URL", input.ManagementURL)
@@ -209,8 +208,8 @@ func ReadConfig(input ConfigInput) (*Config, error) {
 		refresh = true
 	}
 
-	if config.CustomDNSAddress != input.CustomDNSAddress {
-		config.CustomDNSAddress = input.CustomDNSAddress
+	if input.CustomDNSAddress != nil {
+		config.CustomDNSAddress = string(input.CustomDNSAddress)
 		refresh = true
 	}
 
