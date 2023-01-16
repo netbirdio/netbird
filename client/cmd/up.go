@@ -40,9 +40,8 @@ func upFunc(cmd *cobra.Command, args []string) error {
 
 	if daemonModeOff {
 		return foregroundMode(ctx, cmd)
-	} else {
-		return daemonMode(ctx, cmd)
 	}
+	return daemonMode(ctx, cmd)
 }
 
 func foregroundMode(ctx context.Context, cmd *cobra.Command) error {
