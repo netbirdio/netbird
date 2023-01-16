@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	daemonModeOff bool
-	upCmd         = &cobra.Command{
+	foregroundMode bool
+	upCmd          = &cobra.Command{
 		Use:   "up",
 		Short: "install, login and start Netbird client",
 		RunE:  upFunc,
@@ -23,7 +23,7 @@ var (
 )
 
 func init() {
-	upCmd.PersistentFlags().BoolVar(&daemonModeOff, "daemon-off", false, "start service in foreground")
+	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
@@ -38,13 +38,13 @@ func upFunc(cmd *cobra.Command, args []string) error {
 
 	ctx := internal.CtxInitState(cmd.Context())
 
-	if daemonModeOff {
-		return foregroundMode(ctx, cmd)
+	if foregroundMode {
+		return runInForegroundMode(ctx, cmd)
 	}
-	return daemonMode(ctx, cmd)
+	return runInDaemonMode(ctx, cmd)
 }
 
-func foregroundMode(ctx context.Context, cmd *cobra.Command) error {
+func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	err := handleRebrand(cmd)
 	if err != nil {
 		return err
@@ -73,7 +73,7 @@ func foregroundMode(ctx context.Context, cmd *cobra.Command) error {
 	return internal.RunClient(ctx, config, nbStatus.NewRecorder())
 }
 
-func daemonMode(ctx context.Context, cmd *cobra.Command) error {
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
