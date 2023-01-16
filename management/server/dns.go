@@ -5,13 +5,91 @@ import (
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
 	"strconv"
 )
 
+const defaultTTL = 300
+
 type lookupMap map[string]struct{}
 
-const defaultTTL = 300
+// DNSSettings defines dns settings at the account level
+type DNSSettings struct {
+	// DisabledManagementGroups groups whose DNS management is disabled
+	DisabledManagementGroups []string
+}
+
+// Copy returns a copy of the DNS settings
+func (d *DNSSettings) Copy() *DNSSettings {
+	return &DNSSettings{
+		DisabledManagementGroups: d.DisabledManagementGroups[:],
+	}
+}
+
+// GetDNSSettings validates a user role and returns the DNS settings for the provided account ID
+func (am *DefaultAccountManager) GetDNSSettings(accountID string, userID string) (*DNSSettings, error) {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdmin() {
+		return nil, status.Errorf(status.PermissionDenied, "only admins are allowed to view DNS settings")
+	}
+
+	if account.DNSSettings == nil {
+		return &DNSSettings{}, nil
+	}
+
+	return account.DNSSettings.Copy(), nil
+}
+
+// SaveDNSSettings validates a user role and updates the account's DNS settings
+func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return err
+	}
+
+	if !user.IsAdmin() {
+		return status.Errorf(status.PermissionDenied, "only admins are allowed to update DNS settings")
+	}
+
+	if dnsSettingsToSave == nil {
+		return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
+	}
+
+	err = validateGroups(dnsSettingsToSave.DisabledManagementGroups, account.Groups)
+	if err != nil {
+		return err
+	}
+
+	account.DNSSettings = dnsSettingsToSave.Copy()
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	return am.updateAccountPeers(account)
+}
 
 func toProtocolDNSConfig(update nbdns.Config) *proto.DNSConfig {
 	protoUpdate := &proto.DNSConfig{ServiceEnable: update.ServiceEnable}

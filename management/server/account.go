@@ -129,6 +129,7 @@ type Account struct {
 	Rules                  map[string]*Rule
 	Routes                 map[string]*route.Route
 	NameServerGroups       map[string]*nbdns.NameServerGroup
+	DNSSettings            *DNSSettings
 }
 
 type UserInfo struct {
@@ -415,6 +416,11 @@ func (a *Account) Copy() *Account {
 		nsGroups[id] = nsGroup.Copy()
 	}
 
+	var dnsSettings *DNSSettings
+	if a.DNSSettings != nil {
+		dnsSettings = a.DNSSettings
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -429,6 +435,7 @@ func (a *Account) Copy() *Account {
 		Rules:                  rules,
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
+		DNSSettings:            dnsSettings,
 	}
 }
 
