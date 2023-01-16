@@ -36,7 +36,8 @@ func init() {
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars()
+	SetFlagsFromEnvVars(rootCmd)
+	SetFlagsFromEnvVars(cmd)
 
 	cmd.SetOut(cmd.OutOrStdout())
 
@@ -70,10 +71,10 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	config, err := internal.GetConfig(internal.ConfigInput{
-		ManagementURL: managementURL,
-		AdminURL:      adminURL,
-		ConfigPath:    configPath,
-		PreSharedKey:  &preSharedKey,
+		ManagementURL:    managementURL,
+		AdminURL:         adminURL,
+		ConfigPath:       configPath,
+		PreSharedKey:     &preSharedKey,
 		NATExternalIPs:   natExternalIPs,
 		CustomDNSAddress: customDNSAddressConverted,
 	})
@@ -128,9 +129,9 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	loginRequest := proto.LoginRequest{
-		SetupKey:      setupKey,
-		PreSharedKey:  preSharedKey,
-		ManagementUrl: managementURL,
+		SetupKey:            setupKey,
+		PreSharedKey:        preSharedKey,
+		ManagementUrl:       managementURL,
 		NatExternalIPs:      natExternalIPs,
 		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
 		CustomDNSAddress:    customDNSAddressConverted,

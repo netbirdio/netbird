@@ -124,8 +124,8 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 }
 
 // SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_
-func SetFlagsFromEnvVars() {
-	flags := rootCmd.PersistentFlags()
+func SetFlagsFromEnvVars(cmd *cobra.Command) {
+	flags := cmd.PersistentFlags()
 	flags.VisitAll(func(f *pflag.Flag) {
 		oldEnvVar := FlagNameToEnvVar(f.Name, "WT_")
 
