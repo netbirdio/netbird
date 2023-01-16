@@ -22,138 +22,159 @@ const (
 	interfaceInputType
 )
 
-var upCmd = &cobra.Command{
-	Use:   "up",
-	Short: "install, login and start Netbird client",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		SetFlagsFromEnvVars()
+var (
+	foregroundMode bool
+	upCmd          = &cobra.Command{
+		Use:   "up",
+		Short: "install, login and start Netbird client",
+		RunE:  upFunc,
+	}
+)
 
-		cmd.SetOut(cmd.OutOrStdout())
+func init() {
+	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
+}
 
-		err := util.InitLog(logLevel, "console")
+func upFunc(cmd *cobra.Command, args []string) error {
+	SetFlagsFromEnvVars()
+
+	cmd.SetOut(cmd.OutOrStdout())
+
+	err := util.InitLog(logLevel, "console")
+	if err != nil {
+		return fmt.Errorf("failed initializing log %v", err)
+	}
+
+	err = validateNATExternalIPs(natExternalIPs)
+	if err != nil {
+		return err
+	}
+
+	ctx := internal.CtxInitState(cmd.Context())
+
+	if foregroundMode {
+		return runInForegroundMode(ctx, cmd)
+	}
+	return runInDaemonMode(ctx, cmd)
+}
+
+func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
+	err := handleRebrand(cmd)
+	if err != nil {
+		return err
+	}
+
+	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	if err != nil {
+		return err
+	}
+
+	config, err := internal.GetConfig(internal.ConfigInput{
+		ManagementURL: managementURL,
+		AdminURL:      adminURL,
+		ConfigPath:    configPath,
+		PreSharedKey:  &preSharedKey,
+		NATExternalIPs:   natExternalIPs,
+		CustomDNSAddress: customDNSAddressConverted,
+	})
+	if err != nil {
+		return fmt.Errorf("get config file: %v", err)
+	}
+
+	config, _ = internal.UpdateOldManagementPort(ctx, config, configPath)
+
+	err = foregroundLogin(ctx, cmd, config, setupKey)
+	if err != nil {
+		return fmt.Errorf("foreground login failed: %v", err)
+	}
+
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(ctx)
+	SetupCloseHandler(ctx, cancel)
+	return internal.RunClient(ctx, config, nbStatus.NewRecorder())
+}
+
+func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
+
+	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	if err != nil {
+		return err
+	}
+
+	conn, err := DialClientGRPCServer(ctx, daemonAddr)
+	if err != nil {
+		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+			"If the daemon is not running please run: "+
+			"\nnetbird service install \nnetbird service start\n", err)
+	}
+	defer func() {
+		err := conn.Close()
 		if err != nil {
-			return fmt.Errorf("failed initializing log %v", err)
+			log.Warnf("failed closing dameon gRPC client connection %v", err)
+			return
 		}
+	}()
 
-		ctx := internal.CtxInitState(cmd.Context())
+	client := proto.NewDaemonServiceClient(conn)
 
-		err = validateNATExternalIPs(natExternalIPs)
-		if err != nil {
-			return err
-		}
+	status, err := client.Status(ctx, &proto.StatusRequest{})
+	if err != nil {
+		return fmt.Errorf("unable to get daemon status: %v", err)
+	}
 
-		customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
-		if err != nil {
-			return err
-		}
+	if status.Status == string(internal.StatusConnected) {
+		cmd.Println("Already connected")
+		return nil
+	}
 
-		// workaround to run without service
-		if logFile == "console" {
-			err = handleRebrand(cmd)
-			if err != nil {
-				return err
-			}
+	loginRequest := proto.LoginRequest{
+		SetupKey:      setupKey,
+		PreSharedKey:  preSharedKey,
+		ManagementUrl: managementURL,
+		NatExternalIPs:      natExternalIPs,
+		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
+		CustomDNSAddress:    customDNSAddressConverted,
+	}
 
-			config, err := internal.GetConfig(internal.ConfigInput{
-				ManagementURL:    managementURL,
-				AdminURL:         adminURL,
-				ConfigPath:       configPath,
-				PreSharedKey:     &preSharedKey,
-				NATExternalIPs:   natExternalIPs,
-				CustomDNSAddress: customDNSAddressConverted,
-			})
-			if err != nil {
-				return fmt.Errorf("get config file: %v", err)
-			}
+	var loginErr error
 
-			config, _ = internal.UpdateOldManagementPort(ctx, config, configPath)
+	var loginResp *proto.LoginResponse
 
-			err = foregroundLogin(ctx, cmd, config, setupKey)
-			if err != nil {
-				return fmt.Errorf("foreground login failed: %v", err)
-			}
-
-			var cancel context.CancelFunc
-			ctx, cancel = context.WithCancel(ctx)
-			SetupCloseHandler(ctx, cancel)
-			return internal.RunClient(ctx, config, nbStatus.NewRecorder())
-		}
-
-		conn, err := DialClientGRPCServer(ctx, daemonAddr)
-		if err != nil {
-			return fmt.Errorf("failed to connect to daemon error: %v\n"+
-				"If the daemon is not running please run: "+
-				"\nnetbird service install \nnetbird service start\n", err)
-		}
-		defer func() {
-			err := conn.Close()
-			if err != nil {
-				log.Warnf("failed closing dameon gRPC client connection %v", err)
-				return
-			}
-		}()
-
-		client := proto.NewDaemonServiceClient(conn)
-
-		status, err := client.Status(ctx, &proto.StatusRequest{})
-		if err != nil {
-			return fmt.Errorf("unable to get daemon status: %v", err)
-		}
-
-		if status.Status == string(internal.StatusConnected) {
-			cmd.Println("Already connected")
+	err = WithBackOff(func() error {
+		var backOffErr error
+		loginResp, backOffErr = client.Login(ctx, &loginRequest)
+		if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
+			s.Code() == codes.PermissionDenied ||
+			s.Code() == codes.NotFound ||
+			s.Code() == codes.Unimplemented) {
+			loginErr = backOffErr
 			return nil
 		}
+		return backOffErr
+	})
+	if err != nil {
+		return fmt.Errorf("login backoff cycle failed: %v", err)
+	}
 
-		loginRequest := proto.LoginRequest{
-			SetupKey:            setupKey,
-			PreSharedKey:        preSharedKey,
-			ManagementUrl:       managementURL,
-			NatExternalIPs:      natExternalIPs,
-			CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
-			CustomDNSAddress:    customDNSAddressConverted,
-		}
+	if loginErr != nil {
+		return fmt.Errorf("login failed: %v", loginErr)
+	}
 
-		var loginErr error
+	if loginResp.NeedsSSOLogin {
 
-		var loginResp *proto.LoginResponse
+		openURL(cmd, loginResp.VerificationURIComplete)
 
-		err = WithBackOff(func() error {
-			var backOffErr error
-			loginResp, backOffErr = client.Login(ctx, &loginRequest)
-			if s, ok := gstatus.FromError(backOffErr); ok && (s.Code() == codes.InvalidArgument ||
-				s.Code() == codes.PermissionDenied ||
-				s.Code() == codes.NotFound ||
-				s.Code() == codes.Unimplemented) {
-				loginErr = backOffErr
-				return nil
-			}
-			return backOffErr
-		})
+		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 		if err != nil {
-			return fmt.Errorf("login backoff cycle failed: %v", err)
+			return fmt.Errorf("waiting sso login failed with: %v", err)
 		}
+	}
 
-		if loginErr != nil {
-			return fmt.Errorf("login failed: %v", loginErr)
-		}
-
-		if loginResp.NeedsSSOLogin {
-
-			openURL(cmd, loginResp.VerificationURIComplete)
-
-			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
-			if err != nil {
-				return fmt.Errorf("waiting sso login failed with: %v", err)
-			}
-		}
-
-		if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
-			return fmt.Errorf("call service up method: %v", err)
-		}
-		cmd.Println("Connected")
-		return nil
-	},
+	if _, err := client.Up(ctx, &proto.UpRequest{}); err != nil {
+		return fmt.Errorf("call service up method: %v", err)
+	}
+	cmd.Println("Connected")
+	return nil
 }
 
 func validateNATExternalIPs(list []string) error {
