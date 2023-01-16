@@ -64,6 +64,8 @@ type MockAccountManager struct {
 	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
 	GetDNSDomainFunc                func() string
 	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
+	GetDNSSettingsFunc              func(accountID string, userID string) (*server.DNSSettings, error)
+	SaveDNSSettingsFunc             func(accountID string, userID string, dnsSettingsToSave *server.DNSSettings) error
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -498,4 +500,20 @@ func (am *MockAccountManager) GetEvents(accountID, userID string) ([]*activity.E
 		return am.GetEventsFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetEvents is not implemented")
+}
+
+// GetDNSSettings mocks GetDNSSettings of the AccountManager interface
+func (am *MockAccountManager) GetDNSSettings(accountID string, userID string) (*server.DNSSettings, error) {
+	if am.GetDNSSettingsFunc != nil {
+		return am.GetDNSSettingsFunc(accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetDNSSettings is not implemented")
+}
+
+// SaveDNSSettings mocks SaveDNSSettings of the AccountManager interface
+func (am *MockAccountManager) SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *server.DNSSettings) error {
+	if am.SaveDNSSettingsFunc != nil {
+		return am.SaveDNSSettingsFunc(accountID, userID, dnsSettingsToSave)
+	}
+	return status.Errorf(codes.Unimplemented, "method SaveDNSSettings is not implemented")
 }

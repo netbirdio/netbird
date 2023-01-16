@@ -89,6 +89,8 @@ type AccountManager interface {
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
+	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
+	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 }
 
 type DefaultAccountManager struct {
