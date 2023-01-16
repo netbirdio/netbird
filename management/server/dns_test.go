@@ -34,11 +34,12 @@ func TestGetDNSSettings(t *testing.T) {
 	}
 
 	if dnsSettings == nil {
-		t.Error("DNS settings for new accounts shouldn't return nil")
+		t.Fatal("DNS settings for new accounts shouldn't return nil")
 	}
 
-	dnsSettings.DisabledManagementGroups = []string{group1ID}
-	account.DNSSettings = dnsSettings
+	account.DNSSettings = &DNSSettings{
+		DisabledManagementGroups: []string{group1ID},
+	}
 
 	err = am.Store.SaveAccount(account)
 	if err != nil {
@@ -54,7 +55,7 @@ func TestGetDNSSettings(t *testing.T) {
 		t.Errorf("DNS settings should have one disabled mgmt group, groups: %s", dnsSettings.DisabledManagementGroups)
 	}
 
-	dnsSettings, err = am.GetDNSSettings(account.Id, dnsRegularUserID)
+	_, err = am.GetDNSSettings(account.Id, dnsRegularUserID)
 	if err == nil {
 		t.Errorf("An error should be returned when getting the DNS settings with a regular user")
 	}
