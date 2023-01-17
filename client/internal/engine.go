@@ -70,6 +70,8 @@ type EngineConfig struct {
 	SSHKey []byte
 
 	NATExternalIPs []string
+
+	CustomDNSAddress string
 }
 
 // Engine is a mechanism responsible for reacting on Signal and Management stream events and managing connections to the remote peers.
@@ -261,7 +263,8 @@ func (e *Engine) Start() error {
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
 
 	if e.dnsServer == nil {
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface)
+		// todo fix custom address
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
 		if err != nil {
 			return err
 		}
@@ -964,6 +967,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 		var external, internal string
 		var externalIP, internalIP net.IP
 		var err error
+
 		split := strings.Split(mapping, "/")
 		if len(split) > 2 {
 			log.Warnf("ignoring invalid external mapping '%s', too many delimiters", mapping)
@@ -988,7 +992,7 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 		external = split[0]
 		externalIP = net.ParseIP(external)
 		if externalIP == nil {
-			log.Warnf("invalid external IP, ignoring external IP mapping '%s'", mapping)
+			log.Warnf("invalid external IP, %s, ignoring external IP mapping '%s'", external, mapping)
 			break
 		}
 		if externalIP != nil {

@@ -12,6 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/route"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"net"
 	"net/netip"
 	"os"
@@ -778,15 +779,13 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	ctx, cancel := context.WithCancel(CtxInitState(context.Background()))
 	defer cancel()
 
-	sport := 10010
-	sigServer, err := startSignal(sport)
+	sigServer, signalAddr, err := startSignal()
 	if err != nil {
 		t.Fatal(err)
 		return
 	}
 	defer sigServer.Stop()
-	mport := 33081
-	mgmtServer, err := startManagement(mport, dir)
+	mgmtServer, mgmtAddr, err := startManagement(dir)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -804,7 +803,7 @@ func TestEngine_MultiplePeers(t *testing.T) {
 	for i := 0; i < numPeers; i++ {
 		j := i
 		go func() {
-			engine, err := createEngine(ctx, cancel, setupKey, j, mport, sport)
+			engine, err := createEngine(ctx, cancel, setupKey, j, mgmtAddr, signalAddr)
 			if err != nil {
 				wg.Done()
 				t.Errorf("unable to create the engine for peer %d with error %v", j, err)
@@ -870,16 +869,84 @@ loop:
 	}
 }
 
-func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey string, i int, mport int, sport int) (*Engine, error) {
+func Test_ParseNATExternalIPMappings(t *testing.T) {
+	ifaceList, err := net.Interfaces()
+	if err != nil {
+		t.Fatalf("could get the interface list, got error: %s", err)
+	}
+
+	var testingIP string
+	var testingInterface string
+
+	for _, iface := range ifaceList {
+		addrList, err := iface.Addrs()
+		if err != nil {
+			t.Fatalf("could get the addr list, got error: %s", err)
+		}
+		for _, addr := range addrList {
+			prefix := netip.MustParsePrefix(addr.String())
+			if prefix.Addr().Is4() && !prefix.Addr().IsLoopback() {
+				testingIP = prefix.Addr().String()
+				testingInterface = iface.Name
+			}
+		}
+	}
+
+	testCases := []struct {
+		name                    string
+		inputMapList            []string
+		inputBlacklistInterface []string
+		expectedOutput          []string
+	}{
+		{
+			name:                    "Parse Valid List Should Be OK",
+			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputMapList:            []string{"1.1.1.1", "8.8.8.8/" + testingInterface},
+			expectedOutput:          []string{"1.1.1.1", "8.8.8.8/" + testingIP},
+		},
+		{
+			name:                    "Only Interface Name Should Return Nil",
+			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputMapList:            []string{testingInterface},
+			expectedOutput:          nil,
+		},
+		{
+			name:                    "Invalid IP Return Nil",
+			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputMapList:            []string{"1.1.1.1000"},
+			expectedOutput:          nil,
+		},
+		{
+			name:                    "Invalid Mapping Element Should return Nil",
+			inputBlacklistInterface: defaultInterfaceBlacklist,
+			inputMapList:            []string{"1.1.1.1/10.10.10.1/eth0"},
+			expectedOutput:          nil,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			engine := &Engine{
+				config: &EngineConfig{
+					IFaceBlackList: testCase.inputBlacklistInterface,
+					NATExternalIPs: testCase.inputMapList,
+				},
+			}
+			parsedList := engine.parseNATExternalIPMappings()
+			require.ElementsMatchf(t, testCase.expectedOutput, parsedList, "elements of parsed list should match expected list")
+		})
+	}
+}
+
+func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey string, i int, mgmtAddr string, signalAddr string) (*Engine, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
 	}
-	mgmtClient, err := mgmt.NewClient(ctx, fmt.Sprintf("localhost:%d", mport), key, false)
+	mgmtClient, err := mgmt.NewClient(ctx, mgmtAddr, key, false)
 	if err != nil {
 		return nil, err
 	}
-	signalClient, err := signal.NewClient(ctx, fmt.Sprintf("localhost:%d", sport), key, false)
+	signalClient, err := signal.NewClient(ctx, signalAddr, key, false)
 	if err != nil {
 		return nil, err
 	}
@@ -913,10 +980,10 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf, nbstatus.NewRecorder()), nil
 }
 
-func startSignal(port int) (*grpc.Server, error) {
+func startSignal() (*grpc.Server, string, error) {
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -929,10 +996,10 @@ func startSignal(port int) (*grpc.Server, error) {
 		}
 	}()
 
-	return s, nil
+	return s, lis.Addr().String(), nil
 }
 
-func startManagement(port int, dataDir string) (*grpc.Server, error) {
+func startManagement(dataDir string) (*grpc.Server, string, error) {
 	config := &server.Config{
 		Stuns:      []*server.Host{},
 		TURNConfig: &server.TURNConfig{},
@@ -944,9 +1011,9 @@ func startManagement(port int, dataDir string) (*grpc.Server, error) {
 		HttpConfig: nil,
 	}
 
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
+	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	store, err := server.NewFileStore(config.Datadir)
@@ -956,17 +1023,17 @@ func startManagement(port int, dataDir string) (*grpc.Server, error) {
 	peersUpdateManager := server.NewPeersUpdateManager()
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
-		return nil, nil
+		return nil, "", nil
 	}
 	accountManager, err := server.BuildManager(store, peersUpdateManager, nil, "", "",
 		eventStore)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	turnManager := server.NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 	mgmtServer, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 	go func() {
@@ -975,5 +1042,5 @@ func startManagement(port int, dataDir string) (*grpc.Server, error) {
 		}
 	}()
 
-	return s, nil
+	return s, lis.Addr().String(), nil
 }

@@ -15,7 +15,7 @@ var downCmd = &cobra.Command{
 	Use:   "down",
 	Short: "down netbird connections",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		SetFlagsFromEnvVars()
+		SetFlagsFromEnvVars(rootCmd)
 
 		cmd.SetOut(cmd.OutOrStdout())
 

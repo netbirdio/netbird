@@ -16,6 +16,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// ManagementLegacyPort is the port that was used before by the Management gRPC server.
+// It is used for backward compatibility now.
+// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
+const ManagementLegacyPort = 33073
+
+var defaultInterfaceBlacklist = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
+	"Tailscale", "tailscale", "docker", "veth", "br-"}
+
 var managementURLDefault *url.URL
 
 func ManagementURLDefault() *url.URL {
@@ -32,10 +40,12 @@ func init() {
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
-	ManagementURL string
-	AdminURL      string
-	ConfigPath    string
-	PreSharedKey  *string
+	ManagementURL    string
+	AdminURL         string
+	ConfigPath       string
+	PreSharedKey     *string
+	NATExternalIPs   []string
+	CustomDNSAddress []byte
 }
 
 // Config Configuration type
@@ -68,6 +78,8 @@ type Config struct {
 	//      "12.34.56.78/10.1.2.3" => interface IP 10.1.2.3 will be mapped to external IP of 12.34.56.78
 
 	NATExternalIPs []string
+	// CustomDNSAddress sets the DNS resolver listening address in format ip:port
+	CustomDNSAddress string
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
@@ -84,6 +96,8 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		WgPort:               iface.DefaultWgPort,
 		IFaceBlackList:       []string{},
 		DisableIPv6Discovery: false,
+		NATExternalIPs:       input.NATExternalIPs,
+		CustomDNSAddress:     string(input.CustomDNSAddress),
 	}
 	if input.ManagementURL != "" {
 		URL, err := ParseURL("Management URL", input.ManagementURL)
@@ -107,8 +121,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.AdminURL = newURL
 	}
 
-	config.IFaceBlackList = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
-		"Tailscale", "tailscale", "docker", "veth", "br-"}
+	config.IFaceBlackList = defaultInterfaceBlacklist
 
 	err = util.WriteJson(input.ConfigPath, config)
 	if err != nil {
@@ -135,7 +148,7 @@ func ParseURL(serviceName, managementURL string) (*url.URL, error) {
 	return parsedMgmtURL, err
 }
 
-// ReadConfig reads existing config. In case provided managementURL is not empty overrides the read property
+// ReadConfig reads existing configuration and update settings according to input configuration
 func ReadConfig(input ConfigInput) (*Config, error) {
 	config := &Config{}
 	if _, err := os.Stat(input.ConfigPath); os.IsNotExist(err) {
@@ -176,6 +189,7 @@ func ReadConfig(input ConfigInput) (*Config, error) {
 		config.PreSharedKey = *input.PreSharedKey
 		refresh = true
 	}
+
 	if config.SSHKey == "" {
 		pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
 		if err != nil {
@@ -187,6 +201,15 @@ func ReadConfig(input ConfigInput) (*Config, error) {
 
 	if config.WgPort == 0 {
 		config.WgPort = iface.DefaultWgPort
+		refresh = true
+	}
+	if input.NATExternalIPs != nil && len(config.NATExternalIPs) != len(input.NATExternalIPs) {
+		config.NATExternalIPs = input.NATExternalIPs
+		refresh = true
+	}
+
+	if input.CustomDNSAddress != nil {
+		config.CustomDNSAddress = string(input.CustomDNSAddress)
 		refresh = true
 	}
 

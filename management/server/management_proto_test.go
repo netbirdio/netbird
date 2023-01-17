@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"net"
 	"os"
@@ -83,8 +82,7 @@ func Test_SyncProtocol(t *testing.T) {
 	defer func() {
 		os.Remove(filepath.Join(dir, "store.json")) //nolint
 	}()
-	mport := 33091
-	mgmtServer, err := startManagement(t, mport, &Config{
+	mgmtServer, mgmtAddr, err := startManagement(t, &Config{
 		Stuns: []*Host{{
 			Proto: "udp",
 			URI:   "stun:stun.wiretrustee.com:3468",
@@ -111,7 +109,7 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 	defer mgmtServer.GracefulStop()
 
-	client, clientConn, err := createRawClient(fmt.Sprintf("localhost:%d", mport))
+	client, clientConn, err := createRawClient(mgmtAddr)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -393,27 +391,27 @@ func TestServer_GetDeviceAuthorizationFlow(t *testing.T) {
 	}
 }
 
-func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, error) {
-	lis, err := net.Listen("tcp", fmt.Sprintf("localhost:%d", port))
+func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error) {
+	lis, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	store, err := NewFileStore(config.Datadir)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	peersUpdateManager := NewPeersUpdateManager()
 	eventStore := &activity.InMemoryEventStore{}
 	accountManager, err := BuildManager(store, peersUpdateManager, nil, "", "",
 		eventStore)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
 	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager, nil)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	mgmtProto.RegisterManagementServiceServer(s, mgmtServer)
 
@@ -423,7 +421,7 @@ func startManagement(t *testing.T, port int, config *Config) (*grpc.Server, erro
 		}
 	}()
 
-	return s, nil
+	return s, lis.Addr().String(), nil
 }
 
 func createRawClient(addr string) (mgmtProto.ManagementServiceClient, *grpc.ClientConn, error) {
