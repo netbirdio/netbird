@@ -12,7 +12,7 @@ const (
 	dnsGroup2ID      = "group2"
 	dnsGroupPeer1Key = "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8="
 	dnsGroupPeer2Key = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
-	dnsAccountId     = "testingAcc"
+	dnsAccountID     = "testingAcc"
 	dnsAdminUserID   = "testingAdminUser"
 	dnsRegularUserID = "testingRegularUser"
 )
@@ -186,7 +186,7 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 
 	domain := "example.com"
 
-	account := newAccountWithId(dnsAccountId, dnsAdminUserID, domain)
+	account := newAccountWithId(dnsAccountID, dnsAdminUserID, domain)
 
 	account.Users[dnsRegularUserID] = &User{
 		Id:   dnsRegularUserID,

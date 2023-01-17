@@ -342,6 +342,21 @@ func (a *Account) getUserGroups(userID string) ([]string, error) {
 	return user.AutoGroups, nil
 }
 
+func (a *Account) getPeerDNSManagementStatus(peerID string) bool {
+	peerGroups := a.getPeerGroups(peerID)
+	enabled := true
+	if a.DNSSettings != nil {
+		for _, groupID := range a.DNSSettings.DisabledManagementGroups {
+			_, found := peerGroups[groupID]
+			if found {
+				enabled = false
+				break
+			}
+		}
+	}
+	return enabled
+}
+
 func (a *Account) getPeerGroups(peerID string) lookupMap {
 	groupList := make(lookupMap)
 	for groupID, group := range a.Groups {
