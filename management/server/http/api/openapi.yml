@@ -503,6 +503,16 @@ components:
               enum: [ "name", "description", "enabled", "groups", "nameservers", "primary", "domains" ]
           required:
             - path
+    DNSSettings:
+      type: object
+      properties:
+        disabled_management_groups:
+          description: Groups whose DNS management is disabled
+          type: array
+          items:
+            type: string
+      required:
+        - disabled_management_groups
     Event:
       type: object
       properties:
@@ -522,10 +532,10 @@ components:
           enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add", "user.group.add", "user.group.delete",
                   "user.role.update",
                   "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
-                  "setupkey.group.delete", "setupkey.group.add"
+                  "setupkey.group.delete", "setupkey.group.add",
                   "rule.add", "rule.delete", "rule.update",
-                  "group.add", "group.update",
-                  "account.create",
+                  "group.add", "group.update", "dns.setting.disabled.management.group.add",
+                  "account.create", "dns.setting.disabled.management.group.delete"
           ]
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
@@ -1611,6 +1621,55 @@ paths:
         '200':
           description: Delete status code
           content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+
+  /api/dns/settings:
+    get:
+      summary: Returns a DNS settings object
+      tags: [ DNS ]
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Object of DNS Setting
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/DNSSettings'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Updates a DNS settings object
+      tags: [ DNS ]
+      security:
+        - BearerAuth: [ ]
+      requestBody:
+        description: A DNS settings object
+        content:
+          'application/json':
+            schema:
+              $ref: '#/components/schemas/DNSSettings'
+      responses:
+        '200':
+          description: A JSON Object of DNS Setting
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DNSSettings'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

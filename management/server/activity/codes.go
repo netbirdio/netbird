@@ -45,6 +45,10 @@ const (
 	GroupAddedToSetupKey
 	// GroupRemovedFromSetupKey indicates that a user removed a group from a setup key
 	GroupRemovedFromSetupKey
+	// GroupAddedToDisabledManagementGroups indicates that a user added a group to the DNS setting Disabled management groups
+	GroupAddedToDisabledManagementGroups
+	// GroupRemovedFromDisabledManagementGroups indicates that a user removed a group from the DNS setting Disabled management groups
+	GroupRemovedFromDisabledManagementGroups
 )
 
 const (
@@ -92,6 +96,10 @@ const (
 	GroupAddedToSetupKeyMessage string = "Group added to setup key"
 	// GroupRemovedFromSetupKeyMessage is a human-readable text message of the GroupRemovedFromSetupKey activity
 	GroupRemovedFromSetupKeyMessage string = "Group removed from user setup key"
+	// GroupAddedToDisabledManagementGroupsMessage is a human-readable text message of the GroupAddedToDisabledManagementGroups activity
+	GroupAddedToDisabledManagementGroupsMessage
+	// GroupRemovedFromDisabledManagementGroupsMessage is a human-readable text message of the GroupRemovedFromDisabledManagementGroups activity
+	GroupRemovedFromDisabledManagementGroupsMessage
 )
 
 // Activity that triggered an Event
@@ -144,6 +152,10 @@ func (a Activity) Message() string {
 		return GroupAddedToSetupKeyMessage
 	case GroupRemovedFromSetupKey:
 		return GroupRemovedFromSetupKeyMessage
+	case GroupAddedToDisabledManagementGroups:
+		return GroupAddedToDisabledManagementGroupsMessage
+	case GroupRemovedFromDisabledManagementGroups:
+		return GroupRemovedFromDisabledManagementGroupsMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -196,6 +208,10 @@ func (a Activity) StringCode() string {
 		return "setupkey.group.add"
 	case GroupRemovedFromSetupKey:
 		return "setupkey.group.delete"
+	case GroupAddedToDisabledManagementGroups:
+		return "dns.setting.disabled.management.group.add"
+	case GroupRemovedFromDisabledManagementGroups:
+		return "dns.setting.disabled.management.group.delete"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}

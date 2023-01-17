@@ -1276,6 +1276,7 @@ func TestAccount_Copy(t *testing.T) {
 				ID: "nsGroup1",
 			},
 		},
+		DNSSettings: &DNSSettings{},
 	}
 	err := hasNilField(account)
 	if err != nil {

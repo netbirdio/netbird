@@ -323,16 +323,19 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 	aclPeers := account.getPeersByACL(peerPubKey)
 	routesUpdate := account.getRoutesToSync(peerPubKey, aclPeers)
 
-	var zones []nbdns.CustomZone
-	peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
-	if peersCustomZone.Domain != "" {
-		zones = append(zones, peersCustomZone)
+	dnsManagementStatus := account.getPeerDNSManagementStatus(peerPubKey)
+	dnsUpdate := nbdns.Config{
+		ServiceEnable: dnsManagementStatus,
 	}
 
-	dnsUpdate := nbdns.Config{
-		ServiceEnable:    true,
-		CustomZones:      zones,
-		NameServerGroups: getPeerNSGroups(account, peerPubKey),
+	if dnsManagementStatus {
+		var zones []nbdns.CustomZone
+		peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
+		if peersCustomZone.Domain != "" {
+			zones = append(zones, peersCustomZone)
+		}
+		dnsUpdate.CustomZones = zones
+		dnsUpdate.NameServerGroups = getPeerNSGroups(account, peerPubKey)
 	}
 
 	return &NetworkMap{
