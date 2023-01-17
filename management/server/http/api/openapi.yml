@@ -534,8 +534,8 @@ components:
                   "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
                   "setupkey.group.delete", "setupkey.group.add",
                   "rule.add", "rule.delete", "rule.update",
-                  "group.add", "group.update",
-                  "account.create",
+                  "group.add", "group.update", "dns.setting.disabled.management.group.add",
+                  "account.create", "dns.setting.disabled.management.group.delete"
           ]
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
