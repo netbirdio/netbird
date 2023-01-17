@@ -11,6 +11,15 @@ import (
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+	"net"
+	"net/netip"
+	"strings"
+)
+
+const (
+	invalidInputType int = iota
+	ipInputType
+	interfaceInputType
 )
 
 var (
@@ -27,13 +36,19 @@ func init() {
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {
-	SetFlagsFromEnvVars()
+	SetFlagsFromEnvVars(rootCmd)
+	SetFlagsFromEnvVars(cmd)
 
 	cmd.SetOut(cmd.OutOrStdout())
 
 	err := util.InitLog(logLevel, "console")
 	if err != nil {
 		return fmt.Errorf("failed initializing log %v", err)
+	}
+
+	err = validateNATExternalIPs(natExternalIPs)
+	if err != nil {
+		return err
 	}
 
 	ctx := internal.CtxInitState(cmd.Context())
@@ -50,11 +65,18 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
+	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	if err != nil {
+		return err
+	}
+
 	config, err := internal.GetConfig(internal.ConfigInput{
-		ManagementURL: managementURL,
-		AdminURL:      adminURL,
-		ConfigPath:    configPath,
-		PreSharedKey:  &preSharedKey,
+		ManagementURL:    managementURL,
+		AdminURL:         adminURL,
+		ConfigPath:       configPath,
+		PreSharedKey:     &preSharedKey,
+		NATExternalIPs:   natExternalIPs,
+		CustomDNSAddress: customDNSAddressConverted,
 	})
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
@@ -74,6 +96,11 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
+
+	customDNSAddressConverted, err := parseCustomDNSAddress(cmd.Flag(dnsResolverAddress).Changed)
+	if err != nil {
+		return err
+	}
 
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
@@ -102,9 +129,12 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 
 	loginRequest := proto.LoginRequest{
-		SetupKey:      setupKey,
-		PreSharedKey:  preSharedKey,
-		ManagementUrl: managementURL,
+		SetupKey:            setupKey,
+		PreSharedKey:        preSharedKey,
+		ManagementUrl:       managementURL,
+		NatExternalIPs:      natExternalIPs,
+		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
+		CustomDNSAddress:    customDNSAddressConverted,
 	}
 
 	var loginErr error
@@ -146,4 +176,90 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 	}
 	cmd.Println("Connected")
 	return nil
+}
+
+func validateNATExternalIPs(list []string) error {
+	for _, element := range list {
+		if element == "" {
+			return fmt.Errorf("empty string is not a valid input for %s", externalIPMapFlag)
+		}
+
+		subElements := strings.Split(element, "/")
+		if len(subElements) > 2 {
+			return fmt.Errorf("%s is not a valid input for %s. it should be formated as \"String\" or \"String/String\"", element, externalIPMapFlag)
+		}
+
+		if len(subElements) == 1 && !isValidIP(subElements[0]) {
+			return fmt.Errorf("%s is not a valid input for %s. it should be formated as \"IP\" or \"IP/IP\", or \"IP/Interface Name\"", element, externalIPMapFlag)
+		}
+
+		last := 0
+		for _, singleElement := range subElements {
+			inputType, err := validateElement(singleElement)
+			if err != nil {
+				return fmt.Errorf("%s is not a valid input for %s. it should be an IP string or a network name", singleElement, externalIPMapFlag)
+			}
+			if last == interfaceInputType && inputType == interfaceInputType {
+				return fmt.Errorf("%s is not a valid input for %s. it should not contain two interface names", element, externalIPMapFlag)
+			}
+			last = inputType
+		}
+	}
+	return nil
+}
+
+func validateElement(element string) (int, error) {
+	if isValidIP(element) {
+		return ipInputType, nil
+	}
+	validIface, err := isValidInterface(element)
+	if err != nil {
+		return invalidInputType, fmt.Errorf("unable to validate the network interface name, error: %s", err)
+	}
+
+	if validIface {
+		return interfaceInputType, nil
+	}
+
+	return interfaceInputType, fmt.Errorf("invalid IP or network interface name not found")
+}
+
+func isValidIP(ip string) bool {
+	return net.ParseIP(ip) != nil
+}
+
+func isValidInterface(name string) (bool, error) {
+	netInterfaces, err := net.Interfaces()
+	if err != nil {
+		return false, err
+	}
+	for _, iface := range netInterfaces {
+		if iface.Name == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func parseCustomDNSAddress(modified bool) ([]byte, error) {
+	var parsed []byte
+	if modified {
+		if !isValidAddrPort(customDNSAddress) {
+			return nil, fmt.Errorf("%s is invalid, it should be formated as IP:Port string or as an empty string like \"\"", customDNSAddress)
+		}
+		if customDNSAddress == "" && logFile != "console" {
+			parsed = []byte("empty")
+		} else {
+			parsed = []byte(customDNSAddress)
+		}
+	}
+	return parsed, nil
+}
+
+func isValidAddrPort(input string) bool {
+	if input == "" {
+		return true
+	}
+	_, err := netip.ParseAddrPort(input)
+	return err == nil
 }

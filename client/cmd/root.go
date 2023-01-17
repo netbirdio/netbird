@@ -24,6 +24,11 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 )
 
+const (
+	externalIPMapFlag  = "external-ip-map"
+	dnsResolverAddress = "dns-resolver-address"
+)
+
 var (
 	configPath              string
 	defaultConfigPathDir    string
@@ -41,6 +46,8 @@ var (
 	adminURL                string
 	setupKey                string
 	preSharedKey            string
+	natExternalIPs          []string
+	customDNSAddress        string
 	rootCmd                 = &cobra.Command{
 		Use:          "netbird",
 		Short:        "",
@@ -80,13 +87,13 @@ func init() {
 		defaultDaemonAddr = "tcp://127.0.0.1:41731"
 	}
 	rootCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
-	rootCmd.PersistentFlags().StringVar(&managementURL, "management-url", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.ManagementURLDefault().String()))
+	rootCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.ManagementURLDefault().String()))
 	rootCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "https://app.netbird.io", "Admin Panel URL [http|https]://[host]:[port]")
-	rootCmd.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "Netbird config file location")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "sets Netbird log level")
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
+	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
 	rootCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the the log will be output to stdout")
-	rootCmd.PersistentFlags().StringVar(&setupKey, "setup-key", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
-	rootCmd.PersistentFlags().StringVar(&preSharedKey, "preshared-key", "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
+	rootCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
+	rootCmd.PersistentFlags().StringVarP(&preSharedKey, "preshared-key", "p", "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
 	rootCmd.AddCommand(serviceCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
@@ -96,6 +103,19 @@ func init() {
 	rootCmd.AddCommand(sshCmd)
 	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
 	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
+	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
+		`Sets external IPs maps between local addresses and interfaces.`+
+			`You can specify a comma-separated list with a single IP and IP/IP or IP/Interface Name. `+
+			`An empty string "" clears the previous configuration. `+
+			`E.g. --external-ip-map 12.34.56.78/10.0.0.1 or --external-ip-map 12.34.56.200,12.34.56.78/10.0.0.1,12.34.56.80/eth1 `+
+			`or --external-ip-map ""`,
+	)
+	upCmd.PersistentFlags().StringVar(&customDNSAddress, dnsResolverAddress, "",
+		`Sets a custom address for NetBird's local DNS resolver. `+
+			`If set, the agent won't attempt to discover the best ip and port to listen on. `+
+			`An empty string "" clears the previous configuration. `+
+			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
+	)
 }
 
 // SetupCloseHandler handles SIGTERM signal and exits with success
@@ -115,8 +135,8 @@ func SetupCloseHandler(ctx context.Context, cancel context.CancelFunc) {
 }
 
 // SetFlagsFromEnvVars reads and updates flag values from environment variables with prefix WT_
-func SetFlagsFromEnvVars() {
-	flags := rootCmd.PersistentFlags()
+func SetFlagsFromEnvVars(cmd *cobra.Command) {
+	flags := cmd.PersistentFlags()
 	flags.VisitAll(func(f *pflag.Flag) {
 		oldEnvVar := FlagNameToEnvVar(f.Name, "WT_")
 
