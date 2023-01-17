@@ -41,6 +41,7 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	routesHandler := NewRoutes(accountManager, authAudience)
 	nameserversHandler := NewNameservers(accountManager, authAudience)
 	eventsHandler := NewEvents(accountManager, authAudience)
+	dnsSettingsHandler := NewDNSSettings(accountManager, authAudience)
 
 	apiHandler.HandleFunc("/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/peers/{id}", peersHandler.HandlePeer).
@@ -83,6 +84,9 @@ func APIHandler(accountManager s.AccountManager, authIssuer string, authAudience
 	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.DeleteNameserverGroupHandler).Methods("DELETE", "OPTIONS")
 
 	apiHandler.HandleFunc("/events", eventsHandler.GetEvents).Methods("GET", "OPTIONS")
+
+	apiHandler.HandleFunc("/dns/settings", dnsSettingsHandler.GetDNSSettings).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/dns/settings", dnsSettingsHandler.UpdateDNSSettings).Methods("PUT", "OPTIONS")
 
 	err = apiHandler.Walk(func(route *mux.Route, router *mux.Router, ancestors []*mux.Route) error {
 		methods, err := route.GetMethods()

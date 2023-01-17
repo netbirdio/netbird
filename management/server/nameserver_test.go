@@ -1128,19 +1128,20 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 
 	account.NameServerGroups[existingNSGroup.ID] = &existingNSGroup
 
-	defaultGroup, err := account.GetGroupAll()
-	if err != nil {
-		return nil, err
+	newGroup1 := &Group{
+		ID:   group1ID,
+		Name: group1ID,
 	}
-	newGroup1 := defaultGroup.Copy()
-	newGroup1.ID = group1ID
-	newGroup2 := defaultGroup.Copy()
-	newGroup2.ID = group2ID
+
+	newGroup2 := &Group{
+		ID:   group2ID,
+		Name: group2ID,
+	}
 
 	account.Groups[newGroup1.ID] = newGroup1
 	account.Groups[newGroup2.ID] = newGroup2
 
-	err = am.Store.SaveAccount(account)
+	err := am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}

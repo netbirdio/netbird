@@ -89,6 +89,8 @@ type AccountManager interface {
 	ListNameServerGroups(accountID string) ([]*nbdns.NameServerGroup, error)
 	GetDNSDomain() string
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
+	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
+	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 }
 
 type DefaultAccountManager struct {
@@ -129,6 +131,7 @@ type Account struct {
 	Rules                  map[string]*Rule
 	Routes                 map[string]*route.Route
 	NameServerGroups       map[string]*nbdns.NameServerGroup
+	DNSSettings            *DNSSettings
 }
 
 type UserInfo struct {
@@ -339,6 +342,21 @@ func (a *Account) getUserGroups(userID string) ([]string, error) {
 	return user.AutoGroups, nil
 }
 
+func (a *Account) getPeerDNSManagementStatus(peerID string) bool {
+	peerGroups := a.getPeerGroups(peerID)
+	enabled := true
+	if a.DNSSettings != nil {
+		for _, groupID := range a.DNSSettings.DisabledManagementGroups {
+			_, found := peerGroups[groupID]
+			if found {
+				enabled = false
+				break
+			}
+		}
+	}
+	return enabled
+}
+
 func (a *Account) getPeerGroups(peerID string) lookupMap {
 	groupList := make(lookupMap)
 	for groupID, group := range a.Groups {
@@ -415,6 +433,11 @@ func (a *Account) Copy() *Account {
 		nsGroups[id] = nsGroup.Copy()
 	}
 
+	var dnsSettings *DNSSettings
+	if a.DNSSettings != nil {
+		dnsSettings = a.DNSSettings
+	}
+
 	return &Account{
 		Id:                     a.Id,
 		CreatedBy:              a.CreatedBy,
@@ -429,6 +452,7 @@ func (a *Account) Copy() *Account {
 		Rules:                  rules,
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
+		DNSSettings:            dnsSettings,
 	}
 }
 
@@ -1042,6 +1066,9 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	routes := make(map[string]*route.Route)
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userId] = NewAdminUser(userId)
+	dnsSettings := &DNSSettings{
+		DisabledManagementGroups: make([]string, 0),
+	}
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
 	acc := &Account{
@@ -1054,6 +1081,7 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 		Domain:           domain,
 		Routes:           routes,
 		NameServerGroups: nameServersGroups,
+		DNSSettings:      dnsSettings,
 	}
 
 	addAllGroup(acc)
