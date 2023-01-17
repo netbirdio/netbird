@@ -5,6 +5,7 @@ import (
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
 	"strconv"
@@ -81,12 +82,33 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 		return err
 	}
 
+	oldSettings := &DNSSettings{}
+	if account.DNSSettings != nil {
+		oldSettings = account.DNSSettings.Copy()
+	}
+
 	account.DNSSettings = dnsSettingsToSave.Copy()
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
 		return err
 	}
+
+	go func() {
+		addedGroups := difference(dnsSettingsToSave.DisabledManagementGroups, oldSettings.DisabledManagementGroups)
+		for _, id := range addedGroups {
+			group := account.GetGroup(id)
+			meta := map[string]any{"group": group.Name, "group_id": group.ID}
+			am.storeEvent(userID, accountID, accountID, activity.GroupAddedToDisabledManagementGroups, meta)
+		}
+
+		removedGroups := difference(oldSettings.DisabledManagementGroups, dnsSettingsToSave.DisabledManagementGroups)
+		for _, id := range removedGroups {
+			group := account.GetGroup(id)
+			meta := map[string]any{"group": group.Name, "group_id": group.ID}
+			am.storeEvent(userID, accountID, accountID, activity.GroupRemovedFromDisabledManagementGroups, meta)
+		}
+	}()
 
 	return am.updateAccountPeers(account)
 }
