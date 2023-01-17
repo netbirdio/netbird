@@ -10,8 +10,8 @@ import (
 const (
 	dnsGroup1ID      = "group1"
 	dnsGroup2ID      = "group2"
-	dnsGroupPeer1Key = "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8="
-	dnsGroupPeer2Key = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
+	dnsPeer1Key      = "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8="
+	dnsPeer2Key      = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
 	dnsAccountID     = "testingAcc"
 	dnsAdminUserID   = "testingAdminUser"
 	dnsRegularUserID = "testingRegularUser"
@@ -135,13 +135,47 @@ func TestSaveDNSSettings(t *testing.T) {
 	}
 }
 
+func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
+
+	am, err := createDNSManager(t)
+	if err != nil {
+		t.Error("failed to create account manager")
+	}
+
+	account, err := initTestDNSAccount(t, am)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+
+	newAccountDNSConfig, err := am.GetNetworkMap(dnsPeer1Key)
+	require.NoError(t, err)
+	require.Len(t, newAccountDNSConfig.DNSConfig.CustomZones, 1, "default DNS config should have one custom zone for peers")
+	require.True(t, newAccountDNSConfig.DNSConfig.ServiceEnable, "default DNS config should have local DNS service enabled")
+
+	dnsSettings := account.DNSSettings.Copy()
+	dnsSettings.DisabledManagementGroups = append(dnsSettings.DisabledManagementGroups, dnsGroup1ID)
+	account.DNSSettings = dnsSettings
+	err = am.Store.SaveAccount(account)
+	require.NoError(t, err)
+
+	updatedAccountDNSConfig, err := am.GetNetworkMap(dnsPeer1Key)
+	require.NoError(t, err)
+	require.Len(t, updatedAccountDNSConfig.DNSConfig.CustomZones, 0, "updated DNS config should have no custom zone when peer belongs to a disabled group")
+	require.False(t, updatedAccountDNSConfig.DNSConfig.ServiceEnable, "updated DNS config should have local DNS service disabled when peer belongs to a disabled group")
+
+	peer2AccountDNSConfig, err := am.GetNetworkMap(dnsPeer2Key)
+	require.NoError(t, err)
+	require.Len(t, peer2AccountDNSConfig.DNSConfig.CustomZones, 1, "DNS config should have one custom zone for peers not in the disabled group")
+	require.True(t, peer2AccountDNSConfig.DNSConfig.ServiceEnable, "DNS config should have DNS service enabled for peers not in the disabled group")
+}
+
 func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 	store, err := createDNSStore(t)
 	if err != nil {
 		return nil, err
 	}
 	eventStore := &activity.InMemoryEventStore{}
-	return BuildManager(store, NewPeersUpdateManager(), nil, "", "", eventStore)
+	return BuildManager(store, NewPeersUpdateManager(), nil, "", "netbird.test", eventStore)
 }
 
 func createDNSStore(t *testing.T) (Store, error) {
@@ -156,7 +190,7 @@ func createDNSStore(t *testing.T) (Store, error) {
 
 func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
 	peer1 := &Peer{
-		Key:  dnsGroupPeer1Key,
+		Key:  dnsPeer1Key,
 		Name: "test-host1@netbird.io",
 		Meta: PeerSystemMeta{
 			Hostname:  "test-host1@netbird.io",
@@ -168,9 +202,10 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 			WtVersion: "development",
 			UIVersion: "development",
 		},
+		DNSLabel: dnsPeer1Key,
 	}
 	peer2 := &Peer{
-		Key:  dnsGroupPeer2Key,
+		Key:  dnsPeer2Key,
 		Name: "test-host2@netbird.io",
 		Meta: PeerSystemMeta{
 			Hostname:  "test-host2@netbird.io",
@@ -182,6 +217,7 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 			WtVersion: "development",
 			UIVersion: "development",
 		},
+		DNSLabel: dnsPeer2Key,
 	}
 
 	domain := "example.com"

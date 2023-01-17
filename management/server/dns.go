@@ -23,9 +23,19 @@ type DNSSettings struct {
 
 // Copy returns a copy of the DNS settings
 func (d *DNSSettings) Copy() *DNSSettings {
-	return &DNSSettings{
-		DisabledManagementGroups: d.DisabledManagementGroups[:],
+	settings := &DNSSettings{
+		DisabledManagementGroups: make([]string, 0),
 	}
+
+	if d == nil {
+		return settings
+	}
+
+	if d.DisabledManagementGroups != nil && len(d.DisabledManagementGroups) > 0 {
+		settings.DisabledManagementGroups = d.DisabledManagementGroups[:]
+	}
+
+	return settings
 }
 
 // GetDNSSettings validates a user role and returns the DNS settings for the provided account ID

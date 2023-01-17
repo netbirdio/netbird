@@ -1066,6 +1066,9 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	routes := make(map[string]*route.Route)
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userId] = NewAdminUser(userId)
+	dnsSettings := &DNSSettings{
+		DisabledManagementGroups: make([]string, 0),
+	}
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
 	acc := &Account{
@@ -1078,6 +1081,7 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 		Domain:           domain,
 		Routes:           routes,
 		NameServerGroups: nameServersGroups,
+		DNSSettings:      dnsSettings,
 	}
 
 	addAllGroup(acc)
