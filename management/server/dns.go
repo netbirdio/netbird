@@ -87,9 +87,11 @@ func (am *DefaultAccountManager) SaveDNSSettings(accountID string, userID string
 		return status.Errorf(status.InvalidArgument, "the dns settings provided are nil")
 	}
 
-	err = validateGroups(dnsSettingsToSave.DisabledManagementGroups, account.Groups)
-	if err != nil {
-		return err
+	if len(dnsSettingsToSave.DisabledManagementGroups) != 0 {
+		err = validateGroups(dnsSettingsToSave.DisabledManagementGroups, account.Groups)
+		if err != nil {
+			return err
+		}
 	}
 
 	oldSettings := &DNSSettings{}

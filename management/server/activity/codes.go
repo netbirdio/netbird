@@ -97,9 +97,9 @@ const (
 	// GroupRemovedFromSetupKeyMessage is a human-readable text message of the GroupRemovedFromSetupKey activity
 	GroupRemovedFromSetupKeyMessage string = "Group removed from user setup key"
 	// GroupAddedToDisabledManagementGroupsMessage is a human-readable text message of the GroupAddedToDisabledManagementGroups activity
-	GroupAddedToDisabledManagementGroupsMessage
+	GroupAddedToDisabledManagementGroupsMessage string = "Group added to disabled management DNS setting"
 	// GroupRemovedFromDisabledManagementGroupsMessage is a human-readable text message of the GroupRemovedFromDisabledManagementGroups activity
-	GroupRemovedFromDisabledManagementGroupsMessage
+	GroupRemovedFromDisabledManagementGroupsMessage string = "Group removed from disabled management DNS setting"
 )
 
 // Activity that triggered an Event
