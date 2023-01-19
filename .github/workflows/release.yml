@@ -10,7 +10,7 @@ on:
 
 env:
   SIGN_PIPE_VER: "v0.0.4"
-  GORELEASER_VER: "v1.6.3"
+  GORELEASER_VER: "v1.14.1"
 
 jobs:
   release:

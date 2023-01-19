@@ -32,7 +32,8 @@ builds:
 
   - id: netbird-mgmt
     dir: management
-    env: [CGO_ENABLED=0]
+    env:
+    - CGO_ENABLED=1
     binary: netbird-mgmt
     goos:
       - linux
