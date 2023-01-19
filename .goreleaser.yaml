@@ -32,7 +32,13 @@ builds:
 
   - id: netbird-mgmt
     dir: management
-    env: [CGO_ENABLED=0]
+    env:
+    - CGO_ENABLED=1
+    - >-
+      {{- if eq .Runtime.Goos "linux" }}
+        {{- if eq .Arch "arm64"}}CC=aarch64-linux-gnu-gcc{{- end }}
+        {{- if eq .Arch "arm"}}CC=arm-linux-gnueabihf-gcc{{- end }}
+      {{- end }}
     binary: netbird-mgmt
     goos:
       - linux

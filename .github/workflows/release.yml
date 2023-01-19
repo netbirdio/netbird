@@ -10,7 +10,7 @@ on:
 
 env:
   SIGN_PIPE_VER: "v0.0.4"
-  GORELEASER_VER: "v1.6.3"
+  GORELEASER_VER: "v1.14.1"
 
 jobs:
   release:
@@ -57,7 +57,8 @@ jobs:
         with:
           username: netbirdio
           password: ${{ secrets.DOCKER_TOKEN }}
-
+      - name: Install OS build dependencies
+        run: sudo apt update && sudo apt install -y -q gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
       -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v2
