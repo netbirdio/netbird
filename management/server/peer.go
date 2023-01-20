@@ -201,19 +201,20 @@ func (am *DefaultAccountManager) UpdatePeer(accountID string, update *Peer) (*Pe
 		return nil, err
 	}
 
-	if peer.Name != "" {
-		peer.Name = update.Name
-	}
 	peer.SSHEnabled = update.SSHEnabled
 
-	existingLabels := account.getPeerDNSLabels()
+	if peer.Name != update.Name {
+		peer.Name = update.Name
 
-	newLabel, err := getPeerHostLabel(peer.Name, existingLabels)
-	if err != nil {
-		return nil, err
+		existingLabels := account.getPeerDNSLabels()
+
+		newLabel, err := getPeerHostLabel(peer.Name, existingLabels)
+		if err != nil {
+			return nil, err
+		}
+
+		peer.DNSLabel = newLabel
 	}
-
-	peer.DNSLabel = newLabel
 
 	account.UpdatePeer(peer)
 
