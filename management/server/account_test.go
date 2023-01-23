@@ -926,8 +926,6 @@ func getEvent(t *testing.T, accountID string, manager AccountManager, eventType 
 			}
 		}
 	}
-
-	return nil
 }
 
 func TestGetUsersFromAccount(t *testing.T) {
