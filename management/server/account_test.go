@@ -673,16 +673,24 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
 	}
 
-	// check the corresponding events that should have been generated
-	events, err := manager.GetEvents(account.Id, userID)
-	if err != nil {
-		return
-	}
-
 	var ev *activity.Event
-	for _, event := range events {
-		if event.Activity == activity.PeerAddedByUser {
-			ev = event
+loop:
+	for {
+		select {
+		case <-time.After(time.Second):
+			t.Fatal("no PeerAddedWithSetupKey event was generated")
+			return
+		default:
+			events, err := manager.GetEvents(account.Id, userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, event := range events {
+				if event.Activity == activity.PeerAddedByUser {
+					ev = event
+					break loop
+				}
+			}
 		}
 	}
 
@@ -930,16 +938,24 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.CurrentSerial())
 	}
 
-	// check the corresponding events that should have been generated
-	events, err := manager.GetEvents(account.Id, userID)
-	if err != nil {
-		return
-	}
-
 	var ev *activity.Event
-	for _, event := range events {
-		if event.Activity == activity.PeerRemovedByUser {
-			ev = event
+loop:
+	for {
+		select {
+		case <-time.After(time.Second):
+			t.Fatal("no PeerAddedWithSetupKey event was generated")
+			return
+		default:
+			events, err := manager.GetEvents(account.Id, userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, event := range events {
+				if event.Activity == activity.PeerRemovedByUser {
+					ev = event
+					break loop
+				}
+			}
 		}
 	}
 
