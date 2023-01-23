@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/stretchr/testify/assert"
@@ -583,16 +584,24 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
 	}
 
-	// check the corresponding events that should have been generated
-	events, err := manager.GetEvents(account.Id, userID)
-	if err != nil {
-		return
-	}
-
 	var ev *activity.Event
-	for _, event := range events {
-		if event.Activity == activity.PeerAddedWithSetupKey {
-			ev = event
+loop:
+	for {
+		select {
+		case <-time.After(time.Second):
+			t.Fatal("no PeerAddedWithSetupKey event was generated")
+			return
+		default:
+			events, err := manager.GetEvents(account.Id, userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, event := range events {
+				if event.Activity == activity.PeerAddedWithSetupKey {
+					ev = event
+					break loop
+				}
+			}
 		}
 	}
 
