@@ -278,18 +278,7 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerPubKey, userID string
 	}
 
 	am.peersUpdateManager.CloseChannel(peerPubKey)
-	event := &activity.Event{
-		Timestamp:   time.Now(),
-		AccountID:   account.Id,
-		InitiatorID: userID,
-		TargetID:    peer.IP.String(),
-		Activity:    activity.PeerRemovedByUser,
-		Meta:        peer.EventMeta(am.GetDNSDomain()),
-	}
-	_, err = am.eventStore.Save(event)
-	if err != nil {
-		return nil, err
-	}
+	am.storeEvent(userID, peer.IP.String(), account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
 	return peer, nil
 }
 
@@ -479,10 +468,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 
 	opEvent.TargetID = newPeer.IP.String()
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
-	_, err = am.eventStore.Save(opEvent)
-	if err != nil {
-		return nil, err
-	}
+	am.storeEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
 	return newPeer, nil
 }

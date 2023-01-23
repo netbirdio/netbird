@@ -544,16 +544,7 @@ func (am *DefaultAccountManager) newAccount(userID, domain string) (*Account, er
 			continue
 		} else if statusErr.Type() == status.NotFound {
 			newAccount := newAccountWithId(accountId, userID, domain)
-			_, err = am.eventStore.Save(&activity.Event{
-				Timestamp:   time.Now(),
-				Activity:    activity.AccountCreated,
-				AccountID:   newAccount.Id,
-				TargetID:    newAccount.Id,
-				InitiatorID: userID,
-			})
-			if err != nil {
-				return nil, err
-			}
+			am.storeEvent(userID, newAccount.Id, accountId, activity.AccountCreated, nil)
 			return newAccount, nil
 		} else {
 			return nil, err
@@ -841,18 +832,7 @@ func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims
 		return nil, err
 	}
 
-	event := &activity.Event{
-		Timestamp:   time.Now(),
-		Activity:    activity.UserJoined,
-		AccountID:   account.Id,
-		TargetID:    claims.UserId,
-		InitiatorID: claims.UserId,
-	}
-
-	_, err = am.eventStore.Save(event)
-	if err != nil {
-		return nil, err
-	}
+	am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.UserJoined, nil)
 
 	return account, nil
 }
@@ -885,17 +865,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 				return
 			}
 			log.Debugf("user %s of account %s redeemed invite", user.ID, account.Id)
-			_, err = am.eventStore.Save(&activity.Event{
-				Timestamp:   time.Now(),
-				Activity:    activity.UserJoined,
-				AccountID:   account.Id,
-				TargetID:    userID,
-				InitiatorID: userID,
-			})
-			if err != nil {
-				log.Warnf("failed saving activity event %v", err)
-				return
-			}
+			am.storeEvent(userID, userID, account.Id, activity.UserJoined, nil)
 		}()
 	}
 

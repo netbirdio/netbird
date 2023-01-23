@@ -4,7 +4,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
-	"time"
 )
 
 // Group of the peers for ACL
@@ -89,27 +88,14 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		return err
 	}
 
-	if !exists {
-		_, err = am.eventStore.Save(&activity.Event{
-			Timestamp:   time.Now(),
-			Activity:    activity.GroupCreated,
-			InitiatorID: userID,
-			TargetID:    newGroup.ID,
-			AccountID:   accountID,
-			Meta:        newGroup.EventMeta(),
-		})
-		if err != nil {
-			return err
-		}
-	}
-
 	addedPeers := make([]string, 0)
 	removedPeers := make([]string, 0)
-	if !exists {
-		addedPeers = append(addedPeers, newGroup.Peers...)
-	} else {
+	if exists {
 		addedPeers = difference(newGroup.Peers, oldGroup.Peers)
 		removedPeers = difference(oldGroup.Peers, newGroup.Peers)
+	} else {
+		addedPeers = append(addedPeers, newGroup.Peers...)
+		am.storeEvent(userID, newGroup.ID, accountID, activity.GroupCreated, newGroup.EventMeta())
 	}
 
 	for _, p := range addedPeers {
@@ -118,18 +104,9 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		_, err = am.eventStore.Save(&activity.Event{
-			Timestamp:   time.Now(),
-			Activity:    activity.GroupAddedToPeer,
-			InitiatorID: userID,
-			TargetID:    peer.IP.String(),
-			AccountID:   accountID,
-			Meta: map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
-				"peer_fqdn": peer.FQDN(am.GetDNSDomain())},
-		})
-		if err != nil {
-			return err
-		}
+		am.storeEvent(userID, peer.IP.String(), accountID, activity.GroupAddedToPeer,
+			map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
+				"peer_fqdn": peer.FQDN(am.GetDNSDomain())})
 	}
 
 	for _, p := range removedPeers {
@@ -138,18 +115,9 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		_, err = am.eventStore.Save(&activity.Event{
-			Timestamp:   time.Now(),
-			Activity:    activity.GroupRemovedFromPeer,
-			InitiatorID: userID,
-			TargetID:    peer.IP.String(),
-			AccountID:   accountID,
-			Meta: map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
-				"peer_fqdn": peer.FQDN(am.GetDNSDomain())},
-		})
-		if err != nil {
-			return err
-		}
+		am.storeEvent(userID, peer.IP.String(), accountID, activity.GroupRemovedFromPeer,
+			map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
+				"peer_fqdn": peer.FQDN(am.GetDNSDomain())})
 	}
 
 	return am.updateAccountPeers(account)
