@@ -583,27 +583,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	if account.Network.CurrentSerial() != 1 {
 		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
 	}
-
-	var ev *activity.Event
-loop:
-	for {
-		select {
-		case <-time.After(time.Second):
-			t.Fatal("no PeerAddedWithSetupKey event was generated")
-			return
-		default:
-			events, err := manager.GetEvents(account.Id, userID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, event := range events {
-				if event.Activity == activity.PeerAddedWithSetupKey {
-					ev = event
-					break loop
-				}
-			}
-		}
-	}
+	ev := getEvent(t, account.Id, manager, activity.PeerAddedWithSetupKey)
 
 	assert.NotNil(t, ev)
 	assert.Equal(t, account.Id, ev.AccountID)
@@ -673,26 +653,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 		t.Errorf("expecting Network Serial=%d to be incremented by 1 and be equal to %d when adding new peer to account", serial, account.Network.CurrentSerial())
 	}
 
-	var ev *activity.Event
-loop:
-	for {
-		select {
-		case <-time.After(time.Second):
-			t.Fatal("no PeerAddedWithSetupKey event was generated")
-			return
-		default:
-			events, err := manager.GetEvents(account.Id, userID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, event := range events {
-				if event.Activity == activity.PeerAddedByUser {
-					ev = event
-					break loop
-				}
-			}
-		}
-	}
+	ev := getEvent(t, account.Id, manager, activity.PeerAddedByUser)
 
 	assert.NotNil(t, ev)
 	assert.Equal(t, account.Id, ev.AccountID)
@@ -938,26 +899,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Errorf("expecting Network Serial=%d to be incremented and be equal to 2 after adding and deleteing a peer", account.Network.CurrentSerial())
 	}
 
-	var ev *activity.Event
-loop:
-	for {
-		select {
-		case <-time.After(time.Second):
-			t.Fatal("no PeerAddedWithSetupKey event was generated")
-			return
-		default:
-			events, err := manager.GetEvents(account.Id, userID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, event := range events {
-				if event.Activity == activity.PeerRemovedByUser {
-					ev = event
-					break loop
-				}
-			}
-		}
-	}
+	ev := getEvent(t, account.Id, manager, activity.PeerRemovedByUser)
 
 	assert.NotNil(t, ev)
 	assert.Equal(t, account.Id, ev.AccountID)
@@ -966,6 +908,26 @@ loop:
 	assert.Equal(t, userID, ev.InitiatorID)
 	assert.Equal(t, peer.IP.String(), ev.TargetID)
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
+}
+func getEvent(t *testing.T, accountID string, manager AccountManager, eventType activity.Activity) *activity.Event {
+	for {
+		select {
+		case <-time.After(time.Second):
+			t.Fatal("no PeerAddedWithSetupKey event was generated")
+		default:
+			events, err := manager.GetEvents(accountID, userID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, event := range events {
+				if event.Activity == eventType {
+					return event
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 func TestGetUsersFromAccount(t *testing.T) {
