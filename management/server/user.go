@@ -8,7 +8,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
 	"strings"
-	"time"
 )
 
 const (
@@ -178,18 +177,7 @@ func (am *DefaultAccountManager) CreateUser(accountID, userID string, invite *Us
 		return nil, err
 	}
 
-	event := &activity.Event{
-		Timestamp:   time.Now(),
-		Activity:    activity.UserInvited,
-		AccountID:   account.Id,
-		TargetID:    newUser.Id,
-		InitiatorID: userID,
-	}
-
-	_, err = am.eventStore.Save(event)
-	if err != nil {
-		return nil, err
-	}
+	am.storeEvent(userID, newUser.Id, accountID, activity.UserInvited, nil)
 
 	return newUser.toUserInfo(idpUser)
 
@@ -235,18 +223,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 
 	defer func() {
 		if oldUser.Role != newUser.Role {
-			_, err := am.eventStore.Save(&activity.Event{
-				Timestamp:   time.Now(),
-				Activity:    activity.UserRoleUpdated,
-				InitiatorID: userID,
-				TargetID:    oldUser.Id,
-				AccountID:   accountID,
-				Meta:        map[string]any{"role": newUser.Role},
-			})
-			if err != nil {
-				log.Errorf("failed saving user activity event %v", err)
-				return
-			}
+			am.storeEvent(userID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
 		}
 
 		removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
@@ -254,19 +231,8 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 		for _, g := range removedGroups {
 			group := account.GetGroup(g)
 			if group != nil {
-				_, err := am.eventStore.Save(&activity.Event{
-					Timestamp:   time.Now(),
-					Activity:    activity.GroupRemovedFromUser,
-					InitiatorID: userID,
-					TargetID:    oldUser.Id,
-					AccountID:   accountID,
-					Meta:        map[string]any{"group": group.Name, "group_id": group.ID},
-				})
-				if err != nil {
-					log.Errorf("failed saving user activity event %s %v",
-						activity.GroupRemovedFromUser.StringCode(), err)
-					continue
-				}
+				am.storeEvent(userID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
+					map[string]any{"group": group.Name, "group_id": group.ID})
 			} else {
 				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 			}
@@ -276,19 +242,8 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 		for _, g := range addedGroups {
 			group := account.GetGroup(g)
 			if group != nil {
-				_, err := am.eventStore.Save(&activity.Event{
-					Timestamp:   time.Now(),
-					Activity:    activity.GroupAddedToUser,
-					InitiatorID: userID,
-					TargetID:    oldUser.Id,
-					AccountID:   accountID,
-					Meta:        map[string]any{"group": group.Name, "group_id": group.ID},
-				})
-				if err != nil {
-					log.Errorf("failed saving user activity event %s: %v",
-						activity.GroupAddedToUser.StringCode(), err)
-					continue
-				}
+				am.storeEvent(userID, oldUser.Id, accountID, activity.GroupAddedToUser,
+					map[string]any{"group": group.Name, "group_id": group.ID})
 			} else {
 				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 			}

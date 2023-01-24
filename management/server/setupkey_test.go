@@ -56,17 +56,8 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	assertKey(t, newKey, newKeyName, revoked, "reusable", 0, key.CreatedAt, key.ExpiresAt,
 		key.Id, time.Now(), autoGroups)
 
-	events, err := manager.GetEvents(account.Id, userID)
-	if err != nil {
-		return
-	}
-
-	var ev *activity.Event
-	for _, event := range events {
-		if event.Activity == activity.SetupKeyRevoked {
-			ev = event
-		}
-	}
+	// check the corresponding events that should have been generated
+	ev := getEvent(t, account.Id, manager, activity.SetupKeyRevoked)
 
 	assert.NotNil(t, ev)
 	assert.Equal(t, account.Id, ev.AccountID)
@@ -160,17 +151,8 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 				tCase.expectedCreatedAt, tCase.expectedExpiresAt, strconv.Itoa(int(Hash(key.Key))),
 				tCase.expectedUpdatedAt, tCase.expectedGroups)
 
-			events, err := manager.GetEvents(account.Id, userID)
-			if err != nil {
-				return
-			}
-
-			var ev *activity.Event
-			for _, event := range events {
-				if event.Activity == activity.SetupKeyCreated {
-					ev = event
-				}
-			}
+			// check the corresponding events that should have been generated
+			ev := getEvent(t, account.Id, manager, activity.SetupKeyCreated)
 
 			assert.NotNil(t, ev)
 			assert.Equal(t, account.Id, ev.AccountID)
