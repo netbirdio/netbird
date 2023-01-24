@@ -76,7 +76,7 @@ type AccountManager interface {
 	DeleteRule(accountID, ruleID, userID string) error
 	ListRules(accountID, userID string) ([]*Rule, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
-	CreateRoute(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool) (*route.Route, error)
+	CreateRoute(accountID string, prefix, peerIP, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID string, route *route.Route) error
 	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID string) error
@@ -218,6 +218,17 @@ func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
 	}
 
 	return routes
+}
+
+// GetPeerByIP returns peer by it's IP if exists under account or nil otherwise
+func (a *Account) GetPeerByIP(peerIP string) *Peer {
+	for _, peer := range a.Peers {
+		if peerIP == peer.IP.String() {
+			return peer
+		}
+	}
+
+	return nil
 }
 
 // GetPeerRules returns a list of source or destination rules of a given peer.

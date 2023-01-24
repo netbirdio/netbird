@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
@@ -118,7 +119,7 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, p
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -127,21 +128,19 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 		return nil, err
 	}
 
+	peer := account.GetPeerByIP(peerIP)
+	if peer == nil {
+		return nil, status.Errorf(status.NotFound, "peer %s not found", peerIP)
+	}
+
 	var newRoute route.Route
 	prefixType, newPrefix, err := route.ParseNetwork(network)
 	if err != nil {
 		return nil, status.Errorf(status.InvalidArgument, "failed to parse IP %s", network)
 	}
-	err = am.checkPrefixPeerExists(accountID, peer, newPrefix)
+	err = am.checkPrefixPeerExists(accountID, peer.Key, newPrefix)
 	if err != nil {
 		return nil, err
-	}
-
-	if peer != "" {
-		_, peerExist := account.Peers[peer]
-		if !peerExist {
-			return nil, status.Errorf(status.InvalidArgument, "failed to find Peer %s", peer)
-		}
 	}
 
 	if metric < route.MinMetric || metric > route.MaxMetric {
@@ -157,7 +156,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 		return nil, err
 	}
 
-	newRoute.Peer = peer
+	newRoute.Peer = peer.Key
 	newRoute.ID = xid.New().String()
 	newRoute.Network = newPrefix
 	newRoute.NetworkType = prefixType
@@ -184,6 +183,9 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peer, de
 		log.Error(err)
 		return &newRoute, status.Errorf(status.Internal, "failed to update peers after create route %s", newPrefix)
 	}
+
+	am.storeEvent(userID, newRoute.ID, accountID, activity.RouteCreated, newRoute.EventMeta(peer.IP.String(), peer.FQDN(am.GetDNSDomain())))
+
 	return &newRoute, nil
 }
 

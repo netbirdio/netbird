@@ -49,6 +49,8 @@ const (
 	GroupAddedToDisabledManagementGroups
 	// GroupRemovedFromDisabledManagementGroups indicates that a user removed a group from the DNS setting Disabled management groups
 	GroupRemovedFromDisabledManagementGroups
+	// RouteCreated indicates that a user created a route
+	RouteCreated
 )
 
 const (
@@ -100,6 +102,8 @@ const (
 	GroupAddedToDisabledManagementGroupsMessage string = "Group added to disabled management DNS setting"
 	// GroupRemovedFromDisabledManagementGroupsMessage is a human-readable text message of the GroupRemovedFromDisabledManagementGroups activity
 	GroupRemovedFromDisabledManagementGroupsMessage string = "Group removed from disabled management DNS setting"
+	// RouteCreatedMessage is a human-readable text message of the RouteCreated activity
+	RouteCreatedMessage string = "Route created"
 )
 
 // Activity that triggered an Event
@@ -156,6 +160,8 @@ func (a Activity) Message() string {
 		return GroupAddedToDisabledManagementGroupsMessage
 	case GroupRemovedFromDisabledManagementGroups:
 		return GroupRemovedFromDisabledManagementGroupsMessage
+	case RouteCreated:
+		return RouteCreatedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -212,6 +218,8 @@ func (a Activity) StringCode() string {
 		return "dns.setting.disabled.management.group.add"
 	case GroupRemovedFromDisabledManagementGroups:
 		return "dns.setting.disabled.management.group.delete"
+	case RouteCreated:
+		return "route.add"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}

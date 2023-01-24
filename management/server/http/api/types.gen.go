@@ -18,6 +18,7 @@ const (
 	EventActivityCodeDnsSettingDisabledManagementGroupDelete EventActivityCode = "dns.setting.disabled.management.group.delete"
 	EventActivityCodeGroupAdd                                EventActivityCode = "group.add"
 	EventActivityCodeGroupUpdate                             EventActivityCode = "group.update"
+	EventActivityCodeRouteAdd                                EventActivityCode = "route.add"
 	EventActivityCodeRuleAdd                                 EventActivityCode = "rule.add"
 	EventActivityCodeRuleDelete                              EventActivityCode = "rule.delete"
 	EventActivityCodeRuleUpdate                              EventActivityCode = "rule.update"

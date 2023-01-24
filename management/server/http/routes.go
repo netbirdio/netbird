@@ -54,7 +54,7 @@ func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
 // CreateRouteHandler handles route creation request
 func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -65,16 +65,6 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
-	}
-
-	peerKey := req.Peer
-	if req.Peer != "" {
-		peer, err := h.accountManager.GetPeerByIP(account.Id, req.Peer)
-		if err != nil {
-			util.WriteError(err, w)
-			return
-		}
-		peerKey = peer.Key
 	}
 
 	_, newPrefix, err := route.ParseNetwork(req.Network)
@@ -89,7 +79,7 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), peerKey, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled)
+	newRoute, err := h.accountManager.CreateRoute(account.Id, newPrefix.String(), req.Peer, req.Description, req.NetworkId, req.Masquerade, req.Metric, req.Groups, req.Enabled, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
