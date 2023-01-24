@@ -238,16 +238,25 @@ func TestCreateRoute(t *testing.T) {
 				t.Error("failed to init testing account")
 			}
 
+			peerIP := "99.99.99.99"
+			peer := account.Peers[testCase.inputArgs.peer]
+			if testCase.inputArgs.peer == "" {
+				peerIP = ""
+			} else if peer != nil {
+				peerIP = peer.IP.String()
+			}
+
 			outRoute, err := am.CreateRoute(
 				account.Id,
 				testCase.inputArgs.network,
-				testCase.inputArgs.peer,
+				peerIP,
 				testCase.inputArgs.description,
 				testCase.inputArgs.netID,
 				testCase.inputArgs.masquerade,
 				testCase.inputArgs.metric,
 				testCase.inputArgs.groups,
 				testCase.inputArgs.enabled,
+				userID,
 			)
 
 			testCase.errFunc(t, err)
@@ -500,7 +509,7 @@ func TestSaveRoute(t *testing.T) {
 				}
 			}
 
-			err = am.SaveRoute(account.Id, routeToSave)
+			err = am.SaveRoute(account.Id, userID, routeToSave)
 
 			testCase.errFunc(t, err)
 
@@ -814,7 +823,7 @@ func TestDeleteRoute(t *testing.T) {
 		t.Error("failed to save account")
 	}
 
-	err = am.DeleteRoute(account.Id, testingRoute.ID)
+	err = am.DeleteRoute(account.Id, testingRoute.ID, userID)
 	if err != nil {
 		t.Error("deleting route failed with error: ", err)
 	}
@@ -859,9 +868,11 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	newAccountRoutes, err := am.GetNetworkMap(peer1Key)
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
+	peer := account.Peers[baseRoute.Peer]
 
-	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network.String(), baseRoute.Peer,
-		baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false)
+	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network.String(), peer.IP.String(),
+		baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false,
+		userID)
 	require.NoError(t, err)
 
 	noDisabledRoutes, err := am.GetNetworkMap(peer1Key)
@@ -871,7 +882,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	enabledRoute := createdRoute.Copy()
 	enabledRoute.Enabled = true
 
-	err = am.SaveRoute(account.Id, enabledRoute)
+	err = am.SaveRoute(account.Id, userID, enabledRoute)
 	require.NoError(t, err)
 
 	peer1Routes, err := am.GetNetworkMap(peer1Key)
@@ -923,7 +934,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, peer2GroupRoutes.Routes, 0, "we should not receive routes for peer2")
 
-	err = am.DeleteRoute(account.Id, enabledRoute.ID)
+	err = am.DeleteRoute(account.Id, enabledRoute.ID, userID)
 	require.NoError(t, err)
 
 	peer1DeletedRoute, err := am.GetNetworkMap(peer1Key)
@@ -952,6 +963,7 @@ func createRouterStore(t *testing.T) (Store, error) {
 }
 
 func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
+
 	peer1 := &Peer{
 		Key:  peer1Key,
 		Name: "test-host1@netbird.io",

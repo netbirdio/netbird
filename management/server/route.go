@@ -128,9 +128,13 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, 
 		return nil, err
 	}
 
-	peer := account.GetPeerByIP(peerIP)
-	if peer == nil {
-		return nil, status.Errorf(status.NotFound, "peer %s not found", peerIP)
+	peerKey := ""
+	if peerIP != "" {
+		peer := account.GetPeerByIP(peerIP)
+		if peer == nil {
+			return nil, status.Errorf(status.NotFound, "peer %s not found", peerIP)
+		}
+		peerKey = peer.Key
 	}
 
 	var newRoute route.Route
@@ -138,7 +142,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, 
 	if err != nil {
 		return nil, status.Errorf(status.InvalidArgument, "failed to parse IP %s", network)
 	}
-	err = am.checkPrefixPeerExists(accountID, peer.Key, newPrefix)
+	err = am.checkPrefixPeerExists(accountID, peerKey, newPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -156,7 +160,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, 
 		return nil, err
 	}
 
-	newRoute.Peer = peer.Key
+	newRoute.Peer = peerKey
 	newRoute.ID = xid.New().String()
 	newRoute.Network = newPrefix
 	newRoute.NetworkType = prefixType
