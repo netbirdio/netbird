@@ -77,8 +77,8 @@ type AccountManager interface {
 	ListRules(accountID, userID string) ([]*Rule, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
 	CreateRoute(accountID string, prefix, peerIP, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
-	SaveRoute(accountID string, route *route.Route) error
-	UpdateRoute(accountID string, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
+	SaveRoute(accountID, userID string, route *route.Route) error
+	UpdateRoute(accountID, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID string) error
 	ListRoutes(accountID, userID string) ([]*route.Route, error)
 	GetNameServerGroup(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)

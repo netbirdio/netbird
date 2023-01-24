@@ -190,7 +190,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, 
 }
 
 // SaveRoute saves route
-func (am *DefaultAccountManager) SaveRoute(accountID string, routeToSave *route.Route) error {
+func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave *route.Route) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 

@@ -155,7 +155,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		Groups:      req.Groups,
 	}
 
-	err = h.accountManager.SaveRoute(account.Id, newRoute)
+	err = h.accountManager.SaveRoute(account.Id, user.Id, newRoute)
 	if err != nil {
 		util.WriteError(err, w)
 		return
