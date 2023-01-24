@@ -77,8 +77,8 @@ type Route struct {
 }
 
 // EventMeta returns activity event meta related to the route
-func (r *Route) EventMeta(peerIP, peerName string) map[string]any {
-	return map[string]any{"name": r.NetID, "network_range": r.Network.String(), "peer_ip": peerIP, "peer": peerName}
+func (r *Route) EventMeta() map[string]any {
+	return map[string]any{"name": r.NetID, "network_range": r.Network.String()}
 }
 
 // Copy copies a route object

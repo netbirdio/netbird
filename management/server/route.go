@@ -184,7 +184,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, 
 		return &newRoute, status.Errorf(status.Internal, "failed to update peers after create route %s", newPrefix)
 	}
 
-	am.storeEvent(userID, newRoute.ID, accountID, activity.RouteCreated, newRoute.EventMeta(peer.IP.String(), peer.FQDN(am.GetDNSDomain())))
+	am.storeEvent(userID, newRoute.ID, accountID, activity.RouteCreated, newRoute.EventMeta())
 
 	return &newRoute, nil
 }
@@ -341,7 +341,7 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 }
 
 // DeleteRoute deletes route with routeID
-func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
+func (am *DefaultAccountManager) DeleteRoute(accountID, routeID, userID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -350,12 +350,18 @@ func (am *DefaultAccountManager) DeleteRoute(accountID, routeID string) error {
 		return err
 	}
 
+	routy := account.Routes[routeID]
+	if routy == nil {
+		return status.Errorf(status.NotFound, "route with ID %s doesn't exist", routeID)
+	}
 	delete(account.Routes, routeID)
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
 		return err
 	}
+
+	am.storeEvent(userID, routy.ID, accountID, activity.RouteRemoved, routy.EventMeta())
 
 	return am.updateAccountPeers(account)
 }

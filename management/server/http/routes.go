@@ -319,7 +319,7 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 // DeleteRouteHandler handles route deletion request
 func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -331,7 +331,7 @@ func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteRoute(account.Id, routeID)
+	err = h.accountManager.DeleteRoute(account.Id, routeID, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return

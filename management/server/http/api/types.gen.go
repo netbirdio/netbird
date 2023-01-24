@@ -19,6 +19,7 @@ const (
 	EventActivityCodeGroupAdd                                EventActivityCode = "group.add"
 	EventActivityCodeGroupUpdate                             EventActivityCode = "group.update"
 	EventActivityCodeRouteAdd                                EventActivityCode = "route.add"
+	EventActivityCodeRouteDelete                             EventActivityCode = "route.delete"
 	EventActivityCodeRuleAdd                                 EventActivityCode = "rule.add"
 	EventActivityCodeRuleDelete                              EventActivityCode = "rule.delete"
 	EventActivityCodeRuleUpdate                              EventActivityCode = "rule.update"
