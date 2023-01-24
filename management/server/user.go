@@ -231,7 +231,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 		for _, g := range removedGroups {
 			group := account.GetGroup(g)
 			if group != nil {
-				am.storeEvent(userID, oldUser.Id, accountID, activity.UserRoleUpdated,
+				am.storeEvent(userID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
 					map[string]any{"group": group.Name, "group_id": group.ID})
 			} else {
 				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
