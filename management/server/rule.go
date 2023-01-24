@@ -4,7 +4,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"strings"
-	"time"
 )
 
 // TrafficFlowType defines allowed direction of the traffic in the rule
@@ -144,19 +143,7 @@ func (am *DefaultAccountManager) SaveRule(accountID, userID string, rule *Rule) 
 	if exists {
 		action = activity.RuleUpdated
 	}
-
-	_, err = am.eventStore.Save(&activity.Event{
-		Timestamp:   time.Now(),
-		Activity:    action,
-		InitiatorID: userID,
-		TargetID:    rule.ID,
-		AccountID:   accountID,
-		Meta:        rule.EventMeta(),
-	})
-
-	if err != nil {
-		return err
-	}
+	am.storeEvent(userID, rule.ID, accountID, action, rule.EventMeta())
 
 	return am.updateAccountPeers(account)
 }
@@ -257,18 +244,7 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID, userID string) er
 		return err
 	}
 
-	_, err = am.eventStore.Save(&activity.Event{
-		Timestamp:   time.Now(),
-		Activity:    activity.RuleRemoved,
-		InitiatorID: userID,
-		TargetID:    ruleID,
-		AccountID:   accountID,
-		Meta:        rule.EventMeta(),
-	})
-
-	if err != nil {
-		return err
-	}
+	am.storeEvent(userID, rule.ID, accountID, activity.RuleRemoved, rule.EventMeta())
 
 	return am.updateAccountPeers(account)
 }

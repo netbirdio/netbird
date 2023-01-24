@@ -34,16 +34,22 @@ func (am *DefaultAccountManager) GetEvents(accountID, userID string) ([]*activit
 	return filtered, nil
 }
 
-func (am *DefaultAccountManager) storeEvent(initiatorID, targetID, accountID string, activityID activity.Activity, meta map[string]any) {
-	_, err := am.eventStore.Save(&activity.Event{
-		Timestamp:   time.Now(),
-		Activity:    activityID,
-		InitiatorID: initiatorID,
-		TargetID:    targetID,
-		AccountID:   accountID,
-		Meta:        meta,
-	})
-	if err != nil {
-		log.Errorf("received an error while storing an activity event, error: %s", err)
-	}
+func (am *DefaultAccountManager) storeEvent(initiatorID, targetID, accountID string, activityID activity.Activity,
+	meta map[string]any) {
+
+	go func() {
+		_, err := am.eventStore.Save(&activity.Event{
+			Timestamp:   time.Now(),
+			Activity:    activityID,
+			InitiatorID: initiatorID,
+			TargetID:    targetID,
+			AccountID:   accountID,
+			Meta:        meta,
+		})
+		if err != nil {
+			//todo add metric
+			log.Errorf("received an error while storing an activity event, error: %s", err)
+		}
+	}()
+
 }
