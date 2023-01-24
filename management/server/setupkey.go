@@ -226,7 +226,7 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 		return nil, status.Errorf(status.Internal, "failed adding account key")
 	}
 
-	am.storeEvent(setupKey.Id, setupKey.Id, accountID, activity.SetupKeyCreated, setupKey.EventMeta())
+	am.storeEvent(userID, setupKey.Id, accountID, activity.SetupKeyCreated, setupKey.EventMeta())
 
 	for _, g := range setupKey.AutoGroups {
 		group := account.GetGroup(g)
