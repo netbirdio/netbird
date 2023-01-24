@@ -135,17 +135,7 @@ func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	}
 
 	// check the corresponding events that should have been generated
-	events, err := manager.GetEvents(account.Id, userID)
-	if err != nil {
-		return
-	}
-
-	var ev *activity.Event
-	for _, event := range events {
-		if event.Activity == activity.AccountCreated {
-			ev = event
-		}
-	}
+	ev := getEvent(t, account.Id, manager, activity.AccountCreated)
 
 	assert.NotNil(t, ev)
 	assert.Equal(t, account.Id, ev.AccountID)
