@@ -77,6 +77,11 @@ type NameServer struct {
 	Port int
 }
 
+// EventMeta returns activity event meta related to the nameserver group
+func (g *NameServerGroup) EventMeta() map[string]any {
+	return map[string]any{"name": g.Name}
+}
+
 // Copy copies a nameserver object
 func (n *NameServer) Copy() *NameServer {
 	return &NameServer{

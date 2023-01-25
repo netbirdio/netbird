@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
@@ -77,7 +78,7 @@ func (am *DefaultAccountManager) GetNameServerGroup(accountID, nsGroupID string)
 }
 
 // CreateNameServerGroup creates and saves a new nameserver group
-func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool) (*nbdns.NameServerGroup, error) {
+func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string) (*nbdns.NameServerGroup, error) {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -121,11 +122,13 @@ func (am *DefaultAccountManager) CreateNameServerGroup(accountID string, name, d
 		return newNSGroup.Copy(), status.Errorf(status.Internal, "failed to update peers after create nameserver %s", name)
 	}
 
+	am.storeEvent(userID, newNSGroup.ID, accountID, activity.NameserverGroupCreated, newNSGroup.EventMeta())
+
 	return newNSGroup.Copy(), nil
 }
 
 // SaveNameServerGroup saves nameserver group
-func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupToSave *nbdns.NameServerGroup) error {
+func (am *DefaultAccountManager) SaveNameServerGroup(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -158,11 +161,13 @@ func (am *DefaultAccountManager) SaveNameServerGroup(accountID string, nsGroupTo
 		return status.Errorf(status.Internal, "failed to update peers after update nameserver %s", nsGroupToSave.Name)
 	}
 
+	am.storeEvent(userID, nsGroupToSave.ID, accountID, activity.NameserverGroupUpdated, nsGroupToSave.EventMeta())
+
 	return nil
 }
 
 // UpdateNameServerGroup updates existing nameserver group with set of operations
-func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error) {
+func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID, userID string, operations []NameServerGroupUpdateOperation) (*nbdns.NameServerGroup, error) {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -265,7 +270,7 @@ func (am *DefaultAccountManager) UpdateNameServerGroup(accountID, nsGroupID stri
 }
 
 // DeleteNameServerGroup deletes nameserver group with nsGroupID
-func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID string) error {
+func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID, userID string) error {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -275,6 +280,10 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID stri
 		return err
 	}
 
+	nsGroup := account.NameServerGroups[nsGroupID]
+	if nsGroup == nil {
+		return status.Errorf(status.NotFound, "nameserver group %s wasn't found", nsGroupID)
+	}
 	delete(account.NameServerGroups, nsGroupID)
 
 	account.Network.IncSerial()
@@ -285,9 +294,10 @@ func (am *DefaultAccountManager) DeleteNameServerGroup(accountID, nsGroupID stri
 
 	err = am.updateAccountPeers(account)
 	if err != nil {
-		log.Error(err)
 		return status.Errorf(status.Internal, "failed to update peers after deleting nameserver %s", nsGroupID)
 	}
+
+	am.storeEvent(userID, nsGroup.ID, accountID, activity.NameserverGroupDeleted, nsGroup.EventMeta())
 
 	return nil
 }
