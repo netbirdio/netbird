@@ -536,7 +536,8 @@ components:
                   "rule.add", "rule.delete", "rule.update",
                   "group.add", "group.update", "dns.setting.disabled.management.group.add",
                   "account.create", "dns.setting.disabled.management.group.delete",
-                  "route.add", "route.delete", "route.update"
+                  "route.add", "route.delete", "route.update",
+                  "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update"
           ]
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.

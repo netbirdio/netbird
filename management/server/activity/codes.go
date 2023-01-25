@@ -61,6 +61,12 @@ const (
 	PeerSSHDisabled
 	// PeerRenamed indicates that a user renamed a peer
 	PeerRenamed
+	// NameserverGroupCreated indicates that a user created a nameservers group
+	NameserverGroupCreated
+	// NameserverGroupDeleted indicates that a user deleted a nameservers group
+	NameserverGroupDeleted
+	// NameserverGroupUpdated indicates that a user updated a nameservers group
+	NameserverGroupUpdated
 )
 
 const (
@@ -124,6 +130,12 @@ const (
 	PeerSSHDisabledMessage string = "Peer SSH server disabled"
 	// PeerRenamedMessage is a human-readable text message of the PeerRenamed activity
 	PeerRenamedMessage string = "Peer renamed"
+	// NameserverGroupCreatedMessage is a human-readable text message of the NameserverGroupCreated activity
+	NameserverGroupCreatedMessage string = "Nameserver group created"
+	// NameserverGroupDeletedMessage is a human-readable text message of the NameserverGroupDeleted activity
+	NameserverGroupDeletedMessage string = "Nameserver group deleted"
+	// NameserverGroupUpdatedMessage is a human-readable text message of the NameserverGroupUpdated activity
+	NameserverGroupUpdatedMessage string = "Nameserver group updated"
 )
 
 // Activity that triggered an Event
@@ -192,6 +204,12 @@ func (a Activity) Message() string {
 		return PeerSSHDisabledMessage
 	case PeerRenamed:
 		return PeerRenamedMessage
+	case NameserverGroupCreated:
+		return NameserverGroupCreatedMessage
+	case NameserverGroupDeleted:
+		return NameserverGroupDeletedMessage
+	case NameserverGroupUpdated:
+		return NameserverGroupUpdatedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -260,6 +278,12 @@ func (a Activity) StringCode() string {
 		return "peer.ssh.enable"
 	case PeerSSHDisabled:
 		return "peer.ssh.disable"
+	case NameserverGroupCreated:
+		return "nameserver.group.add"
+	case NameserverGroupDeleted:
+		return "nameserver.group.delete"
+	case NameserverGroupUpdated:
+		return "nameserver.group.update"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
