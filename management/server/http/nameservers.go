@@ -57,7 +57,7 @@ func (h *Nameservers) GetAllNameserversHandler(w http.ResponseWriter, r *http.Re
 // CreateNameserverGroupHandler handles nameserver group creation request
 func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -76,7 +76,7 @@ func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
-	nsGroup, err := h.accountManager.CreateNameServerGroup(account.Id, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled)
+	nsGroup, err := h.accountManager.CreateNameServerGroup(account.Id, req.Name, req.Description, nsList, req.Groups, req.Primary, req.Domains, req.Enabled, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -90,7 +90,7 @@ func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *htt
 // UpdateNameserverGroupHandler handles update to a nameserver group identified by a given ID
 func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -126,7 +126,7 @@ func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *htt
 		Enabled:     req.Enabled,
 	}
 
-	err = h.accountManager.SaveNameServerGroup(account.Id, updatedNSGroup)
+	err = h.accountManager.SaveNameServerGroup(account.Id, user.Id, updatedNSGroup)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -140,7 +140,7 @@ func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *htt
 // PatchNameserverGroupHandler handles patch updates to a nameserver group identified by a given ID
 func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -208,7 +208,7 @@ func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http
 		}
 	}
 
-	updatedNSGroup, err := h.accountManager.UpdateNameServerGroup(account.Id, nsGroupID, operations)
+	updatedNSGroup, err := h.accountManager.UpdateNameServerGroup(account.Id, nsGroupID, user.Id, operations)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -222,7 +222,7 @@ func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http
 // DeleteNameserverGroupHandler handles nameserver group deletion request
 func (h *Nameservers) DeleteNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -234,7 +234,7 @@ func (h *Nameservers) DeleteNameserverGroupHandler(w http.ResponseWriter, r *htt
 		return
 	}
 
-	err = h.accountManager.DeleteNameServerGroup(account.Id, nsGroupID)
+	err = h.accountManager.DeleteNameServerGroup(account.Id, nsGroupID, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return

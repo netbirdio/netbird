@@ -76,6 +76,11 @@ type Route struct {
 	Groups      []string
 }
 
+// EventMeta returns activity event meta related to the route
+func (r *Route) EventMeta() map[string]any {
+	return map[string]any{"name": r.NetID, "network_range": r.Network.String()}
+}
+
 // Copy copies a route object
 func (r *Route) Copy() *Route {
 	return &Route{

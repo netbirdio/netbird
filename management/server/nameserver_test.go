@@ -380,6 +380,7 @@ func TestCreateNameServerGroup(t *testing.T) {
 				testCase.inputArgs.primary,
 				testCase.inputArgs.domains,
 				testCase.inputArgs.enabled,
+				userID,
 			)
 
 			testCase.errFunc(t, err)
@@ -628,7 +629,7 @@ func TestSaveNameServerGroup(t *testing.T) {
 				}
 			}
 
-			err = am.SaveNameServerGroup(account.Id, nsGroupToSave)
+			err = am.SaveNameServerGroup(account.Id, userID, nsGroupToSave)
 
 			testCase.errFunc(t, err)
 
@@ -952,7 +953,7 @@ func TestUpdateNameServerGroup(t *testing.T) {
 				t.Error("account should be saved")
 			}
 
-			updatedRoute, err := am.UpdateNameServerGroup(account.Id, testCase.nsGroupID, testCase.operations)
+			updatedRoute, err := am.UpdateNameServerGroup(account.Id, testCase.nsGroupID, userID, testCase.operations)
 			testCase.errFunc(t, err)
 
 			if !testCase.shouldCreate {
@@ -1009,7 +1010,7 @@ func TestDeleteNameServerGroup(t *testing.T) {
 		t.Error("failed to save account")
 	}
 
-	err = am.DeleteNameServerGroup(account.Id, testingNSGroup.ID)
+	err = am.DeleteNameServerGroup(account.Id, testingNSGroup.ID, userID)
 	if err != nil {
 		t.Error("deleting nameserver group failed with error: ", err)
 	}

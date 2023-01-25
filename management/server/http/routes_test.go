@@ -48,7 +48,7 @@ var testingAccount = &server.Account{
 	Domain: "hotmail.com",
 	Peers: map[string]*server.Peer{
 		existingPeerKey: {
-			Key: existingPeerID,
+			Key: existingPeerKey,
 			IP:  netip.MustParseAddr(existingPeerID).AsSlice(),
 		},
 	},
@@ -66,12 +66,18 @@ func initRoutesTestData() *Routes {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID string, network, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool) (*route.Route, error) {
+			CreateRouteFunc: func(accountID string, network, peerIP, description, netID string, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
+
+				peer := testingAccount.GetPeerByIP(peerIP)
+				if peer == nil {
+					return nil, status.Errorf(status.NotFound, "peer %s not found", peerIP)
+				}
+
 				networkType, p, _ := route.ParseNetwork(network)
 				return &route.Route{
 					ID:          existingRouteID,
 					NetID:       netID,
-					Peer:        peer,
+					Peer:        peer.Key,
 					Network:     p,
 					NetworkType: networkType,
 					Description: description,
@@ -80,12 +86,12 @@ func initRoutesTestData() *Routes {
 					Groups:      groups,
 				}, nil
 			},
-			SaveRouteFunc: func(_ string, _ *route.Route) error {
+			SaveRouteFunc: func(_, _ string, _ *route.Route) error {
 				return nil
 			},
-			DeleteRouteFunc: func(_ string, peerIP string) error {
-				if peerIP != existingRouteID {
-					return status.Errorf(status.NotFound, "Peer with ID %s not found", peerIP)
+			DeleteRouteFunc: func(_ string, routeID string, _ string) error {
+				if routeID != existingRouteID {
+					return status.Errorf(status.NotFound, "Peer with ID %s not found", routeID)
 				}
 				return nil
 			},
