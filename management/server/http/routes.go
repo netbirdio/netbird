@@ -128,9 +128,9 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 	peerKey := req.Peer
 	if req.Peer != "" {
-		peer, err := h.accountManager.GetPeerByIP(account.Id, req.Peer)
-		if err != nil {
-			util.WriteError(err, w)
+		peer := account.GetPeerByIP(req.Peer)
+		if peer == nil {
+			util.WriteError(status.Errorf(status.NotFound, "peer %s not found", req.Peer), w)
 			return
 		}
 		peerKey = peer.Key

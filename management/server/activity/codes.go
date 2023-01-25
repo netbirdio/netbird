@@ -53,6 +53,8 @@ const (
 	RouteCreated
 	// RouteRemoved indicates that a user deleted a route
 	RouteRemoved
+	// RouteUpdated indicates that a user updated a route
+	RouteUpdated
 )
 
 const (
@@ -108,6 +110,8 @@ const (
 	RouteCreatedMessage string = "Route created"
 	// RouteDeletedMessage is a human-readable text message of the RouteRemoved activity
 	RouteDeletedMessage string = "Route deleted"
+	// RouteUpdatedMessage is a human-readable text message of the RouteUpdated activity
+	RouteUpdatedMessage string = "Route updated"
 )
 
 // Activity that triggered an Event
@@ -168,6 +172,8 @@ func (a Activity) Message() string {
 		return RouteCreatedMessage
 	case RouteRemoved:
 		return RouteDeletedMessage
+	case RouteUpdated:
+		return RouteUpdatedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -228,6 +234,8 @@ func (a Activity) StringCode() string {
 		return "route.add"
 	case RouteRemoved:
 		return "route.delete"
+	case RouteUpdated:
+		return "route.update"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
