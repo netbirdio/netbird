@@ -44,7 +44,7 @@ type MockAccountManager struct {
 	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
 	UpdatePeerMetaFunc              func(peerKey string, meta server.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerKey string, sshKey string) error
-	UpdatePeerFunc                  func(accountID string, peer *server.Peer) (*server.Peer, error)
+	UpdatePeerFunc                  func(accountID, userID string, peer *server.Peer) (*server.Peer, error)
 	CreateRouteFunc                 func(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	GetRouteFunc                    func(accountID, routeID, userID string) (*route.Route, error)
 	SaveRouteFunc                   func(accountID, userID string, route *route.Route) error
@@ -323,9 +323,9 @@ func (am *MockAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string) er
 }
 
 // UpdatePeer mocks UpdatePeerFunc function of the account manager
-func (am *MockAccountManager) UpdatePeer(accountID string, peer *server.Peer) (*server.Peer, error) {
+func (am *MockAccountManager) UpdatePeer(accountID, userID string, peer *server.Peer) (*server.Peer, error) {
 	if am.UpdatePeerFunc != nil {
-		return am.UpdatePeerFunc(accountID, peer)
+		return am.UpdatePeerFunc(accountID, userID, peer)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method UpdatePeerFunc is is not implemented")
 }

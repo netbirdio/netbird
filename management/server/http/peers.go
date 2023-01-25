@@ -27,7 +27,7 @@ func NewPeers(accountManager server.AccountManager, authAudience string) *Peers 
 	}
 }
 
-func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
+func (h *Peers) updatePeer(account *server.Account, user *server.User, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
 	req := &api.PutApiPeersIdJSONBody{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -36,7 +36,7 @@ func (h *Peers) updatePeer(account *server.Account, peer *server.Peer, w http.Re
 	}
 
 	update := &server.Peer{Key: peer.Key, SSHEnabled: req.SshEnabled, Name: req.Name}
-	peer, err = h.accountManager.UpdatePeer(account.Id, update)
+	peer, err = h.accountManager.UpdatePeer(account.Id, user.Id, update)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -81,7 +81,7 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		h.deletePeer(account.Id, user.Id, peer, w, r)
 		return
 	case http.MethodPut:
-		h.updatePeer(account, peer, w, r)
+		h.updatePeer(account, user, peer, w, r)
 		return
 	case http.MethodGet:
 		util.WriteJSONObject(w, toPeerResponse(peer, account, dnsDomain))

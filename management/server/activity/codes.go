@@ -55,6 +55,12 @@ const (
 	RouteRemoved
 	// RouteUpdated indicates that a user updated a route
 	RouteUpdated
+	// PeerSSHEnabled indicates that a user enabled SSH server on a peer
+	PeerSSHEnabled
+	// PeerSSHDisabled indicates that a user disabled SSH server on a peer
+	PeerSSHDisabled
+	// PeerRenamed indicates that a user renamed a peer
+	PeerRenamed
 )
 
 const (
@@ -108,10 +114,16 @@ const (
 	GroupRemovedFromDisabledManagementGroupsMessage string = "Group removed from disabled management DNS setting"
 	// RouteCreatedMessage is a human-readable text message of the RouteCreated activity
 	RouteCreatedMessage string = "Route created"
-	// RouteDeletedMessage is a human-readable text message of the RouteRemoved activity
-	RouteDeletedMessage string = "Route deleted"
+	// RouteRemovedMessage is a human-readable text message of the RouteRemoved activity
+	RouteRemovedMessage string = "Route deleted"
 	// RouteUpdatedMessage is a human-readable text message of the RouteUpdated activity
 	RouteUpdatedMessage string = "Route updated"
+	// PeerSSHEnabledMessage is a human-readable text message of the PeerSSHEnabled activity
+	PeerSSHEnabledMessage string = "Peer SSH server enabled"
+	// PeerSSHDisabledMessage is a human-readable text message of the PeerSSHDisabled activity
+	PeerSSHDisabledMessage string = "Peer SSH server disabled"
+	// PeerRenamedMessage is a human-readable text message of the PeerRenamed activity
+	PeerRenamedMessage string = "Peer renamed"
 )
 
 // Activity that triggered an Event
@@ -171,9 +183,15 @@ func (a Activity) Message() string {
 	case RouteCreated:
 		return RouteCreatedMessage
 	case RouteRemoved:
-		return RouteDeletedMessage
+		return RouteRemovedMessage
 	case RouteUpdated:
 		return RouteUpdatedMessage
+	case PeerSSHEnabled:
+		return PeerSSHEnabledMessage
+	case PeerSSHDisabled:
+		return PeerSSHDisabledMessage
+	case PeerRenamed:
+		return PeerRenamedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -236,6 +254,12 @@ func (a Activity) StringCode() string {
 		return "route.delete"
 	case RouteUpdated:
 		return "route.update"
+	case PeerRenamed:
+		return "peer.rename"
+	case PeerSSHEnabled:
+		return "peer.ssh.enable"
+	case PeerSSHDisabled:
+		return "peer.ssh.disable"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
