@@ -134,7 +134,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return err
 	}
 
-	updates := s.peersUpdateManager.CreateChannel(peerKey.String())
+	updates := s.peersUpdateManager.CreateChannel(peer.ID)
 	err = s.accountManager.MarkPeerConnected(peerKey.String(), true)
 	if err != nil {
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
@@ -171,7 +171,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.Debugf("stream of peer %s has been closed", peerKey.String())
-			s.peersUpdateManager.CloseChannel(peerKey.String())
+			s.peersUpdateManager.CloseChannel(peer.ID)
 			s.turnCredentialsManager.CancelRefresh(peerKey.String())
 			err = s.accountManager.MarkPeerConnected(peerKey.String(), false)
 			if err != nil {
@@ -252,19 +252,19 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 	}
 
 	// todo move to DefaultAccountManager the code below
-	networkMap, err := s.accountManager.GetNetworkMap(peer.Key)
+	networkMap, err := s.accountManager.GetNetworkMap(peer.ID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
 	}
 	// notify other peers of our registration
 	for _, remotePeer := range networkMap.Peers {
-		remotePeerNetworkMap, err := s.accountManager.GetNetworkMap(remotePeer.Key)
+		remotePeerNetworkMap, err := s.accountManager.GetNetworkMap(remotePeer.ID)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
 		}
 
 		update := toSyncResponse(s.config, remotePeer, nil, remotePeerNetworkMap, s.accountManager.GetDNSDomain())
-		err = s.peersUpdateManager.SendUpdate(remotePeer.Key, &UpdateMessage{Update: update})
+		err = s.peersUpdateManager.SendUpdate(remotePeer.ID, &UpdateMessage{Update: update})
 		if err != nil {
 			// todo rethink if we should keep this return
 			return nil, status.Errorf(codes.Internal, "unable to send update after registering peer, error: %v", err)
@@ -353,7 +353,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
-	network, err := s.accountManager.GetPeerNetwork(peer.Key)
+	network, err := s.accountManager.GetPeerNetwork(peer.ID)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed getting peer network on login")
 	}
@@ -491,9 +491,9 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
 func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
-	networkMap, err := s.accountManager.GetNetworkMap(peer.Key)
+	networkMap, err := s.accountManager.GetNetworkMap(peer.ID)
 	if err != nil {
-		log.Warnf("error getting a list of peers for a peer %s", peer.Key)
+		log.Warnf("error getting a list of peers for a peer %s", peer.ID)
 		return err
 	}
 

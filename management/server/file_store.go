@@ -20,6 +20,7 @@ type FileStore struct {
 	Accounts                map[string]*Account
 	SetupKeyID2AccountID    map[string]string `json:"-"`
 	PeerKeyID2AccountID     map[string]string `json:"-"`
+	PeerID2AccountID        map[string]string `json:"-"`
 	UserID2AccountID        map[string]string `json:"-"`
 	PrivateDomain2AccountID map[string]string `json:"-"`
 	InstallationID          string
@@ -53,6 +54,7 @@ func restore(file string) (*FileStore, error) {
 			PeerKeyID2AccountID:     make(map[string]string),
 			UserID2AccountID:        make(map[string]string),
 			PrivateDomain2AccountID: make(map[string]string),
+			PeerID2AccountID:        make(map[string]string),
 			storeFile:               file,
 		}
 
@@ -75,6 +77,7 @@ func restore(file string) (*FileStore, error) {
 	store.PeerKeyID2AccountID = make(map[string]string)
 	store.UserID2AccountID = make(map[string]string)
 	store.PrivateDomain2AccountID = make(map[string]string)
+	store.PeerID2AccountID = make(map[string]string)
 
 	for accountID, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
@@ -83,6 +86,7 @@ func restore(file string) (*FileStore, error) {
 
 		for _, peer := range account.Peers {
 			store.PeerKeyID2AccountID[peer.Key] = accountID
+			store.PeerID2AccountID[peer.ID] = accountID
 			// reset all peers to status = Disconnected
 			if peer.Status != nil && peer.Status.Connected {
 				peer.Status.Connected = false
@@ -183,6 +187,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	// enforce peer to account index and delete peer to route indexes for rebuild
 	for _, peer := range accountCopy.Peers {
 		s.PeerKeyID2AccountID[peer.Key] = accountCopy.Id
+		s.PeerID2AccountID[peer.ID] = accountCopy.Id
 	}
 
 	for _, user := range accountCopy.Users {
@@ -274,6 +279,24 @@ func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 	accountID, accountIDFound := s.UserID2AccountID[userID]
 	if !accountIDFound {
 		return nil, status.Errorf(status.NotFound, "account not found")
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Copy(), nil
+}
+
+// GetAccountByPeerID returns an account for a given peer ID
+func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, accountIDFound := s.PeerKeyID2AccountID[peerID]
+	if !accountIDFound {
+		return nil, status.Errorf(status.NotFound, "provided peer ID doesn't exists %s", peerID)
 	}
 
 	account, err := s.getAccount(accountID)

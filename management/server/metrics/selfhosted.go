@@ -207,7 +207,7 @@ func (w *Worker) generateProperties() properties {
 				osUIClients[uiOSKey] = osUICount + 1
 			}
 
-			_, connected := connections[peer.Key]
+			_, connected := connections[peer.ID]
 			if connected || peer.Status.LastSeen.After(w.lastRun) {
 				activePeersLastDay++
 				osActiveKey := osKey + "_active"

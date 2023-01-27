@@ -53,11 +53,11 @@ type AccountManager interface {
 	GetPeer(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
-	DeletePeer(accountID, peerKey, userID string) (*Peer, error)
+	DeletePeer(accountID, peerID, userID string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
-	GetNetworkMap(peerKey string) (*NetworkMap, error)
-	GetPeerNetwork(peerKey string) (*Network, error)
+	GetNetworkMap(peerID string) (*NetworkMap, error)
+	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, error)
 	UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error
 	UpdatePeerSSHKey(peerKey string, sshKey string) error
@@ -232,7 +232,7 @@ func (a *Account) GetPeerByIP(peerIP string) *Peer {
 }
 
 // GetPeerRules returns a list of source or destination rules of a given peer.
-func (a *Account) GetPeerRules(peerPubKey string) (srcRules []*Rule, dstRules []*Rule) {
+func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rule) {
 
 	// Rules are group based so there is no direct access to peers.
 	// First, find all groups that the given peer belongs to
@@ -240,7 +240,7 @@ func (a *Account) GetPeerRules(peerPubKey string) (srcRules []*Rule, dstRules []
 
 	for s, group := range a.Groups {
 		for _, peer := range group.Peers {
-			if peerPubKey == peer {
+			if peerID == peer {
 				peerGroups[s] = struct{}{}
 				break
 			}
@@ -284,18 +284,15 @@ func (a *Account) GetPeers() []*Peer {
 
 // UpdatePeer saves new or replaces existing peer
 func (a *Account) UpdatePeer(update *Peer) {
-	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
-	a.Peers[update.Key] = update
+	a.Peers[update.ID] = update
 }
 
 // DeletePeer deletes peer from the account cleaning up all the references
-func (a *Account) DeletePeer(peerPubKey string) {
-	// TODO Peer.ID migration: we will need to replace search by Peer.ID here
-
+func (a *Account) DeletePeer(peerID string) {
 	// delete peer from groups
 	for _, g := range a.Groups {
 		for i, pk := range g.Peers {
-			if pk == peerPubKey {
+			if pk == peerID {
 				g.Peers = append(g.Peers[:i], g.Peers[i+1:]...)
 				break
 			}
@@ -303,13 +300,13 @@ func (a *Account) DeletePeer(peerPubKey string) {
 	}
 
 	for _, r := range a.Routes {
-		if r.Peer == peerPubKey {
+		if r.Peer == peerID {
 			r.Enabled = false
 			r.Peer = ""
 		}
 	}
 
-	delete(a.Peers, peerPubKey)
+	delete(a.Peers, peerID)
 	a.Network.IncSerial()
 }
 
@@ -474,6 +471,11 @@ func (a *Account) GetGroupAll() (*Group, error) {
 		}
 	}
 	return nil, fmt.Errorf("no group ALL found")
+}
+
+// GetPeer looks up a Peer by ID
+func (a *Account) GetPeer(peerID string) *Peer {
+	return a.Peers[peerID]
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1015,7 +1017,7 @@ func addAllGroup(account *Account) {
 			Name: "All",
 		}
 		for _, peer := range account.Peers {
-			allGroup.Peers = append(allGroup.Peers, peer.Key)
+			allGroup.Peers = append(allGroup.Peers, peer.ID)
 		}
 		account.Groups = map[string]*Group{allGroup.ID: allGroup}
 

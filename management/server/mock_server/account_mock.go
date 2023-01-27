@@ -77,9 +77,9 @@ func (am *MockAccountManager) GetUsersFromAccount(accountID string, userID strin
 }
 
 // DeletePeer mock implementation of DeletePeer from server.AccountManager interface
-func (am *MockAccountManager) DeletePeer(accountID, peerKey, userID string) (*server.Peer, error) {
+func (am *MockAccountManager) DeletePeer(accountID, peerID, userID string) (*server.Peer, error) {
 	if am.DeletePeerFunc != nil {
-		return am.DeletePeerFunc(accountID, peerKey, userID)
+		return am.DeletePeerFunc(accountID, peerID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method DeletePeer is not implemented")
 }
