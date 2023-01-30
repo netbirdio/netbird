@@ -237,7 +237,7 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) 
 }
 
 // GroupAddPeer appends peer to the group
-func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string) error {
+func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string) error {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -254,13 +254,13 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string
 
 	add := true
 	for _, itemID := range group.Peers {
-		if itemID == peerKey {
+		if itemID == peerID {
 			add = false
 			break
 		}
 	}
 	if add {
-		group.Peers = append(group.Peers, peerKey)
+		group.Peers = append(group.Peers, peerID)
 	}
 
 	account.Network.IncSerial()

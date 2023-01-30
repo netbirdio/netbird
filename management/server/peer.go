@@ -327,7 +327,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 	}
 
 	aclPeers := account.getPeersByACL(peerID)
-	routesUpdate := account.getRoutesToSync(peer.Key, aclPeers)
+	routesUpdate := account.getRoutesToSync(peerID, peer.Key, aclPeers)
 
 	dnsManagementStatus := account.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{

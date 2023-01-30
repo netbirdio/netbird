@@ -220,9 +220,9 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 	}
 
 	if routeToSave.Peer != "" {
-		_, peerExist := account.Peers[routeToSave.Peer]
-		if !peerExist {
-			return status.Errorf(status.InvalidArgument, "failed to find Peer %s", routeToSave.Peer)
+		_, err = account.FindPeerByPubKey(routeToSave.Peer)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -287,9 +287,9 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 			newRoute.NetworkType = prefixType
 		case UpdateRoutePeer:
 			if operation.Values[0] != "" {
-				_, peerExist := account.Peers[operation.Values[0]]
-				if !peerExist {
-					return nil, status.Errorf(status.InvalidArgument, "failed to find Peer %s", operation.Values[0])
+				_, err = account.FindPeerByPubKey(operation.Values[0])
+				if err != nil {
+					return nil, err
 				}
 			}
 

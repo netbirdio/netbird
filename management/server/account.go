@@ -67,7 +67,7 @@ type AccountManager interface {
 	UpdateGroup(accountID string, groupID string, operations []GroupUpdateOperation) (*Group, error)
 	DeleteGroup(accountId, groupID string) error
 	ListGroups(accountId string) ([]*Group, error)
-	GroupAddPeer(accountId, groupID, peerKey string) error
+	GroupAddPeer(accountId, groupID, peerID string) error
 	GroupDeletePeer(accountId, groupID, peerKey string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
 	GetRule(accountID, ruleID, userID string) (*Rule, error)
@@ -145,8 +145,8 @@ type UserInfo struct {
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
 // from the ACL peers that have distribution groups associated with the peer ID
-func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Route {
-	routes, peerDisabledRoutes := a.getEnabledAndDisabledRoutesByPeer(peerID)
+func (a *Account) getRoutesToSync(peerID, peerKey string, aclPeers []*Peer) []*route.Route {
+	routes, peerDisabledRoutes := a.getEnabledAndDisabledRoutesByPeer(peerKey)
 	peerRoutesMembership := make(lookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
 		peerRoutesMembership[route.GetHAUniqueID(r)] = struct{}{}

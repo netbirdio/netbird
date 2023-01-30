@@ -1188,7 +1188,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 		},
 	}
 
-	routes := account.getRoutesToSync("peer-2", []*Peer{{Key: "peer-1"}, {Key: "peer-3"}})
+	routes := account.getRoutesToSync("peer-2", "peer-2", []*Peer{{Key: "peer-1"}, {Key: "peer-3"}})
 
 	assert.Len(t, routes, 2)
 	routeIDs := make(map[string]struct{}, 2)
@@ -1198,7 +1198,7 @@ func TestAccount_GetRoutesToSync(t *testing.T) {
 	assert.Contains(t, routeIDs, "route-2")
 	assert.Contains(t, routeIDs, "route-3")
 
-	emptyRoutes := account.getRoutesToSync("peer-3", []*Peer{{Key: "peer-1"}, {Key: "peer-2"}})
+	emptyRoutes := account.getRoutesToSync("peer-3", "peer-3", []*Peer{{Key: "peer-1"}, {Key: "peer-2"}})
 
 	assert.Len(t, emptyRoutes, 0)
 }
