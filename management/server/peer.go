@@ -321,10 +321,15 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 		return nil, err
 	}
 
-	aclPeers := account.getPeersByACL(peerPubKey)
-	routesUpdate := account.getRoutesToSync(peerPubKey, aclPeers)
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
+	}
 
-	dnsManagementStatus := account.getPeerDNSManagementStatus(peerPubKey)
+	aclPeers := account.getPeersByACL(peerID)
+	routesUpdate := account.getRoutesToSync(peer.Key, aclPeers)
+
+	dnsManagementStatus := account.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
 		ServiceEnable: dnsManagementStatus,
 	}
@@ -336,7 +341,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 			zones = append(zones, peersCustomZone)
 		}
 		dnsUpdate.CustomZones = zones
-		dnsUpdate.NameServerGroups = getPeerNSGroups(account, peerPubKey)
+		dnsUpdate.NameServerGroups = getPeerNSGroups(account, peerID)
 	}
 
 	return &NetworkMap{
