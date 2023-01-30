@@ -88,6 +88,13 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		return err
 	}
 
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return err
+	}
+
+	// the following snippet tracks the activity and stores the group events in the event store.
+	// It has to happen after all the operations have been successfully performed.
 	addedPeers := make([]string, 0)
 	removedPeers := make([]string, 0)
 	if exists {
@@ -120,7 +127,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 				"peer_fqdn": peer.FQDN(am.GetDNSDomain())})
 	}
 
-	return am.updateAccountPeers(account)
+	return nil
 }
 
 // difference returns the elements in `a` that aren't in `b`.

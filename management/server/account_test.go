@@ -493,8 +493,8 @@ func TestAccountManager_GetAccount(t *testing.T) {
 	}
 
 	for _, peer := range account.Peers {
-		if _, ok := getAccount.Peers[peer.Key]; !ok {
-			t.Errorf("expected account to have peer %s, not found", peer.Key)
+		if _, ok := getAccount.Peers[peer.ID]; !ok {
+			t.Errorf("expected account to have peer %s, not found", peer.ID)
 		}
 	}
 
@@ -717,13 +717,13 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		return
 	}
 
-	updMsg := manager.peersUpdateManager.CreateChannel(peer1.Key)
-	defer manager.peersUpdateManager.CloseChannel(peer1.Key)
+	updMsg := manager.peersUpdateManager.CreateChannel(peer1.ID)
+	defer manager.peersUpdateManager.CloseChannel(peer1.ID)
 
 	group := Group{
 		ID:    "group-id",
 		Name:  "GroupA",
-		Peers: []string{peer1.Key, peer2.Key, peer3.Key},
+		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	}
 
 	rule := Rule{

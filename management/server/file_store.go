@@ -294,7 +294,7 @@ func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	accountID, accountIDFound := s.PeerKeyID2AccountID[peerID]
+	accountID, accountIDFound := s.PeerID2AccountID[peerID]
 	if !accountIDFound {
 		return nil, status.Errorf(status.NotFound, "provided peer ID doesn't exists %s", peerID)
 	}
