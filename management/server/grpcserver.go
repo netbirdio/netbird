@@ -111,7 +111,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", peerKey.String())
 	}
 
-	peer, err := s.accountManager.GetPeer(peerKey.String())
+	peer, err := s.accountManager.GetPeerByKey(peerKey.String())
 	if err != nil {
 		p, _ := gPeer.FromContext(srv.Context())
 		msg := status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered, remote addr is %s", peerKey.String(), p.Addr.String())
@@ -299,7 +299,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
 
-	peer, err := s.accountManager.GetPeer(peerKey.String())
+	peer, err := s.accountManager.GetPeerByKey(peerKey.String())
 	if err != nil {
 		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
 			// peer doesn't exist -> check if setup key was provided

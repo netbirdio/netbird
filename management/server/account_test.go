@@ -1007,7 +1007,7 @@ func TestAccountManager_UpdatePeerMeta(t *testing.T) {
 		return
 	}
 
-	p, err := manager.GetPeer(peer.Key)
+	p, err := manager.GetPeerByKey(peer.Key)
 	if err != nil {
 		return
 	}

@@ -68,8 +68,6 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dnsDomain := h.accountManager.GetDNSDomain()
-
 	switch r.Method {
 	case http.MethodDelete:
 		h.deletePeer(account.Id, user.Id, peerID, w)
@@ -77,10 +75,6 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPut:
 		h.updatePeer(account, user, peerID, w, r)
 		return
-	case http.MethodGet:
-		util.WriteJSONObject(w, toPeerResponse(peer, account, dnsDomain))
-		return
-
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "unknown METHOD"), w)
 	}

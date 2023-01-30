@@ -101,7 +101,7 @@ func (p *PeerStatus) Copy() *PeerStatus {
 }
 
 // GetPeer looks up peer by its public WireGuard key
-func (am *DefaultAccountManager) GetPeer(peerPubKey string) (*Peer, error) {
+func (am *DefaultAccountManager) GetPeerByKey(peerPubKey string) (*Peer, error) {
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {

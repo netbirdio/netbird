@@ -50,7 +50,7 @@ type AccountManager interface {
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
-	GetPeer(peerKey string) (*Peer, error)
+	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
 	DeletePeer(accountID, peerID, userID string) (*Peer, error)

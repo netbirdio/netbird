@@ -143,11 +143,11 @@ func (am *MockAccountManager) AccountExists(accountId string) (*bool, error) {
 }
 
 // GetPeer mock implementation of GetPeer from server.AccountManager interface
-func (am *MockAccountManager) GetPeer(peerKey string) (*server.Peer, error) {
+func (am *MockAccountManager) GetPeerByKey(peerKey string) (*server.Peer, error) {
 	if am.GetPeerFunc != nil {
 		return am.GetPeerFunc(peerKey)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetPeer is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeerByKey is not implemented")
 }
 
 // MarkPeerConnected mock implementation of MarkPeerConnected from server.AccountManager interface
