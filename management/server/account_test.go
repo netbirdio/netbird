@@ -580,7 +580,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	assert.Equal(t, peer.Name, ev.Meta["name"])
 	assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
 	assert.Equal(t, setupKey.Id, ev.InitiatorID)
-	assert.Equal(t, peer.IP.String(), ev.TargetID)
+	assert.Equal(t, peer.ID, ev.TargetID)
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
@@ -650,7 +650,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	assert.Equal(t, peer.Name, ev.Meta["name"])
 	assert.Equal(t, peer.FQDN(account.Domain), ev.Meta["fqdn"])
 	assert.Equal(t, userID, ev.InitiatorID)
-	assert.Equal(t, peer.IP.String(), ev.TargetID)
+	assert.Equal(t, peer.ID, ev.TargetID)
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
 
