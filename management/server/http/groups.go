@@ -96,10 +96,16 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var peers []string
+	if req.Peers == nil {
+		peers = make([]string, 0)
+	} else {
+		peers = *req.Peers
+	}
 	group := server.Group{
 		ID:    groupID,
 		Name:  *req.Name,
-		Peers: peerIPsToKeys(account, req.Peers),
+		Peers: peers,
 	}
 
 	if err := h.accountManager.SaveGroup(account.Id, user.Id, &group); err != nil {
