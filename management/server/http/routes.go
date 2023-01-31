@@ -2,7 +2,6 @@ package http
 
 import (
 	"encoding/json"
-	"github.com/google/martian/log"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -46,7 +45,7 @@ func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	apiRoutes := make([]*api.Route, 0)
 	for _, r := range routes {
-		apiRoutes = append(apiRoutes, toRouteResponse(account, r))
+		apiRoutes = append(apiRoutes, toRouteResponse(r))
 	}
 
 	util.WriteJSONObject(w, apiRoutes)
@@ -86,7 +85,7 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toRouteResponse(account, newRoute)
+	resp := toRouteResponse(newRoute)
 
 	util.WriteJSONObject(w, &resp)
 }
@@ -127,16 +126,6 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	peerKey := req.Peer
-	if req.Peer != "" {
-		peer := account.GetPeerByIP(req.Peer)
-		if peer == nil {
-			util.WriteError(status.Errorf(status.NotFound, "peer %s not found", req.Peer), w)
-			return
-		}
-		peerKey = peer.Key
-	}
-
 	if utf8.RuneCountInString(req.NetworkId) > route.MaxNetIDChar || req.NetworkId == "" {
 		util.WriteError(status.Errorf(status.InvalidArgument,
 			"identifier should be between 1 and %d", route.MaxNetIDChar), w)
@@ -149,7 +138,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		NetID:       req.NetworkId,
 		NetworkType: prefixType,
 		Masquerade:  req.Masquerade,
-		Peer:        peerKey,
+		Peer:        req.Peer,
 		Metric:      req.Metric,
 		Description: req.Description,
 		Enabled:     req.Enabled,
@@ -162,7 +151,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toRouteResponse(account, newRoute)
+	resp := toRouteResponse(newRoute)
 
 	util.WriteJSONObject(w, &resp)
 }
@@ -246,18 +235,9 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 					"value field only accepts 1 value, got %d", len(patch.Value)), w)
 				return
 			}
-			peerValue := patch.Value
-			if patch.Value[0] != "" {
-				peer, err := h.accountManager.GetPeerByIP(account.Id, patch.Value[0])
-				if err != nil {
-					util.WriteError(err, w)
-					return
-				}
-				peerValue = []string{peer.Key}
-			}
 			operations = append(operations, server.RouteUpdateOperation{
 				Type:   server.UpdateRoutePeer,
-				Values: peerValue,
+				Values: patch.Value,
 			})
 		case api.RoutePatchOperationPathMetric:
 			if patch.Op != api.RoutePatchOperationOpReplace {
@@ -306,13 +286,13 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	route, err := h.accountManager.UpdateRoute(account.Id, routeID, operations)
+	root, err := h.accountManager.UpdateRoute(account.Id, routeID, operations)
 	if err != nil {
 		util.WriteError(err, w)
 		return
 	}
 
-	resp := toRouteResponse(account, route)
+	resp := toRouteResponse(root)
 
 	util.WriteJSONObject(w, &resp)
 }
@@ -362,27 +342,16 @@ func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(w, toRouteResponse(account, foundRoute))
+	util.WriteJSONObject(w, toRouteResponse(foundRoute))
 }
 
-func toRouteResponse(account *server.Account, serverRoute *route.Route) *api.Route {
-	var peerIP string
-	if serverRoute.Peer != "" {
-		peer, err := account.FindPeerByPubKey(serverRoute.Peer)
-		if err != nil {
-			log.Errorf("peer not found")
-		} else {
-			peerIP = peer.IP.String()
-		}
-
-	}
-
+func toRouteResponse(serverRoute *route.Route) *api.Route {
 	return &api.Route{
 		Id:          serverRoute.ID,
 		Description: serverRoute.Description,
 		NetworkId:   serverRoute.NetID,
 		Enabled:     serverRoute.Enabled,
-		Peer:        peerIP,
+		Peer:        serverRoute.Peer,
 		Network:     serverRoute.Network.String(),
 		NetworkType: serverRoute.NetworkType.String(),
 		Masquerade:  serverRoute.Masquerade,

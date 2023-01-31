@@ -76,7 +76,7 @@ type AccountManager interface {
 	DeleteRule(accountID, ruleID, userID string) error
 	ListRules(accountID, userID string) ([]*Rule, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
-	CreateRoute(accountID string, prefix, peerIP, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
+	CreateRoute(accountID string, prefix, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
 	UpdateRoute(accountID, routeID string, operations []RouteUpdateOperation) (*route.Route, error)
 	DeleteRoute(accountID, routeID, userID string) error
@@ -145,8 +145,8 @@ type UserInfo struct {
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
 // from the ACL peers that have distribution groups associated with the peer ID
-func (a *Account) getRoutesToSync(peerID, peerKey string, aclPeers []*Peer) []*route.Route {
-	routes, peerDisabledRoutes := a.getEnabledAndDisabledRoutesByPeer(peerKey)
+func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Route {
+	routes, peerDisabledRoutes := a.getEnabledAndDisabledRoutesByPeer(peerID)
 	peerRoutesMembership := make(lookupMap)
 	for _, r := range append(routes, peerDisabledRoutes...) {
 		peerRoutesMembership[route.GetHAUniqueID(r)] = struct{}{}
@@ -154,7 +154,7 @@ func (a *Account) getRoutesToSync(peerID, peerKey string, aclPeers []*Peer) []*r
 
 	groupListMap := a.getPeerGroups(peerID)
 	for _, peer := range aclPeers {
-		activeRoutes, _ := a.getEnabledAndDisabledRoutesByPeer(peer.Key)
+		activeRoutes, _ := a.getEnabledAndDisabledRoutesByPeer(peer.ID)
 		groupFilteredRoutes := a.filterRoutesByGroups(activeRoutes, groupListMap)
 		filteredRoutes := a.filterRoutesFromPeersOfSameHAGroup(groupFilteredRoutes, peerRoutesMembership)
 		routes = append(routes, filteredRoutes...)
@@ -191,12 +191,11 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 }
 
 // getEnabledAndDisabledRoutesByPeer returns the enabled and disabled lists of routes that belong to a peer
-func (a *Account) getEnabledAndDisabledRoutesByPeer(peerPubKey string) ([]*route.Route, []*route.Route) {
-	//TODO Peer.ID migration: we will need to replace search by Peer.ID here
+func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Route, []*route.Route) {
 	var enabledRoutes []*route.Route
 	var disabledRoutes []*route.Route
 	for _, r := range a.Routes {
-		if r.Peer == peerPubKey {
+		if r.Peer == peerID {
 			if r.Enabled {
 				enabledRoutes = append(enabledRoutes, r)
 				continue

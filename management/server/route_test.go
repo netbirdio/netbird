@@ -12,6 +12,8 @@ import (
 const (
 	peer1Key           = "BhRPtynAAYRDy08+q4HTMsos8fs4plTP4NOSh7C1ry8="
 	peer2Key           = "/yF0+vCfv+mRR5k0dca0TrGdO/oiNeAI58gToZm5NyI="
+	peer1ID            = "peer-1-id"
+	peer2ID            = "peer-2-id"
 	routeGroup1        = "routeGroup1"
 	routeGroup2        = "routeGroup2"
 	routeInvalidGroup1 = "routeInvalidGroup1"
@@ -43,7 +45,7 @@ func TestCreateRoute(t *testing.T) {
 			inputArgs: input{
 				network:     "192.168.0.0/16",
 				netID:       "happy",
-				peerKey:     peer1Key,
+				peerKey:     peer1ID,
 				description: "super",
 				masquerade:  false,
 				metric:      9999,
@@ -56,7 +58,7 @@ func TestCreateRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetworkType: route.IPv4Network,
 				NetID:       "happy",
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -69,7 +71,7 @@ func TestCreateRoute(t *testing.T) {
 			inputArgs: input{
 				network:     "192.168.0.0/34",
 				netID:       "happy",
-				peerKey:     peer1Key,
+				peerKey:     peer1ID,
 				description: "super",
 				masquerade:  false,
 				metric:      9999,
@@ -124,7 +126,7 @@ func TestCreateRoute(t *testing.T) {
 			name: "Large Metric Should Fail",
 			inputArgs: input{
 				network:     "192.168.0.0/16",
-				peerKey:     peer1Key,
+				peerKey:     peer1ID,
 				netID:       "happy",
 				description: "super",
 				masquerade:  false,
@@ -140,7 +142,7 @@ func TestCreateRoute(t *testing.T) {
 			inputArgs: input{
 				network:     "192.168.0.0/16",
 				netID:       "happy",
-				peerKey:     peer1Key,
+				peerKey:     peer1ID,
 				description: "super",
 				masquerade:  false,
 				metric:      0,
@@ -154,7 +156,7 @@ func TestCreateRoute(t *testing.T) {
 			name: "Large NetID Should Fail",
 			inputArgs: input{
 				network:     "192.168.0.0/16",
-				peerKey:     peer1Key,
+				peerKey:     peer1ID,
 				netID:       "12345678901234567890qwertyuiopqwertyuiop1",
 				description: "super",
 				masquerade:  false,
@@ -170,7 +172,7 @@ func TestCreateRoute(t *testing.T) {
 			inputArgs: input{
 				network:     "192.168.0.0/16",
 				netID:       "",
-				peerKey:     peer1Key,
+				peerKey:     peer1ID,
 				description: "",
 				masquerade:  false,
 				metric:      9999,
@@ -185,7 +187,7 @@ func TestCreateRoute(t *testing.T) {
 			inputArgs: input{
 				network:     "192.168.0.0/16",
 				netID:       "NewId",
-				peerKey:     peer1Key,
+				peerKey:     peer1ID,
 				description: "",
 				masquerade:  false,
 				metric:      9999,
@@ -200,7 +202,7 @@ func TestCreateRoute(t *testing.T) {
 			inputArgs: input{
 				network:     "192.168.0.0/16",
 				netID:       "NewId",
-				peerKey:     peer1Key,
+				peerKey:     peer1ID,
 				description: "",
 				masquerade:  false,
 				metric:      9999,
@@ -215,7 +217,7 @@ func TestCreateRoute(t *testing.T) {
 			inputArgs: input{
 				network:     "192.168.0.0/16",
 				netID:       "NewId",
-				peerKey:     peer1Key,
+				peerKey:     peer1ID,
 				description: "",
 				masquerade:  false,
 				metric:      9999,
@@ -238,18 +240,10 @@ func TestCreateRoute(t *testing.T) {
 				t.Error("failed to init testing account")
 			}
 
-			peerIP := "99.99.99.99"
-			peer, _ := account.FindPeerByPubKey(testCase.inputArgs.peerKey)
-			if testCase.inputArgs.peerKey == "" {
-				peerIP = ""
-			} else if peer != nil {
-				peerIP = peer.IP.String()
-			}
-
 			outRoute, err := am.CreateRoute(
 				account.Id,
 				testCase.inputArgs.network,
-				peerIP,
+				testCase.inputArgs.peerKey,
 				testCase.inputArgs.description,
 				testCase.inputArgs.netID,
 				testCase.inputArgs.masquerade,
@@ -278,7 +272,7 @@ func TestCreateRoute(t *testing.T) {
 
 func TestSaveRoute(t *testing.T) {
 
-	validPeer := peer2Key
+	validPeer := peer2ID
 	invalidPeer := "nonExisting"
 	validPrefix := netip.MustParsePrefix("192.168.0.0/24")
 	invalidPrefix, _ := netip.ParsePrefix("192.168.0.0/34")
@@ -306,7 +300,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -339,7 +333,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -356,7 +350,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -373,7 +367,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -390,7 +384,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       invalidNetID,
 				NetworkType: route.IPv4Network,
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -407,7 +401,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -424,7 +418,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -441,7 +435,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -458,7 +452,7 @@ func TestSaveRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       validNetID,
 				NetworkType: route.IPv4Network,
-				Peer:        peer1Key,
+				Peer:        peer1ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -495,7 +489,6 @@ func TestSaveRoute(t *testing.T) {
 				if testCase.newPeer != nil {
 					routeToSave.Peer = *testCase.newPeer
 				}
-
 				if testCase.newMetric != nil {
 					routeToSave.Metric = *testCase.newMetric
 				}
@@ -541,7 +534,7 @@ func TestUpdateRoute(t *testing.T) {
 		Network:     netip.MustParsePrefix("192.168.0.0/16"),
 		NetID:       "superRoute",
 		NetworkType: route.IPv4Network,
-		Peer:        peer1Key,
+		Peer:        peer1ID,
 		Description: "super",
 		Masquerade:  false,
 		Metric:      9999,
@@ -563,7 +556,7 @@ func TestUpdateRoute(t *testing.T) {
 			operations: []RouteUpdateOperation{
 				{
 					Type:   UpdateRoutePeer,
-					Values: []string{peer2Key},
+					Values: []string{peer2ID},
 				},
 			},
 			errFunc:      require.NoError,
@@ -573,7 +566,7 @@ func TestUpdateRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/16"),
 				NetID:       "superRoute",
 				NetworkType: route.IPv4Network,
-				Peer:        peer2Key,
+				Peer:        peer2ID,
 				Description: "super",
 				Masquerade:  false,
 				Metric:      9999,
@@ -595,7 +588,7 @@ func TestUpdateRoute(t *testing.T) {
 				},
 				{
 					Type:   UpdateRoutePeer,
-					Values: []string{peer2Key},
+					Values: []string{peer2ID},
 				},
 				{
 					Type:   UpdateRouteMetric,
@@ -625,7 +618,7 @@ func TestUpdateRoute(t *testing.T) {
 				Network:     netip.MustParsePrefix("192.168.0.0/24"),
 				NetID:       "megaRoute",
 				NetworkType: route.IPv4Network,
-				Peer:        peer2Key,
+				Peer:        peer2ID,
 				Description: "great",
 				Masquerade:  true,
 				Metric:      3030,
@@ -649,7 +642,7 @@ func TestUpdateRoute(t *testing.T) {
 			operations: []RouteUpdateOperation{
 				{
 					Type:   UpdateRoutePeer,
-					Values: []string{peer2Key, peer1Key},
+					Values: []string{peer2ID, peer1ID},
 				},
 			},
 			errFunc: require.Error,
@@ -847,7 +840,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 		Network:     netip.MustParsePrefix("192.168.0.0/16"),
 		NetID:       "superNet",
 		NetworkType: route.IPv4Network,
-		Peer:        peer1Key,
+		Peer:        peer1ID,
 		Description: "super",
 		Masquerade:  false,
 		Metric:      9999,
@@ -865,20 +858,16 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 
-	peer1, err := account.FindPeerByPubKey(peer1Key)
-	require.NoError(t, err)
-	peer2, err := account.FindPeerByPubKey(peer2Key)
-	require.NoError(t, err)
-	newAccountRoutes, err := am.GetNetworkMap(peer1.ID)
+	newAccountRoutes, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
 	require.Len(t, newAccountRoutes.Routes, 0, "new accounts should have no routes")
 
-	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network.String(), peer1.IP.String(),
+	createdRoute, err := am.CreateRoute(account.Id, baseRoute.Network.String(), peer1ID,
 		baseRoute.Description, baseRoute.NetID, baseRoute.Masquerade, baseRoute.Metric, baseRoute.Groups, false,
 		userID)
 	require.NoError(t, err)
 
-	noDisabledRoutes, err := am.GetNetworkMap(peer1.ID)
+	noDisabledRoutes, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
 	require.Len(t, noDisabledRoutes.Routes, 0, "no routes for disabled routes")
 
@@ -888,20 +877,19 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	err = am.SaveRoute(account.Id, userID, enabledRoute)
 	require.NoError(t, err)
 
-	peer1Routes, err := am.GetNetworkMap(peer1.ID)
+	peer1Routes, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1Routes.Routes, 1, "we should receive one route for peer1")
 	require.True(t, enabledRoute.IsEqual(peer1Routes.Routes[0]), "received route should be equal")
 
-	peer2Routes, err := am.GetNetworkMap(peer2.ID)
+	peer2Routes, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
 	require.Len(t, peer2Routes.Routes, 0, "no routes for peers not in the distribution group")
 
-	//account.Groups[routeGroup1].Peers = append(account.Groups[routeGroup1].Peers, peer2.ID)
-	err = am.GroupAddPeer(account.Id, routeGroup1, peer2.ID)
+	err = am.GroupAddPeer(account.Id, routeGroup1, peer2ID)
 	require.NoError(t, err)
 
-	peer2Routes, err = am.GetNetworkMap(peer2.ID)
+	peer2Routes, err = am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
 	require.Len(t, peer2Routes.Routes, 1, "we should receive one route")
 	require.True(t, peer1Routes.Routes[0].IsEqual(peer2Routes.Routes[0]), "routes should be the same for peers in the same group")
@@ -909,7 +897,7 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	newGroup := &Group{
 		ID:    xid.New().String(),
 		Name:  "peer1 group",
-		Peers: []string{peer1.ID},
+		Peers: []string{peer1ID},
 	}
 	err = am.SaveGroup(account.Id, userID, newGroup)
 	require.NoError(t, err)
@@ -930,18 +918,18 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	err = am.DeleteRule(account.Id, defaultRule.ID, userID)
 	require.NoError(t, err)
 
-	peer1GroupRoutes, err := am.GetNetworkMap(peer1.ID)
+	peer1GroupRoutes, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1GroupRoutes.Routes, 1, "we should receive one route for peer1")
 
-	peer2GroupRoutes, err := am.GetNetworkMap(peer2.ID)
+	peer2GroupRoutes, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
 	require.Len(t, peer2GroupRoutes.Routes, 0, "we should not receive routes for peer2")
 
 	err = am.DeleteRoute(account.Id, enabledRoute.ID, userID)
 	require.NoError(t, err)
 
-	peer1DeletedRoute, err := am.GetNetworkMap(peer1.ID)
+	peer1DeletedRoute, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1DeletedRoute.Routes, 0, "we should receive one route for peer1")
 
@@ -968,9 +956,27 @@ func createRouterStore(t *testing.T) (Store, error) {
 
 func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
 
+	accountID := "testingAcc"
+	domain := "example.com"
+
+	account := newAccountWithId(accountID, userID, domain)
+	err := am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, err
+	}
+
+	ips := account.getTakenIPs()
+	peer1IP, err := AllocatePeerIP(account.Network.Net, ips)
+	if err != nil {
+		return nil, err
+	}
+
 	peer1 := &Peer{
-		Key:  peer1Key,
-		Name: "test-host1@netbird.io",
+		IP:     peer1IP,
+		ID:     peer1ID,
+		Key:    peer1Key,
+		Name:   "test-host1@netbird.io",
+		UserID: userID,
 		Meta: PeerSystemMeta{
 			Hostname:  "test-host1@netbird.io",
 			GoOS:      "linux",
@@ -982,9 +988,20 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 			UIVersion: "development",
 		},
 	}
+	account.Peers[peer1.ID] = peer1
+
+	ips = account.getTakenIPs()
+	peer2IP, err := AllocatePeerIP(account.Network.Net, ips)
+	if err != nil {
+		return nil, err
+	}
+
 	peer2 := &Peer{
-		Key:  peer2Key,
-		Name: "test-host2@netbird.io",
+		IP:     peer2IP,
+		ID:     peer2ID,
+		Key:    peer2Key,
+		Name:   "test-host2@netbird.io",
+		UserID: userID,
 		Meta: PeerSystemMeta{
 			Hostname:  "test-host2@netbird.io",
 			GoOS:      "linux",
@@ -996,24 +1013,13 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 			UIVersion: "development",
 		},
 	}
+	account.Peers[peer2.ID] = peer2
 
-	accountID := "testingAcc"
-	domain := "example.com"
-
-	account := newAccountWithId(accountID, userID, domain)
-	err := am.Store.SaveAccount(account)
+	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
 
-	peer1, err = am.AddPeer("", userID, peer1)
-	if err != nil {
-		return nil, err
-	}
-	peer2, err = am.AddPeer("", userID, peer2)
-	if err != nil {
-		return nil, err
-	}
 	newGroup := &Group{
 		ID:    routeGroup1,
 		Name:  routeGroup1,
