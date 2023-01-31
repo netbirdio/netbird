@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"github.com/google/martian/log"
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -367,11 +368,13 @@ func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
 func toRouteResponse(account *server.Account, serverRoute *route.Route) *api.Route {
 	var peerIP string
 	if serverRoute.Peer != "" {
-		peer, found := account.Peers[serverRoute.Peer]
-		if !found {
-			panic("peer ID not found")
+		peer, err := account.FindPeerByPubKey(serverRoute.Peer)
+		if err != nil {
+			log.Errorf("peer not found")
+		} else {
+			peerIP = peer.IP.String()
 		}
-		peerIP = peer.IP.String()
+
 	}
 
 	return &api.Route{
