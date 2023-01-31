@@ -263,7 +263,7 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		return nil, err
 	}
 
-	peer2, err = account.FindPeerByPubKey(peer2.Key)
+	_, err = account.FindPeerByPubKey(peer2.Key)
 	if err != nil {
 		return nil, err
 	}
