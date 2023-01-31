@@ -225,7 +225,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 
 		peer.DNSLabel = newLabel
 
-		am.storeEvent(userID, peer.IP.String(), accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
+		am.storeEvent(userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	account.UpdatePeer(peer)
@@ -289,7 +289,7 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) (*
 	}
 
 	am.peersUpdateManager.CloseChannel(peerID)
-	am.storeEvent(userID, peer.IP.String(), account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
+	am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
 	return peer, nil
 }
 
@@ -483,7 +483,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, err
 	}
 
-	opEvent.TargetID = newPeer.IP.String()
+	opEvent.TargetID = newPeer.ID
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
 	am.storeEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 

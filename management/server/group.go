@@ -111,7 +111,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.storeEvent(userID, peer.IP.String(), accountID, activity.GroupAddedToPeer,
+		am.storeEvent(userID, peer.ID, accountID, activity.GroupAddedToPeer,
 			map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
 				"peer_fqdn": peer.FQDN(am.GetDNSDomain())})
 	}
@@ -122,7 +122,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.storeEvent(userID, peer.IP.String(), accountID, activity.GroupRemovedFromPeer,
+		am.storeEvent(userID, peer.ID, accountID, activity.GroupRemovedFromPeer,
 			map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
 				"peer_fqdn": peer.FQDN(am.GetDNSDomain())})
 	}

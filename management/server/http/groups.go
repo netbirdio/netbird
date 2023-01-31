@@ -191,10 +191,9 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 					Values: peerKeys,
 				})
 			case api.GroupPatchOperationOpAdd:
-				peerKeys := peerIPsToKeys(account, &patch.Value)
 				operations = append(operations, server.GroupUpdateOperation{
 					Type:   server.InsertPeersToGroup,
-					Values: peerKeys,
+					Values: patch.Value,
 				})
 			default:
 				util.WriteError(status.Errorf(status.InvalidArgument,
@@ -237,10 +236,16 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var peers []string
+	if req.Peers == nil {
+		peers = make([]string, 0)
+	} else {
+		peers = *req.Peers
+	}
 	group := server.Group{
 		ID:    xid.New().String(),
 		Name:  req.Name,
-		Peers: peerIPsToKeys(account, req.Peers),
+		Peers: peers,
 	}
 
 	err = h.accountManager.SaveGroup(account.Id, user.Id, &group)
@@ -359,7 +364,7 @@ func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 				continue
 			}
 			peerResp := api.PeerMinimum{
-				Id:   peer.IP.String(),
+				Id:   peer.ID,
 				Name: peer.Name,
 			}
 			cache[pid] = peerResp
