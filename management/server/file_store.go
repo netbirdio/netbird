@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
@@ -120,6 +121,46 @@ func restore(file string) (*FileStore, error) {
 		for _, route := range account.Routes {
 			if len(route.Groups) == 0 {
 				route.Groups = []string{allGroup.ID}
+			}
+		}
+
+		// migration to Peer.ID from Peer.Key.
+		// Old peers that require migration have an empty Peer.ID in the store.json.
+		// Generate new ID with xid for these peers.
+		// Set the Peer.ID to the newly generated value.
+		// Replace all the mentions of Peer.Key as ID (groups and routes).
+		// Swap Peer.Key with Peer.ID in the Account.Peers map.
+		migrationPeers := make(map[string]*Peer) // key to Peer
+		for key, peer := range account.Peers {
+			if peer.ID != "" {
+				continue
+			}
+			id := xid.New().String()
+			peer.ID = id
+			migrationPeers[key] = peer
+		}
+
+		if len(migrationPeers) > 0 {
+
+			// swap Peer.Key with Peer.ID in the Account.Peers map.
+			for key, peer := range migrationPeers {
+				delete(account.Peers, key)
+				account.Peers[peer.ID] = peer
+			}
+
+			// detect groups that have Peer.Key as a reference and replace it with ID.
+			for _, group := range account.Groups {
+				for i, peer := range group.Peers {
+					if p, ok := migrationPeers[peer]; ok {
+						group.Peers[i] = p.ID
+					}
+				}
+			}
+			// detect routes that have Peer.Key as a reference and replace it with ID.
+			for _, route := range account.Routes {
+				if peer, ok := migrationPeers[route.Peer]; ok {
+					route.Peer = peer.ID
+				}
 			}
 		}
 	}
