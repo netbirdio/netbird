@@ -1019,6 +1019,18 @@ func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, er
 	if err != nil {
 		return nil, err
 	}
+	groupAll, err := account.GetGroupAll()
+	if err != nil {
+		return nil, err
+	}
+	err = am.GroupAddPeer(accountID, groupAll.ID, peer1ID)
+	if err != nil {
+		return nil, err
+	}
+	err = am.GroupAddPeer(accountID, groupAll.ID, peer2ID)
+	if err != nil {
+		return nil, err
+	}
 
 	newGroup := &Group{
 		ID:    routeGroup1,
