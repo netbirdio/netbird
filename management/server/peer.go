@@ -181,7 +181,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	peer.Status = newStatus
 	account.UpdatePeer(peer)
 
-	err = am.Store.SavePeerStatus(account.Id, peerPubKey, *newStatus)
+	err = am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)
 	if err != nil {
 		return err
 	}

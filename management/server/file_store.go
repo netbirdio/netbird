@@ -383,7 +383,7 @@ func (s *FileStore) SaveInstallationID(ID string) error {
 
 // SavePeerStatus stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
 // PeerStatus will be saved eventually when some other changes occur.
-func (s *FileStore) SavePeerStatus(accountID, peerKey string, peerStatus PeerStatus) error {
+func (s *FileStore) SavePeerStatus(accountID, peerID string, peerStatus PeerStatus) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -392,9 +392,9 @@ func (s *FileStore) SavePeerStatus(accountID, peerKey string, peerStatus PeerSta
 		return err
 	}
 
-	peer := account.Peers[peerKey]
+	peer := account.Peers[peerID]
 	if peer == nil {
-		return status.Errorf(status.NotFound, "peer %s not found", peerKey)
+		return status.Errorf(status.NotFound, "peer %s not found", peerID)
 	}
 
 	peer.Status = &peerStatus
