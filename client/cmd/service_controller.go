@@ -85,6 +85,8 @@ var runCmd = &cobra.Command{
 	Short: "runs Netbird as service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
+		SetFlagsFromEnvVars(serviceCmd)
+		SetFlagsFromEnvVars(cmd)
 
 		cmd.SetOut(cmd.OutOrStdout())
 
@@ -119,6 +121,8 @@ var startCmd = &cobra.Command{
 	Short: "starts Netbird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
+		SetFlagsFromEnvVars(serviceCmd)
+		SetFlagsFromEnvVars(cmd)
 
 		cmd.SetOut(cmd.OutOrStdout())
 
@@ -154,6 +158,8 @@ var stopCmd = &cobra.Command{
 	Short: "stops Netbird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
+		SetFlagsFromEnvVars(serviceCmd)
+		SetFlagsFromEnvVars(cmd)
 
 		cmd.SetOut(cmd.OutOrStdout())
 
@@ -187,6 +193,8 @@ var restartCmd = &cobra.Command{
 	Short: "restarts Netbird service",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		SetFlagsFromEnvVars(rootCmd)
+		SetFlagsFromEnvVars(serviceCmd)
+		SetFlagsFromEnvVars(cmd)
 
 		cmd.SetOut(cmd.OutOrStdout())
 

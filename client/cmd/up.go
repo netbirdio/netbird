@@ -84,6 +84,8 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		ConfigPath:       configPath,
 		NATExternalIPs:   natExternalIPs,
 		CustomDNSAddress: customDNSAddressConverted,
+		WgIface:          wgIface,
+		WgPort:           wgPort,
 	}
 	if preSharedKey != "" {
 		ic.PreSharedKey = &preSharedKey

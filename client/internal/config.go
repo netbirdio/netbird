@@ -6,6 +6,7 @@ import (
 	"os"
 
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/exp/slices"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,6 +38,8 @@ type ConfigInput struct {
 	PreSharedKey     *string
 	NATExternalIPs   []string
 	CustomDNSAddress []byte
+	WgIface          string
+	WgPort           int
 }
 
 // Config Configuration type
@@ -179,7 +182,16 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.AdminURL = newURL
 	}
 
-	config.IFaceBlackList = defaultInterfaceBlacklist
+	if input.WgIface != "" {
+		config.WgIface = input.WgIface
+	}
+
+	if input.WgPort != 0 {
+		config.WgPort = input.WgPort
+	}
+
+	config.IFaceBlackList = append([]string{input.WgIface}, defaultInterfaceBlacklist...)
+
 	return config, nil
 }
 
@@ -227,20 +239,64 @@ func update(input ConfigInput) (*Config, error) {
 			return nil, err
 		}
 		config.SSHKey = string(pem)
+		log.Infof("generated config.SSHKey")
 		refresh = true
 	}
 
-	if config.WgPort == 0 {
+	if config.WgPort == 0 && input.WgPort == 0 {
+		log.Infof("using default Wireguard Port: %#v ", iface.DefaultWgPort)
 		config.WgPort = iface.DefaultWgPort
 		refresh = true
 	}
-	if input.NATExternalIPs != nil && len(config.NATExternalIPs) != len(input.NATExternalIPs) {
+
+	oldIface := config.WgIface
+
+	if oldIface == "" && input.WgIface == "" {
+		log.Infof("using default Wireguard Interface Name: %#v ", iface.WgInterfaceDefault)
+		config.WgIface = iface.WgInterfaceDefault
+		refresh = true
+	}
+
+	if input.WgIface != "" && input.WgIface != config.WgIface {
+		log.Infof("new Wireguard Interface Name provided, updated to %#v (old value %#v)", input.WgIface, config.WgIface)
+		config.WgIface = input.WgIface
+		refresh = true
+	}
+
+	if input.WgPort != 0 && input.WgPort != config.WgPort {
+		log.Infof("new Wireguard Port provided, updated to %#v (old value %#v)", input.WgPort, config.WgPort)
+		config.WgPort = input.WgPort
+		refresh = true
+	}
+
+	if !slices.Contains(config.IFaceBlackList, config.WgIface) {
+		var newBlacklist []string
+		replaced := false
+		for _, ifc := range config.IFaceBlackList {
+			if ifc == oldIface {
+				ifc = config.WgIface
+				replaced = true
+			}
+			newBlacklist = append(newBlacklist, ifc)
+		}
+		if !replaced {
+			newBlacklist = append(newBlacklist, config.WgIface)
+		}
+		log.Infof("prepending Wireguard Interface Name to interface blacklist %#v, updated to %v (old value %v)", config.WgIface, newBlacklist, config.IFaceBlackList)
+		config.IFaceBlackList = newBlacklist
+		refresh = true
+	}
+
+	if input.NATExternalIPs != nil && !slices.Equal(config.NATExternalIPs, input.NATExternalIPs) {
+		log.Infof("new NAT External IPs provided, updated to %v (old value %v)", input.NATExternalIPs, config.NATExternalIPs)
 		config.NATExternalIPs = input.NATExternalIPs
 		refresh = true
 	}
 
-	if input.CustomDNSAddress != nil {
-		config.CustomDNSAddress = string(input.CustomDNSAddress)
+	customDNSAddress := string(input.CustomDNSAddress)
+	if customDNSAddress != "" && customDNSAddress != config.CustomDNSAddress {
+		log.Infof("new Custom DNS provided, updated to %v (old value %v)", customDNSAddress, config.CustomDNSAddress)
+		config.CustomDNSAddress = customDNSAddress
 		refresh = true
 	}
 

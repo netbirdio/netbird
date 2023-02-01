@@ -48,7 +48,10 @@ var ErrResetConnection = fmt.Errorf("reset connection")
 
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
-	WgPort      int
+	// WgPort is a port number Wireguard listens on
+	WgPort int
+
+	// WgIfaceName is a Wireguard interface name to use
 	WgIfaceName string
 
 	// WgAddr is a Wireguard local address (Netbird Network IP)
