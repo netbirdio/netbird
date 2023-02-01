@@ -68,11 +68,15 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		}
 	}
 
-	var audience string
+	var audience, userIDClaim string
 	if config.HttpConfig != nil {
 		audience = config.HttpConfig.AuthAudience
+		userIDClaim = config.HttpConfig.AuthUserIDClaim
 	}
-	jwtClaimsExtractor := jwtclaims.NewClaimsExtractor(jwtclaims.WithAudience(audience))
+	jwtClaimsExtractor := jwtclaims.NewClaimsExtractor(
+		jwtclaims.WithAudience(audience),
+		jwtclaims.WithUserIDClaim(userIDClaim),
+	)
 
 	return &GRPCServer{
 		wgKey: key,
