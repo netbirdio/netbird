@@ -574,6 +574,9 @@ type User struct {
 
 	// Status User's status
 	Status UserStatus `json:"status"`
+
+	// IsCurrent is true if authenticated user is the same as this user
+	IsCurrent bool `json:"is_current"`
 }
 
 // UserStatus User's status

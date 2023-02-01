@@ -71,7 +71,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(err, w)
 		return
 	}
-	util.WriteJSONObject(w, toUserResponse(newUser))
+	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
 }
 
 // CreateUserHandler creates a User in the system with a status "invited" (effectively this is a user invite).
@@ -110,7 +110,7 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		util.WriteError(err, w)
 		return
 	}
-	util.WriteJSONObject(w, toUserResponse(newUser))
+	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
 }
 
 // GetUsers returns a list of users of the account this user belongs to.
@@ -136,13 +136,13 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	users := make([]*api.User, 0)
 	for _, r := range data {
-		users = append(users, toUserResponse(r))
+		users = append(users, toUserResponse(r, claims.UserId))
 	}
 
 	util.WriteJSONObject(w, users)
 }
 
-func toUserResponse(user *server.UserInfo) *api.User {
+func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 	autoGroups := user.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
@@ -165,5 +165,6 @@ func toUserResponse(user *server.UserInfo) *api.User {
 		Role:       user.Role,
 		AutoGroups: autoGroups,
 		Status:     userStatus,
+		IsCurrent:  user.ID == currenUserID,
 	}
 }
