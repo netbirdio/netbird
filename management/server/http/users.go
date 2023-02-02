@@ -158,6 +158,7 @@ func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 		userStatus = api.UserStatusDisabled
 	}
 
+	isCurrent := user.ID == currenUserID
 	return &api.User{
 		Id:         user.ID,
 		Name:       user.Name,
@@ -165,6 +166,6 @@ func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 		Role:       user.Role,
 		AutoGroups: autoGroups,
 		Status:     userStatus,
-		IsCurrent:  user.ID == currenUserID,
+		IsCurrent:  &isCurrent,
 	}
 }

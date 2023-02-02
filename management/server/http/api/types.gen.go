@@ -566,6 +566,9 @@ type User struct {
 	// Id User ID
 	Id string `json:"id"`
 
+	// IsCurrent Is true if authenticated user is the same as this user
+	IsCurrent *bool `json:"is_current,omitempty"`
+
 	// Name User's name from idp provider
 	Name string `json:"name"`
 
@@ -574,9 +577,6 @@ type User struct {
 
 	// Status User's status
 	Status UserStatus `json:"status"`
-
-	// IsCurrent is true if authenticated user is the same as this user
-	IsCurrent bool `json:"is_current"`
 }
 
 // UserStatus User's status
