@@ -112,7 +112,7 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peerID string,
 	}
 	for _, prefixRoute := range routesWithPrefix {
 		if prefixRoute.Peer == peerID {
-			return status.Errorf(status.AlreadyExists, "failed a route with prefix %s and peer already exist", prefix.String())
+			return status.Errorf(status.AlreadyExists, "failed to add route with prefix %s - peer already has this route", prefix.String())
 		}
 	}
 	return nil
