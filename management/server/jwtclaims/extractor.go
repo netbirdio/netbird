@@ -69,10 +69,14 @@ func NewClaimsExtractor(options ...ClaimsExtractorOption) *ClaimsExtractor {
 func (c *ClaimsExtractor) FromToken(token *jwt.Token) AuthorizationClaims {
 	claims := token.Claims.(jwt.MapClaims)
 	jwtClaims := AuthorizationClaims{}
-	jwtClaims.UserId = claims[c.userIDClaim].(string)
-	accountIdClaim, ok := claims[c.authAudience+AccountIDSuffix]
+	userID, ok := claims[c.userIDClaim].(string)
+	if !ok {
+		return jwtClaims
+	}
+	jwtClaims.UserId = userID
+	accountIDClaim, ok := claims[c.authAudience+AccountIDSuffix]
 	if ok {
-		jwtClaims.AccountId = accountIdClaim.(string)
+		jwtClaims.AccountId = accountIDClaim.(string)
 	}
 	domainClaim, ok := claims[c.authAudience+DomainIDSuffix]
 	if ok {

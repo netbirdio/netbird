@@ -46,6 +46,10 @@ components:
           type: array
           items:
             type: string
+        is_current:
+          description: Is true if authenticated user is the same as this user
+          type: boolean
+          readOnly: true
       required:
         - id
         - email

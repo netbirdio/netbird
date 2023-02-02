@@ -213,7 +213,7 @@ func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) 
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "invalid jwt token, err: %v", err)
 		}
-		claims := s.jwtClaimsExtractor.FromToken(token) // jwtclaims.ExtractClaimsWithToken(token, s.config.HttpConfig.AuthAudience)
+		claims := s.jwtClaimsExtractor.FromToken(token)
 		userID = claims.UserId
 		// we need to call this method because if user is new, we will automatically add it to existing or create a new account
 		_, _, err = s.accountManager.GetAccountFromToken(claims)

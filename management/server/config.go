@@ -8,7 +8,10 @@ import (
 )
 
 type (
+	// Protocol type
 	Protocol string
+
+	// Provider authorization flow type
 	Provider string
 )
 

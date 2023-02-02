@@ -179,13 +179,13 @@ var (
 				tlsEnabled = true
 			}
 
-			httpApiAuthCfg := httpapi.AuthCfg{
+			httpAPIAuthCfg := httpapi.AuthCfg{
 				Issuer:       config.HttpConfig.AuthIssuer,
 				Audience:     config.HttpConfig.AuthAudience,
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
-			httpAPIHandler, err := httpapi.APIHandler(accountManager, appMetrics, httpApiAuthCfg)
+			httpAPIHandler, err := httpapi.APIHandler(accountManager, appMetrics, httpAPIAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
