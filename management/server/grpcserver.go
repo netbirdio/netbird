@@ -141,7 +141,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 
 	if s.config.TURNConfig.TimeBasedCredentials {
-		s.turnCredentialsManager.SetupRefresh(peerKey.String())
+		s.turnCredentialsManager.SetupRefresh(peer.ID)
 	}
 	// keep a connection to the peer and send updates when available
 	for {
