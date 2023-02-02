@@ -1001,7 +1001,7 @@ func TestAccountManager_UpdatePeerMeta(t *testing.T) {
 		OS:        "new-OS",
 		WtVersion: "new-WtVersion",
 	}
-	err = manager.UpdatePeerMeta(peer.Key, newMeta)
+	err = manager.UpdatePeerMeta(peer.ID, newMeta)
 	if err != nil {
 		t.Error(err)
 		return
