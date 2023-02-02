@@ -146,6 +146,7 @@ func restore(file string) (*FileStore, error) {
 			for key, peer := range migrationPeers {
 				delete(account.Peers, key)
 				account.Peers[peer.ID] = peer
+				store.PeerID2AccountID[peer.ID] = accountID
 			}
 
 			// detect groups that have Peer.Key as a reference and replace it with ID.
