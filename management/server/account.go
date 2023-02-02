@@ -196,11 +196,18 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 	var disabledRoutes []*route.Route
 	for _, r := range a.Routes {
 		if r.Peer == peerID {
-			if r.Enabled {
-				enabledRoutes = append(enabledRoutes, r)
+			peer := a.GetPeer(peerID)
+			if peer == nil {
+				log.Errorf("route %s has peer %s that doesn't exist under account %s", r.ID, peerID, a.Id)
 				continue
 			}
-			disabledRoutes = append(disabledRoutes, r)
+			raut := r.Copy()
+			raut.Peer = peer.Key
+			if r.Enabled {
+				enabledRoutes = append(enabledRoutes, raut)
+				continue
+			}
+			disabledRoutes = append(disabledRoutes, raut)
 		}
 	}
 	return enabledRoutes, disabledRoutes
