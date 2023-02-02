@@ -42,8 +42,8 @@ type MockAccountManager struct {
 	DeleteRuleFunc                  func(accountID, ruleID, userID string) error
 	ListRulesFunc                   func(accountID, userID string) ([]*server.Rule, error)
 	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
-	UpdatePeerMetaFunc              func(peerKey string, meta server.PeerSystemMeta) error
-	UpdatePeerSSHKeyFunc            func(peerKey string, sshKey string) error
+	UpdatePeerMetaFunc              func(peerID string, meta server.PeerSystemMeta) error
+	UpdatePeerSSHKeyFunc            func(peerID string, sshKey string) error
 	UpdatePeerFunc                  func(accountID, userID string, peer *server.Peer) (*server.Peer, error)
 	CreateRouteFunc                 func(accountID string, prefix, peer, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	GetRouteFunc                    func(accountID, routeID, userID string) (*route.Route, error)
@@ -299,9 +299,9 @@ func (am *MockAccountManager) ListRules(accountID, userID string) ([]*server.Rul
 }
 
 // UpdatePeerMeta mock implementation of UpdatePeerMeta from server.AccountManager interface
-func (am *MockAccountManager) UpdatePeerMeta(peerKey string, meta server.PeerSystemMeta) error {
+func (am *MockAccountManager) UpdatePeerMeta(peerID string, meta server.PeerSystemMeta) error {
 	if am.UpdatePeerMetaFunc != nil {
-		return am.UpdatePeerMetaFunc(peerKey, meta)
+		return am.UpdatePeerMetaFunc(peerID, meta)
 	}
 	return status.Errorf(codes.Unimplemented, "method UpdatePeerMetaFunc is not implemented")
 }
@@ -315,9 +315,9 @@ func (am *MockAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) 
 }
 
 // UpdatePeerSSHKey mocks UpdatePeerSSHKey function of the account manager
-func (am *MockAccountManager) UpdatePeerSSHKey(peerKey string, sshKey string) error {
+func (am *MockAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) error {
 	if am.UpdatePeerSSHKeyFunc != nil {
-		return am.UpdatePeerSSHKeyFunc(peerKey, sshKey)
+		return am.UpdatePeerSSHKeyFunc(peerID, sshKey)
 	}
 	return status.Errorf(codes.Unimplemented, "method UpdatePeerSSHKey is is not implemented")
 }

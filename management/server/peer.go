@@ -491,14 +491,14 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 }
 
 // UpdatePeerSSHKey updates peer's public SSH key
-func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey string) error {
+func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) error {
 
 	if sshKey == "" {
-		log.Debugf("empty SSH key provided for peer %s, skipping update", peerPubKey)
+		log.Debugf("empty SSH key provided for peer %s, skipping update", peerID)
 		return nil
 	}
 
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
 		return err
 	}
@@ -512,13 +512,13 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey stri
 		return err
 	}
 
-	peer, err := account.FindPeerByPubKey(peerPubKey)
-	if err != nil {
-		return err
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
 	if peer.SSHKey == sshKey {
-		log.Debugf("same SSH key provided for peer %s, skipping update", peerPubKey)
+		log.Debugf("same SSH key provided for peer %s, skipping update", peerID)
 		return nil
 	}
 
@@ -535,9 +535,9 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey stri
 }
 
 // UpdatePeerMeta updates peer's system metadata
-func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSystemMeta) error {
+func (am *DefaultAccountManager) UpdatePeerMeta(peerID string, meta PeerSystemMeta) error {
 
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
 		return err
 	}
@@ -545,9 +545,9 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSyst
 	unlock := am.Store.AcquireAccountLock(account.Id)
 	defer unlock()
 
-	peer, err := account.FindPeerByPubKey(peerPubKey)
-	if err != nil {
-		return err
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client

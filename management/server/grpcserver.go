@@ -324,7 +324,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	} else if loginReq.GetMeta() != nil {
 		// update peer's system meta data on Login
-		err = s.accountManager.UpdatePeerMeta(peerKey.String(), PeerSystemMeta{
+		err = s.accountManager.UpdatePeerMeta(peer.ID, PeerSystemMeta{
 			Hostname:  loginReq.GetMeta().GetHostname(),
 			GoOS:      loginReq.GetMeta().GetGoOS(),
 			Kernel:    loginReq.GetMeta().GetKernel(),
@@ -347,7 +347,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	}
 
 	if len(sshKey) > 0 {
-		err = s.accountManager.UpdatePeerSSHKey(peerKey.String(), string(sshKey))
+		err = s.accountManager.UpdatePeerSSHKey(peer.ID, string(sshKey))
 		if err != nil {
 			return nil, err
 		}

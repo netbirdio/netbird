@@ -59,8 +59,8 @@ type AccountManager interface {
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, error)
-	UpdatePeerMeta(peerKey string, meta PeerSystemMeta) error
-	UpdatePeerSSHKey(peerKey string, sshKey string) error
+	UpdatePeerMeta(peerID string, meta PeerSystemMeta) error
+	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountID, userID string, group *Group) error
