@@ -27,7 +27,7 @@ func NewPeers(accountManager server.AccountManager, authAudience string) *Peers 
 	}
 }
 
-func (h *Peers) updatePeer(account *server.Account, user *server.User, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
+func (h *Peers) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PutApiPeersIdJSONBody{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -35,8 +35,8 @@ func (h *Peers) updatePeer(account *server.Account, user *server.User, peer *ser
 		return
 	}
 
-	update := &server.Peer{Key: peer.Key, SSHEnabled: req.SshEnabled, Name: req.Name}
-	peer, err = h.accountManager.UpdatePeer(account.Id, user.Id, update)
+	update := &server.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name}
+	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -45,8 +45,8 @@ func (h *Peers) updatePeer(account *server.Account, user *server.User, peer *ser
 	util.WriteJSONObject(w, toPeerResponse(peer, account, dnsDomain))
 }
 
-func (h *Peers) deletePeer(accountID, userID string, peer *server.Peer, w http.ResponseWriter, r *http.Request) {
-	_, err := h.accountManager.DeletePeer(accountID, peer.Key, userID)
+func (h *Peers) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
+	_, err := h.accountManager.DeletePeer(accountID, peerID, userID)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -62,31 +62,19 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	vars := mux.Vars(r)
-	peerId := vars["id"] //effectively peer IP address
-	if len(peerId) == 0 {
+	peerID := vars["id"]
+	if len(peerID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid peer ID"), w)
 		return
 	}
 
-	peer, err := h.accountManager.GetPeerByIP(account.Id, peerId)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	dnsDomain := h.accountManager.GetDNSDomain()
-
 	switch r.Method {
 	case http.MethodDelete:
-		h.deletePeer(account.Id, user.Id, peer, w, r)
+		h.deletePeer(account.Id, user.Id, peerID, w)
 		return
 	case http.MethodPut:
-		h.updatePeer(account, user, peer, w, r)
+		h.updatePeer(account, user, peerID, w, r)
 		return
-	case http.MethodGet:
-		util.WriteJSONObject(w, toPeerResponse(peer, account, dnsDomain))
-		return
-
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "unknown METHOD"), w)
 	}
@@ -132,7 +120,7 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 		}
 		groupsChecked[group.ID] = struct{}{}
 		for _, pk := range group.Peers {
-			if pk == peer.Key {
+			if pk == peer.ID {
 				info := api.GroupMinimum{
 					Id:         group.ID,
 					Name:       group.Name,
@@ -149,7 +137,7 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 		fqdn = peer.DNSLabel
 	}
 	return &api.Peer{
-		Id:         peer.IP.String(),
+		Id:         peer.ID,
 		Name:       peer.Name,
 		Ip:         peer.IP.String(),
 		Connected:  peer.Status.Connected,

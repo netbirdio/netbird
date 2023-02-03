@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
@@ -20,6 +21,7 @@ type FileStore struct {
 	Accounts                map[string]*Account
 	SetupKeyID2AccountID    map[string]string `json:"-"`
 	PeerKeyID2AccountID     map[string]string `json:"-"`
+	PeerID2AccountID        map[string]string `json:"-"`
 	UserID2AccountID        map[string]string `json:"-"`
 	PrivateDomain2AccountID map[string]string `json:"-"`
 	InstallationID          string
@@ -53,6 +55,7 @@ func restore(file string) (*FileStore, error) {
 			PeerKeyID2AccountID:     make(map[string]string),
 			UserID2AccountID:        make(map[string]string),
 			PrivateDomain2AccountID: make(map[string]string),
+			PeerID2AccountID:        make(map[string]string),
 			storeFile:               file,
 		}
 
@@ -75,6 +78,7 @@ func restore(file string) (*FileStore, error) {
 	store.PeerKeyID2AccountID = make(map[string]string)
 	store.UserID2AccountID = make(map[string]string)
 	store.PrivateDomain2AccountID = make(map[string]string)
+	store.PeerID2AccountID = make(map[string]string)
 
 	for accountID, account := range store.Accounts {
 		for setupKeyId := range account.SetupKeys {
@@ -83,6 +87,7 @@ func restore(file string) (*FileStore, error) {
 
 		for _, peer := range account.Peers {
 			store.PeerKeyID2AccountID[peer.Key] = accountID
+			store.PeerID2AccountID[peer.ID] = accountID
 			// reset all peers to status = Disconnected
 			if peer.Status != nil && peer.Status.Connected {
 				peer.Status.Connected = false
@@ -116,6 +121,47 @@ func restore(file string) (*FileStore, error) {
 		for _, route := range account.Routes {
 			if len(route.Groups) == 0 {
 				route.Groups = []string{allGroup.ID}
+			}
+		}
+
+		// migration to Peer.ID from Peer.Key.
+		// Old peers that require migration have an empty Peer.ID in the store.json.
+		// Generate new ID with xid for these peers.
+		// Set the Peer.ID to the newly generated value.
+		// Replace all the mentions of Peer.Key as ID (groups and routes).
+		// Swap Peer.Key with Peer.ID in the Account.Peers map.
+		migrationPeers := make(map[string]*Peer) // key to Peer
+		for key, peer := range account.Peers {
+			if peer.ID != "" {
+				continue
+			}
+			id := xid.New().String()
+			peer.ID = id
+			migrationPeers[key] = peer
+		}
+
+		if len(migrationPeers) > 0 {
+
+			// swap Peer.Key with Peer.ID in the Account.Peers map.
+			for key, peer := range migrationPeers {
+				delete(account.Peers, key)
+				account.Peers[peer.ID] = peer
+				store.PeerID2AccountID[peer.ID] = accountID
+			}
+
+			// detect groups that have Peer.Key as a reference and replace it with ID.
+			for _, group := range account.Groups {
+				for i, peer := range group.Peers {
+					if p, ok := migrationPeers[peer]; ok {
+						group.Peers[i] = p.ID
+					}
+				}
+			}
+			// detect routes that have Peer.Key as a reference and replace it with ID.
+			for _, route := range account.Routes {
+				if peer, ok := migrationPeers[route.Peer]; ok {
+					route.Peer = peer.ID
+				}
 			}
 		}
 	}
@@ -183,6 +229,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	// enforce peer to account index and delete peer to route indexes for rebuild
 	for _, peer := range accountCopy.Peers {
 		s.PeerKeyID2AccountID[peer.Key] = accountCopy.Id
+		s.PeerID2AccountID[peer.ID] = accountCopy.Id
 	}
 
 	for _, user := range accountCopy.Users {
@@ -284,6 +331,24 @@ func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 	return account.Copy(), nil
 }
 
+// GetAccountByPeerID returns an account for a given peer ID
+func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	accountID, accountIDFound := s.PeerID2AccountID[peerID]
+	if !accountIDFound {
+		return nil, status.Errorf(status.NotFound, "provided peer ID doesn't exists %s", peerID)
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Copy(), nil
+}
+
 // GetAccountByPeerPubKey returns an account for a given peer WireGuard public key
 func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	s.mux.Lock()
@@ -319,7 +384,7 @@ func (s *FileStore) SaveInstallationID(ID string) error {
 
 // SavePeerStatus stores the PeerStatus in memory. It doesn't attempt to persist data to speed up things.
 // PeerStatus will be saved eventually when some other changes occur.
-func (s *FileStore) SavePeerStatus(accountID, peerKey string, peerStatus PeerStatus) error {
+func (s *FileStore) SavePeerStatus(accountID, peerID string, peerStatus PeerStatus) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -328,9 +393,9 @@ func (s *FileStore) SavePeerStatus(accountID, peerKey string, peerStatus PeerSta
 		return err
 	}
 
-	peer := account.Peers[peerKey]
+	peer := account.Peers[peerID]
 	if peer == nil {
-		return status.Errorf(status.NotFound, "peer %s not found", peerKey)
+		return status.Errorf(status.NotFound, "peer %s not found", peerID)
 	}
 
 	peer.Status = &peerStatus

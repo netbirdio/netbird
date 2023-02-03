@@ -88,6 +88,13 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 		return err
 	}
 
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return err
+	}
+
+	// the following snippet tracks the activity and stores the group events in the event store.
+	// It has to happen after all the operations have been successfully performed.
 	addedPeers := make([]string, 0)
 	removedPeers := make([]string, 0)
 	if exists {
@@ -104,7 +111,7 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.storeEvent(userID, peer.IP.String(), accountID, activity.GroupAddedToPeer,
+		am.storeEvent(userID, peer.ID, accountID, activity.GroupAddedToPeer,
 			map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
 				"peer_fqdn": peer.FQDN(am.GetDNSDomain())})
 	}
@@ -115,12 +122,12 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			log.Errorf("peer %s not found under account %s while saving group", p, accountID)
 			continue
 		}
-		am.storeEvent(userID, peer.IP.String(), accountID, activity.GroupRemovedFromPeer,
+		am.storeEvent(userID, peer.ID, accountID, activity.GroupRemovedFromPeer,
 			map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
 				"peer_fqdn": peer.FQDN(am.GetDNSDomain())})
 	}
 
-	return am.updateAccountPeers(account)
+	return nil
 }
 
 // difference returns the elements in `a` that aren't in `b`.
@@ -230,7 +237,7 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) 
 }
 
 // GroupAddPeer appends peer to the group
-func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string) error {
+func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string) error {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -247,13 +254,13 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerKey string
 
 	add := true
 	for _, itemID := range group.Peers {
-		if itemID == peerKey {
+		if itemID == peerID {
 			add = false
 			break
 		}
 	}
 	if add {
-		group.Peers = append(group.Peers, peerKey)
+		group.Peers = append(group.Peers, peerID)
 	}
 
 	account.Network.IncSerial()

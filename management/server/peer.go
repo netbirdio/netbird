@@ -5,6 +5,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/rs/xid"
 	"net"
 	"strings"
 	"time"
@@ -34,9 +35,11 @@ type PeerStatus struct {
 }
 
 // Peer represents a machine connected to the network.
-// The Peer is a Wireguard peer identified by a public key
+// The Peer is a WireGuard peer identified by a public key
 type Peer struct {
-	// Wireguard public key
+	// ID is an internal ID of the peer
+	ID string
+	// WireGuard public key
 	Key string
 	// A setup key this peer was registered with
 	SetupKey string
@@ -62,6 +65,7 @@ type Peer struct {
 // Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	return &Peer{
+		ID:         p.ID,
 		Key:        p.Key,
 		SetupKey:   p.SetupKey,
 		IP:         p.IP,
@@ -97,7 +101,7 @@ func (p *PeerStatus) Copy() *PeerStatus {
 }
 
 // GetPeer looks up peer by its public WireGuard key
-func (am *DefaultAccountManager) GetPeer(peerPubKey string) (*Peer, error) {
+func (am *DefaultAccountManager) GetPeerByKey(peerPubKey string) (*Peer, error) {
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
@@ -130,14 +134,14 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 		}
 		p := peer.Copy()
 		peers = append(peers, p)
-		peersMap[peer.Key] = p
+		peersMap[peer.ID] = p
 	}
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		aclPeers := account.getPeersByACL(peer.Key)
+		aclPeers := account.getPeersByACL(peer.ID)
 		for _, p := range aclPeers {
-			peersMap[p.Key] = p
+			peersMap[p.ID] = p
 		}
 	}
 
@@ -177,7 +181,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	peer.Status = newStatus
 	account.UpdatePeer(peer)
 
-	err = am.Store.SavePeerStatus(account.Id, peerPubKey, *newStatus)
+	err = am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)
 	if err != nil {
 		return err
 	}
@@ -195,10 +199,9 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 		return nil, err
 	}
 
-	//TODO Peer.ID migration: we will need to replace search by ID here
-	peer, err := account.FindPeerByPubKey(update.Key)
-	if err != nil {
-		return nil, err
+	peer := account.GetPeer(update.ID)
+	if peer == nil {
+		return nil, status.Errorf(status.NotFound, "peer %s not found", update.ID)
 	}
 
 	if peer.SSHEnabled != update.SSHEnabled {
@@ -222,7 +225,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 
 		peer.DNSLabel = newLabel
 
-		am.storeEvent(userID, peer.IP.String(), accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
+		am.storeEvent(userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	account.UpdatePeer(peer)
@@ -241,7 +244,7 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 }
 
 // DeletePeer removes peer from the account by its IP
-func (am *DefaultAccountManager) DeletePeer(accountID, peerPubKey, userID string) (*Peer, error) {
+func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) (*Peer, error) {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -251,19 +254,19 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerPubKey, userID string
 		return nil, err
 	}
 
-	peer, err := account.FindPeerByPubKey(peerPubKey)
-	if err != nil {
-		return nil, err
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return nil, status.Errorf(status.NotFound, "peer %s not found", peerID)
 	}
 
-	account.DeletePeer(peerPubKey)
+	account.DeletePeer(peerID)
 
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
 
-	err = am.peersUpdateManager.SendUpdate(peerPubKey,
+	err = am.peersUpdateManager.SendUpdate(peer.ID,
 		&UpdateMessage{
 			Update: &proto.SyncResponse{
 				// fill those field for backward compatibility
@@ -281,13 +284,12 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerPubKey, userID string
 		return nil, err
 	}
 
-	// TODO Peer.ID migration: we will need to replace search by Peer.ID here
 	if err := am.updateAccountPeers(account); err != nil {
 		return nil, err
 	}
 
-	am.peersUpdateManager.CloseChannel(peerPubKey)
-	am.storeEvent(userID, peer.IP.String(), account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
+	am.peersUpdateManager.CloseChannel(peerID)
+	am.storeEvent(userID, peer.ID, account.Id, activity.PeerRemovedByUser, peer.EventMeta(am.GetDNSDomain()))
 	return peer, nil
 }
 
@@ -312,17 +314,23 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
-func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, error) {
+func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, error) {
 
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
 		return nil, err
 	}
 
-	aclPeers := account.getPeersByACL(peerPubKey)
-	routesUpdate := account.getRoutesToSync(peerPubKey, aclPeers)
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
+	}
 
-	dnsManagementStatus := account.getPeerDNSManagementStatus(peerPubKey)
+	aclPeers := account.getPeersByACL(peerID)
+	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
+	routesUpdate := account.getRoutesToSync(peerID, aclPeers)
+
+	dnsManagementStatus := account.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
 		ServiceEnable: dnsManagementStatus,
 	}
@@ -334,7 +342,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 			zones = append(zones, peersCustomZone)
 		}
 		dnsUpdate.CustomZones = zones
-		dnsUpdate.NameServerGroups = getPeerNSGroups(account, peerPubKey)
+		dnsUpdate.NameServerGroups = getPeerNSGroups(account, peerID)
 	}
 
 	return &NetworkMap{
@@ -346,9 +354,9 @@ func (am *DefaultAccountManager) GetNetworkMap(peerPubKey string) (*NetworkMap, 
 }
 
 // GetPeerNetwork returns the Network for a given peer
-func (am *DefaultAccountManager) GetPeerNetwork(peerPubKey string) (*Network, error) {
+func (am *DefaultAccountManager) GetPeerNetwork(peerID string) (*Network, error) {
 
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
 		return nil, err
 	}
@@ -357,7 +365,7 @@ func (am *DefaultAccountManager) GetPeerNetwork(peerPubKey string) (*Network, er
 }
 
 // AddPeer adds a new peer to the Store.
-// Each Account has a list of pre-authorised SetupKey and if no Account has a given key err wit ha code codes.Unauthenticated
+// Each Account has a list of pre-authorised SetupKey and if no Account has a given key err with a code codes.Unauthenticated
 // will be returned, meaning the key is invalid
 // If a User ID is provided, it means that we passed the authentication using JWT, then we look for account by User ID and register the peer
 // to it. We also add the User ID to the peer metadata to identify registrant.
@@ -428,6 +436,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	}
 
 	newPeer := &Peer{
+		ID:         xid.New().String(),
 		Key:        peer.Key,
 		SetupKey:   upperKey,
 		IP:         nextIp,
@@ -445,7 +454,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	if err != nil {
 		return nil, err
 	}
-	group.Peers = append(group.Peers, newPeer.Key)
+	group.Peers = append(group.Peers, newPeer.ID)
 
 	var groupsToAdd []string
 	if addedByUser {
@@ -463,19 +472,19 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	if len(groupsToAdd) > 0 {
 		for _, s := range groupsToAdd {
 			if g, ok := account.Groups[s]; ok && g.Name != "All" {
-				g.Peers = append(g.Peers, newPeer.Key)
+				g.Peers = append(g.Peers, newPeer.ID)
 			}
 		}
 	}
 
-	account.Peers[newPeer.Key] = newPeer
+	account.Peers[newPeer.ID] = newPeer
 	account.Network.IncSerial()
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return nil, err
 	}
 
-	opEvent.TargetID = newPeer.IP.String()
+	opEvent.TargetID = newPeer.ID
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
 	am.storeEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
@@ -483,14 +492,14 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 }
 
 // UpdatePeerSSHKey updates peer's public SSH key
-func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey string) error {
+func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) error {
 
 	if sshKey == "" {
-		log.Debugf("empty SSH key provided for peer %s, skipping update", peerPubKey)
+		log.Debugf("empty SSH key provided for peer %s, skipping update", peerID)
 		return nil
 	}
 
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
 		return err
 	}
@@ -504,13 +513,13 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey stri
 		return err
 	}
 
-	peer, err := account.FindPeerByPubKey(peerPubKey)
-	if err != nil {
-		return err
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
 	if peer.SSHKey == sshKey {
-		log.Debugf("same SSH key provided for peer %s, skipping update", peerPubKey)
+		log.Debugf("same SSH key provided for peer %s, skipping update", peerID)
 		return nil
 	}
 
@@ -527,9 +536,9 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerPubKey string, sshKey stri
 }
 
 // UpdatePeerMeta updates peer's system metadata
-func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSystemMeta) error {
+func (am *DefaultAccountManager) UpdatePeerMeta(peerID string, meta PeerSystemMeta) error {
 
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
 		return err
 	}
@@ -537,9 +546,9 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSyst
 	unlock := am.Store.AcquireAccountLock(account.Id)
 	defer unlock()
 
-	peer, err := account.FindPeerByPubKey(peerPubKey)
-	if err != nil {
-		return err
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
@@ -558,9 +567,9 @@ func (am *DefaultAccountManager) UpdatePeerMeta(peerPubKey string, meta PeerSyst
 }
 
 // getPeersByACL returns all peers that given peer has access to.
-func (a *Account) getPeersByACL(peerPubKey string) []*Peer {
+func (a *Account) getPeersByACL(peerID string) []*Peer {
 	var peers []*Peer
-	srcRules, dstRules := a.GetPeerRules(peerPubKey)
+	srcRules, dstRules := a.GetPeerRules(peerID)
 
 	groups := map[string]*Group{}
 	for _, r := range srcRules {
@@ -603,8 +612,8 @@ func (a *Account) getPeersByACL(peerPubKey string) []*Peer {
 				continue
 			}
 			// exclude original peer
-			if _, ok := peersSet[peer.Key]; peer.Key != peerPubKey && !ok {
-				peersSet[peer.Key] = struct{}{}
+			if _, ok := peersSet[peer.ID]; peer.ID != peerID && !ok {
+				peersSet[peer.ID] = struct{}{}
 				peers = append(peers, peer.Copy())
 			}
 		}
@@ -619,13 +628,13 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	peers := account.GetPeers()
 
 	for _, peer := range peers {
-		remotePeerNetworkMap, err := am.GetNetworkMap(peer.Key)
+		remotePeerNetworkMap, err := am.GetNetworkMap(peer.ID)
 		if err != nil {
 			return err
 		}
 
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
-		err = am.peersUpdateManager.SendUpdate(peer.Key, &UpdateMessage{Update: update})
+		err = am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 		if err != nil {
 			return err
 		}

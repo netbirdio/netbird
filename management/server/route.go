@@ -91,9 +91,9 @@ func (am *DefaultAccountManager) GetRoute(accountID, routeID, userID string) (*r
 }
 
 // checkPrefixPeerExists checks the combination of prefix and peer id, if it exists returns an error, otherwise returns nil
-func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, prefix netip.Prefix) error {
+func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peerID string, prefix netip.Prefix) error {
 
-	if peer == "" {
+	if peerID == "" {
 		return nil
 	}
 
@@ -111,15 +111,15 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peer string, p
 		return status.Errorf(status.InvalidArgument, "failed to parse prefix %s", prefix.String())
 	}
 	for _, prefixRoute := range routesWithPrefix {
-		if prefixRoute.Peer == peer {
-			return status.Errorf(status.AlreadyExists, "failed a route with prefix %s and peer already exist", prefix.String())
+		if prefixRoute.Peer == peerID {
+			return status.Errorf(status.AlreadyExists, "failed to add route with prefix %s - peer already has this route", prefix.String())
 		}
 	}
 	return nil
 }
 
 // CreateRoute creates and saves a new route
-func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
+func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -128,13 +128,11 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, 
 		return nil, err
 	}
 
-	peerKey := ""
-	if peerIP != "" {
-		peer := account.GetPeerByIP(peerIP)
+	if peerID != "" {
+		peer := account.GetPeer(peerID)
 		if peer == nil {
-			return nil, status.Errorf(status.NotFound, "peer %s not found", peerIP)
+			return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 		}
-		peerKey = peer.Key
 	}
 
 	var newRoute route.Route
@@ -142,7 +140,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, 
 	if err != nil {
 		return nil, status.Errorf(status.InvalidArgument, "failed to parse IP %s", network)
 	}
-	err = am.checkPrefixPeerExists(accountID, peerKey, newPrefix)
+	err = am.checkPrefixPeerExists(accountID, peerID, newPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +158,7 @@ func (am *DefaultAccountManager) CreateRoute(accountID string, network, peerIP, 
 		return nil, err
 	}
 
-	newRoute.Peer = peerKey
+	newRoute.Peer = peerID
 	newRoute.ID = xid.New().String()
 	newRoute.Network = newPrefix
 	newRoute.NetworkType = prefixType
@@ -220,9 +218,9 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 	}
 
 	if routeToSave.Peer != "" {
-		_, peerExist := account.Peers[routeToSave.Peer]
-		if !peerExist {
-			return status.Errorf(status.InvalidArgument, "failed to find Peer %s", routeToSave.Peer)
+		peer := account.GetPeer(routeToSave.Peer)
+		if peer == nil {
+			return status.Errorf(status.InvalidArgument, "peer with ID %s not found", routeToSave.Peer)
 		}
 	}
 
@@ -238,9 +236,14 @@ func (am *DefaultAccountManager) SaveRoute(accountID, userID string, routeToSave
 		return err
 	}
 
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return err
+	}
+
 	am.storeEvent(userID, routeToSave.ID, accountID, activity.RouteUpdated, routeToSave.EventMeta())
 
-	return am.updateAccountPeers(account)
+	return nil
 }
 
 // UpdateRoute updates existing route with set of operations
@@ -287,9 +290,9 @@ func (am *DefaultAccountManager) UpdateRoute(accountID, routeID string, operatio
 			newRoute.NetworkType = prefixType
 		case UpdateRoutePeer:
 			if operation.Values[0] != "" {
-				_, peerExist := account.Peers[operation.Values[0]]
-				if !peerExist {
-					return nil, status.Errorf(status.InvalidArgument, "failed to find Peer %s", operation.Values[0])
+				peer := account.GetPeer(operation.Values[0])
+				if peer == nil {
+					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", operation.Values[0])
 				}
 			}
 
