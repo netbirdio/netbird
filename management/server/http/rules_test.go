@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/netbirdio/netbird/management/server/http/api"
 
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -71,7 +72,7 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
-					Rules:  map[string]*server.Rule{"id-existed": &server.Rule{ID: "id-existed"}},
+					Rules:  map[string]*server.Rule{"id-existed": {ID: "id-existed"}},
 					Groups: map[string]*server.Group{
 						"F": {ID: "F"},
 						"G": {ID: "G"},
@@ -82,16 +83,15 @@ func initRulesTestData(rules ...*server.Rule) *Rules {
 				}, user, nil
 			},
 		},
-		authAudience: "",
-		jwtExtractor: jwtclaims.ClaimsExtractor{
-			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    "test_user",
 					Domain:    "hotmail.com",
 					AccountId: "test_id",
 				}
-			},
-		},
+			}),
+		),
 	}
 }
 
@@ -264,7 +264,8 @@ func TestRulesWriteRule(t *testing.T) {
 				Flow: server.TrafficFlowBidirectString,
 				Sources: []api.GroupMinimum{
 					{Id: "G"},
-					{Id: "F"}},
+					{Id: "F"},
+				},
 			},
 		},
 	}
@@ -306,7 +307,6 @@ func TestRulesWriteRule(t *testing.T) {
 			}
 
 			assert.Equal(t, got, tc.expectedRule)
-
 		})
 	}
 }

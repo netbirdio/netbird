@@ -2,33 +2,35 @@ package http
 
 import (
 	"encoding/json"
+	"net/http"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	log "github.com/sirupsen/logrus"
-	"net/http"
 )
 
 // DNSSettings is a handler that returns the DNS settings of the account
 type DNSSettings struct {
-	jwtExtractor   jwtclaims.ClaimsExtractor
-	accountManager server.AccountManager
-	authAudience   string
+	accountManager  server.AccountManager
+	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
 // NewDNSSettings returns a new instance of DNSSettings handler
-func NewDNSSettings(accountManager server.AccountManager, authAudience string) *DNSSettings {
+func NewDNSSettings(accountManager server.AccountManager, authCfg AuthCfg) *DNSSettings {
 	return &DNSSettings{
 		accountManager: accountManager,
-		authAudience:   authAudience,
-		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithAudience(authCfg.Audience),
+			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+		),
 	}
 }
 
 // GetDNSSettings returns the DNS settings for the account
 func (h *DNSSettings) GetDNSSettings(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
@@ -51,7 +53,7 @@ func (h *DNSSettings) GetDNSSettings(w http.ResponseWriter, r *http.Request) {
 
 // UpdateDNSSettings handles update to DNS settings of an account
 func (h *DNSSettings) UpdateDNSSettings(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)

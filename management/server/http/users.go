@@ -2,27 +2,29 @@ package http
 
 import (
 	"encoding/json"
+	"net/http"
+
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
-	"net/http"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
 type UserHandler struct {
-	accountManager server.AccountManager
-	authAudience   string
-	jwtExtractor   jwtclaims.ClaimsExtractor
+	accountManager  server.AccountManager
+	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func NewUserHandler(accountManager server.AccountManager, authAudience string) *UserHandler {
+func NewUserHandler(accountManager server.AccountManager, authCfg AuthCfg) *UserHandler {
 	return &UserHandler{
 		accountManager: accountManager,
-		authAudience:   authAudience,
-		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithAudience(authCfg.Audience),
+			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+		),
 	}
 }
 
@@ -33,7 +35,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -69,8 +71,7 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(err, w)
 		return
 	}
-	util.WriteJSONObject(w, toUserResponse(newUser))
-
+	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
 }
 
 // CreateUserHandler creates a User in the system with a status "invited" (effectively this is a user invite).
@@ -80,7 +81,7 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -109,7 +110,7 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 		util.WriteError(err, w)
 		return
 	}
-	util.WriteJSONObject(w, toUserResponse(newUser))
+	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
 }
 
 // GetUsers returns a list of users of the account this user belongs to.
@@ -120,7 +121,7 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -135,14 +136,13 @@ func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
 
 	users := make([]*api.User, 0)
 	for _, r := range data {
-		users = append(users, toUserResponse(r))
+		users = append(users, toUserResponse(r, claims.UserId))
 	}
 
 	util.WriteJSONObject(w, users)
 }
 
-func toUserResponse(user *server.UserInfo) *api.User {
-
+func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 	autoGroups := user.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
@@ -158,6 +158,7 @@ func toUserResponse(user *server.UserInfo) *api.User {
 		userStatus = api.UserStatusDisabled
 	}
 
+	isCurrent := user.ID == currenUserID
 	return &api.User{
 		Id:         user.ID,
 		Name:       user.Name,
@@ -165,5 +166,6 @@ func toUserResponse(user *server.UserInfo) *api.User {
 		Role:       user.Role,
 		AutoGroups: autoGroups,
 		Status:     userStatus,
+		IsCurrent:  &isCurrent,
 	}
 }

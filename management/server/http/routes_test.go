@@ -4,15 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/netbirdio/netbird/route"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strconv"
 	"testing"
+
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/route"
 
 	"github.com/gorilla/mux"
 	"github.com/magiconair/properties/assert"
@@ -142,16 +143,15 @@ func initRoutesTestData() *Routes {
 				return testingAccount, testingAccount.Users["test_user"], nil
 			},
 		},
-		authAudience: "",
-		jwtExtractor: jwtclaims.ClaimsExtractor{
-			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    "test_user",
 					Domain:    "hotmail.com",
 					AccountId: testAccountID,
 				}
-			},
-		},
+			}),
+		),
 	}
 }
 

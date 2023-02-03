@@ -2,12 +2,13 @@ package http
 
 import (
 	"encoding/json"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/netbirdio/netbird/management/server/http/api"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
@@ -36,16 +37,15 @@ func initTestMetaData(peers ...*server.Peer) *Peers {
 				}, user, nil
 			},
 		},
-		authAudience: "",
-		jwtExtractor: jwtclaims.ClaimsExtractor{
-			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    "test_user",
 					Domain:    "hotmail.com",
 					AccountId: "test_id",
 				}
-			},
-		},
+			}),
+		),
 	}
 }
 

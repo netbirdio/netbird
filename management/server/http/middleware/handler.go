@@ -10,10 +10,11 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	log "github.com/sirupsen/logrus"
 	"math/big"
 	"net/http"
+
+	"github.com/golang-jwt/jwt"
+	log "github.com/sirupsen/logrus"
 )
 
 // Jwks is a collection of JSONWebKey obtained from Config.HttpServerConfig.AuthKeysLocation
@@ -33,7 +34,6 @@ type JSONWebKey struct {
 
 // NewJwtMiddleware creates new middleware to verify the JWT token sent via Authorization header
 func NewJwtMiddleware(issuer string, audience string, keysLocation string) (*JWTMiddleware, error) {
-
 	keys, err := getPemKeys(keysLocation)
 	if err != nil {
 		return nil, err
@@ -67,13 +67,12 @@ func NewJwtMiddleware(issuer string, audience string, keysLocation string) (*JWT
 
 func getPemKeys(keysLocation string) (*Jwks, error) {
 	resp, err := http.Get(keysLocation)
-
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	var jwks = &Jwks{}
+	jwks := &Jwks{}
 	err = json.NewDecoder(resp.Body).Decode(jwks)
 	if err != nil {
 		return jwks, err

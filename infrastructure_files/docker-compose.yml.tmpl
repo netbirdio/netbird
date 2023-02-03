@@ -30,7 +30,7 @@ services:
       - $SIGNAL_VOLUMENAME:/var/lib/netbird
     ports:
       - 10000:80
-  #     # port and command for Let's Encrypt validation
+  #      # port and command for Let's Encrypt validation
   #      - 443:443
   #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
   # Management
@@ -45,7 +45,7 @@ services:
       - ./management.json:/etc/netbird/management.json
     ports:
       - $NETBIRD_MGMT_API_PORT:443 #API port
-  #     # command for Let's Encrypt validation without dashboard container
+  #    # command for Let's Encrypt validation without dashboard container
   #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
     command: ["--port", "443", "--log-file", "console", "--disable-anonymous-metrics=$NETBIRD_DISABLE_ANONYMOUS_METRICS", "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN", "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"]
   # Coturn
@@ -60,7 +60,6 @@ services:
     network_mode: host
     command:
       - -c /etc/turnserver.conf
-      
 volumes:
   $MGMT_VOLUMENAME:
   $SIGNAL_VOLUMENAME:
