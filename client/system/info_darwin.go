@@ -22,14 +22,11 @@ func GetInfo(ctx context.Context) *Info {
 	machine := string(bytes.Split(utsname.Machine[:], []byte{0})[0])
 	release := string(bytes.Split(utsname.Release[:], []byte{0})[0])
 	out, err := exec.Command("sw_vers", "-productVersion").Output()
-	// If there is an error while getting version, returning darwin version instead
-	var gio *Info
-	if err == nil {
-		version := strings.TrimSpace(string(out))
-		gio = &Info{Kernel: sysName, OSVersion: version, Core: release, Platform: machine, OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
-	} else {
-		gio = &Info{Kernel: sysName, OSVersion: release, Core: release, Platform: machine, OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
+	if err != nil {
+		fmt.Printf("got an error while retrieving macOS version with sw_vers, error: %s. Using darwin version instead.", err)
+		out = []byte(release)
 	}
+	gio := &Info{Kernel: sysName, OSVersion: strings.TrimSpace(string(out)), Core: release, Platform: machine, OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
 	gio.WiretrusteeVersion = NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
