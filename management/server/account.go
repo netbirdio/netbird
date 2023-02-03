@@ -144,7 +144,8 @@ type UserInfo struct {
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
-// from the ACL peers that have distribution groups associated with the peer ID
+// from the ACL peers that have distribution groups associated with the peer ID.
+// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
 func (a *Account) getRoutesToSync(peerID string, aclPeers []*Peer) []*route.Route {
 	routes, peerDisabledRoutes := a.getEnabledAndDisabledRoutesByPeer(peerID)
 	peerRoutesMembership := make(lookupMap)
@@ -190,12 +191,15 @@ func (a *Account) filterRoutesByGroups(routes []*route.Route, groupListMap looku
 	return filteredRoutes
 }
 
-// getEnabledAndDisabledRoutesByPeer returns the enabled and disabled lists of routes that belong to a peer
+// getEnabledAndDisabledRoutesByPeer returns the enabled and disabled lists of routes that belong to a peer.
+// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
 func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Route, []*route.Route) {
 	var enabledRoutes []*route.Route
 	var disabledRoutes []*route.Route
 	for _, r := range a.Routes {
 		if r.Peer == peerID {
+			// We need to set Peer.Key instead of Peer.ID because this object will be sent to agents as part of a network map.
+			// Ideally we should have a separate field for that, but fine for now.
 			peer := a.GetPeer(peerID)
 			if peer == nil {
 				log.Errorf("route %s has peer %s that doesn't exist under account %s", r.ID, peerID, a.Id)
