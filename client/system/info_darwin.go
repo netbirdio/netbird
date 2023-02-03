@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 	"os"
 	"os/exec"
@@ -21,12 +22,12 @@ func GetInfo(ctx context.Context) *Info {
 	sysName := string(bytes.Split(utsname.Sysname[:], []byte{0})[0])
 	machine := string(bytes.Split(utsname.Machine[:], []byte{0})[0])
 	release := string(bytes.Split(utsname.Release[:], []byte{0})[0])
-	out, err := exec.Command("sw_vers", "-productVersion").Output()
+	version, err := exec.Command("sw_vers", "-productVersion").Output()
 	if err != nil {
-		fmt.Printf("got an error while retrieving macOS version with sw_vers, error: %s. Using darwin version instead.", err)
-		out = []byte(release)
+		log.Warnf("got an error while retrieving macOS version with sw_vers, error: %s. Using darwin version instead.\n", err)
+		version = []byte(release)
 	}
-	gio := &Info{Kernel: sysName, OSVersion: strings.TrimSpace(string(out)), Core: release, Platform: machine, OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
+	gio := &Info{Kernel: sysName, OSVersion: strings.TrimSpace(string(version)), Core: release, Platform: machine, OS: sysName, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
 	gio.WiretrusteeVersion = NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
