@@ -2,34 +2,36 @@ package http
 
 import (
 	"encoding/json"
+	"net/http"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
-	"net/http"
-	"time"
 )
 
 // SetupKeys is a handler that returns a list of setup keys of the account
 type SetupKeys struct {
-	accountManager server.AccountManager
-	jwtExtractor   jwtclaims.ClaimsExtractor
-	authAudience   string
+	accountManager  server.AccountManager
+	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func NewSetupKeysHandler(accountManager server.AccountManager, authAudience string) *SetupKeys {
+func NewSetupKeysHandler(accountManager server.AccountManager, authCfg AuthCfg) *SetupKeys {
 	return &SetupKeys{
 		accountManager: accountManager,
-		authAudience:   authAudience,
-		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithAudience(authCfg.Audience),
+			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+		),
 	}
 }
 
 // CreateSetupKeyHandler is a POST requests that creates a new SetupKey
 func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -72,7 +74,7 @@ func (h *SetupKeys) CreateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 
 // GetSetupKeyHandler is a GET request to get a SetupKey by ID
 func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -97,7 +99,7 @@ func (h *SetupKeys) GetSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
 
 // UpdateSetupKeyHandler is a PUT request to update server.SetupKey
 func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -144,8 +146,7 @@ func (h *SetupKeys) UpdateSetupKeyHandler(w http.ResponseWriter, r *http.Request
 
 // GetAllSetupKeysHandler is a GET request that returns a list of SetupKey
 func (h *SetupKeys) GetAllSetupKeysHandler(w http.ResponseWriter, r *http.Request) {
-
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)

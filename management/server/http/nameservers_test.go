@@ -3,15 +3,16 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"testing"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
@@ -113,16 +114,15 @@ func initNameserversTestData() *Nameservers {
 				return testingNSAccount, testingAccount.Users["test_user"], nil
 			},
 		},
-		authAudience: "",
-		jwtExtractor: jwtclaims.ClaimsExtractor{
-			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    "test_user",
 					Domain:    "hotmail.com",
 					AccountId: testNSGroupAccountID,
 				}
-			},
-		},
+			}),
+		),
 	}
 }
 

@@ -2,6 +2,13 @@ package http
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"testing"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -9,12 +16,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 	"github.com/stretchr/testify/assert"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strconv"
-	"testing"
-	"time"
 )
 
 func initEventsTestData(account string, user *server.User, events ...*activity.Event) *Events {
@@ -36,16 +37,15 @@ func initEventsTestData(account string, user *server.User, events ...*activity.E
 				}, user, nil
 			},
 		},
-		authAudience: "",
-		jwtExtractor: jwtclaims.ClaimsExtractor{
-			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    "test_user",
 					Domain:    "hotmail.com",
 					AccountId: "test_account",
 				}
-			},
-		},
+			}),
+		),
 	}
 }
 
@@ -244,7 +244,6 @@ func TestEvents_GetEvents(t *testing.T) {
 				assert.Equal(t, expected.Meta["some"], event.Meta["some"])
 				assert.True(t, expected.Timestamp.Equal(event.Timestamp))
 			}
-
 		})
 	}
 }

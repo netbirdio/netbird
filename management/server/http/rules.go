@@ -2,6 +2,8 @@ package http
 
 import (
 	"encoding/json"
+	"net/http"
+
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -9,27 +11,27 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/rs/xid"
-	"net/http"
 )
 
 // Rules is a handler that returns rules of the account
 type Rules struct {
-	jwtExtractor   jwtclaims.ClaimsExtractor
-	accountManager server.AccountManager
-	authAudience   string
+	accountManager  server.AccountManager
+	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func NewRules(accountManager server.AccountManager, authAudience string) *Rules {
+func NewRules(accountManager server.AccountManager, authCfg AuthCfg) *Rules {
 	return &Rules{
 		accountManager: accountManager,
-		authAudience:   authAudience,
-		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithAudience(authCfg.Audience),
+			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+		),
 	}
 }
 
 // GetAllRulesHandler list for the account
 func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -51,7 +53,7 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 
 // UpdateRuleHandler handles update to a rule identified by a given ID
 func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -122,7 +124,7 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 // PatchRuleHandler handles patch updates to a rule identified by a given ID
 func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -253,7 +255,6 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rule, err := h.accountManager.UpdateRule(account.Id, ruleID, operations)
-
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -266,7 +267,7 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 // CreateRuleHandler handles rule creation request
 func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -325,7 +326,7 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 // DeleteRuleHandler handles rule deletion request
 func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -350,7 +351,7 @@ func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetRuleHandler handles a group Get request identified by ID
 func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)

@@ -2,6 +2,9 @@ package http
 
 import (
 	"encoding/json"
+	"net/http"
+	"unicode/utf8"
+
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -9,29 +12,28 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	"net/http"
-	"unicode/utf8"
 )
 
 // Routes is the routes handler of the account
 type Routes struct {
-	jwtExtractor   jwtclaims.ClaimsExtractor
-	accountManager server.AccountManager
-	authAudience   string
+	accountManager  server.AccountManager
+	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
 // NewRoutes returns a new instance of Routes handler
-func NewRoutes(accountManager server.AccountManager, authAudience string) *Routes {
+func NewRoutes(accountManager server.AccountManager, authCfg AuthCfg) *Routes {
 	return &Routes{
 		accountManager: accountManager,
-		authAudience:   authAudience,
-		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithAudience(authCfg.Audience),
+			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+		),
 	}
 }
 
 // GetAllRoutesHandler returns the list of routes for the account
 func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -53,7 +55,7 @@ func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
 
 // CreateRouteHandler handles route creation request
 func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -92,7 +94,7 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // UpdateRouteHandler handles update to a route identified by a given ID
 func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -158,7 +160,7 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // PatchRouteHandler handles patch updates to a route identified by a given ID
 func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -299,7 +301,7 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // DeleteRouteHandler handles route deletion request
 func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -323,7 +325,7 @@ func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetRouteHandler handles a route Get request identified by ID
 func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
