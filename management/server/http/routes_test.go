@@ -24,8 +24,9 @@ import (
 const (
 	existingRouteID = "existingRouteID"
 	notFoundRouteID = "notFoundRouteID"
-	existingPeerID  = "100.64.0.100"
-	notFoundPeerID  = "100.64.0.200"
+	existingPeerIP  = "100.64.0.100"
+	existingPeerID  = "peer-id"
+	notFoundPeerID  = "nonExistingPeer"
 	existingPeerKey = "existingPeerKey"
 	testAccountID   = "test_id"
 	existingGroupID = "testGroup"
@@ -47,9 +48,10 @@ var testingAccount = &server.Account{
 	Id:     testAccountID,
 	Domain: "hotmail.com",
 	Peers: map[string]*server.Peer{
-		existingPeerKey: {
+		existingPeerID: {
 			Key: existingPeerKey,
-			IP:  netip.MustParseAddr(existingPeerID).AsSlice(),
+			IP:  netip.MustParseAddr(existingPeerIP).AsSlice(),
+			ID:  existingPeerID,
 		},
 	},
 	Users: map[string]*server.User{
@@ -66,18 +68,15 @@ func initRoutesTestData() *Routes {
 				}
 				return nil, status.Errorf(status.NotFound, "route with ID %s not found", routeID)
 			},
-			CreateRouteFunc: func(accountID string, network, peerIP, description, netID string, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
-
-				peer := testingAccount.GetPeerByIP(peerIP)
-				if peer == nil {
-					return nil, status.Errorf(status.NotFound, "peer %s not found", peerIP)
+			CreateRouteFunc: func(accountID string, network, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, _ string) (*route.Route, error) {
+				if peerID == notFoundPeerID {
+					return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", peerID)
 				}
-
 				networkType, p, _ := route.ParseNetwork(network)
 				return &route.Route{
 					ID:          existingRouteID,
 					NetID:       netID,
-					Peer:        peer.Key,
+					Peer:        peerID,
 					Network:     p,
 					NetworkType: networkType,
 					Description: description,
@@ -86,7 +85,10 @@ func initRoutesTestData() *Routes {
 					Groups:      groups,
 				}, nil
 			},
-			SaveRouteFunc: func(_, _ string, _ *route.Route) error {
+			SaveRouteFunc: func(_, _ string, r *route.Route) error {
+				if r.Peer == notFoundPeerID {
+					return status.Errorf(status.InvalidArgument, "peer with ID %s not found", r.Peer)
+				}
 				return nil
 			},
 			DeleteRouteFunc: func(_ string, routeID string, _ string) error {
@@ -119,6 +121,9 @@ func initRoutesTestData() *Routes {
 						routeToUpdate.NetID = operation.Values[0]
 					case server.UpdateRoutePeer:
 						routeToUpdate.Peer = operation.Values[0]
+						if routeToUpdate.Peer == notFoundPeerID {
+							return nil, status.Errorf(status.InvalidArgument, "peer with ID %s not found", routeToUpdate.Peer)
+						}
 					case server.UpdateRouteMetric:
 						routeToUpdate.Metric, _ = strconv.Atoi(operation.Values[0])
 					case server.UpdateRouteMasquerade:
@@ -166,7 +171,7 @@ func TestRoutesHandlers(t *testing.T) {
 			requestPath:    "/api/routes/" + existingRouteID,
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
-			expectedRoute:  toRouteResponse(testingAccount, baseExistingRoute),
+			expectedRoute:  toRouteResponse(baseExistingRoute),
 		},
 		{
 			name:           "Get Not Existing Route",
@@ -212,7 +217,7 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType:    http.MethodPost,
 			requestPath:    "/api/routes",
 			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"]}", notFoundPeerID, existingGroupID)),
-			expectedStatus: http.StatusNotFound,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -263,7 +268,7 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType:    http.MethodPut,
 			requestPath:    "/api/routes/" + existingRouteID,
 			requestBody:    bytes.NewBufferString(fmt.Sprintf("{\"Description\":\"Post\",\"Network\":\"192.168.0.0/16\",\"network_id\":\"awesomeNet\",\"Peer\":\"%s\",\"groups\":[\"%s\"]}", notFoundPeerID, existingGroupID)),
-			expectedStatus: http.StatusNotFound,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
@@ -326,7 +331,7 @@ func TestRoutesHandlers(t *testing.T) {
 			requestType:    http.MethodPatch,
 			requestPath:    "/api/routes/" + existingRouteID,
 			requestBody:    bytes.NewBufferString(fmt.Sprintf("[{\"op\":\"replace\",\"path\":\"peer\",\"value\":[\"%s\"]}]", notFoundPeerID)),
-			expectedStatus: http.StatusNotFound,
+			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{

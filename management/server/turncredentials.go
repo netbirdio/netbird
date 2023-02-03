@@ -11,14 +11,14 @@ import (
 	"time"
 )
 
-//TURNCredentialsManager used to manage TURN credentials
+// TURNCredentialsManager used to manage TURN credentials
 type TURNCredentialsManager interface {
 	GenerateCredentials() TURNCredentials
 	SetupRefresh(peerKey string)
 	CancelRefresh(peerKey string)
 }
 
-//TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
+// TimeBasedAuthSecretsManager generates credentials with TTL and using pre-shared secret known to TURN server
 type TimeBasedAuthSecretsManager struct {
 	mux           sync.Mutex
 	config        *TURNConfig
@@ -40,7 +40,7 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, config *T
 	}
 }
 
-//GenerateCredentials generates new time-based secret credentials - basically username is a unix timestamp and password is a HMAC hash of a timestamp with a preshared TURN secret
+// GenerateCredentials generates new time-based secret credentials - basically username is a unix timestamp and password is a HMAC hash of a timestamp with a preshared TURN secret
 func (m *TimeBasedAuthSecretsManager) GenerateCredentials() TURNCredentials {
 	mac := hmac.New(sha1.New, []byte(m.config.Secret))
 
@@ -70,22 +70,22 @@ func (m *TimeBasedAuthSecretsManager) cancel(peerKey string) {
 	}
 }
 
-//CancelRefresh cancels scheduled peer credentials refresh
+// CancelRefresh cancels scheduled peer credentials refresh
 func (m *TimeBasedAuthSecretsManager) CancelRefresh(peerKey string) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	m.cancel(peerKey)
 }
 
-//SetupRefresh starts peer credentials refresh. Since credentials are expiring (TTL) it is necessary to always generate them and send to the peer.
-//A goroutine is created and put into TimeBasedAuthSecretsManager.cancelMap. This routine should be cancelled if peer is gone.
-func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerKey string) {
+// SetupRefresh starts peer credentials refresh. Since credentials are expiring (TTL) it is necessary to always generate them and send to the peer.
+// A goroutine is created and put into TimeBasedAuthSecretsManager.cancelMap. This routine should be cancelled if peer is gone.
+func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerID string) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
-	m.cancel(peerKey)
+	m.cancel(peerID)
 	cancel := make(chan struct{}, 1)
-	m.cancelMap[peerKey] = cancel
-	log.Debugf("starting turn refresh for %s", peerKey)
+	m.cancelMap[peerID] = cancel
+	log.Debugf("starting turn refresh for %s", peerID)
 
 	go func() {
 		//we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
@@ -94,7 +94,7 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerKey string) {
 		for {
 			select {
 			case <-cancel:
-				log.Debugf("stopping turn refresh for %s", peerKey)
+				log.Debugf("stopping turn refresh for %s", peerID)
 				return
 			case <-ticker.C:
 				c := m.GenerateCredentials()
@@ -115,9 +115,9 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerKey string) {
 						Turns: turns,
 					},
 				}
-				err := m.updateManager.SendUpdate(peerKey, &UpdateMessage{Update: update})
+				err := m.updateManager.SendUpdate(peerID, &UpdateMessage{Update: update})
 				if err != nil {
-					log.Errorf("error while sending TURN update to peer %s %v", peerKey, err)
+					log.Errorf("error while sending TURN update to peer %s %v", peerID, err)
 					// todo maybe continue trying?
 				}
 			}

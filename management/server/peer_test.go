@@ -34,7 +34,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		return
 	}
 
-	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
+	peer1, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{},
 		Name: "test-peer-2",
@@ -61,7 +61,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		return
 	}
 
-	networkMap, err := manager.GetNetworkMap(peerKey1.PublicKey().String())
+	networkMap, err := manager.GetNetworkMap(peer1.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -107,7 +107,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
+	peer1, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{},
 		Name: "test-peer-2",
@@ -123,7 +123,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
+	peer2, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: PeerSystemMeta{},
 		Name: "test-peer-2",
@@ -156,8 +156,8 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 	group1.Name = "src"
 	group2.Name = "dst"
 	rule.ID = xid.New().String()
-	group1.Peers = append(group1.Peers, peerKey1.PublicKey().String())
-	group2.Peers = append(group2.Peers, peerKey2.PublicKey().String())
+	group1.Peers = append(group1.Peers, peer1.ID)
+	group2.Peers = append(group2.Peers, peer2.ID)
 
 	err = manager.SaveGroup(account.Id, userID, &group1)
 	if err != nil {
@@ -180,7 +180,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	networkMap1, err := manager.GetNetworkMap(peerKey1.PublicKey().String())
+	networkMap1, err := manager.GetNetworkMap(peer1.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -203,7 +203,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		)
 	}
 
-	networkMap2, err := manager.GetNetworkMap(peerKey2.PublicKey().String())
+	networkMap2, err := manager.GetNetworkMap(peer2.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -228,7 +228,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	networkMap1, err = manager.GetNetworkMap(peerKey1.PublicKey().String())
+	networkMap1, err = manager.GetNetworkMap(peer1.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -243,7 +243,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	networkMap2, err = manager.GetNetworkMap(peerKey2.PublicKey().String())
+	networkMap2, err = manager.GetNetworkMap(peer2.ID)
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -281,7 +281,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		return
 	}
 
-	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
+	peer1, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{},
 		Name: "test-peer-2",
@@ -308,7 +308,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		return
 	}
 
-	network, err := manager.GetPeerNetwork(peerKey1.PublicKey().String())
+	network, err := manager.GetPeerNetwork(peer1.ID)
 	if err != nil {
 		t.Fatal(err)
 		return

@@ -147,7 +147,17 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 		t.Error("failed to init testing account")
 	}
 
-	newAccountDNSConfig, err := am.GetNetworkMap(dnsPeer1Key)
+	peer1, err := account.FindPeerByPubKey(dnsPeer1Key)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+
+	peer2, err := account.FindPeerByPubKey(dnsPeer2Key)
+	if err != nil {
+		t.Error("failed to init testing account")
+	}
+
+	newAccountDNSConfig, err := am.GetNetworkMap(peer1.ID)
 	require.NoError(t, err)
 	require.Len(t, newAccountDNSConfig.DNSConfig.CustomZones, 1, "default DNS config should have one custom zone for peers")
 	require.True(t, newAccountDNSConfig.DNSConfig.ServiceEnable, "default DNS config should have local DNS service enabled")
@@ -158,12 +168,12 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 	err = am.Store.SaveAccount(account)
 	require.NoError(t, err)
 
-	updatedAccountDNSConfig, err := am.GetNetworkMap(dnsPeer1Key)
+	updatedAccountDNSConfig, err := am.GetNetworkMap(peer1.ID)
 	require.NoError(t, err)
 	require.Len(t, updatedAccountDNSConfig.DNSConfig.CustomZones, 0, "updated DNS config should have no custom zone when peer belongs to a disabled group")
 	require.False(t, updatedAccountDNSConfig.DNSConfig.ServiceEnable, "updated DNS config should have local DNS service disabled when peer belongs to a disabled group")
 
-	peer2AccountDNSConfig, err := am.GetNetworkMap(dnsPeer2Key)
+	peer2AccountDNSConfig, err := am.GetNetworkMap(peer2.ID)
 	require.NoError(t, err)
 	require.Len(t, peer2AccountDNSConfig.DNSConfig.CustomZones, 1, "DNS config should have one custom zone for peers not in the disabled group")
 	require.True(t, peer2AccountDNSConfig.DNSConfig.ServiceEnable, "DNS config should have DNS service enabled for peers not in the disabled group")
@@ -234,9 +244,33 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		return nil, err
 	}
 
+	_, err = am.AddPeer("", dnsAdminUserID, peer1)
+	if err != nil {
+		return nil, err
+	}
+	_, err = am.AddPeer("", dnsAdminUserID, peer2)
+	if err != nil {
+		return nil, err
+	}
+
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	peer1, err = account.FindPeerByPubKey(peer1.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = account.FindPeerByPubKey(peer2.Key)
+	if err != nil {
+		return nil, err
+	}
+
 	newGroup1 := &Group{
 		ID:    dnsGroup1ID,
-		Peers: []string{peer1.Key},
+		Peers: []string{peer1.ID},
 		Name:  dnsGroup1ID,
 	}
 
@@ -253,14 +287,5 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		return nil, err
 	}
 
-	_, err = am.AddPeer("", dnsAdminUserID, peer1)
-	if err != nil {
-		return nil, err
-	}
-	_, err = am.AddPeer("", dnsAdminUserID, peer2)
-	if err != nil {
-		return nil, err
-	}
-
-	return account, nil
+	return am.Store.GetAccount(account.Id)
 }

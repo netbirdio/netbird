@@ -22,8 +22,8 @@ import (
 )
 
 var TestPeers = map[string]*server.Peer{
-	"A": {Key: "A", IP: net.ParseIP("100.100.100.100")},
-	"B": {Key: "B", IP: net.ParseIP("200.200.200.200")},
+	"A": {Key: "A", ID: "peer-A-ID", IP: net.ParseIP("100.100.100.100")},
+	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
 }
 
 func initGroupTestData(user *server.User, groups ...*server.Group) *Groups {
@@ -269,8 +269,8 @@ func TestWriteGroup(t *testing.T) {
 				Id:         "id-existed",
 				PeersCount: 2,
 				Peers: []api.PeerMinimum{
-					{Id: "100.100.100.100"},
-					{Id: "200.200.200.200"}},
+					{Id: "peer-A-ID"},
+					{Id: "peer-B-ID"}},
 			},
 		},
 	}

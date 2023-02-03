@@ -244,6 +244,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 	// save new status of existing peer
 	account.Peers["testpeer"] = &Peer{
 		Key:      "peerkey",
+		ID:       "testpeer",
 		SetupKey: "peerkeysetupkey",
 		IP:       net.IP{127, 0, 0, 1},
 		Meta:     PeerSystemMeta{},
