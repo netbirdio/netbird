@@ -874,13 +874,17 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	enabledRoute := createdRoute.Copy()
 	enabledRoute.Enabled = true
 
+	// network map contains route.Route objects that have Route.Peer field filled with Peer.Key instead of Peer.ID
+	expectedRoute := enabledRoute.Copy()
+	expectedRoute.Peer = peer1Key
+
 	err = am.SaveRoute(account.Id, userID, enabledRoute)
 	require.NoError(t, err)
 
 	peer1Routes, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1Routes.Routes, 1, "we should receive one route for peer1")
-	require.True(t, enabledRoute.IsEqual(peer1Routes.Routes[0]), "received route should be equal")
+	require.True(t, expectedRoute.IsEqual(peer1Routes.Routes[0]), "received route should be equal")
 
 	peer2Routes, err := am.GetNetworkMap(peer2ID)
 	require.NoError(t, err)
