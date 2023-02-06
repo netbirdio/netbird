@@ -293,6 +293,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			parentCTX:       s.ctx,
 			upstreamClient:  &dns.Client{},
 			upstreamTimeout: defaultUpstreamTimeout,
+      fallback: s.localResolver,
 		}
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {

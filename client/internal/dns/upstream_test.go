@@ -18,6 +18,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 		timeout             time.Duration
 		cancelCTX           bool
 		expectedAnswer      string
+    localResolver       *mockResolver
 	}{
 		{
 			name:           "Should Resolve A Record",
@@ -48,6 +49,23 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			timeout:             defaultUpstreamTimeout,
 			responseShouldBeNil: true,
 		},
+    {
+      name: "Should fallback to local resolver",
+      inputMSG: new(dns.Msg).SetQuestion("one.one.one.one", dns.TypeA),
+      InputServers: []string{"0.0.0.0:53", "0.0.0.0:53"},
+      cancelCTX: true,
+      timeout: defaultUpstreamTimeout,
+      responseShouldBeNil: true,
+      expectedAnswer: "1.1.1.1",
+      localResolver: &mockResolver{
+        ServeDNSFunc: func(w dns.ResponseWriter, r *dns.Msg) {
+          msg := new(dns.Msg).SetReply(r)
+          if err := w.WriteMsg(msg); err != nil {
+            t.Errorf("write msg issue: %v", err)
+          }
+        },
+      },
+    },
 		//{
 		//	name:        "Should Resolve CNAME Record",
 		//	inputMSG:    new(dns.Msg).SetQuestion("one.one.one.one", dns.TypeCNAME),

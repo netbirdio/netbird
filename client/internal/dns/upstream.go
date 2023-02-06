@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+type resolver interface {
+  ServeDNS(w dns.ResponseWriter, r *dns.Msg)
+}
+
 const defaultUpstreamTimeout = 15 * time.Second
 
 type upstreamResolver struct {
@@ -16,6 +20,7 @@ type upstreamResolver struct {
 	upstreamClient  *dns.Client
 	upstreamServers []string
 	upstreamTimeout time.Duration
+  fallback resolver
 }
 
 // ServeDNS handles a DNS request
@@ -38,7 +43,6 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		if err != nil {
 			if err == context.DeadlineExceeded || isTimeout(err) {
 				log.Warnf("got an error while connecting to upstream %s, error: %v", upstream, err)
-				continue
 			}
 			log.Errorf("got an error while querying the upstream %s, error: %v", upstream, err)
 			return
@@ -53,6 +57,10 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		return
 	}
 	log.Errorf("all queries to the upstream nameservers failed with timeout")
+  if u.fallback != nil {
+    log.Warnf("try local resolver as fallback")
+    u.fallback.ServeDNS(w, r)
+  }
 }
 
 // isTimeout returns true if the given error is a network timeout error.
