@@ -27,7 +27,7 @@ func NewPeers(accountManager server.AccountManager, authAudience string) *Peers 
 	}
 }
 
-func (h *Peers) getPeer(account *server.Account, user *server.User, peerID, userID string, w http.ResponseWriter, r *http.Request) {
+func (h *Peers) getPeer(account *server.Account, peerID, userID string, w http.ResponseWriter) {
 	peer, err := h.accountManager.GetPeer(account.Id, peerID, userID)
 	if err != nil {
 		util.WriteError(err, w)
@@ -86,7 +86,7 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		h.updatePeer(account, user, peerID, w, r)
 		return
 	case http.MethodGet:
-		h.updatePeer(account, user, peerID, w, r)
+		h.getPeer(account, peerID, user.Id, w)
 		return
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "unknown METHOD"), w)
