@@ -23,12 +23,3 @@ func (rw *mockResponseWriter) Close() error              { return nil }
 func (rw *mockResponseWriter) TsigStatus() error         { return nil }
 func (rw *mockResponseWriter) TsigTimersOnly(bool)       {}
 func (rw *mockResponseWriter) Hijack()                   {}
-
-
-type mockResolver struct {
-  ServeDNSFunc func(w dns.ResponseWriter, r *dns.Msg)
-}
-
-func (rl *mockResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
-  rl.ServeDNSFunc(w, r) 
-}
