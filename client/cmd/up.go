@@ -132,6 +132,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		SetupKey:            setupKey,
 		PreSharedKey:        preSharedKey,
 		ManagementUrl:       managementURL,
+		AdminURL:            adminURL,
 		NatExternalIPs:      natExternalIPs,
 		CleanNATExternalIPs: natExternalIPs != nil && len(natExternalIPs) == 0,
 		CustomDNSAddress:    customDNSAddressConverted,

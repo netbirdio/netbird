@@ -10,17 +10,29 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestReadConfig(t *testing.T) {
-}
-
 func TestGetConfig(t *testing.T) {
+	// case 1: new default config has to be generated
+	config, err := GetConfig(ConfigInput{
+		ConfigPath: filepath.Join(t.TempDir(), "config.json"),
+	})
+
+	if err != nil {
+		return
+	}
+
+	assert.Equal(t, config.ManagementURL.String(), DefaultManagementURL)
+	assert.Equal(t, config.AdminURL.String(), DefaultAdminURL)
+
+	if err != nil {
+		return
+	}
 	managementURL := "https://test.management.url:33071"
-	adminURL := "https://app.admin.url"
+	adminURL := "https://app.admin.url:443"
 	path := filepath.Join(t.TempDir(), "config.json")
 	preSharedKey := "preSharedKey"
 
-	// case 1: new config has to be generated
-	config, err := GetConfig(ConfigInput{
+	// case 2: new config has to be generated
+	config, err = GetConfig(ConfigInput{
 		ManagementURL: managementURL,
 		AdminURL:      adminURL,
 		ConfigPath:    path,
@@ -37,7 +49,7 @@ func TestGetConfig(t *testing.T) {
 		t.Errorf("config file was expected to be created under path %s", path)
 	}
 
-	// case 2: existing config -> fetch it
+	// case 3: existing config -> fetch it
 	config, err = GetConfig(ConfigInput{
 		ManagementURL: managementURL,
 		AdminURL:      adminURL,
@@ -51,7 +63,7 @@ func TestGetConfig(t *testing.T) {
 	assert.Equal(t, config.ManagementURL.String(), managementURL)
 	assert.Equal(t, config.PreSharedKey, preSharedKey)
 
-	// case 3: existing config, but new managementURL has been provided -> update config
+	// case 4: existing config, but new managementURL has been provided -> update config
 	newManagementURL := "https://test.newManagement.url:33071"
 	config, err = GetConfig(ConfigInput{
 		ManagementURL: newManagementURL,

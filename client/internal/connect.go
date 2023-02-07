@@ -251,7 +251,12 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte)
 // The check is performed only for the NetBird's managed version.
 func UpdateOldManagementPort(ctx context.Context, config *Config, configPath string) (*Config, error) {
 
-	if config.ManagementURL.Hostname() != ManagementURLDefault().Hostname() {
+	defaultManagementURL, err := ParseURL("Management URL", DefaultManagementURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if config.ManagementURL.Hostname() != defaultManagementURL.Hostname() {
 		// only do the check for the NetBird's managed version
 		return config, nil
 	}

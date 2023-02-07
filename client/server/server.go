@@ -45,13 +45,11 @@ type oauthAuthFlow struct {
 }
 
 // New server instance constructor.
-func New(ctx context.Context, managementURL, adminURL, configPath, logFile string) *Server {
+func New(ctx context.Context, configPath, logFile string) *Server {
 	return &Server{
 		rootCtx: ctx,
 		latestConfigInput: internal.ConfigInput{
-			ManagementURL: managementURL,
-			AdminURL:      adminURL,
-			ConfigPath:    configPath,
+			ConfigPath: configPath,
 		},
 		logFile: logFile,
 	}

@@ -16,27 +16,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// ManagementLegacyPort is the port that was used before by the Management gRPC server.
-// It is used for backward compatibility now.
-// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
-const ManagementLegacyPort = 33073
+const (
+	// ManagementLegacyPort is the port that was used before by the Management gRPC server.
+	// It is used for backward compatibility now.
+	// NB: hardcoded from github.com/netbirdio/netbird/management/cmd to avoid import
+	ManagementLegacyPort = 33073
+	// DefaultManagementURL points to the NetBird's cloud management endpoint
+	DefaultManagementURL = "https://api.wiretrustee.com:443"
+	// DefaultAdminURL points to NetBird's cloud management console
+	DefaultAdminURL = "https://app.netbird.io:443"
+)
 
 var defaultInterfaceBlacklist = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
 	"Tailscale", "tailscale", "docker", "veth", "br-"}
-
-var managementURLDefault *url.URL
-
-func ManagementURLDefault() *url.URL {
-	return managementURLDefault
-}
-
-func init() {
-	managementURL, err := ParseURL("Management URL", "https://api.wiretrustee.com:443")
-	if err != nil {
-		panic(err)
-	}
-	managementURLDefault = managementURL
-}
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {
@@ -99,20 +91,31 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		NATExternalIPs:       input.NATExternalIPs,
 		CustomDNSAddress:     string(input.CustomDNSAddress),
 	}
+
+	defaultManagementURL, err := ParseURL("Management URL", DefaultManagementURL)
+	if err != nil {
+		return nil, err
+	}
+
+	config.ManagementURL = defaultManagementURL
 	if input.ManagementURL != "" {
 		URL, err := ParseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return nil, err
 		}
 		config.ManagementURL = URL
-	} else {
-		config.ManagementURL = managementURLDefault
 	}
 
 	if input.PreSharedKey != nil {
 		config.PreSharedKey = *input.PreSharedKey
 	}
 
+	defaultAdminURL, err := ParseURL("Admin URL", DefaultAdminURL)
+	if err != nil {
+		return nil, err
+	}
+
+	config.AdminURL = defaultAdminURL
 	if input.AdminURL != "" {
 		newURL, err := ParseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
@@ -131,18 +134,29 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	return config, nil
 }
 
-// ParseURL parses and validates management URL
-func ParseURL(serviceName, managementURL string) (*url.URL, error) {
-	parsedMgmtURL, err := url.ParseRequestURI(managementURL)
+// ParseURL parses and validates a service URL
+func ParseURL(serviceName, serviceURL string) (*url.URL, error) {
+	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
 	if err != nil {
-		log.Errorf("failed parsing management URL %s: [%s]", managementURL, err.Error())
+		log.Errorf("failed parsing %s URL %s: [%s]", serviceName, serviceURL, err.Error())
 		return nil, err
 	}
 
 	if parsedMgmtURL.Scheme != "https" && parsedMgmtURL.Scheme != "http" {
 		return nil, fmt.Errorf(
 			"invalid %s URL provided %s. Supported format [http|https]://[host]:[port]",
-			serviceName, managementURL)
+			serviceName, serviceURL)
+	}
+
+	if parsedMgmtURL.Port() == "" {
+		switch parsedMgmtURL.Scheme {
+		case "https":
+			parsedMgmtURL.Host = parsedMgmtURL.Host + ":443"
+		case "http":
+			parsedMgmtURL.Host = parsedMgmtURL.Host + ":80"
+		default:
+			log.Infof("unable to determine a default port for schema %s in URL %s", parsedMgmtURL.Scheme, serviceURL)
+		}
 	}
 
 	return parsedMgmtURL, err
