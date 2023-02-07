@@ -3,7 +3,6 @@ package http
 import (
 	"encoding/json"
 	"github.com/gorilla/mux"
-	"github.com/netbirdio/netbird/management/server/http/api"
 	"io"
 	"net"
 	"net/http"
