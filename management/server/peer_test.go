@@ -401,7 +401,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// at this point the user can't see the details of peer2
-	peer, err = manager.GetPeer(accountID, peer2.ID, someUser)
+	peer, err = manager.GetPeer(accountID, peer2.ID, someUser) //nolint
 	assert.Error(t, err)
 
 	// admin users can always access all the peers
