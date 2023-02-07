@@ -92,6 +92,7 @@ type AccountManager interface {
 	GetEvents(accountID, userID string) ([]*activity.Event, error)
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
+	GetPeer(accountID, peerID, userID string) (*Peer, error)
 }
 
 type DefaultAccountManager struct {
@@ -329,6 +330,19 @@ func (a *Account) FindPeerByPubKey(peerPubKey string) (*Peer, error) {
 	}
 
 	return nil, status.Errorf(status.NotFound, "peer with the public key %s not found", peerPubKey)
+}
+
+// FindUserPeers returns a list of peers that user owns (created)
+func (a *Account) FindUserPeers(userID string) ([]*Peer, error) {
+
+	peers := make([]*Peer, 0)
+	for _, peer := range a.Peers {
+		if peer.UserID == userID {
+			peers = append(peers, peer)
+		}
+	}
+
+	return peers, nil
 }
 
 // FindUser looks for a given user in the Account or returns error if user wasn't found.

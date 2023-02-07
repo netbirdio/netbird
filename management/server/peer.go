@@ -535,6 +535,51 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) 
 	return am.updateAccountPeers(account)
 }
 
+// GetPeer for a given accountID, peerID and userID error if not found.
+func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Peer, error) {
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return nil, status.Errorf(status.NotFound, "peer with %s not found under account %s", peerID, accountID)
+	}
+
+	// if admin or user owns this peer, return peer
+	if user.IsAdmin() || peer.UserID == userID {
+		return peer, nil
+	}
+
+	// it is also possible that user doesn't own the peer but some of his peers have access to it,
+	// this is a valid case, show the peer as well.
+	userPeers, err := account.FindUserPeers(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, p := range userPeers {
+		aclPeers := account.getPeersByACL(p.ID)
+		for _, aclPeer := range aclPeers {
+			if aclPeer.ID == peerID {
+				return peer, nil
+			}
+		}
+	}
+
+	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
+}
+
 // UpdatePeerMeta updates peer's system metadata
 func (am *DefaultAccountManager) UpdatePeerMeta(peerID string, meta PeerSystemMeta) error {
 

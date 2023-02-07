@@ -20,7 +20,7 @@ type MockAccountManager struct {
 	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
 	IsUserAdminFunc                 func(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExistsFunc               func(accountId string) (*bool, error)
-	GetPeerFunc                     func(peerKey string) (*server.Peer, error)
+	GetPeerByKeyFunc                func(peerKey string) (*server.Peer, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
 	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
 	DeletePeerFunc                  func(accountID, peerKey, userID string) (*server.Peer, error)
@@ -64,8 +64,9 @@ type MockAccountManager struct {
 	GetAccountFromTokenFunc         func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error)
 	GetDNSDomainFunc                func() string
 	GetEventsFunc                   func(accountID, userID string) ([]*activity.Event, error)
-	GetDNSSettingsFunc              func(accountID string, userID string) (*server.DNSSettings, error)
-	SaveDNSSettingsFunc             func(accountID string, userID string, dnsSettingsToSave *server.DNSSettings) error
+	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
+	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
+	GetPeerFunc                     func(accountID, peerID, userID string) (*server.Peer, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -142,10 +143,10 @@ func (am *MockAccountManager) AccountExists(accountId string) (*bool, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AccountExists is not implemented")
 }
 
-// GetPeer mock implementation of GetPeer from server.AccountManager interface
+// GetPeerByKey mocks implementation of GetPeerByKey from server.AccountManager interface
 func (am *MockAccountManager) GetPeerByKey(peerKey string) (*server.Peer, error) {
-	if am.GetPeerFunc != nil {
-		return am.GetPeerFunc(peerKey)
+	if am.GetPeerByKeyFunc != nil {
+		return am.GetPeerByKeyFunc(peerKey)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerByKey is not implemented")
 }
@@ -516,4 +517,12 @@ func (am *MockAccountManager) SaveDNSSettings(accountID string, userID string, d
 		return am.SaveDNSSettingsFunc(accountID, userID, dnsSettingsToSave)
 	}
 	return status.Errorf(codes.Unimplemented, "method SaveDNSSettings is not implemented")
+}
+
+// GetPeer mocks GetPeer of the AccountManager interface
+func (am *MockAccountManager) GetPeer(accountID, peerID, userID string) (*server.Peer, error) {
+	if am.GetPeerFunc != nil {
+		return am.GetPeerFunc(accountID, peerID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeer is not implemented")
 }

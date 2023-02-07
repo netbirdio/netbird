@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"github.com/gorilla/mux"
 	"io"
 	"net"
 	"net/http"
@@ -17,9 +18,14 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
+const testPeerID = "test_peer"
+
 func initTestMetaData(peers ...*server.Peer) *Peers {
 	return &Peers{
 		accountManager: &mock_server.MockAccountManager{
+			GetPeerFunc: func(accountID, peerID, userID string) (*server.Peer, error) {
+				return peers[0], nil
+			},
 			GetPeersFunc: func(accountID, userID string) ([]*server.Peer, error) {
 				return peers, nil
 			},
@@ -29,7 +35,7 @@ func initTestMetaData(peers ...*server.Peer) *Peers {
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
 					Peers: map[string]*server.Peer{
-						"test_peer": peers[0],
+						peers[0].ID: peers[0],
 					},
 					Users: map[string]*server.User{
 						"test_user": user,
@@ -58,17 +64,27 @@ func TestGetPeers(t *testing.T) {
 		requestType    string
 		requestPath    string
 		requestBody    io.Reader
+		expectedArray  bool
 	}{
 		{
 			name:           "GetPeersMetaData",
 			requestType:    http.MethodGet,
 			requestPath:    "/api/peers/",
 			expectedStatus: http.StatusOK,
+			expectedArray:  true,
+		},
+		{
+			name:           "GetPeer",
+			requestType:    http.MethodGet,
+			requestPath:    "/api/peers/" + testPeerID,
+			expectedStatus: http.StatusOK,
+			expectedArray:  false,
 		},
 	}
 
 	rr := httptest.NewRecorder()
 	peer := &server.Peer{
+		ID:       testPeerID,
 		Key:      "key",
 		SetupKey: "setupkey",
 		IP:       net.ParseIP("100.64.0.1"),
@@ -89,11 +105,16 @@ func TestGetPeers(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
+
+			recorder := httptest.NewRecorder()
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
-			p.GetPeers(rr, req)
+			router := mux.NewRouter()
+			router.HandleFunc("/api/peers/", p.GetPeers).Methods("GET")
+			router.HandleFunc("/api/peers/{id}", p.HandlePeer).Methods("GET")
+			router.ServeHTTP(recorder, req)
 
-			res := rr.Result()
+			res := recorder.Result()
 			defer res.Body.Close()
 
 			if status := rr.Code; status != tc.expectedStatus {
@@ -106,13 +127,23 @@ func TestGetPeers(t *testing.T) {
 				t.Fatalf("I don't know what I expected; %v", err)
 			}
 
-			respBody := []*api.Peer{}
-			err = json.Unmarshal(content, &respBody)
-			if err != nil {
-				t.Fatalf("Sent content is not in correct json format; %v", err)
+			var got *api.Peer
+			if tc.expectedArray {
+				respBody := []*api.Peer{}
+				err = json.Unmarshal(content, &respBody)
+				if err != nil {
+					t.Fatalf("Sent content is not in correct json format; %v", err)
+				}
+
+				got = respBody[0]
+			} else {
+				got = &api.Peer{}
+				err = json.Unmarshal(content, got)
+				if err != nil {
+					t.Fatalf("Sent content is not in correct json format; %v", err)
+				}
 			}
 
-			got := respBody[0]
 			assert.Equal(t, got.Name, peer.Name)
 			assert.Equal(t, got.Version, peer.Meta.WtVersion)
 			assert.Equal(t, got.Ip, peer.IP.String())

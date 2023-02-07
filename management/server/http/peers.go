@@ -29,6 +29,16 @@ func NewPeers(accountManager server.AccountManager, authCfg AuthCfg) *Peers {
 	}
 }
 
+func (h *Peers) getPeer(account *server.Account, peerID, userID string, w http.ResponseWriter) {
+	peer, err := h.accountManager.GetPeer(account.Id, peerID, userID)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	util.WriteJSONObject(w, toPeerResponse(peer, account, h.accountManager.GetDNSDomain()))
+}
+
 func (h *Peers) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PutApiPeersIdJSONBody{}
 	err := json.NewDecoder(r.Body).Decode(&req)
@@ -76,6 +86,9 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 		return
 	case http.MethodPut:
 		h.updatePeer(account, user, peerID, w, r)
+		return
+	case http.MethodGet:
+		h.getPeer(account, peerID, user.Id, w)
 		return
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "unknown METHOD"), w)
