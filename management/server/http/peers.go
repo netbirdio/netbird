@@ -3,27 +3,29 @@ package http
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
-	"net/http"
 )
 
 // Peers is a handler that returns peers of the account
 type Peers struct {
-	accountManager server.AccountManager
-	authAudience   string
-	jwtExtractor   jwtclaims.ClaimsExtractor
+	accountManager  server.AccountManager
+	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func NewPeers(accountManager server.AccountManager, authAudience string) *Peers {
+func NewPeers(accountManager server.AccountManager, authCfg AuthCfg) *Peers {
 	return &Peers{
 		accountManager: accountManager,
-		authAudience:   authAudience,
-		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithAudience(authCfg.Audience),
+			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+		),
 	}
 }
 
@@ -65,7 +67,7 @@ func (h *Peers) deletePeer(accountID, userID string, peerID string, w http.Respo
 }
 
 func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -91,13 +93,12 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "unknown METHOD"), w)
 	}
-
 }
 
 func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+		claims := h.claimsExtractor.FromRequestContext(r)
 		account, user, err := h.accountManager.GetAccountFromToken(claims)
 		if err != nil {
 			util.WriteError(err, w)

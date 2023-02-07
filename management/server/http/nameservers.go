@@ -3,6 +3,8 @@ package http
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+
 	"github.com/gorilla/mux"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
@@ -11,28 +13,28 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
-	"net/http"
 )
 
 // Nameservers is the nameserver group handler of the account
 type Nameservers struct {
-	jwtExtractor   jwtclaims.ClaimsExtractor
-	accountManager server.AccountManager
-	authAudience   string
+	accountManager  server.AccountManager
+	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
 // NewNameservers returns a new instance of Nameservers handler
-func NewNameservers(accountManager server.AccountManager, authAudience string) *Nameservers {
+func NewNameservers(accountManager server.AccountManager, authCfg AuthCfg) *Nameservers {
 	return &Nameservers{
 		accountManager: accountManager,
-		authAudience:   authAudience,
-		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithAudience(authCfg.Audience),
+			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+		),
 	}
 }
 
 // GetAllNameserversHandler returns the list of nameserver groups for the account
 func (h *Nameservers) GetAllNameserversHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
@@ -56,7 +58,7 @@ func (h *Nameservers) GetAllNameserversHandler(w http.ResponseWriter, r *http.Re
 
 // CreateNameserverGroupHandler handles nameserver group creation request
 func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -89,7 +91,7 @@ func (h *Nameservers) CreateNameserverGroupHandler(w http.ResponseWriter, r *htt
 
 // UpdateNameserverGroupHandler handles update to a nameserver group identified by a given ID
 func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -139,7 +141,7 @@ func (h *Nameservers) UpdateNameserverGroupHandler(w http.ResponseWriter, r *htt
 
 // PatchNameserverGroupHandler handles patch updates to a nameserver group identified by a given ID
 func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -221,7 +223,7 @@ func (h *Nameservers) PatchNameserverGroupHandler(w http.ResponseWriter, r *http
 
 // DeleteNameserverGroupHandler handles nameserver group deletion request
 func (h *Nameservers) DeleteNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
@@ -245,7 +247,7 @@ func (h *Nameservers) DeleteNameserverGroupHandler(w http.ResponseWriter, r *htt
 
 // GetNameserverGroupHandler handles a nameserver group Get request identified by ID
 func (h *Nameservers) GetNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)
@@ -268,7 +270,6 @@ func (h *Nameservers) GetNameserverGroupHandler(w http.ResponseWriter, r *http.R
 	resp := toNameserverGroupResponse(nsGroup)
 
 	util.WriteJSONObject(w, &resp)
-
 }
 
 func toServerNSList(apiNSList []api.Nameserver) ([]nbdns.NameServer, error) {

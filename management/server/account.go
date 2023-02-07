@@ -3,6 +3,15 @@ package server
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"net"
+	"net/netip"
+	"reflect"
+	"regexp"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -14,14 +23,6 @@ import (
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"math/rand"
-	"net"
-	"net/netip"
-	"reflect"
-	"regexp"
-	"strings"
-	"sync"
-	"time"
 )
 
 const (
@@ -220,7 +221,6 @@ func (a *Account) getEnabledAndDisabledRoutesByPeer(peerID string) ([]*route.Rou
 
 // GetRoutesByPrefix return list of routes by account and route prefix
 func (a *Account) GetRoutesByPrefix(prefix netip.Prefix) []*route.Route {
-
 	var routes []*route.Route
 	for _, r := range a.Routes {
 		if r.Network.String() == prefix.String() {
@@ -244,7 +244,6 @@ func (a *Account) GetPeerByIP(peerIP string) *Peer {
 
 // GetPeerRules returns a list of source or destination rules of a given peer.
 func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rule) {
-
 	// Rules are group based so there is no direct access to peers.
 	// First, find all groups that the given peer belongs to
 	peerGroups := make(map[string]struct{})
@@ -504,7 +503,8 @@ func (a *Account) GetPeer(peerID string) *Peer {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store) (*DefaultAccountManager, error) {
+	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store,
+) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
 		Store:              store,
 		peersUpdateManager: peersUpdateManager,
@@ -558,14 +558,13 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 			err := am.warmupIDPCache()
 			if err != nil {
 				log.Warnf("failed warming up cache due to error: %v", err)
-				//todo retry?
+				// todo retry?
 				return
 			}
 		}()
 	}
 
 	return am, nil
-
 }
 
 // newAccount creates a new Account with a generated ID and generated default setup keys.
@@ -683,7 +682,6 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 	}
 
 	return nil, nil
-
 }
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
@@ -782,7 +780,8 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 
 // updateAccountDomainAttributes updates the account domain attributes and then, saves the account
 func (am *DefaultAccountManager) updateAccountDomainAttributes(account *Account, claims jwtclaims.AuthorizationClaims,
-	primaryDomain bool) error {
+	primaryDomain bool,
+) error {
 	account.IsDomainPrimaryAccount = primaryDomain
 
 	lowerDomain := strings.ToLower(claims.Domain)
@@ -840,6 +839,9 @@ func (am *DefaultAccountManager) handleExistingUserAccount(
 // handleNewUserAccount validates if there is an existing primary account for the domain, if so it adds the new user to that account,
 // otherwise it will create a new account and make it primary account for the domain.
 func (am *DefaultAccountManager) handleNewUserAccount(domainAcc *Account, claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	if claims.UserId == "" {
+		return nil, fmt.Errorf("user ID is empty")
+	}
 	var (
 		account *Account
 		err     error
@@ -911,7 +913,9 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 
 // GetAccountFromToken returns an account associated with this token
 func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error) {
-
+	if claims.UserId == "" {
+		return nil, nil, fmt.Errorf("user ID is empty")
+	}
 	if am.singleAccountMode && am.singleAccountModeDomain != "" {
 		// This section is mostly related to self-hosted installations.
 		// We override incoming domain claims to group users under a single account.
@@ -957,6 +961,9 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 //
 // Existing user + Existing account + Existing domain reclassified Domain as private -> Nothing changes (index domain)
 func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtclaims.AuthorizationClaims) (*Account, error) {
+	if claims.UserId == "" {
+		return nil, fmt.Errorf("user ID is empty")
+	}
 	// if Account ID is part of the claims
 	// it means that we've already classified the domain and user has an account
 	if claims.DomainCategory != PrivateCategory || !isDomainValid(claims.Domain) {
@@ -1009,7 +1016,6 @@ func isDomainValid(domain string) bool {
 
 // AccountExists checks whether account exists (returns true) or not (returns false)
 func (am *DefaultAccountManager) AccountExists(accountID string) (*bool, error) {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 

@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/netbirdio/netbird/management/server/http/api"
+
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
 	"github.com/magiconair/properties/assert"
@@ -42,16 +44,15 @@ func initTestMetaData(peers ...*server.Peer) *Peers {
 				}, user, nil
 			},
 		},
-		authAudience: "",
-		jwtExtractor: jwtclaims.ClaimsExtractor{
-			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    "test_user",
 					Domain:    "hotmail.com",
 					AccountId: "test_id",
 				}
-			},
-		},
+			}),
+		),
 	}
 }
 

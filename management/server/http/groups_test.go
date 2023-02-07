@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/status"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
 
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -78,20 +79,20 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *Groups {
 					},
 					Groups: map[string]*server.Group{
 						"id-existed": {ID: "id-existed", Peers: []string{"A", "B"}},
-						"id-all":     {ID: "id-all", Name: "All"}},
+						"id-all":     {ID: "id-all", Name: "All"},
+					},
 				}, user, nil
 			},
 		},
-		authAudience: "",
-		jwtExtractor: jwtclaims.ClaimsExtractor{
-			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    "test_user",
 					Domain:    "hotmail.com",
 					AccountId: "test_id",
 				}
-			},
-		},
+			}),
+		),
 	}
 }
 
@@ -270,7 +271,8 @@ func TestWriteGroup(t *testing.T) {
 				PeersCount: 2,
 				Peers: []api.PeerMinimum{
 					{Id: "peer-A-ID"},
-					{Id: "peer-B-ID"}},
+					{Id: "peer-B-ID"},
+				},
 			},
 		},
 	}

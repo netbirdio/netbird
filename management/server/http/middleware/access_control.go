@@ -1,9 +1,10 @@
 package middleware
 
 import (
+	"net/http"
+
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
-	"net/http"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
@@ -12,17 +13,18 @@ type IsUserAdminFunc func(claims jwtclaims.AuthorizationClaims) (bool, error)
 
 // AccessControl middleware to restrict to make POST/PUT/DELETE requests by admin only
 type AccessControl struct {
-	jwtExtractor jwtclaims.ClaimsExtractor
-	isUserAdmin  IsUserAdminFunc
-	audience     string
+	isUserAdmin   IsUserAdminFunc
+	claimsExtract jwtclaims.ClaimsExtractor
 }
 
 // NewAccessControl instance constructor
-func NewAccessControl(audience string, isUserAdmin IsUserAdminFunc) *AccessControl {
+func NewAccessControl(audience, userIDClaim string, isUserAdmin IsUserAdminFunc) *AccessControl {
 	return &AccessControl{
-		isUserAdmin:  isUserAdmin,
-		audience:     audience,
-		jwtExtractor: *jwtclaims.NewClaimsExtractor(nil),
+		isUserAdmin: isUserAdmin,
+		claimsExtract: *jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithAudience(audience),
+			jwtclaims.WithUserIDClaim(userIDClaim),
+		),
 	}
 }
 
@@ -30,9 +32,9 @@ func NewAccessControl(audience string, isUserAdmin IsUserAdminFunc) *AccessContr
 // It also adds
 func (a *AccessControl) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		jwtClaims := a.jwtExtractor.ExtractClaimsFromRequestContext(r, a.audience)
+		claims := a.claimsExtract.FromRequestContext(r)
 
-		ok, err := a.isUserAdmin(jwtClaims)
+		ok, err := a.isUserAdmin(claims)
 		if err != nil {
 			util.WriteError(status.Errorf(status.Unauthorized, "invalid JWT"), w)
 			return
@@ -40,7 +42,6 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 
 		if !ok {
 			switch r.Method {
-
 			case http.MethodDelete, http.MethodPost, http.MethodPatch, http.MethodPut:
 				util.WriteError(status.Errorf(status.PermissionDenied, "only admin can perform this operation"), w)
 				return

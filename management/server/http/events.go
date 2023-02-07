@@ -2,34 +2,36 @@ package http
 
 import (
 	"fmt"
+	"net/http"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	log "github.com/sirupsen/logrus"
-	"net/http"
 )
 
 // Events HTTP handler
 type Events struct {
-	accountManager server.AccountManager
-	authAudience   string
-	jwtExtractor   jwtclaims.ClaimsExtractor
+	accountManager  server.AccountManager
+	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
 // NewEvents creates a new Events HTTP handler
-func NewEvents(accountManager server.AccountManager, authAudience string) *Events {
+func NewEvents(accountManager server.AccountManager, authCfg AuthCfg) *Events {
 	return &Events{
 		accountManager: accountManager,
-		authAudience:   authAudience,
-		jwtExtractor:   *jwtclaims.NewClaimsExtractor(nil),
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithAudience(authCfg.Audience),
+			jwtclaims.WithUserIDClaim(authCfg.UserIDClaim),
+		),
 	}
 }
 
 // GetEvents list of the given account
 func (h *Events) GetEvents(w http.ResponseWriter, r *http.Request) {
-	claims := h.jwtExtractor.ExtractClaimsFromRequestContext(r, h.authAudience)
+	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		log.Error(err)

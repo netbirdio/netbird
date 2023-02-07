@@ -40,16 +40,15 @@ func initUsers(user ...*server.User) *UserHandler {
 				return users, nil
 			},
 		},
-		authAudience: "",
-		jwtExtractor: jwtclaims.ClaimsExtractor{
-			ExtractClaimsFromRequestContext: func(r *http.Request, authAudiance string) jwtclaims.AuthorizationClaims {
+		claimsExtractor: jwtclaims.NewClaimsExtractor(
+			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
 				return jwtclaims.AuthorizationClaims{
 					UserId:    "1",
 					Domain:    "hotmail.com",
 					AccountId: "test_id",
 				}
-			},
-		},
+			}),
+		),
 	}
 }
 
@@ -57,7 +56,7 @@ func TestGetUsers(t *testing.T) {
 	users := []*server.User{{Id: "1", Role: "admin"}, {Id: "2", Role: "user"}, {Id: "3", Role: "user"}}
 	userHandler := initUsers(users...)
 
-	var tt = []struct {
+	tt := []struct {
 		name           string
 		expectedStatus int
 		requestType    string
