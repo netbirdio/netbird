@@ -162,7 +162,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 		} else if ok && s.Code() == codes.Unimplemented {
 			mgmtURL := managementURL
 			if mgmtURL == "" {
-				mgmtURL = internal.ManagementURLDefault().String()
+				mgmtURL = internal.DefaultManagementURL
 			}
 			return nil, fmt.Errorf("the management server, %s, does not support SSO providers, "+
 				"please update your servver or use Setup Keys to login", mgmtURL)
