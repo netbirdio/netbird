@@ -293,7 +293,6 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			parentCTX:       s.ctx,
 			upstreamClient:  &dns.Client{},
 			upstreamTimeout: defaultUpstreamTimeout,
-      fallback: s.localResolver,
 		}
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
@@ -329,6 +328,16 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 				domain:  domain,
 				handler: handler,
 			})
+		}
+		handler.deactivateHook = func() {
+			for _, pattern := range muxUpdates {
+				s.deregisterMux(pattern.domain)
+			}
+		}
+		handler.reactivateHook = func() {
+			for _, pattern := range muxUpdates {
+				s.registerMux(pattern.domain, pattern.handler)
+			}
 		}
 	}
 	return muxUpdates, nil

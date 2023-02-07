@@ -6,25 +6,29 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
-type resolver interface {
-  ServeDNS(w dns.ResponseWriter, r *dns.Msg)
-}
-
-const defaultUpstreamTimeout = 15 * time.Second
+const (
+	reactivatePeriod       = time.Minute
+	failsBeforeDeactivate  = int32(3)
+	defaultUpstreamTimeout = 15 * time.Second
+)
 
 type upstreamResolver struct {
 	parentCTX       context.Context
 	upstreamClient  *dns.Client
 	upstreamServers []string
 	upstreamTimeout time.Duration
-  fallback resolver
+	deactivateHook  func()
+	reactivateHook  func()
+	failsCount      atomic.Int32
 }
 
 // ServeDNS handles a DNS request
 func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
+	defer u.checkUpstreamFails()
 
 	log.Tracef("received an upstream question: %#v", r.Question[0])
 
@@ -43,7 +47,9 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		if err != nil {
 			if err == context.DeadlineExceeded || isTimeout(err) {
 				log.Warnf("got an error while connecting to upstream %s, error: %v", upstream, err)
+				continue
 			}
+			u.failsCount.Add(1)
 			log.Errorf("got an error while querying the upstream %s, error: %v", upstream, err)
 			return
 		}
@@ -56,11 +62,39 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		}
 		return
 	}
+	u.failsCount.Add(1)
 	log.Errorf("all queries to the upstream nameservers failed with timeout")
-  if u.fallback != nil {
-    log.Warnf("try local resolver as fallback")
-    u.fallback.ServeDNS(w, r)
-  }
+}
+
+// checkUpstreamFails counts fails and disables or enables upstream resolving
+//
+// If fails count is greater that failsBeforeDeactivate, upstream resolving
+// will be disabled for reactivatePeriod, after that time period fails counter
+// will be reset and upstream will be reactivated.
+func (u *upstreamResolver) checkUpstreamFails() {
+	if u.failsCount.Load() < failsBeforeDeactivate {
+		return
+	}
+	u.deactivateHook()
+	go u.waitUntilReactivation()
+}
+
+// waitUntilReactivation reset fails counter and activates upstream resolving
+func (u *upstreamResolver) waitUntilReactivation() {
+	timer := time.NewTimer(reactivatePeriod)
+	defer func() {
+		if !timer.Stop() {
+			<-timer.C
+		}
+	}()
+
+	select {
+	case <-u.parentCTX.Done():
+		return
+	case <-timer.C:
+		u.failsCount.Store(0)
+		u.reactivateHook()
+	}
 }
 
 // isTimeout returns true if the given error is a network timeout error.
