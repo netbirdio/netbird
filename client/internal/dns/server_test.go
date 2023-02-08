@@ -337,6 +337,7 @@ func TestDNSServerStartStop(t *testing.T) {
 func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	hostManager := &mockHostManager{}
 	server := DefaultServer{
+		dnsMux: dns.DefaultServeMux,
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
@@ -346,19 +347,19 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 				&nbdns.NameServerGroup{
 					Domains: []string{"domain0"},
 					NameServers: []nbdns.NameServer{
-						{IP: netip.MustParseAddr("8.8.0.0")},
+						{IP: netip.MustParseAddr("8.8.0.0"), NSType: nbdns.UDPNameServerType, Port: 53},
 					},
 				},
 				&nbdns.NameServerGroup{
 					Domains: []string{"domain1"},
 					NameServers: []nbdns.NameServer{
-						{IP: netip.MustParseAddr("8.8.1.1")},
+						{IP: netip.MustParseAddr("8.8.1.1"), NSType: nbdns.UDPNameServerType, Port: 53},
 					},
 				},
 				&nbdns.NameServerGroup{
 					Domains: []string{"domain2"},
 					NameServers: []nbdns.NameServer{
-						{IP: netip.MustParseAddr("8.8.2.2")},
+						{IP: netip.MustParseAddr("8.8.2.2"), NSType: nbdns.UDPNameServerType, Port: 53},
 					},
 				},
 			},
@@ -375,15 +376,15 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 		return nil
 	}
 
-	server.upstreamDeactivateCallback(1)()
+	deactivate, reactivate := server.upstreamCallbacks(1)
 
+	deactivate()
 	expected := "domain0,domain2"
 	if expected != domainsUpdate {
 		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
 	}
 
-	server.upstreamReactivateCallback(1)()
-
+	reactivate()
 	expected = "domain0,domain1,domain2"
 	if expected != domainsUpdate {
 		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)

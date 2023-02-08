@@ -298,7 +298,8 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 	var muxUpdates []muxUpdate
 	for groupIndex, nsGroup := range nameServerGroups {
 		if len(nsGroup.NameServers) == 0 {
-			return nil, fmt.Errorf("received a nameserver group with empty nameserver list")
+			log.Warn("received a nameserver group with empty nameserver list")
+			continue
 		}
 		handler := newUpstreamResolver(s.ctx)
 		for _, ns := range nsGroup.NameServers {
@@ -337,16 +338,15 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			})
 		}
 
-		// when upstream fails to resolve domain severla times over all it servers
+		// when upstream fails to resolve domain several times over all it servers
 		// it will calls this hook to exclude self from the configuration and
 		// reapply DNS settings, but it not touch the original configuration and serial number
 		// because it is temporal deactivation until next try
-		handler.deactivate = s.upstreamDeactivateCallback(groupIndex)
-
+		//
 		// after some period defined by upstream it trys to reactivate self by calling this hook
 		// everything we need here is just to re-apply current configuration because it already
 		// contains this upstream settings (temporal deactivation not removed it)
-		handler.reactivate = s.upstreamReactivateCallback(groupIndex)
+		handler.deactivate, handler.reactivate = s.upstreamCallbacks(groupIndex)
 	}
 	return muxUpdates, nil
 }
@@ -401,47 +401,43 @@ func (s *DefaultServer) deregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
 }
 
-func (s *DefaultServer) upstreamDeactivateCallback(index int) func() {
-	return func() {
+func (s *DefaultServer) upstreamCallbacks(index int) (deactivate func(), reactivate func()) {
+	var excludedNameservers []nbdns.NameServer
+	deactivate = func() {
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
-		update := s.currentConfig
-		update.NameServerGroups = make([]*nbdns.NameServerGroup, 0)
-		var excludeNameservers string
-		for i, group := range s.currentConfig.NameServerGroups {
+		for i := range s.currentConfig.NameServerGroups {
 			if i == index {
-				excludeNameservers = fmt.Sprintf("%v", group.NameServers)
-				continue
-			}
-			update.NameServerGroups = append(update.NameServerGroups, group)
-		}
-
-		l := log.WithField("nameservers", excludeNameservers)
-		l.Info("temporary deactivate nameservers group")
-		if err := s.applyConfiguration(update); err != nil {
-			l.WithError(err).Error("temporary deactivate nameservers group, DNS update apply")
-		}
-	}
-}
-
-func (s *DefaultServer) upstreamReactivateCallback(index int) func() {
-	return func() {
-		s.mux.Lock()
-		defer s.mux.Unlock()
-
-		var excludeNameservers string
-		for i, group := range s.currentConfig.NameServerGroups {
-			if i == index {
-				excludeNameservers = fmt.Sprintf("%v", group.NameServers)
+				excludedNameservers = s.currentConfig.NameServerGroups[i].NameServers
+				s.currentConfig.NameServerGroups[i].NameServers = nil
 				break
 			}
 		}
 
-		l := log.WithField("nameservers", excludeNameservers)
+		l := log.WithField("nameservers", excludedNameservers)
+		l.Info("temporary deactivate nameservers group")
+
+		if err := s.applyConfiguration(s.currentConfig); err != nil {
+			l.WithError(err).Error("temporary deactivate nameservers group, DNS update apply")
+		}
+	}
+	reactivate = func() {
+		s.mux.Lock()
+		defer s.mux.Unlock()
+
+		for i := range s.currentConfig.NameServerGroups {
+			if i == index {
+				s.currentConfig.NameServerGroups[i].NameServers = excludedNameservers
+				break
+			}
+		}
+
+		l := log.WithField("nameservers", excludedNameservers)
 		l.Debug("reactivate temporary disabled nameserver group")
 		if err := s.applyConfiguration(s.currentConfig); err != nil {
 			l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
 		}
 	}
+	return
 }
