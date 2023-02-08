@@ -78,6 +78,8 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 		if err != nil {
 			log.WithError(err).Error("got an error while writing the upstream resolver response")
 		}
+		// count the fails only if they happen sequentially
+		u.failsCount.Store(0)
 		return
 	}
 	u.failsCount.Add(1)
