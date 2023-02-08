@@ -56,10 +56,10 @@ NetBird uses [NAT traversal techniques](https://en.wikipedia.org/wiki/Interactiv
 - \[x] Remote SSH access without managing SSH keys.
 - \[x] Network Routes.  
 - \[x] Private DNS.
+- \[x] Network Activity Monitoring.
 
 **Coming soon:**
 -  \[ ] Mobile clients.
--  \[ ] Network Activity Monitoring.
 
 ### Secure peer-to-peer VPN with SSO and MFA in minutes
 
