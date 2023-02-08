@@ -23,3 +23,16 @@ func (rw *mockResponseWriter) Close() error              { return nil }
 func (rw *mockResponseWriter) TsigStatus() error         { return nil }
 func (rw *mockResponseWriter) TsigTimersOnly(bool)       {}
 func (rw *mockResponseWriter) Hijack()                   {}
+
+type mockHostManager struct {
+	applyDNSConfigFunc func(config hostDNSConfig) error
+	restoreHostDNSFunc func() error
+}
+
+func (hm *mockHostManager) applyDNSConfig(config hostDNSConfig) error {
+	return hm.applyDNSConfigFunc(config)
+}
+
+func (hm *mockHostManager) restoreHostDNS() error {
+	return hm.restoreHostDNSFunc()
+}

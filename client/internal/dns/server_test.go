@@ -8,6 +8,7 @@ import (
 	"github.com/netbirdio/netbird/iface"
 	"net"
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 )
@@ -330,6 +331,62 @@ func TestDNSServerStartStop(t *testing.T) {
 				t.Fatalf("we should encounter an error when querying a stopped server")
 			}
 		})
+	}
+}
+
+func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
+	hostManager := &mockHostManager{}
+	server := DefaultServer{
+		localResolver: &localResolver{
+			registeredMap: make(registrationMap),
+		},
+		hostManager: hostManager,
+		currentConfig: nbdns.Config{
+			NameServerGroups: []*nbdns.NameServerGroup{
+				&nbdns.NameServerGroup{
+					Domains: []string{"domain0"},
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.0.0")},
+					},
+				},
+				&nbdns.NameServerGroup{
+					Domains: []string{"domain1"},
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.1.1")},
+					},
+				},
+				&nbdns.NameServerGroup{
+					Domains: []string{"domain2"},
+					NameServers: []nbdns.NameServer{
+						{IP: netip.MustParseAddr("8.8.2.2")},
+					},
+				},
+			},
+		},
+	}
+
+	var domainsUpdate string
+	hostManager.applyDNSConfigFunc = func(config hostDNSConfig) error {
+		domains := []string{}
+		for _, item := range config.domains {
+			domains = append(domains, item.domain)
+		}
+		domainsUpdate = strings.Join(domains, ",")
+		return nil
+	}
+
+	server.upstreamDeactivateCallback(1)()
+
+	expected := "domain0,domain2"
+	if expected != domainsUpdate {
+		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
+	}
+
+	server.upstreamReactivateCallback(1)()
+
+	expected = "domain0,domain1,domain2"
+	if expected != domainsUpdate {
+		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
 	}
 }
 

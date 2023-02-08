@@ -12,22 +12,34 @@ import (
 )
 
 const (
-	reactivatePeriod       = time.Minute
-	failsBeforeDeactivate  = int32(3)
-	defaultUpstreamTimeout = 15 * time.Second
+	failsTillDeact   = int32(3)
+	reactivatePeriod = time.Minute
+	upstreamTimeout  = 15 * time.Second
 )
 
 type upstreamResolver struct {
-	parentCTX       context.Context
-	upstreamClient  *dns.Client
-	upstreamServers []string
-	upstreamTimeout time.Duration
-	deactivate      func()
-	reactivate      func()
-	failsCount      atomic.Int32
+	ctx              context.Context
+	upstreamClient   *dns.Client
+	upstreamServers  []string
+	disabled         bool
+	failsCount       atomic.Int32
+	failsTillDeact   int32
+	mutex            sync.Mutex
+	reactivatePeriod time.Duration
+	upstreamTimeout  time.Duration
 
-	mutex    sync.Mutex
-	disabled bool
+	deactivate func()
+	reactivate func()
+}
+
+func newUpstreamResolver(ctx context.Context) *upstreamResolver {
+	return &upstreamResolver{
+		ctx:              ctx,
+		upstreamClient:   &dns.Client{},
+		upstreamTimeout:  upstreamTimeout,
+		reactivatePeriod: reactivatePeriod,
+		failsTillDeact:   failsTillDeact,
+	}
 }
 
 // ServeDNS handles a DNS request
@@ -37,13 +49,13 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	log.WithField("question", r.Question[0]).Trace("received an upstream question")
 
 	select {
-	case <-u.parentCTX.Done():
+	case <-u.ctx.Done():
 		return
 	default:
 	}
 
 	for _, upstream := range u.upstreamServers {
-		ctx, cancel := context.WithTimeout(u.parentCTX, u.upstreamTimeout)
+		ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
 		rm, t, err := u.upstreamClient.ExchangeContext(ctx, r, upstream)
 
 		cancel()
@@ -74,14 +86,14 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 // checkUpstreamFails counts fails and disables or enables upstream resolving
 //
-// If fails count is greater that failsBeforeDeactivate, upstream resolving
+// If fails count is greater that failsTillDeact, upstream resolving
 // will be disabled for reactivatePeriod, after that time period fails counter
 // will be reset and upstream will be reactivated.
 func (u *upstreamResolver) checkUpstreamFails() {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
-	if u.failsCount.Load() < failsBeforeDeactivate || u.disabled {
+	if u.failsCount.Load() < u.failsTillDeact || u.disabled {
 		return
 	}
 
@@ -93,7 +105,7 @@ func (u *upstreamResolver) checkUpstreamFails() {
 
 // waitUntilReactivation reset fails counter and activates upstream resolving
 func (u *upstreamResolver) waitUntilReactivation() {
-	timer := time.NewTimer(reactivatePeriod)
+	timer := time.NewTimer(u.reactivatePeriod)
 	defer func() {
 		if !timer.Stop() {
 			<-timer.C
@@ -101,7 +113,7 @@ func (u *upstreamResolver) waitUntilReactivation() {
 	}()
 
 	select {
-	case <-u.parentCTX.Done():
+	case <-u.ctx.Done():
 		return
 	case <-timer.C:
 		log.Info("upstream resolving is reactivated")

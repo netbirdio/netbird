@@ -300,11 +300,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		if len(nsGroup.NameServers) == 0 {
 			return nil, fmt.Errorf("received a nameserver group with empty nameserver list")
 		}
-		handler := &upstreamResolver{
-			parentCTX:       s.ctx,
-			upstreamClient:  &dns.Client{},
-			upstreamTimeout: defaultUpstreamTimeout,
-		}
+		handler := newUpstreamResolver(s.ctx)
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
 				log.Warnf("skiping nameserver %s with type %s, this peer supports only %s",
@@ -415,7 +411,7 @@ func (s *DefaultServer) upstreamDeactivateCallback(index int) func() {
 		var excludeNameservers string
 		for i, group := range s.currentConfig.NameServerGroups {
 			if i == index {
-        excludeNameservers = fmt.Sprintf("%v", group.NameServers)
+				excludeNameservers = fmt.Sprintf("%v", group.NameServers)
 				continue
 			}
 			update.NameServerGroups = append(update.NameServerGroups, group)
@@ -437,7 +433,7 @@ func (s *DefaultServer) upstreamReactivateCallback(index int) func() {
 		var excludeNameservers string
 		for i, group := range s.currentConfig.NameServerGroups {
 			if i == index {
-        excludeNameservers = fmt.Sprintf("%v", group.NameServers)
+				excludeNameservers = fmt.Sprintf("%v", group.NameServers)
 				break
 			}
 		}
