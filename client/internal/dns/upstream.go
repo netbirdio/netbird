@@ -6,6 +6,7 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -21,16 +22,19 @@ type upstreamResolver struct {
 	upstreamClient  *dns.Client
 	upstreamServers []string
 	upstreamTimeout time.Duration
-	deactivateHook  func()
-	reactivateHook  func()
+	deactivate      func()
+	reactivate      func()
 	failsCount      atomic.Int32
+
+	mutex    sync.Mutex
+	disabled bool
 }
 
 // ServeDNS handles a DNS request
 func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 	defer u.checkUpstreamFails()
 
-	log.Tracef("received an upstream question: %#v", r.Question[0])
+	log.WithField("question", r.Question[0]).Trace("received an upstream question")
 
 	select {
 	case <-u.parentCTX.Done():
@@ -46,11 +50,13 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		if err != nil {
 			if err == context.DeadlineExceeded || isTimeout(err) {
-				log.Warnf("got an error while connecting to upstream %s, error: %v", upstream, err)
+				log.WithError(err).WithField("upstream", upstream).
+					Warn("got an error while connecting to upstream")
 				continue
 			}
 			u.failsCount.Add(1)
-			log.Errorf("got an error while querying the upstream %s, error: %v", upstream, err)
+			log.WithError(err).WithField("upstream", upstream).
+				Error("got an error while querying the upstream")
 			return
 		}
 
@@ -58,12 +64,12 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 
 		err = w.WriteMsg(rm)
 		if err != nil {
-			log.Errorf("got an error while writing the upstream resolver response, error: %v", err)
+			log.WithError(err).Error("got an error while writing the upstream resolver response")
 		}
 		return
 	}
 	u.failsCount.Add(1)
-	log.Errorf("all queries to the upstream nameservers failed with timeout")
+	log.Error("all queries to the upstream nameservers failed with timeout")
 }
 
 // checkUpstreamFails counts fails and disables or enables upstream resolving
@@ -72,10 +78,16 @@ func (u *upstreamResolver) ServeDNS(w dns.ResponseWriter, r *dns.Msg) {
 // will be disabled for reactivatePeriod, after that time period fails counter
 // will be reset and upstream will be reactivated.
 func (u *upstreamResolver) checkUpstreamFails() {
-	if u.failsCount.Load() < failsBeforeDeactivate {
+	u.mutex.Lock()
+	defer u.mutex.Unlock()
+
+	if u.failsCount.Load() < failsBeforeDeactivate || u.disabled {
 		return
 	}
-	u.deactivateHook()
+
+	log.WithField("preiod", reactivatePeriod).Warn("upstream resolving is disabled for")
+	u.deactivate()
+	u.disabled = true
 	go u.waitUntilReactivation()
 }
 
@@ -92,8 +104,10 @@ func (u *upstreamResolver) waitUntilReactivation() {
 	case <-u.parentCTX.Done():
 		return
 	case <-timer.C:
+		log.Info("upstream resolving is reactivated")
 		u.failsCount.Store(0)
-		u.reactivateHook()
+		u.reactivate()
+		u.disabled = false
 	}
 }
 
