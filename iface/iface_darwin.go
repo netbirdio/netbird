@@ -21,13 +21,13 @@ func (w *WGIface) assignAddr() error {
 
 	cmd := exec.Command("ifconfig", w.Name, "inet", w.Address.IP.String(), w.Address.IP.String())
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Infof("adding addreess command \"%v\" failed with output %s and error: ", cmd.String(), out)
+		log.Infof(`adding addreess command "%v" failed with output %s and error: `, cmd.String(), out)
 		return err
 	}
 
 	routeCmd := exec.Command("route", "add", "-net", w.Address.Network.String(), "-interface", w.Name)
 	if out, err := routeCmd.CombinedOutput(); err != nil {
-		log.Printf("adding route command \"%v\" failed with output %s and error: ", routeCmd.String(), out)
+		log.Printf(`adding route command "%v" failed with output %s and error: `, routeCmd.String(), out)
 		return err
 	}
 

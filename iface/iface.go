@@ -82,7 +82,7 @@ func (w *WGIface) Configure(privateKey string, port int) error {
 
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf("received error \"%v\" while configuring interface %s with port %d", err, w.Name, port)
+		return fmt.Errorf(`received error "%v" while configuring interface %s with port %d`, err, w.Name, port)
 	}
 	return nil
 }
@@ -139,7 +139,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	}
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf("received error \"%v\" while updating peer on interface %s with settings: allowed ips %s, endpoint %s", err, w.Name, allowedIps, endpoint.String())
+		return fmt.Errorf(`received error "%w" while updating peer on interface %s with settings: allowed ips %s, endpoint %s`, err, w.Name, allowedIps, endpoint.String())
 	}
 	return nil
 }
@@ -172,7 +172,7 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
 	}
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf("received error \"%v\" while adding allowed Ip to peer on interface %s with settings: allowed ips %s", err, w.Name, allowedIP)
+		return fmt.Errorf(`received error "%w" while adding allowed Ip to peer on interface %s with settings: allowed ips %s`, err, w.Name, allowedIP)
 	}
 	return nil
 }
@@ -223,7 +223,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	}
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf("received error \"%v\" while removing allowed IP from peer on interface %s with settings: allowed ips %s", err, w.Name, allowedIP)
+		return fmt.Errorf(`received error "%w" while removing allowed IP from peer on interface %s with settings: allowed ips %s`, err, w.Name, allowedIP)
 	}
 	return nil
 }
@@ -250,7 +250,7 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 	}
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf("received error \"%v\" while removing peer %s from interface %s", err, peerKey, w.Name)
+		return fmt.Errorf(`received error "%w" while removing peer %s from interface %s`, err, peerKey, w.Name)
 	}
 	return nil
 }
