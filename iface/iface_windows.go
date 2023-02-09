@@ -49,7 +49,7 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 	defer w.mu.Unlock()
 
 	luid := w.Interface.(*driver.Adapter).LUID()
-	addr, err := parseAddress(newAddr)
+	addr, err := newWGAddress(newAddr)
 	if err != nil {
 		return err
 	}
