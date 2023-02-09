@@ -10,6 +10,7 @@ import (
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
 	"net"
+	"os"
 )
 
 // createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
@@ -79,4 +80,27 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 // GetInterfaceGUIDString returns an interface GUID. This is useful on Windows only
 func (w *WGIface) GetInterfaceGUIDString() (string, error) {
 	return "", nil
+}
+
+// Close closes the tunnel interface
+func (w *WGIface) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.Interface == nil {
+		return nil
+	}
+	err := w.Interface.Close()
+	if err != nil {
+		return err
+	}
+
+	sockPath := "/var/run/wireguard/" + w.Name + ".sock"
+	if _, statErr := os.Stat(sockPath); statErr == nil {
+		statErr = os.Remove(sockPath)
+		if statErr != nil {
+			return statErr
+		}
+	}
+
+	return nil
 }

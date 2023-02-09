@@ -76,3 +76,13 @@ func (w *WGIface) GetInterfaceGUIDString() (string, error) {
 func WireguardModuleIsLoaded() bool {
 	return false
 }
+
+func (w *WGIface) Close() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.Interface == nil {
+		return nil
+	}
+
+	return w.Interface.Close()
+}

@@ -1,8 +1,6 @@
 package iface
 
 import (
-	"os"
-	"runtime"
 	"sync"
 )
 
@@ -42,29 +40,4 @@ func NewWGIFace(iface string, address string, mtu int) (*WGIface, error) {
 	wgIface.Address = wgAddress
 
 	return wgIface, nil
-}
-
-// Close closes the tunnel interface
-func (w *WGIface) Close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.Interface == nil {
-		return nil
-	}
-	err := w.Interface.Close()
-	if err != nil {
-		return err
-	}
-
-	if runtime.GOOS != "windows" {
-		sockPath := "/var/run/wireguard/" + w.Name + ".sock"
-		if _, statErr := os.Stat(sockPath); statErr == nil {
-			statErr = os.Remove(sockPath)
-			if statErr != nil {
-				return statErr
-			}
-		}
-	}
-
-	return nil
 }
