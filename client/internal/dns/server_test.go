@@ -3,14 +3,15 @@ package dns
 import (
 	"context"
 	"fmt"
-	"github.com/miekg/dns"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
 	"net"
 	"net/netip"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/miekg/dns"
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
 )
 
 var zoneRecords = []nbdns.SimpleRecord{
@@ -24,7 +25,6 @@ var zoneRecords = []nbdns.SimpleRecord{
 }
 
 func TestUpdateDNSServer(t *testing.T) {
-
 	nameServers := []nbdns.NameServer{
 		{
 			IP:     netip.MustParseAddr("8.8.8.8"),
@@ -264,7 +264,6 @@ func TestUpdateDNSServer(t *testing.T) {
 }
 
 func TestDNSServerStartStop(t *testing.T) {
-
 	testCases := []struct {
 		name     string
 		addrPort string
@@ -335,33 +334,18 @@ func TestDNSServerStartStop(t *testing.T) {
 }
 
 func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
-	hostManager := &mockHostManager{}
+	hostManager := &mockHostConfigurator{}
 	server := DefaultServer{
 		dnsMux: dns.DefaultServeMux,
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
 		hostManager: hostManager,
-		currentConfig: nbdns.Config{
-			NameServerGroups: []*nbdns.NameServerGroup{
-				&nbdns.NameServerGroup{
-					Domains: []string{"domain0"},
-					NameServers: []nbdns.NameServer{
-						{IP: netip.MustParseAddr("8.8.0.0"), NSType: nbdns.UDPNameServerType, Port: 53},
-					},
-				},
-				&nbdns.NameServerGroup{
-					Domains: []string{"domain1"},
-					NameServers: []nbdns.NameServer{
-						{IP: netip.MustParseAddr("8.8.1.1"), NSType: nbdns.UDPNameServerType, Port: 53},
-					},
-				},
-				&nbdns.NameServerGroup{
-					Domains: []string{"domain2"},
-					NameServers: []nbdns.NameServer{
-						{IP: netip.MustParseAddr("8.8.2.2"), NSType: nbdns.UDPNameServerType, Port: 53},
-					},
-				},
+		currentConfig: hostDNSConfig{
+			domains: []domainConfig{
+				{"domain0", false},
+				{"domain1", false},
+				{"domain2", false},
 			},
 		},
 	}
@@ -376,17 +360,32 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 		return nil
 	}
 
-	deactivate, reactivate := server.upstreamCallbacks(1)
+	deactivate, reactivate := server.upstreamCallbacks(&nbdns.NameServerGroup{
+		Domains: []string{"domain1"},
+		NameServers: []nbdns.NameServer{
+			{IP: netip.MustParseAddr("8.8.0.0"), NSType: nbdns.UDPNameServerType, Port: 53},
+		},
+	}, nil)
 
 	deactivate()
 	expected := "domain0,domain2"
-	if expected != domainsUpdate {
-		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
+	domains := []string{}
+	for _, item := range server.currentConfig.domains {
+		domains = append(domains, item.domain)
+	}
+	got := strings.Join(domains, ",")
+	if expected != got {
+		t.Errorf("expected domains list: %q, got %q", expected, got)
 	}
 
 	reactivate()
-	expected = "domain0,domain1,domain2"
-	if expected != domainsUpdate {
+	expected = "domain0,domain2,domain1"
+	domains = []string{}
+	for _, item := range server.currentConfig.domains {
+		domains = append(domains, item.domain)
+	}
+	got = strings.Join(domains, ",")
+	if expected != got {
 		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
 	}
 }
@@ -409,11 +408,11 @@ func getDefaultServerWithNoHostManager(t *testing.T, addrPort string) *DefaultSe
 		UDPSize: 65535,
 	}
 
-	ctx, stop := context.WithCancel(context.TODO())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	return &DefaultServer{
 		ctx:       ctx,
-		stop:      stop,
+		ctxCancel: cancel,
 		server:    dnsServer,
 		dnsMux:    mux,
 		dnsMuxMap: make(registrationMap),

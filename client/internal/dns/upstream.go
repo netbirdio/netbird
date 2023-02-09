@@ -3,12 +3,13 @@ package dns
 import (
 	"context"
 	"errors"
-	"github.com/miekg/dns"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
