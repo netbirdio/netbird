@@ -1,8 +1,6 @@
 package iface
 
 import (
-	"fmt"
-	"net"
 	"os"
 	"runtime"
 	"sync"
@@ -23,17 +21,6 @@ type WGIface struct {
 	mu        sync.Mutex
 }
 
-// WGAddress Wireguard parsed address
-type WGAddress struct {
-	IP      net.IP
-	Network *net.IPNet
-}
-
-func (addr *WGAddress) String() string {
-	maskSize, _ := addr.Network.Mask.Size()
-	return fmt.Sprintf("%s/%d", addr.IP.String(), maskSize)
-}
-
 // NetInterface represents a generic network tunnel interface
 type NetInterface interface {
 	Close() error
@@ -47,7 +34,7 @@ func NewWGIFace(iface string, address string, mtu int) (*WGIface, error) {
 		mu:   sync.Mutex{},
 	}
 
-	wgAddress, err := parseAddress(address)
+	wgAddress, err := newWGAddress(address)
 	if err != nil {
 		return wgIface, err
 	}
@@ -55,18 +42,6 @@ func NewWGIFace(iface string, address string, mtu int) (*WGIface, error) {
 	wgIface.Address = wgAddress
 
 	return wgIface, nil
-}
-
-// parseAddress parse a string ("1.2.3.4/24") address to WG Address
-func parseAddress(address string) (WGAddress, error) {
-	ip, network, err := net.ParseCIDR(address)
-	if err != nil {
-		return WGAddress{}, err
-	}
-	return WGAddress{
-		IP:      ip,
-		Network: network,
-	}, nil
 }
 
 // Close closes the tunnel interface
