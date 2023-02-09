@@ -19,24 +19,6 @@ func (w *WGIface) GetAddress() WGAddress {
 	return w.Address
 }
 
-// configureDevice configures the wireguard device
-func (w *WGIface) configureDevice(config wgtypes.Config) error {
-	wg, err := wgctrl.New()
-	if err != nil {
-		return err
-	}
-	defer wg.Close()
-
-	// validate if device with name exists
-	_, err = wg.Device(w.Name)
-	if err != nil {
-		return err
-	}
-	log.Debugf("got Wireguard device %s", w.Name)
-
-	return wg.ConfigureDevice(w.Name, config)
-}
-
 // Configure configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
 func (w *WGIface) Configure(privateKey string, port int) error {
@@ -206,30 +188,6 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	return nil
 }
 
-func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
-	wg, err := wgctrl.New()
-	if err != nil {
-		return wgtypes.Peer{}, err
-	}
-	defer func() {
-		err = wg.Close()
-		if err != nil {
-			log.Errorf("got error while closing wgctl: %v", err)
-		}
-	}()
-
-	wgDevice, err := wg.Device(ifaceName)
-	if err != nil {
-		return wgtypes.Peer{}, err
-	}
-	for _, peer := range wgDevice.Peers {
-		if peer.PublicKey.String() == peerPubKey {
-			return peer, nil
-		}
-	}
-	return wgtypes.Peer{}, fmt.Errorf("peer not found")
-}
-
 // RemovePeer removes a Wireguard Peer from the interface iface
 func (w *WGIface) RemovePeer(peerKey string) error {
 	w.mu.Lock()
@@ -255,4 +213,46 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 		return fmt.Errorf("received error \"%v\" while removing peer %s from interface %s", err, peerKey, w.Name)
 	}
 	return nil
+}
+
+func getPeer(ifaceName, peerPubKey string) (wgtypes.Peer, error) {
+	wg, err := wgctrl.New()
+	if err != nil {
+		return wgtypes.Peer{}, err
+	}
+	defer func() {
+		err = wg.Close()
+		if err != nil {
+			log.Errorf("got error while closing wgctl: %v", err)
+		}
+	}()
+
+	wgDevice, err := wg.Device(ifaceName)
+	if err != nil {
+		return wgtypes.Peer{}, err
+	}
+	for _, peer := range wgDevice.Peers {
+		if peer.PublicKey.String() == peerPubKey {
+			return peer, nil
+		}
+	}
+	return wgtypes.Peer{}, fmt.Errorf("peer not found")
+}
+
+// configureDevice configures the wireguard device
+func (w *WGIface) configureDevice(config wgtypes.Config) error {
+	wg, err := wgctrl.New()
+	if err != nil {
+		return err
+	}
+	defer wg.Close()
+
+	// validate if device with name exists
+	_, err = wg.Device(w.Name)
+	if err != nil {
+		return err
+	}
+	log.Debugf("got Wireguard device %s", w.Name)
+
+	return wg.ConfigureDevice(w.Name, config)
 }
