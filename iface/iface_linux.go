@@ -7,10 +7,6 @@ import (
 	"os"
 )
 
-type NativeLink struct {
-	Link *netlink.Link
-}
-
 // Create creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
 func (w *WGIface) Create() error {
