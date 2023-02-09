@@ -77,6 +77,7 @@ func WireguardModuleIsLoaded() bool {
 	return false
 }
 
+// Close closes the tunnel interface
 func (w *WGIface) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
