@@ -82,7 +82,7 @@ func (w *WGIface) Configure(privateKey string, port int) error {
 
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf(`received error "%v" while configuring interface %s with port %d`, err, w.Name, port)
+		return fmt.Errorf(`received error "%w" while configuring interface %s with port %d`, err, w.Name, port)
 	}
 	return nil
 }
