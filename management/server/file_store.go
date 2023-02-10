@@ -81,6 +81,11 @@ func restore(file string) (*FileStore, error) {
 	store.PeerID2AccountID = make(map[string]string)
 
 	for accountID, account := range store.Accounts {
+
+		if account.PeerLoginExpiration.Seconds() == 0 {
+			account.PeerLoginExpiration = DefaultPeerLoginExpiration
+		}
+
 		for setupKeyId := range account.SetupKeys {
 			store.SetupKeyID2AccountID[strings.ToUpper(setupKeyId)] = accountID
 		}

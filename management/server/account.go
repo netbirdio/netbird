@@ -26,11 +26,12 @@ import (
 )
 
 const (
-	PublicCategory     = "public"
-	PrivateCategory    = "private"
-	UnknownCategory    = "unknown"
-	CacheExpirationMax = 7 * 24 * 3600 * time.Second // 7 days
-	CacheExpirationMin = 3 * 24 * 3600 * time.Second // 3 days
+	PublicCategory             = "public"
+	PrivateCategory            = "private"
+	UnknownCategory            = "unknown"
+	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
+	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
+	DefaultPeerLoginExpiration = 24 * time.Hour
 )
 
 func cacheEntryExpiration() time.Duration {
@@ -48,6 +49,7 @@ type AccountManager interface {
 	SaveUser(accountID, userID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
+	GetAccountByPeerID(peerID string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
@@ -135,6 +137,9 @@ type Account struct {
 	Routes                 map[string]*route.Route
 	NameServerGroups       map[string]*nbdns.NameServerGroup
 	DNSSettings            *DNSSettings
+	// PeerLoginExpiration is a setting that indicates when peer login expires.
+	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
+	PeerLoginExpiration time.Duration
 }
 
 type UserInfo struct {
@@ -485,6 +490,7 @@ func (a *Account) Copy() *Account {
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
 		DNSSettings:            dnsSettings,
+		PeerLoginExpiration:    a.PeerLoginExpiration,
 	}
 }
 
@@ -605,6 +611,10 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 	log.Infof("warmed up IDP cache with %d entries", len(userData))
 	return nil
+}
+
+func (am *DefaultAccountManager) GetAccountByPeerID(peerID string) (*Account, error) {
+	return am.Store.GetAccountByPeerID(peerID)
 }
 
 // GetAccountByUserOrAccountID looks for an account by user or accountID, if no account is provided and
@@ -1086,16 +1096,17 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
 	acc := &Account{
-		Id:               accountId,
-		SetupKeys:        setupKeys,
-		Network:          network,
-		Peers:            peers,
-		Users:            users,
-		CreatedBy:        userId,
-		Domain:           domain,
-		Routes:           routes,
-		NameServerGroups: nameServersGroups,
-		DNSSettings:      dnsSettings,
+		Id:                  accountId,
+		SetupKeys:           setupKeys,
+		Network:             network,
+		Peers:               peers,
+		Users:               users,
+		CreatedBy:           userId,
+		Domain:              domain,
+		Routes:              routes,
+		NameServerGroups:    nameServersGroups,
+		DNSSettings:         dnsSettings,
+		PeerLoginExpiration: DefaultPeerLoginExpiration,
 	}
 
 	addAllGroup(acc)
