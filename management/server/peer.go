@@ -509,6 +509,37 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	return newPeer, nil
 }
 
+func (am *DefaultAccountManager) UpdatePeerLastLogin(peerID string) error {
+	account, err := am.Store.GetAccountByPeerID(peerID)
+	if err != nil {
+		return err
+	}
+
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return err
+	}
+
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
+	}
+
+	peer.LastLogin = time.Now()
+	account.UpdatePeer(peer)
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // UpdatePeerSSHKey updates peer's public SSH key
 func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) error {
 

@@ -93,6 +93,7 @@ type AccountManager interface {
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*Peer, error)
+	UpdatePeerLastLogin(peerID string) error
 }
 
 type DefaultAccountManager struct {
