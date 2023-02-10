@@ -7,5 +7,5 @@ func SetTextFormatter() {
 	std := logrus.StandardLogger()
 	std.Formatter = NewMyTextFormatter()
 	std.ReportCaller = true
-	std.AddHook(&ContextHook{})
+	std.AddHook(NewContextHook())
 }
