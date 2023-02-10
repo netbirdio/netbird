@@ -429,6 +429,10 @@ func (s *DefaultServer) upstreamCallbacks(
 		for _, domain := range nsGroup.Domains {
 			removeIndex[domain] = -1
 		}
+		if nsGroup.Primary {
+			removeIndex[nbdns.RootZone] = -1
+			s.currentConfig.routeAll = false
+		}
 
 		for i, item := range s.currentConfig.domains {
 			if _, found := removeIndex[item.domain]; found {
@@ -436,10 +440,6 @@ func (s *DefaultServer) upstreamCallbacks(
 				s.deregisterMux(item.domain)
 				removeIndex[item.domain] = i
 			}
-		}
-
-		if nsGroup.Primary {
-			s.currentConfig.routeAll = false
 		}
 		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
 			l.WithError(err).Error("temporary deactivate nameservers group, DNS update apply")
