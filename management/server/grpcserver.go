@@ -132,6 +132,11 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return msg
 	}
 
+	expired, left := peer.LoginExpired(24 * time.Hour)
+	if peer.UserID != "" && expired {
+		return status.Errorf(codes.PermissionDenied, "peer login has expired %v ago. Please log in once more", left)
+	}
+
 	syncReq := &proto.SyncRequest{}
 	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, syncReq)
 	if err != nil {
@@ -356,7 +361,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 
 	expired, left := peer.LoginExpired(24 * time.Hour)
 	if peer.UserID != "" && expired {
-		return nil, status.Errorf(codes.PermissionDenied, "peer login has expired %v ago. Please login once more", left)
+		return nil, status.Errorf(codes.PermissionDenied, "peer login has expired %v ago. Please log in once more", left)
 	}
 
 	var sshKey []byte
