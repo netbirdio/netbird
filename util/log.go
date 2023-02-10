@@ -1,14 +1,13 @@
 package util
 
 import (
+	"io"
+	"path/filepath"
+
 	log "github.com/sirupsen/logrus"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"io"
-	"path"
-	"path/filepath"
-	"runtime"
-	"strconv"
-	"time"
+
+	"github.com/netbirdio/netbird/formatter"
 )
 
 // InitLog parses and sets log-level input
@@ -31,20 +30,7 @@ func InitLog(logLevel string, logPath string) error {
 		log.SetOutput(io.Writer(lumberjackLogger))
 	}
 
-	logFormatter := new(log.TextFormatter)
-	logFormatter.TimestampFormat = time.RFC3339 // or RFC3339
-	logFormatter.FullTimestamp = true
-	logFormatter.CallerPrettyfier = func(frame *runtime.Frame) (function string, file string) {
-		fileName := path.Base(frame.File) + ":" + strconv.Itoa(frame.Line)
-		//return frame.Function, fileName
-		return "", fileName
-	}
-
-	if level > log.WarnLevel {
-		log.SetReportCaller(true)
-	}
-
-	log.SetFormatter(logFormatter)
+	formatter.SetTextFormatter()
 	log.SetLevel(level)
 
 	return nil
