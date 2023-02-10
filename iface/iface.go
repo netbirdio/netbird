@@ -39,7 +39,7 @@ func NewWGIFace(iface string, address string, mtu int) (*WGIface, error) {
 		mu:   sync.Mutex{},
 	}
 
-	wgAddress, err := newWGAddress(address)
+	wgAddress, err := parseWGAddress(address)
 	if err != nil {
 		return wgIface, err
 	}

@@ -11,8 +11,8 @@ type WGAddress struct {
 	Network *net.IPNet
 }
 
-// newWGAddress parse a string ("1.2.3.4/24") address to WG Address
-func newWGAddress(address string) (WGAddress, error) {
+// parseWGAddress parse a string ("1.2.3.4/24") address to WG Address
+func parseWGAddress(address string) (WGAddress, error) {
 	ip, network, err := net.ParseCIDR(address)
 	if err != nil {
 		return WGAddress{}, err

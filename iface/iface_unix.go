@@ -19,7 +19,7 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	addr, err := newWGAddress(newAddr)
+	addr, err := parseWGAddress(newAddr)
 	if err != nil {
 		return err
 	}
