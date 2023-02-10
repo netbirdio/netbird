@@ -23,7 +23,7 @@ func parseWGAddress(address string) (WGAddress, error) {
 	}, nil
 }
 
-func (addr *WGAddress) String() string {
+func (addr WGAddress) String() string {
 	maskSize, _ := addr.Network.Mask.Size()
 	return fmt.Sprintf("%s/%d", addr.IP.String(), maskSize)
 }

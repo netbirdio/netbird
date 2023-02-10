@@ -15,7 +15,7 @@ func (w *WGIface) Create() error {
 	defer w.mu.Unlock()
 
 	WintunStaticRequestedGUID, _ := windows.GenerateGUID()
-	adapter, err := driver.CreateAdapter(w.Name, "WireGuard", &WintunStaticRequestedGUID)
+	adapter, err := driver.CreateAdapter(w.name, "WireGuard", &WintunStaticRequestedGUID)
 	if err != nil {
 		err = fmt.Errorf("error creating adapter: %w", err)
 		return err
@@ -34,8 +34,8 @@ func (w *WGIface) Create() error {
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (w *WGIface) assignAddr(luid winipcfg.LUID) error {
 
-	log.Debugf("adding address %s to interface: %s", w.Address.IP, w.Name)
-	err := luid.SetIPAddresses([]net.IPNet{{w.Address.IP, w.Address.Network.Mask}})
+	log.Debugf("adding address %s to interface: %s", w.address.IP, w.name)
+	err := luid.SetIPAddresses([]net.IPNet{{w.address.IP, w.address.Network.Mask}})
 	if err != nil {
 		return err
 	}
@@ -54,7 +54,7 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 		return err
 	}
 
-	w.Address = addr
+	w.address = addr
 	return w.assignAddr(luid)
 }
 

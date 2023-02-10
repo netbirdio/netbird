@@ -29,10 +29,10 @@ func (w *WGIface) Create() error {
 // Works for Linux and offers much better network performance
 func (w *WGIface) createWithKernel() error {
 
-	link := newWGLink(w.Name)
+	link := newWGLink(w.name)
 
 	// check if interface exists
-	l, err := netlink.LinkByName(w.Name)
+	l, err := netlink.LinkByName(w.name)
 	if err != nil {
 		switch err.(type) {
 		case netlink.LinkNotFoundError:
@@ -50,10 +50,10 @@ func (w *WGIface) createWithKernel() error {
 		}
 	}
 
-	log.Debugf("adding device: %s", w.Name)
+	log.Debugf("adding device: %s", w.name)
 	err = netlink.LinkAdd(link)
 	if os.IsExist(err) {
-		log.Infof("interface %s already exists. Will reuse.", w.Name)
+		log.Infof("interface %s already exists. Will reuse.", w.name)
 	} else if err != nil {
 		return err
 	}
@@ -66,17 +66,17 @@ func (w *WGIface) createWithKernel() error {
 	}
 
 	// todo do a discovery
-	log.Debugf("setting MTU: %d interface: %s", w.MTU, w.Name)
+	log.Debugf("setting MTU: %d interface: %s", w.MTU, w.name)
 	err = netlink.LinkSetMTU(link, w.MTU)
 	if err != nil {
-		log.Errorf("error setting MTU on interface: %s", w.Name)
+		log.Errorf("error setting MTU on interface: %s", w.name)
 		return err
 	}
 
-	log.Debugf("bringing up interface: %s", w.Name)
+	log.Debugf("bringing up interface: %s", w.name)
 	err = netlink.LinkSetUp(link)
 	if err != nil {
-		log.Errorf("error bringing up interface: %s", w.Name)
+		log.Errorf("error bringing up interface: %s", w.name)
 		return err
 	}
 
@@ -85,7 +85,7 @@ func (w *WGIface) createWithKernel() error {
 
 // assignAddr Adds IP address to the tunnel interface
 func (w *WGIface) assignAddr() error {
-	link := newWGLink(w.Name)
+	link := newWGLink(w.name)
 
 	//delete existing addresses
 	list, err := netlink.AddrList(link, 0)
@@ -101,11 +101,11 @@ func (w *WGIface) assignAddr() error {
 		}
 	}
 
-	log.Debugf("adding address %s to interface: %s", w.Address.String(), w.Name)
-	addr, _ := netlink.ParseAddr(w.Address.String())
+	log.Debugf("adding address %s to interface: %s", w.address.String(), w.name)
+	addr, _ := netlink.ParseAddr(w.address.String())
 	err = netlink.AddrAdd(link, addr)
 	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", w.Name, w.Address.String())
+		log.Infof("interface %s already has the address: %s", w.name, w.address.String())
 	} else if err != nil {
 		return err
 	}

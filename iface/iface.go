@@ -23,10 +23,10 @@ type NetInterface interface {
 
 // WGIface represents a interface instance
 type WGIface struct {
-	Name      string
 	Port      int
 	MTU       int
-	Address   WGAddress
+	name      string
+	address   WGAddress
 	Interface NetInterface
 	mu        sync.Mutex
 }
@@ -34,8 +34,8 @@ type WGIface struct {
 // NewWGIFace Creates a new Wireguard interface instance
 func NewWGIFace(iface string, address string, mtu int) (*WGIface, error) {
 	wgIface := &WGIface{
-		Name: iface,
 		MTU:  mtu,
+		name: iface,
 		mu:   sync.Mutex{},
 	}
 
@@ -44,19 +44,19 @@ func NewWGIFace(iface string, address string, mtu int) (*WGIface, error) {
 		return wgIface, err
 	}
 
-	wgIface.Address = wgAddress
+	wgIface.address = wgAddress
 
 	return wgIface, nil
 }
 
-// GetName returns the interface name
-func (w *WGIface) GetName() string {
-	return w.Name
+// Name returns the interface name
+func (w *WGIface) Name() string {
+	return w.name
 }
 
-// GetAddress returns the interface address
-func (w *WGIface) GetAddress() WGAddress {
-	return w.Address
+// Address returns the interface address
+func (w *WGIface) Address() WGAddress {
+	return w.address
 }
 
 // Configure configures a Wireguard interface
@@ -65,7 +65,7 @@ func (w *WGIface) Configure(privateKey string, port int) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("configuring Wireguard interface %s", w.Name)
+	log.Debugf("configuring Wireguard interface %s", w.name)
 
 	log.Debugf("adding Wireguard private key")
 	key, err := wgtypes.ParseKey(privateKey)
@@ -82,14 +82,14 @@ func (w *WGIface) Configure(privateKey string, port int) error {
 
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf(`received error "%w" while configuring interface %s with port %d`, err, w.Name, port)
+		return fmt.Errorf(`received error "%w" while configuring interface %s with port %d`, err, w.name, port)
 	}
 	return nil
 }
 
 // GetListenPort returns the listening port of the Wireguard endpoint
 func (w *WGIface) GetListenPort() (*int, error) {
-	log.Debugf("getting Wireguard listen port of interface %s", w.Name)
+	log.Debugf("getting Wireguard listen port of interface %s", w.name)
 
 	//discover Wireguard current configuration
 	wg, err := wgctrl.New()
@@ -98,11 +98,11 @@ func (w *WGIface) GetListenPort() (*int, error) {
 	}
 	defer wg.Close()
 
-	d, err := wg.Device(w.Name)
+	d, err := wg.Device(w.name)
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("got Wireguard device listen port %s, %d", w.Name, d.ListenPort)
+	log.Debugf("got Wireguard device listen port %s, %d", w.name, d.ListenPort)
 
 	return &d.ListenPort, nil
 }
@@ -113,7 +113,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("updating interface %s peer %s: endpoint %s ", w.Name, peerKey, endpoint)
+	log.Debugf("updating interface %s peer %s: endpoint %s ", w.name, peerKey, endpoint)
 
 	//parse allowed ips
 	_, ipNet, err := net.ParseCIDR(allowedIps)
@@ -139,7 +139,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	}
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf(`received error "%w" while updating peer on interface %s with settings: allowed ips %s, endpoint %s`, err, w.Name, allowedIps, endpoint.String())
+		return fmt.Errorf(`received error "%w" while updating peer on interface %s with settings: allowed ips %s, endpoint %s`, err, w.name, allowedIps, endpoint.String())
 	}
 	return nil
 }
@@ -149,7 +149,7 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("adding allowed IP to interface %s and peer %s: allowed IP %s ", w.Name, peerKey, allowedIP)
+	log.Debugf("adding allowed IP to interface %s and peer %s: allowed IP %s ", w.name, peerKey, allowedIP)
 
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
@@ -172,7 +172,7 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
 	}
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf(`received error "%w" while adding allowed Ip to peer on interface %s with settings: allowed ips %s`, err, w.Name, allowedIP)
+		return fmt.Errorf(`received error "%w" while adding allowed Ip to peer on interface %s with settings: allowed ips %s`, err, w.name, allowedIP)
 	}
 	return nil
 }
@@ -182,7 +182,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("removing allowed IP from interface %s and peer %s: allowed IP %s ", w.Name, peerKey, allowedIP)
+	log.Debugf("removing allowed IP from interface %s and peer %s: allowed IP %s ", w.name, peerKey, allowedIP)
 
 	_, ipNet, err := net.ParseCIDR(allowedIP)
 	if err != nil {
@@ -194,7 +194,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 		return err
 	}
 
-	existingPeer, err := getPeer(w.Name, peerKey)
+	existingPeer, err := getPeer(w.name, peerKey)
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	}
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf(`received error "%w" while removing allowed IP from peer on interface %s with settings: allowed ips %s`, err, w.Name, allowedIP)
+		return fmt.Errorf(`received error "%w" while removing allowed IP from peer on interface %s with settings: allowed ips %s`, err, w.name, allowedIP)
 	}
 	return nil
 }
@@ -233,7 +233,7 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("Removing peer %s from interface %s ", peerKey, w.Name)
+	log.Debugf("Removing peer %s from interface %s ", peerKey, w.name)
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
 	if err != nil {
@@ -250,7 +250,7 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 	}
 	err = w.configureDevice(config)
 	if err != nil {
-		return fmt.Errorf(`received error "%w" while removing peer %s from interface %s`, err, peerKey, w.Name)
+		return fmt.Errorf(`received error "%w" while removing peer %s from interface %s`, err, peerKey, w.name)
 	}
 	return nil
 }
@@ -288,11 +288,11 @@ func (w *WGIface) configureDevice(config wgtypes.Config) error {
 	defer wg.Close()
 
 	// validate if device with name exists
-	_, err = wg.Device(w.Name)
+	_, err = wg.Device(w.name)
 	if err != nil {
 		return err
 	}
-	log.Debugf("got Wireguard device %s", w.Name)
+	log.Debugf("got Wireguard device %s", w.name)
 
-	return wg.ConfigureDevice(w.Name, config)
+	return wg.ConfigureDevice(w.name, config)
 }

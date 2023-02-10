@@ -24,7 +24,7 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 		return err
 	}
 
-	w.Address = addr
+	w.address = addr
 	return w.assignAddr()
 }
 
@@ -45,7 +45,7 @@ func (w *WGIface) Close() error {
 		return err
 	}
 
-	sockPath := "/var/run/wireguard/" + w.Name + ".sock"
+	sockPath := "/var/run/wireguard/" + w.name + ".sock"
 	if _, statErr := os.Stat(sockPath); statErr == nil {
 		statErr = os.Remove(sockPath)
 		if statErr != nil {
@@ -59,7 +59,7 @@ func (w *WGIface) Close() error {
 // createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
 func (w *WGIface) createWithUserspace() error {
 
-	tunIface, err := tun.CreateTUN(w.Name, w.MTU)
+	tunIface, err := tun.CreateTUN(w.name, w.MTU)
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func (w *WGIface) createWithUserspace() error {
 	if err != nil {
 		return err
 	}
-	uapi, err := getUAPI(w.Name)
+	uapi, err := getUAPI(w.name)
 	if err != nil {
 		return err
 	}
