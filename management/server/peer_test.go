@@ -3,10 +3,56 @@ package server
 import (
 	"github.com/stretchr/testify/assert"
 	"testing"
+	"time"
 
 	"github.com/rs/xid"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+func TestPeer_LoginExpired(t *testing.T) {
+
+	tt := []struct {
+		name              string
+		expirationEnbaled bool
+		lastLogin         time.Time
+		expiresIn         time.Duration
+		expected          bool
+	}{
+		{
+			name:              "Peer Login Expiration Disabled. Peer Login Should Not Expire",
+			expirationEnbaled: false,
+			lastLogin:         time.Now().Add(-25 * time.Hour),
+			expiresIn:         time.Hour,
+			expected:          false,
+		},
+		{
+			name:              "Peer Login Should Expire",
+			expirationEnbaled: true,
+			lastLogin:         time.Now().Add(-25 * time.Hour),
+			expiresIn:         time.Hour,
+			expected:          true,
+		},
+		{
+			name:              "Peer Login Should Not Expire",
+			expirationEnbaled: true,
+			lastLogin:         time.Now(),
+			expiresIn:         time.Hour,
+			expected:          false,
+		},
+	}
+
+	for _, c := range tt {
+		t.Run(c.name, func(t *testing.T) {
+			peer := &Peer{
+				LoginExpirationEnabled: c.expirationEnbaled,
+				LastLogin:              c.lastLogin,
+			}
+
+			expired, _ := peer.LoginExpired(c.expiresIn)
+			assert.Equal(t, expired, c.expected)
+		})
+	}
+}
 
 func TestAccountManager_GetNetworkMap(t *testing.T) {
 	manager, err := createManager(t)

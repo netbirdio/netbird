@@ -354,6 +354,11 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		}
 	}
 
+	expired, left := peer.LoginExpired(24 * time.Hour)
+	if peer.UserID != "" && expired {
+		return nil, status.Errorf(codes.PermissionDenied, "peer login has expired %v ago. Please login once more", left)
+	}
+
 	var sshKey []byte
 	if loginReq.GetPeerKeys() != nil {
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
