@@ -343,9 +343,9 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 		hostManager: hostManager,
 		currentConfig: hostDNSConfig{
 			domains: []domainConfig{
-				{"domain0", false},
-				{"domain1", false},
-				{"domain2", false},
+				{false, "domain0", false},
+				{false, "domain1", false},
+				{false, "domain2", false},
 			},
 		},
 	}
@@ -354,6 +354,9 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	hostManager.applyDNSConfigFunc = func(config hostDNSConfig) error {
 		domains := []string{}
 		for _, item := range config.domains {
+			if item.disabled {
+				continue
+			}
 			domains = append(domains, item.domain)
 		}
 		domainsUpdate = strings.Join(domains, ",")
@@ -371,6 +374,9 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	expected := "domain0,domain2"
 	domains := []string{}
 	for _, item := range server.currentConfig.domains {
+		if item.disabled {
+			continue
+		}
 		domains = append(domains, item.domain)
 	}
 	got := strings.Join(domains, ",")
@@ -379,9 +385,12 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	}
 
 	reactivate()
-	expected = "domain0,domain2,domain1"
+	expected = "domain0,domain1,domain2"
 	domains = []string{}
 	for _, item := range server.currentConfig.domains {
+		if item.disabled {
+			continue
+		}
 		domains = append(domains, item.domain)
 	}
 	got = strings.Join(domains, ",")

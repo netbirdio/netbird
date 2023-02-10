@@ -410,24 +410,14 @@ func (s *DefaultServer) deregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
 }
 
+// upstreamCallbacks returns two functions, the first one is used to deactivate
+// the upstream resolver from the configuration, the second one is used to
+// reactivate it. Not allowed to call reactivate before deactivate.
 func (s *DefaultServer) upstreamCallbacks(
 	nsGroup *nbdns.NameServerGroup,
 	handler dns.Handler,
 ) (deactivate func(), reactivate func()) {
-	all := false
-	removeIndex := map[string]struct{}{}
-	removeDomain := []string{}
-
-	if nsGroup.Primary {
-		all = true
-		removeIndex[nbdns.RootZone] = struct{}{}
-		removeDomain = append(removeDomain, nbdns.RootZone)
-	}
-	for _, domain := range nsGroup.Domains {
-		removeIndex[domain] = struct{}{}
-		removeDomain = append(removeDomain, domain)
-	}
-
+	var removeIndex map[string]int
 	deactivate = func() {
 		s.mux.Lock()
 		defer s.mux.Unlock()
@@ -435,40 +425,47 @@ func (s *DefaultServer) upstreamCallbacks(
 		l := log.WithField("nameservers", nsGroup.NameServers)
 		l.Info("temporary deactivate nameservers group")
 
-		excluded := 0
-		for excluded <= len(s.currentConfig.domains[excluded:]) {
-			if _, found := removeIndex[s.currentConfig.domains[excluded].domain]; found {
-				s.deregisterMux(s.currentConfig.domains[excluded].domain)
-				s.currentConfig.domains = append(s.currentConfig.domains[:excluded], s.currentConfig.domains[excluded+1:]...)
-				continue
-			}
-			excluded++
+		removeIndex = make(map[string]int)
+		for _, domain := range nsGroup.Domains {
+			removeIndex[domain] = -1
 		}
 
+		for i, item := range s.currentConfig.domains {
+			if _, found := removeIndex[item.domain]; found {
+				s.currentConfig.domains[i].disabled = true
+				s.deregisterMux(item.domain)
+				removeIndex[item.domain] = i
+			}
+		}
+
+		if nsGroup.Primary {
+			s.currentConfig.routeAll = false
+		}
 		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
 			l.WithError(err).Error("temporary deactivate nameservers group, DNS update apply")
 		}
 	}
-
 	reactivate = func() {
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
-		if all {
-			s.currentConfig.routeAll = all
-		}
-		for _, domain := range removeDomain {
-			s.currentConfig.domains = append(s.currentConfig.domains, domainConfig{domain, false})
+		for domain, i := range removeIndex {
+			if i == -1 || i >= len(s.currentConfig.domains) || s.currentConfig.domains[i].domain != domain {
+				continue
+			}
+			s.currentConfig.domains[i].disabled = false
 			s.registerMux(domain, handler)
 		}
 
 		l := log.WithField("nameservers", nsGroup.NameServers)
 		l.Debug("reactivate temporary disabled nameserver group")
 
+		if nsGroup.Primary {
+			s.currentConfig.routeAll = true
+		}
 		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
 			l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
 		}
 	}
-
 	return
 }

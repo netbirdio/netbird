@@ -2,8 +2,9 @@ package dns
 
 import (
 	"fmt"
-	nbdns "github.com/netbirdio/netbird/dns"
 	"strings"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 type hostManager interface {
@@ -19,6 +20,7 @@ type hostDNSConfig struct {
 }
 
 type domainConfig struct {
+	disabled  bool
 	domain    string
 	matchOnly bool
 }
