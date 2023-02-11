@@ -2,6 +2,7 @@ package iface
 
 import (
 	"fmt"
+
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/driver"
@@ -19,14 +20,13 @@ func (w *WGIface) Create() error {
 		return err
 	}
 	w.Interface = adapter
-	luid := adapter.LUID()
 	err = adapter.SetAdapterState(driver.AdapterStateUp)
 	if err != nil {
 		return err
 	}
-	state, _ := luid.GUID()
+	state, _ := adapter.LUID().GUID()
 	log.Debugln("device guid: ", state.String())
-	return w.assignAddr(luid)
+	return w.assignAddr()
 }
 
 // GetInterfaceGUIDString returns an interface GUID string
