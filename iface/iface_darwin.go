@@ -1,8 +1,9 @@
 package iface
 
 import (
-	log "github.com/sirupsen/logrus"
 	"os/exec"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
@@ -28,9 +29,4 @@ func (w *WGIface) assignAddr() error {
 	}
 
 	return nil
-}
-
-// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
-func WireguardModuleIsLoaded() bool {
-	return false
 }
