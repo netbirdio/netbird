@@ -87,26 +87,6 @@ func (w *WGIface) Configure(privateKey string, port int) error {
 	return nil
 }
 
-// GetListenPort returns the listening port of the Wireguard endpoint
-func (w *WGIface) GetListenPort() (*int, error) {
-	log.Debugf("getting Wireguard listen port of interface %s", w.name)
-
-	//discover Wireguard current configuration
-	wg, err := wgctrl.New()
-	if err != nil {
-		return nil, err
-	}
-	defer wg.Close()
-
-	d, err := wg.Device(w.name)
-	if err != nil {
-		return nil, err
-	}
-	log.Debugf("got Wireguard device listen port %s, %d", w.name, d.ListenPort)
-
-	return &d.ListenPort, nil
-}
-
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
 // Endpoint is optional
 func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
