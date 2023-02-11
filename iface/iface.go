@@ -87,6 +87,20 @@ func (w *WGIface) Configure(privateKey string, port int) error {
 	return nil
 }
 
+// UpdateAddr updates address of the interface
+func (w *WGIface) UpdateAddr(newAddr string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	addr, err := parseWGAddress(newAddr)
+	if err != nil {
+		return err
+	}
+
+	w.address = addr
+	return w.assignAddr()
+}
+
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
 // Endpoint is optional
 func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {

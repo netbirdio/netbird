@@ -14,20 +14,6 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-// UpdateAddr updates address of the interface
-func (w *WGIface) UpdateAddr(newAddr string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	addr, err := parseWGAddress(newAddr)
-	if err != nil {
-		return err
-	}
-
-	w.address = addr
-	return w.assignAddr()
-}
-
 // GetInterfaceGUIDString returns an interface GUID. This is useful on Windows only
 func (w *WGIface) GetInterfaceGUIDString() (string, error) {
 	return "", nil

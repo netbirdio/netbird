@@ -5,8 +5,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/driver"
-	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
-	"net"
 )
 
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
@@ -31,33 +29,6 @@ func (w *WGIface) Create() error {
 	return w.assignAddr(luid)
 }
 
-// assignAddr Adds IP address to the tunnel interface and network route based on the range provided
-func (w *WGIface) assignAddr(luid winipcfg.LUID) error {
-
-	log.Debugf("adding address %s to interface: %s", w.address.IP, w.name)
-	err := luid.SetIPAddresses([]net.IPNet{{w.address.IP, w.address.Network.Mask}})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// UpdateAddr updates address of the interface
-func (w *WGIface) UpdateAddr(newAddr string) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	luid := w.Interface.(*driver.Adapter).LUID()
-	addr, err := parseWGAddress(newAddr)
-	if err != nil {
-		return err
-	}
-
-	w.address = addr
-	return w.assignAddr(luid)
-}
-
 // GetInterfaceGUIDString returns an interface GUID string
 func (w *WGIface) GetInterfaceGUIDString() (string, error) {
 	if w.Interface == nil {
@@ -72,11 +43,6 @@ func (w *WGIface) GetInterfaceGUIDString() (string, error) {
 	return guid.String(), nil
 }
 
-// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
-func WireguardModuleIsLoaded() bool {
-	return false
-}
-
 // Close closes the tunnel interface
 func (w *WGIface) Close() error {
 	w.mu.Lock()
@@ -86,4 +52,22 @@ func (w *WGIface) Close() error {
 	}
 
 	return w.Interface.Close()
+}
+
+// assignAddr Adds IP address to the tunnel interface and network route based on the range provided
+func (w *WGIface) assignAddr() error {
+	luid := w.Interface.(*driver.Adapter).LUID()
+
+	log.Debugf("adding address %s to interface: %s", w.address.IP, w.name)
+	err := luid.SetIPAddresses([]net.IPNet{{w.address.IP, w.address.Network.Mask}})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
+func WireguardModuleIsLoaded() bool {
+	return false
 }
