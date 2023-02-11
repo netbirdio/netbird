@@ -2,6 +2,7 @@ package iface
 
 import (
 	"fmt"
+	"net"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
