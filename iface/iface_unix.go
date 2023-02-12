@@ -45,7 +45,7 @@ func (w *WGIface) Close() error {
 // createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
 func (w *WGIface) createWithUserspace() error {
 
-	tunIface, err := tun.CreateTUN(w.name, w.MTU)
+	tunIface, err := tun.CreateTUN(w.name, w.mtu)
 	if err != nil {
 		return err
 	}

@@ -2,9 +2,10 @@ package iface
 
 import (
 	"fmt"
+	"os"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
-	"os"
 )
 
 // Create creates a new Wireguard interface, sets a given IP and brings it up.
@@ -66,8 +67,8 @@ func (w *WGIface) createWithKernel() error {
 	}
 
 	// todo do a discovery
-	log.Debugf("setting MTU: %d interface: %s", w.MTU, w.name)
-	err = netlink.LinkSetMTU(link, w.MTU)
+	log.Debugf("setting MTU: %d interface: %s", w.mtu, w.name)
+	err = netlink.LinkSetMTU(link, w.mtu)
 	if err != nil {
 		log.Errorf("error setting MTU on interface: %s", w.name)
 		return err

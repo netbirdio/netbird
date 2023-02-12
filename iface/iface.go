@@ -24,9 +24,9 @@ type NetInterface interface {
 // WGIface represents a interface instance
 type WGIface struct {
 	Port      int
-	MTU       int
 	name      string
 	address   WGAddress
+	mtu       int
 	Interface NetInterface
 	mu        sync.Mutex
 }
@@ -34,8 +34,8 @@ type WGIface struct {
 // NewWGIFace Creates a new Wireguard interface instance
 func NewWGIFace(iface string, address string, mtu int) (*WGIface, error) {
 	wgIface := &WGIface{
-		MTU:  mtu,
 		name: iface,
+		mtu:  mtu,
 		mu:   sync.Mutex{},
 	}
 
