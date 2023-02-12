@@ -59,7 +59,7 @@ func (w *WGIface) createWithKernel() error {
 		return err
 	}
 
-	w.Interface = link
+	w.netInterface = link
 
 	err = w.assignAddr()
 	if err != nil {

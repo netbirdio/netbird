@@ -158,12 +158,10 @@ func (e *Engine) Stop() error {
 	time.Sleep(500 * time.Millisecond)
 
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
-	if e.wgInterface.Interface != nil {
-		err = e.wgInterface.Close()
-		if err != nil {
-			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
-			return err
-		}
+	err = e.wgInterface.Close()
+	if err != nil {
+		log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
+		return err
 	}
 
 	if e.udpMux != nil {

@@ -20,7 +20,7 @@ func (w *WGIface) Create() error {
 		err = fmt.Errorf("error creating adapter: %w", err)
 		return err
 	}
-	w.Interface = adapter
+	w.netInterface = adapter
 	err = adapter.SetAdapterState(driver.AdapterStateUp)
 	if err != nil {
 		return err
@@ -32,10 +32,10 @@ func (w *WGIface) Create() error {
 
 // GetInterfaceGUIDString returns an interface GUID string
 func (w *WGIface) GetInterfaceGUIDString() (string, error) {
-	if w.Interface == nil {
+	if w.netInterface == nil {
 		return "", fmt.Errorf("interface has not been initialized yet")
 	}
-	windowsDevice := w.Interface.(*driver.Adapter)
+	windowsDevice := w.netInterface.(*driver.Adapter)
 	luid := windowsDevice.LUID()
 	guid, err := luid.GUID()
 	if err != nil {
@@ -48,16 +48,16 @@ func (w *WGIface) GetInterfaceGUIDString() (string, error) {
 func (w *WGIface) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.Interface == nil {
+	if w.netInterface == nil {
 		return nil
 	}
 
-	return w.Interface.Close()
+	return w.netInterface.Close()
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (w *WGIface) assignAddr() error {
-	luid := w.Interface.(*driver.Adapter).LUID()
+	luid := w.netInterface.(*driver.Adapter).LUID()
 
 	log.Debugf("adding address %s to interface: %s", w.address.IP, w.name)
 	err := luid.SetIPAddresses([]net.IPNet{{w.address.IP, w.address.Network.Mask}})

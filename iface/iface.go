@@ -23,11 +23,11 @@ type NetInterface interface {
 
 // WGIface represents a interface instance
 type WGIface struct {
-	name      string
-	address   WGAddress
-	mtu       int
-	Interface NetInterface
-	mu        sync.Mutex
+	name         string
+	address      WGAddress
+	mtu          int
+	netInterface NetInterface
+	mu           sync.Mutex
 }
 
 // NewWGIFace Creates a new Wireguard interface instance

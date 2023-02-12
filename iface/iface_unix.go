@@ -23,10 +23,10 @@ func (w *WGIface) GetInterfaceGUIDString() (string, error) {
 func (w *WGIface) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.Interface == nil {
+	if w.netInterface == nil {
 		return nil
 	}
-	err := w.Interface.Close()
+	err := w.netInterface.Close()
 	if err != nil {
 		return err
 	}
@@ -50,7 +50,7 @@ func (w *WGIface) createWithUserspace() error {
 		return err
 	}
 
-	w.Interface = tunIface
+	w.netInterface = tunIface
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
