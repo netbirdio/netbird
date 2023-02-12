@@ -23,7 +23,6 @@ type NetInterface interface {
 
 // WGIface represents a interface instance
 type WGIface struct {
-	Port      int
 	name      string
 	address   WGAddress
 	mtu       int
