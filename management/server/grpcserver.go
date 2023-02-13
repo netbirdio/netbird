@@ -132,6 +132,15 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return msg
 	}
 
+	account, err := s.accountManager.GetAccountByPeerID(peer.ID)
+	if err != nil {
+		return status.Error(codes.Internal, "internal server error")
+	}
+	expired, left := peer.LoginExpired(account.PeerLoginExpiration)
+	if peer.UserID != "" && expired {
+		return status.Errorf(codes.PermissionDenied, "peer login has expired %v ago. Please log in once more", left)
+	}
+
 	syncReq := &proto.SyncRequest{}
 	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, syncReq)
 	if err != nil {
@@ -196,29 +205,37 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 }
 
+func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
+	if s.jwtMiddleware == nil {
+		return "", status.Error(codes.Internal, "no jwt middleware set")
+	}
+
+	token, err := s.jwtMiddleware.ValidateAndParse(jwtToken)
+	if err != nil {
+		return "", status.Errorf(codes.Internal, "invalid jwt token, err: %v", err)
+	}
+	claims := s.jwtClaimsExtractor.FromToken(token)
+	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
+	_, _, err = s.accountManager.GetAccountFromToken(claims)
+	if err != nil {
+		return "", status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
+	}
+
+	return claims.UserId, nil
+}
+
 func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
 	var (
 		reqSetupKey string
 		userID      string
+		err         error
 	)
 
 	if req.GetJwtToken() != "" {
 		log.Debugln("using jwt token to register peer")
-
-		if s.jwtMiddleware == nil {
-			return nil, status.Error(codes.Internal, "no jwt middleware set")
-		}
-
-		token, err := s.jwtMiddleware.ValidateAndParse(req.GetJwtToken())
+		userID, err = s.validateToken(req.JwtToken)
 		if err != nil {
-			return nil, status.Errorf(codes.Internal, "invalid jwt token, err: %v", err)
-		}
-		claims := s.jwtClaimsExtractor.FromToken(token)
-		userID = claims.UserId
-		// we need to call this method because if user is new, we will automatically add it to existing or create a new account
-		_, _, err = s.accountManager.GetAccountFromToken(claims)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "unable to fetch account with claims, err: %v", err)
+			return nil, err
 		}
 	} else {
 		log.Debugln("using setup key to register peer")
@@ -351,6 +368,29 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		if err != nil {
 			log.Errorf("failed updating peer system meta data %s", peerKey.String())
 			return nil, status.Error(codes.Internal, "internal server error")
+		}
+	}
+
+	// check if peer login has expired
+	account, err := s.accountManager.GetAccountByPeerID(peer.ID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "internal server error")
+	}
+	expired, left := peer.LoginExpired(account.PeerLoginExpiration)
+	if peer.UserID != "" && expired {
+		// it might be that peer expired but user has logged in already, check token then
+		if loginReq.GetJwtToken() == "" {
+			return nil, status.Errorf(codes.PermissionDenied,
+				"peer login has expired %v ago. Please log in once more", left)
+		}
+		_, err = s.validateToken(loginReq.GetJwtToken())
+		if err != nil {
+			return nil, err
+		}
+
+		err = s.accountManager.UpdatePeerLastLogin(peer.ID)
+		if err != nil {
+			return nil, err
 		}
 	}
 

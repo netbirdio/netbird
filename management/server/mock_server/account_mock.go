@@ -67,6 +67,8 @@ type MockAccountManager struct {
 	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
 	GetPeerFunc                     func(accountID, peerID, userID string) (*server.Peer, error)
+	GetAccountByPeerIDFunc          func(peerID string) (*server.Account, error)
+	UpdatePeerLastLoginFunc         func(peerID string) error
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -525,4 +527,20 @@ func (am *MockAccountManager) GetPeer(accountID, peerID, userID string) (*server
 		return am.GetPeerFunc(accountID, peerID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeer is not implemented")
+}
+
+// GetAccountByPeerID mocks GetAccountByPeerID of the AccountManager interface
+func (am *MockAccountManager) GetAccountByPeerID(peerID string) (*server.Account, error) {
+	if am.GetAccountByPeerIDFunc != nil {
+		return am.GetAccountByPeerIDFunc(peerID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByPeerID is not implemented")
+}
+
+// UpdatePeerLastLogin mocks UpdatePeerLastLogin of the AccountManager interface
+func (am *MockAccountManager) UpdatePeerLastLogin(peerID string) error {
+	if am.UpdatePeerLastLoginFunc != nil {
+		return am.UpdatePeerLastLoginFunc(peerID)
+	}
+	return status.Errorf(codes.Unimplemented, "method UpdatePeerLastLogin is not implemented")
 }
