@@ -51,7 +51,7 @@ type systemdDbusLinkDomainsInput struct {
 }
 
 func newSystemdDbusConfigurator(wgInterface *iface.WGIface) (hostManager, error) {
-	iface, err := net.InterfaceByName(wgInterface.GetName())
+	iface, err := net.InterfaceByName(wgInterface.Name())
 	if err != nil {
 		return nil, err
 	}

@@ -1,8 +1,9 @@
 package iface
 
 import (
-	log "github.com/sirupsen/logrus"
 	"os/exec"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // Create Creates a new Wireguard interface, sets a given IP and brings it up.
@@ -15,26 +16,17 @@ func (w *WGIface) Create() error {
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (w *WGIface) assignAddr() error {
-	//mask,_ := w.Address.Network.Mask.Size()
-	//
-	//address := fmt.Sprintf("%s/%d",w.Address.IP.String() , mask)
-
-	cmd := exec.Command("ifconfig", w.Name, "inet", w.Address.IP.String(), w.Address.IP.String())
+	cmd := exec.Command("ifconfig", w.name, "inet", w.address.IP.String(), w.address.IP.String())
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Infof("adding addreess command \"%v\" failed with output %s and error: ", cmd.String(), out)
+		log.Infof(`adding addreess command "%v" failed with output %s and error: `, cmd.String(), out)
 		return err
 	}
 
-	routeCmd := exec.Command("route", "add", "-net", w.Address.Network.String(), "-interface", w.Name)
+	routeCmd := exec.Command("route", "add", "-net", w.address.Network.String(), "-interface", w.name)
 	if out, err := routeCmd.CombinedOutput(); err != nil {
-		log.Printf("adding route command \"%v\" failed with output %s and error: ", routeCmd.String(), out)
+		log.Printf(`adding route command "%v" failed with output %s and error: `, routeCmd.String(), out)
 		return err
 	}
 
 	return nil
-}
-
-// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
-func WireguardModuleIsLoaded() bool {
-	return false
 }

@@ -76,12 +76,12 @@ func newNetworkManagerDbusConfigurator(wgInterface *iface.WGIface) (hostManager,
 	}
 	defer closeConn()
 	var s string
-	err = obj.Call(networkManagerDbusGetDeviceByIPIfaceMethod, dbusDefaultFlag, wgInterface.GetName()).Store(&s)
+	err = obj.Call(networkManagerDbusGetDeviceByIPIfaceMethod, dbusDefaultFlag, wgInterface.Name()).Store(&s)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface.GetName())
+	log.Debugf("got network manager dbus Link Object: %s from net interface %s", s, wgInterface.Name())
 
 	return &networkManagerDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),

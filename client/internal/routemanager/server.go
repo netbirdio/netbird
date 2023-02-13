@@ -40,7 +40,7 @@ func (m *DefaultManager) removeFromServerNetwork(route *route.Route) error {
 	default:
 		m.serverRouter.mux.Lock()
 		defer m.serverRouter.mux.Unlock()
-		err := m.serverRouter.firewall.RemoveRoutingRules(routeToRouterPair(m.wgInterface.Address.String(), route))
+		err := m.serverRouter.firewall.RemoveRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), route))
 		if err != nil {
 			return err
 		}
@@ -57,7 +57,7 @@ func (m *DefaultManager) addToServerNetwork(route *route.Route) error {
 	default:
 		m.serverRouter.mux.Lock()
 		defer m.serverRouter.mux.Unlock()
-		err := m.serverRouter.firewall.InsertRoutingRules(routeToRouterPair(m.wgInterface.Address.String(), route))
+		err := m.serverRouter.firewall.InsertRoutingRules(routeToRouterPair(m.wgInterface.Address().String(), route))
 		if err != nil {
 			return err
 		}

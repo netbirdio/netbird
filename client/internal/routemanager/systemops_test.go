@@ -39,18 +39,18 @@ func TestAddRemoveRoutes(t *testing.T) {
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
 
-			err = addToRouteTableIfNoExists(testCase.prefix, wgInterface.GetAddress().IP.String())
+			err = addToRouteTableIfNoExists(testCase.prefix, wgInterface.Address().IP.String())
 			require.NoError(t, err, "should not return err")
 
 			prefixGateway, err := getExistingRIBRouteGateway(testCase.prefix)
 			require.NoError(t, err, "should not return err")
 			if testCase.shouldRouteToWireguard {
-				require.Equal(t, wgInterface.GetAddress().IP.String(), prefixGateway.String(), "route should point to wireguard interface IP")
+				require.Equal(t, wgInterface.Address().IP.String(), prefixGateway.String(), "route should point to wireguard interface IP")
 			} else {
-				require.NotEqual(t, wgInterface.GetAddress().IP.String(), prefixGateway.String(), "route should point to a different interface")
+				require.NotEqual(t, wgInterface.Address().IP.String(), prefixGateway.String(), "route should point to a different interface")
 			}
 
-			err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.GetAddress().IP.String())
+			err = removeFromRouteTableIfNonSystem(testCase.prefix, wgInterface.Address().IP.String())
 			require.NoError(t, err, "should not return err")
 
 			prefixGateway, err = getExistingRIBRouteGateway(testCase.prefix)
