@@ -21,6 +21,8 @@ const (
 	EventActivityCodeNameserverGroupAdd                      EventActivityCode = "nameserver.group.add"
 	EventActivityCodeNameserverGroupDelete                   EventActivityCode = "nameserver.group.delete"
 	EventActivityCodeNameserverGroupUpdate                   EventActivityCode = "nameserver.group.update"
+	EventActivityCodePeerLoginExpirationDisable              EventActivityCode = "peer.login.expiration.disable"
+	EventActivityCodePeerLoginExpirationEnable               EventActivityCode = "peer.login.expiration.enable"
 	EventActivityCodePeerRename                              EventActivityCode = "peer.rename"
 	EventActivityCodePeerSshDisable                          EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                           EventActivityCode = "peer.ssh.enable"
@@ -635,8 +637,9 @@ type PutApiGroupsIdJSONBody struct {
 
 // PutApiPeersIdJSONBody defines parameters for PutApiPeersId.
 type PutApiPeersIdJSONBody struct {
-	Name       string `json:"name"`
-	SshEnabled bool   `json:"ssh_enabled"`
+	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
+	Name                   string `json:"name"`
+	SshEnabled             bool   `json:"ssh_enabled"`
 }
 
 // PatchApiRoutesIdJSONBody defines parameters for PatchApiRoutesId.

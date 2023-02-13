@@ -47,7 +47,8 @@ func (h *Peers) updatePeer(account *server.Account, user *server.User, peerID st
 		return
 	}
 
-	update := &server.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name}
+	update := &server.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name,
+		LoginExpirationEnabled: req.LoginExpirationEnabled}
 	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update)
 	if err != nil {
 		util.WriteError(err, w)

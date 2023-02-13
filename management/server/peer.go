@@ -206,7 +206,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	return nil
 }
 
-// UpdatePeer updates peer. Only Peer.Name and Peer.SSHEnabled can be updated.
+// UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, and Peer.LoginExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Peer) (*Peer, error) {
 
 	unlock := am.Store.AcquireAccountLock(accountID)
@@ -244,6 +244,16 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 		peer.DNSLabel = newLabel
 
 		am.storeEvent(userID, peer.ID, accountID, activity.PeerRenamed, peer.EventMeta(am.GetDNSDomain()))
+	}
+
+	if peer.LoginExpirationEnabled != update.LoginExpirationEnabled {
+		peer.LoginExpirationEnabled = update.LoginExpirationEnabled
+
+		event := activity.PeerLoginExpirationEnabled
+		if !update.LoginExpirationEnabled {
+			event = activity.PeerLoginExpirationDisabled
+		}
+		am.storeEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	account.UpdatePeer(peer)

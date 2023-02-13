@@ -555,7 +555,7 @@ components:
                   "account.create", "dns.setting.disabled.management.group.delete",
                   "route.add", "route.delete", "route.update",
                   "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
-                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename"
+                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable"
           ]
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
@@ -754,7 +754,7 @@ paths:
             type: string
           description: The Peer ID
       requestBody:
-        description: update to peers
+        description: update a peer
         content:
           'application/json':
             schema:
@@ -764,9 +764,12 @@ paths:
                   type: string
                 ssh_enabled:
                   type: boolean
+                login_expiration_enabled:
+                  type: boolean
               required:
                 - name
                 - ssh_enabled
+                - login_expiration_enabled
       responses:
         '200':
           description: A Peer object
