@@ -136,7 +136,7 @@ func (s *DefaultServer) Start() {
 func (s *DefaultServer) getFirstListenerAvailable() (string, int, error) {
 	ips := []string{defaultIP, customIP}
 	if runtime.GOOS != "darwin" && s.wgInterface != nil {
-		ips = append([]string{s.wgInterface.GetAddress().IP.String()}, ips...)
+		ips = append([]string{s.wgInterface.Address().IP.String()}, ips...)
 	}
 	ports := []int{defaultPort, customPort}
 	for _, port := range ports {

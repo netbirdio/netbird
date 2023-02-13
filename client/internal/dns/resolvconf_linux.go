@@ -17,7 +17,7 @@ type resolvconf struct {
 
 func newResolvConfConfigurator(wgInterface *iface.WGIface) (hostManager, error) {
 	return &resolvconf{
-		ifaceName: wgInterface.GetName(),
+		ifaceName: wgInterface.Name(),
 	}, nil
 }
 

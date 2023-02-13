@@ -158,12 +158,10 @@ func (e *Engine) Stop() error {
 	time.Sleep(500 * time.Millisecond)
 
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
-	if e.wgInterface.Interface != nil {
-		err = e.wgInterface.Close()
-		if err != nil {
-			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
-			return err
-		}
+	err = e.wgInterface.Close()
+	if err != nil {
+		log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
+		return err
 	}
 
 	if e.udpMux != nil {
@@ -501,7 +499,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 			//nil sshServer means it has not yet been started
 			var err error
 			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
-				fmt.Sprintf("%s:%d", e.wgInterface.Address.IP.String(), nbssh.DefaultSSHPort))
+				fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
 			if err != nil {
 				return err
 			}
@@ -534,8 +532,8 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 }
 
 func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
-	if e.wgInterface.Address.String() != conf.Address {
-		oldAddr := e.wgInterface.Address.String()
+	if e.wgInterface.Address().String() != conf.Address {
+		oldAddr := e.wgInterface.Address().String()
 		log.Debugf("updating peer address from %s to %s", oldAddr, conf.Address)
 		err := e.wgInterface.UpdateAddr(conf.Address)
 		if err != nil {

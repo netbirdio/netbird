@@ -857,7 +857,7 @@ loop:
 	}
 	// cleanup test
 	for n, peerEngine := range engines {
-		t.Logf("stopping peer with interface %s from multipeer test, loopIndex %d", peerEngine.wgInterface.Name, n)
+		t.Logf("stopping peer with interface %s from multipeer test, loopIndex %d", peerEngine.wgInterface.Name(), n)
 		errStop := peerEngine.mgmClient.Close()
 		if errStop != nil {
 			log.Infoln("got error trying to close management clients from engine: ", errStop)
@@ -905,7 +905,7 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 			expectedOutput:          []string{"1.1.1.1", "8.8.8.8/" + testingIP},
 		},
 		{
-			name:                    "Only Interface Name Should Return Nil",
+			name:                    "Only Interface name Should Return Nil",
 			inputBlacklistInterface: defaultInterfaceBlacklist,
 			inputMapList:            []string{testingInterface},
 			expectedOutput:          nil,
