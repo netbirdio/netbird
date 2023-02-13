@@ -2,10 +2,11 @@ package dns
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows/registry"
-	"strings"
 )
 
 const (
@@ -63,6 +64,9 @@ func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	)
 
 	for _, dConf := range config.domains {
+		if dConf.disabled {
+			continue
+		}
 		if !dConf.matchOnly {
 			searchDomains = append(searchDomains, dConf.domain)
 		}

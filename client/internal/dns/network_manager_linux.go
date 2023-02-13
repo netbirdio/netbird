@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"net/netip"
+	"regexp"
+	"time"
+
 	"github.com/godbus/dbus/v5"
 	"github.com/hashicorp/go-version"
 	"github.com/miekg/dns"
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
-	"net/netip"
-	"regexp"
-	"time"
 )
 
 const (
@@ -106,6 +107,9 @@ func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) er
 		matchDomains  []string
 	)
 	for _, dConf := range config.domains {
+		if dConf.disabled {
+			continue
+		}
 		if dConf.matchOnly {
 			matchDomains = append(matchDomains, "~."+dns.Fqdn(dConf.domain))
 			continue

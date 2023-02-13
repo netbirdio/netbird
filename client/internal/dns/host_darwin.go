@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
-	"github.com/netbirdio/netbird/iface"
-	log "github.com/sirupsen/logrus"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/netbirdio/netbird/iface"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -61,6 +62,9 @@ func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	)
 
 	for _, dConf := range config.domains {
+		if dConf.disabled {
+			continue
+		}
 		if dConf.matchOnly {
 			matchDomains = append(matchDomains, dConf.domain)
 			continue

@@ -3,16 +3,17 @@ package dns
 import (
 	"context"
 	"fmt"
-	"github.com/miekg/dns"
-	"github.com/mitchellh/hashstructure/v2"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"net/netip"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/miekg/dns"
+	"github.com/mitchellh/hashstructure/v2"
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -32,7 +33,8 @@ type Server interface {
 // DefaultServer dns server object
 type DefaultServer struct {
 	ctx                context.Context
-	stop               context.CancelFunc
+	ctxCancel          context.CancelFunc
+	upstreamCtxCancel  context.CancelFunc
 	mux                sync.Mutex
 	server             *dns.Server
 	dnsMux             *dns.ServeMux
@@ -45,6 +47,7 @@ type DefaultServer struct {
 	runtimePort        int
 	runtimeIP          string
 	previousConfigHash uint64
+	currentConfig      hostDNSConfig
 	customAddress      *netip.AddrPort
 }
 
@@ -79,7 +82,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 
 	defaultServer := &DefaultServer{
 		ctx:       ctx,
-		stop:      stop,
+		ctxCancel: stop,
 		server:    dnsServer,
 		dnsMux:    mux,
 		dnsMuxMap: make(registrationMap),
@@ -102,7 +105,6 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
-
 	if s.customAddress != nil {
 		s.runtimeIP = s.customAddress.Addr().String()
 		s.runtimePort = int(s.customAddress.Port())
@@ -163,7 +165,7 @@ func (s *DefaultServer) setListenerStatus(running bool) {
 func (s *DefaultServer) Stop() {
 	s.mux.Lock()
 	defer s.mux.Unlock()
-	s.stop()
+	s.ctxCancel()
 
 	err := s.hostManager.restoreHostDNS()
 	if err != nil {
@@ -209,6 +211,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 			ZeroNil:         true,
 			IgnoreZeroValue: true,
 			SlicesAsSets:    true,
+			UseStringer:     true,
 		})
 		if err != nil {
 			log.Errorf("unable to hash the dns configuration update, got error: %s", err)
@@ -219,34 +222,9 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 			s.updateSerial = serial
 			return nil
 		}
-		// is the service should be disabled, we stop the listener
-		// and proceed with a regular update to clean up the handlers and records
-		if !update.ServiceEnable {
-			err := s.stopListener()
-			if err != nil {
-				log.Error(err)
-			}
-		} else if !s.listenerIsRunning {
-			s.Start()
-		}
 
-		localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
-		if err != nil {
-			return fmt.Errorf("not applying dns update, error: %v", err)
-		}
-		upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups)
-		if err != nil {
-			return fmt.Errorf("not applying dns update, error: %v", err)
-		}
-
-		muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...)
-
-		s.updateMux(muxUpdates)
-		s.updateLocalResolver(localRecords)
-
-		err = s.hostManager.applyDNSConfig(dnsConfigToHostDNSConfig(update, s.runtimeIP, s.runtimePort))
-		if err != nil {
-			log.Error(err)
+		if err := s.applyConfiguration(update); err != nil {
+			return err
 		}
 
 		s.updateSerial = serial
@@ -254,6 +232,40 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 
 		return nil
 	}
+}
+
+func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
+	// is the service should be disabled, we stop the listener
+	// and proceed with a regular update to clean up the handlers and records
+	if !update.ServiceEnable {
+		err := s.stopListener()
+		if err != nil {
+			log.Error(err)
+		}
+	} else if !s.listenerIsRunning {
+		s.Start()
+	}
+
+	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
+	if err != nil {
+		return fmt.Errorf("not applying dns update, error: %v", err)
+	}
+	upstreamMuxUpdates, err := s.buildUpstreamHandlerUpdate(update.NameServerGroups)
+	if err != nil {
+		return fmt.Errorf("not applying dns update, error: %v", err)
+	}
+
+	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...)
+
+	s.updateMux(muxUpdates)
+	s.updateLocalResolver(localRecords)
+	s.currentConfig = dnsConfigToHostDNSConfig(update, s.runtimeIP, s.runtimePort)
+
+	if err = s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
+		log.Error(err)
+	}
+
+	return nil
 }
 
 func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) ([]muxUpdate, map[string]nbdns.SimpleRecord, error) {
@@ -284,16 +296,22 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 }
 
 func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]muxUpdate, error) {
+	// clean up the previous upstream resolver
+	if s.upstreamCtxCancel != nil {
+		s.upstreamCtxCancel()
+	}
+
 	var muxUpdates []muxUpdate
 	for _, nsGroup := range nameServerGroups {
 		if len(nsGroup.NameServers) == 0 {
-			return nil, fmt.Errorf("received a nameserver group with empty nameserver list")
+			log.Warn("received a nameserver group with empty nameserver list")
+			continue
 		}
-		handler := &upstreamResolver{
-			parentCTX:       s.ctx,
-			upstreamClient:  &dns.Client{},
-			upstreamTimeout: defaultUpstreamTimeout,
-		}
+
+		var ctx context.Context
+		ctx, s.upstreamCtxCancel = context.WithCancel(s.ctx)
+
+		handler := newUpstreamResolver(ctx)
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
 				log.Warnf("skiping nameserver %s with type %s, this peer supports only %s",
@@ -307,6 +325,16 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			log.Errorf("received a nameserver group with an invalid nameserver list")
 			continue
 		}
+
+		// when upstream fails to resolve domain several times over all it servers
+		// it will calls this hook to exclude self from the configuration and
+		// reapply DNS settings, but it not touch the original configuration and serial number
+		// because it is temporal deactivation until next try
+		//
+		// after some period defined by upstream it trys to reactivate self by calling this hook
+		// everything we need here is just to re-apply current configuration because it already
+		// contains this upstream settings (temporal deactivation not removed it)
+		handler.deactivate, handler.reactivate = s.upstreamCallbacks(nsGroup, handler)
 
 		if nsGroup.Primary {
 			muxUpdates = append(muxUpdates, muxUpdate{
@@ -381,4 +409,64 @@ func (s *DefaultServer) registerMux(pattern string, handler dns.Handler) {
 
 func (s *DefaultServer) deregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
+}
+
+// upstreamCallbacks returns two functions, the first one is used to deactivate
+// the upstream resolver from the configuration, the second one is used to
+// reactivate it. Not allowed to call reactivate before deactivate.
+func (s *DefaultServer) upstreamCallbacks(
+	nsGroup *nbdns.NameServerGroup,
+	handler dns.Handler,
+) (deactivate func(), reactivate func()) {
+	var removeIndex map[string]int
+	deactivate = func() {
+		s.mux.Lock()
+		defer s.mux.Unlock()
+
+		l := log.WithField("nameservers", nsGroup.NameServers)
+		l.Info("temporary deactivate nameservers group due timeout")
+
+		removeIndex = make(map[string]int)
+		for _, domain := range nsGroup.Domains {
+			removeIndex[domain] = -1
+		}
+		if nsGroup.Primary {
+			removeIndex[nbdns.RootZone] = -1
+			s.currentConfig.routeAll = false
+		}
+
+		for i, item := range s.currentConfig.domains {
+			if _, found := removeIndex[item.domain]; found {
+				s.currentConfig.domains[i].disabled = true
+				s.deregisterMux(item.domain)
+				removeIndex[item.domain] = i
+			}
+		}
+		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
+			l.WithError(err).Error("fail to apply nameserver deactivation on the host")
+		}
+	}
+	reactivate = func() {
+		s.mux.Lock()
+		defer s.mux.Unlock()
+
+		for domain, i := range removeIndex {
+			if i == -1 || i >= len(s.currentConfig.domains) || s.currentConfig.domains[i].domain != domain {
+				continue
+			}
+			s.currentConfig.domains[i].disabled = false
+			s.registerMux(domain, handler)
+		}
+
+		l := log.WithField("nameservers", nsGroup.NameServers)
+		l.Debug("reactivate temporary disabled nameserver group")
+
+		if nsGroup.Primary {
+			s.currentConfig.routeAll = true
+		}
+		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
+			l.WithError(err).Error("reactivate temporary disabled nameserver group, DNS update apply")
+		}
+	}
+	return
 }
