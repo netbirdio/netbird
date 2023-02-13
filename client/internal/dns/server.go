@@ -211,6 +211,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 			ZeroNil:         true,
 			IgnoreZeroValue: true,
 			SlicesAsSets:    true,
+			UseStringer:     true,
 		})
 		if err != nil {
 			log.Errorf("unable to hash the dns configuration update, got error: %s", err)
