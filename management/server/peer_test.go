@@ -13,42 +13,51 @@ func TestPeer_LoginExpired(t *testing.T) {
 
 	tt := []struct {
 		name              string
-		expirationEnbaled bool
+		expirationEnabled bool
 		lastLogin         time.Time
-		expiresIn         time.Duration
 		expected          bool
+		accountSettings   *Settings
 	}{
 		{
 			name:              "Peer Login Expiration Disabled. Peer Login Should Not Expire",
-			expirationEnbaled: false,
+			expirationEnabled: false,
 			lastLogin:         time.Now().Add(-25 * time.Hour),
-			expiresIn:         time.Hour,
-			expected:          false,
+			accountSettings: &Settings{
+				PeerLoginExpirationEnabled: true,
+				PeerLoginExpiration:        time.Hour,
+			},
+			expected: false,
 		},
 		{
 			name:              "Peer Login Should Expire",
-			expirationEnbaled: true,
+			expirationEnabled: true,
 			lastLogin:         time.Now().Add(-25 * time.Hour),
-			expiresIn:         time.Hour,
-			expected:          true,
+			accountSettings: &Settings{
+				PeerLoginExpirationEnabled: true,
+				PeerLoginExpiration:        time.Hour,
+			},
+			expected: true,
 		},
 		{
 			name:              "Peer Login Should Not Expire",
-			expirationEnbaled: true,
+			expirationEnabled: true,
 			lastLogin:         time.Now(),
-			expiresIn:         time.Hour,
-			expected:          false,
+			accountSettings: &Settings{
+				PeerLoginExpirationEnabled: true,
+				PeerLoginExpiration:        time.Hour,
+			},
+			expected: false,
 		},
 	}
 
 	for _, c := range tt {
 		t.Run(c.name, func(t *testing.T) {
 			peer := &Peer{
-				LoginExpirationEnabled: c.expirationEnbaled,
+				LoginExpirationEnabled: c.expirationEnabled,
 				LastLogin:              c.lastLogin,
 			}
 
-			expired, _ := peer.LoginExpired(c.expiresIn)
+			expired, _ := peer.LoginExpired(c.accountSettings)
 			assert.Equal(t, expired, c.expected)
 		})
 	}
