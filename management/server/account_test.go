@@ -1251,7 +1251,8 @@ func TestAccount_Copy(t *testing.T) {
 				ID: "nsGroup1",
 			},
 		},
-		DNSSettings: &DNSSettings{},
+		DNSSettings: &DNSSettings{DisabledManagementGroups: []string{}},
+		Settings:    &Settings{},
 	}
 	err := hasNilField(account)
 	if err != nil {

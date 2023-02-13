@@ -89,11 +89,12 @@ func (p *Peer) Copy() *Peer {
 // LoginExpired indicates whether peer's login has expired or not.
 // If Peer.LastLogin plus the expiresIn duration has happened already then login has expired.
 // Return true if login has expired, false otherwise and time left to expiration (negative when expired).
-func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
-	expiresAt := p.LastLogin.Add(expiresIn)
+// Expiration can be disabled/enabled on the Account or Peer level.
+func (p *Peer) LoginExpired(accountSettings *Settings) (bool, time.Duration) {
+	expiresAt := p.LastLogin.Add(accountSettings.PeerLoginExpiration)
 	now := time.Now()
 	left := expiresAt.Sub(now)
-	return p.LoginExpirationEnabled && (left <= 0), left
+	return accountSettings.PeerLoginExpirationEnabled && p.LoginExpirationEnabled && (left <= 0), left
 }
 
 // FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
