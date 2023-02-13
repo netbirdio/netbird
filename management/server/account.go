@@ -120,6 +120,23 @@ type DefaultAccountManager struct {
 	dnsDomain string
 }
 
+// Settings represents Account settings structure that can be modified via API and Dashboard
+type Settings struct {
+	// PeerLoginExpirationEnabled globally enables or disables peer login expiration
+	PeerLoginExpirationEnabled bool
+	// PeerLoginExpiration is a setting that indicates when peer login expires.
+	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
+	PeerLoginExpiration time.Duration
+}
+
+// Copy copies the Settings struct
+func (s *Settings) Copy() *Settings {
+	return &Settings{
+		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:        s.PeerLoginExpiration,
+	}
+}
+
 // Account represents a unique account of the system
 type Account struct {
 	Id string
@@ -137,9 +154,8 @@ type Account struct {
 	Routes                 map[string]*route.Route
 	NameServerGroups       map[string]*nbdns.NameServerGroup
 	DNSSettings            *DNSSettings
-	// PeerLoginExpiration is a setting that indicates when peer login expires.
-	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
-	PeerLoginExpiration time.Duration
+	// Settings is a dictionary of Account settings
+	Settings *Settings
 }
 
 type UserInfo struct {
@@ -472,7 +488,12 @@ func (a *Account) Copy() *Account {
 
 	var dnsSettings *DNSSettings
 	if a.DNSSettings != nil {
-		dnsSettings = a.DNSSettings
+		dnsSettings = a.DNSSettings.Copy()
+	}
+
+	var settings *Settings
+	if a.Settings != nil {
+		settings = a.Settings.Copy()
 	}
 
 	return &Account{
@@ -490,7 +511,7 @@ func (a *Account) Copy() *Account {
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
 		DNSSettings:            dnsSettings,
-		PeerLoginExpiration:    a.PeerLoginExpiration,
+		Settings:               settings,
 	}
 }
 
@@ -1097,17 +1118,20 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
 
 	acc := &Account{
-		Id:                  accountId,
-		SetupKeys:           setupKeys,
-		Network:             network,
-		Peers:               peers,
-		Users:               users,
-		CreatedBy:           userId,
-		Domain:              domain,
-		Routes:              routes,
-		NameServerGroups:    nameServersGroups,
-		DNSSettings:         dnsSettings,
-		PeerLoginExpiration: DefaultPeerLoginExpiration,
+		Id:               accountId,
+		SetupKeys:        setupKeys,
+		Network:          network,
+		Peers:            peers,
+		Users:            users,
+		CreatedBy:        userId,
+		Domain:           domain,
+		Routes:           routes,
+		NameServerGroups: nameServersGroups,
+		DNSSettings:      dnsSettings,
+		Settings: &Settings{
+			PeerLoginExpirationEnabled: true,
+			PeerLoginExpiration:        DefaultPeerLoginExpiration,
+		},
 	}
 
 	addAllGroup(acc)

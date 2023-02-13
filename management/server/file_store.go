@@ -82,8 +82,11 @@ func restore(file string) (*FileStore, error) {
 
 	for accountID, account := range store.Accounts {
 
-		if account.PeerLoginExpiration.Seconds() == 0 {
-			account.PeerLoginExpiration = DefaultPeerLoginExpiration
+		if account.Settings == nil {
+			account.Settings = &Settings{
+				PeerLoginExpirationEnabled: false,
+				PeerLoginExpiration:        DefaultPeerLoginExpiration,
+			}
 		}
 
 		for setupKeyId := range account.SetupKeys {
