@@ -453,18 +453,19 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	}
 
 	newPeer := &Peer{
-		ID:         xid.New().String(),
-		Key:        peer.Key,
-		SetupKey:   upperKey,
-		IP:         nextIp,
-		Meta:       peer.Meta,
-		Name:       peer.Name,
-		DNSLabel:   newLabel,
-		UserID:     userID,
-		Status:     &PeerStatus{Connected: false, LastSeen: time.Now()},
-		SSHEnabled: false,
-		SSHKey:     peer.SSHKey,
-		LastLogin:  time.Now(),
+		ID:                     xid.New().String(),
+		Key:                    peer.Key,
+		SetupKey:               upperKey,
+		IP:                     nextIp,
+		Meta:                   peer.Meta,
+		Name:                   peer.Name,
+		DNSLabel:               newLabel,
+		UserID:                 userID,
+		Status:                 &PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled:             false,
+		SSHKey:                 peer.SSHKey,
+		LastLogin:              time.Now(),
+		LoginExpirationEnabled: false,
 	}
 
 	// add peer to 'All' group
