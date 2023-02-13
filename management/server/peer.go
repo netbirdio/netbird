@@ -510,6 +510,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	return newPeer, nil
 }
 
+// UpdatePeerLastLogin sets Peer.LastLogin to the current timestamp.
 func (am *DefaultAccountManager) UpdatePeerLastLogin(peerID string) error {
 	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
