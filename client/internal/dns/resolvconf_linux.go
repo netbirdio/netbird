@@ -2,10 +2,11 @@ package dns
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/iface"
-	log "github.com/sirupsen/logrus"
 	"os/exec"
 	"strings"
+
+	"github.com/netbirdio/netbird/iface"
+	log "github.com/sirupsen/logrus"
 )
 
 const resolvconfCommand = "resolvconf"
@@ -33,7 +34,7 @@ func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
 	var searchDomains string
 	appendedDomains := 0
 	for _, dConf := range config.domains {
-		if dConf.matchOnly {
+		if dConf.matchOnly || dConf.disabled {
 			continue
 		}
 

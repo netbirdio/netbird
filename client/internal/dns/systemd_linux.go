@@ -3,15 +3,16 @@ package dns
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/netip"
+	"time"
+
 	"github.com/godbus/dbus/v5"
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
-	"net"
-	"net/netip"
-	"time"
 )
 
 const (
@@ -95,6 +96,9 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		domainsInput  []systemdDbusLinkDomainsInput
 	)
 	for _, dConf := range config.domains {
+		if dConf.disabled {
+			continue
+		}
 		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
 			Domain:    dns.Fqdn(dConf.domain),
 			MatchOnly: dConf.matchOnly,

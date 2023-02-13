@@ -2,8 +2,9 @@ package dns
 
 import (
 	"fmt"
-	nbdns "github.com/netbirdio/netbird/dns"
 	"strings"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 type hostManager interface {
@@ -19,6 +20,7 @@ type hostDNSConfig struct {
 }
 
 type domainConfig struct {
+	disabled  bool
 	domain    string
 	matchOnly bool
 }
@@ -56,6 +58,9 @@ func dnsConfigToHostDNSConfig(dnsConfig nbdns.Config, ip string, port int) hostD
 		serverPort: port,
 	}
 	for _, nsConfig := range dnsConfig.NameServerGroups {
+		if len(nsConfig.NameServers) == 0 {
+			continue
+		}
 		if nsConfig.Primary {
 			config.routeAll = true
 		}

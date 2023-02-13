@@ -23,7 +23,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			name:           "Should Resolve A Record",
 			inputMSG:       new(dns.Msg).SetQuestion("one.one.one.one.", dns.TypeA),
 			InputServers:   []string{"8.8.8.8:53", "8.8.4.4:53"},
-			timeout:        defaultUpstreamTimeout,
+			timeout:        upstreamTimeout,
 			expectedAnswer: "1.1.1.1",
 		},
 		{
@@ -45,7 +45,7 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 			inputMSG:            new(dns.Msg).SetQuestion("one.one.one.one.", dns.TypeA),
 			InputServers:        []string{"8.0.0.0:53", "8.8.4.4:53"},
 			cancelCTX:           true,
-			timeout:             defaultUpstreamTimeout,
+			timeout:             upstreamTimeout,
 			responseShouldBeNil: true,
 		},
 		//{
@@ -65,12 +65,9 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.TODO())
-			resolver := &upstreamResolver{
-				parentCTX:       ctx,
-				upstreamClient:  &dns.Client{},
-				upstreamServers: testCase.InputServers,
-				upstreamTimeout: testCase.timeout,
-			}
+			resolver := newUpstreamResolver(ctx)
+			resolver.upstreamServers = testCase.InputServers
+			resolver.upstreamTimeout = testCase.timeout
 			if testCase.cancelCTX {
 				cancel()
 			} else {
@@ -106,5 +103,54 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 				t.Errorf("couldn't find the required answer, %s, in the dns response", testCase.expectedAnswer)
 			}
 		})
+	}
+}
+
+func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
+	resolver := newUpstreamResolver(context.TODO())
+	resolver.upstreamServers = []string{"0.0.0.0:-1"}
+	resolver.failsTillDeact = 0
+	resolver.reactivatePeriod = time.Microsecond * 100
+
+	responseWriter := &mockResponseWriter{
+		WriteMsgFunc: func(m *dns.Msg) error { return nil },
+	}
+
+	failed := false
+	resolver.deactivate = func() {
+		failed = true
+	}
+
+	reactivated := false
+	resolver.reactivate = func() {
+		reactivated = true
+	}
+
+	resolver.ServeDNS(responseWriter, new(dns.Msg).SetQuestion("one.one.one.one.", dns.TypeA))
+
+	if !failed {
+		t.Errorf("expected that resolving was deactivated")
+		return
+	}
+
+	if !resolver.disabled {
+		t.Errorf("resolver should be disabled")
+		return
+	}
+
+	time.Sleep(time.Millisecond * 200)
+
+	if !reactivated {
+		t.Errorf("expected that resolving was reactivated")
+		return
+	}
+
+	if resolver.failsCount.Load() != 0 {
+		t.Errorf("fails count after reactivation should be 0")
+		return
+	}
+
+	if resolver.disabled {
+		t.Errorf("should be enabled")
 	}
 }

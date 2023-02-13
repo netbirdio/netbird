@@ -3,8 +3,9 @@ package dns
 import (
 	"bytes"
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"os"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -14,6 +15,7 @@ const (
 		"\n# If needed you can restore the original file by copying back %s\n\nnameserver %s\n" +
 		fileGeneratedResolvConfSearchBeginContent + "%s\n"
 )
+
 const (
 	fileDefaultResolvConfBackupLocation = defaultResolvConfPath + ".original.netbird"
 	fileMaxLineCharsLimit               = 256
@@ -66,7 +68,7 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	var searchDomains string
 	appendedDomains := 0
 	for _, dConf := range config.domains {
-		if dConf.matchOnly {
+		if dConf.matchOnly || dConf.disabled {
 			continue
 		}
 		if appendedDomains >= fileMaxNumberOfSearchDomains {

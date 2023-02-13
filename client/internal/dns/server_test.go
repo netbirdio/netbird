@@ -3,13 +3,15 @@ package dns
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/netip"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/miekg/dns"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
-	"net"
-	"net/netip"
-	"testing"
-	"time"
 )
 
 var zoneRecords = []nbdns.SimpleRecord{
@@ -23,7 +25,6 @@ var zoneRecords = []nbdns.SimpleRecord{
 }
 
 func TestUpdateDNSServer(t *testing.T) {
-
 	nameServers := []nbdns.NameServer{
 		{
 			IP:     netip.MustParseAddr("8.8.8.8"),
@@ -263,7 +264,6 @@ func TestUpdateDNSServer(t *testing.T) {
 }
 
 func TestDNSServerStartStop(t *testing.T) {
-
 	testCases := []struct {
 		name     string
 		addrPort string
@@ -333,6 +333,72 @@ func TestDNSServerStartStop(t *testing.T) {
 	}
 }
 
+func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
+	hostManager := &mockHostConfigurator{}
+	server := DefaultServer{
+		dnsMux: dns.DefaultServeMux,
+		localResolver: &localResolver{
+			registeredMap: make(registrationMap),
+		},
+		hostManager: hostManager,
+		currentConfig: hostDNSConfig{
+			domains: []domainConfig{
+				{false, "domain0", false},
+				{false, "domain1", false},
+				{false, "domain2", false},
+			},
+		},
+	}
+
+	var domainsUpdate string
+	hostManager.applyDNSConfigFunc = func(config hostDNSConfig) error {
+		domains := []string{}
+		for _, item := range config.domains {
+			if item.disabled {
+				continue
+			}
+			domains = append(domains, item.domain)
+		}
+		domainsUpdate = strings.Join(domains, ",")
+		return nil
+	}
+
+	deactivate, reactivate := server.upstreamCallbacks(&nbdns.NameServerGroup{
+		Domains: []string{"domain1"},
+		NameServers: []nbdns.NameServer{
+			{IP: netip.MustParseAddr("8.8.0.0"), NSType: nbdns.UDPNameServerType, Port: 53},
+		},
+	}, nil)
+
+	deactivate()
+	expected := "domain0,domain2"
+	domains := []string{}
+	for _, item := range server.currentConfig.domains {
+		if item.disabled {
+			continue
+		}
+		domains = append(domains, item.domain)
+	}
+	got := strings.Join(domains, ",")
+	if expected != got {
+		t.Errorf("expected domains list: %q, got %q", expected, got)
+	}
+
+	reactivate()
+	expected = "domain0,domain1,domain2"
+	domains = []string{}
+	for _, item := range server.currentConfig.domains {
+		if item.disabled {
+			continue
+		}
+		domains = append(domains, item.domain)
+	}
+	got = strings.Join(domains, ",")
+	if expected != got {
+		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
+	}
+}
+
 func getDefaultServerWithNoHostManager(t *testing.T, addrPort string) *DefaultServer {
 	mux := dns.NewServeMux()
 
@@ -351,11 +417,11 @@ func getDefaultServerWithNoHostManager(t *testing.T, addrPort string) *DefaultSe
 		UDPSize: 65535,
 	}
 
-	ctx, stop := context.WithCancel(context.TODO())
+	ctx, cancel := context.WithCancel(context.TODO())
 
 	return &DefaultServer{
 		ctx:       ctx,
-		stop:      stop,
+		ctxCancel: cancel,
 		server:    dnsServer,
 		dnsMux:    mux,
 		dnsMuxMap: make(registrationMap),
