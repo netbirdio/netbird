@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
 
@@ -39,6 +40,10 @@ func initTestMetaData(peers ...*server.Peer) *Peers {
 					},
 					Users: map[string]*server.User{
 						"test_user": user,
+					},
+					Settings: &server.Settings{
+						PeerLoginExpirationEnabled: false,
+						PeerLoginExpiration:        time.Hour,
 					},
 				}, user, nil
 			},
