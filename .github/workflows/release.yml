@@ -9,7 +9,7 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.0.4"
+  SIGN_PIPE_VER: "v0.0.5"
   GORELEASER_VER: "v1.14.1"
 
 jobs:
