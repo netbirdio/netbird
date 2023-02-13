@@ -145,6 +145,16 @@ components:
             dns_label:
               description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
               type: string
+            login_expiration_enabled:
+              description: Indicates whether peer login expiration has been enabled or not
+              type: boolean
+            login_expired:
+              description: Indicates whether peer's login expired or not
+              type: boolean
+            last_login:
+              description: Last time this peer performed log in (authentication). E.g., user authenticated.
+              type: string
+              format: date-time
           required:
             - ip
             - connected
@@ -155,6 +165,9 @@ components:
             - ssh_enabled
             - hostname
             - dns_label
+            - login_expiration_enabled
+            - login_expired
+            - last_login
     SetupKey:
       type: object
       properties:

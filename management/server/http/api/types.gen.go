@@ -326,8 +326,17 @@ type Peer struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
+	LastLogin time.Time `json:"last_login"`
+
 	// LastSeen Last time peer connected to Netbird's management service
 	LastSeen time.Time `json:"last_seen"`
+
+	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
+	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
+
+	// LoginExpired Indicates whether peer's login expired or not
+	LoginExpired bool `json:"login_expired"`
 
 	// Name Peer's hostname
 	Name string `json:"name"`

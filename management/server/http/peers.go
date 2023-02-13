@@ -150,19 +150,25 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 	if fqdn == "" {
 		fqdn = peer.DNSLabel
 	}
+
+	expired, _ := peer.LoginExpired(account.Settings)
+
 	return &api.Peer{
-		Id:         peer.ID,
-		Name:       peer.Name,
-		Ip:         peer.IP.String(),
-		Connected:  peer.Status.Connected,
-		LastSeen:   peer.Status.LastSeen,
-		Os:         fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
-		Version:    peer.Meta.WtVersion,
-		Groups:     groupsInfo,
-		SshEnabled: peer.SSHEnabled,
-		Hostname:   peer.Meta.Hostname,
-		UserId:     &peer.UserID,
-		UiVersion:  &peer.Meta.UIVersion,
-		DnsLabel:   fqdn,
+		Id:                     peer.ID,
+		Name:                   peer.Name,
+		Ip:                     peer.IP.String(),
+		Connected:              peer.Status.Connected,
+		LastSeen:               peer.Status.LastSeen,
+		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		Version:                peer.Meta.WtVersion,
+		Groups:                 groupsInfo,
+		SshEnabled:             peer.SSHEnabled,
+		Hostname:               peer.Meta.Hostname,
+		UserId:                 &peer.UserID,
+		UiVersion:              &peer.Meta.UIVersion,
+		DnsLabel:               fqdn,
+		LoginExpirationEnabled: peer.LoginExpirationEnabled,
+		LastLogin:              peer.LastLogin,
+		LoginExpired:           expired,
 	}
 }
