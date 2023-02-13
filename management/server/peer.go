@@ -58,25 +58,42 @@ type Peer struct {
 	UserID string
 	// SSHKey is a public SSH key of the peer
 	SSHKey string
-	// SSHEnabled indicated whether SSH server is enabled on the peer
+	// SSHEnabled indicates whether SSH server is enabled on the peer
 	SSHEnabled bool
+	// LoginExpirationEnabled indicates whether peer's login expiration is enabled and once expired the peer has to re-login.
+	// Works with LastLogin
+	LoginExpirationEnabled bool
+	// LastLogin the time when peer performed last login operation
+	LastLogin time.Time
 }
 
 // Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	return &Peer{
-		ID:         p.ID,
-		Key:        p.Key,
-		SetupKey:   p.SetupKey,
-		IP:         p.IP,
-		Meta:       p.Meta,
-		Name:       p.Name,
-		Status:     p.Status,
-		UserID:     p.UserID,
-		SSHKey:     p.SSHKey,
-		SSHEnabled: p.SSHEnabled,
-		DNSLabel:   p.DNSLabel,
+		ID:                     p.ID,
+		Key:                    p.Key,
+		SetupKey:               p.SetupKey,
+		IP:                     p.IP,
+		Meta:                   p.Meta,
+		Name:                   p.Name,
+		Status:                 p.Status,
+		UserID:                 p.UserID,
+		SSHKey:                 p.SSHKey,
+		SSHEnabled:             p.SSHEnabled,
+		DNSLabel:               p.DNSLabel,
+		LoginExpirationEnabled: p.LoginExpirationEnabled,
+		LastLogin:              p.LastLogin,
 	}
+}
+
+// LoginExpired indicates whether peer's login has expired or not.
+// If Peer.LastLogin plus the expiresIn duration has happened already then login has expired.
+// Return true if login has expired, false otherwise and time left to expiration (negative when expired).
+func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
+	expiresAt := p.LastLogin.Add(expiresIn)
+	now := time.Now()
+	left := expiresAt.Sub(now)
+	return p.LoginExpirationEnabled && (left <= 0), left
 }
 
 // FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
@@ -100,7 +117,7 @@ func (p *PeerStatus) Copy() *PeerStatus {
 	}
 }
 
-// GetPeer looks up peer by its public WireGuard key
+// GetPeerByKey looks up peer by its public WireGuard key
 func (am *DefaultAccountManager) GetPeerByKey(peerPubKey string) (*Peer, error) {
 
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
@@ -436,17 +453,19 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	}
 
 	newPeer := &Peer{
-		ID:         xid.New().String(),
-		Key:        peer.Key,
-		SetupKey:   upperKey,
-		IP:         nextIp,
-		Meta:       peer.Meta,
-		Name:       peer.Name,
-		DNSLabel:   newLabel,
-		UserID:     userID,
-		Status:     &PeerStatus{Connected: false, LastSeen: time.Now()},
-		SSHEnabled: false,
-		SSHKey:     peer.SSHKey,
+		ID:                     xid.New().String(),
+		Key:                    peer.Key,
+		SetupKey:               upperKey,
+		IP:                     nextIp,
+		Meta:                   peer.Meta,
+		Name:                   peer.Name,
+		DNSLabel:               newLabel,
+		UserID:                 userID,
+		Status:                 &PeerStatus{Connected: false, LastSeen: time.Now()},
+		SSHEnabled:             false,
+		SSHKey:                 peer.SSHKey,
+		LastLogin:              time.Now(),
+		LoginExpirationEnabled: false,
 	}
 
 	// add peer to 'All' group
@@ -489,6 +508,38 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	am.storeEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
 	return newPeer, nil
+}
+
+// UpdatePeerLastLogin sets Peer.LastLogin to the current timestamp.
+func (am *DefaultAccountManager) UpdatePeerLastLogin(peerID string) error {
+	account, err := am.Store.GetAccountByPeerID(peerID)
+	if err != nil {
+		return err
+	}
+
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return err
+	}
+
+	peer := account.GetPeer(peerID)
+	if peer == nil {
+		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
+	}
+
+	peer.LastLogin = time.Now()
+	account.UpdatePeer(peer)
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // UpdatePeerSSHKey updates peer's public SSH key
