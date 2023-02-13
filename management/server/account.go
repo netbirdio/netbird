@@ -129,6 +129,7 @@ type Settings struct {
 	PeerLoginExpiration time.Duration
 }
 
+// Copy copies the Settings struct
 func (s *Settings) Copy() *Settings {
 	return &Settings{
 		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
