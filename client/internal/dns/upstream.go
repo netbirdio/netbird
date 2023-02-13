@@ -100,10 +100,15 @@ func (u *upstreamResolver) checkUpstreamFails() {
 		return
 	}
 
-	log.WithField("preiod", reactivatePeriod).Warn("upstream resolving is disabled for")
-	u.deactivate()
-	u.disabled = true
-	go u.waitUntilReactivation()
+	select {
+	case <-u.ctx.Done():
+		return
+	default:
+		log.Warnf("upstream resolving is disabled for %v", reactivatePeriod)
+		u.deactivate()
+		u.disabled = true
+		go u.waitUntilReactivation()
+	}
 }
 
 // waitUntilReactivation reset fails counter and activates upstream resolving

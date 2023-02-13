@@ -423,7 +423,7 @@ func (s *DefaultServer) upstreamCallbacks(
 		defer s.mux.Unlock()
 
 		l := log.WithField("nameservers", nsGroup.NameServers)
-		l.Info("temporary deactivate nameservers group")
+		l.Info("temporary deactivate nameservers group due timeout")
 
 		removeIndex = make(map[string]int)
 		for _, domain := range nsGroup.Domains {
@@ -442,7 +442,7 @@ func (s *DefaultServer) upstreamCallbacks(
 			}
 		}
 		if err := s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
-			l.WithError(err).Error("temporary deactivate nameservers group, DNS update apply")
+			l.WithError(err).Error("fail to apply nameserver deactivation on the host")
 		}
 	}
 	reactivate = func() {
