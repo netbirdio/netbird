@@ -613,6 +613,7 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	return nil
 }
 
+// GetAccountByPeerID returns account from the store by a provided peer ID
 func (am *DefaultAccountManager) GetAccountByPeerID(peerID string) (*Account, error) {
 	return am.Store.GetAccountByPeerID(peerID)
 }
