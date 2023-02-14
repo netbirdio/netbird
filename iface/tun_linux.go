@@ -8,32 +8,34 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-// Create creates a new Wireguard interface, sets a given IP and brings it up.
-// Will reuse an existing one.
-func (w *WGIface) Create() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
+func (c *tunDevice) create() error {
 	if WireguardModuleIsLoaded() {
 		log.Info("using kernel WireGuard")
-		return w.createWithKernel()
-	} else {
-		if !tunModuleIsLoaded() {
-			return fmt.Errorf("couldn't check or load tun module")
-		}
-		log.Info("using userspace WireGuard")
-		return w.createWithUserspace()
+		return c.createWithKernel()
 	}
+
+	if !tunModuleIsLoaded() {
+		return fmt.Errorf("couldn't check or load tun module")
+	}
+	log.Info("using userspace WireGuard")
+	var err error
+	c.netInterface, err = c.createWithUserspace()
+	if err != nil {
+		return err
+	}
+
+	return c.assignAddr()
+
 }
 
 // createWithKernel Creates a new Wireguard interface using kernel Wireguard module.
 // Works for Linux and offers much better network performance
-func (w *WGIface) createWithKernel() error {
+func (c *tunDevice) createWithKernel() error {
 
-	link := newWGLink(w.name)
+	link := newWGLink(c.name)
 
 	// check if interface exists
-	l, err := netlink.LinkByName(w.name)
+	l, err := netlink.LinkByName(c.name)
 	if err != nil {
 		switch err.(type) {
 		case netlink.LinkNotFoundError:
@@ -51,33 +53,33 @@ func (w *WGIface) createWithKernel() error {
 		}
 	}
 
-	log.Debugf("adding device: %s", w.name)
+	log.Debugf("adding device: %s", c.name)
 	err = netlink.LinkAdd(link)
 	if os.IsExist(err) {
-		log.Infof("interface %s already exists. Will reuse.", w.name)
+		log.Infof("interface %s already exists. Will reuse.", c.name)
 	} else if err != nil {
 		return err
 	}
 
-	w.netInterface = link
+	c.netInterface = link
 
-	err = w.assignAddr()
+	err = c.assignAddr()
 	if err != nil {
 		return err
 	}
 
 	// todo do a discovery
-	log.Debugf("setting MTU: %d interface: %s", w.mtu, w.name)
-	err = netlink.LinkSetMTU(link, w.mtu)
+	log.Debugf("setting MTU: %d interface: %s", c.mtu, c.name)
+	err = netlink.LinkSetMTU(link, c.mtu)
 	if err != nil {
-		log.Errorf("error setting MTU on interface: %s", w.name)
+		log.Errorf("error setting MTU on interface: %s", c.name)
 		return err
 	}
 
-	log.Debugf("bringing up interface: %s", w.name)
+	log.Debugf("bringing up interface: %s", c.name)
 	err = netlink.LinkSetUp(link)
 	if err != nil {
-		log.Errorf("error bringing up interface: %s", w.name)
+		log.Errorf("error bringing up interface: %s", c.name)
 		return err
 	}
 
@@ -85,8 +87,8 @@ func (w *WGIface) createWithKernel() error {
 }
 
 // assignAddr Adds IP address to the tunnel interface
-func (w *WGIface) assignAddr() error {
-	link := newWGLink(w.name)
+func (c *tunDevice) assignAddr() error {
+	link := newWGLink(c.name)
 
 	//delete existing addresses
 	list, err := netlink.AddrList(link, 0)
@@ -102,11 +104,11 @@ func (w *WGIface) assignAddr() error {
 		}
 	}
 
-	log.Debugf("adding address %s to interface: %s", w.address.String(), w.name)
-	addr, _ := netlink.ParseAddr(w.address.String())
+	log.Debugf("adding address %s to interface: %s", c.address.String(), c.name)
+	addr, _ := netlink.ParseAddr(c.address.String())
 	err = netlink.AddrAdd(link, addr)
 	if os.IsExist(err) {
-		log.Infof("interface %s already has the address: %s", w.name, w.address.String())
+		log.Infof("interface %s already has the address: %s", c.name, c.address.String())
 	} else if err != nil {
 		return err
 	}
