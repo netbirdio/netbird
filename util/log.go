@@ -21,7 +21,6 @@ func InitLog(logLevel string, logPath string) error {
 		return err
 	}
 
-	logPath = "/tmp/netbird/netbird/netbird.log"
 	if logPath != "" && logPath != "console" {
 
 		canWrite, _ := canWrite(logPath)
