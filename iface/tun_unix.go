@@ -1,5 +1,4 @@
-//go:build linux || darwin
-// +build linux darwin
+//go:build (linux || darwin) && !android
 
 package iface
 
@@ -32,6 +31,14 @@ func newTunDevice(name string, address WGAddress, mtu int) tunDevice {
 func (c *tunDevice) updateAddr(address WGAddress) error {
 	c.address = address
 	return c.assignAddr()
+}
+
+func (c *tunDevice) wgAddress() WGAddress {
+	return c.address
+}
+
+func (t *tunDevice) deviceName() string {
+	return t.name
 }
 
 func (c *tunDevice) close() error {

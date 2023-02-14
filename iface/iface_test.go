@@ -228,7 +228,7 @@ func Test_UpdatePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	peer, err := getPeer(ifaceName, peerPubKey)
+	peer, err := iface.configurer.getPeer(ifaceName, peerPubKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +288,7 @@ func Test_RemovePeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = getPeer(ifaceName, peerPubKey)
+	_, err = iface.configurer.getPeer(ifaceName, peerPubKey)
 	if err.Error() != "peer not found" {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func Test_ConnectPeers(t *testing.T) {
 			t.Fatalf("waiting for peer handshake timeout after %s", timeout.String())
 		default:
 		}
-		peer, gpErr := getPeer(peer1ifaceName, peer2Key.PublicKey().String())
+		peer, gpErr := iface1.configurer.getPeer(peer1ifaceName, peer2Key.PublicKey().String())
 		if gpErr != nil {
 			t.Fatal(gpErr)
 		}

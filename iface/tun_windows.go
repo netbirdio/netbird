@@ -47,6 +47,14 @@ func (c *tunDevice) updateAddr(address WGAddress) error {
 	return c.assignAddr()
 }
 
+func (c *tunDevice) wgAddress() WGAddress {
+	return c.address
+}
+
+func (t *tunDevice) deviceName() string {
+	return t.name
+}
+
 func (c *tunDevice) close() error {
 	if c.netInterface == nil {
 		return nil
