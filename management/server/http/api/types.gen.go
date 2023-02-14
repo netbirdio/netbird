@@ -21,6 +21,8 @@ const (
 	EventActivityCodeNameserverGroupAdd                      EventActivityCode = "nameserver.group.add"
 	EventActivityCodeNameserverGroupDelete                   EventActivityCode = "nameserver.group.delete"
 	EventActivityCodeNameserverGroupUpdate                   EventActivityCode = "nameserver.group.update"
+	EventActivityCodePeerLoginExpirationDisable              EventActivityCode = "peer.login.expiration.disable"
+	EventActivityCodePeerLoginExpirationEnable               EventActivityCode = "peer.login.expiration.enable"
 	EventActivityCodePeerRename                              EventActivityCode = "peer.rename"
 	EventActivityCodePeerSshDisable                          EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                           EventActivityCode = "peer.ssh.enable"
@@ -326,8 +328,17 @@ type Peer struct {
 	// Ip Peer's IP address
 	Ip string `json:"ip"`
 
+	// LastLogin Last time this peer performed log in (authentication). E.g., user authenticated.
+	LastLogin time.Time `json:"last_login"`
+
 	// LastSeen Last time peer connected to Netbird's management service
 	LastSeen time.Time `json:"last_seen"`
+
+	// LoginExpirationEnabled Indicates whether peer login expiration has been enabled or not
+	LoginExpirationEnabled bool `json:"login_expiration_enabled"`
+
+	// LoginExpired Indicates whether peer's login expired or not
+	LoginExpired bool `json:"login_expired"`
 
 	// Name Peer's hostname
 	Name string `json:"name"`
@@ -626,8 +637,9 @@ type PutApiGroupsIdJSONBody struct {
 
 // PutApiPeersIdJSONBody defines parameters for PutApiPeersId.
 type PutApiPeersIdJSONBody struct {
-	Name       string `json:"name"`
-	SshEnabled bool   `json:"ssh_enabled"`
+	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
+	Name                   string `json:"name"`
+	SshEnabled             bool   `json:"ssh_enabled"`
 }
 
 // PatchApiRoutesIdJSONBody defines parameters for PatchApiRoutesId.
