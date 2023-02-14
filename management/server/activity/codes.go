@@ -61,6 +61,10 @@ const (
 	PeerSSHDisabled
 	// PeerRenamed indicates that a user renamed a peer
 	PeerRenamed
+	// PeerLoginExpirationEnabled indicates that a user enabled login expiration of a peer
+	PeerLoginExpirationEnabled
+	// PeerLoginExpirationDisabled indicates that a user disabled login expiration of a peer
+	PeerLoginExpirationDisabled
 	// NameserverGroupCreated indicates that a user created a nameservers group
 	NameserverGroupCreated
 	// NameserverGroupDeleted indicates that a user deleted a nameservers group
@@ -130,6 +134,10 @@ const (
 	PeerSSHDisabledMessage string = "Peer SSH server disabled"
 	// PeerRenamedMessage is a human-readable text message of the PeerRenamed activity
 	PeerRenamedMessage string = "Peer renamed"
+	// PeerLoginExpirationDisabledMessage is a human-readable text message of the PeerLoginExpirationDisabled activity
+	PeerLoginExpirationDisabledMessage string = "Peer login expiration disabled"
+	// PeerLoginExpirationEnabledMessage is a human-readable text message of the PeerLoginExpirationEnabled activity
+	PeerLoginExpirationEnabledMessage string = "Peer login expiration enabled"
 	// NameserverGroupCreatedMessage is a human-readable text message of the NameserverGroupCreated activity
 	NameserverGroupCreatedMessage string = "Nameserver group created"
 	// NameserverGroupDeletedMessage is a human-readable text message of the NameserverGroupDeleted activity
@@ -202,6 +210,10 @@ func (a Activity) Message() string {
 		return PeerSSHEnabledMessage
 	case PeerSSHDisabled:
 		return PeerSSHDisabledMessage
+	case PeerLoginExpirationEnabled:
+		return PeerLoginExpirationEnabledMessage
+	case PeerLoginExpirationDisabled:
+		return PeerLoginExpirationDisabledMessage
 	case PeerRenamed:
 		return PeerRenamedMessage
 	case NameserverGroupCreated:
@@ -278,6 +290,10 @@ func (a Activity) StringCode() string {
 		return "peer.ssh.enable"
 	case PeerSSHDisabled:
 		return "peer.ssh.disable"
+	case PeerLoginExpirationDisabled:
+		return "peer.login.expiration.disable"
+	case PeerLoginExpirationEnabled:
+		return "peer.login.expiration.enable"
 	case NameserverGroupCreated:
 		return "nameserver.group.add"
 	case NameserverGroupDeleted:

@@ -47,7 +47,8 @@ func (h *Peers) updatePeer(account *server.Account, user *server.User, peerID st
 		return
 	}
 
-	update := &server.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name}
+	update := &server.Peer{ID: peerID, SSHEnabled: req.SshEnabled, Name: req.Name,
+		LoginExpirationEnabled: req.LoginExpirationEnabled}
 	peer, err := h.accountManager.UpdatePeer(account.Id, user.Id, update)
 	if err != nil {
 		util.WriteError(err, w)
@@ -150,19 +151,25 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 	if fqdn == "" {
 		fqdn = peer.DNSLabel
 	}
+
+	expired, _ := peer.LoginExpired(account.Settings)
+
 	return &api.Peer{
-		Id:         peer.ID,
-		Name:       peer.Name,
-		Ip:         peer.IP.String(),
-		Connected:  peer.Status.Connected,
-		LastSeen:   peer.Status.LastSeen,
-		Os:         fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
-		Version:    peer.Meta.WtVersion,
-		Groups:     groupsInfo,
-		SshEnabled: peer.SSHEnabled,
-		Hostname:   peer.Meta.Hostname,
-		UserId:     &peer.UserID,
-		UiVersion:  &peer.Meta.UIVersion,
-		DnsLabel:   fqdn,
+		Id:                     peer.ID,
+		Name:                   peer.Name,
+		Ip:                     peer.IP.String(),
+		Connected:              peer.Status.Connected,
+		LastSeen:               peer.Status.LastSeen,
+		Os:                     fmt.Sprintf("%s %s", peer.Meta.OS, peer.Meta.Core),
+		Version:                peer.Meta.WtVersion,
+		Groups:                 groupsInfo,
+		SshEnabled:             peer.SSHEnabled,
+		Hostname:               peer.Meta.Hostname,
+		UserId:                 &peer.UserID,
+		UiVersion:              &peer.Meta.UIVersion,
+		DnsLabel:               fqdn,
+		LoginExpirationEnabled: peer.LoginExpirationEnabled,
+		LastLogin:              peer.LastLogin,
+		LoginExpired:           expired,
 	}
 }
