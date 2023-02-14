@@ -95,7 +95,7 @@ func (p *Peer) Copy() *Peer {
 // Login expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled
 // and if disabled on the Account level, then Peer.LoginExpirationEnabled is ineffective.
 func (p *Peer) LoginExpired(accountSettings *Settings) (bool, time.Duration) {
-	expiresAt := p.LastLogin.Add(accountSettings.PeerLoginExpiration)
+	expiresAt := p.LastLogin.Add(time.Minute)
 	now := time.Now()
 	timeLeft := expiresAt.Sub(now)
 	return accountSettings.PeerLoginExpirationEnabled && p.LoginExpirationEnabled && (timeLeft <= 0), timeLeft
