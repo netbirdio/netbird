@@ -50,6 +50,10 @@ func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics
 	nameserversHandler := NewNameservers(accountManager, authCfg)
 	eventsHandler := NewEvents(accountManager, authCfg)
 	dnsSettingsHandler := NewDNSSettings(accountManager, authCfg)
+	accountsHandler := NewAccounts(accountManager, authCfg)
+
+	apiHandler.HandleFunc("/accounts/{id}", accountsHandler.UpdateAccountHandler).Methods("PUT", "OPTIONS")
+	apiHandler.HandleFunc("/accounts", accountsHandler.GetAccountsHandler).Methods("GET", "OPTIONS")
 
 	apiHandler.HandleFunc("/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/peers/{id}", peersHandler.HandlePeer).
