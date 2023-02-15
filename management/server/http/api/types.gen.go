@@ -134,6 +134,22 @@ const (
 	UserStatusInvited  UserStatus = "invited"
 )
 
+// Account defines model for Account.
+type Account struct {
+	// Id Account ID
+	Id       string          `json:"id"`
+	Settings AccountSettings `json:"settings"`
+}
+
+// AccountSettings defines model for AccountSettings.
+type AccountSettings struct {
+	// PeerLoginExpiration Period of time after which peer login expires (seconds).
+	PeerLoginExpiration float32 `json:"peer_login_expiration"`
+
+	// PeerLoginExpirationEnabled Enables or disables peer login expiration globally. After peer's login has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
+	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
+}
+
 // DNSSettings defines model for DNSSettings.
 type DNSSettings struct {
 	// DisabledManagementGroups Groups whose DNS management is disabled
@@ -617,6 +633,11 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
+// PutApiAccountsIdJSONBody defines parameters for PutApiAccountsId.
+type PutApiAccountsIdJSONBody struct {
+	Settings AccountSettings `json:"settings"`
+}
+
 // PatchApiDnsNameserversIdJSONBody defines parameters for PatchApiDnsNameserversId.
 type PatchApiDnsNameserversIdJSONBody = []NameserverGroupPatchOperation
 
@@ -681,6 +702,9 @@ type PutApiRulesIdJSONBody struct {
 	Name    string    `json:"name"`
 	Sources *[]string `json:"sources,omitempty"`
 }
+
+// PutApiAccountsIdJSONRequestBody defines body for PutApiAccountsId for application/json ContentType.
+type PutApiAccountsIdJSONRequestBody PutApiAccountsIdJSONBody
 
 // PostApiDnsNameserversJSONRequestBody defines body for PostApiDnsNameservers for application/json ContentType.
 type PostApiDnsNameserversJSONRequestBody = NameserverGroupRequest
