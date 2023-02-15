@@ -20,6 +20,8 @@ tags:
     description: Interact with and view information about DNS configuration.
   - name: Events
     description: View information about the account and network events.
+  - name: Accounts
+    description: View information about the accounts.
 components:
   schemas:
     Account:
@@ -676,11 +678,11 @@ paths:
                 - settings
       responses:
         '200':
-          description: A Peer object
+          description: An Account object
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Peer'
+                $ref: '#/components/schemas/Account'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
