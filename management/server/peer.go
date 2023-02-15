@@ -32,6 +32,8 @@ type PeerStatus struct {
 	LastSeen time.Time
 	// Connected indicates whether peer is connected to the management service or not
 	Connected bool
+	// LoginExpired
+	LoginExpired bool
 }
 
 // Peer represents a machine connected to the network.
@@ -115,8 +117,9 @@ func (p *Peer) EventMeta(dnsDomain string) map[string]any {
 // Copy PeerStatus
 func (p *PeerStatus) Copy() *PeerStatus {
 	return &PeerStatus{
-		LastSeen:  p.LastSeen,
-		Connected: p.Connected,
+		LastSeen:     p.LastSeen,
+		Connected:    p.Connected,
+		LoginExpired: p.LoginExpired,
 	}
 }
 
@@ -173,6 +176,40 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 	return peers, nil
 }
 
+// MarkPeerLoginExpired when peer login has expired
+func (am *DefaultAccountManager) MarkPeerLoginExpired(peerPubKey string, loginExpired bool) error {
+	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
+	if err != nil {
+		return err
+	}
+
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return err
+	}
+
+	peer, err := account.FindPeerByPubKey(peerPubKey)
+	if err != nil {
+		return err
+	}
+
+	newStatus := peer.Status.Copy()
+	newStatus.LastSeen = time.Now()
+	newStatus.LoginExpired = loginExpired
+	peer.Status = newStatus
+	account.UpdatePeer(peer)
+
+	err = am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool) error {
 
@@ -198,6 +235,10 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	newStatus := peer.Status.Copy()
 	newStatus.LastSeen = time.Now()
 	newStatus.Connected = connected
+	// whenever peer got connected that means that it logged in successfully
+	if newStatus.Connected {
+		newStatus.LoginExpired = false
+	}
 	peer.Status = newStatus
 	account.UpdatePeer(peer)
 
@@ -545,6 +586,10 @@ func (am *DefaultAccountManager) UpdatePeerLastLogin(peerID string) error {
 	}
 
 	peer.LastLogin = time.Now()
+	newStatus := peer.Status.Copy()
+	newStatus.LoginExpired = false
+	peer.Status = newStatus
+
 	account.UpdatePeer(peer)
 
 	err = am.Store.SaveAccount(account)

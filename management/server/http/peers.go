@@ -152,8 +152,6 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 		fqdn = peer.DNSLabel
 	}
 
-	expired, _ := peer.LoginExpired(account.Settings)
-
 	return &api.Peer{
 		Id:                     peer.ID,
 		Name:                   peer.Name,
@@ -170,6 +168,6 @@ func toPeerResponse(peer *server.Peer, account *server.Account, dnsDomain string
 		DnsLabel:               fqdn,
 		LoginExpirationEnabled: peer.LoginExpirationEnabled,
 		LastLogin:              peer.LastLogin,
-		LoginExpired:           expired,
+		LoginExpired:           peer.Status.LoginExpired,
 	}
 }
