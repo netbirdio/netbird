@@ -137,7 +137,11 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		return status.Error(codes.Internal, "internal server error")
 	}
 	expired, left := peer.LoginExpired(account.Settings)
-	if peer.UserID != "" && expired {
+	if peer.UserID != "" && (expired || peer.Status.LoginExpired) {
+		err = s.accountManager.MarkPeerLoginExpired(peerKey.String(), true)
+		if err != nil {
+			log.Warnf("failed marking peer login expired %s %v", peerKey, err)
+		}
 		return status.Errorf(codes.PermissionDenied, "peer login has expired %v ago. Please log in once more", left)
 	}
 
@@ -377,9 +381,13 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, status.Error(codes.Internal, "internal server error")
 	}
 	expired, left := peer.LoginExpired(account.Settings)
-	if peer.UserID != "" && expired {
+	if peer.UserID != "" && (expired || peer.Status.LoginExpired) {
 		// it might be that peer expired but user has logged in already, check token then
 		if loginReq.GetJwtToken() == "" {
+			err = s.accountManager.MarkPeerLoginExpired(peerKey.String(), true)
+			if err != nil {
+				log.Warnf("failed marking peer login expired %s %v", peerKey, err)
+			}
 			return nil, status.Errorf(codes.PermissionDenied,
 				"peer login has expired %v ago. Please log in once more", left)
 		}
