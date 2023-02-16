@@ -1315,12 +1315,12 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	assert.False(t, account.Settings.PeerLoginExpirationEnabled)
 	assert.Equal(t, account.Settings.PeerLoginExpiration, time.Hour)
 
-	updated, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Second,
 		PeerLoginExpirationEnabled: false})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration less than one hour")
 
-	updated, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour * 24 * 181,
 		PeerLoginExpirationEnabled: false})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
