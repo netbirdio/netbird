@@ -20,8 +20,31 @@ tags:
     description: Interact with and view information about DNS configuration.
   - name: Events
     description: View information about the account and network events.
+  - name: Accounts
+    description: View information about the accounts.
 components:
   schemas:
+    Account:
+      properties:
+        id:
+          description: Account ID
+          type: string
+        settings:
+          $ref: '#/components/schemas/AccountSettings'
+      required:
+        - id
+        - settings
+    AccountSettings:
+      properties:
+        peer_login_expiration_enabled:
+          description: Enables or disables peer login expiration globally. After peer's login has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
+          type: boolean
+        peer_login_expiration:
+          description: Period of time after which peer login expires (seconds).
+          type: integer
+      required:
+        - peer_login_expiration_enabled
+        - peer_login_expiration
     User:
       type: object
       properties:
@@ -606,6 +629,68 @@ components:
 security:
   - BearerAuth: [ ]
 paths:
+  /api/accounts:
+    get:
+      summary: Returns a list of accounts of a user. Always returns a list of one account. Only available for admin users.
+      tags: [ Accounts ]
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: A JSON array of accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Account'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/accounts/{id}:
+    put:
+      summary: Update information about an account
+      tags: [ Accounts ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Account ID
+      requestBody:
+        description: update an account
+        content:
+          'application/json':
+            schema:
+              type: object
+              properties:
+                settings:
+                  $ref: '#/components/schemas/AccountSettings'
+              required:
+                - settings
+      responses:
+        '200':
+          description: An Account object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/users:
     get:
       summary: Returns a list of all users

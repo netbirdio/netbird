@@ -71,6 +71,12 @@ const (
 	NameserverGroupDeleted
 	// NameserverGroupUpdated indicates that a user updated a nameservers group
 	NameserverGroupUpdated
+	// AccountPeerLoginExpirationEnabled indicates that a user enabled peer login expiration for the account
+	AccountPeerLoginExpirationEnabled
+	// AccountPeerLoginExpirationDisabled indicates that a user disabled peer login expiration for the account
+	AccountPeerLoginExpirationDisabled
+	// AccountPeerLoginExpirationDurationUpdated indicates that a user updated peer login expiration duration for the account
+	AccountPeerLoginExpirationDurationUpdated
 )
 
 const (
@@ -144,6 +150,12 @@ const (
 	NameserverGroupDeletedMessage string = "Nameserver group deleted"
 	// NameserverGroupUpdatedMessage is a human-readable text message of the NameserverGroupUpdated activity
 	NameserverGroupUpdatedMessage string = "Nameserver group updated"
+	// AccountPeerLoginExpirationEnabledMessage is a human-readable text message of the AccountPeerLoginExpirationEnabled activity
+	AccountPeerLoginExpirationEnabledMessage string = "Peer login expiration enabled for the account"
+	// AccountPeerLoginExpirationDisabledMessage is a human-readable text message of the AccountPeerLoginExpirationDisabled activity
+	AccountPeerLoginExpirationDisabledMessage string = "Peer login expiration disabled for the account"
+	// AccountPeerLoginExpirationDurationUpdatedMessage is a human-readable text message of the AccountPeerLoginExpirationDurationUpdated activity
+	AccountPeerLoginExpirationDurationUpdatedMessage string = "Peer login expiration duration updated"
 )
 
 // Activity that triggered an Event
@@ -222,6 +234,12 @@ func (a Activity) Message() string {
 		return NameserverGroupDeletedMessage
 	case NameserverGroupUpdated:
 		return NameserverGroupUpdatedMessage
+	case AccountPeerLoginExpirationEnabled:
+		return AccountPeerLoginExpirationEnabledMessage
+	case AccountPeerLoginExpirationDisabled:
+		return AccountPeerLoginExpirationDisabledMessage
+	case AccountPeerLoginExpirationDurationUpdated:
+		return AccountPeerLoginExpirationDurationUpdatedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -300,6 +318,12 @@ func (a Activity) StringCode() string {
 		return "nameserver.group.delete"
 	case NameserverGroupUpdated:
 		return "nameserver.group.update"
+	case AccountPeerLoginExpirationDurationUpdated:
+		return "account.settings.peer.login.expiration.update"
+	case AccountPeerLoginExpirationEnabled:
+		return "account.setting.peer.login.expiration.enable"
+	case AccountPeerLoginExpirationDisabled:
+		return "account.setting.peer.login.expiration.disable"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
