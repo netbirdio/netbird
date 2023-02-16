@@ -97,6 +97,7 @@ type AccountManager interface {
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*Peer, error)
 	UpdatePeerLastLogin(peerID string) error
+	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
 }
 
 type DefaultAccountManager struct {
@@ -313,6 +314,12 @@ func (a *Account) GetPeers() []*Peer {
 		peers = append(peers, peer)
 	}
 	return peers
+}
+
+// UpdateSettings saves new account settings
+func (a *Account) UpdateSettings(update *Settings) *Account {
+	a.Settings = update.Copy()
+	return a
 }
 
 // UpdatePeer saves new or replaces existing peer
@@ -594,6 +601,61 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 	}
 
 	return am, nil
+}
+
+// UpdateAccountSettings updates Account settings.
+// Only users with role UserRoleAdmin can update the account.
+// User that performs the update has to belong to the account.
+// Returns an updated Account
+func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error) {
+
+	halfYearLimit := 180 * 24 * time.Hour
+	if newSettings.PeerLoginExpiration > halfYearLimit {
+		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
+	}
+
+	if newSettings.PeerLoginExpiration < time.Hour {
+		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
+	}
+
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccountByUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdmin() {
+		return nil, status.Errorf(status.PermissionDenied, "user is not allowed to update account")
+	}
+
+	oldSettings := account.Settings
+	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
+		event := activity.AccountPeerLoginExpirationEnabled
+		if !newSettings.PeerLoginExpirationEnabled {
+			event = activity.AccountPeerLoginExpirationDisabled
+		}
+		am.storeEvent(userID, accountID, accountID, event, nil)
+	}
+
+	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
+		am.storeEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
+	}
+
+	updatedAccount := account.UpdateSettings(newSettings)
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, err
+	}
+
+	return updatedAccount, nil
 }
 
 // newAccount creates a new Account with a generated ID and generated default setup keys.
