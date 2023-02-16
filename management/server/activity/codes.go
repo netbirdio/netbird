@@ -319,7 +319,7 @@ func (a Activity) StringCode() string {
 	case NameserverGroupUpdated:
 		return "nameserver.group.update"
 	case AccountPeerLoginExpirationDurationUpdated:
-		return "account.settings.peer.login.expiration.update"
+		return "account.setting.peer.login.expiration.update"
 	case AccountPeerLoginExpirationEnabled:
 		return "account.setting.peer.login.expiration.enable"
 	case AccountPeerLoginExpirationDisabled:
