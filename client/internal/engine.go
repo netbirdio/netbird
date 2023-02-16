@@ -46,6 +46,7 @@ var ErrResetConnection = fmt.Errorf("reset connection")
 type EngineConfig struct {
 	WgPort      int
 	WgIfaceName string
+	WGAdapter   iface.WGAdapter
 
 	// WgAddr is a Wireguard local address (Netbird Network IP)
 	WgAddr string
@@ -173,7 +174,7 @@ func (e *Engine) Start() error {
 	myPrivateKey := e.config.WgPrivateKey
 	var err error
 
-	e.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU)
+	e.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, e.config.WGAdapter)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIfaceName, err.Error())
 		return err
@@ -606,6 +607,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	if protoDNSConfig == nil {
 		protoDNSConfig = &mgmProto.DNSConfig{}
 	}
+
 	err = e.dnsServer.UpdateDNSServer(serial, toDNSConfig(protoDNSConfig))
 	if err != nil {
 		log.Errorf("failed to update dns server, err: %v", err)
