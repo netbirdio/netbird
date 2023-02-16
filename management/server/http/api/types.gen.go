@@ -144,7 +144,7 @@ type Account struct {
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
 	// PeerLoginExpiration Period of time after which peer login expires (seconds).
-	PeerLoginExpiration float32 `json:"peer_login_expiration"`
+	PeerLoginExpiration int `json:"peer_login_expiration"`
 
 	// PeerLoginExpirationEnabled Enables or disables peer login expiration globally. After peer's login has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`

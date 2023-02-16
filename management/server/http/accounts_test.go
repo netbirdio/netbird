@@ -87,7 +87,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			requestPath:    "/api/accounts",
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
-				PeerLoginExpiration:        float32(time.Hour.Seconds()),
+				PeerLoginExpiration:        int(time.Hour.Seconds()),
 				PeerLoginExpirationEnabled: false,
 			},
 			expectedArray: true,

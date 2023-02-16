@@ -89,7 +89,7 @@ func toAccountResponse(account *server.Account) *api.Account {
 	return &api.Account{
 		Id: account.Id,
 		Settings: api.AccountSettings{
-			PeerLoginExpiration:        float32(account.Settings.PeerLoginExpiration.Seconds()),
+			PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),
 			PeerLoginExpirationEnabled: account.Settings.PeerLoginExpirationEnabled,
 		},
 	}

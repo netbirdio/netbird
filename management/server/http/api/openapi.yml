@@ -41,7 +41,7 @@ components:
           type: boolean
         peer_login_expiration:
           description: Period of time after which peer login expires (seconds).
-          type: number
+          type: integer
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
