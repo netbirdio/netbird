@@ -70,17 +70,6 @@ func (h *Accounts) UpdateAccountHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	halfYearLimit := 180 * 24 * time.Hour.Seconds()
-	if req.Settings.PeerLoginExpiration > float32(halfYearLimit) {
-		util.WriteError(status.Errorf(status.InvalidArgument, "peer_login_expiration can't be larger than 180 days"), w)
-		return
-	}
-
-	if req.Settings.PeerLoginExpiration < float32(time.Hour.Seconds()) {
-		util.WriteError(status.Errorf(status.InvalidArgument, "peer_login_expiration can't be smaller than one hour"), w)
-		return
-	}
-
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(accountID, user.Id, &server.Settings{
 		PeerLoginExpirationEnabled: req.Settings.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        time.Duration(float64(time.Second.Nanoseconds()) * float64(req.Settings.PeerLoginExpiration)),

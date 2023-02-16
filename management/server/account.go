@@ -609,6 +609,15 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 // Returns an updated Account
 func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error) {
 
+	halfYearLimit := 180 * 24 * time.Hour
+	if newSettings.PeerLoginExpiration > halfYearLimit {
+		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
+	}
+
+	if newSettings.PeerLoginExpiration < time.Hour {
+		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be smaller than one hour")
+	}
+
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 

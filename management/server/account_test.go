@@ -1283,6 +1283,48 @@ func hasNilField(x interface{}) error {
 	}
 	return nil
 }
+func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to create an account")
+
+	assert.NotNil(t, account.Settings)
+	assert.Equal(t, account.Settings.PeerLoginExpirationEnabled, true)
+	assert.Equal(t, account.Settings.PeerLoginExpiration, 24*time.Hour)
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to create an account")
+
+	updated, err := manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+	assert.False(t, updated.Settings.PeerLoginExpirationEnabled)
+	assert.Equal(t, updated.Settings.PeerLoginExpiration, time.Hour)
+
+	account, err = manager.GetAccountByUserOrAccountID("", account.Id, "")
+	require.NoError(t, err, "unable to get account by ID")
+
+	assert.False(t, account.Settings.PeerLoginExpirationEnabled)
+	assert.Equal(t, account.Settings.PeerLoginExpiration, time.Hour)
+
+	updated, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Second,
+		PeerLoginExpirationEnabled: false})
+	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration less than one hour")
+
+	updated, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour * 24 * 181,
+		PeerLoginExpirationEnabled: false})
+	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
+}
 
 func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	store, err := createStore(t)
