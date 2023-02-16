@@ -69,6 +69,11 @@ type Peer struct {
 	LastLogin time.Time
 }
 
+// AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
+func (p *Peer) AddedWithSSOLogin() bool {
+	return p.UserID != ""
+}
+
 // Copy copies Peer object
 func (p *Peer) Copy() *Peer {
 	return &Peer{
@@ -290,6 +295,11 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 	}
 
 	if peer.LoginExpirationEnabled != update.LoginExpirationEnabled {
+
+		if !peer.AddedWithSSOLogin() {
+			return nil, status.Errorf(status.PreconditionFailed, "this peer hasn't been added with the SSO login, therefore the login expiration can't be updated")
+		}
+
 		peer.LoginExpirationEnabled = update.LoginExpirationEnabled
 
 		event := activity.PeerLoginExpirationEnabled
