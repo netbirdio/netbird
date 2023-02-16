@@ -574,8 +574,8 @@ components:
                   "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
                   "setupkey.group.delete", "setupkey.group.add",
                   "rule.add", "rule.delete", "rule.update",
-                  "group.add", "group.update", "dns.setting.disabled.management.group.add",
-                  "account.create", "dns.setting.disabled.management.group.delete",
+                  "group.add", "group.update", "dns.setting.disabled.management.group.add", "dns.setting.disabled.management.group.delete",
+                  "account.create", "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.disable", "account.setting.peer.login.expiration.enable",
                   "route.add", "route.delete", "route.update",
                   "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
                   "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable"
