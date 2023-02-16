@@ -8,7 +8,7 @@ require (
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/mux v1.8.0
-	github.com/kardianos/service v1.2.1-0.20210728001519-a323c3813bc7 //keep this version otherwise wiretrustee up command breaks
+	github.com/kardianos/service v1.2.1-0.20210728001519-a323c3813bc7
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.18.1
 	github.com/pion/ice/v2 v2.2.7
@@ -130,6 +130,6 @@ require (
 	k8s.io/apimachinery v0.23.5 // indirect
 )
 
-replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20220905002524-6ac14ad5ea84
+replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-20230215170314-b923b89432b0
 
 replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20221012095658-dc8eda872c0c
