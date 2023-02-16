@@ -1,3 +1,5 @@
+//go:build !android
+
 package dns
 
 import (
@@ -50,8 +52,6 @@ type DefaultServer struct {
 	currentConfig      hostDNSConfig
 	customAddress      *netip.AddrPort
 }
-
-type registrationMap map[string]struct{}
 
 type muxUpdate struct {
 	domain  string
