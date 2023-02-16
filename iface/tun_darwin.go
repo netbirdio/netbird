@@ -6,7 +6,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func (c *tunDevice) create() error {
+func (c *tunDevice) Create() error {
 	var err error
 	c.netInterface, err = c.createWithUserspace()
 	if err != nil {

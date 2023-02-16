@@ -10,7 +10,7 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-func (c *tunDevice) create() error {
+func (c *tunDevice) Create() error {
 	if WireguardModuleIsLoaded() {
 		log.Info("using kernel WireGuard")
 		return c.createWithKernel()

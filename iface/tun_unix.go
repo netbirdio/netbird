@@ -20,28 +20,28 @@ type tunDevice struct {
 	netInterface NetInterface
 }
 
-func newTunDevice(name string, address WGAddress, mtu int) tunDevice {
-	return tunDevice{
+func newTunDevice(name string, address WGAddress, mtu int) *tunDevice {
+	return &tunDevice{
 		name:    name,
 		address: address,
 		mtu:     mtu,
 	}
 }
 
-func (c *tunDevice) updateAddr(address WGAddress) error {
+func (c *tunDevice) UpdateAddr(address WGAddress) error {
 	c.address = address
 	return c.assignAddr()
 }
 
-func (c *tunDevice) wgAddress() WGAddress {
+func (c *tunDevice) WgAddress() WGAddress {
 	return c.address
 }
 
-func (t *tunDevice) deviceName() string {
+func (t *tunDevice) DeviceName() string {
 	return t.name
 }
 
-func (c *tunDevice) close() error {
+func (c *tunDevice) Close() error {
 	if c.netInterface == nil {
 		return nil
 	}
@@ -74,6 +74,8 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	if err != nil {
 		return tunIface, err
 	}
+
+	// todo: after this line in case of error close the tunSock
 	uapi, err := c.getUAPI(c.name)
 	if err != nil {
 		return tunIface, err

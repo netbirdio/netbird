@@ -13,10 +13,10 @@ func NewWGIFace(ifaceName string, address string, mtu int, wgAdapter WGAdapter) 
 		return wgIface, err
 	}
 
-	wgConfigurer := newWGConfigurer(ifaceName, wgAddress, mtu, wgAdapter)
+	tun := newTunDevice(wgAddress, mtu, wgAdapter)
+	wgIface.tun = tun
 
-	wgIface.configurer = wgConfigurer
-	wgIface.tun = newTunDevice(wgConfigurer)
+	wgIface.configurer = newWGConfigurer(tun)
 
 	return wgIface, nil
 }

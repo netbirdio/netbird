@@ -15,11 +15,11 @@ type tunDevice struct {
 	netInterface NetInterface
 }
 
-func newTunDevice(name string, address WGAddress, mtu int) tunDevice {
-	return tunDevice{name: name, address: address}
+func newTunDevice(name string, address WGAddress, mtu int) *tunDevice {
+	return &tunDevice{name: name, address: address}
 }
 
-func (c *tunDevice) create() error {
+func (c *tunDevice) Create() error {
 	var err error
 	c.netInterface, err = c.createAdapter()
 	if err != nil {
@@ -29,7 +29,7 @@ func (c *tunDevice) create() error {
 	return c.assignAddr()
 }
 
-func (c *tunDevice) getInterfaceGUIDString() (string, error) {
+func (c *tunDevice) GetInterfaceGUIDString() (string, error) {
 	if c.netInterface == nil {
 		return "", fmt.Errorf("interface has not been initialized yet")
 	}
@@ -42,20 +42,20 @@ func (c *tunDevice) getInterfaceGUIDString() (string, error) {
 	return guid.String(), nil
 }
 
-func (c *tunDevice) updateAddr(address WGAddress) error {
+func (c *tunDevice) UpdateAddr(address WGAddress) error {
 	c.address = address
 	return c.assignAddr()
 }
 
-func (c *tunDevice) wgAddress() WGAddress {
+func (c *tunDevice) WgAddress() WGAddress {
 	return c.address
 }
 
-func (t *tunDevice) deviceName() string {
+func (t *tunDevice) DeviceName() string {
 	return t.name
 }
 
-func (c *tunDevice) close() error {
+func (c *tunDevice) Close() error {
 	if c.netInterface == nil {
 		return nil
 	}

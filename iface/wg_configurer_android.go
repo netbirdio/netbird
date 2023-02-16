@@ -5,6 +5,8 @@ import (
 	"net"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
@@ -13,44 +15,98 @@ var (
 )
 
 type wGConfigurer struct {
-	deviceName string
-	address    WGAddress
-	mtu        int
-	wgAdapter  WGAdapter
+	tunDevice *tunDevice
 }
 
-func newWGConfigurer(deviceName string, address WGAddress, mtu int, wgAdapter WGAdapter) wGConfigurer {
+func newWGConfigurer(tunDevice *tunDevice) wGConfigurer {
 	return wGConfigurer{
-		deviceName: deviceName,
-		address:    address,
-		mtu:        mtu,
-		wgAdapter:  wgAdapter,
+		tunDevice: tunDevice,
 	}
 }
 
 func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
-	c.wgAdapter.ConfigureInterface(c.address.String(), privateKey, port)
-	return nil
-}
+	log.Debugf("adding Wireguard private key")
+	key, err := wgtypes.ParseKey(privateKey)
+	if err != nil {
+		return err
+	}
+	fwmark := 0
+	config := wgtypes.Config{
+		PrivateKey:   &key,
+		ReplacePeers: true,
+		FirewallMark: &fwmark,
+		ListenPort:   &port,
+	}
 
-func (c *wGConfigurer) updateAddress(address WGAddress) error {
-	c.address = address
-	c.wgAdapter.UpdateAddr(address.String())
-	return nil
+	return c.tunDevice.Device().IpcSet(toWgUserspaceString(config))
 }
 
 func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
-	c.wgAdapter.AddPeer(peerKey, allowedIps, "", endpoint.String())
-	return nil
+	//parse allowed ips
+	_, ipNet, err := net.ParseCIDR(allowedIps)
+	if err != nil {
+		return err
+	}
+
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+	peer := wgtypes.PeerConfig{
+		PublicKey:                   peerKeyParsed,
+		ReplaceAllowedIPs:           true,
+		AllowedIPs:                  []net.IPNet{*ipNet},
+		PersistentKeepaliveInterval: &keepAlive,
+		PresharedKey:                preSharedKey,
+		Endpoint:                    endpoint,
+	}
+
+	config := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+
+	return c.tunDevice.Device().IpcSet(toWgUserspaceString(config))
 }
 
 func (c *wGConfigurer) removePeer(peerKey string) error {
-	c.wgAdapter.RemovePeer(peerKey)
-	return nil
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+
+	peer := wgtypes.PeerConfig{
+		PublicKey: peerKeyParsed,
+		Remove:    true,
+	}
+
+	config := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+	return c.tunDevice.Device().IpcSet(toWgUserspaceString(config))
 }
 
 func (c *wGConfigurer) addAllowedIP(peerKey string, allowedIP string) error {
-	return errFuncNotImplemented
+	_, ipNet, err := net.ParseCIDR(allowedIP)
+	if err != nil {
+		return err
+	}
+
+	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
+	if err != nil {
+		return err
+	}
+	peer := wgtypes.PeerConfig{
+		PublicKey:         peerKeyParsed,
+		UpdateOnly:        true,
+		ReplaceAllowedIPs: false,
+		AllowedIPs:        []net.IPNet{*ipNet},
+	}
+
+	config := wgtypes.Config{
+		Peers: []wgtypes.PeerConfig{peer},
+	}
+
+	return c.tunDevice.Device().IpcSet(toWgUserspaceString(config))
 }
 
 func (c *wGConfigurer) removeAllowedIP(peerKey string, allowedIP string) error {

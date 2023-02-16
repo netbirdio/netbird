@@ -16,7 +16,7 @@ const (
 
 // WGIface represents a interface instance
 type WGIface struct {
-	tun        tunDevice
+	tun        *tunDevice
 	configurer wGConfigurer
 	mu         sync.Mutex
 }
@@ -26,18 +26,18 @@ type WGIface struct {
 func (w *WGIface) Create() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-
-	return w.tun.create()
+	log.Debugf("create Wireguard interface %s", w.tun.DeviceName())
+	return w.tun.Create()
 }
 
 // Name returns the interface name
 func (w *WGIface) Name() string {
-	return w.configurer.deviceName
+	return w.tun.DeviceName()
 }
 
 // Address returns the interface address
 func (w *WGIface) Address() WGAddress {
-	return w.tun.wgAddress()
+	return w.tun.WgAddress()
 }
 
 // Configure configures a Wireguard interface
@@ -45,8 +45,7 @@ func (w *WGIface) Address() WGAddress {
 func (w *WGIface) Configure(privateKey string, port int) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-
-	log.Debugf("configuring Wireguard interface %s", w.tun.deviceName())
+	log.Debugf("configuring Wireguard interface %s", w.tun.DeviceName())
 	return w.configurer.configureInterface(privateKey, port)
 }
 
@@ -60,7 +59,7 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 		return err
 	}
 
-	return w.tun.updateAddr(addr)
+	return w.tun.UpdateAddr(addr)
 }
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
@@ -69,7 +68,7 @@ func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.D
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("updating interface %s peer %s: endpoint %s ", w.tun.deviceName(), peerKey, endpoint)
+	log.Debugf("updating interface %s peer %s: endpoint %s ", w.tun.DeviceName(), peerKey, endpoint)
 	return w.configurer.updatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
@@ -78,7 +77,7 @@ func (w *WGIface) RemovePeer(peerKey string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("Removing peer %s from interface %s ", peerKey, w.tun.deviceName())
+	log.Debugf("Removing peer %s from interface %s ", peerKey, w.tun.DeviceName())
 	return w.configurer.removePeer(peerKey)
 }
 
@@ -87,7 +86,7 @@ func (w *WGIface) AddAllowedIP(peerKey string, allowedIP string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.deviceName(), peerKey, allowedIP)
+	log.Debugf("adding allowed IP to interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.addAllowedIP(peerKey, allowedIP)
 }
 
@@ -96,7 +95,7 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	log.Debugf("removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.deviceName(), peerKey, allowedIP)
+	log.Debugf("removing allowed IP from interface %s and peer %s: allowed IP %s ", w.tun.DeviceName(), peerKey, allowedIP)
 	return w.configurer.removeAllowedIP(peerKey, allowedIP)
 }
 
@@ -104,5 +103,5 @@ func (w *WGIface) RemoveAllowedIP(peerKey string, allowedIP string) error {
 func (w *WGIface) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.tun.close()
+	return w.tun.Close()
 }
