@@ -36,6 +36,10 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 			sb.WriteString(fmt.Sprintf("public_key=%s\n", preSharedHexKey))
 		}
 
+		if p.Remove {
+			sb.WriteString("remove=true")
+		}
+
 		if p.ReplaceAllowedIPs {
 			sb.WriteString("replace_allowed_ips=true\n")
 		}
