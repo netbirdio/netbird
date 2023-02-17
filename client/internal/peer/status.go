@@ -56,6 +56,7 @@ type Status struct {
 	management   ManagementState
 	localPeer    LocalPeerState
 	offlinePeers []State
+	notifier     *notifier
 }
 
 // NewRecorder returns a new Status instance
@@ -64,6 +65,7 @@ func NewRecorder() *Status {
 		peers:        make(map[string]State),
 		changeNotify: make(map[string]chan struct{}),
 		offlinePeers: make([]State, 0),
+		notifier:     newNotifier(),
 	}
 }
 
@@ -196,6 +198,7 @@ func (d *Status) CleanLocalPeerState() {
 func (d *Status) MarkManagementDisconnected(managementURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+	defer d.onConnectionChanged()
 	d.management = ManagementState{
 		URL:       managementURL,
 		Connected: false,
@@ -206,6 +209,7 @@ func (d *Status) MarkManagementDisconnected(managementURL string) {
 func (d *Status) MarkManagementConnected(managementURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+	defer d.onConnectionChanged()
 	d.management = ManagementState{
 		URL:       managementURL,
 		Connected: true,
@@ -216,6 +220,7 @@ func (d *Status) MarkManagementConnected(managementURL string) {
 func (d *Status) MarkSignalDisconnected(signalURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+	defer d.onConnectionChanged()
 	d.signal = SignalState{
 		signalURL,
 		false,
@@ -226,6 +231,7 @@ func (d *Status) MarkSignalDisconnected(signalURL string) {
 func (d *Status) MarkSignalConnected(signalURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+	defer d.onConnectionChanged()
 	d.signal = SignalState{
 		signalURL,
 		true,
@@ -250,4 +256,28 @@ func (d *Status) GetFullStatus() FullStatus {
 	fullStatus.Peers = append(fullStatus.Peers, d.offlinePeers...)
 
 	return fullStatus
+}
+
+// ClientStart will notify all listeners about the new service state
+func (d *Status) ClientStart() {
+	d.notifier.clientStart()
+}
+
+// ClientStop will notify all listeners about the new service state
+func (d *Status) ClientStop() {
+	d.notifier.clientStop()
+}
+
+// AddStatusListener add a listener to the notifier
+func (d *Status) AddStatusListener(listener Listener) {
+	d.notifier.addListener(listener)
+}
+
+// RemoveStatusListener remove a listener from the notifier
+func (d *Status) RemoveStatusListener(listener Listener) {
+	d.notifier.removeListener(listener)
+}
+
+func (d *Status) onConnectionChanged() {
+	d.notifier.updateServerStates(d.management.Connected, d.signal.Connected)
 }

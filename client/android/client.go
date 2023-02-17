@@ -10,6 +10,11 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
+// StateListener export for android
+type StateListener interface {
+	status.Listener
+}
+
 // WGAdapter is exists for avoid circle dependency
 type WGAdapter interface {
 	iface.WGAdapter
@@ -21,6 +26,8 @@ type Client struct {
 	adminURL  string
 	mgmUrl    string
 	wgAdapter iface.WGAdapter
+	listener  status.Listener
+	recorder  *status.Status
 }
 
 func NewClient(sshKey, privateKey, adminURL, mgmURL string, wgAdapter WGAdapter) *Client {
@@ -33,6 +40,7 @@ func NewClient(sshKey, privateKey, adminURL, mgmURL string, wgAdapter WGAdapter)
 		adminURL:  adminURL,
 		mgmUrl:    mgmURL,
 		wgAdapter: wgAdapter,
+		recorder:  status.NewRecorder(),
 	}
 }
 
@@ -59,6 +67,13 @@ func (c *Client) Init() error {
 	}
 	ctxState := internal.CtxInitState(context.Background())
 
-	recorder := status.NewRecorder()
-	return internal.RunClient(ctxState, cfg, recorder, c.wgAdapter)
+	return internal.RunClient(ctxState, cfg, c.recorder, c.wgAdapter)
+}
+
+func (c *Client) AddStatusListener(listener StateListener) {
+	c.recorder.AddStatusListener(listener)
+}
+
+func (c *Client) RemoveStatusListener(listener StateListener) {
+	c.recorder.RemoveStatusListener(listener)
 }
