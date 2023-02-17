@@ -21,44 +21,43 @@ func (a *Account) getRegoPolicy(policies ...string) (rego.PreparedEvalQuery, err
 }
 
 // getPeersByPolicy returns all peers that given peer has access to.
-func (a *Account) getPeersByPolicy(
-	policyQuery rego.PreparedEvalQuery,
-	peerID string,
-	peers []*Peer,
-) []*Peer {
-	peersIndex := make(map[string]*Peer, len(peers))
-	for _, peer := range peers {
-		peersIndex[peer.ID] = peer
-	}
-
+func (a *Account) getPeersByPolicy(peerID string) []*Peer {
 	srcRules, dstRules := a.GetPeerRules(peerID)
 
 	input := map[string]interface{}{
 		"peer_id":   peerID,
-		"peers":     peers,
+		"peers":     a.Peers,
+		"groups":    a.Groups,
 		"src_rules": srcRules,
 		"dst_rules": dstRules,
 	}
-	evalResult, err := policyQuery.Eval(context.TODO(), rego.EvalInput(input))
+
+	query, err := a.getRegoPolicy()
 	if err != nil {
-		log.WithError(err).Error("eval Rego policy")
-		return peers
+		log.WithError(err).Error("get Rego policy query")
+		return nil
 	}
 
-	rawList, ok := evalResult[0].Bindings["peer"].([]interface{})
+	evalResult, err := query.Eval(context.TODO(), rego.EvalInput(input))
+	if err != nil {
+		log.WithError(err).Error("eval Rego policy query")
+		return nil
+	}
+
+	rawList, ok := evalResult[0].Bindings["peers"].([]interface{})
 	if !ok {
-		return peers
+		return nil
 	}
 
-	filteredPeers := make([]*Peer, 0, len(rawList))
+	peers := make([]*Peer, 0, len(rawList))
 	for _, item := range rawList {
 		peerID, ok := item.(string)
 		if !ok {
 			log.Error("invalid type of peer ID from the policy eval result")
 			continue
 		}
-		filteredPeers = append(filteredPeers, peersIndex[peerID])
+		peers = append(peers, a.Peers[peerID])
 	}
 
-	return filteredPeers
+	return peers
 }
