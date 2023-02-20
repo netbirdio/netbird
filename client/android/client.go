@@ -2,6 +2,7 @@ package android
 
 import (
 	"context"
+	"sync"
 
 	log "github.com/sirupsen/logrus"
 
@@ -10,12 +11,12 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
-// StateListener export for android
+// StateListener export for mobile
 type StateListener interface {
 	status.Listener
 }
 
-// WGAdapter is exists for avoid circle dependency
+// WGAdapter export for mobile
 type WGAdapter interface {
 	iface.WGAdapter
 }
@@ -28,6 +29,8 @@ type Client struct {
 	wgAdapter iface.WGAdapter
 	listener  status.Listener
 	recorder  *status.Status
+	ctxCancel context.CancelFunc
+	ctxLock   *sync.Mutex
 }
 
 func NewClient(sshKey, privateKey, adminURL, mgmURL string, wgAdapter WGAdapter) *Client {
@@ -41,10 +44,13 @@ func NewClient(sshKey, privateKey, adminURL, mgmURL string, wgAdapter WGAdapter)
 		mgmUrl:    mgmURL,
 		wgAdapter: wgAdapter,
 		recorder:  status.NewRecorder(),
+		ctxLock:   &sync.Mutex{},
 	}
 }
 
-func (c *Client) Init() error {
+func (c *Client) Run() error {
+	c.ctxLock.Lock()
+
 	adminURL, err := internal.ParseURL("Admin Panel url", c.adminURL)
 	if err != nil {
 		return err
@@ -65,9 +71,20 @@ func (c *Client) Init() error {
 		IFaceBlackList:       []string{},
 		DisableIPv6Discovery: false,
 	}
-	ctxState := internal.CtxInitState(context.Background())
 
+	var ctx context.Context
+	ctx, c.ctxCancel = context.WithCancel(context.Background())
+	ctxState := internal.CtxInitState(ctx)
+	c.ctxLock.Unlock()
 	return internal.RunClient(ctxState, cfg, c.recorder, c.wgAdapter)
+}
+
+func (c *Client) Stop() {
+	if c.ctxCancel == nil {
+		return
+	}
+
+	c.ctxCancel()
 }
 
 func (c *Client) AddStatusListener(listener StateListener) {

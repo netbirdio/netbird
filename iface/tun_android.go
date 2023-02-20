@@ -1,6 +1,8 @@
 package iface
 
 import (
+	"net"
+
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 	"golang.zx2c4.com/wireguard/conn"
@@ -17,6 +19,7 @@ type tunDevice struct {
 	fd     int
 	name   string
 	device *device.Device
+	uapi   net.Listener
 }
 
 func newTunDevice(address WGAddress, mtu int, wgAdapter WGAdapter) *tunDevice {
@@ -52,7 +55,7 @@ func (t *tunDevice) Create() error {
 		return err
 	}
 
-	uapi, err := ipc.UAPIListen(name, tunSock)
+	t.uapi, err = ipc.UAPIListen(name, tunSock)
 	if err != nil {
 		tunSock.Close()
 		unix.Close(t.fd)
@@ -61,7 +64,7 @@ func (t *tunDevice) Create() error {
 
 	go func() {
 		for {
-			uapiConn, err := uapi.Accept()
+			uapiConn, err := t.uapi.Accept()
 			if err != nil {
 				return
 			}
@@ -96,7 +99,14 @@ func (t *tunDevice) UpdateAddr(addr WGAddress) error {
 	return nil
 }
 
-func (t *tunDevice) Close() error {
-	// todo implement
-	return nil
+func (t *tunDevice) Close() (err error) {
+	if t.uapi != nil {
+		err = t.uapi.Close()
+	}
+
+	if t.device != nil {
+		t.device.Close()
+	}
+
+	return
 }
