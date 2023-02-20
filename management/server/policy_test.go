@@ -20,7 +20,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 		},
 		Groups: map[string]*Group{
-			"default": {
+			"all": {
 				ID:    "default",
 				Name:  "all",
 				Peers: []string{"peer1", "peer2", "peer3"},

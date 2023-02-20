@@ -13,7 +13,10 @@ var defaultPolicy string
 
 // getRegoPolicy returns a initialized Rego object with default rule.
 func (a *Account) getRegoPolicy(policies ...string) (rego.PreparedEvalQuery, error) {
-	queries := []func(*rego.Rego){rego.Query(defaultPolicy)}
+	queries := []func(*rego.Rego){
+		rego.Module("policy", defaultPolicy),
+		rego.Query(`peers := [peer | peer := data.netbird.default_peers[_]]`),
+	}
 	for _, p := range policies {
 		queries = append(queries, rego.Query(p))
 	}
@@ -44,20 +47,39 @@ func (a *Account) getPeersByPolicy(peerID string) []*Peer {
 		return nil
 	}
 
-	rawList, ok := evalResult[0].Bindings["peers"].([]interface{})
+	if len(evalResult) == 0 {
+		log.Error("empty Rego policy eval result")
+		return nil
+	}
+
+	bindings, ok := evalResult[0].Bindings["peers"].([]interface{})
 	if !ok {
 		return nil
 	}
 
-	peers := make([]*Peer, 0, len(rawList))
-	for _, item := range rawList {
-		peerID, ok := item.(string)
+	peers := make([]*Peer, 0, len(bindings))
+	for _, v := range bindings {
+		object, ok := v.(map[string]interface{})
 		if !ok {
-			log.Error("invalid type of peer ID from the policy eval result")
+			log.Error("invalid Rego policy eval result")
 			continue
 		}
+
+		peerID, ok := object["ID"].(string)
+		if !ok {
+			log.Error("invalid Rego policy peer ID type")
+			continue
+		}
+
 		peers = append(peers, a.Peers[peerID])
 	}
 
 	return peers
+}
+
+type Policy struct {
+	ID        string
+	IP        string
+	Direction string
+	Port      string
 }
