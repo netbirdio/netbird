@@ -17,7 +17,7 @@ type TextFormatter struct {
 // NewTextFormatter create new MyTextFormatter instance
 func NewTextFormatter() *TextFormatter {
 	return &TextFormatter{
-		LevelDesc:       []string{"PANC", "FATL", "ERRO", "WARN", "INFO", "DEBG"},
+		LevelDesc:       []string{"PANC", "FATL", "ERRO", "WARN", "INFO", "DEBG", "TRAC"},
 		TimestampFormat: time.RFC3339, // or RFC3339
 	}
 }
