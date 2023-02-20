@@ -157,54 +157,8 @@ func (e *Engine) Stop() error {
 	// Removing peers happens in the conn.CLose() asynchronously
 	time.Sleep(500 * time.Millisecond)
 
-	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
-	err = e.wgInterface.Close()
-	if err != nil {
-		log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
-		return err
-	}
-
-	if e.udpMux != nil {
-		if err := e.udpMux.Close(); err != nil {
-			log.Debugf("close udp mux: %v", err)
-		}
-	}
-
-	if e.udpMuxSrflx != nil {
-		if err := e.udpMuxSrflx.Close(); err != nil {
-			log.Debugf("close server reflexive udp mux: %v", err)
-		}
-	}
-
-	if e.udpMuxConn != nil {
-		if err := e.udpMuxConn.Close(); err != nil {
-			log.Debugf("close udp mux connection: %v", err)
-		}
-	}
-
-	if e.udpMuxConnSrflx != nil {
-		if err := e.udpMuxConnSrflx.Close(); err != nil {
-			log.Debugf("close server reflexive udp mux connection: %v", err)
-		}
-	}
-
-	if !isNil(e.sshServer) {
-		err := e.sshServer.Stop()
-		if err != nil {
-			log.Warnf("failed stopping the SSH server: %v", err)
-		}
-	}
-
-	if e.routeManager != nil {
-		e.routeManager.Stop()
-	}
-
-	if e.dnsServer != nil {
-		e.dnsServer.Stop()
-	}
-
+	e.close()
 	log.Infof("stopped Netbird Engine")
-
 	return nil
 }
 
@@ -234,12 +188,14 @@ func (e *Engine) Start() error {
 	e.udpMuxConn, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxPort})
 	if err != nil {
 		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
+		e.close()
 		return err
 	}
 
 	e.udpMuxConnSrflx, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
 	if err != nil {
 		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
+		e.close()
 		return err
 	}
 
@@ -249,12 +205,14 @@ func (e *Engine) Start() error {
 	err = e.wgInterface.Create()
 	if err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIfaceName, err.Error())
+		e.close()
 		return err
 	}
 
 	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
 	if err != nil {
 		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
+		e.close()
 		return err
 	}
 
@@ -264,6 +222,7 @@ func (e *Engine) Start() error {
 		// todo fix custom address
 		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
 		if err != nil {
+			e.close()
 			return err
 		}
 		e.dnsServer = dnsServer
@@ -1007,6 +966,55 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 		return nil
 	}
 	return mappedIPs
+}
+
+func (e *Engine) close() {
+	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
+	if e.wgInterface != nil {
+		if err := e.wgInterface.Close(); err != nil {
+			log.Errorf("failed closing Netbird interface %s %v", e.config.WgIfaceName, err)
+		}
+	}
+
+	if e.udpMux != nil {
+		if err := e.udpMux.Close(); err != nil {
+			log.Debugf("close udp mux: %v", err)
+		}
+	}
+
+	if e.udpMuxSrflx != nil {
+		if err := e.udpMuxSrflx.Close(); err != nil {
+			log.Debugf("close server reflexive udp mux: %v", err)
+		}
+	}
+
+	if e.udpMuxConn != nil {
+		if err := e.udpMuxConn.Close(); err != nil {
+			log.Debugf("close udp mux connection: %v", err)
+		}
+	}
+
+	if e.udpMuxConnSrflx != nil {
+		if err := e.udpMuxConnSrflx.Close(); err != nil {
+			log.Debugf("close server reflexive udp mux connection: %v", err)
+		}
+	}
+
+	if !isNil(e.sshServer) {
+		err := e.sshServer.Stop()
+		if err != nil {
+			log.Warnf("failed stopping the SSH server: %v", err)
+		}
+	}
+
+	if e.routeManager != nil {
+		e.routeManager.Stop()
+	}
+
+	if e.dnsServer != nil {
+		e.dnsServer.Stop()
+	}
+
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
