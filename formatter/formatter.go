@@ -8,22 +8,22 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// MyTextFormatter formats logs into text with included source code's path
-type MyTextFormatter struct {
+// TextFormatter formats logs into text with included source code's path
+type TextFormatter struct {
 	TimestampFormat string
 	LevelDesc       []string
 }
 
-// NewMyTextFormatter create new MyTextFormatter instance
-func NewMyTextFormatter() *MyTextFormatter {
-	return &MyTextFormatter{
+// NewTextFormatter create new MyTextFormatter instance
+func NewTextFormatter() *TextFormatter {
+	return &TextFormatter{
 		LevelDesc:       []string{"PANC", "FATL", "ERRO", "WARN", "INFO", "DEBG"},
 		TimestampFormat: time.RFC3339, // or RFC3339
 	}
 }
 
 // Format renders a single log entry
-func (f *MyTextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
+func (f *TextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	var fields string
 	keys := make([]string, 0, len(entry.Data))
 	for k, v := range entry.Data {
