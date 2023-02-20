@@ -27,7 +27,6 @@ type Client struct {
 	adminURL  string
 	mgmUrl    string
 	wgAdapter iface.WGAdapter
-	listener  status.Listener
 	recorder  *status.Status
 	ctxCancel context.CancelFunc
 	ctxLock   *sync.Mutex
