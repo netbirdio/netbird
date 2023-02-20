@@ -37,9 +37,9 @@ func (hook ContextHook) moduleName() string {
 	info, ok := debug.ReadBuildInfo()
 	if ok && info.Main.Path != "" {
 		return info.Main.Path
-	} else {
-		return "netbird"
 	}
+
+	return "netbird"
 }
 
 func (hook ContextHook) parseSrc(filePath string) string {
