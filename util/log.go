@@ -30,8 +30,7 @@ func InitLog(logLevel string, logPath string) error {
 		log.SetOutput(io.Writer(lumberjackLogger))
 	}
 
-	formatter.SetTextFormatter()
+	formatter.SetTextFormatter(log.StandardLogger())
 	log.SetLevel(level)
-
 	return nil
 }
