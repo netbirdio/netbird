@@ -35,7 +35,7 @@ func (hook ContextHook) Fire(entry *logrus.Entry) error {
 
 func (hook ContextHook) moduleName() string {
 	info, ok := debug.ReadBuildInfo()
-	if ok {
+	if ok && info.Main.Path != "" {
 		return info.Main.Path
 	} else {
 		return "netbird"
