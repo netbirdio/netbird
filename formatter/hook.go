@@ -45,7 +45,13 @@ func (hook ContextHook) moduleName() string {
 func (hook ContextHook) parseSrc(filePath string) string {
 	netbirdPath := strings.SplitAfter(filePath, hook.goModuleName)
 	if len(netbirdPath) > 1 {
-		return netbirdPath[1]
+		return netbirdPath[len(netbirdPath)-1]
+	}
+
+	// in case of forked repo
+	netbirdPath = strings.SplitAfter(filePath, "netbird/")
+	if len(netbirdPath) > 1 {
+		return netbirdPath[len(netbirdPath)-1]
 	}
 
 	// in case if log entry is come from external pkg
