@@ -112,7 +112,3 @@ func (c *wGConfigurer) addAllowedIP(peerKey string, allowedIP string) error {
 func (c *wGConfigurer) removeAllowedIP(peerKey string, allowedIP string) error {
 	return errFuncNotImplemented
 }
-
-func (c *wGConfigurer) close() {
-	// todo: implement
-}
