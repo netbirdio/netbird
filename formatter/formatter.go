@@ -37,5 +37,15 @@ func (f *TextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 		fields = fmt.Sprintf("[%s] ", strings.Join(keys, ", "))
 	}
 
-	return []byte(fmt.Sprintf("%s %s %s%s: %s\n", entry.Time.Format(f.TimestampFormat), f.LevelDesc[entry.Level], fields, entry.Data["source"], entry.Message)), nil
+	level := f.parseLevel(entry.Level)
+
+	return []byte(fmt.Sprintf("%s %s %s%s: %s\n", entry.Time.Format(f.TimestampFormat), level, fields, entry.Data["source"], entry.Message)), nil
+}
+
+func (f *TextFormatter) parseLevel(level logrus.Level) string {
+	if len(f.LevelDesc) < int(level) {
+		return ""
+	}
+
+	return f.LevelDesc[level]
 }
