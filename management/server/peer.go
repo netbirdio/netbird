@@ -2,12 +2,13 @@ package server
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/rs/xid"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/rs/xid"
 
 	log "github.com/sirupsen/logrus"
 
@@ -171,7 +172,6 @@ func (p *PeerStatus) Copy() *PeerStatus {
 
 // GetPeerByKey looks up peer by its public WireGuard key
 func (am *DefaultAccountManager) GetPeerByKey(peerPubKey string) (*Peer, error) {
-
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return nil, err
@@ -183,7 +183,6 @@ func (am *DefaultAccountManager) GetPeerByKey(peerPubKey string) (*Peer, error) 
 // GetPeers returns a list of peers under the given account filtering out peers that do not belong to a user if
 // the current user is not an admin.
 func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, error) {
-
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, err
@@ -208,7 +207,8 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		aclPeers := account.getPeersByACL(peer.ID)
+		// TODO: use firewall rules
+		aclPeers, _ := account.getPeersByPolicy(peer.ID)
 		for _, p := range aclPeers {
 			peersMap[p.ID] = p
 		}
@@ -224,7 +224,6 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool) error {
-
 	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
 	if err != nil {
 		return err
@@ -266,7 +265,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 
 	if oldStatus.LoginExpired {
 		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
-		//the expired one. Here we notify them that connection is now allowed again.
+		// the expired one. Here we notify them that connection is now allowed again.
 		err = am.updateAccountPeers(account)
 		if err != nil {
 			return err
@@ -278,7 +277,6 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 
 // UpdatePeer updates peer. Only Peer.Name, Peer.SSHEnabled, and Peer.LoginExpirationEnabled can be updated.
 func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Peer) (*Peer, error) {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -352,7 +350,6 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 
 // DeletePeer removes peer from the account by its IP
 func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) (*Peer, error) {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -402,7 +399,6 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) (*
 
 // GetPeerByIP returns peer by its IP
 func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*Peer, error) {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -422,7 +418,6 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
 func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, error) {
-
 	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
 		return nil, err
@@ -437,7 +432,6 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 
 // GetPeerNetwork returns the Network for a given peer
 func (am *DefaultAccountManager) GetPeerNetwork(peerID string) (*Network, error) {
-
 	account, err := am.Store.GetAccountByPeerID(peerID)
 	if err != nil {
 		return nil, err
@@ -619,7 +613,6 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
 func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) {
-
 	account, err := am.Store.GetAccountByPeerPubKey(login.WireGuardPubKey)
 	if err != nil {
 		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
@@ -680,7 +673,6 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		}
 	}
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
-
 }
 
 func checkAuth(loginUserID string, peer *Peer) error {
@@ -749,7 +741,6 @@ func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *Peer, account *A
 
 // UpdatePeerSSHKey updates peer's public SSH key
 func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) error {
-
 	if sshKey == "" {
 		log.Debugf("empty SSH key provided for peer %s, skipping update", peerID)
 		return nil
@@ -793,7 +784,6 @@ func (am *DefaultAccountManager) UpdatePeerSSHKey(peerID string, sshKey string) 
 
 // GetPeer for a given accountID, peerID and userID error if not found.
 func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Peer, error) {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 

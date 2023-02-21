@@ -152,6 +152,7 @@ type Account struct {
 	Users                  map[string]*User
 	Groups                 map[string]*Group
 	Rules                  map[string]*Rule
+	Policies               []*Policy
 	Routes                 map[string]*route.Route
 	NameServerGroups       map[string]*nbdns.NameServerGroup
 	DNSSettings            *DNSSettings
@@ -456,7 +457,6 @@ func (a *Account) FindPeerByPubKey(peerPubKey string) (*Peer, error) {
 
 // FindUserPeers returns a list of peers that user owns (created)
 func (a *Account) FindUserPeers(userID string) ([]*Peer, error) {
-
 	peers := make([]*Peer, 0)
 	for _, peer := range a.Peers {
 		if peer.UserID == userID {
@@ -576,6 +576,11 @@ func (a *Account) Copy() *Account {
 		rules[id] = rule.Copy()
 	}
 
+	policies := []*Policy{}
+	for _, policy := range a.Policies {
+		policies = append(policies, policy.Copy())
+	}
+
 	routes := map[string]*route.Route{}
 	for id, route := range a.Routes {
 		routes[id] = route.Copy()
@@ -608,6 +613,7 @@ func (a *Account) Copy() *Account {
 		Users:                  users,
 		Groups:                 groups,
 		Rules:                  rules,
+		Policies:               policies,
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
 		DNSSettings:            dnsSettings,
@@ -701,7 +707,6 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 // User that performs the update has to belong to the account.
 // Returns an updated Account
 func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error) {
-
 	halfYearLimit := 180 * 24 * time.Hour
 	if newSettings.PeerLoginExpiration > halfYearLimit {
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -1296,6 +1301,15 @@ func addAllGroup(account *Account) {
 			Destination: []string{allGroup.ID},
 		}
 		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
+
+		defaultPolicy := &Policy{
+			ID:          xid.New().String(),
+			Name:        DefaultPolicyName,
+			Disabled:    false,
+			Description: DefaultPolicyDescription,
+			Query:       defaultPolicy,
+		}
+		account.Policies = []*Policy{defaultPolicy}
 	}
 }
 

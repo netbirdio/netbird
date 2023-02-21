@@ -1,9 +1,10 @@
 package server
 
 import (
+	"strings"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-	"strings"
 )
 
 // TrafficFlowType defines allowed direction of the traffic in the rule
@@ -18,6 +19,10 @@ const (
 	DefaultRuleName = "Default"
 	// DefaultRuleDescription is a description for the Default rule that is created for every account
 	DefaultRuleDescription = "This is a default rule that allows connections between all the resources"
+	// DefaultPolicyName is a name for the Default policy that is created for every account
+	DefaultPolicyName = "Default"
+	// DefaultPolicyDescription is a description for the Default policy that is created for every account
+	DefaultPolicyDescription = "This is a default policy that allows connections between all the resources"
 )
 
 // Rule of ACL for groups
@@ -150,7 +155,8 @@ func (am *DefaultAccountManager) SaveRule(accountID, userID string, rule *Rule) 
 
 // UpdateRule updates a rule using a list of operations
 func (am *DefaultAccountManager) UpdateRule(accountID string, ruleID string,
-	operations []RuleUpdateOperation) (*Rule, error) {
+	operations []RuleUpdateOperation,
+) (*Rule, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 

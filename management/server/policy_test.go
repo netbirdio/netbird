@@ -1,6 +1,7 @@
 package server
 
 import (
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,12 +12,15 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		Peers: map[string]*Peer{
 			"peer1": {
 				ID: "peer1",
+				IP: net.IPv4(10, 20, 0, 1),
 			},
 			"peer2": {
 				ID: "peer2",
+				IP: net.IPv4(10, 20, 0, 2),
 			},
 			"peer3": {
 				ID: "peer3",
+				IP: net.IPv4(10, 20, 0, 3),
 			},
 		},
 		Groups: map[string]*Group{
@@ -26,19 +30,29 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Peers: []string{"peer1", "peer2", "peer3"},
 			},
 		},
-		Rules: map[string]*Rule{
-			"default": {
+		Policies: []*Policy{
+			{
 				ID:          "default",
 				Name:        "default",
-				Description: "All to All",
-				Source:      []string{"all"},
-				Destination: []string{"all"},
-				Flow:        TrafficFlowBidirect,
+				Description: "default",
+				Disabled:    false,
+				Query:       defaultPolicy,
 			},
 		},
 	}
 
-	peers := account.getPeersByPolicy("peer1")
+	peers, firewallRules := account.getPeersByPolicy("peer1")
 	expected := []*Peer{account.Peers["peer2"], account.Peers["peer3"]}
 	assert.Equal(t, peers, expected)
+
+	epectedFirewallRules := []*FirewallRule{
+		{PeerID: "peer2", PeerIP: "10.20.0.2", Direction: "dst", Action: "accept", Port: ""},
+		{PeerID: "peer3", PeerIP: "10.20.0.3", Direction: "dst", Action: "accept", Port: ""},
+		{PeerID: "peer2", PeerIP: "10.20.0.2", Direction: "src", Action: "accept", Port: ""},
+		{PeerID: "peer3", PeerIP: "10.20.0.3", Direction: "src", Action: "accept", Port: ""},
+	}
+	assert.Len(t, firewallRules, len(epectedFirewallRules))
+	for i := range firewallRules {
+		assert.Equal(t, firewallRules[i], epectedFirewallRules[i])
+	}
 }
