@@ -2,14 +2,15 @@ package server
 
 import (
 	"fmt"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/route"
 	"net"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/route"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/stretchr/testify/assert"
@@ -215,7 +216,6 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 }
 
 func TestNewAccount(t *testing.T) {
-
 	domain := "netbird.io"
 	userId := "account_creator"
 	accountID := "account_id"
@@ -1011,6 +1011,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	assert.Equal(t, peer.IP.String(), ev.TargetID)
 	assert.Equal(t, peer.IP.String(), fmt.Sprint(ev.Meta["ip"]))
 }
+
 func getEvent(t *testing.T, accountID string, manager AccountManager, eventType activity.Activity) *activity.Event {
 	for {
 		select {
@@ -1064,7 +1065,6 @@ func TestGetUsersFromAccount(t *testing.T) {
 }
 
 func TestAccount_GetPeerRules(t *testing.T) {
-
 	groups := map[string]*Group{
 		"group_1": {
 			ID:    "group_1",
@@ -1131,7 +1131,6 @@ func TestAccount_GetPeerRules(t *testing.T) {
 
 	assert.Equal(t, 2, len(srcRules))
 	assert.Equal(t, 1, len(dstRules))
-
 }
 
 func TestFileStore_GetRoutesByPrefix(t *testing.T) {
@@ -1284,6 +1283,11 @@ func TestAccount_Copy(t *testing.T) {
 				ID: "rule1",
 			},
 		},
+		Policies: []*Policy{
+			{
+				ID: "policy1",
+			},
+		},
 		Routes: map[string]*route.Route{
 			"route1": {
 				ID: "route1",
@@ -1326,6 +1330,7 @@ func hasNilField(x interface{}) error {
 	}
 	return nil
 }
+
 func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 	manager, err := createManager(t)
 	require.NoError(t, err, "unable to create account manager")
@@ -1485,7 +1490,8 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 
 	updated, err := manager.UpdateAccountSettings(account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour,
-		PeerLoginExpirationEnabled: false})
+		PeerLoginExpirationEnabled: false,
+	})
 	require.NoError(t, err, "expecting to update account settings successfully but got error")
 	assert.False(t, updated.Settings.PeerLoginExpirationEnabled)
 	assert.Equal(t, updated.Settings.PeerLoginExpiration, time.Hour)
@@ -1498,12 +1504,14 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 
 	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Second,
-		PeerLoginExpirationEnabled: false})
+		PeerLoginExpirationEnabled: false,
+	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration less than one hour")
 
 	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
 		PeerLoginExpiration:        time.Hour * 24 * 181,
-		PeerLoginExpirationEnabled: false})
+		PeerLoginExpirationEnabled: false,
+	})
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
 }
 

@@ -1,16 +1,16 @@
 package server
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/rs/xid"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 func TestPeer_LoginExpired(t *testing.T) {
-
 	tt := []struct {
 		name              string
 		expirationEnabled bool
@@ -95,7 +95,6 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-1"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -166,7 +165,6 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-1"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -181,7 +179,6 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		Key:  peerKey2.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -333,7 +330,6 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-1"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -363,7 +359,6 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 	if account.Network.Id != network.Id {
 		t.Errorf("expecting Account Networks ID to be equal, got %s expected %s", network.Id, account.Network.Id)
 	}
-
 }
 
 func TestDefaultAccountManager_GetPeer(t *testing.T) {
@@ -400,7 +395,6 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -417,7 +411,6 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		Key:  peerKey2.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
-
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -466,11 +459,9 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 	assert.NotNil(t, peer)
-
 }
 
 func getSetupKey(account *Account, keyType SetupKeyType) *SetupKey {
-
 	var setupKey *SetupKey
 	for _, key := range account.SetupKeys {
 		if key.Type == keyType {

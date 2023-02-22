@@ -19,6 +19,12 @@ const (
 	RuleUpdated
 	// RuleRemoved indicates that a user removed a rule
 	RuleRemoved
+	// PolicyAdded indicates that a user added a new policy
+	PolicyAdded
+	// PolicyUpdated indicates that a user updated a policy
+	PolicyUpdated
+	// PolicyRemoved indicates that a user removed a policy
+	PolicyRemoved
 	// SetupKeyCreated indicates that a user created a new setup key
 	SetupKeyCreated
 	// SetupKeyUpdated indicates that a user updated a setup key
@@ -84,11 +90,11 @@ const (
 	PeerAddedByUserMessage string = "Peer added"
 	// PeerAddedWithSetupKeyMessage is a human-readable text message of the PeerAddedWithSetupKey activity
 	PeerAddedWithSetupKeyMessage = PeerAddedByUserMessage
-	//UserJoinedMessage is a human-readable text message of the UserJoined activity
+	// UserJoinedMessage is a human-readable text message of the UserJoined activity
 	UserJoinedMessage string = "User joined"
-	//UserInvitedMessage is a human-readable text message of the UserInvited activity
+	// UserInvitedMessage is a human-readable text message of the UserInvited activity
 	UserInvitedMessage string = "User invited"
-	//AccountCreatedMessage is a human-readable text message of the AccountCreated activity
+	// AccountCreatedMessage is a human-readable text message of the AccountCreated activity
 	AccountCreatedMessage string = "Account created"
 	// PeerRemovedByUserMessage is a human-readable text message of the PeerRemovedByUser activity
 	PeerRemovedByUserMessage string = "Peer deleted"

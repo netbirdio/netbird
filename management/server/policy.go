@@ -4,10 +4,34 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"strings"
+
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/status"
 
 	"github.com/open-policy-agent/opa/rego"
 	log "github.com/sirupsen/logrus"
 )
+
+const (
+	// UpdatePolicyName indicates a policy name update operation
+	UpdatePolicyName PolicyUpdateOperationType = iota
+	// UpdatePolicyDescription indicates a policy description update operation
+	UpdatePolicyDescription
+	// UpdatePolicyStatus indicates a policy status update operation
+	UpdatePolicyStatus
+	// UpdatePolicyQuery indicates a policy query update operation
+	UpdatePolicyQuery
+)
+
+// PolicyUpdateOperationType operation type
+type PolicyUpdateOperationType int
+
+// PolicyUpdateOperation operation object with type and values to be applied
+type PolicyUpdateOperation struct {
+	Type   PolicyUpdateOperationType
+	Values []string
+}
 
 //go:embed rego/default_policy_module.rego
 var defaultPolicyModule string
@@ -42,6 +66,11 @@ func (r *Policy) Copy() *Policy {
 		Disabled:    r.Disabled,
 		Query:       r.Query,
 	}
+}
+
+// EventMeta returns activity event meta related to this policy
+func (p *Policy) EventMeta() map[string]any {
+	return map[string]any{"name": p.Name}
 }
 
 // FirewallRule is a rule of the firewall.
@@ -165,4 +194,184 @@ func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
 	}
 
 	return peers, rules
+}
+
+// GetPolicy from the store
+func (am *DefaultAccountManager) GetPolicy(accountID, policyID, userID string) (*Policy, error) {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdmin() {
+		return nil, status.Errorf(status.PermissionDenied, "only admins are allowed to view policies")
+	}
+
+	for _, policy := range account.Policies {
+		if policy.ID == policyID {
+			return policy, nil
+		}
+	}
+
+	return nil, status.Errorf(status.NotFound, "policy with ID %s not found", policyID)
+}
+
+// SaveRule in the store
+func (am *DefaultAccountManager) SavePolicy(accountID, userID string, policy *Policy) error {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	exists := false
+	for i, p := range account.Policies {
+		if p.ID == policy.ID {
+			account.Policies[i] = policy
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		account.Policies = append(account.Policies, policy)
+	}
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	action := activity.PolicyAdded
+	if exists {
+		action = activity.PolicyUpdated
+	}
+	am.storeEvent(userID, policy.ID, accountID, action, policy.EventMeta())
+
+	return am.updateAccountPeers(account)
+}
+
+// UpdatePolicy updates a rule using a list of operations
+func (am *DefaultAccountManager) UpdatePolicy(accountID string, ruleID string,
+	operations []PolicyUpdateOperation,
+) (*Policy, error) {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	policyIdx := -1
+	for i, policy := range account.Policies {
+		if policy.ID == ruleID {
+			policyIdx = i
+			break
+		}
+	}
+	if policyIdx >= 0 {
+		return nil, status.Errorf(status.NotFound, "policy %s no longer exists", ruleID)
+	}
+	policyToUpdate := account.Policies[policyIdx]
+
+	policy := policyToUpdate.Copy()
+
+	for _, operation := range operations {
+		switch operation.Type {
+		case UpdatePolicyName:
+			policy.Name = operation.Values[0]
+		case UpdatePolicyDescription:
+			policy.Description = operation.Values[0]
+		case UpdatePolicyQuery:
+			policy.Query = operation.Values[0]
+		case UpdatePolicyStatus:
+			if strings.ToLower(operation.Values[0]) == "true" {
+				policy.Disabled = true
+			} else if strings.ToLower(operation.Values[0]) == "false" {
+				policy.Disabled = false
+			} else {
+				return nil, status.Errorf(status.InvalidArgument, "failed to parse status")
+			}
+		}
+	}
+
+	account.Policies[policyIdx] = policy
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return nil, err
+	}
+
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return nil, status.Errorf(status.Internal, "failed to update account peers")
+	}
+
+	return policy, nil
+}
+
+// DeletePolicy from the store
+func (am *DefaultAccountManager) DeletePolicy(accountID, policyID, userID string) error {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	policyIdx := -1
+	for i, policy := range account.Policies {
+		if policy.ID == policyID {
+			policyIdx = i
+			break
+		}
+	}
+	if policyIdx < 0 {
+		return status.Errorf(status.NotFound, "rule with ID %s doesn't exist", policyID)
+	}
+
+	policy := account.Policies[policyIdx]
+	account.Policies = append(account.Policies[:policyIdx], account.Policies[policyIdx+1:]...)
+
+	account.Network.IncSerial()
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	am.storeEvent(userID, policy.ID, accountID, activity.PolicyRemoved, policy.EventMeta())
+
+	return am.updateAccountPeers(account)
+}
+
+// ListRules from the store
+func (am *DefaultAccountManager) ListPolicies(accountID, userID string) ([]*Policy, error) {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	user, err := account.FindUser(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !user.IsAdmin() {
+		return nil, status.Errorf(status.PermissionDenied, "Only Administrators can view policies")
+	}
+
+	return account.Policies[:], nil
 }
