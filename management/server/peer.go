@@ -255,6 +255,11 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	if err != nil {
 		return err
 	}
+
+	if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
+		am.checkAndSchedulePeerLoginExpiration(account)
+	}
+
 	return nil
 }
 
@@ -311,6 +316,10 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 			event = activity.PeerLoginExpirationDisabled
 		}
 		am.storeEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+
+		if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
+			am.checkAndSchedulePeerLoginExpiration(account)
+		}
 	}
 
 	account.UpdatePeer(peer)
@@ -777,6 +786,10 @@ func (a *Account) getPeersByACL(peerID string) []*Peer {
 					g.ID,
 					a.Id,
 				)
+				continue
+			}
+			expired, _ := peer.LoginExpired(a.Settings.PeerLoginExpiration)
+			if expired {
 				continue
 			}
 			// exclude original peer

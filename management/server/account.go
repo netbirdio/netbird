@@ -324,6 +324,7 @@ func (a *Account) GetExpiredPeers() []*Peer {
 
 // GetNextPeerExpiration returns the minimum duration in which the next peer of the account will expire and true if it was found.
 // If there is no peer that expires this function returns false and a zero time.Duration
+// This function only considers peers that haven't been expired yet and connected.
 func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 	nextExpiry := time.Duration(1<<63 - 1) // max duration
 	peersWithExpiry := a.GetPeersWithExpiration()
@@ -332,7 +333,7 @@ func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 	}
 	for _, peer := range peersWithExpiry {
 		// consider only connected peers because others will require login on connecting to the management server
-		if peer.Status.LoginExpired {
+		if peer.Status.LoginExpired || !peer.Status.Connected {
 			continue
 		}
 		_, duration := peer.LoginExpired(a.Settings.PeerLoginExpiration)
@@ -688,7 +689,6 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
 		event := activity.AccountPeerLoginExpirationEnabled
 		if !newSettings.PeerLoginExpirationEnabled {
-			// todo cancel all the login expiration jobs per
 			event = activity.AccountPeerLoginExpirationDisabled
 			am.peerLoginExpiry.Cancel([]string{accountID})
 		} else {
@@ -698,8 +698,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	}
 
 	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
-		// todo reschedule expiration
 		am.storeEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
+		am.checkAndSchedulePeerLoginExpiration(account)
 	}
 
 	updatedAccount := account.UpdateSettings(newSettings)
@@ -720,7 +720,8 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 		account, err := am.Store.GetAccount(accountID)
 		if err != nil {
 			log.Errorf("failed getting account %s expiring peers", account.Id)
-			return false, time.Duration(0)
+			// todo return retry?
+			return false, 0
 		}
 
 		var peerIDs []string
@@ -731,7 +732,8 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 			err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
 			if err != nil {
 				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
-				return false, time.Duration(0)
+				// todo return retry?
+				return false, 0
 			}
 		}
 
@@ -740,6 +742,11 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 		if len(peerIDs) != 0 {
 			// this will trigger peer disconnect from the management service
 			am.peersUpdateManager.CloseChannels(peerIDs)
+			err := am.updateAccountPeers(account)
+			if err != nil {
+				log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
+				return false, 0
+			}
 		}
 
 		nextExpiration, shouldRun := account.GetNextPeerExpiration()
@@ -748,6 +755,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 }
 
 func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(account *Account) {
+	am.peerLoginExpiry.Cancel([]string{account.Id})
 	if expiryNextRunIn, ok := account.GetNextPeerExpiration(); ok {
 		go am.peerLoginExpiry.Schedule(expiryNextRunIn, account.Id, am.peerLoginExpirationJob(account.Id))
 	}
