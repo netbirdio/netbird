@@ -93,17 +93,24 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
+// MarkLoginExpired marks peer's status expired or not
+func (p *Peer) MarkLoginExpired(expired bool) {
+	newStatus := p.Status.Copy()
+	newStatus.LastSeen = time.Now()
+	newStatus.LoginExpired = expired
+	p.Status = newStatus
+}
+
 // LoginExpired indicates whether the peer's login has expired or not.
 // If Peer.LastLogin plus the expiresIn duration has happened already; then login has expired.
 // Return true if a login has expired, false otherwise, and time left to expiration (negative when expired).
 // Login expiration can be disabled/enabled on a Peer level via Peer.LoginExpirationEnabled property.
-// Login expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled
-// and if disabled on the Account level, then Peer.LoginExpirationEnabled is ineffective.
-func (p *Peer) LoginExpired(accountSettings *Settings) (bool, time.Duration) {
-	expiresAt := p.LastLogin.Add(accountSettings.PeerLoginExpiration)
+// Login expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled.
+func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
+	expiresAt := p.LastLogin.Add(expiresIn)
 	now := time.Now()
 	timeLeft := expiresAt.Sub(now)
-	return accountSettings.PeerLoginExpirationEnabled && p.LoginExpirationEnabled && (timeLeft <= 0), timeLeft
+	return p.LoginExpirationEnabled && (timeLeft <= 0), timeLeft
 }
 
 // FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
@@ -202,13 +209,10 @@ func (am *DefaultAccountManager) MarkPeerLoginExpired(peerPubKey string, loginEx
 		return err
 	}
 
-	newStatus := peer.Status.Copy()
-	newStatus.LastSeen = time.Now()
-	newStatus.LoginExpired = loginExpired
-	peer.Status = newStatus
+	peer.MarkLoginExpired(loginExpired)
 	account.UpdatePeer(peer)
 
-	err = am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)
+	err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
 	if err != nil {
 		return err
 	}

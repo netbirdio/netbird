@@ -119,7 +119,8 @@ type DefaultAccountManager struct {
 	// singleAccountModeDomain is a domain to use in singleAccountMode setup
 	singleAccountModeDomain string
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
-	dnsDomain string
+	dnsDomain       string
+	peerLoginExpiry *Scheduler
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -157,7 +158,8 @@ type Account struct {
 	NameServerGroups       map[string]*nbdns.NameServerGroup
 	DNSSettings            *DNSSettings
 	// Settings is a dictionary of Account settings
-	Settings *Settings
+	Settings        *Settings
+	loginExpiration *Scheduler
 }
 
 type UserInfo struct {
@@ -305,6 +307,52 @@ func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rul
 // GetGroup returns a group by ID if exists, nil otherwise
 func (a *Account) GetGroup(groupID string) *Group {
 	return a.Groups[groupID]
+}
+
+// GetExpiredPeers returns peers tha have been expired
+func (a *Account) GetExpiredPeers() []*Peer {
+	var peers []*Peer
+	for _, peer := range a.GetPeersWithExpiration() {
+		expired, _ := peer.LoginExpired(a.Settings.PeerLoginExpiration)
+		if expired {
+			peers = append(peers, peer)
+		}
+	}
+
+	return peers
+}
+
+// GetNextPeerExpiration returns the minimum duration in which the next peer of the account will expire and true if it was found.
+// If there is no peer that expires this function returns false and a zero time.Duration
+func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
+	nextExpiry := time.Duration(1<<63 - 1) // max duration
+	peersWithExpiry := a.GetPeersWithExpiration()
+	if len(peersWithExpiry) == 0 {
+		return nextExpiry, false
+	}
+	for _, peer := range peersWithExpiry {
+		// consider only connected peers because others will require login on connecting to the management server
+		if peer.Status.LoginExpired {
+			continue
+		}
+		_, duration := peer.LoginExpired(a.Settings.PeerLoginExpiration)
+		if duration < nextExpiry {
+			nextExpiry = duration
+		}
+	}
+
+	return nextExpiry, nextExpiry != time.Duration(1<<63-1)
+}
+
+// GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true
+func (a *Account) GetPeersWithExpiration() []*Peer {
+	var peers []*Peer
+	for _, peer := range a.Peers {
+		if peer.LoginExpirationEnabled {
+			peers = append(peers, peer)
+		}
+	}
+	return peers
 }
 
 // GetPeers returns a list of all Account peers
@@ -550,6 +598,7 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 		cacheLoading:       map[string]chan struct{}{},
 		dnsDomain:          dnsDomain,
 		eventStore:         eventStore,
+		peerLoginExpiry:    NewScheduler(),
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
@@ -639,12 +688,17 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	if oldSettings.PeerLoginExpirationEnabled != newSettings.PeerLoginExpirationEnabled {
 		event := activity.AccountPeerLoginExpirationEnabled
 		if !newSettings.PeerLoginExpirationEnabled {
+			// todo cancel all the login expiration jobs per
 			event = activity.AccountPeerLoginExpirationDisabled
+			am.peerLoginExpiry.Cancel([]string{accountID})
+		} else {
+			am.checkAndSchedulePeerLoginExpiration(account)
 		}
 		am.storeEvent(userID, accountID, accountID, event, nil)
 	}
 
 	if oldSettings.PeerLoginExpiration != newSettings.PeerLoginExpiration {
+		// todo reschedule expiration
 		am.storeEvent(userID, accountID, accountID, activity.AccountPeerLoginExpirationDurationUpdated, nil)
 	}
 
@@ -656,6 +710,47 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	}
 
 	return updatedAccount, nil
+}
+
+func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func() (bool, time.Duration) {
+	return func() (bool, time.Duration) {
+		unlock := am.Store.AcquireAccountLock(accountID)
+		defer unlock()
+
+		account, err := am.Store.GetAccount(accountID)
+		if err != nil {
+			log.Errorf("failed getting account %s expiring peers", account.Id)
+			return false, time.Duration(0)
+		}
+
+		var peerIDs []string
+		for _, peer := range account.GetExpiredPeers() {
+			peerIDs = append(peerIDs, peer.ID)
+			peer.MarkLoginExpired(true)
+			account.UpdatePeer(peer)
+			err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
+			if err != nil {
+				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
+				return false, time.Duration(0)
+			}
+		}
+
+		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
+
+		if len(peerIDs) != 0 {
+			// this will trigger peer disconnect from the management service
+			am.peersUpdateManager.CloseChannels(peerIDs)
+		}
+
+		nextExpiration, shouldRun := account.GetNextPeerExpiration()
+		return shouldRun, nextExpiration
+	}
+}
+
+func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(account *Account) {
+	if expiryNextRunIn, ok := account.GetNextPeerExpiration(); ok {
+		go am.peerLoginExpiry.Schedule(expiryNextRunIn, account.Id, am.peerLoginExpirationJob(account.Id))
+	}
 }
 
 // newAccount creates a new Account with a generated ID and generated default setup keys.
