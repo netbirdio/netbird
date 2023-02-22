@@ -85,3 +85,40 @@ func TestGetConfig(t *testing.T) {
 	}
 	assert.Equal(t, readConf.(*Config).ManagementURL.String(), newManagementURL)
 }
+
+func TestHiddenPreSharedKey(t *testing.T) {
+	hidden := "**********"
+	samplePreSharedKey := "mysecretpresharedkey"
+	tests := []struct {
+		name         string
+		preSharedKey *string
+		want         string
+	}{
+		{"nil", nil, ""},
+		{"hidden", &hidden, ""},
+		{"filled", &samplePreSharedKey, samplePreSharedKey},
+	}
+
+	// generate default cfg
+	cfgFile := filepath.Join(t.TempDir(), "config.json")
+	_, _ = GetConfig(ConfigInput{
+		ConfigPath: cfgFile,
+	})
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := GetConfig(ConfigInput{
+				ConfigPath:   cfgFile,
+				PreSharedKey: tt.preSharedKey,
+			})
+
+			if err != nil {
+				t.Fatalf("failed to get cfg: %s", err)
+			}
+
+			if cfg.PreSharedKey != tt.want {
+				t.Fatalf("invalid preshared key: '%s', expected: '%s' ", cfg.PreSharedKey, tt.want)
+			}
+		})
+	}
+}
