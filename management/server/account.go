@@ -158,8 +158,7 @@ type Account struct {
 	NameServerGroups       map[string]*nbdns.NameServerGroup
 	DNSSettings            *DNSSettings
 	// Settings is a dictionary of Account settings
-	Settings        *Settings
-	loginExpiration *Scheduler
+	Settings *Settings
 }
 
 type UserInfo struct {
@@ -606,7 +605,7 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 	am.singleAccountMode = singleAccountModeDomain != "" && len(allAccounts) <= 1
 	if am.singleAccountMode {
 		if !isDomainValid(singleAccountModeDomain) {
-			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for single accound mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
+			return nil, status.Errorf(status.InvalidArgument, "invalid domain \"%s\" provided for a single account mode. Please review your input for --single-account-mode-domain", singleAccountModeDomain)
 		}
 		am.singleAccountModeDomain = singleAccountModeDomain
 		log.Infof("single account mode enabled, accounts number %d", len(allAccounts))

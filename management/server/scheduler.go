@@ -13,6 +13,7 @@ type Scheduler struct {
 	mu   *sync.Mutex
 }
 
+// NewScheduler creates an instance of a Scheduler
 func NewScheduler() *Scheduler {
 	return &Scheduler{
 		jobs: make(map[string]chan struct{}),
