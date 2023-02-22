@@ -11,8 +11,7 @@ import (
 // The output JSON is pretty-formatted
 func WriteJson(file string, obj interface{}) error {
 
-	configDir, configFileName := filepath.Split(file)
-	err := os.MkdirAll(configDir, 0750)
+	configDir, configFileName, err := prepareConfigFileDir(file)
 	if err != nil {
 		return err
 	}
@@ -99,4 +98,14 @@ func CopyFileContents(src, dst string) (err error) {
 	}
 	err = out.Sync()
 	return
+}
+
+func prepareConfigFileDir(file string) (string, string, error) {
+	configDir, configFileName := filepath.Split(file)
+	if configDir == "" {
+		return "", configFileName, nil
+	}
+
+	err := os.MkdirAll(configDir, 0750)
+	return configDir, configFileName, err
 }
