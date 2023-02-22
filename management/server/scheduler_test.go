@@ -1,11 +1,32 @@
 package server
 
 import (
+	"fmt"
 	"github.com/stretchr/testify/assert"
+	"math/rand"
 	"sync"
 	"testing"
 	"time"
 )
+
+func TestScheduler_Performance(t *testing.T) {
+	scheduler := NewScheduler()
+	n := 1000
+	wg := sync.WaitGroup{}
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		millis := time.Duration(rand.Intn(500-50)+50) * time.Millisecond
+		go scheduler.Schedule(millis, fmt.Sprintf("test-scheduler-job-%d", i), func() (reschedule bool, nextRunIn time.Duration) {
+			time.Sleep(millis)
+			wg.Done()
+			return false, 0
+		})
+	}
+
+	assert.True(t, len(scheduler.jobs) > 0)
+	wg.Wait()
+	assert.Len(t, scheduler.jobs, 0)
+}
 
 func TestScheduler_Cancel(t *testing.T) {
 	jobID1 := "test-scheduler-job-1"
