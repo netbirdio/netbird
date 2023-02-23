@@ -268,13 +268,13 @@ func (d *Status) ClientStop() {
 	d.notifier.clientStop()
 }
 
-// AddStatusListener add a listener to the notifier
-func (d *Status) AddStatusListener(listener Listener) {
+// AddConnectionListener add a listener to the notifier
+func (d *Status) AddConnectionListener(listener Listener) {
 	d.notifier.addListener(listener)
 }
 
-// RemoveStatusListener remove a listener from the notifier
-func (d *Status) RemoveStatusListener(listener Listener) {
+// RemoveConnectionListener remove a listener from the notifier
+func (d *Status) RemoveConnectionListener(listener Listener) {
 	d.notifier.removeListener(listener)
 }
 

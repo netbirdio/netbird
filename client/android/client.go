@@ -17,8 +17,8 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
-// StateListener export for mobile
-type StateListener interface {
+// ConnectionListener export for mobile
+type ConnectionListener interface {
 	status.Listener
 }
 
@@ -87,12 +87,12 @@ func (c *Client) Stop() {
 	c.ctxCancel()
 }
 
-func (c *Client) AddStatusListener(listener StateListener) {
-	c.recorder.AddStatusListener(listener)
+func (c *Client) AddConnectionListener(listener ConnectionListener) {
+	c.recorder.AddConnectionListener(listener)
 }
 
-func (c *Client) RemoveStatusListener(listener StateListener) {
-	c.recorder.RemoveStatusListener(listener)
+func (c *Client) RemoveConnectionListener(listener ConnectionListener) {
+	c.recorder.RemoveConnectionListener(listener)
 }
 
 func (c *Client) login(ctx context.Context, config *internal.Config, setupKey string) error {
