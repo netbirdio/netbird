@@ -324,12 +324,13 @@ func (a *Account) GetExpiredPeers() []*Peer {
 // GetNextPeerExpiration returns the minimum duration in which the next peer of the account will expire and true if it was found.
 // If there is no peer that expires this function returns false and a zero time.Duration
 // This function only considers peers that haven't been expired yet and connected.
-func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
-	nextExpiry := time.Duration(1<<63 - 1) // max duration
+func (a *Account) GetNextPeerExpiration() *time.Duration {
+
 	peersWithExpiry := a.GetPeersWithExpiration()
 	if len(peersWithExpiry) == 0 {
-		return nextExpiry, false
+		return nil
 	}
+	nextExpiry := time.Duration(1<<63 - 1) // max duration
 	for _, peer := range peersWithExpiry {
 		// consider only connected peers because others will require login on connecting to the management server
 		if peer.Status.LoginExpired || !peer.Status.Connected {
@@ -341,7 +342,11 @@ func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 		}
 	}
 
-	return nextExpiry, nextExpiry != time.Duration(1<<63-1)
+	if nextExpiry == time.Duration(1<<63-1) {
+		return nil
+	}
+
+	return &nextExpiry
 }
 
 // GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true
@@ -748,15 +753,19 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 			}
 		}
 
-		nextExpiration, shouldRun := account.GetNextPeerExpiration()
-		return shouldRun, nextExpiration
+		nextExpiration := account.GetNextPeerExpiration()
+		if nextExpiration == nil {
+			return false, time.Duration(0)
+		}
+		return true, *nextExpiration
 	}
 }
 
 func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(account *Account) {
 	am.peerLoginExpiry.Cancel([]string{account.Id})
-	if expiryNextRunIn, ok := account.GetNextPeerExpiration(); ok {
-		go am.peerLoginExpiry.Schedule(expiryNextRunIn, account.Id, am.peerLoginExpirationJob(account.Id))
+	nextRun := account.GetNextPeerExpiration()
+	if nextRun != nil {
+		go am.peerLoginExpiry.Schedule(*nextRun, account.Id, am.peerLoginExpirationJob(account.Id))
 	}
 }
 
