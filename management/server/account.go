@@ -730,6 +730,9 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 
 		var peerIDs []string
 		for _, peer := range account.GetExpiredPeers() {
+			if peer.Status.LoginExpired {
+				continue
+			}
 			peerIDs = append(peerIDs, peer.ID)
 			peer.MarkLoginExpired(true)
 			account.UpdatePeer(peer)
