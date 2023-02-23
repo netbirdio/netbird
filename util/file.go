@@ -103,7 +103,7 @@ func CopyFileContents(src, dst string) (err error) {
 func prepareConfigFileDir(file string) (string, string, error) {
 	configDir, configFileName := filepath.Split(file)
 	if configDir == "" {
-		return "", configFileName, nil
+		return filepath.Dir(file), configFileName, nil
 	}
 
 	err := os.MkdirAll(configDir, 0750)
