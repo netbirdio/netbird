@@ -321,7 +321,7 @@ func (a *Account) GetExpiredPeers() []*Peer {
 	return peers
 }
 
-// GetNextPeerExpiration returns the minimum duration in which the next peer of the account will expire it it was found.
+// GetNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
 // If there is no peer that expires this function returns nil.
 // This function only considers peers that haven't been expired yet and that are connected.
 func (a *Account) GetNextPeerExpiration() *time.Duration {
@@ -347,7 +347,7 @@ func (a *Account) GetNextPeerExpiration() *time.Duration {
 
 // GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true
 func (a *Account) GetPeersWithExpiration() []*Peer {
-	var peers []*Peer
+	peers := make([]*Peer, 0)
 	for _, peer := range a.Peers {
 		if peer.LoginExpirationEnabled {
 			peers = append(peers, peer)
