@@ -308,7 +308,7 @@ func (a *Account) GetGroup(groupID string) *Group {
 	return a.Groups[groupID]
 }
 
-// GetExpiredPeers returns peers tha have been expired
+// GetExpiredPeers returns peers that have been expired
 func (a *Account) GetExpiredPeers() []*Peer {
 	var peers []*Peer
 	for _, peer := range a.GetPeersWithExpiration() {
@@ -321,32 +321,28 @@ func (a *Account) GetExpiredPeers() []*Peer {
 	return peers
 }
 
-// GetNextPeerExpiration returns the minimum duration in which the next peer of the account will expire and true if it was found.
-// If there is no peer that expires this function returns false and a zero time.Duration
-// This function only considers peers that haven't been expired yet and connected.
+// GetNextPeerExpiration returns the minimum duration in which the next peer of the account will expire it it was found.
+// If there is no peer that expires this function returns nil.
+// This function only considers peers that haven't been expired yet and that are connected.
 func (a *Account) GetNextPeerExpiration() *time.Duration {
 
 	peersWithExpiry := a.GetPeersWithExpiration()
 	if len(peersWithExpiry) == 0 {
 		return nil
 	}
-	nextExpiry := time.Duration(1<<63 - 1) // max duration
+	var nextExpiry *time.Duration
 	for _, peer := range peersWithExpiry {
 		// consider only connected peers because others will require login on connecting to the management server
 		if peer.Status.LoginExpired || !peer.Status.Connected {
 			continue
 		}
 		_, duration := peer.LoginExpired(a.Settings.PeerLoginExpiration)
-		if duration < nextExpiry {
-			nextExpiry = duration
+		if nextExpiry == nil || duration < *nextExpiry {
+			nextExpiry = &duration
 		}
 	}
 
-	if nextExpiry == time.Duration(1<<63-1) {
-		return nil
-	}
-
-	return &nextExpiry
+	return nextExpiry
 }
 
 // GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true
