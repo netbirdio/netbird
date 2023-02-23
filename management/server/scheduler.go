@@ -30,6 +30,7 @@ func (wm *Scheduler) cancel(ID string) bool {
 			log.Debugf("cancelled scheduled job %s", ID)
 		default:
 			log.Warnf("couldn't cancel job %s because there was no routine listening on the cancel event", ID)
+			return false
 		}
 
 	}
@@ -48,6 +49,7 @@ func (wm *Scheduler) Cancel(IDs []string) {
 }
 
 // Schedule a job to run in some time in the future. If job returns true then it will be scheduled one more time.
+// If job with the provided ID already exists, a new one won't be scheduled.
 func (wm *Scheduler) Schedule(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
