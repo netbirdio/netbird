@@ -70,6 +70,7 @@ func (c *Client) Run() error {
 
 	err = c.login(ctx, cfg, "")
 	if err != nil {
+		c.ctxLock.Unlock()
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
 
