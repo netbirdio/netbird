@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -32,28 +33,30 @@ type UrlOpener interface {
 }
 
 type Client struct {
-	cfgFile   string
-	adminURL  string
-	mgmUrl    string
-	wgAdapter iface.WGAdapter
-	recorder  *status.Status
-	ctxCancel context.CancelFunc
-	ctxLock   *sync.Mutex
-	urlOpener UrlOpener
+	cfgFile    string
+	adminURL   string
+	mgmUrl     string
+	wgAdapter  iface.WGAdapter
+	recorder   *status.Status
+	ctxCancel  context.CancelFunc
+	ctxLock    *sync.Mutex
+	urlOpener  UrlOpener
+	deviceName string
 }
 
-func NewClient(cfgFile, adminURL, mgmURL string, wgAdapter WGAdapter, urlOpener UrlOpener) *Client {
+func NewClient(cfgFile, adminURL, mgmURL string, deviceName string, wgAdapter WGAdapter, urlOpener UrlOpener) *Client {
 	lvl, _ := log.ParseLevel("trace")
 	log.SetLevel(lvl)
 
 	return &Client{
-		cfgFile:   cfgFile,
-		adminURL:  adminURL,
-		mgmUrl:    mgmURL,
-		wgAdapter: wgAdapter,
-		urlOpener: urlOpener,
-		recorder:  status.NewRecorder(),
-		ctxLock:   &sync.Mutex{},
+		cfgFile:    cfgFile,
+		adminURL:   adminURL,
+		mgmUrl:     mgmURL,
+		deviceName: deviceName,
+		wgAdapter:  wgAdapter,
+		urlOpener:  urlOpener,
+		recorder:   status.NewRecorder(),
+		ctxLock:    &sync.Mutex{},
 	}
 }
 
@@ -66,7 +69,7 @@ func (c *Client) Run() error {
 		ConfigPath:    c.cfgFile,
 	})
 
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 
 	err = c.login(ctx, cfg, "")
 	if err != nil {

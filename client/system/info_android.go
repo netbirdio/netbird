@@ -6,7 +6,6 @@ package system
 import (
 	"bytes"
 	"context"
-	"os"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -23,11 +22,19 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	gio := &Info{Kernel: kernel, Core: sdkVersion(), Platform: "unknown", OS: "android", OSVersion: sdkVersion(), GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
-	gio.Hostname, _ = os.Hostname()
+	gio.Hostname = extractDeviceName(ctx)
 	gio.WiretrusteeVersion = NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
+}
+
+func extractDeviceName(ctx context.Context) string {
+	v, ok := ctx.Value(DeviceNameCtxKey).(string)
+	if !ok {
+		return ""
+	}
+	return v
 }
 
 func uname() []string {
