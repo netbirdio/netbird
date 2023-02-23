@@ -1,7 +1,7 @@
 openapi: 3.0.1
 info:
   title: NetBird REST API
-  description: API to manipulate groups, rules and retrieve information about peers and users
+  description: API to manipulate groups, rules, policies and retrieve information about peers and users
   version: 0.0.1
 tags:
   - name: Users
@@ -14,6 +14,8 @@ tags:
     description: Interact with and view information about groups.
   - name: Rules
     description: Interact with and view information about rules.
+  - name: Policies
+    description: Interact with and view information about policies.
   - name: Routes
     description: Interact with and view information about routes.
   - name: DNS
@@ -393,6 +395,70 @@ components:
               enum: [ "name","description","disabled","flow","sources","destinations" ]
           required:
             - path
+    PolicyPatchOperation:
+      allOf:
+        - $ref: '#/components/schemas/PatchMinimum'
+        - type: object
+          properties:
+            path:
+              description: Polocy field to update in form /<field>
+              type: string
+              enum: [ "name","description","disabled","meta","query" ]
+          required:
+            - path
+    PolicyMeta:
+      type: object
+      properties:
+        sources:
+          description: policy source groups
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupMinimum'
+        destinations:
+          description: policy destination groups
+          type: array
+          items:
+            $ref: '#/components/schemas/GroupMinimum'
+        action:
+          description: policy accept or drops packets
+          type: string
+          enum: ["accept","drop"]
+        port:
+          description: port of the service or range of the ports, and optional protocol (by default TCP)
+          type: string
+    PolicyMinimum:
+      type: object
+      properties:
+        name:
+          description: Policy name identifier
+          type: string
+        description:
+          description: Policy friendly description
+          type: string
+        disabled:
+          description: Policy status
+          type: boolean
+        query:
+          description: Policy Rego query
+          type: string
+        meta:
+          description: Policy meta object for policy UI editor
+          $ref: '#/components/schemas/PolicyMeta'
+      required:
+        - name
+        - description
+        - disabled
+        - query
+    Policy:
+      allOf:
+        - $ref: '#/components/schemas/PolicyMinimum'
+        - type: object
+          properties:
+            id:
+              description: Policy ID
+              type: string
+          required:
+            - id
     RouteRequest:
       type: object
       properties:
@@ -578,8 +644,7 @@ components:
                   "account.create", "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.disable", "account.setting.peer.login.expiration.enable",
                   "route.add", "route.delete", "route.update",
                   "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
-                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable"
-          ]
+                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable" ]
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
           type: string
@@ -1396,7 +1461,169 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
+  /api/policies:
+    get:
+      summary: Returns a list of all Policies
+      tags: [ Policies ]
+      security:
+        - BearerAuth: [ ]
+      responses:
+        '200':
+          description: A JSON Array of Policies
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Policy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Creates a Policy
+      tags: [ Policies ]
+      security:
+        - BearerAuth: [ ]
+      requestBody:
+        description: New Policy request
+        content:
+          'application/json':
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PolicyMinimum'
+      responses:
+        '200':
+          description: A Policy Object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+  /api/policies/{id}:
+    get:
+      summary: Get information about a Policies
+      tags: [ Policies ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Policy ID
+      responses:
+        '200':
+          description: A Policy object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    put:
+      summary: Update/Replace a Policy
+      tags: [ Policies ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Policy ID
+      requestBody:
+        description: Update Policy request
+        content:
+          'application/json':
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/PolicyMinimum'
+      responses:
+        '200':
+          description: A Policy object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    patch:
+      summary: Update information about a Policy
+      tags: [ Policies ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Policy ID
+      requestBody:
+        description: Update Policy request using a list of json patch objects
+        content:
+          'application/json':
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/PolicyPatchOperation'
+      responses:
+        '200':
+          description: A Policy object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Policy'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a Policy
+      tags: [ Policies ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The Policy ID
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/routes:
     get:
       summary: Returns a list of all routes

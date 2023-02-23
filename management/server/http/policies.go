@@ -1,16 +1,18 @@
 package http
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/gorilla/mux"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// Policies is a handler that returns rules of the account
+// Policies is a handler that returns policy of the account
 type Policies struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
@@ -44,8 +46,66 @@ func (h *Policies) GetAllPoliciesHandler(w http.ResponseWriter, r *http.Request)
 	util.WriteJSONObject(w, accountPolicies)
 }
 
-// UpdateRuleHandler handles update to a rule identified by a given ID
-func (h *Policies) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
+// UpdatePolicyHandler handles update to a policy identified by a given ID
+func (h *Policies) UpdatePolicyHandler(w http.ResponseWriter, r *http.Request) {
+	claims := h.claimsExtractor.FromRequestContext(r)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	policyID := vars["id"]
+	if len(policyID) == 0 {
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
+		return
+	}
+
+	policyIdx := -1
+	for i, policy := range account.Policies {
+		if policy.ID == policyID {
+			policyIdx = i
+			break
+		}
+	}
+	if policyIdx < 0 {
+		util.WriteError(status.Errorf(status.NotFound, "couldn't find policy id %s", policyID), w)
+		return
+	}
+
+	var req api.PutApiRulesIdJSONRequestBody
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+	}
+
+	if req.Name == "" {
+		util.WriteError(status.Errorf(status.InvalidArgument, "policy name shouldn't be empty"), w)
+		return
+	}
+
+	policy := server.Policy{
+		ID:          policyID,
+		Name:        req.Name,
+		Disabled:    req.Disabled,
+		Description: req.Description,
+	}
+
+	err = h.accountManager.SavePolicy(account.Id, user.Id, &policy)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	resp := toPolicyResponse(account, &policy)
+
+	// TODO: finish this
+	util.WriteJSONObject(w, &resp)
+}
+
+// PatchPolicyHandler handles patch updates to a policy identified by a given ID
+func (h *Policies) PatchPolicyHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -76,40 +136,8 @@ func (h *Policies) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, nil)
 }
 
-// PatchRuleHandler handles patch updates to a rule identified by a given ID
-func (h *Policies) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	vars := mux.Vars(r)
-	policyID := vars["id"]
-	if len(policyID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
-		return
-	}
-
-	policyIdx := -1
-	for i, policy := range account.Policies {
-		if policy.ID == policyID {
-			policyIdx = i
-			break
-		}
-	}
-	if policyIdx < 0 {
-		util.WriteError(status.Errorf(status.NotFound, "couldn't find policy id %s", policyID), w)
-		return
-	}
-
-	// TODO: finish this
-	util.WriteJSONObject(w, nil)
-}
-
-// CreateRuleHandler handles rule creation request
-func (h *Policies) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
+// CreatePolicyHandler handles policy creation request
+func (h *Policies) CreatePolicyHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	_, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -121,8 +149,8 @@ func (h *Policies) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, nil)
 }
 
-// DeleteRuleHandler handles rule deletion request
-func (h *Policies) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
+// DeletePolicyHandler handles policy deletion request
+func (h *Policies) DeletePolicyHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -146,8 +174,8 @@ func (h *Policies) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, "")
 }
 
-// GetRuleHandler handles a group Get request identified by ID
-func (h *Policies) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
+// GetPolicyHandler handles a group Get request identified by ID
+func (h *Policies) GetPolicyHandler(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -175,4 +203,58 @@ func (h *Policies) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "method not found"), w)
 	}
+}
+
+func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Rule {
+	cache := make(map[string]api.GroupMinimum)
+	gr := api.Policy{
+		Id:          policy.ID,
+		Name:        policy.Name,
+		Description: policy.Description,
+		Disabled:    policy.Disabled,
+	}
+
+	switch policy.Meta {
+	case server.TrafficFlowBidirect:
+		gr.Flow = server.TrafficFlowBidirectString
+	default:
+		gr.Flow = "unknown"
+	}
+
+	for _, gid := range rule.Source {
+		_, ok := cache[gid]
+		if ok {
+			continue
+		}
+
+		if group, ok := account.Groups[gid]; ok {
+			minimum := api.GroupMinimum{
+				Id:         group.ID,
+				Name:       group.Name,
+				PeersCount: len(group.Peers),
+			}
+
+			gr.Sources = append(gr.Sources, minimum)
+			cache[gid] = minimum
+		}
+	}
+
+	for _, gid := range rule.Destination {
+		cachedMinimum, ok := cache[gid]
+		if ok {
+			gr.Destinations = append(gr.Destinations, cachedMinimum)
+			continue
+		}
+		if group, ok := account.Groups[gid]; ok {
+			minimum := api.GroupMinimum{
+				Id:         group.ID,
+				Name:       group.Name,
+				PeersCount: len(group.Peers),
+			}
+			gr.Destinations = append(gr.Destinations, minimum)
+			cache[gid] = minimum
+		}
+	}
+
+	return &gr
 }

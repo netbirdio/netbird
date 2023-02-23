@@ -94,6 +94,28 @@ const (
 	PatchMinimumOpReplace PatchMinimumOp = "replace"
 )
 
+// Defines values for PolicyMetaAction.
+const (
+	PolicyMetaActionAccept PolicyMetaAction = "accept"
+	PolicyMetaActionDrop   PolicyMetaAction = "drop"
+)
+
+// Defines values for PolicyPatchOperationOp.
+const (
+	PolicyPatchOperationOpAdd     PolicyPatchOperationOp = "add"
+	PolicyPatchOperationOpRemove  PolicyPatchOperationOp = "remove"
+	PolicyPatchOperationOpReplace PolicyPatchOperationOp = "replace"
+)
+
+// Defines values for PolicyPatchOperationPath.
+const (
+	PolicyPatchOperationPathDescription PolicyPatchOperationPath = "description"
+	PolicyPatchOperationPathDisabled    PolicyPatchOperationPath = "disabled"
+	PolicyPatchOperationPathMeta        PolicyPatchOperationPath = "meta"
+	PolicyPatchOperationPathName        PolicyPatchOperationPath = "name"
+	PolicyPatchOperationPathQuery       PolicyPatchOperationPath = "query"
+)
+
 // Defines values for RoutePatchOperationOp.
 const (
 	RoutePatchOperationOpAdd     RoutePatchOperationOp = "add"
@@ -387,6 +409,77 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
+// Policy defines model for Policy.
+type Policy struct {
+	// Description Policy friendly description
+	Description string `json:"description"`
+
+	// Disabled Policy status
+	Disabled bool `json:"disabled"`
+
+	// Id Policy ID
+	Id   string      `json:"id"`
+	Meta *PolicyMeta `json:"meta,omitempty"`
+
+	// Name Policy name identifier
+	Name string `json:"name"`
+
+	// Query Policy Rego query
+	Query string `json:"query"`
+}
+
+// PolicyMeta defines model for PolicyMeta.
+type PolicyMeta struct {
+	// Action policy accept or drops packets
+	Action *PolicyMetaAction `json:"action,omitempty"`
+
+	// Destinations policy destination groups
+	Destinations *[]GroupMinimum `json:"destinations,omitempty"`
+
+	// Port port of the service or range of the ports, and optional protocol (by default TCP)
+	Port *string `json:"port,omitempty"`
+
+	// Sources policy source groups
+	Sources *[]GroupMinimum `json:"sources,omitempty"`
+}
+
+// PolicyMetaAction policy accept or drops packets
+type PolicyMetaAction string
+
+// PolicyMinimum defines model for PolicyMinimum.
+type PolicyMinimum struct {
+	// Description Policy friendly description
+	Description string `json:"description"`
+
+	// Disabled Policy status
+	Disabled bool        `json:"disabled"`
+	Meta     *PolicyMeta `json:"meta,omitempty"`
+
+	// Name Policy name identifier
+	Name string `json:"name"`
+
+	// Query Policy Rego query
+	Query string `json:"query"`
+}
+
+// PolicyPatchOperation defines model for PolicyPatchOperation.
+type PolicyPatchOperation struct {
+	// Op Patch operation type
+	Op PolicyPatchOperationOp `json:"op"`
+
+	// Path Polocy field to update in form /<field>
+	Path PolicyPatchOperationPath `json:"path"`
+
+	// Value Values to be applied
+	Value []string `json:"value"`
+}
+
+// PolicyPatchOperationOp Patch operation type
+type PolicyPatchOperationOp string
+
+// PolicyPatchOperationPath Polocy field to update in form /<field>
+type PolicyPatchOperationPath string
+
 // Route defines model for Route.
 type Route struct {
 	// Description Route description
@@ -666,6 +759,15 @@ type PutApiPeersIdJSONBody struct {
 	SshEnabled             bool   `json:"ssh_enabled"`
 }
 
+// PostApiPoliciesJSONBody defines parameters for PostApiPolicies.
+type PostApiPoliciesJSONBody = PolicyMinimum
+
+// PatchApiPoliciesIdJSONBody defines parameters for PatchApiPoliciesId.
+type PatchApiPoliciesIdJSONBody = []PolicyPatchOperation
+
+// PutApiPoliciesIdJSONBody defines parameters for PutApiPoliciesId.
+type PutApiPoliciesIdJSONBody = PolicyMinimum
+
 // PatchApiRoutesIdJSONBody defines parameters for PatchApiRoutesId.
 type PatchApiRoutesIdJSONBody = []RoutePatchOperation
 
@@ -732,6 +834,15 @@ type PutApiGroupsIdJSONRequestBody PutApiGroupsIdJSONBody
 
 // PutApiPeersIdJSONRequestBody defines body for PutApiPeersId for application/json ContentType.
 type PutApiPeersIdJSONRequestBody PutApiPeersIdJSONBody
+
+// PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
+type PostApiPoliciesJSONRequestBody = PostApiPoliciesJSONBody
+
+// PatchApiPoliciesIdJSONRequestBody defines body for PatchApiPoliciesId for application/json ContentType.
+type PatchApiPoliciesIdJSONRequestBody = PatchApiPoliciesIdJSONBody
+
+// PutApiPoliciesIdJSONRequestBody defines body for PutApiPoliciesId for application/json ContentType.
+type PutApiPoliciesIdJSONRequestBody = PutApiPoliciesIdJSONBody
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest

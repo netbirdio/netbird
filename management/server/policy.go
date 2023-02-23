@@ -55,6 +55,9 @@ type Policy struct {
 
 	// Query of Rego the policy
 	Query string
+
+	// Meta of the policy
+	Meta []byte
 }
 
 // Copy returns a copy of the policy.
