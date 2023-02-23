@@ -127,10 +127,12 @@ func interfaceFilter(blackList []string) func(string) bool {
 		wg, err := wgctrl.New()
 		if err != nil {
 			log.Debugf("trying to create a wgctrl client failed with: %v", err)
-			return true
 		}
 		defer func() {
-			_ = wg.Close()
+			err := wg.Close()
+			if err != nil {
+				return
+			}
 		}()
 
 		_, err = wg.Device(iFace)
