@@ -1,10 +1,11 @@
 package formatter
 
 import (
-	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestLogMessageFormat(t *testing.T) {

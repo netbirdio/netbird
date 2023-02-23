@@ -1,8 +1,9 @@
 package formatter
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestFilePathParsing(t *testing.T) {
