@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	log "github.com/sirupsen/logrus"
-
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
@@ -33,15 +33,15 @@ type UrlOpener interface {
 }
 
 type Client struct {
-	cfgFile    string
-	adminURL   string
-	mgmUrl     string
-	wgAdapter  iface.WGAdapter
-	recorder   *status.Status
-	ctxCancel  context.CancelFunc
-	ctxLock    *sync.Mutex
-	urlOpener  UrlOpener
-	deviceName string
+	cfgFile       string
+	adminURL      string
+	mgmUrl        string
+	wgAdapter     iface.WGAdapter
+	recorder      *status.Status
+	ctxCancel     context.CancelFunc
+	ctxCancelLock *sync.Mutex
+	urlOpener     UrlOpener
+	deviceName    string
 }
 
 func NewClient(cfgFile, adminURL, mgmURL string, deviceName string, wgAdapter WGAdapter, urlOpener UrlOpener) *Client {
@@ -49,41 +49,45 @@ func NewClient(cfgFile, adminURL, mgmURL string, deviceName string, wgAdapter WG
 	log.SetLevel(lvl)
 
 	return &Client{
-		cfgFile:    cfgFile,
-		adminURL:   adminURL,
-		mgmUrl:     mgmURL,
-		deviceName: deviceName,
-		wgAdapter:  wgAdapter,
-		urlOpener:  urlOpener,
-		recorder:   status.NewRecorder(),
-		ctxLock:    &sync.Mutex{},
+		cfgFile:       cfgFile,
+		adminURL:      adminURL,
+		mgmUrl:        mgmURL,
+		deviceName:    deviceName,
+		wgAdapter:     wgAdapter,
+		urlOpener:     urlOpener,
+		recorder:      status.NewRecorder(),
+		ctxCancelLock: &sync.Mutex{},
 	}
 }
 
 func (c *Client) Run() error {
-	c.ctxLock.Lock()
-
 	cfg, err := internal.GetConfig(internal.ConfigInput{
 		ManagementURL: c.mgmUrl,
 		AdminURL:      c.adminURL,
 		ConfigPath:    c.cfgFile,
 	})
 
-	ctx := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	var ctx context.Context
+	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	c.ctxCancelLock.Lock()
+	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	defer c.ctxCancel()
+	c.ctxCancelLock.Unlock()
 
+	log.Debugf("try to login")
 	err = c.login(ctx, cfg, "")
 	if err != nil {
-		c.ctxLock.Unlock()
 		return fmt.Errorf("foreground login failed: %v", err)
 	}
 
-	ctx, c.ctxCancel = context.WithCancel(ctx)
-	ctxState := internal.CtxInitState(ctx)
-	c.ctxLock.Unlock()
-	return internal.RunClient(ctxState, cfg, c.recorder, c.wgAdapter)
+	// todo do not throw error in case of cancelled context
+	ctx = internal.CtxInitState(ctx)
+	return internal.RunClient(ctx, cfg, c.recorder, c.wgAdapter)
 }
 
 func (c *Client) Stop() {
+	c.ctxCancelLock.Lock()
+	defer c.ctxCancelLock.Unlock()
 	if c.ctxCancel == nil {
 		return
 	}
@@ -99,10 +103,18 @@ func (c *Client) RemoveConnectionListener(listener ConnectionListener) {
 	c.recorder.RemoveConnectionListener(listener)
 }
 
+func (c *Client) ctxWithCancel(parentCtx context.Context) context.Context {
+	c.ctxCancelLock.Lock()
+	defer c.ctxCancelLock.Unlock()
+	var ctx context.Context
+	ctx, c.ctxCancel = context.WithCancel(parentCtx)
+	return ctx
+}
+
 func (c *Client) login(ctx context.Context, config *internal.Config, setupKey string) error {
 	needsLogin := false
 
-	err := cmd.WithBackOff(func() error {
+	err := c.withBackOff(ctx, func() error {
 		err := internal.Login(ctx, config, "", "")
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			log.Println("need login")
@@ -124,7 +136,7 @@ func (c *Client) login(ctx context.Context, config *internal.Config, setupKey st
 		jwtToken = tokenInfo.AccessToken
 	}
 
-	err = cmd.WithBackOff(func() error {
+	err = c.withBackOff(ctx, func() error {
 		err := internal.Login(ctx, config, setupKey, jwtToken)
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
 			return nil
@@ -136,6 +148,15 @@ func (c *Client) login(ctx context.Context, config *internal.Config, setupKey st
 	}
 
 	return nil
+}
+
+func (c *Client) withBackOff(ctx context.Context, bf func() error) error {
+	return backoff.RetryNotify(
+		bf,
+		backoff.WithContext(cmd.CLIBackOffSettings, ctx),
+		func(err error, duration time.Duration) {
+			log.Warnf("retrying Login to the Management service in %v due to error %v", duration, err)
+		})
 }
 
 func (c *Client) foregroundGetTokenInfo(ctx context.Context, config *internal.Config) (*internal.TokenInfo, error) {
@@ -169,13 +190,21 @@ func (c *Client) foregroundGetTokenInfo(ctx context.Context, config *internal.Co
 	go c.urlOpener.Open(flowInfo.VerificationURIComplete)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn)
-	waitCTX, cancel := context.WithTimeout(context.TODO(), waitTimeout*time.Second)
+	waitCTX, cancel := context.WithTimeout(ctx, waitTimeout*time.Second)
 	defer cancel()
-
 	tokenInfo, err := hostedClient.WaitToken(waitCTX, flowInfo)
 	if err != nil {
 		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
 	}
 
 	return &tokenInfo, nil
+}
+
+func (c *Client) ctxIsCancelled(ctx context.Context) bool {
+	select {
+	case <-ctx.Done():
+		return true
+	default:
+		return false
+	}
 }
