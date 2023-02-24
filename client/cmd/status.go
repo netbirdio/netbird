@@ -4,21 +4,63 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	yaml2 "gopkg.in/yaml.v2"
 	"net"
 	"net/netip"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/spf13/cobra"
+	"google.golang.org/grpc/status"
+	"gopkg.in/yaml.v2"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
-	nbStatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
-	"github.com/spf13/cobra"
-	"google.golang.org/grpc/status"
 )
+
+type peerStateDetailOutput struct {
+	IP                     string    `json:"ip" yaml:"ip"`
+	PubKey                 string    `json:"publicKey" yaml:"publicKey"`
+	FQDN                   string    `json:"fqdn" yaml:"fqdn"`
+	ConnStatus             string    `json:"connectionStatus" yaml:"connectionStatus"`
+	ConnStatusUpdate       time.Time `json:"connectionStatusUpdate" yaml:"connectionStatusUpdate"`
+	ConnType               string    `json:"connectionType" yaml:"connectionType"`
+	Direct                 bool      `json:"direct" yaml:"direct"`
+	LocalIceCandidateType  string    `json:"localIceCandidateType" yaml:"localIceCandidateType"`
+	RemoteIceCandidateType string    `json:"remoteIceCandidateType" yaml:"remoteIceCandidateType"`
+}
+
+type peersStateOutput struct {
+	Total     int                     `json:"total" yaml:"total"`
+	Connected int                     `json:"connected" yaml:"connected"`
+	Details   []peerStateDetailOutput `json:"details" yaml:"details"`
+}
+
+type signalStateOutput struct {
+	URL       string `json:"url" yaml:"url"`
+	Connected bool   `json:"connected" yaml:"connected"`
+}
+
+type managementStateOutput struct {
+	URL       string `json:"url" yaml:"url"`
+	Connected bool   `json:"connected" yaml:"connected"`
+}
+
+type statusOutputOverview struct {
+	Peers           peersStateOutput      `json:"peers" yaml:"peers"`
+	CliVersion      string                `json:"cliVersion" yaml:"cliVersion"`
+	DaemonVersion   string                `json:"daemonVersion" yaml:"daemonVersion"`
+	DaemonStatus    string                `json:"daemonStatus" yaml:"daemonStatus"`
+	ManagementState managementStateOutput `json:"management" yaml:"management"`
+	SignalState     signalStateOutput     `json:"signal" yaml:"signal"`
+	IP              string                `json:"ip" yaml:"ip"`
+	PubKey          string                `json:"publicKey" yaml:"publicKey"`
+	KernelInterface string                `json:"interfaceType" yaml:"interfaceType"`
+	FQDN            string                `json:"domain" yaml:"domain"`
+}
 
 var (
 	detailFlag   bool
@@ -64,9 +106,56 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 
 	ctx := internal.CtxInitState(context.Background())
 
+	resp, _ := getStatus(ctx, cmd)
+	if err != nil {
+		return nil
+	}
+
+	if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
+		cmd.Printf("Daemon status: %s\n\n"+
+			"Run UP command to log in with SSO (interactive login):\n\n"+
+			" netbird up \n\n"+
+			"If you are running a self-hosted version and no SSO provider has been configured in your Management Server,\n"+
+			"you can use a setup-key:\n\n netbird up --management-url <YOUR_MANAGEMENT_URL> --setup-key <YOUR_SETUP_KEY>\n\n"+
+			"More info: https://www.netbird.io/docs/overview/setup-keys\n\n",
+			resp.GetStatus(),
+		)
+		return nil
+	}
+
+	if ipv4Flag {
+		cmd.Print(parseInterfaceIP(resp.GetFullStatus().GetLocalPeerState().GetIP()))
+		return nil
+	}
+
+	statusOutputOverview := convertToStatusOutputOverview(resp)
+
+	statusOutputString := ""
+	if detailFlag {
+		statusOutputString = parseToFullDetailSummary(statusOutputOverview)
+	} else if jsonFlag {
+		statusOutputString, err = parseToJson(statusOutputOverview)
+		if err != nil {
+			return err
+		}
+	} else if yamlFlag {
+		statusOutputString, err = parseToYaml(statusOutputOverview)
+		if err != nil {
+			return err
+		}
+	} else {
+		statusOutputString = parseGeneralSummary(statusOutputOverview, false)
+	}
+
+	cmd.Print(statusOutputString)
+
+	return nil
+}
+
+func getStatus(ctx context.Context, cmd *cobra.Command) (*proto.StatusResponse, error) {
 	conn, err := DialClientGRPCServer(ctx, daemonAddr)
 	if err != nil {
-		return fmt.Errorf("failed to connect to daemon error: %v\n"+
+		return nil, fmt.Errorf("failed to connect to daemon error: %v\n"+
 			"If the daemon is not running please run: "+
 			"\nnetbird service install \nnetbird service start\n", err)
 	}
@@ -74,49 +163,10 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 
 	resp, err := proto.NewDaemonServiceClient(conn).Status(cmd.Context(), &proto.StatusRequest{GetFullPeerStatus: true})
 	if err != nil {
-		return fmt.Errorf("status failed: %v", status.Convert(err).Message())
+		return nil, fmt.Errorf("status failed: %v", status.Convert(err).Message())
 	}
 
-	daemonStatus := fmt.Sprintf("Daemon status: %s\n", resp.GetStatus())
-	if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
-
-		cmd.Printf("%s\n"+
-			"Run UP command to log in with SSO (interactive login):\n\n"+
-			" netbird up \n\n"+
-			"If you are running a self-hosted version and no SSO provider has been configured in your Management Server,\n"+
-			"you can use a setup-key:\n\n netbird up --management-url <YOUR_MANAGEMENT_URL> --setup-key <YOUR_SETUP_KEY>\n\n"+
-			"More info: https://www.netbird.io/docs/overview/setup-keys\n\n",
-			daemonStatus,
-		)
-		return nil
-	}
-
-	pbFullStatus := resp.GetFullStatus()
-	fullStatus := fromProtoFullStatus(pbFullStatus)
-
-	statusOutputString := ""
-	if detailFlag {
-		statusOutputString = parseToHumanReadable(fullStatus, daemonStatus, resp.GetDaemonVersion())
-	}
-	if jsonFlag {
-		statusOutputString, err = parseToJson(fullStatus)
-		if err != nil {
-			return fmt.Errorf("json marshal failed")
-		}
-	}
-	if yamlFlag {
-		statusOutputString, err = parseToYaml(fullStatus)
-		if err != nil {
-			return fmt.Errorf("yaml marshal failed")
-		}
-	}
-	if ipv4Flag {
-		statusOutputString = parseInterfaceIP(fullStatus.LocalPeerState.IP)
-	}
-
-	cmd.Print(statusOutputString)
-
-	return nil
+	return resp, nil
 }
 
 func parseFilters() error {
@@ -138,43 +188,104 @@ func parseFilters() error {
 	return nil
 }
 
-func fromProtoFullStatus(pbFullStatus *proto.FullStatus) nbStatus.FullStatus {
-	var fullStatus nbStatus.FullStatus
+func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverview {
+	pbFullStatus := resp.GetFullStatus()
+
 	managementState := pbFullStatus.GetManagementState()
-	fullStatus.ManagementState.URL = managementState.GetURL()
-	fullStatus.ManagementState.Connected = managementState.GetConnected()
+	managementOverview := managementStateOutput{
+		URL:       managementState.GetURL(),
+		Connected: managementState.GetConnected(),
+	}
 
 	signalState := pbFullStatus.GetSignalState()
-	fullStatus.SignalState.URL = signalState.GetURL()
-	fullStatus.SignalState.Connected = signalState.GetConnected()
+	signalOverview := signalStateOutput{
+		URL:       signalState.GetURL(),
+		Connected: signalState.GetConnected(),
+	}
 
-	localPeerState := pbFullStatus.GetLocalPeerState()
-	fullStatus.LocalPeerState.IP = localPeerState.GetIP()
-	fullStatus.LocalPeerState.PubKey = localPeerState.GetPubKey()
-	fullStatus.LocalPeerState.KernelInterface = localPeerState.GetKernelInterface()
-	fullStatus.LocalPeerState.FQDN = localPeerState.GetFqdn()
+	peersOverview := mapPeers(resp.GetFullStatus().GetPeers())
 
-	var peersState []nbStatus.PeerState
+	interfaceTypeString := "Userspace"
+	interfaceIP := pbFullStatus.GetLocalPeerState().GetIP()
+	if pbFullStatus.LocalPeerState.KernelInterface {
+		interfaceTypeString = "Kernel"
+	} else if pbFullStatus.LocalPeerState.IP == "" {
+		interfaceTypeString = "N/A"
+		interfaceIP = "N/A"
+	}
 
-	for _, pbPeerState := range pbFullStatus.GetPeers() {
+	overview := statusOutputOverview{
+		Peers:           peersOverview,
+		CliVersion:      system.NetbirdVersion(),
+		DaemonVersion:   resp.GetDaemonVersion(),
+		DaemonStatus:    resp.GetStatus(),
+		ManagementState: managementOverview,
+		SignalState:     signalOverview,
+		IP:              interfaceIP,
+		PubKey:          pbFullStatus.GetLocalPeerState().GetPubKey(),
+		KernelInterface: interfaceTypeString,
+		FQDN:            pbFullStatus.GetLocalPeerState().GetFqdn(),
+	}
+
+	return overview
+}
+
+func mapPeers(peers []*proto.PeerState) peersStateOutput {
+	var peersStateDetail []peerStateDetailOutput
+	localICE := "-"
+	remoteICE := "-"
+	connType := "-"
+	peersConnected := 0
+	for _, pbPeerState := range peers {
+		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
+		if skipDetailByFilters(pbPeerState, isPeerConnected) {
+			continue
+		}
+		if isPeerConnected {
+			peersConnected = peersConnected + 1
+
+			localICE = pbPeerState.GetLocalIceCandidateType()
+			remoteICE = pbPeerState.GetRemoteIceCandidateType()
+			connType = "P2P"
+			if pbPeerState.Relayed {
+				connType = "Relayed"
+			}
+		}
+
 		timeLocal := pbPeerState.GetConnStatusUpdate().AsTime().Local()
-		peerState := nbStatus.PeerState{
+		peerState := peerStateDetailOutput{
 			IP:                     pbPeerState.GetIP(),
 			PubKey:                 pbPeerState.GetPubKey(),
 			ConnStatus:             pbPeerState.GetConnStatus(),
-			ConnStatusUpdate:       timeLocal,
-			Relayed:                pbPeerState.GetRelayed(),
+			ConnStatusUpdate:       timeLocal.UTC(),
+			ConnType:               connType,
 			Direct:                 pbPeerState.GetDirect(),
-			LocalIceCandidateType:  pbPeerState.GetLocalIceCandidateType(),
-			RemoteIceCandidateType: pbPeerState.GetRemoteIceCandidateType(),
+			LocalIceCandidateType:  localICE,
+			RemoteIceCandidateType: remoteICE,
 			FQDN:                   pbPeerState.GetFqdn(),
 		}
-		peersState = append(peersState, peerState)
+
+		peersStateDetail = append(peersStateDetail, peerState)
 	}
 
-	fullStatus.Peers = peersState
+	sortPeersByIp(peersStateDetail)
 
-	return fullStatus
+	peersOverview := peersStateOutput{
+		Total:     len(peersStateDetail),
+		Connected: peersConnected,
+		Details:   peersStateDetail,
+	}
+	return peersOverview
+}
+
+func sortPeersByIp(peersStateDetail []peerStateDetailOutput) {
+	if len(peersStateDetail) > 0 {
+		sort.SliceStable(peersStateDetail, func(i, j int) bool {
+			iAddr, _ := netip.ParseAddr(peersStateDetail[i].IP)
+			jAddr, _ := netip.ParseAddr(peersStateDetail[j].IP)
+			return iAddr.Compare(jAddr) == -1
+		})
+	}
 }
 
 func parseInterfaceIP(interfaceIP string) string {
@@ -185,81 +296,68 @@ func parseInterfaceIP(interfaceIP string) string {
 	return fmt.Sprintf("%s\n", ip)
 }
 
-func parseToJson(fullStatus nbStatus.FullStatus) (string, error) {
-	jsonBytes, err := json.Marshal(fullStatus)
+func parseToJson(overview statusOutputOverview) (string, error) {
+	jsonBytes, err := json.Marshal(overview)
+	if err != nil {
+		return "", fmt.Errorf("json marshal failed")
+	}
 	return string(jsonBytes), err
 }
 
-func parseToYaml(fullStatus nbStatus.FullStatus) (string, error) {
-	yamlBytes, err := yaml2.Marshal(fullStatus)
-	return string(yamlBytes), err
-}
-
-func countConnectedPeers(peers []nbStatus.PeerState) int {
-	peersConnected := 0
-	for _, peerState := range peers {
-		if peerState.ConnStatus == peer.StatusConnected.String() {
-			peersConnected = peersConnected + 1
-		}
+func parseToYaml(overview statusOutputOverview) (string, error) {
+	yamlBytes, err := yaml.Marshal(overview)
+	if err != nil {
+		return "", fmt.Errorf("yaml marshal failed")
 	}
-	return peersConnected
+	return string(yamlBytes), nil
 }
 
-func parseGeneralSummary(fullStatus nbStatus.FullStatus, daemonStatus string, daemonVersion string) string {
-
-	managementStatusURL := fmt.Sprintf(" to %s", fullStatus.ManagementState.URL)
-	signalStatusURL := fmt.Sprintf(" to %s", fullStatus.SignalState.URL)
+func parseGeneralSummary(overview statusOutputOverview, showUrl bool) string {
 
 	managementConnString := "Disconnected"
-	if fullStatus.ManagementState.Connected {
+	if overview.ManagementState.Connected {
 		managementConnString = "Connected"
+		if showUrl {
+			managementConnString = fmt.Sprintf("%s to %s", managementConnString, overview.ManagementState.URL)
+		}
 	}
 
 	signalConnString := "Disconnected"
-	if fullStatus.SignalState.Connected {
+	if overview.SignalState.Connected {
 		signalConnString = "Connected"
+		if showUrl {
+			signalConnString = fmt.Sprintf("%s to %s", signalConnString, overview.SignalState.URL)
+		}
 	}
 
-	interfaceTypeString := "Userspace"
-	interfaceIP := ""
-	if fullStatus.LocalPeerState.KernelInterface {
-		interfaceTypeString = "Kernel"
-	} else if fullStatus.LocalPeerState.IP == "" {
-		interfaceTypeString = "N/A"
-		interfaceIP = "N/A"
-	}
-
-	peersConnected := countConnectedPeers(fullStatus.Peers)
-	peersCountString := fmt.Sprintf("%d/%d Connected", peersConnected, len(fullStatus.Peers))
+	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
 	summary := fmt.Sprintf(
 		"Daemon version: %s\n"+
 			"CLI version: %s\n"+
 			"%s"+ // daemon status
-			"Management: %s%s\n"+
-			"Signal: %s%s\n"+
+			"Management: %s\n"+
+			"Signal: %s\n"+
 			"Domain: %s\n"+
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Peers count: %s\n",
-		daemonVersion,
+		overview.DaemonVersion,
 		system.NetbirdVersion(),
-		daemonStatus,
+		overview.DaemonStatus,
 		managementConnString,
-		managementStatusURL,
 		signalConnString,
-		signalStatusURL,
-		fullStatus.LocalPeerState.FQDN,
-		interfaceIP,
-		interfaceTypeString,
+		overview.FQDN,
+		overview.IP,
+		overview.KernelInterface,
 		peersCountString,
 	)
 	return summary
 }
 
-func parseToHumanReadable(fullStatus nbStatus.FullStatus, daemonStatus string, daemonVersion string) string {
-	parsedPeersString := parsePeers(fullStatus.Peers)
-	summary := parseGeneralSummary(fullStatus, daemonStatus, daemonVersion)
+func parseToFullDetailSummary(overview statusOutputOverview) string {
+	parsedPeersString := parsePeers(overview.Peers)
+	summary := parseGeneralSummary(overview, true)
 
 	return fmt.Sprintf(
 		"Peers detail:"+
@@ -270,38 +368,12 @@ func parseToHumanReadable(fullStatus nbStatus.FullStatus, daemonStatus string, d
 	)
 }
 
-func parsePeers(peers []nbStatus.PeerState) string {
+func parsePeers(peers peersStateOutput) string {
 	var (
 		peersString = ""
 	)
 
-	if len(peers) > 0 {
-		sort.SliceStable(peers, func(i, j int) bool {
-			iAddr, _ := netip.ParseAddr(peers[i].IP)
-			jAddr, _ := netip.ParseAddr(peers[j].IP)
-			return iAddr.Compare(jAddr) == -1
-		})
-	}
-
-	for _, peerState := range peers {
-		peerConnectionStatus := peerState.ConnStatus == peer.StatusConnected.String()
-		if skipDetailByFilters(peerState, peerConnectionStatus) {
-			continue
-		}
-
-		localICE := "-"
-		remoteICE := "-"
-		connType := "-"
-
-		if peerConnectionStatus {
-			localICE = peerState.LocalIceCandidateType
-			remoteICE = peerState.RemoteIceCandidateType
-			connType = "P2P"
-			if peerState.Relayed {
-				connType = "Relayed"
-			}
-		}
-
+	for _, peerState := range peers.Details {
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
@@ -316,10 +388,10 @@ func parsePeers(peers []nbStatus.PeerState) string {
 			peerState.IP,
 			peerState.PubKey,
 			peerState.ConnStatus,
-			connType,
+			peerState.ConnType,
 			peerState.Direct,
-			localICE,
-			remoteICE,
+			peerState.LocalIceCandidateType,
+			peerState.RemoteIceCandidateType,
 			peerState.ConnStatusUpdate.Format("2006-01-02 15:04:05"),
 		)
 
@@ -328,7 +400,7 @@ func parsePeers(peers []nbStatus.PeerState) string {
 	return peersString
 }
 
-func skipDetailByFilters(peerState nbStatus.PeerState, isConnected bool) bool {
+func skipDetailByFilters(peerState *proto.PeerState, isConnected bool) bool {
 	statusEval := false
 	ipEval := false
 
