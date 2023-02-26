@@ -1403,7 +1403,8 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 		peers                  map[string]*Peer
 		expiration             time.Duration
 		expirationEnabled      bool
-		expectedNextExpiration *time.Duration
+		expectedNextRun        bool
+		expectedNextExpiration time.Duration
 	}
 
 	expectedNextExpiration := time.Minute
@@ -1413,7 +1414,8 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			peers:                  map[string]*Peer{},
 			expiration:             time.Second,
 			expirationEnabled:      false,
-			expectedNextExpiration: nil,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
 		},
 		{
 			name: "No connected peers, no expiration",
@@ -1433,7 +1435,8 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			},
 			expiration:             time.Second,
 			expirationEnabled:      false,
-			expectedNextExpiration: nil,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
 		},
 		{
 			name: "Connected peers with disabled expiration, no expiration",
@@ -1453,7 +1456,8 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			},
 			expiration:             time.Second,
 			expirationEnabled:      false,
-			expectedNextExpiration: nil,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
 		},
 		{
 			name: "Expired peers, no expiration",
@@ -1475,7 +1479,8 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			},
 			expiration:             time.Second,
 			expirationEnabled:      false,
-			expectedNextExpiration: nil,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
 		},
 		{
 			name: "To be expired peer, return expiration",
@@ -1498,7 +1503,8 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			},
 			expiration:             time.Minute,
 			expirationEnabled:      false,
-			expectedNextExpiration: &expectedNextExpiration,
+			expectedNextRun:        true,
+			expectedNextExpiration: expectedNextExpiration,
 		},
 	}
 	for _, testCase := range testCases {
@@ -1508,11 +1514,12 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 				Settings: &Settings{PeerLoginExpiration: testCase.expiration, PeerLoginExpirationEnabled: testCase.expirationEnabled},
 			}
 
-			expiration := account.GetNextPeerExpiration()
-			if testCase.expectedNextExpiration != nil {
-				assert.True(t, *expiration >= 0 && *expiration <= *testCase.expectedNextExpiration)
+			ok, expiration := account.GetNextPeerExpiration()
+			assert.Equal(t, ok, testCase.expectedNextRun)
+			if testCase.expectedNextRun {
+				assert.True(t, expiration >= 0 && expiration <= testCase.expectedNextExpiration)
 			} else {
-				assert.Nil(t, expiration)
+				assert.Equal(t, expiration, testCase.expectedNextExpiration)
 			}
 
 		})
