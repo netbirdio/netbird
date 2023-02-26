@@ -241,7 +241,8 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 		return err
 	}
 
-	newStatus := peer.Status.Copy()
+	oldStatus := peer.Status.Copy()
+	newStatus := oldStatus
 	newStatus.LastSeen = time.Now()
 	newStatus.Connected = connected
 	// whenever peer got connected that means that it logged in successfully
@@ -258,6 +259,15 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 
 	if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
 		am.checkAndSchedulePeerLoginExpiration(account)
+	}
+
+	if oldStatus.LoginExpired {
+		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
+		//the expired one. Here we notify them that connection is now allowed again.
+		err = am.updateAccountPeers(account)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
