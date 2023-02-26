@@ -199,12 +199,3 @@ func (c *Client) foregroundGetTokenInfo(ctx context.Context, config *internal.Co
 
 	return &tokenInfo, nil
 }
-
-func (c *Client) ctxIsCancelled(ctx context.Context) bool {
-	select {
-	case <-ctx.Done():
-		return true
-	default:
-		return false
-	}
-}
