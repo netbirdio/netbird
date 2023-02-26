@@ -1381,7 +1381,7 @@ func TestAccount_GetPeersWithExpiration(t *testing.T) {
 			actual := account.GetPeersWithExpiration()
 			assert.Len(t, actual, len(testCase.expectedPeers))
 			if len(testCase.expectedPeers) > 0 {
-				for k, _ := range testCase.expectedPeers {
+				for k := range testCase.expectedPeers {
 					contains := false
 					for _, peer := range actual {
 						if k == peer.ID {
