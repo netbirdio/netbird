@@ -136,7 +136,8 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	if err != nil {
 		return status.Error(codes.Internal, "internal server error")
 	}
-	expired, left := peer.LoginExpired(account.Settings)
+	expired, left := peer.LoginExpired(account.Settings.PeerLoginExpiration)
+	expired = account.Settings.PeerLoginExpirationEnabled && expired
 	if peer.UserID != "" && (expired || peer.Status.LoginExpired) {
 		err = s.accountManager.MarkPeerLoginExpired(peerKey.String(), true)
 		if err != nil {
@@ -380,7 +381,9 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	if err != nil {
 		return nil, status.Error(codes.Internal, "internal server error")
 	}
-	expired, left := peer.LoginExpired(account.Settings)
+
+	expired, left := peer.LoginExpired(account.Settings.PeerLoginExpiration)
+	expired = account.Settings.PeerLoginExpirationEnabled && expired
 	if peer.UserID != "" && (expired || peer.Status.LoginExpired) {
 		// it might be that peer expired but user has logged in already, check token then
 		if loginReq.GetJwtToken() == "" {
