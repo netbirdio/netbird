@@ -23,8 +23,8 @@ var resp = &proto.StatusResponse{
 				ConnStatusUpdate:       timestamppb.New(time.Date(2001, time.Month(1), 1, 1, 1, 1, 0, time.UTC)),
 				Relayed:                false,
 				Direct:                 true,
-				LocalIceCandidateType:  "-",
-				RemoteIceCandidateType: "-",
+				LocalIceCandidateType:  "",
+				RemoteIceCandidateType: "",
 			},
 			{
 				IP:                     "192.168.178.102",
@@ -34,8 +34,8 @@ var resp = &proto.StatusResponse{
 				ConnStatusUpdate:       timestamppb.New(time.Date(2002, time.Month(2), 2, 2, 2, 2, 0, time.UTC)),
 				Relayed:                true,
 				Direct:                 false,
-				LocalIceCandidateType:  "-",
-				RemoteIceCandidateType: "-",
+				LocalIceCandidateType:  "relay",
+				RemoteIceCandidateType: "prflx",
 			},
 		},
 		ManagementState: &proto.ManagementState{
@@ -69,8 +69,8 @@ var overview = statusOutputOverview{
 				ConnStatusUpdate:       time.Date(2001, 1, 1, 1, 1, 1, 0, time.UTC),
 				ConnType:               "P2P",
 				Direct:                 true,
-				LocalIceCandidateType:  "-",
-				RemoteIceCandidateType: "-",
+				LocalIceCandidateType:  "",
+				RemoteIceCandidateType: "",
 			},
 			{
 				IP:                     "192.168.178.102",
@@ -80,8 +80,8 @@ var overview = statusOutputOverview{
 				ConnStatusUpdate:       time.Date(2002, 2, 2, 2, 2, 2, 0, time.UTC),
 				ConnType:               "Relayed",
 				Direct:                 false,
-				LocalIceCandidateType:  "-",
-				RemoteIceCandidateType: "-",
+				LocalIceCandidateType:  "relay",
+				RemoteIceCandidateType: "prflx",
 			},
 		},
 	},
@@ -98,7 +98,7 @@ var overview = statusOutputOverview{
 	},
 	IP:              "192.168.178.100/16",
 	PubKey:          "Some-Pub-Key",
-	KernelInterface: "Kernel",
+	KernelInterface: true,
 	FQDN:            "some-localhost.awesome-domain.com",
 }
 
@@ -106,6 +106,18 @@ func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
 	convertedResult := convertToStatusOutputOverview(resp)
 
 	assert.Equal(t, overview, convertedResult)
+}
+
+func TestForErrorOnMultipleOutputFlags(t *testing.T) {
+	rootCmd.SetArgs([]string{
+		"status",
+		"--yaml",
+		"--json",
+	})
+	if err := rootCmd.Execute(); err != nil {
+		return
+	}
+	t.Errorf("expected error while running status command with 2 output flags")
 }
 
 func TestSortingOfPeers(t *testing.T) {
@@ -147,12 +159,12 @@ func TestParsingToJson(t *testing.T) {
 		"\"ip\":\"192.168.178.101\"," +
 		"\"publicKey\":\"Pubkey1\"," +
 		"\"fqdn\":\"peer-1.awesome-domain.com\"," +
-		"\"connectionStatus\":\"Connected\"" +
-		",\"connectionStatusUpdate\":\"2001-01-01T01:01:01Z\"," +
+		"\"connectionStatus\":\"Connected\"," +
+		"\"connectionStatusUpdate\":\"2001-01-01T01:01:01Z\"," +
 		"\"connectionType\":\"P2P\"," +
 		"\"direct\":true," +
-		"\"localIceCandidateType\":\"-\"," +
-		"\"remoteIceCandidateType\":\"-\"" +
+		"\"localIceCandidateType\":\"\"," +
+		"\"remoteIceCandidateType\":\"\"" +
 		"}," +
 		"{" +
 		"\"ip\":\"192.168.178.102\"," +
@@ -162,8 +174,8 @@ func TestParsingToJson(t *testing.T) {
 		"\"connectionStatusUpdate\":\"2002-02-02T02:02:02Z\"," +
 		"\"connectionType\":\"Relayed\"," +
 		"\"direct\":false," +
-		"\"localIceCandidateType\":\"-\"," +
-		"\"remoteIceCandidateType\":\"-\"" +
+		"\"localIceCandidateType\":\"relay\"," +
+		"\"remoteIceCandidateType\":\"prflx\"" +
 		"}" +
 		"]" +
 		"}," +
@@ -182,7 +194,7 @@ func TestParsingToJson(t *testing.T) {
 		"}," +
 		"\"ip\":\"192.168.178.100/16\"," +
 		"\"publicKey\":\"Some-Pub-Key\"," +
-		"\"interfaceType\":\"Kernel\"," +
+		"\"usesKernelInterface\":true," +
 		"\"domain\":\"some-localhost.awesome-domain.com\"" +
 		"}"
 	// @formatter:on
@@ -204,8 +216,8 @@ func TestParsingToYaml(t *testing.T) {
 		"          connectionStatusUpdate: 2001-01-01T01:01:01Z\n" +
 		"          connectionType: P2P\n" +
 		"          direct: true\n" +
-		"          localIceCandidateType: '-'\n" +
-		"          remoteIceCandidateType: '-'\n" +
+		"          localIceCandidateType: \"\"\n" +
+		"          remoteIceCandidateType: \"\"\n" +
 		"        - ip: 192.168.178.102\n" +
 		"          publicKey: Pubkey2\n" +
 		"          fqdn: peer-2.awesome-domain.com\n" +
@@ -213,8 +225,8 @@ func TestParsingToYaml(t *testing.T) {
 		"          connectionStatusUpdate: 2002-02-02T02:02:02Z\n" +
 		"          connectionType: Relayed\n" +
 		"          direct: false\n" +
-		"          localIceCandidateType: '-'\n" +
-		"          remoteIceCandidateType: '-'\n" +
+		"          localIceCandidateType: relay\n" +
+		"          remoteIceCandidateType: prflx\n" +
 		"cliVersion: development\n" +
 		"daemonVersion: 0.14.1\n" +
 		"daemonStatus: Connected\n" +
@@ -226,7 +238,7 @@ func TestParsingToYaml(t *testing.T) {
 		"    connected: true\n" +
 		"ip: 192.168.178.100/16\n" +
 		"publicKey: Some-Pub-Key\n" +
-		"interfaceType: Kernel\n" +
+		"usesKernelInterface: true\n" +
 		"domain: some-localhost.awesome-domain.com\n"
 
 	assert.Equal(t, expectedYaml, yaml)
@@ -253,7 +265,7 @@ func TestParsingToDetail(t *testing.T) {
 		"  -- detail --\n" +
 		"  Connection type: Relayed\n" +
 		"  Direct: false\n" +
-		"  ICE candidate (Local/Remote): -/-\n" +
+		"  ICE candidate (Local/Remote): relay/prflx\n" +
 		"  Last connection update: 2002-02-02 02:02:02\n" +
 		"\n" +
 		"Daemon version: 0.14.1\n" +
