@@ -193,15 +193,7 @@ func TestParsingToJson(t *testing.T) {
 func TestParsingToYaml(t *testing.T) {
 	yaml, _ := parseToYaml(overview)
 
-	expectedYaml := "peers:\n    total: 2\n    connected: 2\n    details:\n        - ip: 192.168.178.101\n          publicKey: Pubkey1\n          fqdn: peer-1.awesome-domain.com\n          connectionStatus: Connected\n          connectionStatusUpdate: 2001-01-01T01:01:01Z\n          connectionType: P2P\n          direct: true\n          localIceCandidateType: '-'\n          remoteIceCandidateType: '-'\n        - ip: 192.168.178.102\n          publicKey: Pubkey2\n          fqdn: peer-2.awesome-domain.com\n          connectionStatus: Connected\n          connectionStatusUpdate: 2002-02-02T02:02:02Z\n          connectionType: Relayed\n          direct: false\n          localIceCandidateType: '-'\n          remoteIceCandidateType: '-'\ncliVersion: development\ndaemonVersion: 0.14.1\ndaemonStatus: Connected\nmanagement:\n    url: my-awesome-management.com:443\n    connected: true\nsignal:\n    url: my-awesome-signal.com:443\n    connected: true\nip: 192.168.178.100/16\npublicKey: Some-Pub-Key\ninterfaceType: Kernel\ndomain: some-localhost.awesome-domain.com\n"
-
-	assert.Equal(t, expectedYaml, yaml)
-}
-
-func TestParsingToDetail(t *testing.T) {
-	detail := parseToFullDetailSummary(overview)
-
-	expectedDetail := "peers:\n" +
+	expectedYaml := "peers:\n" +
 		"    total: 2\n" +
 		"    connected: 2\n" +
 		"    details:\n" +
@@ -236,6 +228,42 @@ func TestParsingToDetail(t *testing.T) {
 		"publicKey: Some-Pub-Key\n" +
 		"interfaceType: Kernel\n" +
 		"domain: some-localhost.awesome-domain.com\n"
+
+	assert.Equal(t, expectedYaml, yaml)
+}
+
+func TestParsingToDetail(t *testing.T) {
+	detail := parseToFullDetailSummary(overview)
+
+	expectedDetail := "Peers detail:\n" +
+		" peer-1.awesome-domain.com:\n" +
+		"  NetBird IP: 192.168.178.101\n" +
+		"  Public key: Pubkey1\n" +
+		"  Status: Connected\n" +
+		"  -- detail --\n" +
+		"  Connection type: P2P\n" +
+		"  Direct: true\n" +
+		"  ICE candidate (Local/Remote): -/-\n" +
+		"  Last connection update: 2001-01-01 01:01:01\n" +
+		"\n" +
+		" peer-2.awesome-domain.com:\n" +
+		"  NetBird IP: 192.168.178.102\n" +
+		"  Public key: Pubkey2\n" +
+		"  Status: Connected\n" +
+		"  -- detail --\n" +
+		"  Connection type: Relayed\n" +
+		"  Direct: false\n" +
+		"  ICE candidate (Local/Remote): -/-\n" +
+		"  Last connection update: 2002-02-02 02:02:02\n" +
+		"\n" +
+		"Daemon version: 0.14.1\n" +
+		"CLI version: development\n" +
+		"ConnectedManagement: Connected to my-awesome-management.com:443\n" +
+		"Signal: Connected to my-awesome-signal.com:443\n" +
+		"Domain: some-localhost.awesome-domain.com\n" +
+		"NetBird IP: 192.168.178.100/16\n" +
+		"Interface type: Kernel\n" +
+		"Peers count: 2/2 Connected\n"
 
 	assert.Equal(t, expectedDetail, detail)
 }
