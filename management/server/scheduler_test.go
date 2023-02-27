@@ -70,10 +70,19 @@ func TestScheduler_Schedule(t *testing.T) {
 
 	// job with reschedule should be triggered at least twice
 	wg = &sync.WaitGroup{}
+	mx := &sync.Mutex{}
+	scheduledTimes := 0
 	wg.Add(2)
 	job = func() (nextRunIn time.Duration, reschedule bool) {
-		wg.Done()
-		return 300 * time.Millisecond, true
+		mx.Lock()
+		defer mx.Unlock()
+		// ensure we repeat only twice
+		if scheduledTimes < 2 {
+			wg.Done()
+			scheduledTimes++
+			return 300 * time.Millisecond, true
+		}
+		return 0, false
 	}
 
 	scheduler.Schedule(300*time.Millisecond, jobID, job)
