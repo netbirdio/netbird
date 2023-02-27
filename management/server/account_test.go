@@ -1468,6 +1468,85 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 }
 
 func TestAccount_GetExpiredPeers(t *testing.T) {
+	type test struct {
+		name          string
+		peers         map[string]*Peer
+		expectedPeers map[string]struct{}
+	}
+	testCases := []test{
+		{
+			name: "Peers with login expiration disabled, no expired peers",
+			peers: map[string]*Peer{
+				"peer-1": {
+					LoginExpirationEnabled: false,
+				},
+				"peer-2": {
+					LoginExpirationEnabled: false,
+				},
+			},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Two peers expired",
+			peers: map[string]*Peer{
+				"peer-1": {
+					ID:                     "peer-1",
+					LoginExpirationEnabled: true,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().Add(-30 * time.Minute),
+				},
+				"peer-2": {
+					ID:                     "peer-2",
+					LoginExpirationEnabled: true,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().Add(-2 * time.Hour),
+				},
+
+				"peer-3": {
+					ID:                     "peer-3",
+					LoginExpirationEnabled: true,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().Add(-1 * time.Hour),
+				},
+			},
+			expectedPeers: map[string]struct{}{
+				"peer-2": {},
+				"peer-3": {},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers: testCase.peers,
+				Settings: &Settings{
+					PeerLoginExpirationEnabled: true,
+					PeerLoginExpiration:        time.Hour,
+				},
+			}
+
+			expiredPeers := account.GetExpiredPeers()
+			assert.Len(t, expiredPeers, len(testCase.expectedPeers))
+			for _, peer := range expiredPeers {
+				if _, ok := testCase.expectedPeers[peer.ID]; !ok {
+					t.Fatalf("expected to have peer %s expired", peer.ID)
+				}
+			}
+		})
+	}
 
 }
 
