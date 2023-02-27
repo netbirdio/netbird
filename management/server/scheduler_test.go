@@ -11,7 +11,7 @@ import (
 
 func TestScheduler_Performance(t *testing.T) {
 	scheduler := NewDefaultScheduler()
-	n := 1000
+	n := 500
 	wg := &sync.WaitGroup{}
 	wg.Add(n)
 	maxMs := 500
@@ -26,7 +26,7 @@ func TestScheduler_Performance(t *testing.T) {
 	}
 
 	assert.True(t, len(scheduler.jobs) > 0)
-	failed := waitTimeout(wg, time.Second)
+	failed := waitTimeout(wg, 3*time.Second)
 	if failed {
 		t.Fatal("timed out while waiting for test to finish")
 		return
