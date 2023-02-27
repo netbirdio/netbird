@@ -1,14 +1,16 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -113,6 +115,31 @@ func restore(file string) (*FileStore, error) {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
 
+		// if no policies are defined, that means we need to migrate Rules to policies
+		if len(account.Policies) == 0 {
+			account.Policies = make([]*Policy, 0)
+			for _, rule := range account.Rules {
+				policy := &Policy{
+					ID:          xid.New().String(),
+					Name:        rule.Name,
+					Disabled:    rule.Disabled,
+					Description: rule.Description,
+					Query: fmt.Sprintf(
+						defaultPolicy,
+						strings.Join(rule.Destination, ","),
+						strings.Join(rule.Source, ","),
+					),
+					Meta: &PolicyMeta{
+						Action:       PolicyTrafficActionAccept,
+						Destinations: rule.Destination,
+						Sources:      rule.Source,
+						Port:         "",
+					},
+				}
+				account.Policies = append(account.Policies, policy)
+			}
+		}
+
 		// for data migration. Can be removed once most base will be with labels
 		existingLabels := account.getPeerDNSLabels()
 		if len(existingLabels) != len(account.Peers) {
@@ -153,7 +180,6 @@ func restore(file string) (*FileStore, error) {
 		}
 
 		if len(migrationPeers) > 0 {
-
 			// swap Peer.Key with Peer.ID in the Account.Peers map.
 			for key, peer := range migrationPeers {
 				delete(account.Peers, key)
@@ -169,6 +195,7 @@ func restore(file string) (*FileStore, error) {
 					}
 				}
 			}
+
 			// detect routes that have Peer.Key as a reference and replace it with ID.
 			for _, route := range account.Routes {
 				if peer, ok := migrationPeers[route.Peer]; ok {
