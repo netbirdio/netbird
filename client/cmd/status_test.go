@@ -91,7 +91,6 @@ var overview = statusOutputOverview{
 	},
 	CliVersion:    system.NetbirdVersion(),
 	DaemonVersion: "0.14.1",
-	DaemonStatus:  "Connected",
 	ManagementState: managementStateOutput{
 		URL:       "my-awesome-management.com:443",
 		Connected: true,
@@ -191,7 +190,6 @@ func TestParsingToJSON(t *testing.T) {
 		"}," +
 		"\"cliVersion\":\"development\"," +
 		"\"daemonVersion\":\"0.14.1\"," +
-		"\"daemonStatus\":\"Connected\"," +
 		"\"management\":" +
 		"{" +
 		"\"url\":\"my-awesome-management.com:443\"," +
@@ -241,7 +239,6 @@ func TestParsingToYAML(t *testing.T) {
 		"            remote: prflx\n" +
 		"cliVersion: development\n" +
 		"daemonVersion: 0.14.1\n" +
-		"daemonStatus: Connected\n" +
 		"management:\n" +
 		"    url: my-awesome-management.com:443\n" +
 		"    connected: true\n" +
@@ -282,7 +279,7 @@ func TestParsingToDetail(t *testing.T) {
 		"\n" +
 		"Daemon version: 0.14.1\n" +
 		"CLI version: development\n" +
-		"ConnectedManagement: Connected to my-awesome-management.com:443\n" +
+		"Management: Connected to my-awesome-management.com:443\n" +
 		"Signal: Connected to my-awesome-signal.com:443\n" +
 		"FQDN: some-localhost.awesome-domain.com\n" +
 		"NetBird IP: 192.168.178.100/16\n" +
@@ -297,7 +294,7 @@ func TestParsingToShortVersion(t *testing.T) {
 
 	expectedString := "Daemon version: 0.14.1\n" +
 		"CLI version: development\n" +
-		"ConnectedManagement: Connected\n" +
+		"Management: Connected\n" +
 		"Signal: Connected\n" +
 		"FQDN: some-localhost.awesome-domain.com\n" +
 		"NetBird IP: 192.168.178.100/16\n" +
