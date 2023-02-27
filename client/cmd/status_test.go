@@ -148,7 +148,7 @@ func TestParsingToJSON(t *testing.T) {
 	json, _ := parseToJSON(overview)
 
 	// @formatter:off
-	expectedJson := "{" +
+	expectedJSON := "{" +
 		"\"peers\":" +
 		"{" +
 		"\"total\":2," +
@@ -199,13 +199,13 @@ func TestParsingToJSON(t *testing.T) {
 		"}"
 	// @formatter:on
 
-	assert.Equal(t, expectedJson, json)
+	assert.Equal(t, expectedJSON, json)
 }
 
 func TestParsingToYAML(t *testing.T) {
 	yaml, _ := parseToYAML(overview)
 
-	expectedYaml := "peers:\n" +
+	expectedYAML := "peers:\n" +
 		"    total: 2\n" +
 		"    connected: 2\n" +
 		"    details:\n" +
@@ -241,7 +241,7 @@ func TestParsingToYAML(t *testing.T) {
 		"usesKernelInterface: true\n" +
 		"domain: some-localhost.awesome-domain.com\n"
 
-	assert.Equal(t, expectedYaml, yaml)
+	assert.Equal(t, expectedYAML, yaml)
 }
 
 func TestParsingToDetail(t *testing.T) {
@@ -296,9 +296,9 @@ func TestParsingToShortVersion(t *testing.T) {
 }
 
 func TestParsingOfIP(t *testing.T) {
-	InterfaceIp := "192.168.178.123/16"
+	InterfaceIP := "192.168.178.123/16"
 
-	parsedIP := parseInterfaceIP(InterfaceIp)
+	parsedIP := parseInterfaceIP(InterfaceIP)
 
 	assert.Equal(t, "192.168.178.123\n", parsedIP)
 }
