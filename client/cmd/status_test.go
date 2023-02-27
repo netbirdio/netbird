@@ -139,13 +139,13 @@ func TestSortingOfPeers(t *testing.T) {
 		},
 	}
 
-	sortPeersByIp(peers)
+	sortPeersByIP(peers)
 
 	assert.Equal(t, peers[3].IP, "192.168.178.104")
 }
 
-func TestParsingToJson(t *testing.T) {
-	json, _ := parseToJson(overview)
+func TestParsingToJSON(t *testing.T) {
+	json, _ := parseToJSON(overview)
 
 	// @formatter:off
 	expectedJson := "{" +
@@ -202,8 +202,8 @@ func TestParsingToJson(t *testing.T) {
 	assert.Equal(t, expectedJson, json)
 }
 
-func TestParsingToYaml(t *testing.T) {
-	yaml, _ := parseToYaml(overview)
+func TestParsingToYAML(t *testing.T) {
+	yaml, _ := parseToYAML(overview)
 
 	expectedYaml := "peers:\n" +
 		"    total: 2\n" +
@@ -295,10 +295,10 @@ func TestParsingToShortVersion(t *testing.T) {
 	assert.Equal(t, expectedString, shortVersion)
 }
 
-func TestParsingOfIp(t *testing.T) {
+func TestParsingOfIP(t *testing.T) {
 	InterfaceIp := "192.168.178.123/16"
 
-	parsedId := parseInterfaceIP(InterfaceIp)
+	parsedIP := parseInterfaceIP(InterfaceIp)
 
-	assert.Equal(t, "192.168.178.123\n", parsedId)
+	assert.Equal(t, "192.168.178.123\n", parsedIP)
 }

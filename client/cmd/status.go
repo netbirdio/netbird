@@ -134,12 +134,12 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 	if detailFlag {
 		statusOutputString = parseToFullDetailSummary(statusOutputOverview)
 	} else if jsonFlag {
-		statusOutputString, err = parseToJson(statusOutputOverview)
+		statusOutputString, err = parseToJSON(statusOutputOverview)
 		if err != nil {
 			return err
 		}
 	} else if yamlFlag {
-		statusOutputString, err = parseToYaml(statusOutputOverview)
+		statusOutputString, err = parseToYAML(statusOutputOverview)
 		if err != nil {
 			return err
 		}
@@ -259,7 +259,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 		peersStateDetail = append(peersStateDetail, peerState)
 	}
 
-	sortPeersByIp(peersStateDetail)
+	sortPeersByIP(peersStateDetail)
 
 	peersOverview := peersStateOutput{
 		Total:     len(peersStateDetail),
@@ -269,7 +269,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 	return peersOverview
 }
 
-func sortPeersByIp(peersStateDetail []peerStateDetailOutput) {
+func sortPeersByIP(peersStateDetail []peerStateDetailOutput) {
 	if len(peersStateDetail) > 0 {
 		sort.SliceStable(peersStateDetail, func(i, j int) bool {
 			iAddr, _ := netip.ParseAddr(peersStateDetail[i].IP)
@@ -287,7 +287,7 @@ func parseInterfaceIP(interfaceIP string) string {
 	return fmt.Sprintf("%s\n", ip)
 }
 
-func parseToJson(overview statusOutputOverview) (string, error) {
+func parseToJSON(overview statusOutputOverview) (string, error) {
 	jsonBytes, err := json.Marshal(overview)
 	if err != nil {
 		return "", fmt.Errorf("json marshal failed")
@@ -295,7 +295,7 @@ func parseToJson(overview statusOutputOverview) (string, error) {
 	return string(jsonBytes), err
 }
 
-func parseToYaml(overview statusOutputOverview) (string, error) {
+func parseToYAML(overview statusOutputOverview) (string, error) {
 	yamlBytes, err := yaml.Marshal(overview)
 	if err != nil {
 		return "", fmt.Errorf("yaml marshal failed")
@@ -303,12 +303,12 @@ func parseToYaml(overview statusOutputOverview) (string, error) {
 	return string(yamlBytes), nil
 }
 
-func parseGeneralSummary(overview statusOutputOverview, showUrl bool) string {
+func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 
 	managementConnString := "Disconnected"
 	if overview.ManagementState.Connected {
 		managementConnString = "Connected"
-		if showUrl {
+		if showURL {
 			managementConnString = fmt.Sprintf("%s to %s", managementConnString, overview.ManagementState.URL)
 		}
 	}
@@ -316,7 +316,7 @@ func parseGeneralSummary(overview statusOutputOverview, showUrl bool) string {
 	signalConnString := "Disconnected"
 	if overview.SignalState.Connected {
 		signalConnString = "Connected"
-		if showUrl {
+		if showURL {
 			signalConnString = fmt.Sprintf("%s to %s", signalConnString, overview.SignalState.URL)
 		}
 	}
