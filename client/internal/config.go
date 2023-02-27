@@ -242,13 +242,12 @@ func GetConfig(input ConfigInput) (*Config, error) {
 	if _, err := os.Stat(input.ConfigPath); os.IsNotExist(err) {
 		log.Infof("generating new config %s", input.ConfigPath)
 		return createNewConfig(input)
-	} else {
-		// don't overwrite pre-shared key if we receive asterisks from UI
-		if *input.PreSharedKey == "**********" {
-			input.PreSharedKey = nil
-		}
-		return ReadConfig(input)
 	}
+
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
+	}
+	return ReadConfig(input)
 }
 
 // generateKey generates a new Wireguard private key
@@ -363,4 +362,12 @@ func isProviderConfigValid(config ProviderConfig) error {
 		return fmt.Errorf(errorMSGFormat, "Device Auth Endpoint")
 	}
 	return nil
+}
+
+// don't overwrite pre-shared key if we receive asterisks from UI
+func isPreSharedKeyHidden(preSharedKey *string) bool {
+	if preSharedKey != nil && *preSharedKey == "**********" {
+		return true
+	}
+	return false
 }
