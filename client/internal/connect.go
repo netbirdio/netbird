@@ -22,7 +22,7 @@ import (
 )
 
 // RunClient with main logic.
-func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, wgAdapter iface.WGAdapter) error {
+func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
@@ -139,7 +139,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig, wgAdapter)
+		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig, tunAdapter)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -186,12 +186,12 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig, wgAdapter iface.WGAdapter) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig, tunAdapter iface.TunAdapter) (*EngineConfig, error) {
 
 	engineConf := &EngineConfig{
 		WgIfaceName:          config.WgIface,
 		WgAddr:               peerConfig.Address,
-		WGAdapter:            wgAdapter,
+		TunAdapter:           tunAdapter,
 		IFaceBlackList:       config.IFaceBlackList,
 		DisableIPv6Discovery: config.DisableIPv6Discovery,
 		WgPrivateKey:         key,

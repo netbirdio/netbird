@@ -18,14 +18,14 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
-// ConnectionListener export for mobile
+// ConnectionListener export internal Listener for mobile
 type ConnectionListener interface {
 	status.Listener
 }
 
-// WGAdapter export for mobile
-type WGAdapter interface {
-	iface.WGAdapter
+// TunAdapter export internal TunAdapter for mobile
+type TunAdapter interface {
+	iface.TunAdapter
 }
 
 type UrlOpener interface {
@@ -36,7 +36,7 @@ type Client struct {
 	cfgFile       string
 	adminURL      string
 	mgmUrl        string
-	wgAdapter     iface.WGAdapter
+	tunAdapter    iface.TunAdapter
 	recorder      *status.Status
 	ctxCancel     context.CancelFunc
 	ctxCancelLock *sync.Mutex
@@ -44,7 +44,7 @@ type Client struct {
 	deviceName    string
 }
 
-func NewClient(cfgFile, adminURL, mgmURL string, deviceName string, wgAdapter WGAdapter, urlOpener UrlOpener) *Client {
+func NewClient(cfgFile, adminURL, mgmURL string, deviceName string, tunAdapter TunAdapter, urlOpener UrlOpener) *Client {
 	lvl, _ := log.ParseLevel("trace")
 	log.SetLevel(lvl)
 
@@ -53,7 +53,7 @@ func NewClient(cfgFile, adminURL, mgmURL string, deviceName string, wgAdapter WG
 		adminURL:      adminURL,
 		mgmUrl:        mgmURL,
 		deviceName:    deviceName,
-		wgAdapter:     wgAdapter,
+		tunAdapter:    tunAdapter,
 		urlOpener:     urlOpener,
 		recorder:      status.NewRecorder(),
 		ctxCancelLock: &sync.Mutex{},
@@ -82,7 +82,7 @@ func (c *Client) Run() error {
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	return internal.RunClient(ctx, cfg, c.recorder, c.wgAdapter)
+	return internal.RunClient(ctx, cfg, c.recorder, c.tunAdapter)
 }
 
 func (c *Client) Stop() {

@@ -12,9 +12,9 @@ import (
 )
 
 type tunDevice struct {
-	address   WGAddress
-	mtu       int
-	wgAdapter WGAdapter
+	address    WGAddress
+	mtu        int
+	tunAdapter TunAdapter
 
 	fd     int
 	name   string
@@ -22,17 +22,17 @@ type tunDevice struct {
 	uapi   net.Listener
 }
 
-func newTunDevice(address WGAddress, mtu int, wgAdapter WGAdapter) *tunDevice {
+func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter) *tunDevice {
 	return &tunDevice{
-		address:   address,
-		mtu:       mtu,
-		wgAdapter: wgAdapter,
+		address:    address,
+		mtu:        mtu,
+		tunAdapter: tunAdapter,
 	}
 }
 
 func (t *tunDevice) Create() error {
 	var err error
-	t.fd, err = t.wgAdapter.ConfigureInterface(t.address.String(), t.mtu)
+	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return err
