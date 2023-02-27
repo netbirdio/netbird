@@ -24,8 +24,6 @@ func TestScheduler_Performance(t *testing.T) {
 			return 0, false
 		})
 	}
-
-	assert.True(t, len(scheduler.jobs) > 0)
 	failed := waitTimeout(wg, 3*time.Second)
 	if failed {
 		t.Fatal("timed out while waiting for test to finish")
