@@ -12,6 +12,7 @@ type Scheduler interface {
 	Schedule(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration))
 }
 
+// MockScheduler is a mock implementation of  Scheduler
 type MockScheduler struct {
 	CancelFunc   func(IDs []string)
 	ScheduleFunc func(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration))
