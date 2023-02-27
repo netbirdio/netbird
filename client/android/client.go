@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -30,6 +31,10 @@ type TunAdapter interface {
 
 type UrlOpener interface {
 	Open(string)
+}
+
+func init() {
+	formatter.SetLogcatFormatter(log.StandardLogger())
 }
 
 type Client struct {
