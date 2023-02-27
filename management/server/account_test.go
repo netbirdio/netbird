@@ -1294,6 +1294,147 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 	assert.Equal(t, account.Settings.PeerLoginExpirationEnabled, true)
 	assert.Equal(t, account.Settings.PeerLoginExpiration, 24*time.Hour)
 }
+func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peer, err := manager.AddPeer("", userID, &Peer{
+		Key:                    key.PublicKey().String(),
+		Meta:                   PeerSystemMeta{},
+		Name:                   "test-peer",
+		LoginExpirationEnabled: true,
+	})
+	require.NoError(t, err, "unable to add peer")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true)
+	require.NoError(t, err, "unable to mark peer connected")
+	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	manager.peerLoginExpiry = &MockScheduler{
+		CancelFunc: func(IDs []string) {
+			wg.Done()
+		},
+		ScheduleFunc: func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			wg.Done()
+		},
+	}
+
+	// disable expiration first
+	update := peer.Copy()
+	update.LoginExpirationEnabled = false
+	_, err = manager.UpdatePeer(account.Id, userID, update)
+	require.NoError(t, err, "unable to update peer")
+	// enabling expiration should trigger the routine
+	update.LoginExpirationEnabled = true
+	_, err = manager.UpdatePeer(account.Id, userID, update)
+	require.NoError(t, err, "unable to update peer")
+
+	failed := waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timeout while waiting for test to finish")
+	}
+}
+
+func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	_, err = manager.AddPeer("", userID, &Peer{
+		Key:                    key.PublicKey().String(),
+		Meta:                   PeerSystemMeta{},
+		Name:                   "test-peer",
+		LoginExpirationEnabled: true,
+	})
+	require.NoError(t, err, "unable to add peer")
+	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	manager.peerLoginExpiry = &MockScheduler{
+		CancelFunc: func(IDs []string) {
+			wg.Done()
+		},
+		ScheduleFunc: func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			wg.Done()
+		},
+	}
+
+	// when we mark peer as connected, the peer login expiration routine should trigger
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	failed := waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timeout while waiting for test to finish")
+	}
+
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	_, err = manager.AddPeer("", userID, &Peer{
+		Key:                    key.PublicKey().String(),
+		Meta:                   PeerSystemMeta{},
+		Name:                   "test-peer",
+		LoginExpirationEnabled: true,
+	})
+	require.NoError(t, err, "unable to add peer")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	manager.peerLoginExpiry = &MockScheduler{
+		CancelFunc: func(IDs []string) {
+			wg.Done()
+		},
+		ScheduleFunc: func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
+			wg.Done()
+		},
+	}
+	// enabling PeerLoginExpirationEnabled should trigger the expiration job
+	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	failed := waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timeout while waiting for test to finish")
+	}
+	wg.Add(1)
+
+	// disabling PeerLoginExpirationEnabled should trigger cancel
+	_, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+	failed = waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timeout while waiting for test to finish")
+	}
+}
 
 func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	manager, err := createManager(t)
@@ -1326,6 +1467,286 @@ func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	require.Error(t, err, "expecting to fail when providing PeerLoginExpiration more than 180 days")
 }
 
+func TestAccount_GetExpiredPeers(t *testing.T) {
+	type test struct {
+		name          string
+		peers         map[string]*Peer
+		expectedPeers map[string]struct{}
+	}
+	testCases := []test{
+		{
+			name: "Peers with login expiration disabled, no expired peers",
+			peers: map[string]*Peer{
+				"peer-1": {
+					LoginExpirationEnabled: false,
+				},
+				"peer-2": {
+					LoginExpirationEnabled: false,
+				},
+			},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Two peers expired",
+			peers: map[string]*Peer{
+				"peer-1": {
+					ID:                     "peer-1",
+					LoginExpirationEnabled: true,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().Add(-30 * time.Minute),
+				},
+				"peer-2": {
+					ID:                     "peer-2",
+					LoginExpirationEnabled: true,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().Add(-2 * time.Hour),
+				},
+
+				"peer-3": {
+					ID:                     "peer-3",
+					LoginExpirationEnabled: true,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LastLogin: time.Now().Add(-1 * time.Hour),
+				},
+			},
+			expectedPeers: map[string]struct{}{
+				"peer-2": {},
+				"peer-3": {},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers: testCase.peers,
+				Settings: &Settings{
+					PeerLoginExpirationEnabled: true,
+					PeerLoginExpiration:        time.Hour,
+				},
+			}
+
+			expiredPeers := account.GetExpiredPeers()
+			assert.Len(t, expiredPeers, len(testCase.expectedPeers))
+			for _, peer := range expiredPeers {
+				if _, ok := testCase.expectedPeers[peer.ID]; !ok {
+					t.Fatalf("expected to have peer %s expired", peer.ID)
+				}
+			}
+		})
+	}
+
+}
+
+func TestAccount_GetPeersWithExpiration(t *testing.T) {
+	type test struct {
+		name          string
+		peers         map[string]*Peer
+		expectedPeers map[string]struct{}
+	}
+
+	testCases := []test{
+		{
+			name:          "No account peers, no peers with expiration",
+			peers:         map[string]*Peer{},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Peers with login expiration disabled, no peers with expiration",
+			peers: map[string]*Peer{
+				"peer-1": {
+					LoginExpirationEnabled: false,
+				},
+				"peer-2": {
+					LoginExpirationEnabled: false,
+				},
+			},
+			expectedPeers: map[string]struct{}{},
+		},
+		{
+			name: "Peers with login expiration enabled, return peers with expiration",
+			peers: map[string]*Peer{
+				"peer-1": {
+					ID:                     "peer-1",
+					LoginExpirationEnabled: true,
+				},
+				"peer-2": {
+					LoginExpirationEnabled: false,
+				},
+			},
+			expectedPeers: map[string]struct{}{
+				"peer-1": {},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers: testCase.peers,
+			}
+
+			actual := account.GetPeersWithExpiration()
+			assert.Len(t, actual, len(testCase.expectedPeers))
+			if len(testCase.expectedPeers) > 0 {
+				for k := range testCase.expectedPeers {
+					contains := false
+					for _, peer := range actual {
+						if k == peer.ID {
+							contains = true
+						}
+					}
+					assert.True(t, contains)
+				}
+			}
+		})
+	}
+
+}
+
+func TestAccount_GetNextPeerExpiration(t *testing.T) {
+
+	type test struct {
+		name                   string
+		peers                  map[string]*Peer
+		expiration             time.Duration
+		expirationEnabled      bool
+		expectedNextRun        bool
+		expectedNextExpiration time.Duration
+	}
+
+	expectedNextExpiration := time.Minute
+	testCases := []test{
+		{
+			name:                   "No peers, no expiration",
+			peers:                  map[string]*Peer{},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "No connected peers, no expiration",
+			peers: map[string]*Peer{
+				"peer-1": {
+					Status: &PeerStatus{
+						Connected: false,
+					},
+					LoginExpirationEnabled: true,
+				},
+				"peer-2": {
+					Status: &PeerStatus{
+						Connected: true,
+					},
+					LoginExpirationEnabled: false,
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "Connected peers with disabled expiration, no expiration",
+			peers: map[string]*Peer{
+				"peer-1": {
+					Status: &PeerStatus{
+						Connected: true,
+					},
+					LoginExpirationEnabled: false,
+				},
+				"peer-2": {
+					Status: &PeerStatus{
+						Connected: true,
+					},
+					LoginExpirationEnabled: false,
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "Expired peers, no expiration",
+			peers: map[string]*Peer{
+				"peer-1": {
+					Status: &PeerStatus{
+						Connected:    true,
+						LoginExpired: true,
+					},
+					LoginExpirationEnabled: true,
+				},
+				"peer-2": {
+					Status: &PeerStatus{
+						Connected:    true,
+						LoginExpired: true,
+					},
+					LoginExpirationEnabled: true,
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
+		},
+		{
+			name: "To be expired peer, return expiration",
+			peers: map[string]*Peer{
+				"peer-1": {
+					Status: &PeerStatus{
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LoginExpirationEnabled: true,
+					LastLogin:              time.Now(),
+				},
+				"peer-2": {
+					Status: &PeerStatus{
+						Connected:    true,
+						LoginExpired: true,
+					},
+					LoginExpirationEnabled: true,
+				},
+			},
+			expiration:             time.Minute,
+			expirationEnabled:      false,
+			expectedNextRun:        true,
+			expectedNextExpiration: expectedNextExpiration,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			account := &Account{
+				Peers:    testCase.peers,
+				Settings: &Settings{PeerLoginExpiration: testCase.expiration, PeerLoginExpirationEnabled: testCase.expirationEnabled},
+			}
+
+			expiration, ok := account.GetNextPeerExpiration()
+			assert.Equal(t, ok, testCase.expectedNextRun)
+			if testCase.expectedNextRun {
+				assert.True(t, expiration >= 0 && expiration <= testCase.expectedNextExpiration)
+			} else {
+				assert.Equal(t, expiration, testCase.expectedNextExpiration)
+			}
+
+		})
+	}
+
+}
+
 func createManager(t *testing.T) (*DefaultAccountManager, error) {
 	store, err := createStore(t)
 	if err != nil {
@@ -1343,4 +1764,18 @@ func createStore(t *testing.T) (Store, error) {
 	}
 
 	return store, nil
+}
+
+func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
+	c := make(chan struct{})
+	go func() {
+		defer close(c)
+		wg.Wait()
+	}()
+	select {
+	case <-c:
+		return false
+	case <-time.After(timeout):
+		return true
+	}
 }

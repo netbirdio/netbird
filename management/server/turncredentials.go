@@ -115,6 +115,7 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerID string) {
 						Turns: turns,
 					},
 				}
+				log.Debugf("sending new TURN credentials to peer %s", peerID)
 				err := m.updateManager.SendUpdate(peerID, &UpdateMessage{Update: update})
 				if err != nil {
 					log.Errorf("error while sending TURN update to peer %s %v", peerID, err)

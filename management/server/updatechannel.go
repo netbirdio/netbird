@@ -60,16 +60,29 @@ func (p *PeersUpdateManager) CreateChannel(peerID string) chan *UpdateMessage {
 	return channel
 }
 
-// CloseChannel closes updates channel of a given peer
-func (p *PeersUpdateManager) CloseChannel(peerID string) {
-	p.channelsMux.Lock()
-	defer p.channelsMux.Unlock()
+func (p *PeersUpdateManager) closeChannel(peerID string) {
 	if channel, ok := p.peerChannels[peerID]; ok {
 		delete(p.peerChannels, peerID)
 		close(channel)
 	}
 
 	log.Debugf("closed updates channel of a peer %s", peerID)
+}
+
+// CloseChannels closes updates channel for each given peer
+func (p *PeersUpdateManager) CloseChannels(peerIDs []string) {
+	p.channelsMux.Lock()
+	defer p.channelsMux.Unlock()
+	for _, id := range peerIDs {
+		p.closeChannel(id)
+	}
+}
+
+// CloseChannel closes updates channel of a given peer
+func (p *PeersUpdateManager) CloseChannel(peerID string) {
+	p.channelsMux.Lock()
+	defer p.channelsMux.Unlock()
+	p.closeChannel(peerID)
 }
 
 // GetAllConnectedPeers returns a copy of the connected peers map

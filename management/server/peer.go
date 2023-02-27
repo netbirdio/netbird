@@ -93,17 +93,24 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
+// MarkLoginExpired marks peer's status expired or not
+func (p *Peer) MarkLoginExpired(expired bool) {
+	newStatus := p.Status.Copy()
+	newStatus.LastSeen = time.Now()
+	newStatus.LoginExpired = expired
+	p.Status = newStatus
+}
+
 // LoginExpired indicates whether the peer's login has expired or not.
 // If Peer.LastLogin plus the expiresIn duration has happened already; then login has expired.
 // Return true if a login has expired, false otherwise, and time left to expiration (negative when expired).
 // Login expiration can be disabled/enabled on a Peer level via Peer.LoginExpirationEnabled property.
-// Login expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled
-// and if disabled on the Account level, then Peer.LoginExpirationEnabled is ineffective.
-func (p *Peer) LoginExpired(accountSettings *Settings) (bool, time.Duration) {
-	expiresAt := p.LastLogin.Add(accountSettings.PeerLoginExpiration)
+// Login expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled.
+func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
+	expiresAt := p.LastLogin.Add(expiresIn)
 	now := time.Now()
 	timeLeft := expiresAt.Sub(now)
-	return accountSettings.PeerLoginExpirationEnabled && p.LoginExpirationEnabled && (timeLeft <= 0), timeLeft
+	return p.LoginExpirationEnabled && (timeLeft <= 0), timeLeft
 }
 
 // FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
@@ -202,13 +209,10 @@ func (am *DefaultAccountManager) MarkPeerLoginExpired(peerPubKey string, loginEx
 		return err
 	}
 
-	newStatus := peer.Status.Copy()
-	newStatus.LastSeen = time.Now()
-	newStatus.LoginExpired = loginExpired
-	peer.Status = newStatus
+	peer.MarkLoginExpired(loginExpired)
 	account.UpdatePeer(peer)
 
-	err = am.Store.SavePeerStatus(account.Id, peer.ID, *newStatus)
+	err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
 	if err != nil {
 		return err
 	}
@@ -237,7 +241,8 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 		return err
 	}
 
-	newStatus := peer.Status.Copy()
+	oldStatus := peer.Status.Copy()
+	newStatus := oldStatus
 	newStatus.LastSeen = time.Now()
 	newStatus.Connected = connected
 	// whenever peer got connected that means that it logged in successfully
@@ -251,6 +256,20 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 	if err != nil {
 		return err
 	}
+
+	if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
+		am.checkAndSchedulePeerLoginExpiration(account)
+	}
+
+	if oldStatus.LoginExpired {
+		// we need to update other peers because when peer login expires all other peers are notified to disconnect from
+		//the expired one. Here we notify them that connection is now allowed again.
+		err = am.updateAccountPeers(account)
+		if err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -307,6 +326,10 @@ func (am *DefaultAccountManager) UpdatePeer(accountID, userID string, update *Pe
 			event = activity.PeerLoginExpirationDisabled
 		}
 		am.storeEvent(userID, peer.IP.String(), accountID, event, peer.EventMeta(am.GetDNSDomain()))
+
+		if peer.AddedWithSSOLogin() && peer.LoginExpirationEnabled && account.Settings.PeerLoginExpirationEnabled {
+			am.checkAndSchedulePeerLoginExpiration(account)
+		}
 	}
 
 	account.UpdatePeer(peer)
@@ -529,7 +552,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		SSHEnabled:             false,
 		SSHKey:                 peer.SSHKey,
 		LastLogin:              time.Now(),
-		LoginExpirationEnabled: false,
+		LoginExpirationEnabled: true,
 	}
 
 	// add peer to 'All' group
@@ -773,6 +796,10 @@ func (a *Account) getPeersByACL(peerID string) []*Peer {
 					g.ID,
 					a.Id,
 				)
+				continue
+			}
+			expired, _ := peer.LoginExpired(a.Settings.PeerLoginExpiration)
+			if expired {
 				continue
 			}
 			// exclude original peer

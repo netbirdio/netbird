@@ -57,7 +57,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 				LastLogin:              c.lastLogin,
 			}
 
-			expired, _ := peer.LoginExpired(c.accountSettings)
+			expired, _ := peer.LoginExpired(c.accountSettings.PeerLoginExpiration)
 			assert.Equal(t, expired, c.expected)
 		})
 	}
