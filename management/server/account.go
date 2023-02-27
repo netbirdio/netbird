@@ -120,7 +120,7 @@ type DefaultAccountManager struct {
 	singleAccountModeDomain string
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
 	dnsDomain       string
-	peerLoginExpiry *Scheduler
+	peerLoginExpiry Scheduler
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -603,7 +603,7 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 		cacheLoading:       map[string]chan struct{}{},
 		dnsDomain:          dnsDomain,
 		eventStore:         eventStore,
-		peerLoginExpiry:    NewScheduler(),
+		peerLoginExpiry:    NewDefaultScheduler(),
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1

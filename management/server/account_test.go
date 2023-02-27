@@ -1294,6 +1294,147 @@ func TestDefaultAccountManager_DefaultAccountSettings(t *testing.T) {
 	assert.Equal(t, account.Settings.PeerLoginExpirationEnabled, true)
 	assert.Equal(t, account.Settings.PeerLoginExpiration, 24*time.Hour)
 }
+func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	peer, err := manager.AddPeer("", userID, &Peer{
+		Key:                    key.PublicKey().String(),
+		Meta:                   PeerSystemMeta{},
+		Name:                   "test-peer",
+		LoginExpirationEnabled: true,
+	})
+	require.NoError(t, err, "unable to add peer")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true)
+	require.NoError(t, err, "unable to mark peer connected")
+	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	manager.peerLoginExpiry = &MockScheduler{
+		CancelFunc: func(IDs []string) {
+			wg.Done()
+		},
+		ScheduleFunc: func(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+			wg.Done()
+		},
+	}
+
+	// disable expiration first
+	update := peer.Copy()
+	update.LoginExpirationEnabled = false
+	_, err = manager.UpdatePeer(account.Id, userID, update)
+	require.NoError(t, err, "unable to update peer")
+	// enabling expiration should trigger the routine
+	update.LoginExpirationEnabled = true
+	_, err = manager.UpdatePeer(account.Id, userID, update)
+	require.NoError(t, err, "unable to update peer")
+
+	failed := waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timeout while waiting for test to finish")
+	}
+}
+
+func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	_, err = manager.AddPeer("", userID, &Peer{
+		Key:                    key.PublicKey().String(),
+		Meta:                   PeerSystemMeta{},
+		Name:                   "test-peer",
+		LoginExpirationEnabled: true,
+	})
+	require.NoError(t, err, "unable to add peer")
+	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	manager.peerLoginExpiry = &MockScheduler{
+		CancelFunc: func(IDs []string) {
+			wg.Done()
+		},
+		ScheduleFunc: func(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+			wg.Done()
+		},
+	}
+
+	// when we mark peer as connected, the peer login expiration routine should trigger
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	failed := waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timeout while waiting for test to finish")
+	}
+
+}
+
+func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *testing.T) {
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+	account, err := manager.GetAccountByUserOrAccountID(userID, "", "")
+	require.NoError(t, err, "unable to create an account")
+
+	key, err := wgtypes.GenerateKey()
+	require.NoError(t, err, "unable to generate WireGuard key")
+	_, err = manager.AddPeer("", userID, &Peer{
+		Key:                    key.PublicKey().String(),
+		Meta:                   PeerSystemMeta{},
+		Name:                   "test-peer",
+		LoginExpirationEnabled: true,
+	})
+	require.NoError(t, err, "unable to add peer")
+	err = manager.MarkPeerConnected(key.PublicKey().String(), true)
+	require.NoError(t, err, "unable to mark peer connected")
+
+	wg := &sync.WaitGroup{}
+	wg.Add(2)
+	manager.peerLoginExpiry = &MockScheduler{
+		CancelFunc: func(IDs []string) {
+			wg.Done()
+		},
+		ScheduleFunc: func(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+			wg.Done()
+		},
+	}
+	// enabling PeerLoginExpirationEnabled should trigger the expiration job
+	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: true})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+
+	failed := waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timeout while waiting for test to finish")
+	}
+	wg.Add(1)
+
+	// disabling PeerLoginExpirationEnabled should trigger cancel
+	account, err = manager.UpdateAccountSettings(account.Id, userID, &Settings{
+		PeerLoginExpiration:        time.Hour,
+		PeerLoginExpirationEnabled: false})
+	require.NoError(t, err, "expecting to update account settings successfully but got error")
+	failed = waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timeout while waiting for test to finish")
+	}
+}
 
 func TestDefaultAccountManager_UpdateAccountSettings(t *testing.T) {
 	manager, err := createManager(t)
@@ -1544,4 +1685,18 @@ func createStore(t *testing.T) (Store, error) {
 	}
 
 	return store, nil
+}
+
+func waitTimeout(wg *sync.WaitGroup, timeout time.Duration) bool {
+	c := make(chan struct{})
+	go func() {
+		defer close(c)
+		wg.Wait()
+	}()
+	select {
+	case <-c:
+		return false
+	case <-time.After(timeout):
+		return true
+	}
 }

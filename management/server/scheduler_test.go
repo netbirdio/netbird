@@ -10,7 +10,7 @@ import (
 )
 
 func TestScheduler_Performance(t *testing.T) {
-	scheduler := NewScheduler()
+	scheduler := NewDefaultScheduler()
 	n := 1000
 	wg := sync.WaitGroup{}
 	wg.Add(n)
@@ -31,7 +31,7 @@ func TestScheduler_Performance(t *testing.T) {
 func TestScheduler_Cancel(t *testing.T) {
 	jobID1 := "test-scheduler-job-1"
 	jobID2 := "test-scheduler-job-2"
-	scheduler := NewScheduler()
+	scheduler := NewDefaultScheduler()
 	scheduler.Schedule(2*time.Second, jobID1, func() (reschedule bool, nextRunIn time.Duration) {
 		return false, 0
 	})
@@ -47,7 +47,7 @@ func TestScheduler_Cancel(t *testing.T) {
 
 func TestScheduler_Schedule(t *testing.T) {
 	jobID := "test-scheduler-job-1"
-	scheduler := NewScheduler()
+	scheduler := NewDefaultScheduler()
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 	// job without reschedule should be triggered once

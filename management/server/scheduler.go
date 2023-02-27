@@ -6,22 +6,51 @@ import (
 	"time"
 )
 
-// Scheduler is a generic structure that allows to schedule jobs (functions) to run in the future and cancel them.
-type Scheduler struct {
+// Scheduler is an interface which implementations can schedule and cancel jobs
+type Scheduler interface {
+	Cancel(IDs []string)
+	Schedule(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration))
+}
+
+type MockScheduler struct {
+	CancelFunc   func(IDs []string)
+	ScheduleFunc func(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration))
+}
+
+// Cancel mocks the Cancel function of the Scheduler interface
+func (mock *MockScheduler) Cancel(IDs []string) {
+	if mock.CancelFunc != nil {
+		mock.CancelFunc(IDs)
+		return
+	}
+	log.Errorf("MockScheduler doesn't have Cancel function defined ")
+}
+
+// Schedule mocks the Schedule function of the Scheduler interface
+func (mock *MockScheduler) Schedule(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+	if mock.ScheduleFunc != nil {
+		mock.ScheduleFunc(in, ID, job)
+		return
+	}
+	log.Errorf("MockScheduler doesn't have Schedule function defined")
+}
+
+// DefaultScheduler is a generic structure that allows to schedule jobs (functions) to run in the future and cancel them.
+type DefaultScheduler struct {
 	// jobs map holds cancellation channels indexed by the job ID
 	jobs map[string]chan struct{}
 	mu   *sync.Mutex
 }
 
-// NewScheduler creates an instance of a Scheduler
-func NewScheduler() *Scheduler {
-	return &Scheduler{
+// NewDefaultScheduler creates an instance of a DefaultScheduler
+func NewDefaultScheduler() *DefaultScheduler {
+	return &DefaultScheduler{
 		jobs: make(map[string]chan struct{}),
 		mu:   &sync.Mutex{},
 	}
 }
 
-func (wm *Scheduler) cancel(ID string) bool {
+func (wm *DefaultScheduler) cancel(ID string) bool {
 	cancel, ok := wm.jobs[ID]
 	if ok {
 		delete(wm.jobs, ID)
@@ -39,7 +68,7 @@ func (wm *Scheduler) cancel(ID string) bool {
 
 // Cancel cancels the scheduled job by ID if present.
 // If job wasn't found the function returns false.
-func (wm *Scheduler) Cancel(IDs []string) {
+func (wm *DefaultScheduler) Cancel(IDs []string) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
@@ -50,7 +79,7 @@ func (wm *Scheduler) Cancel(IDs []string) {
 
 // Schedule a job to run in some time in the future. If job returns true then it will be scheduled one more time.
 // If job with the provided ID already exists, a new one won't be scheduled.
-func (wm *Scheduler) Schedule(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	cancel := make(chan struct{})
