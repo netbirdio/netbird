@@ -58,7 +58,7 @@ type statusOutputOverview struct {
 	SignalState     signalStateOutput     `json:"signal" yaml:"signal"`
 	IP              string                `json:"ip" yaml:"ip"`
 	PubKey          string                `json:"publicKey" yaml:"publicKey"`
-	KernelInterface string                `json:"interfaceType" yaml:"interfaceType"`
+	KernelInterface bool                  `json:"usesKernelInterface" yaml:"usesKernelInterface"`
 	FQDN            string                `json:"domain" yaml:"domain"`
 }
 
@@ -205,15 +205,6 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 
 	peersOverview := mapPeers(resp.GetFullStatus().GetPeers())
 
-	interfaceTypeString := "Userspace"
-	interfaceIP := pbFullStatus.GetLocalPeerState().GetIP()
-	if pbFullStatus.LocalPeerState.KernelInterface {
-		interfaceTypeString = "Kernel"
-	} else if pbFullStatus.LocalPeerState.IP == "" {
-		interfaceTypeString = "N/A"
-		interfaceIP = "N/A"
-	}
-
 	overview := statusOutputOverview{
 		Peers:           peersOverview,
 		CliVersion:      system.NetbirdVersion(),
@@ -221,9 +212,9 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 		DaemonStatus:    resp.GetStatus(),
 		ManagementState: managementOverview,
 		SignalState:     signalOverview,
-		IP:              interfaceIP,
+		IP:              pbFullStatus.GetLocalPeerState().GetIP(),
 		PubKey:          pbFullStatus.GetLocalPeerState().GetPubKey(),
-		KernelInterface: interfaceTypeString,
+		KernelInterface: pbFullStatus.GetLocalPeerState().GetKernelInterface(),
 		FQDN:            pbFullStatus.GetLocalPeerState().GetFqdn(),
 	}
 
@@ -232,9 +223,9 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 
 func mapPeers(peers []*proto.PeerState) peersStateOutput {
 	var peersStateDetail []peerStateDetailOutput
-	localICE := "-"
-	remoteICE := "-"
-	connType := "-"
+	localICE := ""
+	remoteICE := ""
+	connType := ""
 	peersConnected := 0
 	for _, pbPeerState := range peers {
 		isPeerConnected := pbPeerState.ConnStatus == peer.StatusConnected.String()
@@ -330,6 +321,15 @@ func parseGeneralSummary(overview statusOutputOverview, showUrl bool) string {
 		}
 	}
 
+	interfaceTypeString := "Userspace"
+	interfaceIP := overview.IP
+	if overview.KernelInterface {
+		interfaceTypeString = "Kernel"
+	} else if overview.IP == "" {
+		interfaceTypeString = "N/A"
+		interfaceIP = "N/A"
+	}
+
 	peersCountString := fmt.Sprintf("%d/%d Connected", overview.Peers.Connected, overview.Peers.Total)
 
 	summary := fmt.Sprintf(
@@ -348,8 +348,8 @@ func parseGeneralSummary(overview statusOutputOverview, showUrl bool) string {
 		managementConnString,
 		signalConnString,
 		overview.FQDN,
-		overview.IP,
-		overview.KernelInterface,
+		interfaceIP,
+		interfaceTypeString,
 		peersCountString,
 	)
 	return summary
@@ -374,6 +374,17 @@ func parsePeers(peers peersStateOutput) string {
 	)
 
 	for _, peerState := range peers.Details {
+
+		localICE := "-"
+		if peerState.LocalIceCandidateType != "" {
+			localICE = peerState.LocalIceCandidateType
+		}
+
+		remoteICE := "-"
+		if peerState.RemoteIceCandidateType != "" {
+			remoteICE = peerState.RemoteIceCandidateType
+		}
+
 		peerString := fmt.Sprintf(
 			"\n %s:\n"+
 				"  NetBird IP: %s\n"+
@@ -390,8 +401,8 @@ func parsePeers(peers peersStateOutput) string {
 			peerState.ConnStatus,
 			peerState.ConnType,
 			peerState.Direct,
-			peerState.LocalIceCandidateType,
-			peerState.RemoteIceCandidateType,
+			localICE,
+			remoteICE,
 			peerState.ConnStatusUpdate.Format("2006-01-02 15:04:05"),
 		)
 
