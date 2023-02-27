@@ -57,7 +57,6 @@ type statusOutputOverview struct {
 	Peers           peersStateOutput      `json:"peers" yaml:"peers"`
 	CliVersion      string                `json:"cliVersion" yaml:"cliVersion"`
 	DaemonVersion   string                `json:"daemonVersion" yaml:"daemonVersion"`
-	DaemonStatus    string                `json:"daemonStatus" yaml:"daemonStatus"`
 	ManagementState managementStateOutput `json:"management" yaml:"management"`
 	SignalState     signalStateOutput     `json:"signal" yaml:"signal"`
 	IP              string                `json:"netbirdIp" yaml:"netbirdIp"`
@@ -212,7 +211,6 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 		Peers:           peersOverview,
 		CliVersion:      system.NetbirdVersion(),
 		DaemonVersion:   resp.GetDaemonVersion(),
-		DaemonStatus:    resp.GetStatus(),
 		ManagementState: managementOverview,
 		SignalState:     signalOverview,
 		IP:              pbFullStatus.GetLocalPeerState().GetIP(),
@@ -340,7 +338,6 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 	summary := fmt.Sprintf(
 		"Daemon version: %s\n"+
 			"CLI version: %s\n"+
-			"%s"+ // daemon status
 			"Management: %s\n"+
 			"Signal: %s\n"+
 			"FQDN: %s\n"+
@@ -349,7 +346,6 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 			"Peers count: %s\n",
 		overview.DaemonVersion,
 		system.NetbirdVersion(),
-		overview.DaemonStatus,
 		managementConnString,
 		signalConnString,
 		overview.FQDN,
