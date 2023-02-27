@@ -62,26 +62,30 @@ var overview = statusOutputOverview{
 		Connected: 2,
 		Details: []peerStateDetailOutput{
 			{
-				IP:                     "192.168.178.101",
-				PubKey:                 "Pubkey1",
-				FQDN:                   "peer-1.awesome-domain.com",
-				ConnStatus:             "Connected",
-				ConnStatusUpdate:       time.Date(2001, 1, 1, 1, 1, 1, 0, time.UTC),
-				ConnType:               "P2P",
-				Direct:                 true,
-				LocalIceCandidateType:  "",
-				RemoteIceCandidateType: "",
+				IP:               "192.168.178.101",
+				PubKey:           "Pubkey1",
+				FQDN:             "peer-1.awesome-domain.com",
+				Status:           "Connected",
+				LastStatusUpdate: time.Date(2001, 1, 1, 1, 1, 1, 0, time.UTC),
+				ConnType:         "P2P",
+				Direct:           true,
+				IceCandidateType: iceCandidateType{
+					Local:  "",
+					Remote: "",
+				},
 			},
 			{
-				IP:                     "192.168.178.102",
-				PubKey:                 "Pubkey2",
-				FQDN:                   "peer-2.awesome-domain.com",
-				ConnStatus:             "Connected",
-				ConnStatusUpdate:       time.Date(2002, 2, 2, 2, 2, 2, 0, time.UTC),
-				ConnType:               "Relayed",
-				Direct:                 false,
-				LocalIceCandidateType:  "relay",
-				RemoteIceCandidateType: "prflx",
+				IP:               "192.168.178.102",
+				PubKey:           "Pubkey2",
+				FQDN:             "peer-2.awesome-domain.com",
+				Status:           "Connected",
+				LastStatusUpdate: time.Date(2002, 2, 2, 2, 2, 2, 0, time.UTC),
+				ConnType:         "Relayed",
+				Direct:           false,
+				IceCandidateType: iceCandidateType{
+					Local:  "relay",
+					Remote: "prflx",
+				},
 			},
 		},
 	},
@@ -147,35 +151,41 @@ func TestSortingOfPeers(t *testing.T) {
 func TestParsingToJSON(t *testing.T) {
 	json, _ := parseToJSON(overview)
 
-	// @formatter:off
-	expectedJSON := "{" +
-		"\"peers\":" +
+	//@formatter:off
+	expectedJSON := "{\"" +
+		"peers\":" +
 		"{" +
 		"\"total\":2," +
 		"\"connected\":2," +
 		"\"details\":" +
 		"[" +
 		"{" +
-		"\"ip\":\"192.168.178.101\"," +
-		"\"publicKey\":\"Pubkey1\"," +
 		"\"fqdn\":\"peer-1.awesome-domain.com\"," +
-		"\"connectionStatus\":\"Connected\"," +
-		"\"connectionStatusUpdate\":\"2001-01-01T01:01:01Z\"," +
+		"\"netbirdIp\":\"192.168.178.101\"," +
+		"\"publicKey\":\"Pubkey1\"," +
+		"\"status\":\"Connected\"," +
+		"\"lastStatusUpdate\":\"2001-01-01T01:01:01Z\"," +
 		"\"connectionType\":\"P2P\"," +
 		"\"direct\":true," +
-		"\"localIceCandidateType\":\"\"," +
-		"\"remoteIceCandidateType\":\"\"" +
+		"\"iceCandidateType\":" +
+		"{" +
+		"\"local\":\"\"," +
+		"\"remote\":\"\"" +
+		"}" +
 		"}," +
 		"{" +
-		"\"ip\":\"192.168.178.102\"," +
-		"\"publicKey\":\"Pubkey2\"," +
 		"\"fqdn\":\"peer-2.awesome-domain.com\"," +
-		"\"connectionStatus\":\"Connected\"," +
-		"\"connectionStatusUpdate\":\"2002-02-02T02:02:02Z\"," +
+		"\"netbirdIp\":\"192.168.178.102\"," +
+		"\"publicKey\":\"Pubkey2\"," +
+		"\"status\":\"Connected\"," +
+		"\"lastStatusUpdate\":\"2002-02-02T02:02:02Z\"," +
 		"\"connectionType\":\"Relayed\"," +
 		"\"direct\":false," +
-		"\"localIceCandidateType\":\"relay\"," +
-		"\"remoteIceCandidateType\":\"prflx\"" +
+		"\"iceCandidateType\":" +
+		"{" +
+		"\"local\":\"relay\"," +
+		"\"remote\":\"prflx\"" +
+		"}" +
 		"}" +
 		"]" +
 		"}," +
@@ -188,14 +198,14 @@ func TestParsingToJSON(t *testing.T) {
 		"\"connected\":true" +
 		"}," +
 		"\"signal\":" +
-		"{" +
-		"\"url\":\"my-awesome-signal.com:443\"," +
+		"{\"" +
+		"url\":\"my-awesome-signal.com:443\"," +
 		"\"connected\":true" +
 		"}," +
-		"\"ip\":\"192.168.178.100/16\"," +
+		"\"netbirdIp\":\"192.168.178.100/16\"," +
 		"\"publicKey\":\"Some-Pub-Key\"," +
 		"\"usesKernelInterface\":true," +
-		"\"domain\":\"some-localhost.awesome-domain.com\"" +
+		"\"fqdn\":\"some-localhost.awesome-domain.com\"" +
 		"}"
 	// @formatter:on
 
@@ -209,24 +219,26 @@ func TestParsingToYAML(t *testing.T) {
 		"    total: 2\n" +
 		"    connected: 2\n" +
 		"    details:\n" +
-		"        - ip: 192.168.178.101\n" +
+		"        - fqdn: peer-1.awesome-domain.com\n" +
+		"          netbirdIp: 192.168.178.101\n" +
 		"          publicKey: Pubkey1\n" +
-		"          fqdn: peer-1.awesome-domain.com\n" +
-		"          connectionStatus: Connected\n" +
-		"          connectionStatusUpdate: 2001-01-01T01:01:01Z\n" +
+		"          status: Connected\n" +
+		"          lastStatusUpdate: 2001-01-01T01:01:01Z\n" +
 		"          connectionType: P2P\n" +
 		"          direct: true\n" +
-		"          localIceCandidateType: \"\"\n" +
-		"          remoteIceCandidateType: \"\"\n" +
-		"        - ip: 192.168.178.102\n" +
+		"          iceCandidateType:\n" +
+		"            local: \"\"\n" +
+		"            remote: \"\"\n" +
+		"        - fqdn: peer-2.awesome-domain.com\n" +
+		"          netbirdIp: 192.168.178.102\n" +
 		"          publicKey: Pubkey2\n" +
-		"          fqdn: peer-2.awesome-domain.com\n" +
-		"          connectionStatus: Connected\n" +
-		"          connectionStatusUpdate: 2002-02-02T02:02:02Z\n" +
+		"          status: Connected\n" +
+		"          lastStatusUpdate: 2002-02-02T02:02:02Z\n" +
 		"          connectionType: Relayed\n" +
 		"          direct: false\n" +
-		"          localIceCandidateType: relay\n" +
-		"          remoteIceCandidateType: prflx\n" +
+		"          iceCandidateType:\n" +
+		"            local: relay\n" +
+		"            remote: prflx\n" +
 		"cliVersion: development\n" +
 		"daemonVersion: 0.14.1\n" +
 		"daemonStatus: Connected\n" +
@@ -236,10 +248,10 @@ func TestParsingToYAML(t *testing.T) {
 		"signal:\n" +
 		"    url: my-awesome-signal.com:443\n" +
 		"    connected: true\n" +
-		"ip: 192.168.178.100/16\n" +
+		"netbirdIp: 192.168.178.100/16\n" +
 		"publicKey: Some-Pub-Key\n" +
 		"usesKernelInterface: true\n" +
-		"domain: some-localhost.awesome-domain.com\n"
+		"fqdn: some-localhost.awesome-domain.com\n"
 
 	assert.Equal(t, expectedYAML, yaml)
 }
@@ -272,7 +284,7 @@ func TestParsingToDetail(t *testing.T) {
 		"CLI version: development\n" +
 		"ConnectedManagement: Connected to my-awesome-management.com:443\n" +
 		"Signal: Connected to my-awesome-signal.com:443\n" +
-		"Domain: some-localhost.awesome-domain.com\n" +
+		"FQDN: some-localhost.awesome-domain.com\n" +
 		"NetBird IP: 192.168.178.100/16\n" +
 		"Interface type: Kernel\n" +
 		"Peers count: 2/2 Connected\n"
@@ -287,7 +299,7 @@ func TestParsingToShortVersion(t *testing.T) {
 		"CLI version: development\n" +
 		"ConnectedManagement: Connected\n" +
 		"Signal: Connected\n" +
-		"Domain: some-localhost.awesome-domain.com\n" +
+		"FQDN: some-localhost.awesome-domain.com\n" +
 		"NetBird IP: 192.168.178.100/16\n" +
 		"Interface type: Kernel\n" +
 		"Peers count: 2/2 Connected\n"

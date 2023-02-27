@@ -22,15 +22,14 @@ import (
 )
 
 type peerStateDetailOutput struct {
-	IP                     string    `json:"ip" yaml:"ip"`
-	PubKey                 string    `json:"publicKey" yaml:"publicKey"`
-	FQDN                   string    `json:"fqdn" yaml:"fqdn"`
-	ConnStatus             string    `json:"connectionStatus" yaml:"connectionStatus"`
-	ConnStatusUpdate       time.Time `json:"connectionStatusUpdate" yaml:"connectionStatusUpdate"`
-	ConnType               string    `json:"connectionType" yaml:"connectionType"`
-	Direct                 bool      `json:"direct" yaml:"direct"`
-	LocalIceCandidateType  string    `json:"localIceCandidateType" yaml:"localIceCandidateType"`
-	RemoteIceCandidateType string    `json:"remoteIceCandidateType" yaml:"remoteIceCandidateType"`
+	FQDN             string           `json:"fqdn" yaml:"fqdn"`
+	IP               string           `json:"netbirdIp" yaml:"netbirdIp"`
+	PubKey           string           `json:"publicKey" yaml:"publicKey"`
+	Status           string           `json:"status" yaml:"status"`
+	LastStatusUpdate time.Time        `json:"lastStatusUpdate" yaml:"lastStatusUpdate"`
+	ConnType         string           `json:"connectionType" yaml:"connectionType"`
+	Direct           bool             `json:"direct" yaml:"direct"`
+	IceCandidateType iceCandidateType `json:"iceCandidateType" yaml:"iceCandidateType"`
 }
 
 type peersStateOutput struct {
@@ -49,6 +48,11 @@ type managementStateOutput struct {
 	Connected bool   `json:"connected" yaml:"connected"`
 }
 
+type iceCandidateType struct {
+	Local  string `json:"local" yaml:"local"`
+	Remote string `json:"remote" yaml:"remote"`
+}
+
 type statusOutputOverview struct {
 	Peers           peersStateOutput      `json:"peers" yaml:"peers"`
 	CliVersion      string                `json:"cliVersion" yaml:"cliVersion"`
@@ -56,10 +60,10 @@ type statusOutputOverview struct {
 	DaemonStatus    string                `json:"daemonStatus" yaml:"daemonStatus"`
 	ManagementState managementStateOutput `json:"management" yaml:"management"`
 	SignalState     signalStateOutput     `json:"signal" yaml:"signal"`
-	IP              string                `json:"ip" yaml:"ip"`
+	IP              string                `json:"netbirdIp" yaml:"netbirdIp"`
 	PubKey          string                `json:"publicKey" yaml:"publicKey"`
 	KernelInterface bool                  `json:"usesKernelInterface" yaml:"usesKernelInterface"`
-	FQDN            string                `json:"domain" yaml:"domain"`
+	FQDN            string                `json:"fqdn" yaml:"fqdn"`
 }
 
 var (
@@ -128,23 +132,22 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	statusOutputOverview := convertToStatusOutputOverview(resp)
+	outputInformationHolder := convertToStatusOutputOverview(resp)
 
 	statusOutputString := ""
-	if detailFlag {
-		statusOutputString = parseToFullDetailSummary(statusOutputOverview)
-	} else if jsonFlag {
-		statusOutputString, err = parseToJSON(statusOutputOverview)
-		if err != nil {
-			return err
-		}
-	} else if yamlFlag {
-		statusOutputString, err = parseToYAML(statusOutputOverview)
-		if err != nil {
-			return err
-		}
-	} else {
-		statusOutputString = parseGeneralSummary(statusOutputOverview, false)
+	switch {
+	case detailFlag:
+		statusOutputString = parseToFullDetailSummary(outputInformationHolder)
+	case jsonFlag:
+		statusOutputString, err = parseToJSON(outputInformationHolder)
+	case yamlFlag:
+		statusOutputString, err = parseToYAML(outputInformationHolder)
+	default:
+		statusOutputString = parseGeneralSummary(outputInformationHolder, false)
+	}
+
+	if err != nil {
+		return err
 	}
 
 	cmd.Print(statusOutputString)
@@ -245,15 +248,17 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 
 		timeLocal := pbPeerState.GetConnStatusUpdate().AsTime().Local()
 		peerState := peerStateDetailOutput{
-			IP:                     pbPeerState.GetIP(),
-			PubKey:                 pbPeerState.GetPubKey(),
-			ConnStatus:             pbPeerState.GetConnStatus(),
-			ConnStatusUpdate:       timeLocal.UTC(),
-			ConnType:               connType,
-			Direct:                 pbPeerState.GetDirect(),
-			LocalIceCandidateType:  localICE,
-			RemoteIceCandidateType: remoteICE,
-			FQDN:                   pbPeerState.GetFqdn(),
+			IP:               pbPeerState.GetIP(),
+			PubKey:           pbPeerState.GetPubKey(),
+			Status:           pbPeerState.GetConnStatus(),
+			LastStatusUpdate: timeLocal.UTC(),
+			ConnType:         connType,
+			Direct:           pbPeerState.GetDirect(),
+			IceCandidateType: iceCandidateType{
+				Local:  localICE,
+				Remote: remoteICE,
+			},
+			FQDN: pbPeerState.GetFqdn(),
 		}
 
 		peersStateDetail = append(peersStateDetail, peerState)
@@ -338,7 +343,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 			"%s"+ // daemon status
 			"Management: %s\n"+
 			"Signal: %s\n"+
-			"Domain: %s\n"+
+			"FQDN: %s\n"+
 			"NetBird IP: %s\n"+
 			"Interface type: %s\n"+
 			"Peers count: %s\n",
@@ -376,13 +381,13 @@ func parsePeers(peers peersStateOutput) string {
 	for _, peerState := range peers.Details {
 
 		localICE := "-"
-		if peerState.LocalIceCandidateType != "" {
-			localICE = peerState.LocalIceCandidateType
+		if peerState.IceCandidateType.Local != "" {
+			localICE = peerState.IceCandidateType.Local
 		}
 
 		remoteICE := "-"
-		if peerState.RemoteIceCandidateType != "" {
-			remoteICE = peerState.RemoteIceCandidateType
+		if peerState.IceCandidateType.Remote != "" {
+			remoteICE = peerState.IceCandidateType.Remote
 		}
 
 		peerString := fmt.Sprintf(
@@ -398,12 +403,12 @@ func parsePeers(peers peersStateOutput) string {
 			peerState.FQDN,
 			peerState.IP,
 			peerState.PubKey,
-			peerState.ConnStatus,
+			peerState.Status,
 			peerState.ConnType,
 			peerState.Direct,
 			localICE,
 			remoteICE,
-			peerState.ConnStatusUpdate.Format("2006-01-02 15:04:05"),
+			peerState.LastStatusUpdate.Format("2006-01-02 15:04:05"),
 		)
 
 		peersString = peersString + peerString
