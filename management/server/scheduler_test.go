@@ -14,8 +14,10 @@ func TestScheduler_Performance(t *testing.T) {
 	n := 1000
 	wg := &sync.WaitGroup{}
 	wg.Add(n)
+	maxMs := 500
+	minMs := 50
 	for i := 0; i < n; i++ {
-		millis := time.Duration(rand.Intn(500-50)+50) * time.Millisecond
+		millis := time.Duration(rand.Intn(maxMs-minMs)+minMs) * time.Millisecond
 		go scheduler.Schedule(millis, fmt.Sprintf("test-scheduler-job-%d", i), func() (nextRunIn time.Duration, reschedule bool) {
 			time.Sleep(millis)
 			wg.Done()
