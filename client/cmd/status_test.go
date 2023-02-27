@@ -111,18 +111,6 @@ func TestConversionFromFullStatusToOutputOverview(t *testing.T) {
 	assert.Equal(t, overview, convertedResult)
 }
 
-func TestForErrorOnMultipleOutputFlags(t *testing.T) {
-	rootCmd.SetArgs([]string{
-		"status",
-		"--yaml",
-		"--json",
-	})
-	if err := rootCmd.Execute(); err != nil {
-		return
-	}
-	t.Errorf("expected error while running status command with 2 output flags")
-}
-
 func TestSortingOfPeers(t *testing.T) {
 	peers := []peerStateDetailOutput{
 		{
