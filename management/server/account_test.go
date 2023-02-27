@@ -1322,7 +1322,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 		CancelFunc: func(IDs []string) {
 			wg.Done()
 		},
-		ScheduleFunc: func(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+		ScheduleFunc: func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 			wg.Done()
 		},
 	}
@@ -1369,7 +1369,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 		CancelFunc: func(IDs []string) {
 			wg.Done()
 		},
-		ScheduleFunc: func(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+		ScheduleFunc: func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 			wg.Done()
 		},
 	}
@@ -1409,7 +1409,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 		CancelFunc: func(IDs []string) {
 			wg.Done()
 		},
-		ScheduleFunc: func(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+		ScheduleFunc: func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 			wg.Done()
 		},
 	}
@@ -1655,7 +1655,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 				Settings: &Settings{PeerLoginExpiration: testCase.expiration, PeerLoginExpirationEnabled: testCase.expirationEnabled},
 			}
 
-			ok, expiration := account.GetNextPeerExpiration()
+			expiration, ok := account.GetNextPeerExpiration()
 			assert.Equal(t, ok, testCase.expectedNextRun)
 			if testCase.expectedNextRun {
 				assert.True(t, expiration >= 0 && expiration <= testCase.expectedNextExpiration)

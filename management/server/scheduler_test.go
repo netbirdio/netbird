@@ -12,19 +12,23 @@ import (
 func TestScheduler_Performance(t *testing.T) {
 	scheduler := NewDefaultScheduler()
 	n := 1000
-	wg := sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 	wg.Add(n)
 	for i := 0; i < n; i++ {
 		millis := time.Duration(rand.Intn(500-50)+50) * time.Millisecond
-		go scheduler.Schedule(millis, fmt.Sprintf("test-scheduler-job-%d", i), func() (reschedule bool, nextRunIn time.Duration) {
+		go scheduler.Schedule(millis, fmt.Sprintf("test-scheduler-job-%d", i), func() (nextRunIn time.Duration, reschedule bool) {
 			time.Sleep(millis)
 			wg.Done()
-			return false, 0
+			return 0, false
 		})
 	}
 
 	assert.True(t, len(scheduler.jobs) > 0)
-	wg.Wait()
+	failed := waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timed out while waiting for test to finish")
+		return
+	}
 	assert.Len(t, scheduler.jobs, 0)
 }
 
@@ -32,11 +36,11 @@ func TestScheduler_Cancel(t *testing.T) {
 	jobID1 := "test-scheduler-job-1"
 	jobID2 := "test-scheduler-job-2"
 	scheduler := NewDefaultScheduler()
-	scheduler.Schedule(2*time.Second, jobID1, func() (reschedule bool, nextRunIn time.Duration) {
-		return false, 0
+	scheduler.Schedule(2*time.Second, jobID1, func() (nextRunIn time.Duration, reschedule bool) {
+		return 0, false
 	})
-	scheduler.Schedule(2*time.Second, jobID2, func() (reschedule bool, nextRunIn time.Duration) {
-		return false, 0
+	scheduler.Schedule(2*time.Second, jobID2, func() (nextRunIn time.Duration, reschedule bool) {
+		return 0, false
 	})
 
 	assert.Len(t, scheduler.jobs, 2)
@@ -48,26 +52,34 @@ func TestScheduler_Cancel(t *testing.T) {
 func TestScheduler_Schedule(t *testing.T) {
 	jobID := "test-scheduler-job-1"
 	scheduler := NewDefaultScheduler()
-	wg := sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	// job without reschedule should be triggered once
-	job := func() (reschedule bool, nextRunIn time.Duration) {
+	job := func() (nextRunIn time.Duration, reschedule bool) {
 		wg.Done()
-		return false, 0
+		return 0, false
 	}
 	scheduler.Schedule(300*time.Millisecond, jobID, job)
-	wg.Wait()
+	failed := waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timed out while waiting for test to finish")
+		return
+	}
 
 	// job with reschedule should be triggered at least twice
-	wg = sync.WaitGroup{}
+	wg = &sync.WaitGroup{}
 	wg.Add(2)
-	job = func() (reschedule bool, nextRunIn time.Duration) {
+	job = func() (nextRunIn time.Duration, reschedule bool) {
 		wg.Done()
-		return true, 300 * time.Millisecond
+		return 300 * time.Millisecond, true
 	}
 
 	scheduler.Schedule(300*time.Millisecond, jobID, job)
-	wg.Wait()
+	failed = waitTimeout(wg, time.Second)
+	if failed {
+		t.Fatal("timed out while waiting for test to finish")
+		return
+	}
 	scheduler.cancel(jobID)
 
 }

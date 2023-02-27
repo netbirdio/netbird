@@ -324,11 +324,11 @@ func (a *Account) GetExpiredPeers() []*Peer {
 // GetNextPeerExpiration returns the minimum duration in which the next peer of the account will expire if it was found.
 // If there is no peer that expires this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet and that are connected.
-func (a *Account) GetNextPeerExpiration() (bool, time.Duration) {
+func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 
 	peersWithExpiry := a.GetPeersWithExpiration()
 	if len(peersWithExpiry) == 0 {
-		return false, time.Duration(0)
+		return 0, false
 	}
 	var nextExpiry *time.Duration
 	for _, peer := range peersWithExpiry {
@@ -343,10 +343,10 @@ func (a *Account) GetNextPeerExpiration() (bool, time.Duration) {
 	}
 
 	if nextExpiry == nil {
-		return false, time.Duration(0)
+		return 0, false
 	}
 
-	return true, *nextExpiry
+	return *nextExpiry, true
 }
 
 // GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true
@@ -716,8 +716,8 @@ func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string,
 	return updatedAccount, nil
 }
 
-func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func() (bool, time.Duration) {
-	return func() (bool, time.Duration) {
+func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func() (time.Duration, bool) {
+	return func() (time.Duration, bool) {
 		unlock := am.Store.AcquireAccountLock(accountID)
 		defer unlock()
 
@@ -759,7 +759,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 
 func (am *DefaultAccountManager) checkAndSchedulePeerLoginExpiration(account *Account) {
 	am.peerLoginExpiry.Cancel([]string{account.Id})
-	if ok, nextRun := account.GetNextPeerExpiration(); ok {
+	if nextRun, ok := account.GetNextPeerExpiration(); ok {
 		go am.peerLoginExpiry.Schedule(nextRun, account.Id, am.peerLoginExpirationJob(account.Id))
 	}
 }

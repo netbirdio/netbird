@@ -9,13 +9,13 @@ import (
 // Scheduler is an interface which implementations can schedule and cancel jobs
 type Scheduler interface {
 	Cancel(IDs []string)
-	Schedule(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration))
+	Schedule(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
 }
 
 // MockScheduler is a mock implementation of  Scheduler
 type MockScheduler struct {
 	CancelFunc   func(IDs []string)
-	ScheduleFunc func(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration))
+	ScheduleFunc func(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool))
 }
 
 // Cancel mocks the Cancel function of the Scheduler interface
@@ -28,7 +28,7 @@ func (mock *MockScheduler) Cancel(IDs []string) {
 }
 
 // Schedule mocks the Schedule function of the Scheduler interface
-func (mock *MockScheduler) Schedule(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+func (mock *MockScheduler) Schedule(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 	if mock.ScheduleFunc != nil {
 		mock.ScheduleFunc(in, ID, job)
 		return
@@ -80,7 +80,7 @@ func (wm *DefaultScheduler) Cancel(IDs []string) {
 
 // Schedule a job to run in some time in the future. If job returns true then it will be scheduled one more time.
 // If job with the provided ID already exists, a new one won't be scheduled.
-func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (reschedule bool, nextRunIn time.Duration)) {
+func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (nextRunIn time.Duration, reschedule bool)) {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 	cancel := make(chan struct{})
@@ -96,7 +96,7 @@ func (wm *DefaultScheduler) Schedule(in time.Duration, ID string, job func() (re
 		select {
 		case <-time.After(in):
 			log.Debugf("time to do a scheduled job %s", ID)
-			reschedule, runIn := job()
+			runIn, reschedule := job()
 			wm.mu.Lock()
 			defer wm.mu.Unlock()
 			delete(wm.jobs, ID)
