@@ -78,7 +78,6 @@ type AccountManager interface {
 	ListRules(accountID, userID string) ([]*Rule, error)
 	GetPolicy(accountID, policyID, userID string) (*Policy, error)
 	SavePolicy(accountID, userID string, policy *Policy) error
-	UpdatePolicy(accountID string, policyID string, operations []PolicyUpdateOperation) (*Policy, error)
 	DeletePolicy(accountID, policyID, userID string) error
 	ListPolicies(accountID, userID string) ([]*Policy, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
@@ -894,10 +893,6 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 		}
 
 		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTAccountID: account.Id})
-		if err != nil {
-			return err
-		}
-
 		if err != nil {
 			return status.Errorf(status.Internal, "updating user's app metadata failed with: %v", err)
 		}

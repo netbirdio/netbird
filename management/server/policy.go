@@ -263,7 +263,7 @@ func (am *DefaultAccountManager) GetPolicy(accountID, policyID, userID string) (
 	return nil, status.Errorf(status.NotFound, "policy with ID %s not found", policyID)
 }
 
-// SaveRule in the store
+// SavePolicy in the store
 func (am *DefaultAccountManager) SavePolicy(accountID, userID string, policy *Policy) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -393,7 +393,7 @@ func (am *DefaultAccountManager) DeletePolicy(accountID, policyID, userID string
 	return am.updateAccountPeers(account)
 }
 
-// ListRules from the store
+// ListPolicies from the store
 func (am *DefaultAccountManager) ListPolicies(accountID, userID string) ([]*Policy, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()

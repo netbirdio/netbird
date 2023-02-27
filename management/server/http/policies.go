@@ -136,7 +136,7 @@ func (h *Policies) CreatePolicyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "rule name shouldn't be empty"), w)
+		util.WriteError(status.Errorf(status.InvalidArgument, "policy name shouldn't be empty"), w)
 		return
 	}
 
