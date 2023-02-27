@@ -426,6 +426,11 @@ components:
         port:
           description: port of the service or range of the ports, and optional protocol (by default TCP)
           type: string
+      required:
+        - sources
+        - destinations
+        - action
+        - port
     PolicyMinimum:
       type: object
       properties:
@@ -1550,41 +1555,6 @@ paths:
             schema:
               allOf:
                 - $ref: '#/components/schemas/PolicyMinimum'
-      responses:
-        '200':
-          description: A Policy object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Policy'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    patch:
-      summary: Update information about a Policy
-      tags: [ Policies ]
-      security:
-        - BearerAuth: [ ]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-          description: The Policy ID
-      requestBody:
-        description: Update Policy request using a list of json patch objects
-        content:
-          'application/json':
-            schema:
-              type: array
-              items:
-                $ref: '#/components/schemas/PolicyPatchOperation'
       responses:
         '200':
           description: A Policy object

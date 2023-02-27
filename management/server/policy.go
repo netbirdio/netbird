@@ -13,6 +13,9 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// PolicyUpdateOperationType operation type
+type PolicyUpdateOperationType int
+
 const (
 	// UpdatePolicyName indicates a policy name update operation
 	UpdatePolicyName PolicyUpdateOperationType = iota
@@ -24,8 +27,15 @@ const (
 	UpdatePolicyQuery
 )
 
-// PolicyUpdateOperationType operation type
-type PolicyUpdateOperationType int
+// PolicyTrafficActionType action type for the firewall
+type PolicyTrafficActionType string
+
+const (
+	// PolicyTrafficActionAccept indicates that the traffic is accepted
+	PolicyTrafficActionAccept = PolicyTrafficActionType("accept")
+	// PolicyTrafficActionDrop indicates that the traffic is dropped
+	PolicyTrafficActionDrop = PolicyTrafficActionType("drop")
+)
 
 // PolicyUpdateOperation operation object with type and values to be applied
 type PolicyUpdateOperation struct {
@@ -38,6 +48,31 @@ var defaultPolicyModule string
 
 //go:embed rego/default_policy.rego
 var defaultPolicy string
+
+// PolicyMeta is the metadata of the policy
+type PolicyMeta struct {
+	// Action policy accept or drops packets
+	Action PolicyTrafficActionType `json:"action"`
+
+	// Destinations policy destination groups
+	Destinations []string `json:"destinations"`
+
+	// Sources policy source groups
+	Sources []string `json:"sources"`
+
+	// Port port of the service or range of the ports, and optional protocol (by default TCP)
+	Port string `json:"port"`
+}
+
+// Copy returns a copy of the policy.
+func (pm *PolicyMeta) Copy() *PolicyMeta {
+	return &PolicyMeta{
+		Action:       pm.Action,
+		Destinations: pm.Destinations[:],
+		Sources:      pm.Sources[:],
+		Port:         pm.Port,
+	}
+}
 
 // Policy of the Rego query
 type Policy struct {
@@ -57,17 +92,18 @@ type Policy struct {
 	Query string
 
 	// Meta of the policy
-	Meta []byte
+	Meta *PolicyMeta
 }
 
 // Copy returns a copy of the policy.
-func (r *Policy) Copy() *Policy {
+func (p *Policy) Copy() *Policy {
 	return &Policy{
-		ID:          r.ID,
-		Name:        r.Name,
-		Description: r.Description,
-		Disabled:    r.Disabled,
-		Query:       r.Query,
+		ID:          p.ID,
+		Name:        p.Name,
+		Description: p.Description,
+		Disabled:    p.Disabled,
+		Query:       p.Query,
+		Meta:        p.Meta.Copy(),
 	}
 }
 

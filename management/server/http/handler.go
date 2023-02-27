@@ -133,7 +133,6 @@ func (apiHandler *apiHandler) addPoliciesEndpoint() {
 	apiHandler.Router.HandleFunc("/policy", policiesHandler.GetAllPoliciesHandler).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/policy", policiesHandler.CreatePolicyHandler).Methods("POST", "OPTIONS")
 	apiHandler.Router.HandleFunc("/policy/{id}", policiesHandler.UpdatePolicyHandler).Methods("PUT", "OPTIONS")
-	apiHandler.Router.HandleFunc("/policy/{id}", policiesHandler.PatchPolicyHandler).Methods("PATCH", "OPTIONS")
 	apiHandler.Router.HandleFunc("/policy/{id}", policiesHandler.GetPolicyHandler).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/policy/{id}", policiesHandler.DeletePolicyHandler).Methods("DELETE", "OPTIONS")
 }
