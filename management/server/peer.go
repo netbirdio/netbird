@@ -96,8 +96,10 @@ func (p *Peer) Copy() *Peer {
 // MarkLoginExpired marks peer's status expired or not
 func (p *Peer) MarkLoginExpired(expired bool) {
 	newStatus := p.Status.Copy()
-	newStatus.LastSeen = time.Now()
 	newStatus.LoginExpired = expired
+	if expired {
+		newStatus.Connected = false
+	}
 	p.Status = newStatus
 }
 
