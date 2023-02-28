@@ -20,8 +20,7 @@ func TestLogMessageFormat(t *testing.T) {
 	formatter := NewTextFormatter()
 	result, _ := formatter.Format(someEntry)
 
-	expectedString := "2021-02-21T01:10:30Z WARN [att1: 1, att2: 2] some/fancy/path.go:46: Some Message\n"
 	parsedString := string(result)
-	assert.Equal(t, expectedString, parsedString, "The log messages don't match.")
-
+	expectedString := "^2021-02-21T01:10:30Z WARN \\[(att1: 1, att2: 2|att2: 2, att1: 1)\\] some/fancy/path.go:46: Some Message\\s+$"
+	assert.Regexp(t, expectedString, parsedString)
 }
