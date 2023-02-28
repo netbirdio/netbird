@@ -69,6 +69,7 @@ func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w htt
 	util.WriteJSONObject(w, "")
 }
 
+// HandlePeer handles all peer requests for GET, PUT and DELETE operations
 func (h *PeersHandler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
@@ -98,6 +99,7 @@ func (h *PeersHandler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// GetAllPeers returns a list of all peers associated with a provided account
 func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
