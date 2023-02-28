@@ -15,9 +15,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
 	"github.com/magiconair/properties/assert"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
@@ -27,8 +29,8 @@ var TestPeers = map[string]*server.Peer{
 	"B": {Key: "B", ID: "peer-B-ID", IP: net.ParseIP("200.200.200.200")},
 }
 
-func initGroupTestData(user *server.User, groups ...*server.Group) *Groups {
-	return &Groups{
+func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandler {
+	return &GroupsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			SaveGroupFunc: func(accountID, userID string, group *server.Group) error {
 				if !strings.HasPrefix(group.ID, "id-") {
@@ -134,7 +136,7 @@ func TestGetGroup(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{id}", p.GetGroupHandler).Methods("GET")
+			router.HandleFunc("/api/groups/{id}", p.GetGroup).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -259,7 +261,7 @@ func TestWriteGroup(t *testing.T) {
 			expectedBody:   false,
 		},
 		{
-			name:        "Write Group PATCH Peers OK",
+			name:        "Write Group PATCH PeersHandler OK",
 			requestType: http.MethodPatch,
 			requestPath: "/api/groups/id-existed",
 			requestBody: bytes.NewBuffer(
@@ -286,9 +288,9 @@ func TestWriteGroup(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups", p.CreateGroupHandler).Methods("POST")
-			router.HandleFunc("/api/groups/{id}", p.UpdateGroupHandler).Methods("PUT")
-			router.HandleFunc("/api/groups/{id}", p.PatchGroupHandler).Methods("PATCH")
+			router.HandleFunc("/api/groups", p.CreateGroup).Methods("POST")
+			router.HandleFunc("/api/groups/{id}", p.UpdateGroup).Methods("PUT")
+			router.HandleFunc("/api/groups/{id}", p.PatchGroup).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

@@ -17,6 +17,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/magiconair/properties/assert"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -60,8 +61,8 @@ var testingAccount = &server.Account{
 	},
 }
 
-func initRoutesTestData() *Routes {
-	return &Routes{
+func initRoutesTestData() *RoutesHanlder {
+	return &RoutesHanlder{
 		accountManager: &mock_server.MockAccountManager{
 			GetRouteFunc: func(_, routeID, _ string) (*route.Route, error) {
 				if routeID == existingRouteID {
@@ -352,11 +353,11 @@ func TestRoutesHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/routes/{id}", p.GetRouteHandler).Methods("GET")
-			router.HandleFunc("/api/routes/{id}", p.DeleteRouteHandler).Methods("DELETE")
-			router.HandleFunc("/api/routes", p.CreateRouteHandler).Methods("POST")
-			router.HandleFunc("/api/routes/{id}", p.UpdateRouteHandler).Methods("PUT")
-			router.HandleFunc("/api/routes/{id}", p.PatchRouteHandler).Methods("PATCH")
+			router.HandleFunc("/api/routes/{id}", p.GetRoute).Methods("GET")
+			router.HandleFunc("/api/routes/{id}", p.DeleteRoute).Methods("DELETE")
+			router.HandleFunc("/api/routes", p.CreateRoute).Methods("POST")
+			router.HandleFunc("/api/routes/{id}", p.UpdateRoute).Methods("PUT")
+			router.HandleFunc("/api/routes/{id}", p.PatchRoute).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -14,15 +15,15 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// Routes is the routes handler of the account
-type Routes struct {
+// RoutesHanlder is the routes handler of the account
+type RoutesHanlder struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewRoutes returns a new instance of Routes handler
-func NewRoutes(accountManager server.AccountManager, authCfg AuthCfg) *Routes {
-	return &Routes{
+// NewRoutesHandler returns a new instance of RoutesHanlder handler
+func NewRoutesHandler(accountManager server.AccountManager, authCfg AuthCfg) *RoutesHanlder {
+	return &RoutesHanlder{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -31,8 +32,8 @@ func NewRoutes(accountManager server.AccountManager, authCfg AuthCfg) *Routes {
 	}
 }
 
-// GetAllRoutesHandler returns the list of routes for the account
-func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
+// GetAllRoutes returns the list of routes for the account
+func (h *RoutesHanlder) GetAllRoutes(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -53,8 +54,8 @@ func (h *Routes) GetAllRoutesHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, apiRoutes)
 }
 
-// CreateRouteHandler handles route creation request
-func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
+// CreateRoute handles route creation request
+func (h *RoutesHanlder) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -92,8 +93,8 @@ func (h *Routes) CreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, &resp)
 }
 
-// UpdateRouteHandler handles update to a route identified by a given ID
-func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
+// UpdateRoute handles update to a route identified by a given ID
+func (h *RoutesHanlder) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -158,8 +159,8 @@ func (h *Routes) UpdateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, &resp)
 }
 
-// PatchRouteHandler handles patch updates to a route identified by a given ID
-func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
+// PatchRoute handles patch updates to a route identified by a given ID
+func (h *RoutesHanlder) PatchRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -299,8 +300,8 @@ func (h *Routes) PatchRouteHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, &resp)
 }
 
-// DeleteRouteHandler handles route deletion request
-func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
+// DeleteRoute handles route deletion request
+func (h *RoutesHanlder) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -323,8 +324,8 @@ func (h *Routes) DeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, "")
 }
 
-// GetRouteHandler handles a route Get request identified by ID
-func (h *Routes) GetRouteHandler(w http.ResponseWriter, r *http.Request) {
+// GetRoute handles a route Get request identified by ID
+func (h *RoutesHanlder) GetRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {

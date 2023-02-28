@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/magiconair/properties/assert"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -72,7 +73,7 @@ func TestGetUsers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 			rr := httptest.NewRecorder()
 
-			userHandler.GetUsers(rr, req)
+			userHandler.GetAllUsers(rr, req)
 
 			res := rr.Result()
 			defer res.Body.Close()

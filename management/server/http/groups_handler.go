@@ -8,22 +8,23 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
 
+	"github.com/rs/xid"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/rs/xid"
 
 	"github.com/gorilla/mux"
 	log "github.com/sirupsen/logrus"
 )
 
-// Groups is a handler that returns groups of the account
-type Groups struct {
+// GroupsHandler is a handler that returns groups of the account
+type GroupsHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func NewGroups(accountManager server.AccountManager, authCfg AuthCfg) *Groups {
-	return &Groups{
+func NewGroupsHandler(accountManager server.AccountManager, authCfg AuthCfg) *GroupsHandler {
+	return &GroupsHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -32,8 +33,8 @@ func NewGroups(accountManager server.AccountManager, authCfg AuthCfg) *Groups {
 	}
 }
 
-// GetAllGroupsHandler list for the account
-func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
+// GetAllGroups list for the account
+func (h *GroupsHandler) GetAllGroups(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -50,8 +51,8 @@ func (h *Groups) GetAllGroupsHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, groups)
 }
 
-// UpdateGroupHandler handles update to a group identified by a given ID
-func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
+// UpdateGroup handles update to a group identified by a given ID
+func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -119,8 +120,8 @@ func (h *Groups) UpdateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toGroupResponse(account, &group))
 }
 
-// PatchGroupHandler handles patch updates to a group identified by a given ID
-func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
+// PatchGroup handles patch updates to a group identified by a given ID
+func (h *GroupsHandler) PatchGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -205,7 +206,7 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 				})
 			default:
 				util.WriteError(status.Errorf(status.InvalidArgument,
-					"invalid operation, \"%v\", for Peers field", patch.Op), w)
+					"invalid operation, \"%v\", for PeersHandler field", patch.Op), w)
 				return
 			}
 		default:
@@ -223,8 +224,8 @@ func (h *Groups) PatchGroupHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toGroupResponse(account, group))
 }
 
-// CreateGroupHandler handles group creation request
-func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
+// CreateGroup handles group creation request
+func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -265,8 +266,8 @@ func (h *Groups) CreateGroupHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toGroupResponse(account, &group))
 }
 
-// DeleteGroupHandler handles group deletion request
-func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
+// DeleteGroup handles group deletion request
+func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -301,8 +302,8 @@ func (h *Groups) DeleteGroupHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, "")
 }
 
-// GetGroupHandler returns a group
-func (h *Groups) GetGroupHandler(w http.ResponseWriter, r *http.Request) {
+// GetGroup returns a group
+func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {

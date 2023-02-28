@@ -1,14 +1,16 @@
 package mock_server
 
 import (
+	"time"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/route"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-	"time"
 )
 
 type MockAccountManager struct {
@@ -496,7 +498,7 @@ func (am *MockAccountManager) GetPeers(accountID, userID string) ([]*server.Peer
 	if am.GetAccountFromTokenFunc != nil {
 		return am.GetPeersFunc(accountID, userID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetPeers is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllPeers is not implemented")
 }
 
 // GetDNSDomain mocks GetDNSDomain of the AccountManager interface
@@ -512,7 +514,7 @@ func (am *MockAccountManager) GetEvents(accountID, userID string) ([]*activity.E
 	if am.GetEventsFunc != nil {
 		return am.GetEventsFunc(accountID, userID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetEvents is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllEvents is not implemented")
 }
 
 // GetDNSSettings mocks GetDNSSettings of the AccountManager interface
