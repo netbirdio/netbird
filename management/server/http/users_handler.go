@@ -14,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
+// UsersHandler is a handler that returns users of the account
 type UsersHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
