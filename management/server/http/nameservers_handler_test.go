@@ -262,9 +262,9 @@ func TestNameserversHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/dns/nameservers/{id}", p.GetNameserverGroupHandler).Methods("GET")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.GetNameserverGroup).Methods("GET")
 			router.HandleFunc("/api/dns/nameservers", p.CreateNameserverGroup).Methods("POST")
-			router.HandleFunc("/api/dns/nameservers/{id}", p.DeleteNameserverGroupHandler).Methods("DELETE")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.DeleteNameserverGroup).Methods("DELETE")
 			router.HandleFunc("/api/dns/nameservers/{id}", p.UpdateNameserverGroup).Methods("PUT")
 			router.HandleFunc("/api/dns/nameservers/{id}", p.PatchNameserverGroup).Methods("PATCH")
 			router.ServeHTTP(recorder, req)

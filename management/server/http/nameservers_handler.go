@@ -222,8 +222,8 @@ func (h *NameserversHandler) PatchNameserverGroup(w http.ResponseWriter, r *http
 	util.WriteJSONObject(w, &resp)
 }
 
-// DeleteNameserverGroupHandler handles nameserver group deletion request
-func (h *NameserversHandler) DeleteNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
+// DeleteNameserverGroup handles nameserver group deletion request
+func (h *NameserversHandler) DeleteNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -246,8 +246,8 @@ func (h *NameserversHandler) DeleteNameserverGroupHandler(w http.ResponseWriter,
 	util.WriteJSONObject(w, "")
 }
 
-// GetNameserverGroupHandler handles a nameserver group Get request identified by ID
-func (h *NameserversHandler) GetNameserverGroupHandler(w http.ResponseWriter, r *http.Request) {
+// GetNameserverGroup handles a nameserver group Get request identified by ID
+func (h *NameserversHandler) GetNameserverGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
