@@ -177,6 +177,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		case update, open := <-updates:
 			if !open {
 				log.Debugf("updates channel for peer %s was closed", peerKey.String())
+				s.cancelPeerRoutines(peer)
 				return nil
 			}
 			log.Debugf("recevied an update for peer %s", peerKey.String())
@@ -198,16 +199,16 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		case <-srv.Context().Done():
 			// happens when connection drops, e.g. client disconnects
 			log.Debugf("stream of peer %s has been closed", peerKey.String())
-			s.peersUpdateManager.CloseChannel(peer.ID)
-			s.turnCredentialsManager.CancelRefresh(peerKey.String())
-			err = s.accountManager.MarkPeerConnected(peerKey.String(), false)
-			if err != nil {
-				log.Warnf("failed marking peer as disconnected %s %v", peerKey, err)
-			}
-			// todo stop turn goroutine
+			s.cancelPeerRoutines(peer)
 			return srv.Context().Err()
 		}
 	}
+}
+
+func (s *GRPCServer) cancelPeerRoutines(peer *Peer) {
+	s.peersUpdateManager.CloseChannel(peer.ID)
+	s.turnCredentialsManager.CancelRefresh(peer.ID)
+	_ = s.accountManager.MarkPeerConnected(peer.Key, false)
 }
 
 func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
