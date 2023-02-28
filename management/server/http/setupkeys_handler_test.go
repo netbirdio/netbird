@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
@@ -30,8 +31,8 @@ const (
 
 func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.SetupKey, updatedSetupKey *server.SetupKey,
 	user *server.User,
-) *SetupKeys {
-	return &SetupKeys{
+) *SetupKeysHandler {
+	return &SetupKeysHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return &server.Account{
@@ -171,10 +172,10 @@ func TestSetupKeysHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/setup-keys", handler.GetAllSetupKeysHandler).Methods("GET", "OPTIONS")
-			router.HandleFunc("/api/setup-keys", handler.CreateSetupKeyHandler).Methods("POST", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{id}", handler.GetSetupKeyHandler).Methods("GET", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{id}", handler.UpdateSetupKeyHandler).Methods("PUT", "OPTIONS")
+			router.HandleFunc("/api/setup-keys", handler.GetAllSetupKeys).Methods("GET", "OPTIONS")
+			router.HandleFunc("/api/setup-keys", handler.CreateSetupKey).Methods("POST", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{id}", handler.GetSetupKey).Methods("GET", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{id}", handler.UpdateSetupKey).Methods("PUT", "OPTIONS")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

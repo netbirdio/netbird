@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"github.com/magiconair/properties/assert"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initUsers(user ...*server.User) *UserHandler {
-	return &UserHandler{
+func initUsers(user ...*server.User) *UsersHandler {
+	return &UsersHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				users := make(map[string]*server.User, 0)
@@ -72,7 +73,7 @@ func TestGetUsers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
 			rr := httptest.NewRecorder()
 
-			userHandler.GetUsers(rr, req)
+			userHandler.GetAllUsers(rr, req)
 
 			res := rr.Result()
 			defer res.Body.Close()

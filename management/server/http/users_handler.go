@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -13,13 +14,15 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
-type UserHandler struct {
+// UsersHandler is a handler that returns users of the account
+type UsersHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func NewUserHandler(accountManager server.AccountManager, authCfg AuthCfg) *UserHandler {
-	return &UserHandler{
+// NewUsersHandler creates a new UsersHandler HTTP handler
+func NewUsersHandler(accountManager server.AccountManager, authCfg AuthCfg) *UsersHandler {
+	return &UsersHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -29,7 +32,7 @@ func NewUserHandler(accountManager server.AccountManager, authCfg AuthCfg) *User
 }
 
 // UpdateUser is a PUT requests to update User data
-func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
+func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPut {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -74,8 +77,8 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
 }
 
-// CreateUserHandler creates a User in the system with a status "invited" (effectively this is a user invite).
-func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+// CreateUser creates a User in the system with a status "invited" (effectively this is a user invite).
+func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -113,9 +116,9 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
 }
 
-// GetUsers returns a list of users of the account this user belongs to.
+// GetAllUsers returns a list of users of the account this user belongs to.
 // It also gathers additional user data (like email and name) from the IDP manager.
-func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
+func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
