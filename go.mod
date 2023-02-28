@@ -53,6 +53,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v0.33.0
 	golang.org/x/net v0.7.0
 	golang.org/x/term v0.5.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -124,7 +125,6 @@ require (
 	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gopkg.in/tomb.v2 v2.0.0-20161208151619-d5d1b5820637 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	honnef.co/go/tools v0.2.2 // indirect
 	k8s.io/apimachinery v0.23.5 // indirect
 )
