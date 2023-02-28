@@ -20,6 +20,7 @@ type SetupKeysHandler struct {
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
+// NewSetupKeysHandler creates a new SetupKeysHandler HTTP handler
 func NewSetupKeysHandler(accountManager server.AccountManager, authCfg AuthCfg) *SetupKeysHandler {
 	return &SetupKeysHandler{
 		accountManager: accountManager,

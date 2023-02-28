@@ -15,15 +15,15 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-// RoutesHanlder is the routes handler of the account
-type RoutesHanlder struct {
+// RoutesHandler is the routes handler of the account
+type RoutesHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewRoutesHandler returns a new instance of RoutesHanlder handler
-func NewRoutesHandler(accountManager server.AccountManager, authCfg AuthCfg) *RoutesHanlder {
-	return &RoutesHanlder{
+// NewRoutesHandler returns a new instance of RoutesHandler handler
+func NewRoutesHandler(accountManager server.AccountManager, authCfg AuthCfg) *RoutesHandler {
+	return &RoutesHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -33,7 +33,7 @@ func NewRoutesHandler(accountManager server.AccountManager, authCfg AuthCfg) *Ro
 }
 
 // GetAllRoutes returns the list of routes for the account
-func (h *RoutesHanlder) GetAllRoutes(w http.ResponseWriter, r *http.Request) {
+func (h *RoutesHandler) GetAllRoutes(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -55,7 +55,7 @@ func (h *RoutesHanlder) GetAllRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 // CreateRoute handles route creation request
-func (h *RoutesHanlder) CreateRoute(w http.ResponseWriter, r *http.Request) {
+func (h *RoutesHandler) CreateRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -94,7 +94,7 @@ func (h *RoutesHanlder) CreateRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateRoute handles update to a route identified by a given ID
-func (h *RoutesHanlder) UpdateRoute(w http.ResponseWriter, r *http.Request) {
+func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -160,7 +160,7 @@ func (h *RoutesHanlder) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 // PatchRoute handles patch updates to a route identified by a given ID
-func (h *RoutesHanlder) PatchRoute(w http.ResponseWriter, r *http.Request) {
+func (h *RoutesHandler) PatchRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -301,7 +301,7 @@ func (h *RoutesHanlder) PatchRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 // DeleteRoute handles route deletion request
-func (h *RoutesHanlder) DeleteRoute(w http.ResponseWriter, r *http.Request) {
+func (h *RoutesHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -325,7 +325,7 @@ func (h *RoutesHanlder) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetRoute handles a route Get request identified by ID
-func (h *RoutesHanlder) GetRoute(w http.ResponseWriter, r *http.Request) {
+func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {

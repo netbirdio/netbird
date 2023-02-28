@@ -20,6 +20,7 @@ type PeersHandler struct {
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
+// NewPeersHandler creates a new PeersHandler HTTP handler
 func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg) *PeersHandler {
 	return &PeersHandler{
 		accountManager: accountManager,

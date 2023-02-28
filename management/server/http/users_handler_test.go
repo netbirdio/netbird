@@ -14,8 +14,8 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initUsers(user ...*server.User) *UserHandler {
-	return &UserHandler{
+func initUsers(user ...*server.User) *UsersHandler {
+	return &UsersHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				users := make(map[string]*server.User, 0)
