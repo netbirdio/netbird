@@ -4,10 +4,11 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/cors"
+
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/rs/cors"
 )
 
 // AuthCfg contains parameters for authentication middleware
@@ -41,61 +42,61 @@ func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics
 	apiHandler := rootRouter.PathPrefix("/api").Subrouter()
 	apiHandler.Use(metricsMiddleware.Handler, corsMiddleware.Handler, jwtMiddleware.Handler, acMiddleware.Handler)
 
-	groupsHandler := NewGroups(accountManager, authCfg)
-	rulesHandler := NewRules(accountManager, authCfg)
-	peersHandler := NewPeers(accountManager, authCfg)
+	groupsHandler := NewGroupsHandler(accountManager, authCfg)
+	rulesHandler := NewRulesHandler(accountManager, authCfg)
+	peersHandler := NewPeersHandler(accountManager, authCfg)
 	keysHandler := NewSetupKeysHandler(accountManager, authCfg)
 	userHandler := NewUserHandler(accountManager, authCfg)
-	routesHandler := NewRoutes(accountManager, authCfg)
-	nameserversHandler := NewNameservers(accountManager, authCfg)
-	eventsHandler := NewEvents(accountManager, authCfg)
-	dnsSettingsHandler := NewDNSSettings(accountManager, authCfg)
-	accountsHandler := NewAccounts(accountManager, authCfg)
+	routesHandler := NewRoutesHandler(accountManager, authCfg)
+	nameserversHandler := NewNameserversHandler(accountManager, authCfg)
+	eventsHandler := NewEventsHandler(accountManager, authCfg)
+	dnsSettingsHandler := NewDNSSettingsHandler(accountManager, authCfg)
+	accountsHandler := NewAccountsHandler(accountManager, authCfg)
 
-	apiHandler.HandleFunc("/accounts/{id}", accountsHandler.UpdateAccountHandler).Methods("PUT", "OPTIONS")
-	apiHandler.HandleFunc("/accounts", accountsHandler.GetAccountsHandler).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/accounts/{id}", accountsHandler.UpdateAccount).Methods("PUT", "OPTIONS")
+	apiHandler.HandleFunc("/accounts", accountsHandler.GetAllAccounts).Methods("GET", "OPTIONS")
 
-	apiHandler.HandleFunc("/peers", peersHandler.GetPeers).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/peers", peersHandler.GetAllPeers).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/peers/{id}", peersHandler.HandlePeer).
 		Methods("GET", "PUT", "DELETE", "OPTIONS")
-	apiHandler.HandleFunc("/users", userHandler.GetUsers).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/users", userHandler.GetAllUsers).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/users/{id}", userHandler.UpdateUser).Methods("PUT", "OPTIONS")
-	apiHandler.HandleFunc("/users", userHandler.CreateUserHandler).Methods("POST", "OPTIONS")
+	apiHandler.HandleFunc("/users", userHandler.CreateUser).Methods("POST", "OPTIONS")
 
-	apiHandler.HandleFunc("/setup-keys", keysHandler.GetAllSetupKeysHandler).Methods("GET", "OPTIONS")
-	apiHandler.HandleFunc("/setup-keys", keysHandler.CreateSetupKeyHandler).Methods("POST", "OPTIONS")
-	apiHandler.HandleFunc("/setup-keys/{id}", keysHandler.GetSetupKeyHandler).Methods("GET", "OPTIONS")
-	apiHandler.HandleFunc("/setup-keys/{id}", keysHandler.UpdateSetupKeyHandler).Methods("PUT", "OPTIONS")
+	apiHandler.HandleFunc("/setup-keys", keysHandler.GetAllSetupKeys).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/setup-keys", keysHandler.CreateSetupKey).Methods("POST", "OPTIONS")
+	apiHandler.HandleFunc("/setup-keys/{id}", keysHandler.GetSetupKey).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/setup-keys/{id}", keysHandler.UpdateSetupKey).Methods("PUT", "OPTIONS")
 
-	apiHandler.HandleFunc("/rules", rulesHandler.GetAllRulesHandler).Methods("GET", "OPTIONS")
-	apiHandler.HandleFunc("/rules", rulesHandler.CreateRuleHandler).Methods("POST", "OPTIONS")
-	apiHandler.HandleFunc("/rules/{id}", rulesHandler.UpdateRuleHandler).Methods("PUT", "OPTIONS")
-	apiHandler.HandleFunc("/rules/{id}", rulesHandler.PatchRuleHandler).Methods("PATCH", "OPTIONS")
-	apiHandler.HandleFunc("/rules/{id}", rulesHandler.GetRuleHandler).Methods("GET", "OPTIONS")
-	apiHandler.HandleFunc("/rules/{id}", rulesHandler.DeleteRuleHandler).Methods("DELETE", "OPTIONS")
+	apiHandler.HandleFunc("/rules", rulesHandler.GetAllRules).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/rules", rulesHandler.CreateRule).Methods("POST", "OPTIONS")
+	apiHandler.HandleFunc("/rules/{id}", rulesHandler.UpdateRule).Methods("PUT", "OPTIONS")
+	apiHandler.HandleFunc("/rules/{id}", rulesHandler.PatchRule).Methods("PATCH", "OPTIONS")
+	apiHandler.HandleFunc("/rules/{id}", rulesHandler.GetRule).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/rules/{id}", rulesHandler.DeleteRule).Methods("DELETE", "OPTIONS")
 
-	apiHandler.HandleFunc("/groups", groupsHandler.GetAllGroupsHandler).Methods("GET", "OPTIONS")
-	apiHandler.HandleFunc("/groups", groupsHandler.CreateGroupHandler).Methods("POST", "OPTIONS")
-	apiHandler.HandleFunc("/groups/{id}", groupsHandler.UpdateGroupHandler).Methods("PUT", "OPTIONS")
-	apiHandler.HandleFunc("/groups/{id}", groupsHandler.PatchGroupHandler).Methods("PATCH", "OPTIONS")
-	apiHandler.HandleFunc("/groups/{id}", groupsHandler.GetGroupHandler).Methods("GET", "OPTIONS")
-	apiHandler.HandleFunc("/groups/{id}", groupsHandler.DeleteGroupHandler).Methods("DELETE", "OPTIONS")
+	apiHandler.HandleFunc("/groups", groupsHandler.GetAllGroups).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/groups", groupsHandler.CreateGroup).Methods("POST", "OPTIONS")
+	apiHandler.HandleFunc("/groups/{id}", groupsHandler.UpdateGroup).Methods("PUT", "OPTIONS")
+	apiHandler.HandleFunc("/groups/{id}", groupsHandler.PatchGroup).Methods("PATCH", "OPTIONS")
+	apiHandler.HandleFunc("/groups/{id}", groupsHandler.GetGroup).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/groups/{id}", groupsHandler.DeleteGroup).Methods("DELETE", "OPTIONS")
 
-	apiHandler.HandleFunc("/routes", routesHandler.GetAllRoutesHandler).Methods("GET", "OPTIONS")
-	apiHandler.HandleFunc("/routes", routesHandler.CreateRouteHandler).Methods("POST", "OPTIONS")
-	apiHandler.HandleFunc("/routes/{id}", routesHandler.UpdateRouteHandler).Methods("PUT", "OPTIONS")
-	apiHandler.HandleFunc("/routes/{id}", routesHandler.PatchRouteHandler).Methods("PATCH", "OPTIONS")
-	apiHandler.HandleFunc("/routes/{id}", routesHandler.GetRouteHandler).Methods("GET", "OPTIONS")
-	apiHandler.HandleFunc("/routes/{id}", routesHandler.DeleteRouteHandler).Methods("DELETE", "OPTIONS")
+	apiHandler.HandleFunc("/routes", routesHandler.GetAllRoutes).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/routes", routesHandler.CreateRoute).Methods("POST", "OPTIONS")
+	apiHandler.HandleFunc("/routes/{id}", routesHandler.UpdateRoute).Methods("PUT", "OPTIONS")
+	apiHandler.HandleFunc("/routes/{id}", routesHandler.PatchRoute).Methods("PATCH", "OPTIONS")
+	apiHandler.HandleFunc("/routes/{id}", routesHandler.GetRoute).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/routes/{id}", routesHandler.DeleteRoute).Methods("DELETE", "OPTIONS")
 
-	apiHandler.HandleFunc("/dns/nameservers", nameserversHandler.GetAllNameserversHandler).Methods("GET", "OPTIONS")
-	apiHandler.HandleFunc("/dns/nameservers", nameserversHandler.CreateNameserverGroupHandler).Methods("POST", "OPTIONS")
-	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.UpdateNameserverGroupHandler).Methods("PUT", "OPTIONS")
-	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.PatchNameserverGroupHandler).Methods("PATCH", "OPTIONS")
+	apiHandler.HandleFunc("/dns/nameservers", nameserversHandler.GetAllNameservers).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/dns/nameservers", nameserversHandler.CreateNameserverGroup).Methods("POST", "OPTIONS")
+	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.UpdateNameserverGroup).Methods("PUT", "OPTIONS")
+	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.PatchNameserverGroup).Methods("PATCH", "OPTIONS")
 	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.GetNameserverGroupHandler).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/dns/nameservers/{id}", nameserversHandler.DeleteNameserverGroupHandler).Methods("DELETE", "OPTIONS")
 
-	apiHandler.HandleFunc("/events", eventsHandler.GetEvents).Methods("GET", "OPTIONS")
+	apiHandler.HandleFunc("/events", eventsHandler.GetAllEvents).Methods("GET", "OPTIONS")
 
 	apiHandler.HandleFunc("/dns/settings", dnsSettingsHandler.GetDNSSettings).Methods("GET", "OPTIONS")
 	apiHandler.HandleFunc("/dns/settings", dnsSettingsHandler.UpdateDNSSettings).Methods("PUT", "OPTIONS")

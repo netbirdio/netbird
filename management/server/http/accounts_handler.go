@@ -2,25 +2,27 @@ package http
 
 import (
 	"encoding/json"
+	"net/http"
+	"time"
+
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
-	"net/http"
-	"time"
 )
 
-// Accounts is a handler that handles the server.Account HTTP endpoints
-type Accounts struct {
+// AccountsHandler is a handler that handles the server.Account HTTP endpoints
+type AccountsHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewAccounts creates a new Accounts HTTP handler
-func NewAccounts(accountManager server.AccountManager, authCfg AuthCfg) *Accounts {
-	return &Accounts{
+// NewAccountsHandler creates a new AccountsHandler HTTP handler
+func NewAccountsHandler(accountManager server.AccountManager, authCfg AuthCfg) *AccountsHandler {
+	return &AccountsHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -29,8 +31,8 @@ func NewAccounts(accountManager server.AccountManager, authCfg AuthCfg) *Account
 	}
 }
 
-// GetAccountsHandler is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
-func (h *Accounts) GetAccountsHandler(w http.ResponseWriter, r *http.Request) {
+// GetAllAccounts is HTTP GET handler that returns a list of accounts. Effectively returns just a single account.
+func (h *AccountsHandler) GetAllAccounts(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -47,8 +49,8 @@ func (h *Accounts) GetAccountsHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, []*api.Account{resp})
 }
 
-// UpdateAccountHandler is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
-func (h *Accounts) UpdateAccountHandler(w http.ResponseWriter, r *http.Request) {
+// UpdateAccount is HTTP PUT handler that updates the provided account. Updates only account settings (server.Settings)
+func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	_, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {

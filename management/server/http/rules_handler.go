@@ -5,22 +5,23 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+	"github.com/rs/xid"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/rs/xid"
 )
 
-// Rules is a handler that returns rules of the account
-type Rules struct {
+// RulesHandler is a handler that returns rules of the account
+type RulesHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func NewRules(accountManager server.AccountManager, authCfg AuthCfg) *Rules {
-	return &Rules{
+func NewRulesHandler(accountManager server.AccountManager, authCfg AuthCfg) *RulesHandler {
+	return &RulesHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -29,8 +30,8 @@ func NewRules(accountManager server.AccountManager, authCfg AuthCfg) *Rules {
 	}
 }
 
-// GetAllRulesHandler list for the account
-func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
+// GetAllRules list for the account
+func (h *RulesHandler) GetAllRules(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -51,8 +52,8 @@ func (h *Rules) GetAllRulesHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, rules)
 }
 
-// UpdateRuleHandler handles update to a rule identified by a given ID
-func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
+// UpdateRule handles update to a rule identified by a given ID
+func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -122,8 +123,8 @@ func (h *Rules) UpdateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, &resp)
 }
 
-// PatchRuleHandler handles patch updates to a rule identified by a given ID
-func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
+// PatchRule handles patch updates to a rule identified by a given ID
+func (h *RulesHandler) PatchRule(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, _, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -265,8 +266,8 @@ func (h *Rules) PatchRuleHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, &resp)
 }
 
-// CreateRuleHandler handles rule creation request
-func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
+// CreateRule handles rule creation request
+func (h *RulesHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -324,8 +325,8 @@ func (h *Rules) CreateRuleHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, &resp)
 }
 
-// DeleteRuleHandler handles rule deletion request
-func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
+// DeleteRule handles rule deletion request
+func (h *RulesHandler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -349,8 +350,8 @@ func (h *Rules) DeleteRuleHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, "")
 }
 
-// GetRuleHandler handles a group Get request identified by ID
-func (h *Rules) GetRuleHandler(w http.ResponseWriter, r *http.Request) {
+// GetRule handles a group Get request identified by ID
+func (h *RulesHandler) GetRule(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {

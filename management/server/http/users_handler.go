@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -74,8 +75,8 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
 }
 
-// CreateUserHandler creates a User in the system with a status "invited" (effectively this is a user invite).
-func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
+// CreateUser creates a User in the system with a status "invited" (effectively this is a user invite).
+func (h *UserHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
@@ -113,9 +114,9 @@ func (h *UserHandler) CreateUserHandler(w http.ResponseWriter, r *http.Request) 
 	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
 }
 
-// GetUsers returns a list of users of the account this user belongs to.
+// GetAllUsers returns a list of users of the account this user belongs to.
 // It also gathers additional user data (like email and name) from the IDP manager.
-func (h *UserHandler) GetUsers(w http.ResponseWriter, r *http.Request) {
+func (h *UserHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return

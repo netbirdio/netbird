@@ -13,15 +13,17 @@ import (
 	"github.com/netbirdio/netbird/management/server/http/api"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
 	"github.com/magiconair/properties/assert"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initRulesTestData(rules ...*server.Rule) *Rules {
-	return &Rules{
+func initRulesTestData(rules ...*server.Rule) *RulesHandler {
+	return &RulesHandler{
 		accountManager: &mock_server.MockAccountManager{
 			SaveRuleFunc: func(_, _ string, rule *server.Rule) error {
 				if !strings.HasPrefix(rule.ID, "id-") {
@@ -132,7 +134,7 @@ func TestRulesGetRule(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/rules/{id}", p.GetRuleHandler).Methods("GET")
+			router.HandleFunc("/api/rules/{id}", p.GetRule).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -278,9 +280,9 @@ func TestRulesWriteRule(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/rules", p.CreateRuleHandler).Methods("POST")
-			router.HandleFunc("/api/rules/{id}", p.UpdateRuleHandler).Methods("PUT")
-			router.HandleFunc("/api/rules/{id}", p.PatchRuleHandler).Methods("PATCH")
+			router.HandleFunc("/api/rules", p.CreateRule).Methods("POST")
+			router.HandleFunc("/api/rules/{id}", p.UpdateRule).Methods("PUT")
+			router.HandleFunc("/api/rules/{id}", p.PatchRule).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

@@ -8,11 +8,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
+
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -37,8 +39,8 @@ var testingDNSSettingsAccount = &server.Account{
 	DNSSettings: baseExistingDNSSettings,
 }
 
-func initDNSSettingsTestData() *DNSSettings {
-	return &DNSSettings{
+func initDNSSettingsTestData() *DNSSettingsHandler {
+	return &DNSSettingsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetDNSSettingsFunc: func(accountID string, userID string) (*server.DNSSettings, error) {
 				return testingDNSSettingsAccount.DNSSettings, nil
