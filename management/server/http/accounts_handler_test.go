@@ -3,22 +3,24 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/gorilla/mux"
-	"github.com/netbirdio/netbird/management/server"
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/stretchr/testify/assert"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
-func initAccountsTestData(account *server.Account, admin *server.User) *Accounts {
-	return &Accounts{
+func initAccountsTestData(account *server.Account, admin *server.User) *AccountsHandler {
+	return &AccountsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return account, admin, nil
@@ -81,7 +83,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 		requestBody      io.Reader
 	}{
 		{
-			name:           "GetAccounts OK",
+			name:           "GetAllAccounts OK",
 			expectedBody:   true,
 			requestType:    http.MethodGet,
 			requestPath:    "/api/accounts",
@@ -133,8 +135,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/accounts", handler.GetAccountsHandler).Methods("GET")
-			router.HandleFunc("/api/accounts/{id}", handler.UpdateAccountHandler).Methods("PUT")
+			router.HandleFunc("/api/accounts", handler.GetAllAccounts).Methods("GET")
+			router.HandleFunc("/api/accounts/{id}", handler.UpdateAccount).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

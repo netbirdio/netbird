@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -13,14 +14,15 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
-// Peers is a handler that returns peers of the account
-type Peers struct {
+// PeersHandler is a handler that returns peers of the account
+type PeersHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func NewPeers(accountManager server.AccountManager, authCfg AuthCfg) *Peers {
-	return &Peers{
+// NewPeersHandler creates a new PeersHandler HTTP handler
+func NewPeersHandler(accountManager server.AccountManager, authCfg AuthCfg) *PeersHandler {
+	return &PeersHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -29,7 +31,7 @@ func NewPeers(accountManager server.AccountManager, authCfg AuthCfg) *Peers {
 	}
 }
 
-func (h *Peers) getPeer(account *server.Account, peerID, userID string, w http.ResponseWriter) {
+func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w http.ResponseWriter) {
 	peer, err := h.accountManager.GetPeer(account.Id, peerID, userID)
 	if err != nil {
 		util.WriteError(err, w)
@@ -39,7 +41,7 @@ func (h *Peers) getPeer(account *server.Account, peerID, userID string, w http.R
 	util.WriteJSONObject(w, toPeerResponse(peer, account, h.accountManager.GetDNSDomain()))
 }
 
-func (h *Peers) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
+func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
 	req := &api.PutApiPeersIdJSONBody{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
@@ -58,7 +60,7 @@ func (h *Peers) updatePeer(account *server.Account, user *server.User, peerID st
 	util.WriteJSONObject(w, toPeerResponse(peer, account, dnsDomain))
 }
 
-func (h *Peers) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
+func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w http.ResponseWriter) {
 	_, err := h.accountManager.DeletePeer(accountID, peerID, userID)
 	if err != nil {
 		util.WriteError(err, w)
@@ -67,7 +69,8 @@ func (h *Peers) deletePeer(accountID, userID string, peerID string, w http.Respo
 	util.WriteJSONObject(w, "")
 }
 
-func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
+// HandlePeer handles all peer requests for GET, PUT and DELETE operations
+func (h *PeersHandler) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -96,7 +99,8 @@ func (h *Peers) HandlePeer(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (h *Peers) GetPeers(w http.ResponseWriter, r *http.Request) {
+// GetAllPeers returns a list of all peers associated with a provided account
+func (h *PeersHandler) GetAllPeers(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		claims := h.claimsExtractor.FromRequestContext(r)

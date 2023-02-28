@@ -9,12 +9,14 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/stretchr/testify/assert"
 
 	"github.com/gorilla/mux"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
@@ -55,8 +57,8 @@ var baseExistingNSGroup = &nbdns.NameServerGroup{
 	Enabled: true,
 }
 
-func initNameserversTestData() *Nameservers {
-	return &Nameservers{
+func initNameserversTestData() *NameserversHandler {
+	return &NameserversHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetNameServerGroupFunc: func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error) {
 				if nsGroupID == existingNSGroupID {
@@ -260,11 +262,11 @@ func TestNameserversHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/dns/nameservers/{id}", p.GetNameserverGroupHandler).Methods("GET")
-			router.HandleFunc("/api/dns/nameservers", p.CreateNameserverGroupHandler).Methods("POST")
-			router.HandleFunc("/api/dns/nameservers/{id}", p.DeleteNameserverGroupHandler).Methods("DELETE")
-			router.HandleFunc("/api/dns/nameservers/{id}", p.UpdateNameserverGroupHandler).Methods("PUT")
-			router.HandleFunc("/api/dns/nameservers/{id}", p.PatchNameserverGroupHandler).Methods("PATCH")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.GetNameserverGroup).Methods("GET")
+			router.HandleFunc("/api/dns/nameservers", p.CreateNameserverGroup).Methods("POST")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.DeleteNameserverGroup).Methods("DELETE")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.UpdateNameserverGroup).Methods("PUT")
+			router.HandleFunc("/api/dns/nameservers/{id}", p.PatchNameserverGroup).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

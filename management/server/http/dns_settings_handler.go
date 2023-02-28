@@ -4,22 +4,23 @@ import (
 	"encoding/json"
 	"net/http"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
-	log "github.com/sirupsen/logrus"
 )
 
-// DNSSettings is a handler that returns the DNS settings of the account
-type DNSSettings struct {
+// DNSSettingsHandler is a handler that returns the DNS settings of the account
+type DNSSettingsHandler struct {
 	accountManager  server.AccountManager
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-// NewDNSSettings returns a new instance of DNSSettings handler
-func NewDNSSettings(accountManager server.AccountManager, authCfg AuthCfg) *DNSSettings {
-	return &DNSSettings{
+// NewDNSSettingsHandler returns a new instance of DNSSettingsHandler handler
+func NewDNSSettingsHandler(accountManager server.AccountManager, authCfg AuthCfg) *DNSSettingsHandler {
+	return &DNSSettingsHandler{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithAudience(authCfg.Audience),
@@ -29,7 +30,7 @@ func NewDNSSettings(accountManager server.AccountManager, authCfg AuthCfg) *DNSS
 }
 
 // GetDNSSettings returns the DNS settings for the account
-func (h *DNSSettings) GetDNSSettings(w http.ResponseWriter, r *http.Request) {
+func (h *DNSSettingsHandler) GetDNSSettings(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -52,7 +53,7 @@ func (h *DNSSettings) GetDNSSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateDNSSettings handles update to DNS settings of an account
-func (h *DNSSettings) UpdateDNSSettings(w http.ResponseWriter, r *http.Request) {
+func (h *DNSSettingsHandler) UpdateDNSSettings(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {

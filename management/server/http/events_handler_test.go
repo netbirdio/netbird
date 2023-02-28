@@ -10,16 +10,17 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
+
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	"github.com/stretchr/testify/assert"
 )
 
-func initEventsTestData(account string, user *server.User, events ...*activity.Event) *Events {
-	return &Events{
+func initEventsTestData(account string, user *server.User, events ...*activity.Event) *EventsHandler {
+	return &EventsHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetEventsFunc: func(accountID, userID string) ([]*activity.Event, error) {
 				if accountID == account {
@@ -184,7 +185,7 @@ func TestEvents_GetEvents(t *testing.T) {
 		requestBody    io.Reader
 	}{
 		{
-			name:           "GetEvents OK",
+			name:           "GetAllEvents OK",
 			expectedBody:   true,
 			requestType:    http.MethodGet,
 			requestPath:    "/api/events/",
@@ -202,7 +203,7 @@ func TestEvents_GetEvents(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/events/", handler.GetEvents).Methods("GET")
+			router.HandleFunc("/api/events/", handler.GetAllEvents).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
