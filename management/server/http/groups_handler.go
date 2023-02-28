@@ -23,6 +23,7 @@ type GroupsHandler struct {
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
+// NewGroupsHandler creates a new GroupsHandler HTTP handler
 func NewGroupsHandler(accountManager server.AccountManager, authCfg AuthCfg) *GroupsHandler {
 	return &GroupsHandler{
 		accountManager: accountManager,

@@ -46,7 +46,7 @@ func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics
 	rulesHandler := NewRulesHandler(accountManager, authCfg)
 	peersHandler := NewPeersHandler(accountManager, authCfg)
 	keysHandler := NewSetupKeysHandler(accountManager, authCfg)
-	userHandler := NewUserHandler(accountManager, authCfg)
+	userHandler := NewUsersHandler(accountManager, authCfg)
 	routesHandler := NewRoutesHandler(accountManager, authCfg)
 	nameserversHandler := NewNameserversHandler(accountManager, authCfg)
 	eventsHandler := NewEventsHandler(accountManager, authCfg)

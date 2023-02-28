@@ -20,6 +20,7 @@ type RulesHandler struct {
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
+// NewRulesHandler creates a new RulesHandler HTTP handler
 func NewRulesHandler(accountManager server.AccountManager, authCfg AuthCfg) *RulesHandler {
 	return &RulesHandler{
 		accountManager: accountManager,

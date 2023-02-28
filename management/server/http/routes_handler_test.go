@@ -61,8 +61,8 @@ var testingAccount = &server.Account{
 	},
 }
 
-func initRoutesTestData() *RoutesHanlder {
-	return &RoutesHanlder{
+func initRoutesTestData() *RoutesHandler {
+	return &RoutesHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetRouteFunc: func(_, routeID, _ string) (*route.Route, error) {
 				if routeID == existingRouteID {
