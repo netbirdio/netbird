@@ -123,6 +123,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 
 	if len(networkMap.Peers) != 1 {
 		t.Errorf("expecting Account NetworkMap to have 1 peers, got %v", len(networkMap.Peers))
+		return
 	}
 
 	if networkMap.Peers[0].Key != peerKey2.PublicKey().String() {

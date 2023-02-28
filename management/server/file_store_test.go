@@ -1,13 +1,15 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/util"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"fmt"
 	"net"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/netbirdio/netbird/util"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type accounts struct {
@@ -70,7 +72,6 @@ func TestNewStore(t *testing.T) {
 	if store.UserID2AccountID == nil || len(store.UserID2AccountID) != 0 {
 		t.Errorf("expected to create a new empty UserID2AccountID map when creating a new FileStore")
 	}
-
 }
 
 func TestSaveAccount(t *testing.T) {
@@ -109,7 +110,6 @@ func TestSaveAccount(t *testing.T) {
 	if store.SetupKeyID2AccountID[setupKey.Key] == "" {
 		t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount()")
 	}
-
 }
 
 func TestStore(t *testing.T) {
@@ -156,7 +156,6 @@ func TestStore(t *testing.T) {
 	if restoredAccount != nil && restoredAccount.Network == nil {
 		t.Errorf("failed to restore a FileStore file - missing Network")
 	}
-
 }
 
 func TestRestore(t *testing.T) {
@@ -189,6 +188,42 @@ func TestRestore(t *testing.T) {
 	require.Len(t, store.SetupKeyID2AccountID, 1, "failed to restore a FileStore wrong SetupKeyID2AccountID mapping length")
 
 	require.Len(t, store.PrivateDomain2AccountID, 1, "failed to restore a FileStore wrong PrivateDomain2AccountID mapping length")
+}
+
+func TestRestorePolicies_Migration(t *testing.T) {
+	storeDir := t.TempDir()
+
+	err := util.CopyFileContents("testdata/store_policy_migrate.json", filepath.Join(storeDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir)
+	if err != nil {
+		return
+	}
+
+	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+	require.Len(t, account.Groups, 1, "failed to restore a FileStore file - missing Account Groups")
+	require.Len(t, account.Rules, 1, "failed to restore a FileStore file - missing Account Rules")
+	require.Len(t, account.Policies, 1, "failed to restore a FileStore file - missing Account Policies")
+
+	policy := account.Policies[0]
+	require.Equal(t, policy.Name, "Default", "failed to restore a FileStore file - missing Account Policies Name")
+	require.Equal(t, policy.Description,
+		"This is a default rule that allows connections between all the resources",
+		"failed to restore a FileStore file - missing Account Policies Description")
+	require.Equal(t, policy.Query,
+		fmt.Sprintf(defaultPolicy, "cfefqs706sqkneg59g3g", "cfefqs706sqkneg59g3g"),
+		"failed to restore a FileStore file - missing Account Policies Query")
+	require.NotNil(t, policy.Meta, "failed to restore a FileStore file - missing Account Policies Meta")
+	require.Equal(t, policy.Meta.Action, PolicyTrafficActionAccept, "failed to restore a FileStore file - missing Account Policies Action")
+	require.Equal(t, policy.Meta.Destinations,
+		[]string{"cfefqs706sqkneg59g3g"},
+		"failed to restore a FileStore file - missing Account Policies Destinations")
+	require.Equal(t, policy.Meta.Sources,
+		[]string{"cfefqs706sqkneg59g3g"},
+		"failed to restore a FileStore file - missing Account Policies Sources")
 }
 
 func TestGetAccountByPrivateDomain(t *testing.T) {

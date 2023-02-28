@@ -97,14 +97,17 @@ type Policy struct {
 
 // Copy returns a copy of the policy.
 func (p *Policy) Copy() *Policy {
-	return &Policy{
+	c := &Policy{
 		ID:          p.ID,
 		Name:        p.Name,
 		Description: p.Description,
 		Disabled:    p.Disabled,
 		Query:       p.Query,
-		Meta:        p.Meta.Copy(),
 	}
+	if p.Meta != nil {
+		c.Meta = p.Meta.Copy()
+	}
+	return c
 }
 
 // EventMeta returns activity event meta related to this policy

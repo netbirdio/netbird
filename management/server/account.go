@@ -1307,7 +1307,7 @@ func addAllGroup(account *Account) {
 			Name:        DefaultPolicyName,
 			Disabled:    false,
 			Description: DefaultPolicyDescription,
-			Query:       defaultPolicy,
+			Query:       fmt.Sprintf(defaultPolicy, allGroup.ID, allGroup.ID),
 		}
 		account.Policies = []*Policy{defaultPolicy}
 	}

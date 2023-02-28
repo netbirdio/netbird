@@ -15,10 +15,10 @@ get_rule(peer_id, peer_ip, direction, action, port) := rule if {
   }
 }
 
-# peers_from_group returns a list of peer ids for a given group name
-peers_from_group(group_name) := peers if {
+# peers_from_group returns a list of peer ids for a given group id
+peers_from_group(group_id) := peers if {
   some group in input.groups
-  group.Name == group_name
+  group.ID == group_id
   peers := [peer | peer := group.Peers[_]; peer != input.peer_id]
 }
 

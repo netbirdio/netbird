@@ -83,7 +83,6 @@ func restore(file string) (*FileStore, error) {
 	store.PeerID2AccountID = make(map[string]string)
 
 	for accountID, account := range store.Accounts {
-
 		if account.Settings == nil {
 			account.Settings = &Settings{
 				PeerLoginExpirationEnabled: false,

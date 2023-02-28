@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"testing"
 
@@ -24,8 +25,8 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 		},
 		Groups: map[string]*Group{
-			"all": {
-				ID:    "default",
+			"gid1": {
+				ID:    "gid1",
 				Name:  "all",
 				Peers: []string{"peer1", "peer2", "peer3"},
 			},
@@ -36,7 +37,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Name:        "default",
 				Description: "default",
 				Disabled:    false,
-				Query:       defaultPolicy,
+				Query:       fmt.Sprintf(defaultPolicy, `"gid1"`, `"gid1"`),
 			},
 		},
 	}
