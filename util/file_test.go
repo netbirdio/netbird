@@ -3,11 +3,13 @@ package util_test
 import (
 	"crypto/md5"
 	"encoding/hex"
-	"github.com/netbirdio/netbird/util"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
 	"io"
 	"os"
+
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 var _ = Describe("Client", func() {
@@ -99,6 +101,25 @@ var _ = Describe("Client", func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				Expect(hex.EncodeToString(hashSrc.Sum(nil)[:16])).To(BeEquivalentTo(hex.EncodeToString(hashDst.Sum(nil)[:16])))
+			})
+		})
+	})
+
+	Describe("Handle config file without full path", func() {
+		Context("config file handling", func() {
+			It("should be successful", func() {
+				written := &TestConfig{
+					SomeField: 123,
+				}
+				cfgFile := "test_cfg.json"
+				defer os.Remove(cfgFile)
+
+				err := util.WriteJson(cfgFile, written)
+				Expect(err).NotTo(HaveOccurred())
+
+				read, err := util.ReadJson(cfgFile, &TestConfig{})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(read).NotTo(BeNil())
 			})
 		})
 	})
