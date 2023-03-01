@@ -305,7 +305,7 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 		}
 
 		// everything is alright => update the config
-		newConfig, err := ReadConfig(ConfigInput{
+		newConfig, err := UpdateConfig(ConfigInput{
 			ManagementURL: newURL.String(),
 			ConfigPath:    configPath,
 		})

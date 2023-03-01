@@ -76,7 +76,7 @@ func (s *Server) Start() error {
 
 	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
 	// on failure we return error to retry
-	config, err := internal.ReadConfig(s.latestConfigInput)
+	config, err := internal.UpdateConfig(s.latestConfigInput)
 	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
 		config, err = internal.GetConfig(s.latestConfigInput)
 		if err != nil {

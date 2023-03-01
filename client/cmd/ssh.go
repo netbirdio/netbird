@@ -4,15 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal"
-	nbssh "github.com/netbirdio/netbird/client/ssh"
-	"github.com/netbirdio/netbird/util"
-	log "github.com/sirupsen/logrus"
-	"github.com/spf13/cobra"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/client/internal"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/util"
 )
 
 var (
@@ -57,7 +59,7 @@ var sshCmd = &cobra.Command{
 
 		ctx := internal.CtxInitState(cmd.Context())
 
-		config, err := internal.ReadConfig(internal.ConfigInput{
+		config, err := internal.UpdateConfig(internal.ConfigInput{
 			ConfigPath: configPath,
 		})
 		if err != nil {

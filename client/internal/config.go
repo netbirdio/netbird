@@ -73,8 +73,8 @@ type Config struct {
 	CustomDNSAddress string
 }
 
-// ReadConfig reads existing configuration and update settings according to input configuration
-func ReadConfig(input ConfigInput) (*Config, error) {
+// UpdateConfig update existing configuration according to input configuration and return with the configuration
+func UpdateConfig(input ConfigInput) (*Config, error) {
 	config := &Config{}
 	if _, err := os.Stat(input.ConfigPath); os.IsNotExist(err) {
 		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
@@ -158,7 +158,7 @@ func GetConfig(input ConfigInput) (*Config, error) {
 	if isPreSharedKeyHidden(input.PreSharedKey) {
 		input.PreSharedKey = nil
 	}
-	return ReadConfig(input)
+	return UpdateConfig(input)
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
