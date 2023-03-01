@@ -73,6 +73,7 @@ type MockAccountManager struct {
 	GetAccountByPeerIDFunc          func(peerID string) (*server.Account, error)
 	UpdatePeerLastLoginFunc         func(peerID string) error
 	UpdateAccountSettingsFunc       func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
+	LoginPeerFunc                   func(login server.PeerLogin) (*server.Peer, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -563,4 +564,12 @@ func (am *MockAccountManager) UpdateAccountSettings(accountID, userID string, ne
 		return am.UpdateAccountSettingsFunc(accountID, userID, newSettings)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateAccountSettings is not implemented")
+}
+
+// LoginPeer mocks LoginPeer of the AccountManager interface
+func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*server.Peer, error) {
+	if am.LoginPeerFunc != nil {
+		return am.LoginPeerFunc(login)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method LoginPeer is not implemented")
 }
