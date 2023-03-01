@@ -353,7 +353,7 @@ func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
 		return nil, err
 	}
 
-	// this protection is needed because when we delete a peer, we don't really remove index peerKey -> accountID.
+	// this protection is needed because when we delete a peer, we don't really remove index peerID -> accountID.
 	// check Account.Peers for a match
 	if _, ok := account.Peers[peerID]; !ok {
 		delete(s.PeerID2AccountID, peerID)
