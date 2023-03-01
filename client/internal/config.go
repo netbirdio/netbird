@@ -1,19 +1,18 @@
 package internal
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"os"
 
-	"github.com/netbirdio/netbird/client/ssh"
-	"github.com/netbirdio/netbird/iface"
-	mgm "github.com/netbirdio/netbird/management/client"
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -257,111 +256,6 @@ func generateKey() string {
 		panic(err)
 	}
 	return key.String()
-}
-
-// DeviceAuthorizationFlow represents Device Authorization Flow information
-type DeviceAuthorizationFlow struct {
-	Provider       string
-	ProviderConfig ProviderConfig
-}
-
-// ProviderConfig has all attributes needed to initiate a device authorization flow
-type ProviderConfig struct {
-	// ClientID An IDP application client id
-	ClientID string
-	// ClientSecret An IDP application client secret
-	ClientSecret string
-	// Domain An IDP API domain
-	// Deprecated. Use OIDCConfigEndpoint instead
-	Domain string
-	// Audience An Audience for to authorization validation
-	Audience string
-	// TokenEndpoint is the endpoint of an IDP manager where clients can obtain access token
-	TokenEndpoint string
-	// DeviceAuthEndpoint is the endpoint of an IDP manager where clients can obtain device authorization code
-	DeviceAuthEndpoint string
-}
-
-func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (DeviceAuthorizationFlow, error) {
-	// validate our peer's Wireguard PRIVATE key
-	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
-	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-		return DeviceAuthorizationFlow{}, err
-	}
-
-	var mgmTlsEnabled bool
-	if config.ManagementURL.Scheme == "https" {
-		mgmTlsEnabled = true
-	}
-
-	log.Debugf("connecting to Management Service %s", config.ManagementURL.String())
-	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
-	if err != nil {
-		log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
-		return DeviceAuthorizationFlow{}, err
-	}
-	log.Debugf("connected to the Management service %s", config.ManagementURL.String())
-	defer func() {
-		err = mgmClient.Close()
-		if err != nil {
-			log.Warnf("failed to close the Management service client %v", err)
-		}
-	}()
-
-	serverKey, err := mgmClient.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return DeviceAuthorizationFlow{}, err
-	}
-
-	protoDeviceAuthorizationFlow, err := mgmClient.GetDeviceAuthorizationFlow(*serverKey)
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			log.Warnf("server couldn't find device flow, contact admin: %v", err)
-			return DeviceAuthorizationFlow{}, err
-		} else {
-			log.Errorf("failed to retrieve device flow: %v", err)
-			return DeviceAuthorizationFlow{}, err
-		}
-	}
-
-	deviceAuthorizationFlow := DeviceAuthorizationFlow{
-		Provider: protoDeviceAuthorizationFlow.Provider.String(),
-
-		ProviderConfig: ProviderConfig{
-			Audience:           protoDeviceAuthorizationFlow.GetProviderConfig().GetAudience(),
-			ClientID:           protoDeviceAuthorizationFlow.GetProviderConfig().GetClientID(),
-			ClientSecret:       protoDeviceAuthorizationFlow.GetProviderConfig().GetClientSecret(),
-			Domain:             protoDeviceAuthorizationFlow.GetProviderConfig().Domain,
-			TokenEndpoint:      protoDeviceAuthorizationFlow.GetProviderConfig().GetTokenEndpoint(),
-			DeviceAuthEndpoint: protoDeviceAuthorizationFlow.GetProviderConfig().GetDeviceAuthEndpoint(),
-		},
-	}
-
-	err = isProviderConfigValid(deviceAuthorizationFlow.ProviderConfig)
-	if err != nil {
-		return DeviceAuthorizationFlow{}, err
-	}
-
-	return deviceAuthorizationFlow, nil
-}
-
-func isProviderConfigValid(config ProviderConfig) error {
-	errorMSGFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
-	if config.Audience == "" {
-		return fmt.Errorf(errorMSGFormat, "Audience")
-	}
-	if config.ClientID == "" {
-		return fmt.Errorf(errorMSGFormat, "Client ID")
-	}
-	if config.TokenEndpoint == "" {
-		return fmt.Errorf(errorMSGFormat, "Token Endpoint")
-	}
-	if config.DeviceAuthEndpoint == "" {
-		return fmt.Errorf(errorMSGFormat, "Device Auth Endpoint")
-	}
-	return nil
 }
 
 // don't overwrite pre-shared key if we receive asterisks from UI
