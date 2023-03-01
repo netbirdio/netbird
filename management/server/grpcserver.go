@@ -218,7 +218,7 @@ func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
 
 	token, err := s.jwtMiddleware.ValidateAndParse(jwtToken)
 	if err != nil {
-		return "", status.Errorf(codes.Internal, "invalid jwt token, err: %v", err)
+		return "", status.Errorf(codes.InvalidArgument, "invalid jwt token, err: %v", err)
 	}
 	claims := s.jwtClaimsExtractor.FromToken(token)
 	// we need to call this method because if user is new, we will automatically add it to existing or create a new account
@@ -313,6 +313,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		// todo what about the case when JWT provided expired?
 		userID, err = s.validateToken(loginReq.GetJwtToken())
 		if err != nil {
+			log.Warnf("failed validating JWT token sent from peer %s", peerKey)
 			return nil, mapError(err)
 		}
 	}
@@ -329,11 +330,13 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		SetupKey:        loginReq.GetSetupKey(),
 	})
 	if err != nil {
+		log.Warnf("failed logging in peer %s", peerKey)
 		return nil, mapError(err)
 	}
 
 	network, err := s.accountManager.GetPeerNetwork(peer.ID)
 	if err != nil {
+		log.Warnf("failed getting peer %s network on login", peer.ID)
 		return nil, status.Errorf(codes.Internal, "failed getting peer network on login")
 	}
 
@@ -344,6 +347,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {
+		log.Warnf("failed encrypting peer %s message", peer.ID)
 		return nil, status.Errorf(codes.Internal, "failed logging in peer")
 	}
 
