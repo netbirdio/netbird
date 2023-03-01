@@ -230,84 +230,54 @@ func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
 	return claims.UserId, nil
 }
 
-func (s *GRPCServer) registerPeer(peerKey wgtypes.Key, req *proto.LoginRequest) (*Peer, error) {
-	var (
-		reqSetupKey string
-		userID      string
-		err         error
-	)
-
-	if req.GetJwtToken() != "" {
-		log.Debugln("using jwt token to register peer")
-		userID, err = s.validateToken(req.JwtToken)
-		if err != nil {
-			return nil, err
+// maps internal internalStatus.Error to gRPC status.Error
+func mapError(err error) error {
+	if e, ok := internalStatus.FromError(err); ok {
+		switch e.Type() {
+		case internalStatus.PermissionDenied:
+			return status.Errorf(codes.PermissionDenied, e.Message)
+		case internalStatus.Unauthorized:
+			return status.Errorf(codes.PermissionDenied, e.Message)
+		case internalStatus.Unauthenticated:
+			return status.Errorf(codes.PermissionDenied, e.Message)
+		case internalStatus.PreconditionFailed:
+			return status.Errorf(codes.FailedPrecondition, e.Message)
+		case internalStatus.NotFound:
+			return status.Errorf(codes.NotFound, e.Message)
+		default:
 		}
-	} else {
-		log.Debugln("using setup key to register peer")
-		reqSetupKey = req.GetSetupKey()
-		userID = ""
 	}
+	return status.Errorf(codes.Internal, "failed handling request")
+}
 
-	meta := req.GetMeta()
-	if meta == nil {
-		return nil, status.Errorf(codes.InvalidArgument, "peer meta data was not provided")
+func extractPeerMeta(loginReq *proto.LoginRequest) PeerSystemMeta {
+	return PeerSystemMeta{
+		Hostname:  loginReq.GetMeta().GetHostname(),
+		GoOS:      loginReq.GetMeta().GetGoOS(),
+		Kernel:    loginReq.GetMeta().GetKernel(),
+		Core:      loginReq.GetMeta().GetCore(),
+		Platform:  loginReq.GetMeta().GetPlatform(),
+		OS:        loginReq.GetMeta().GetOS(),
+		WtVersion: loginReq.GetMeta().GetWiretrusteeVersion(),
+		UIVersion: loginReq.GetMeta().GetUiVersion(),
 	}
+}
 
-	var sshKey []byte
-	if req.GetPeerKeys() != nil {
-		sshKey = req.GetPeerKeys().GetSshPubKey()
-	}
-
-	peer, err := s.accountManager.AddPeer(reqSetupKey, userID, &Peer{
-		Key:    peerKey.String(),
-		Name:   meta.GetHostname(),
-		SSHKey: string(sshKey),
-		Meta: PeerSystemMeta{
-			Hostname:  meta.GetHostname(),
-			GoOS:      meta.GetGoOS(),
-			Kernel:    meta.GetKernel(),
-			Core:      meta.GetCore(),
-			Platform:  meta.GetPlatform(),
-			OS:        meta.GetOS(),
-			WtVersion: meta.GetWiretrusteeVersion(),
-			UIVersion: meta.GetUiVersion(),
-		},
-	})
+func (s *GRPCServer) parseLoginRequest(req *proto.EncryptedMessage) (*proto.LoginRequest, wgtypes.Key, error) {
+	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
-		if e, ok := internalStatus.FromError(err); ok {
-			switch e.Type() {
-			case internalStatus.PreconditionFailed:
-				return nil, status.Errorf(codes.FailedPrecondition, e.Message)
-			case internalStatus.NotFound:
-				return nil, status.Errorf(codes.NotFound, e.Message)
-			default:
-			}
-		}
-		return nil, status.Errorf(codes.Internal, "failed registering new peer")
+		log.Warnf("error while parsing peer's WireGuard public key %s.", req.WgPubKey)
+		return nil, wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
 	}
 
-	// todo move to DefaultAccountManager the code below
-	networkMap, err := s.accountManager.GetNetworkMap(peer.ID)
+	loginReq := &proto.LoginRequest{}
+	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, loginReq)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
-	}
-	// notify other peers of our registration
-	for _, remotePeer := range networkMap.Peers {
-		remotePeerNetworkMap, err := s.accountManager.GetNetworkMap(remotePeer.ID)
-		if err != nil {
-			return nil, status.Errorf(codes.Internal, "unable to fetch network map after registering peer, error: %v", err)
-		}
-
-		update := toSyncResponse(s.config, remotePeer, nil, remotePeerNetworkMap, s.accountManager.GetDNSDomain())
-		err = s.peersUpdateManager.SendUpdate(remotePeer.ID, &UpdateMessage{Update: update})
-		if err != nil {
-			// todo rethink if we should keep this return
-			return nil, status.Errorf(codes.Internal, "unable to send update after registering peer, error: %v", err)
-		}
+		return nil, wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
 
-	return peer, nil
+	return loginReq, peerKey, nil
+
 }
 
 // Login endpoint first checks whether peer is registered under any account
@@ -323,99 +293,43 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
 	}
 
-	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
+	loginReq, peerKey, err := s.parseLoginRequest(req)
 	if err != nil {
-		log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", req.WgPubKey)
-		return nil, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
+		return nil, err
 	}
 
-	loginReq := &proto.LoginRequest{}
-	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, loginReq)
-	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid request message")
+	if loginReq.GetMeta() == nil {
+		msg := status.Errorf(codes.FailedPrecondition,
+			"peer system meta has to be provided to log in. Peer %s, remote addr %s", peerKey.String(),
+			p.Addr.String())
+		log.Warn(msg)
+		return nil, msg
 	}
 
-	peer, err := s.accountManager.GetPeerByKey(peerKey.String())
-	if err != nil {
-		if errStatus, ok := internalStatus.FromError(err); ok && errStatus.Type() == internalStatus.NotFound {
-			// peer doesn't exist -> check if setup key was provided
-			if loginReq.GetJwtToken() == "" && loginReq.GetSetupKey() == "" {
-				// absent setup key or jwt -> permission denied
-				p, _ := gRPCPeer.FromContext(ctx)
-				msg := status.Errorf(codes.PermissionDenied,
-					"provided peer with the key wgPubKey %s is not registered and no setup key or jwt was provided,"+
-						" remote addr is %s", peerKey.String(), p.Addr.String())
-				log.Debug(msg)
-				return nil, msg
-			}
-
-			// setup key or jwt is present -> try normal registration flow
-			peer, err = s.registerPeer(peerKey, loginReq)
-			if err != nil {
-				return nil, err
-			}
-
-		} else {
-			return nil, status.Error(codes.Internal, "internal server error")
-		}
-	} else if loginReq.GetMeta() != nil {
-		// update peer's system meta data on Login
-		err = s.accountManager.UpdatePeerMeta(peer.ID, PeerSystemMeta{
-			Hostname:  loginReq.GetMeta().GetHostname(),
-			GoOS:      loginReq.GetMeta().GetGoOS(),
-			Kernel:    loginReq.GetMeta().GetKernel(),
-			Core:      loginReq.GetMeta().GetCore(),
-			Platform:  loginReq.GetMeta().GetPlatform(),
-			OS:        loginReq.GetMeta().GetOS(),
-			WtVersion: loginReq.GetMeta().GetWiretrusteeVersion(),
-			UIVersion: loginReq.GetMeta().GetUiVersion(),
-		},
-		)
+	userID := ""
+	// JWT token is not always provided, it is fine for userID to be empty cuz it might be that peer is already registered,
+	// or it uses a setup key to register.
+	if loginReq.GetJwtToken() != "" {
+		// todo what about the case when JWT provided expired?
+		userID, err = s.validateToken(loginReq.GetJwtToken())
 		if err != nil {
-			log.Errorf("failed updating peer system meta data %s", peerKey.String())
-			return nil, status.Error(codes.Internal, "internal server error")
+			return nil, mapError(err)
 		}
 	}
-
-	// check if peer login has expired
-	account, err := s.accountManager.GetAccountByPeerID(peer.ID)
-	if err != nil {
-		return nil, status.Error(codes.Internal, "internal server error")
-	}
-
-	expired, left := peer.LoginExpired(account.Settings.PeerLoginExpiration)
-	expired = account.Settings.PeerLoginExpirationEnabled && expired
-	if peer.UserID != "" && (expired || peer.Status.LoginExpired) {
-		// it might be that peer expired but user has logged in already, check token then
-		if loginReq.GetJwtToken() == "" {
-			err = s.accountManager.MarkPeerLoginExpired(peerKey.String(), true)
-			if err != nil {
-				log.Warnf("failed marking peer login expired %s %v", peerKey, err)
-			}
-			return nil, status.Errorf(codes.PermissionDenied,
-				"peer login has expired %v ago. Please log in once more", left)
-		}
-		_, err = s.validateToken(loginReq.GetJwtToken())
-		if err != nil {
-			return nil, err
-		}
-
-		err = s.accountManager.UpdatePeerLastLogin(peer.ID)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	var sshKey []byte
 	if loginReq.GetPeerKeys() != nil {
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
 	}
 
-	if len(sshKey) > 0 {
-		err = s.accountManager.UpdatePeerSSHKey(peer.ID, string(sshKey))
-		if err != nil {
-			return nil, err
-		}
+	peer, err := s.accountManager.LoginPeer(PeerLogin{
+		WireGuardPubKey: peerKey.String(),
+		SSHKey:          string(sshKey),
+		Meta:            extractPeerMeta(loginReq),
+		UserID:          userID,
+		SetupKey:        loginReq.GetSetupKey(),
+	})
+	if err != nil {
+		return nil, mapError(err)
 	}
 
 	network, err := s.accountManager.GetPeerNetwork(peer.ID)

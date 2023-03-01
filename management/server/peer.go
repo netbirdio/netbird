@@ -36,6 +36,20 @@ type PeerStatus struct {
 	LoginExpired bool
 }
 
+// PeerLogin used as a data object between the gRPC API and AccountManager on Login request.
+type PeerLogin struct {
+	// WireGuardPubKey is a peers WireGuard public key
+	WireGuardPubKey string
+	// SSHKey is a peer's ssh key. Can be empty (e.g., old version do not provide it, or this feature is disabled)
+	SSHKey string
+	// Meta is the system information passed by peer, must be always present.
+	Meta PeerSystemMeta
+	// UserID indicates that JWT was used to log in, and it was valid. Can be empty when SetupKey is used or auth is not required.
+	UserID string
+	// SetupKey references to a server.SetupKey to log in. Can be empty when UserID is used or auth is not required.
+	SetupKey string
+}
+
 // Peer represents a machine connected to the network.
 // The Peer is a WireGuard peer identified by a public key
 type Peer struct {
@@ -91,6 +105,15 @@ func (p *Peer) Copy() *Peer {
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
 	}
+}
+
+// UpdateMeta updates peer's system meta data
+func (p *Peer) UpdateMeta(meta PeerSystemMeta) {
+	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
+	if meta.UIVersion == "" {
+		meta.UIVersion = p.Meta.UIVersion
+	}
+	p.Meta = meta
 }
 
 // MarkLoginExpired marks peer's status expired or not
@@ -188,6 +211,18 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 	}
 
 	return peers, nil
+}
+
+func (am *DefaultAccountManager) markPeerLoginExpired(peer *Peer, account *Account, expired bool) (*Peer, error) {
+	peer.MarkLoginExpired(expired)
+	account.UpdatePeer(peer)
+
+	err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
+	if err != nil {
+		return nil, err
+	}
+
+	return peer, nil
 }
 
 // MarkPeerLoginExpired when peer login has expired
@@ -471,13 +506,17 @@ func (am *DefaultAccountManager) GetPeerNetwork(peerID string) (*Network, error)
 }
 
 // AddPeer adds a new peer to the Store.
-// Each Account has a list of pre-authorised SetupKey and if no Account has a given key err with a code codes.Unauthenticated
-// will be returned, meaning the key is invalid
+// Each Account has a list of pre-authorized SetupKey and if no Account has a given key err with a code status.PermissionDenied
+// will be returned, meaning the setup key is invalid or not found.
 // If a User ID is provided, it means that we passed the authentication using JWT, then we look for account by User ID and register the peer
-// to it. We also add the User ID to the peer metadata to identify registrant.
+// to it. We also add the User ID to the peer metadata to identify registrant. If no userID provided, then fail with status.PermissionDenied
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
 func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*Peer, error) {
+	if setupKey == "" && userID == "" {
+		// no auth method provided => reject access
+		return nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
+	}
 
 	upperKey := strings.ToUpper(setupKey)
 	var account *Account
@@ -547,7 +586,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		SetupKey:               upperKey,
 		IP:                     nextIp,
 		Meta:                   peer.Meta,
-		Name:                   peer.Name,
+		Name:                   peer.Meta.Hostname,
 		DNSLabel:               newLabel,
 		UserID:                 userID,
 		Status:                 &PeerStatus{Connected: false, LastSeen: time.Now()},
@@ -596,7 +635,92 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	opEvent.Meta = newPeer.EventMeta(am.GetDNSDomain())
 	am.storeEvent(opEvent.InitiatorID, opEvent.TargetID, opEvent.AccountID, opEvent.Activity, opEvent.Meta)
 
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return nil, err
+	}
+
 	return newPeer, nil
+}
+
+// LoginPeer logs in or registers a peer.
+// If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
+func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, error) {
+
+	account, err := am.Store.GetAccountByPeerPubKey(login.WireGuardPubKey)
+	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			// we couldn't find this peer by its public key which can mean that peer hasn't been registered yet.
+			// Try registering it.
+			return am.AddPeer(login.SetupKey, login.UserID, &Peer{
+				Key:    login.WireGuardPubKey,
+				Meta:   login.Meta,
+				SSHKey: login.SSHKey,
+			})
+		}
+		log.Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
+		return nil, status.Errorf(status.Internal, "failed while logging in peer")
+	}
+
+	// we found the peer, and we follow a normal login flow
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	// fetch the account from the store once more after acquiring lock to avoid concurrent updates inconsistencies
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return nil, err
+	}
+
+	peer, err := account.FindPeerByPubKey(login.WireGuardPubKey)
+	if err != nil {
+		return nil, err
+	}
+
+	expired, expiresIn := peer.LoginExpired(account.Settings.PeerLoginExpiration)
+	expired = account.Settings.PeerLoginExpirationEnabled && expired
+	if peer.UserID != "" && (expired || peer.Status.LoginExpired) {
+		if login.UserID == "" {
+			// absence of a user ID indicates that JWT wasn't provided.
+			peer, err = am.markPeerLoginExpired(peer, account, true)
+			if err != nil {
+				return nil, err
+			}
+			return nil, status.Errorf(status.PermissionDenied,
+				"peer login has expired %v ago. Please log in once more", expiresIn)
+		} else {
+			// user ID is there meaning that JWT validation passed successfully in the API layer.
+			if peer.UserID != login.UserID {
+				log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, login.UserID)
+				return nil, status.Errorf(status.Unauthenticated, "can't login")
+			}
+			peer = am.updatePeerLastLogin(peer, account)
+		}
+	}
+
+	peer = am.updatePeerMeta(peer, peer.Meta, account)
+
+	peer, err = am.checkAndUpdatePeerSSHKey(peer, account, login.SSHKey)
+	if err != nil {
+		return nil, err
+	}
+
+	err = am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, err
+	}
+
+	return peer, nil
+
+}
+
+func (am *DefaultAccountManager) updatePeerLastLogin(peer *Peer, account *Account) *Peer {
+	peer.LastLogin = time.Now()
+	newStatus := peer.Status.Copy()
+	newStatus.LoginExpired = false
+	peer.Status = newStatus
+	account.UpdatePeer(peer)
+	return peer
 }
 
 // UpdatePeerLastLogin sets Peer.LastLogin to the current timestamp.
@@ -624,7 +748,6 @@ func (am *DefaultAccountManager) UpdatePeerLastLogin(peerID string) error {
 	newStatus := peer.Status.Copy()
 	newStatus.LoginExpired = false
 	peer.Status = newStatus
-
 	account.UpdatePeer(peer)
 
 	err = am.Store.SaveAccount(account)
@@ -633,6 +756,34 @@ func (am *DefaultAccountManager) UpdatePeerLastLogin(peerID string) error {
 	}
 
 	return nil
+}
+
+func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *Peer, account *Account, newSshKey string) (*Peer, error) {
+	if len(newSshKey) == 0 {
+		log.Debugf("no new SSH key provided for peer %s, skipping update", peer.ID)
+		return peer, nil
+	}
+
+	if peer.SSHKey == newSshKey {
+		log.Debugf("same SSH key provided for peer %s, skipping update", peer.ID)
+		return peer, nil
+	}
+
+	peer.SSHKey = newSshKey
+	account.UpdatePeer(peer)
+
+	err := am.Store.SaveAccount(account)
+	if err != nil {
+		return nil, err
+	}
+
+	// trigger network map update
+	err = am.updateAccountPeers(account)
+	if err != nil {
+		return nil, err
+	}
+
+	return peer, nil
 }
 
 // UpdatePeerSSHKey updates peer's public SSH key
@@ -724,35 +875,10 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
 }
 
-// UpdatePeerMeta updates peer's system metadata
-func (am *DefaultAccountManager) UpdatePeerMeta(peerID string, meta PeerSystemMeta) error {
-
-	account, err := am.Store.GetAccountByPeerID(peerID)
-	if err != nil {
-		return err
-	}
-
-	unlock := am.Store.AcquireAccountLock(account.Id)
-	defer unlock()
-
-	peer := account.GetPeer(peerID)
-	if peer == nil {
-		return status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
-	}
-
-	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
-	if meta.UIVersion == "" {
-		meta.UIVersion = peer.Meta.UIVersion
-	}
-
-	peer.Meta = meta
+func (am *DefaultAccountManager) updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) *Peer {
+	peer.UpdateMeta(meta)
 	account.UpdatePeer(peer)
-
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return err
-	}
-	return nil
+	return peer
 }
 
 // getPeersByACL returns all peers that given peer has access to.

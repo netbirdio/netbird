@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -63,7 +64,6 @@ type AccountManager interface {
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, error)
-	UpdatePeerMeta(peerID string, meta PeerSystemMeta) error
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
@@ -98,6 +98,7 @@ type AccountManager interface {
 	GetPeer(accountID, peerID, userID string) (*Peer, error)
 	UpdatePeerLastLogin(peerID string) error
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
+	LoginPeer(login PeerLogin) (*Peer, error)
 }
 
 type DefaultAccountManager struct {
@@ -119,8 +120,10 @@ type DefaultAccountManager struct {
 	// singleAccountModeDomain is a domain to use in singleAccountMode setup
 	singleAccountModeDomain string
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
-	dnsDomain       string
-	peerLoginExpiry Scheduler
+	dnsDomain          string
+	peerLoginExpiry    Scheduler
+	jwtMiddleware      *middleware.JWTMiddleware
+	jwtClaimsExtractor *jwtclaims.ClaimsExtractor
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard

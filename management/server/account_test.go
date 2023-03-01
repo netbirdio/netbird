@@ -951,7 +951,7 @@ func TestGetUsersFromAccount(t *testing.T) {
 	}
 }
 
-func TestAccountManager_UpdatePeerMeta(t *testing.T) {
+/*func TestAccountManager_UpdatePeerMeta(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -1018,7 +1018,7 @@ func TestAccountManager_UpdatePeerMeta(t *testing.T) {
 	}
 
 	assert.Equal(t, newMeta, p.Meta)
-}
+}*/
 
 func TestAccount_GetPeerRules(t *testing.T) {
 
