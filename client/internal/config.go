@@ -76,7 +76,7 @@ type Config struct {
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
 	config := &Config{}
-	if _, err := os.Stat(input.ConfigPath); os.IsNotExist(err) {
+	if !configFileIsExists(input.ConfigPath) {
 		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
 	}
 
@@ -150,7 +150,7 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 
 // GetConfig reads existing config or generates a new one
 func GetConfig(input ConfigInput) (*Config, error) {
-	if _, err := os.Stat(input.ConfigPath); os.IsNotExist(err) {
+	if !configFileIsExists(input.ConfigPath) {
 		log.Infof("generating new config %s", input.ConfigPath)
 		return createNewConfig(input)
 	}
@@ -264,4 +264,12 @@ func isPreSharedKeyHidden(preSharedKey *string) bool {
 		return true
 	}
 	return false
+}
+
+func configFileIsExists(path string) bool {
+	_, err := os.Stat(path)
+	if os.IsNotExist(err) {
+		return false
+	}
+	return true
 }
