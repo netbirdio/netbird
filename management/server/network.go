@@ -22,19 +22,13 @@ const (
 	AllowedIPsFormat = "%s/32"
 )
 
-// NetworkMap represents peer's network configuration and a list of peers it can connect to
 type NetworkMap struct {
-	// Peers that peer can connect to
-	Peers []*Peer
-	// Network of the Account
-	Network *Network
-	// Routes that peer has to apply
-	Routes []*route.Route
-	// DNSConfig that peer has to apply
+	Peers     []*Peer
+	Network   *Network
+	Routes    []*route.Route
 	DNSConfig nbdns.Config
 }
 
-// Network represents Account network
 type Network struct {
 	Id  string
 	Net net.IPNet

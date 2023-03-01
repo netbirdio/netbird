@@ -28,6 +28,7 @@ type MockAccountManager struct {
 	MarkPeerLoginExpiredFunc        func(peerPubKey string, loginExpired bool) error
 	DeletePeerFunc                  func(accountID, peerKey, userID string) (*server.Peer, error)
 	GetPeerByIPFunc                 func(accountId string, peerIP string) (*server.Peer, error)
+	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
 	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, error)
 	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
@@ -179,6 +180,14 @@ func (am *MockAccountManager) GetPeerByIP(accountId string, peerIP string) (*ser
 		return am.GetPeerByIPFunc(accountId, peerIP)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerByIP is not implemented")
+}
+
+// GetNetworkMap mock implementation of GetNetworkMap from server.AccountManager interface
+func (am *MockAccountManager) GetNetworkMap(peerKey string) (*server.NetworkMap, error) {
+	if am.GetNetworkMapFunc != nil {
+		return am.GetNetworkMapFunc(peerKey)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetNetworkMap is not implemented")
 }
 
 // GetPeerNetwork mock implementation of GetPeerNetwork from server.AccountManager interface
