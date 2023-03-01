@@ -682,7 +682,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, error) {
 	if peer.UserID != "" && (expired || peer.Status.LoginExpired) {
 		if login.UserID == "" {
 			// absence of a user ID indicates that JWT wasn't provided.
-			peer, err = am.markPeerLoginExpired(peer, account, true)
+			_, err = am.markPeerLoginExpired(peer, account, true)
 			if err != nil {
 				return nil, err
 			}

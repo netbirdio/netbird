@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -120,10 +119,8 @@ type DefaultAccountManager struct {
 	// singleAccountModeDomain is a domain to use in singleAccountMode setup
 	singleAccountModeDomain string
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
-	dnsDomain          string
-	peerLoginExpiry    Scheduler
-	jwtMiddleware      *middleware.JWTMiddleware
-	jwtClaimsExtractor *jwtclaims.ClaimsExtractor
+	dnsDomain       string
+	peerLoginExpiry Scheduler
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
