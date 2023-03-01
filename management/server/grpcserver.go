@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	pb "github.com/golang/protobuf/proto" //nolint
 	"strings"
 	"time"
 
@@ -118,44 +119,18 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 		log.Debugf("Sync request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
 	}
 
-	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
-	if err != nil {
-		log.Warnf("error while parsing peer's Wireguard public key %s on Sync request.", peerKey.String())
-		return status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", peerKey.String())
-	}
-
-	peer, err := s.accountManager.GetPeerByKey(peerKey.String())
-	if err != nil {
-		p, _ := gRPCPeer.FromContext(srv.Context())
-		msg := status.Errorf(codes.PermissionDenied, "provided peer with the key wgPubKey %s is not registered, remote addr is %s", peerKey.String(), p.Addr.String())
-		log.Debug(msg)
-		return msg
-	}
-
-	account, err := s.accountManager.GetAccountByPeerID(peer.ID)
-	if err != nil {
-		return status.Error(codes.Internal, "internal server error")
-	}
-	expired, left := peer.LoginExpired(account.Settings.PeerLoginExpiration)
-	expired = account.Settings.PeerLoginExpirationEnabled && expired
-	if peer.UserID != "" && (expired || peer.Status.LoginExpired) {
-		err = s.accountManager.MarkPeerLoginExpired(peerKey.String(), true)
-		if err != nil {
-			log.Warnf("failed marking peer login expired %s %v", peerKey, err)
-		}
-		return status.Errorf(codes.PermissionDenied, "peer login has expired %v ago. Please log in once more", left)
-	}
-
 	syncReq := &proto.SyncRequest{}
-	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, syncReq)
+	peerKey, err := s.parseRequest(req, syncReq)
 	if err != nil {
-		p, _ := gRPCPeer.FromContext(srv.Context())
-		msg := status.Errorf(codes.InvalidArgument, "invalid request message from %s,remote addr is %s", peerKey.String(), p.Addr.String())
-		log.Debug(msg)
-		return msg
+		return err
 	}
 
-	err = s.sendInitialSync(peerKey, peer, srv)
+	peer, netMap, err := s.accountManager.SyncPeer(PeerSync{WireGuardPubKey: peerKey.String()})
+	if err != nil {
+		return mapError(err)
+	}
+
+	err = s.sendInitialSync(peerKey, peer, netMap, srv)
 	if err != nil {
 		log.Debugf("error while sending initial sync for %s: %v", peerKey.String(), err)
 		return err
@@ -263,21 +238,19 @@ func extractPeerMeta(loginReq *proto.LoginRequest) PeerSystemMeta {
 	}
 }
 
-func (s *GRPCServer) parseLoginRequest(req *proto.EncryptedMessage) (*proto.LoginRequest, wgtypes.Key, error) {
+func (s *GRPCServer) parseRequest(req *proto.EncryptedMessage, parsed pb.Message) (wgtypes.Key, error) {
 	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
 	if err != nil {
 		log.Warnf("error while parsing peer's WireGuard public key %s.", req.WgPubKey)
-		return nil, wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
+		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "provided wgPubKey %s is invalid", req.WgPubKey)
 	}
 
-	loginReq := &proto.LoginRequest{}
-	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, loginReq)
+	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, parsed)
 	if err != nil {
-		return nil, wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "invalid request message")
+		return wgtypes.Key{}, status.Errorf(codes.InvalidArgument, "invalid request message")
 	}
 
-	return loginReq, peerKey, nil
-
+	return peerKey, nil
 }
 
 // Login endpoint first checks whether peer is registered under any account
@@ -293,7 +266,8 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		log.Debugf("Login request from peer [%s] [%s]", req.WgPubKey, p.Addr.String())
 	}
 
-	loginReq, peerKey, err := s.parseLoginRequest(req)
+	loginReq := &proto.LoginRequest{}
+	peerKey, err := s.parseRequest(req, loginReq)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +284,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	// JWT token is not always provided, it is fine for userID to be empty cuz it might be that peer is already registered,
 	// or it uses a setup key to register.
 	if loginReq.GetJwtToken() != "" {
-		// todo what about the case when JWT provided expired?
+		// todo what about the case when JWT provided is expired?
 		userID, err = s.validateToken(loginReq.GetJwtToken())
 		if err != nil {
 			log.Warnf("failed validating JWT token sent from peer %s", peerKey)
@@ -473,13 +447,7 @@ func (s *GRPCServer) IsHealthy(ctx context.Context, req *proto.Empty) (*proto.Em
 }
 
 // sendInitialSync sends initial proto.SyncResponse to the peer requesting synchronization
-func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *Peer, srv proto.ManagementService_SyncServer) error {
-	networkMap, err := s.accountManager.GetNetworkMap(peer.ID)
-	if err != nil {
-		log.Warnf("error getting a list of peers for a peer %s", peer.ID)
-		return err
-	}
-
+func (s *GRPCServer) sendInitialSync(peerKey wgtypes.Key, peer *Peer, networkMap *NetworkMap, srv proto.ManagementService_SyncServer) error {
 	// make secret time based TURN credentials optional
 	var turnCredentials *TURNCredentials
 	if s.config.TURNConfig.TimeBasedCredentials {

@@ -97,6 +97,7 @@ type AccountManager interface {
 	GetPeer(accountID, peerID, userID string) (*Peer, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
 	LoginPeer(login PeerLogin) (*Peer, error)
+	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)
 }
 
 type DefaultAccountManager struct {

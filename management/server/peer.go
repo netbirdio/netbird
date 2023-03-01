@@ -36,6 +36,12 @@ type PeerStatus struct {
 	LoginExpired bool
 }
 
+// PeerSync used as a data object between the gRPC API and AccountManager on Sync request.
+type PeerSync struct {
+	// WireGuardPubKey is a peers WireGuard public key
+	WireGuardPubKey string
+}
+
 // PeerLogin used as a data object between the gRPC API and AccountManager on Login request.
 type PeerLogin struct {
 	// WireGuardPubKey is a peers WireGuard public key
@@ -454,6 +460,34 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 	return nil, status.Errorf(status.NotFound, "peer with IP %s not found", peerIP)
 }
 
+func (am *DefaultAccountManager) getNetworkMap(peer *Peer, account *Account) *NetworkMap {
+	aclPeers := account.getPeersByACL(peer.ID)
+	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
+	routesUpdate := account.getRoutesToSync(peer.ID, aclPeers)
+
+	dnsManagementStatus := account.getPeerDNSManagementStatus(peer.ID)
+	dnsUpdate := nbdns.Config{
+		ServiceEnable: dnsManagementStatus,
+	}
+
+	if dnsManagementStatus {
+		var zones []nbdns.CustomZone
+		peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
+		if peersCustomZone.Domain != "" {
+			zones = append(zones, peersCustomZone)
+		}
+		dnsUpdate.CustomZones = zones
+		dnsUpdate.NameServerGroups = getPeerNSGroups(account, peer.ID)
+	}
+
+	return &NetworkMap{
+		Peers:     aclPeers,
+		Network:   account.Network.Copy(),
+		Routes:    routesUpdate,
+		DNSConfig: dnsUpdate,
+	}
+}
+
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
 func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, error) {
 
@@ -467,31 +501,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
 
-	aclPeers := account.getPeersByACL(peerID)
-	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-	routesUpdate := account.getRoutesToSync(peerID, aclPeers)
-
-	dnsManagementStatus := account.getPeerDNSManagementStatus(peerID)
-	dnsUpdate := nbdns.Config{
-		ServiceEnable: dnsManagementStatus,
-	}
-
-	if dnsManagementStatus {
-		var zones []nbdns.CustomZone
-		peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
-		if peersCustomZone.Domain != "" {
-			zones = append(zones, peersCustomZone)
-		}
-		dnsUpdate.CustomZones = zones
-		dnsUpdate.NameServerGroups = getPeerNSGroups(account, peerID)
-	}
-
-	return &NetworkMap{
-		Peers:     aclPeers,
-		Network:   account.Network.Copy(),
-		Routes:    routesUpdate,
-		DNSConfig: dnsUpdate,
-	}, err
+	return am.getNetworkMap(peer, account), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -643,13 +653,13 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	return newPeer, nil
 }
 
-func (am *DefaultAccountManager) checkPeerLoginExpiration(login PeerLogin, peer *Peer, account *Account) error {
+func (am *DefaultAccountManager) checkPeerLoginExpiration(loginUserID string, peer *Peer, account *Account) error {
 	if peer.AddedWithSSOLogin() {
 		expired, expiresIn := peer.LoginExpired(account.Settings.PeerLoginExpiration)
 		expired = account.Settings.PeerLoginExpirationEnabled && expired
 		if expired || peer.Status.LoginExpired {
 			log.Debugf("peer %s login expired", peer.ID)
-			if login.UserID == "" {
+			if loginUserID == "" {
 				// absence of a user ID indicates that JWT wasn't provided.
 				_, err := am.markPeerLoginExpired(peer, account, true)
 				if err != nil {
@@ -659,8 +669,8 @@ func (am *DefaultAccountManager) checkPeerLoginExpiration(login PeerLogin, peer 
 					"peer login has expired %v ago. Please log in once more", expiresIn)
 			} else {
 				// user ID is there meaning that JWT validation passed successfully in the API layer.
-				if peer.UserID != login.UserID {
-					log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, login.UserID)
+				if peer.UserID != loginUserID {
+					log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
 					return status.Errorf(status.Unauthenticated, "can't login")
 				}
 				_ = am.updatePeerLastLogin(peer, account)
@@ -669,6 +679,37 @@ func (am *DefaultAccountManager) checkPeerLoginExpiration(login PeerLogin, peer 
 	}
 
 	return nil
+}
+
+// SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
+func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error) {
+	account, err := am.Store.GetAccountByPeerPubKey(sync.WireGuardPubKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// we found the peer, and we follow a normal login flow
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	// fetch the account from the store once more after acquiring lock to avoid concurrent updates inconsistencies
+	account, err = am.Store.GetAccount(account.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	peer, err := account.FindPeerByPubKey(sync.WireGuardPubKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = am.checkPeerLoginExpiration("", peer, account)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return peer, am.getNetworkMap(peer, account), nil
+
 }
 
 // LoginPeer logs in or registers a peer.
@@ -705,7 +746,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, error) {
 		return nil, err
 	}
 
-	err = am.checkPeerLoginExpiration(login, peer, account)
+	err = am.checkPeerLoginExpiration(login.UserID, peer, account)
 	if err != nil {
 		return nil, err
 	}
