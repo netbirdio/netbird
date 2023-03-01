@@ -66,7 +66,7 @@ func NewClient(cfgFile, adminURL, mgmURL string, deviceName string, tunAdapter T
 }
 
 func (c *Client) Run() error {
-	cfg, err := internal.GetConfig(internal.ConfigInput{
+	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ManagementURL: c.mgmUrl,
 		AdminURL:      c.adminURL,
 		ConfigPath:    c.cfgFile,
@@ -165,7 +165,7 @@ func (c *Client) withBackOff(ctx context.Context, bf func() error) error {
 }
 
 func (c *Client) foregroundGetTokenInfo(ctx context.Context, config *internal.Config) (*internal.TokenInfo, error) {
-	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config)
+	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
 	if err != nil {
 		s, ok := gstatus.FromError(err)
 		if ok && s.Code() == codes.NotFound {
