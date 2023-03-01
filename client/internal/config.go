@@ -73,6 +73,19 @@ type Config struct {
 	CustomDNSAddress string
 }
 
+// ReadConfig read config file and return with Config. If it is not exists create a new with default values
+func ReadConfig(configPath string) (*Config, error) {
+	if !configFileIsExists(configPath) {
+		return createNewConfig(ConfigInput{ConfigPath: configPath})
+	}
+
+	config := &Config{}
+	if _, err := util.ReadJson(configPath, config); err != nil {
+		return nil, err
+	}
+	return config, nil
+}
+
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
 	if !configFileIsExists(input.ConfigPath) {
