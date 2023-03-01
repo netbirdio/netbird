@@ -2,12 +2,14 @@ package server
 
 import (
 	"fmt"
+	"strings"
+
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
-	"strings"
 )
 
 const (
@@ -44,6 +46,7 @@ type User struct {
 	Role UserRole
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string
+	PATs       []PersonalAccessToken
 }
 
 // IsAdmin returns true if user is an admin, false otherwise

@@ -30,6 +30,8 @@ cloud.google.com/go/storage v1.5.0/go.mod h1:tpKbwo567HUNpVclU5sGELwQWBDZ8gh0Zeo
 cloud.google.com/go/storage v1.6.0/go.mod h1:N7U0C8pVQ/+NIKOBQyamJIeKQKkZ+mxpohlUTyfDhBk=
 cloud.google.com/go/storage v1.8.0/go.mod h1:Wv1Oy7z6Yz3DshWRJFhqM/UCfaWIRTdp0RXyy7KQOVs=
 cloud.google.com/go/storage v1.10.0/go.mod h1:FLPqc6j+Ki4BU591ie1oL6qBQGu2Bl/tZ9ullr3+Kg0=
+codeberg.org/ac/base62 v0.0.0-20210305150220-e793b546833a h1:U6cY/g6VSiy59vuvnBU6J/eSir0qVg4BeTnCDLaX+20=
+codeberg.org/ac/base62 v0.0.0-20210305150220-e793b546833a/go.mod h1:ykEpkLT4JtH3I4Rb4gwkDsNLfgUg803qRDeIX88t3e8=
 dmitri.shuralyov.com/gpu/mtl v0.0.0-20190408044501-666a987793e9/go.mod h1:H6x//7gZCb22OMCxBHrMx7a5I7Hp++hsVxbQ4BYO7hU=
 fyne.io/fyne/v2 v2.1.4 h1:bt1+28++kAzRzPB0GM2EuSV4cnl8rXNX4cjfd8G06Rc=
 fyne.io/fyne/v2 v2.1.4/go.mod h1:p+E/Dh+wPW8JwR2DVcsZ9iXgR9ZKde80+Y+40Is54AQ=

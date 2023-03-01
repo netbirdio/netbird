@@ -28,6 +28,7 @@ require (
 )
 
 require (
+	codeberg.org/ac/base62 v0.0.0-20210305150220-e793b546833a
 	fyne.io/fyne/v2 v2.1.4
 	github.com/c-robinson/iplib v1.0.3
 	github.com/coreos/go-iptables v0.6.0
