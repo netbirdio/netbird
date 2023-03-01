@@ -73,34 +73,6 @@ type Config struct {
 	CustomDNSAddress string
 }
 
-// ParseURL parses and validates a service URL
-func ParseURL(serviceName, serviceURL string) (*url.URL, error) {
-	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
-	if err != nil {
-		log.Errorf("failed parsing %s URL %s: [%s]", serviceName, serviceURL, err.Error())
-		return nil, err
-	}
-
-	if parsedMgmtURL.Scheme != "https" && parsedMgmtURL.Scheme != "http" {
-		return nil, fmt.Errorf(
-			"invalid %s URL provided %s. Supported format [http|https]://[host]:[port]",
-			serviceName, serviceURL)
-	}
-
-	if parsedMgmtURL.Port() == "" {
-		switch parsedMgmtURL.Scheme {
-		case "https":
-			parsedMgmtURL.Host = parsedMgmtURL.Host + ":443"
-		case "http":
-			parsedMgmtURL.Host = parsedMgmtURL.Host + ":80"
-		default:
-			log.Infof("unable to determine a default port for schema %s in URL %s", parsedMgmtURL.Scheme, serviceURL)
-		}
-	}
-
-	return parsedMgmtURL, err
-}
-
 // ReadConfig reads existing configuration and update settings according to input configuration
 func ReadConfig(input ConfigInput) (*Config, error) {
 	config := &Config{}
@@ -117,7 +89,7 @@ func ReadConfig(input ConfigInput) (*Config, error) {
 	if input.ManagementURL != "" && config.ManagementURL.String() != input.ManagementURL {
 		log.Infof("new Management URL provided, updated to %s (old value %s)",
 			input.ManagementURL, config.ManagementURL)
-		newURL, err := ParseURL("Management URL", input.ManagementURL)
+		newURL, err := parseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return nil, err
 		}
@@ -128,7 +100,7 @@ func ReadConfig(input ConfigInput) (*Config, error) {
 	if input.AdminURL != "" && (config.AdminURL == nil || config.AdminURL.String() != input.AdminURL) {
 		log.Infof("new Admin Panel URL provided, updated to %s (old value %s)",
 			input.AdminURL, config.AdminURL)
-		newURL, err := ParseURL("Admin Panel URL", input.AdminURL)
+		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return nil, err
 		}
@@ -207,14 +179,14 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		CustomDNSAddress:     string(input.CustomDNSAddress),
 	}
 
-	defaultManagementURL, err := ParseURL("Management URL", DefaultManagementURL)
+	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
 	if err != nil {
 		return nil, err
 	}
 
 	config.ManagementURL = defaultManagementURL
 	if input.ManagementURL != "" {
-		URL, err := ParseURL("Management URL", input.ManagementURL)
+		URL, err := parseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return nil, err
 		}
@@ -225,14 +197,14 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.PreSharedKey = *input.PreSharedKey
 	}
 
-	defaultAdminURL, err := ParseURL("Admin URL", DefaultAdminURL)
+	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
 	if err != nil {
 		return nil, err
 	}
 
 	config.AdminURL = defaultAdminURL
 	if input.AdminURL != "" {
-		newURL, err := ParseURL("Admin Panel URL", input.AdminURL)
+		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return nil, err
 		}
@@ -247,6 +219,34 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	}
 
 	return config, nil
+}
+
+// parseURL parses and validates a service URL
+func parseURL(serviceName, serviceURL string) (*url.URL, error) {
+	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
+	if err != nil {
+		log.Errorf("failed parsing %s URL %s: [%s]", serviceName, serviceURL, err.Error())
+		return nil, err
+	}
+
+	if parsedMgmtURL.Scheme != "https" && parsedMgmtURL.Scheme != "http" {
+		return nil, fmt.Errorf(
+			"invalid %s URL provided %s. Supported format [http|https]://[host]:[port]",
+			serviceName, serviceURL)
+	}
+
+	if parsedMgmtURL.Port() == "" {
+		switch parsedMgmtURL.Scheme {
+		case "https":
+			parsedMgmtURL.Host = parsedMgmtURL.Host + ":443"
+		case "http":
+			parsedMgmtURL.Host = parsedMgmtURL.Host + ":80"
+		default:
+			log.Infof("unable to determine a default port for schema %s in URL %s", parsedMgmtURL.Scheme, serviceURL)
+		}
+	}
+
+	return parsedMgmtURL, err
 }
 
 // generateKey generates a new Wireguard private key
