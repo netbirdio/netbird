@@ -14,6 +14,44 @@ type accounts struct {
 	Accounts map[string]*Account
 }
 
+func TestStalePeerIndices(t *testing.T) {
+	storeDir := t.TempDir()
+
+	err := util.CopyFileContents("testdata/store.json", filepath.Join(storeDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir)
+	if err != nil {
+		return
+	}
+
+	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
+	require.NoError(t, err)
+
+	peerID := "some_peer"
+	peerKey := "some_peer_key"
+	account.Peers[peerID] = &Peer{
+		ID:  peerID,
+		Key: peerKey,
+	}
+
+	err = store.SaveAccount(account)
+	require.NoError(t, err)
+
+	account.DeletePeer(peerID)
+
+	err = store.SaveAccount(account)
+	require.NoError(t, err)
+
+	_, err = store.GetAccountByPeerID(peerID)
+	require.Error(t, err, "expecting to get an error when found stale index")
+
+	_, err = store.GetAccountByPeerPubKey(peerKey)
+	require.Error(t, err, "expecting to get an error when found stale index")
+}
+
 func TestNewStore(t *testing.T) {
 	store := newStore(t)
 
