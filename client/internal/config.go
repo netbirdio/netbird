@@ -75,10 +75,88 @@ type Config struct {
 
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
-	config := &Config{}
 	if !configFileIsExists(input.ConfigPath) {
 		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
 	}
+
+	return update(input)
+}
+
+// UpdateOrCreateConfig reads existing config or generates a new one
+func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
+	if !configFileIsExists(input.ConfigPath) {
+		log.Infof("generating new config %s", input.ConfigPath)
+		return createNewConfig(input)
+	}
+
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
+	}
+	return update(input)
+}
+
+// createNewConfig creates a new config generating a new Wireguard key and saving to file
+func createNewConfig(input ConfigInput) (*Config, error) {
+	wgKey := generateKey()
+	pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
+	if err != nil {
+		return nil, err
+	}
+	config := &Config{
+		SSHKey:               string(pem),
+		PrivateKey:           wgKey,
+		WgIface:              iface.WgInterfaceDefault,
+		WgPort:               iface.DefaultWgPort,
+		IFaceBlackList:       []string{},
+		DisableIPv6Discovery: false,
+		NATExternalIPs:       input.NATExternalIPs,
+		CustomDNSAddress:     string(input.CustomDNSAddress),
+	}
+
+	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
+	if err != nil {
+		return nil, err
+	}
+
+	config.ManagementURL = defaultManagementURL
+	if input.ManagementURL != "" {
+		URL, err := parseURL("Management URL", input.ManagementURL)
+		if err != nil {
+			return nil, err
+		}
+		config.ManagementURL = URL
+	}
+
+	if input.PreSharedKey != nil {
+		config.PreSharedKey = *input.PreSharedKey
+	}
+
+	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
+	if err != nil {
+		return nil, err
+	}
+
+	config.AdminURL = defaultAdminURL
+	if input.AdminURL != "" {
+		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
+		if err != nil {
+			return nil, err
+		}
+		config.AdminURL = newURL
+	}
+
+	config.IFaceBlackList = defaultInterfaceBlacklist
+
+	err = util.WriteJson(input.ConfigPath, config)
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
+}
+
+func update(input ConfigInput) (*Config, error) {
+	config := &Config{}
 
 	if _, err := util.ReadJson(input.ConfigPath, config); err != nil {
 		return nil, err
@@ -143,79 +221,6 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 		if err := util.WriteJson(input.ConfigPath, config); err != nil {
 			return nil, err
 		}
-	}
-
-	return config, nil
-}
-
-// GetConfig reads existing config or generates a new one
-func GetConfig(input ConfigInput) (*Config, error) {
-	if !configFileIsExists(input.ConfigPath) {
-		log.Infof("generating new config %s", input.ConfigPath)
-		return createNewConfig(input)
-	}
-
-	if isPreSharedKeyHidden(input.PreSharedKey) {
-		input.PreSharedKey = nil
-	}
-	return UpdateConfig(input)
-}
-
-// createNewConfig creates a new config generating a new Wireguard key and saving to file
-func createNewConfig(input ConfigInput) (*Config, error) {
-	wgKey := generateKey()
-	pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	if err != nil {
-		return nil, err
-	}
-	config := &Config{
-		SSHKey:               string(pem),
-		PrivateKey:           wgKey,
-		WgIface:              iface.WgInterfaceDefault,
-		WgPort:               iface.DefaultWgPort,
-		IFaceBlackList:       []string{},
-		DisableIPv6Discovery: false,
-		NATExternalIPs:       input.NATExternalIPs,
-		CustomDNSAddress:     string(input.CustomDNSAddress),
-	}
-
-	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
-	if err != nil {
-		return nil, err
-	}
-
-	config.ManagementURL = defaultManagementURL
-	if input.ManagementURL != "" {
-		URL, err := parseURL("Management URL", input.ManagementURL)
-		if err != nil {
-			return nil, err
-		}
-		config.ManagementURL = URL
-	}
-
-	if input.PreSharedKey != nil {
-		config.PreSharedKey = *input.PreSharedKey
-	}
-
-	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
-	if err != nil {
-		return nil, err
-	}
-
-	config.AdminURL = defaultAdminURL
-	if input.AdminURL != "" {
-		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
-		if err != nil {
-			return nil, err
-		}
-		config.AdminURL = newURL
-	}
-
-	config.IFaceBlackList = defaultInterfaceBlacklist
-
-	err = util.WriteJson(input.ConfigPath, config)
-	if err != nil {
-		return nil, err
 	}
 
 	return config, nil

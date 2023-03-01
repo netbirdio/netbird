@@ -39,7 +39,7 @@ var loginCmd = &cobra.Command{
 				return err
 			}
 
-			config, err := internal.GetConfig(internal.ConfigInput{
+			config, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 				ManagementURL: managementURL,
 				AdminURL:      adminURL,
 				ConfigPath:    configPath,
