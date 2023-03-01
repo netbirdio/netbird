@@ -568,7 +568,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	takenIps := account.getTakenIPs()
 	existingLabels := account.getPeerDNSLabels()
 
-	newLabel, err := getPeerHostLabel(peer.Name, existingLabels)
+	newLabel, err := getPeerHostLabel(peer.Meta.Hostname, existingLabels)
 	if err != nil {
 		return nil, err
 	}
