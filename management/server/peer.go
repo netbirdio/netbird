@@ -815,7 +815,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	}
 
 	for _, p := range userPeers {
-		aclPeers := account.getPeersByACL(p.ID)
+		aclPeers, _ := account.getPeersByPolicy(p.ID)
 		for _, aclPeer := range aclPeers {
 			if aclPeer.ID == peerID {
 				return peer, nil

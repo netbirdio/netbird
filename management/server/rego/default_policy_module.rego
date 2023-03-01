@@ -5,30 +5,33 @@ import future.keywords.in
 import future.keywords.contains
 
 # get_rule builds a netbird rule object from given parameters
-get_rule(peer_id, peer_ip, direction, action, port) := rule if {
-  rule := {
-    "ID": peer_id,
-    "IP": peer_ip,
-    "Direction": direction,
-    "Action": action,
-    "Port": port,
-  }
+get_rule(peer_id, direction, action, port) := rule if {
+	peer := input.peers[_]
+    peer.ID == peer_id
+	rule := {
+		"ID": peer.ID,
+		"IP": peer.IP,
+		"Direction": direction,
+		"Action": action,
+		"Port": port,
+	}
+}
+
+# is_peer_group returns group by id if peer_id present in group peers
+get_peer_group(peer_id, group_id) := group if {
+	group := input.groups[_]
+	group.ID == group_id
 }
 
 # peers_from_group returns a list of peer ids for a given group id
 peers_from_group(group_id) := peers if {
-  some group in input.groups
+  group := get_peer_group(input.peer_id, group_id)
   group.ID == group_id
-  peers := [peer | peer := group.Peers[_]; peer != input.peer_id]
+  peers := [ peer | peer := group.Peers[_]; peer == input.peer_id ]
 }
 
 # netbird_rules_from_groups returns a list of netbird rules for a given list of group names
-rules_from_groups(groups, direction, action, port) := policies if {
-  some group_name in groups
-  peers := peers_from_group(group_name)
-  policies := [
-    get_rule(peer.ID, peer.IP, direction, action, port) |
-    peer_id := peers[_]
-    peer := input.peers[peer_id]
-  ]
+rules_from_groups(groups, direction, action, port) := rules if {
+  group_id := groups[_]
+  rules := [ get_rule(peer, direction, action, port) | peer := peers_from_group(group_id)[_] ]
 }

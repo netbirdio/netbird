@@ -369,7 +369,6 @@ func (a *Account) GetExpiredPeers() []*Peer {
 // If there is no peer that expires this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet and that are connected.
 func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
-
 	peersWithExpiry := a.GetPeersWithExpiration()
 	if len(peersWithExpiry) == 0 {
 		return 0, false
@@ -637,6 +636,27 @@ func (a *Account) GetGroupAll() (*Group, error) {
 // GetPeer looks up a Peer by ID
 func (a *Account) GetPeer(peerID string) *Peer {
 	return a.Peers[peerID]
+}
+
+// ruleToPolicy converts a Rule to a Policy query object
+func (a *Account) ruleToPolicy(rule *Rule) *Policy {
+	getGroups := func(groups []string) (result string) {
+		for i := range groups {
+			groups[i] = fmt.Sprintf(`"%s"`, strings.Trim(groups[i], `"`))
+		}
+		return strings.Join(groups, ",")
+	}
+	return &Policy{
+		ID:          rule.ID,
+		Name:        rule.Name,
+		Description: rule.Description,
+		Query: fmt.Sprintf(
+			defaultPolicy,
+			getGroups(rule.Destination),
+			getGroups(rule.Source),
+		),
+		Disabled: rule.Disabled,
+	}
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1302,14 +1322,7 @@ func addAllGroup(account *Account) {
 		}
 		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
 
-		defaultPolicy := &Policy{
-			ID:          xid.New().String(),
-			Name:        DefaultPolicyName,
-			Disabled:    false,
-			Description: DefaultPolicyDescription,
-			Query:       fmt.Sprintf(defaultPolicy, allGroup.ID, allGroup.ID),
-		}
-		account.Policies = []*Policy{defaultPolicy}
+		account.Policies = []*Policy{account.ruleToPolicy(defaultRule)}
 	}
 }
 

@@ -276,17 +276,7 @@ func (am *DefaultAccountManager) SavePolicy(accountID, userID string, policy *Po
 		return err
 	}
 
-	exists := false
-	for i, p := range account.Policies {
-		if p.ID == policy.ID {
-			account.Policies[i] = policy
-			exists = true
-			break
-		}
-	}
-	if !exists {
-		account.Policies = append(account.Policies, policy)
-	}
+	exists := am.savePolicy(account, policy)
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
@@ -372,19 +362,10 @@ func (am *DefaultAccountManager) DeletePolicy(accountID, policyID, userID string
 		return err
 	}
 
-	policyIdx := -1
-	for i, policy := range account.Policies {
-		if policy.ID == policyID {
-			policyIdx = i
-			break
-		}
+	policy, err := am.deletePolicy(account, policyID)
+	if err != nil {
+		return err
 	}
-	if policyIdx < 0 {
-		return status.Errorf(status.NotFound, "rule with ID %s doesn't exist", policyID)
-	}
-
-	policy := account.Policies[policyIdx]
-	account.Policies = append(account.Policies[:policyIdx], account.Policies[policyIdx+1:]...)
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
@@ -416,4 +397,35 @@ func (am *DefaultAccountManager) ListPolicies(accountID, userID string) ([]*Poli
 	}
 
 	return account.Policies[:], nil
+}
+
+func (am *DefaultAccountManager) deletePolicy(account *Account, policyID string) (*Policy, error) {
+	policyIdx := -1
+	for i, policy := range account.Policies {
+		if policy.ID == policyID {
+			policyIdx = i
+			break
+		}
+	}
+	if policyIdx < 0 {
+		return nil, status.Errorf(status.NotFound, "rule with ID %s doesn't exist", policyID)
+	}
+
+	policy := account.Policies[policyIdx]
+	account.Policies = append(account.Policies[:policyIdx], account.Policies[policyIdx+1:]...)
+	return policy, nil
+}
+
+func (am *DefaultAccountManager) savePolicy(account *Account, policy *Policy) (exists bool) {
+	for i, p := range account.Policies {
+		if p.ID == policy.ID {
+			account.Policies[i] = policy
+			exists = true
+			break
+		}
+	}
+	if !exists {
+		account.Policies = append(account.Policies, policy)
+	}
+	return
 }

@@ -138,6 +138,8 @@ func (am *DefaultAccountManager) SaveRule(accountID, userID string, rule *Rule) 
 	_, exists := account.Rules[rule.ID]
 
 	account.Rules[rule.ID] = rule
+	// temporary solution until we drop rules support
+	_ = am.savePolicy(account, account.ruleToPolicy(rule))
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
@@ -244,6 +246,9 @@ func (am *DefaultAccountManager) DeleteRule(accountID, ruleID, userID string) er
 		return status.Errorf(status.NotFound, "rule with ID %s doesn't exist", ruleID)
 	}
 	delete(account.Rules, ruleID)
+	if _, err = am.deletePolicy(account, ruleID); err != nil {
+		return status.Errorf(status.NotFound, "policy with ID %s doesn't exist", ruleID)
+	}
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {
