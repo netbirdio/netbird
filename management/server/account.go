@@ -63,7 +63,6 @@ type AccountManager interface {
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, error)
-	UpdatePeerMeta(peerID string, meta PeerSystemMeta) error
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
@@ -96,8 +95,9 @@ type AccountManager interface {
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*Peer, error)
-	UpdatePeerLastLogin(peerID string) error
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
+	LoginPeer(login PeerLogin) (*Peer, error)
+	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)
 }
 
 type DefaultAccountManager struct {
