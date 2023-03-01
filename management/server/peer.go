@@ -488,22 +488,6 @@ func (am *DefaultAccountManager) getNetworkMap(peer *Peer, account *Account) *Ne
 	}
 }
 
-// GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
-func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, error) {
-
-	account, err := am.Store.GetAccountByPeerID(peerID)
-	if err != nil {
-		return nil, err
-	}
-
-	peer := account.GetPeer(peerID)
-	if peer == nil {
-		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
-	}
-
-	return am.getNetworkMap(peer, account), nil
-}
-
 // GetPeerNetwork returns the Network for a given peer
 func (am *DefaultAccountManager) GetPeerNetwork(peerID string) (*Network, error) {
 
@@ -965,13 +949,10 @@ func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {
 	peers := account.GetPeers()
 
 	for _, peer := range peers {
-		remotePeerNetworkMap, err := am.GetNetworkMap(peer.ID)
-		if err != nil {
-			return err
-		}
+		remotePeerNetworkMap := am.getNetworkMap(peer, account)
 
 		update := toSyncResponse(nil, peer, nil, remotePeerNetworkMap, am.GetDNSDomain())
-		err = am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
+		err := am.peersUpdateManager.SendUpdate(peer.ID, &UpdateMessage{Update: update})
 		if err != nil {
 			return err
 		}
