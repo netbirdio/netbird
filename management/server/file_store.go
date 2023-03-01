@@ -225,7 +225,6 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	accountCopy := account.Copy()
 
-	// todo will override, handle existing keys
 	s.Accounts[accountCopy.Id] = accountCopy
 
 	// todo check that account.Id and keyId are not exist already
@@ -354,6 +353,14 @@ func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
 		return nil, err
 	}
 
+	// this protection is needed because when we delete a peer, we don't really remove index peerKey -> accountID.
+	// check Account.Peers for a match
+	if _, ok := account.Peers[peerID]; !ok {
+		delete(s.PeerID2AccountID, peerID)
+		log.Warnf("removed stale peerID %s to accountID %s index", peerID, accountID)
+		return nil, status.Errorf(status.NotFound, "provided peer doesn't exists %s", peerID)
+	}
+
 	return account.Copy(), nil
 }
 
@@ -370,6 +377,21 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	account, err := s.getAccount(accountID)
 	if err != nil {
 		return nil, err
+	}
+
+	// this protection is needed because when we delete a peer, we don't really remove index peerKey -> accountID.
+	// check Account.Peers for a match
+	stale := true
+	for _, peer := range account.Peers {
+		if peer.Key == peerKey {
+			stale = false
+			break
+		}
+	}
+	if stale {
+		delete(s.PeerKeyID2AccountID, peerKey)
+		log.Warnf("removed stale peerKey %s to accountID %s index", peerKey, accountID)
+		return nil, status.Errorf(status.NotFound, "provided peer doesn't exists %s", peerKey)
 	}
 
 	return account.Copy(), nil
