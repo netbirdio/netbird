@@ -685,6 +685,9 @@ func (am *DefaultAccountManager) checkPeerLoginExpiration(loginUserID string, pe
 func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error) {
 	account, err := am.Store.GetAccountByPeerPubKey(sync.WireGuardPubKey)
 	if err != nil {
+		if errStatus, ok := status.FromError(err); ok && errStatus.Type() == status.NotFound {
+			return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
+		}
 		return nil, nil, err
 	}
 
@@ -700,7 +703,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 
 	peer, err := account.FindPeerByPubKey(sync.WireGuardPubKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
 	err = am.checkPeerLoginExpiration("", peer, account)
@@ -743,7 +746,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, error) {
 
 	peer, err := account.FindPeerByPubKey(login.WireGuardPubKey)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
 	err = am.checkPeerLoginExpiration(login.UserID, peer, account)
