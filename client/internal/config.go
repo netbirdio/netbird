@@ -73,66 +73,6 @@ type Config struct {
 	CustomDNSAddress string
 }
 
-// createNewConfig creates a new config generating a new Wireguard key and saving to file
-func createNewConfig(input ConfigInput) (*Config, error) {
-	wgKey := generateKey()
-	pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
-	if err != nil {
-		return nil, err
-	}
-	config := &Config{
-		SSHKey:               string(pem),
-		PrivateKey:           wgKey,
-		WgIface:              iface.WgInterfaceDefault,
-		WgPort:               iface.DefaultWgPort,
-		IFaceBlackList:       []string{},
-		DisableIPv6Discovery: false,
-		NATExternalIPs:       input.NATExternalIPs,
-		CustomDNSAddress:     string(input.CustomDNSAddress),
-	}
-
-	defaultManagementURL, err := ParseURL("Management URL", DefaultManagementURL)
-	if err != nil {
-		return nil, err
-	}
-
-	config.ManagementURL = defaultManagementURL
-	if input.ManagementURL != "" {
-		URL, err := ParseURL("Management URL", input.ManagementURL)
-		if err != nil {
-			return nil, err
-		}
-		config.ManagementURL = URL
-	}
-
-	if input.PreSharedKey != nil {
-		config.PreSharedKey = *input.PreSharedKey
-	}
-
-	defaultAdminURL, err := ParseURL("Admin URL", DefaultAdminURL)
-	if err != nil {
-		return nil, err
-	}
-
-	config.AdminURL = defaultAdminURL
-	if input.AdminURL != "" {
-		newURL, err := ParseURL("Admin Panel URL", input.AdminURL)
-		if err != nil {
-			return nil, err
-		}
-		config.AdminURL = newURL
-	}
-
-	config.IFaceBlackList = defaultInterfaceBlacklist
-
-	err = util.WriteJson(input.ConfigPath, config)
-	if err != nil {
-		return nil, err
-	}
-
-	return config, nil
-}
-
 // ParseURL parses and validates a service URL
 func ParseURL(serviceName, serviceURL string) (*url.URL, error) {
 	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
@@ -247,6 +187,66 @@ func GetConfig(input ConfigInput) (*Config, error) {
 		input.PreSharedKey = nil
 	}
 	return ReadConfig(input)
+}
+
+// createNewConfig creates a new config generating a new Wireguard key and saving to file
+func createNewConfig(input ConfigInput) (*Config, error) {
+	wgKey := generateKey()
+	pem, err := ssh.GeneratePrivateKey(ssh.ED25519)
+	if err != nil {
+		return nil, err
+	}
+	config := &Config{
+		SSHKey:               string(pem),
+		PrivateKey:           wgKey,
+		WgIface:              iface.WgInterfaceDefault,
+		WgPort:               iface.DefaultWgPort,
+		IFaceBlackList:       []string{},
+		DisableIPv6Discovery: false,
+		NATExternalIPs:       input.NATExternalIPs,
+		CustomDNSAddress:     string(input.CustomDNSAddress),
+	}
+
+	defaultManagementURL, err := ParseURL("Management URL", DefaultManagementURL)
+	if err != nil {
+		return nil, err
+	}
+
+	config.ManagementURL = defaultManagementURL
+	if input.ManagementURL != "" {
+		URL, err := ParseURL("Management URL", input.ManagementURL)
+		if err != nil {
+			return nil, err
+		}
+		config.ManagementURL = URL
+	}
+
+	if input.PreSharedKey != nil {
+		config.PreSharedKey = *input.PreSharedKey
+	}
+
+	defaultAdminURL, err := ParseURL("Admin URL", DefaultAdminURL)
+	if err != nil {
+		return nil, err
+	}
+
+	config.AdminURL = defaultAdminURL
+	if input.AdminURL != "" {
+		newURL, err := ParseURL("Admin Panel URL", input.AdminURL)
+		if err != nil {
+			return nil, err
+		}
+		config.AdminURL = newURL
+	}
+
+	config.IFaceBlackList = defaultInterfaceBlacklist
+
+	err = util.WriteJson(input.ConfigPath, config)
+	if err != nil {
+		return nil, err
+	}
+
+	return config, nil
 }
 
 // generateKey generates a new Wireguard private key
