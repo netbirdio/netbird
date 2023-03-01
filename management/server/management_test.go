@@ -240,7 +240,8 @@ var _ = Describe("Management service", func() {
 		Context("with an invalid setup key", func() {
 			Specify("an error is returned", func() {
 				key, _ := wgtypes.GenerateKey()
-				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: "invalid setup key"})
+				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: "invalid setup key",
+					Meta: &mgmtProto.PeerSystemMeta{}})
 				Expect(err).NotTo(HaveOccurred())
 
 				resp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
@@ -269,7 +270,7 @@ var _ = Describe("Management service", func() {
 				Expect(regResp).NotTo(BeNil())
 
 				// just login without registration
-				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{})
+				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{Meta: &mgmtProto.PeerSystemMeta{}})
 				Expect(err).NotTo(HaveOccurred())
 				loginResp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
 					WgPubKey: key.PublicKey().String(),
