@@ -3,10 +3,11 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/skratchdot/open-golang/open"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
-	"time"
 
 	"github.com/netbirdio/netbird/util"
 
@@ -152,7 +153,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 }
 
 func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *internal.Config) (*internal.TokenInfo, error) {
-	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config)
+	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
 	if err != nil {
 		s, ok := gstatus.FromError(err)
 		if ok && s.Code() == codes.NotFound {

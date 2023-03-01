@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -35,26 +36,26 @@ type ProviderConfig struct {
 	DeviceAuthEndpoint string
 }
 
-func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (DeviceAuthorizationFlow, error) {
+func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmUrl *url.URL) (DeviceAuthorizationFlow, error) {
 	// validate our peer's Wireguard PRIVATE key
-	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
+	myPrivateKey, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
+		log.Errorf("failed parsing Wireguard key %s: [%s]", privateKey, err.Error())
 		return DeviceAuthorizationFlow{}, err
 	}
 
 	var mgmTlsEnabled bool
-	if config.ManagementURL.Scheme == "https" {
+	if mgmUrl.Scheme == "https" {
 		mgmTlsEnabled = true
 	}
 
-	log.Debugf("connecting to Management Service %s", config.ManagementURL.String())
-	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+	log.Debugf("connecting to Management Service %s", mgmUrl.String())
+	mgmClient, err := mgm.NewClient(ctx, mgmUrl.Host, myPrivateKey, mgmTlsEnabled)
 	if err != nil {
-		log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
+		log.Errorf("failed connecting to Management Service %s %v", mgmUrl.String(), err)
 		return DeviceAuthorizationFlow{}, err
 	}
-	log.Debugf("connected to the Management service %s", config.ManagementURL.String())
+	log.Debugf("connected to the Management service %s", mgmUrl.String())
 	defer func() {
 		err = mgmClient.Close()
 		if err != nil {
