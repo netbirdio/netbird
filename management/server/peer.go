@@ -663,7 +663,7 @@ func (am *DefaultAccountManager) checkPeerLoginExpiration(login PeerLogin, peer 
 					log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, login.UserID)
 					return status.Errorf(status.Unauthenticated, "can't login")
 				}
-				peer = am.updatePeerLastLogin(peer, account)
+				_ = am.updatePeerLastLogin(peer, account)
 			}
 		}
 	}
