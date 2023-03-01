@@ -36,7 +36,6 @@ type ProviderConfig struct {
 	DeviceAuthEndpoint string
 }
 
-// GetDeviceAuthorizationFlowInfo initialize a DeviceAuthorizationFlow instance and return with it
 func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmURL *url.URL) (DeviceAuthorizationFlow, error) {
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(privateKey)
@@ -57,6 +56,7 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 		return DeviceAuthorizationFlow{}, err
 	}
 	log.Debugf("connected to the Management service %s", mgmURL.String())
+
 	defer func() {
 		err = mgmClient.Close()
 		if err != nil {
