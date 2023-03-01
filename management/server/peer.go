@@ -667,14 +667,13 @@ func (am *DefaultAccountManager) checkPeerLoginExpiration(loginUserID string, pe
 				}
 				return status.Errorf(status.PermissionDenied,
 					"peer login has expired %v ago. Please log in once more", expiresIn)
-			} else {
-				// user ID is there meaning that JWT validation passed successfully in the API layer.
-				if peer.UserID != loginUserID {
-					log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
-					return status.Errorf(status.Unauthenticated, "can't login")
-				}
-				_ = am.updatePeerLastLogin(peer, account)
 			}
+			// user ID is there meaning that JWT validation passed successfully in the API layer.
+			if peer.UserID != loginUserID {
+				log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
+				return status.Errorf(status.Unauthenticated, "can't login")
+			}
+			_ = am.updatePeerLastLogin(peer, account)
 		}
 	}
 
@@ -779,18 +778,18 @@ func (am *DefaultAccountManager) updatePeerLastLogin(peer *Peer, account *Accoun
 	return peer
 }
 
-func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *Peer, account *Account, newSshKey string) (*Peer, error) {
-	if len(newSshKey) == 0 {
+func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *Peer, account *Account, newSSHKey string) (*Peer, error) {
+	if len(newSSHKey) == 0 {
 		log.Debugf("no new SSH key provided for peer %s, skipping update", peer.ID)
 		return peer, nil
 	}
 
-	if peer.SSHKey == newSshKey {
+	if peer.SSHKey == newSSHKey {
 		log.Debugf("same SSH key provided for peer %s, skipping update", peer.ID)
 		return peer, nil
 	}
 
-	peer.SSHKey = newSshKey
+	peer.SSHKey = newSSHKey
 	account.UpdatePeer(peer)
 
 	err := am.Store.SaveAccount(account)
