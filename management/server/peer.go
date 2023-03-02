@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/rs/xid"
@@ -461,31 +460,7 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 }
 
 func (am *DefaultAccountManager) getNetworkMap(peer *Peer, account *Account) *NetworkMap {
-	aclPeers := account.getPeersByACL(peer.ID)
-	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-	routesUpdate := account.getRoutesToSync(peer.ID, aclPeers)
-
-	dnsManagementStatus := account.getPeerDNSManagementStatus(peer.ID)
-	dnsUpdate := nbdns.Config{
-		ServiceEnable: dnsManagementStatus,
-	}
-
-	if dnsManagementStatus {
-		var zones []nbdns.CustomZone
-		peersCustomZone := getPeersCustomZone(account, am.dnsDomain)
-		if peersCustomZone.Domain != "" {
-			zones = append(zones, peersCustomZone)
-		}
-		dnsUpdate.CustomZones = zones
-		dnsUpdate.NameServerGroups = getPeerNSGroups(account, peer.ID)
-	}
-
-	return &NetworkMap{
-		Peers:     aclPeers,
-		Network:   account.Network.Copy(),
-		Routes:    routesUpdate,
-		DNSConfig: dnsUpdate,
-	}
+	return account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
 }
 
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)

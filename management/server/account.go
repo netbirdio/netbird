@@ -1260,6 +1260,7 @@ func (am *DefaultAccountManager) AccountExists(accountID string) (*bool, error) 
 
 // GetDNSDomain returns the configured dnsDomain
 func (am *DefaultAccountManager) GetDNSDomain() string {
+	am.getNetworkMap()
 	return am.dnsDomain
 }
 
