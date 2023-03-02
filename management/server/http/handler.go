@@ -129,12 +129,12 @@ func (apiHandler *apiHandler) addRulesEndpoint() {
 }
 
 func (apiHandler *apiHandler) addPoliciesEndpoint() {
-	policiesHandler := NewPolicies(apiHandler.AccountManager, apiHandler.AuthCfg)
-	apiHandler.Router.HandleFunc("/policy", policiesHandler.GetAllPoliciesHandler).Methods("GET", "OPTIONS")
-	apiHandler.Router.HandleFunc("/policy", policiesHandler.CreatePolicyHandler).Methods("POST", "OPTIONS")
-	apiHandler.Router.HandleFunc("/policy/{id}", policiesHandler.UpdatePolicyHandler).Methods("PUT", "OPTIONS")
-	apiHandler.Router.HandleFunc("/policy/{id}", policiesHandler.GetPolicyHandler).Methods("GET", "OPTIONS")
-	apiHandler.Router.HandleFunc("/policy/{id}", policiesHandler.DeletePolicyHandler).Methods("DELETE", "OPTIONS")
+	policiesHandler := NewPoliciesHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
+	apiHandler.Router.HandleFunc("/policies", policiesHandler.GetAllPolicies).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/policies", policiesHandler.CreatePolicy).Methods("POST", "OPTIONS")
+	apiHandler.Router.HandleFunc("/policies/{id}", policiesHandler.UpdatePolicy).Methods("PUT", "OPTIONS")
+	apiHandler.Router.HandleFunc("/policies/{id}", policiesHandler.GetPolicy).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/policies/{id}", policiesHandler.DeletePolicy).Methods("DELETE", "OPTIONS")
 }
 
 func (apiHandler *apiHandler) addGroupsEndpoint() {

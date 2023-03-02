@@ -20,7 +20,7 @@ type Policies struct {
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
-func NewPolicies(accountManager server.AccountManager, authCfg AuthCfg) *Policies {
+func NewPoliciesHandler(accountManager server.AccountManager, authCfg AuthCfg) *Policies {
 	return &Policies{
 		accountManager: accountManager,
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -30,8 +30,8 @@ func NewPolicies(accountManager server.AccountManager, authCfg AuthCfg) *Policie
 	}
 }
 
-// GetAllPoliciesHandler list for the account
-func (h *Policies) GetAllPoliciesHandler(w http.ResponseWriter, r *http.Request) {
+// GetAllPolicies list for the account
+func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -48,8 +48,8 @@ func (h *Policies) GetAllPoliciesHandler(w http.ResponseWriter, r *http.Request)
 	util.WriteJSONObject(w, accountPolicies)
 }
 
-// UpdatePolicyHandler handles update to a policy identified by a given ID
-func (h *Policies) UpdatePolicyHandler(w http.ResponseWriter, r *http.Request) {
+// UpdatePolicy handles update to a policy identified by a given ID
+func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -119,8 +119,8 @@ func (h *Policies) UpdatePolicyHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toPolicyResponse(account, &policy))
 }
 
-// CreatePolicyHandler handles policy creation request
-func (h *Policies) CreatePolicyHandler(w http.ResponseWriter, r *http.Request) {
+// CreatePolicy handles policy creation request
+func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -172,8 +172,8 @@ func (h *Policies) CreatePolicyHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toPolicyResponse(account, policy))
 }
 
-// DeletePolicyHandler handles policy deletion request
-func (h *Policies) DeletePolicyHandler(w http.ResponseWriter, r *http.Request) {
+// DeletePolicy handles policy deletion request
+func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -197,8 +197,8 @@ func (h *Policies) DeletePolicyHandler(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, "")
 }
 
-// GetPolicyHandler handles a group Get request identified by ID
-func (h *Policies) GetPolicyHandler(w http.ResponseWriter, r *http.Request) {
+// GetPolicy handles a group Get request identified by ID
+func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
