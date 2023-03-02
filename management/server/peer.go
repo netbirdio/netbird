@@ -433,8 +433,17 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 	}
 
 	aclPeers := account.getPeersByACL(peerID)
+	// exclude expired peers
+	peersToConnect := make([]*Peer, len(aclPeers))
+	for _, p := range aclPeers {
+		expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
+		if expired && p.AddedWithSSOLogin() {
+			continue
+		}
+		peersToConnect = append(peersToConnect, p)
+	}
 	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-	routesUpdate := account.getRoutesToSync(peerID, aclPeers)
+	routesUpdate := account.getRoutesToSync(peerID, peersToConnect)
 
 	dnsManagementStatus := account.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
@@ -452,7 +461,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 	}
 
 	return &NetworkMap{
-		Peers:     aclPeers,
+		Peers:     peersToConnect,
 		Network:   account.Network.Copy(),
 		Routes:    routesUpdate,
 		DNSConfig: dnsUpdate,
@@ -798,10 +807,6 @@ func (a *Account) getPeersByACL(peerID string) []*Peer {
 					g.ID,
 					a.Id,
 				)
-				continue
-			}
-			expired, _ := peer.LoginExpired(a.Settings.PeerLoginExpiration)
-			if expired {
 				continue
 			}
 			// exclude original peer
