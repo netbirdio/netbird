@@ -38,7 +38,7 @@ func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Ac
 		setupKey = key.Key
 	}
 
-	_, err := manager.AddPeer(setupKey, userID, peer)
+	_, _, err := manager.AddPeer(setupKey, userID, peer)
 	if err != nil {
 		t.Error("expected to add new peer successfully after creating new account, but failed", err)
 	}
@@ -542,7 +542,7 @@ func TestAccountManager_AddPeer(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedSetupKey := setupKey.Key
 
-	peer, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  expectedPeerKey,
 		Meta: PeerSystemMeta{Hostname: expectedPeerKey},
 	})
@@ -610,7 +610,7 @@ func TestAccountManager_AddPeerWithUserID(t *testing.T) {
 	expectedPeerKey := key.PublicKey().String()
 	expectedUserID := userID
 
-	peer, err := manager.AddPeer("", userID, &Peer{
+	peer, _, err := manager.AddPeer("", userID, &Peer{
 		Key:  expectedPeerKey,
 		Meta: PeerSystemMeta{Hostname: expectedPeerKey},
 	})
@@ -692,7 +692,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		}
 		expectedPeerKey := key.PublicKey().String()
 
-		peer, err := manager.AddPeer(setupKey.Key, "", &Peer{
+		peer, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 			Key:  expectedPeerKey,
 			Meta: PeerSystemMeta{Hostname: expectedPeerKey},
 		})
@@ -861,7 +861,7 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 
 	peerKey := key.PublicKey().String()
 
-	peer, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey,
 		Meta: PeerSystemMeta{Hostname: peerKey},
 	})
@@ -1298,7 +1298,7 @@ func TestDefaultAccountManager_UpdatePeer_PeerLoginExpiration(t *testing.T) {
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	peer, err := manager.AddPeer("", userID, &Peer{
+	peer, _, err := manager.AddPeer("", userID, &Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
@@ -1346,7 +1346,7 @@ func TestDefaultAccountManager_MarkPeerConnected_PeerLoginExpiration(t *testing.
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, err = manager.AddPeer("", userID, &Peer{
+	_, _, err = manager.AddPeer("", userID, &Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,
@@ -1387,7 +1387,7 @@ func TestDefaultAccountManager_UpdateAccountSettings_PeerLoginExpiration(t *test
 
 	key, err := wgtypes.GenerateKey()
 	require.NoError(t, err, "unable to generate WireGuard key")
-	_, err = manager.AddPeer("", userID, &Peer{
+	_, _, err = manager.AddPeer("", userID, &Peer{
 		Key:                    key.PublicKey().String(),
 		Meta:                   PeerSystemMeta{Hostname: "test-peer"},
 		LoginExpirationEnabled: true,

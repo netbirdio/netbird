@@ -522,10 +522,10 @@ func (am *DefaultAccountManager) GetPeerNetwork(peerID string) (*Network, error)
 // to it. We also add the User ID to the peer metadata to identify registrant. If no userID provided, then fail with status.PermissionDenied
 // Each new Peer will be assigned a new next net.IP from the Account.Network and Account.Network.LastIP will be updated (IP's are not reused).
 // The peer property is just a placeholder for the Peer properties to pass further
-func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*Peer, error) {
+func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error) {
 	if setupKey == "" && userID == "" {
 		// no auth method provided => reject access
-		return nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
+		return nil, nil, status.Errorf(status.Unauthenticated, "no peer auth method provided, please use a setup key or interactive SSO login")
 	}
 
 	upperKey := strings.ToUpper(setupKey)
@@ -539,7 +539,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		account, err = am.Store.GetAccountBySetupKey(setupKey)
 	}
 	if err != nil {
-		return nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
+		return nil, nil, status.Errorf(status.NotFound, "failed adding new peer: account not found")
 	}
 
 	unlock := am.Store.AcquireAccountLock(account.Id)
@@ -548,7 +548,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
 	account, err = am.Store.GetAccount(account.Id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	opEvent := &activity.Event{
@@ -560,11 +560,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		// validate the setup key if adding with a key
 		sk, err := account.FindSetupKey(upperKey)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		if !sk.IsValid() {
-			return nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
+			return nil, nil, status.Errorf(status.PreconditionFailed, "couldn't add peer: setup key is invalid")
 		}
 
 		account.SetupKeys[sk.Key] = sk.IncrementUsage()
@@ -580,14 +580,14 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 
 	newLabel, err := getPeerHostLabel(peer.Meta.Hostname, existingLabels)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	peer.DNSLabel = newLabel
 	network := account.Network
 	nextIp, err := AllocatePeerIP(network.Net, takenIps)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	newPeer := &Peer{
@@ -609,7 +609,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	// add peer to 'All' group
 	group, err := account.GetGroupAll()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	group.Peers = append(group.Peers, newPeer.ID)
 
@@ -617,12 +617,12 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	if addedByUser {
 		groupsToAdd, err = account.getUserGroups(userID)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	} else {
 		groupsToAdd, err = account.getSetupKeyGroups(upperKey)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -638,7 +638,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	account.Network.IncSerial()
 	err = am.Store.SaveAccount(account)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	opEvent.TargetID = newPeer.ID
@@ -647,10 +647,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 
 	err = am.updateAccountPeers(account)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return newPeer, nil
+	networkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
+	return newPeer, networkMap, nil
 }
 
 func (am *DefaultAccountManager) checkPeerLoginExpiration(loginUserID string, peer *Peer, account *Account) error {
@@ -716,7 +717,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 
 // LoginPeer logs in or registers a peer.
 // If peer doesn't exist the function checks whether a setup key or a user is present and registers a new peer if so.
-func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, error) {
+func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) {
 
 	account, err := am.Store.GetAccountByPeerPubKey(login.WireGuardPubKey)
 	if err != nil {
@@ -730,7 +731,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, error) {
 			})
 		}
 		log.Errorf("failed while logging in peer %s: %v", login.WireGuardPubKey, err)
-		return nil, status.Errorf(status.Internal, "failed while logging in peer")
+		return nil, nil, status.Errorf(status.Internal, "failed while logging in peer")
 	}
 
 	// we found the peer, and we follow a normal login flow
@@ -740,32 +741,32 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, error) {
 	// fetch the account from the store once more after acquiring lock to avoid concurrent updates inconsistencies
 	account, err = am.Store.GetAccount(account.Id)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	peer, err := account.FindPeerByPubKey(login.WireGuardPubKey)
 	if err != nil {
-		return nil, status.Errorf(status.Unauthenticated, "peer is not registered")
+		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
 	err = am.checkPeerLoginExpiration(login.UserID, peer, account)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	peer = am.updatePeerMeta(peer, peer.Meta, account)
 
 	peer, err = am.checkAndUpdatePeerSSHKey(peer, account, login.SSHKey)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	err = am.Store.SaveAccount(account)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-
-	return peer, nil
+	networkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
+	return peer, networkMap, nil
 
 }
 

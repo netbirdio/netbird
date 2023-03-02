@@ -29,7 +29,7 @@ type MockAccountManager struct {
 	GetPeerByIPFunc                 func(accountId string, peerIP string) (*server.Peer, error)
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
-	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, error)
+	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, *server.NetworkMap, error)
 	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
 	UpdateGroupFunc                 func(accountID string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error)
@@ -70,7 +70,7 @@ type MockAccountManager struct {
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
 	GetPeerFunc                     func(accountID, peerID, userID string) (*server.Peer, error)
 	UpdateAccountSettingsFunc       func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
-	LoginPeerFunc                   func(login server.PeerLogin) (*server.Peer, error)
+	LoginPeerFunc                   func(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error)
 	SyncPeerFunc                    func(sync server.PeerSync) (*server.Peer, *server.NetworkMap, error)
 }
 
@@ -193,11 +193,11 @@ func (am *MockAccountManager) AddPeer(
 	setupKey string,
 	userId string,
 	peer *server.Peer,
-) (*server.Peer, error) {
+) (*server.Peer, *server.NetworkMap, error) {
 	if am.AddPeerFunc != nil {
 		return am.AddPeerFunc(setupKey, userId, peer)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
+	return nil, nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
 }
 
 // GetGroup mock implementation of GetGroup from server.AccountManager interface
@@ -541,11 +541,11 @@ func (am *MockAccountManager) UpdateAccountSettings(accountID, userID string, ne
 }
 
 // LoginPeer mocks LoginPeer of the AccountManager interface
-func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*server.Peer, error) {
+func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error) {
 	if am.LoginPeerFunc != nil {
 		return am.LoginPeerFunc(login)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method LoginPeer is not implemented")
+	return nil, nil, status.Errorf(codes.Unimplemented, "method LoginPeer is not implemented")
 }
 
 // SyncPeer mocks SyncPeer of the AccountManager interface

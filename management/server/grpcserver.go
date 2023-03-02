@@ -296,7 +296,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		sshKey = loginReq.GetPeerKeys().GetSshPubKey()
 	}
 
-	peer, err := s.accountManager.LoginPeer(PeerLogin{
+	peer, netMap, err := s.accountManager.LoginPeer(PeerLogin{
 		WireGuardPubKey: peerKey.String(),
 		SSHKey:          string(sshKey),
 		Meta:            extractPeerMeta(loginReq),
@@ -308,16 +308,10 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		return nil, mapError(err)
 	}
 
-	network, err := s.accountManager.GetPeerNetwork(peer.ID)
-	if err != nil {
-		log.Warnf("failed getting peer %s network on login", peer.ID)
-		return nil, status.Errorf(codes.Internal, "failed getting peer network on login")
-	}
-
 	// if peer has reached this point then it has logged in
 	loginResp := &proto.LoginResponse{
 		WiretrusteeConfig: toWiretrusteeConfig(s.config, nil),
-		PeerConfig:        toPeerConfig(peer, network, s.accountManager.GetDNSDomain()),
+		PeerConfig:        toPeerConfig(peer, netMap.Network, s.accountManager.GetDNSDomain()),
 	}
 	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, loginResp)
 	if err != nil {

@@ -60,7 +60,7 @@ type AccountManager interface {
 	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
-	AddPeer(setupKey, userID string, peer *Peer) (*Peer, error)
+	AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
@@ -94,8 +94,8 @@ type AccountManager interface {
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*Peer, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
-	LoginPeer(login PeerLogin) (*Peer, error)
-	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)
+	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) //used by peer gRPC API
+	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    //used by peer gRPC API
 }
 
 type DefaultAccountManager struct {
@@ -304,6 +304,35 @@ func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rul
 // GetGroup returns a group by ID if exists, nil otherwise
 func (a *Account) GetGroup(groupID string) *Group {
 	return a.Groups[groupID]
+}
+
+// GetPeerNetworkMap returns a group by ID if exists, nil otherwise
+func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
+	aclPeers := a.getPeersByACL(peerID)
+	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
+	routesUpdate := a.getRoutesToSync(peerID, aclPeers)
+
+	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
+	dnsUpdate := nbdns.Config{
+		ServiceEnable: dnsManagementStatus,
+	}
+
+	if dnsManagementStatus {
+		var zones []nbdns.CustomZone
+		peersCustomZone := getPeersCustomZone(a, dnsDomain)
+		if peersCustomZone.Domain != "" {
+			zones = append(zones, peersCustomZone)
+		}
+		dnsUpdate.CustomZones = zones
+		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
+	}
+
+	return &NetworkMap{
+		Peers:     aclPeers,
+		Network:   a.Network.Copy(),
+		Routes:    routesUpdate,
+		DNSConfig: dnsUpdate,
+	}
 }
 
 // GetExpiredPeers returns peers that have been expired

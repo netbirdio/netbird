@@ -90,7 +90,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		return
 	}
 
-	peer1, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer1, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-1"},
 	})
@@ -105,7 +105,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
+	_, _, err = manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -161,7 +161,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	peer1, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer1, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-1"},
 	})
@@ -176,7 +176,7 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	peer2, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer2, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -328,7 +328,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		return
 	}
 
-	peer1, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer1, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-1"},
 	})
@@ -343,7 +343,7 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
+	_, _, err = manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -395,7 +395,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 
-	peer1, err := manager.AddPeer("", someUser, &Peer{
+	peer1, _, err := manager.AddPeer("", someUser, &Peer{
 		Key:  peerKey1.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
@@ -412,7 +412,7 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// the second peer added with a setup key
-	peer2, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer2, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
 		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
