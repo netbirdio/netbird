@@ -441,7 +441,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 	var peersToConnect []*Peer
 	for _, p := range aclPeers {
 		expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
-		if expired && p.AddedWithSSOLogin() {
+		if expired {
 			continue
 		}
 		peersToConnect = append(peersToConnect, p)
