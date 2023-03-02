@@ -6,21 +6,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
+
 	"github.com/netbirdio/netbird/client/ssh"
 	nbStatus "github.com/netbirdio/netbird/client/status"
-
 	"github.com/netbirdio/netbird/client/system"
-
 	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	signal "github.com/netbirdio/netbird/signal/client"
-	log "github.com/sirupsen/logrus"
-
-	"github.com/cenkalti/backoff/v4"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 )
 
 // RunClient with main logic.
@@ -251,7 +249,7 @@ func loginToManagement(ctx context.Context, client mgm.Client, pubSSHKey []byte)
 // The check is performed only for the NetBird's managed version.
 func UpdateOldManagementPort(ctx context.Context, config *Config, configPath string) (*Config, error) {
 
-	defaultManagementURL, err := ParseURL("Management URL", DefaultManagementURL)
+	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +271,7 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 
 	if mgmTlsEnabled && config.ManagementURL.Port() == fmt.Sprintf("%d", ManagementLegacyPort) {
 
-		newURL, err := ParseURL("Management URL", fmt.Sprintf("%s://%s:%d",
+		newURL, err := parseURL("Management URL", fmt.Sprintf("%s://%s:%d",
 			config.ManagementURL.Scheme, config.ManagementURL.Hostname(), 443))
 		if err != nil {
 			return nil, err
@@ -307,7 +305,7 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 		}
 
 		// everything is alright => update the config
-		newConfig, err := ReadConfig(ConfigInput{
+		newConfig, err := UpdateConfig(ConfigInput{
 			ManagementURL: newURL.String(),
 			ConfigPath:    configPath,
 		})
