@@ -3,20 +3,19 @@ package server
 import (
 	"context"
 	"fmt"
-	nbStatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/client/system"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
-
-	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
+	nbStatus "github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/system"
 )
 
 // Server for service control.
@@ -77,9 +76,9 @@ func (s *Server) Start() error {
 
 	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
 	// on failure we return error to retry
-	config, err := internal.ReadConfig(s.latestConfigInput)
+	config, err := internal.UpdateConfig(s.latestConfigInput)
 	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
-		config, err = internal.GetConfig(s.latestConfigInput)
+		config, err = internal.UpdateOrCreateConfig(s.latestConfigInput)
 		if err != nil {
 			log.Warnf("unable to create configuration file: %v", err)
 			return err
@@ -182,7 +181,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 	inputConfig.PreSharedKey = &msg.PreSharedKey
 
-	config, err := internal.GetConfig(inputConfig)
+	config, err := internal.UpdateOrCreateConfig(inputConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +204,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config)
+		providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			s, ok := gstatus.FromError(err)
