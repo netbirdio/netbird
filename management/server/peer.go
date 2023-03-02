@@ -136,11 +136,15 @@ func (p *Peer) MarkLoginExpired(expired bool) {
 // Return true if a login has expired, false otherwise, and time left to expiration (negative when expired).
 // Login expiration can be disabled/enabled on a Peer level via Peer.LoginExpirationEnabled property.
 // Login expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled.
+// Only peers added by interactive SSO login can be expired.
 func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
+	if !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
+		return false, 0
+	}
 	expiresAt := p.LastLogin.Add(expiresIn)
 	now := time.Now()
 	timeLeft := expiresAt.Sub(now)
-	return p.LoginExpirationEnabled && (timeLeft <= 0), timeLeft
+	return timeLeft <= 0, timeLeft
 }
 
 // FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
@@ -920,10 +924,6 @@ func (a *Account) getPeersByACL(peerID string) []*Peer {
 					g.ID,
 					a.Id,
 				)
-				continue
-			}
-			expired, _ := peer.LoginExpired(a.Settings.PeerLoginExpiration)
-			if expired {
 				continue
 			}
 			// exclude original peer

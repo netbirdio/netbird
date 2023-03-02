@@ -1,19 +1,18 @@
 package internal
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"os"
 
-	"github.com/netbirdio/netbird/client/ssh"
-	"github.com/netbirdio/netbird/iface"
-	mgm "github.com/netbirdio/netbird/management/client"
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -74,6 +73,28 @@ type Config struct {
 	CustomDNSAddress string
 }
 
+// UpdateConfig update existing configuration according to input configuration and return with the configuration
+func UpdateConfig(input ConfigInput) (*Config, error) {
+	if !configFileIsExists(input.ConfigPath) {
+		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
+	}
+
+	return update(input)
+}
+
+// UpdateOrCreateConfig reads existing config or generates a new one
+func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
+	if !configFileIsExists(input.ConfigPath) {
+		log.Infof("generating new config %s", input.ConfigPath)
+		return createNewConfig(input)
+	}
+
+	if isPreSharedKeyHidden(input.PreSharedKey) {
+		input.PreSharedKey = nil
+	}
+	return update(input)
+}
+
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
 func createNewConfig(input ConfigInput) (*Config, error) {
 	wgKey := generateKey()
@@ -92,14 +113,14 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		CustomDNSAddress:     string(input.CustomDNSAddress),
 	}
 
-	defaultManagementURL, err := ParseURL("Management URL", DefaultManagementURL)
+	defaultManagementURL, err := parseURL("Management URL", DefaultManagementURL)
 	if err != nil {
 		return nil, err
 	}
 
 	config.ManagementURL = defaultManagementURL
 	if input.ManagementURL != "" {
-		URL, err := ParseURL("Management URL", input.ManagementURL)
+		URL, err := parseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return nil, err
 		}
@@ -110,14 +131,14 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		config.PreSharedKey = *input.PreSharedKey
 	}
 
-	defaultAdminURL, err := ParseURL("Admin URL", DefaultAdminURL)
+	defaultAdminURL, err := parseURL("Admin URL", DefaultAdminURL)
 	if err != nil {
 		return nil, err
 	}
 
 	config.AdminURL = defaultAdminURL
 	if input.AdminURL != "" {
-		newURL, err := ParseURL("Admin Panel URL", input.AdminURL)
+		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return nil, err
 		}
@@ -134,40 +155,8 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	return config, nil
 }
 
-// ParseURL parses and validates a service URL
-func ParseURL(serviceName, serviceURL string) (*url.URL, error) {
-	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
-	if err != nil {
-		log.Errorf("failed parsing %s URL %s: [%s]", serviceName, serviceURL, err.Error())
-		return nil, err
-	}
-
-	if parsedMgmtURL.Scheme != "https" && parsedMgmtURL.Scheme != "http" {
-		return nil, fmt.Errorf(
-			"invalid %s URL provided %s. Supported format [http|https]://[host]:[port]",
-			serviceName, serviceURL)
-	}
-
-	if parsedMgmtURL.Port() == "" {
-		switch parsedMgmtURL.Scheme {
-		case "https":
-			parsedMgmtURL.Host = parsedMgmtURL.Host + ":443"
-		case "http":
-			parsedMgmtURL.Host = parsedMgmtURL.Host + ":80"
-		default:
-			log.Infof("unable to determine a default port for schema %s in URL %s", parsedMgmtURL.Scheme, serviceURL)
-		}
-	}
-
-	return parsedMgmtURL, err
-}
-
-// ReadConfig reads existing configuration and update settings according to input configuration
-func ReadConfig(input ConfigInput) (*Config, error) {
+func update(input ConfigInput) (*Config, error) {
 	config := &Config{}
-	if _, err := os.Stat(input.ConfigPath); os.IsNotExist(err) {
-		return nil, status.Errorf(codes.NotFound, "config file doesn't exist")
-	}
 
 	if _, err := util.ReadJson(input.ConfigPath, config); err != nil {
 		return nil, err
@@ -178,7 +167,7 @@ func ReadConfig(input ConfigInput) (*Config, error) {
 	if input.ManagementURL != "" && config.ManagementURL.String() != input.ManagementURL {
 		log.Infof("new Management URL provided, updated to %s (old value %s)",
 			input.ManagementURL, config.ManagementURL)
-		newURL, err := ParseURL("Management URL", input.ManagementURL)
+		newURL, err := parseURL("Management URL", input.ManagementURL)
 		if err != nil {
 			return nil, err
 		}
@@ -189,7 +178,7 @@ func ReadConfig(input ConfigInput) (*Config, error) {
 	if input.AdminURL != "" && (config.AdminURL == nil || config.AdminURL.String() != input.AdminURL) {
 		log.Infof("new Admin Panel URL provided, updated to %s (old value %s)",
 			input.AdminURL, config.AdminURL)
-		newURL, err := ParseURL("Admin Panel URL", input.AdminURL)
+		newURL, err := parseURL("Admin Panel URL", input.AdminURL)
 		if err != nil {
 			return nil, err
 		}
@@ -237,17 +226,32 @@ func ReadConfig(input ConfigInput) (*Config, error) {
 	return config, nil
 }
 
-// GetConfig reads existing config or generates a new one
-func GetConfig(input ConfigInput) (*Config, error) {
-	if _, err := os.Stat(input.ConfigPath); os.IsNotExist(err) {
-		log.Infof("generating new config %s", input.ConfigPath)
-		return createNewConfig(input)
+// parseURL parses and validates a service URL
+func parseURL(serviceName, serviceURL string) (*url.URL, error) {
+	parsedMgmtURL, err := url.ParseRequestURI(serviceURL)
+	if err != nil {
+		log.Errorf("failed parsing %s URL %s: [%s]", serviceName, serviceURL, err.Error())
+		return nil, err
 	}
 
-	if isPreSharedKeyHidden(input.PreSharedKey) {
-		input.PreSharedKey = nil
+	if parsedMgmtURL.Scheme != "https" && parsedMgmtURL.Scheme != "http" {
+		return nil, fmt.Errorf(
+			"invalid %s URL provided %s. Supported format [http|https]://[host]:[port]",
+			serviceName, serviceURL)
 	}
-	return ReadConfig(input)
+
+	if parsedMgmtURL.Port() == "" {
+		switch parsedMgmtURL.Scheme {
+		case "https":
+			parsedMgmtURL.Host = parsedMgmtURL.Host + ":443"
+		case "http":
+			parsedMgmtURL.Host = parsedMgmtURL.Host + ":80"
+		default:
+			log.Infof("unable to determine a default port for schema %s in URL %s", parsedMgmtURL.Scheme, serviceURL)
+		}
+	}
+
+	return parsedMgmtURL, err
 }
 
 // generateKey generates a new Wireguard private key
@@ -259,115 +263,15 @@ func generateKey() string {
 	return key.String()
 }
 
-// DeviceAuthorizationFlow represents Device Authorization Flow information
-type DeviceAuthorizationFlow struct {
-	Provider       string
-	ProviderConfig ProviderConfig
-}
-
-// ProviderConfig has all attributes needed to initiate a device authorization flow
-type ProviderConfig struct {
-	// ClientID An IDP application client id
-	ClientID string
-	// ClientSecret An IDP application client secret
-	ClientSecret string
-	// Domain An IDP API domain
-	// Deprecated. Use OIDCConfigEndpoint instead
-	Domain string
-	// Audience An Audience for to authorization validation
-	Audience string
-	// TokenEndpoint is the endpoint of an IDP manager where clients can obtain access token
-	TokenEndpoint string
-	// DeviceAuthEndpoint is the endpoint of an IDP manager where clients can obtain device authorization code
-	DeviceAuthEndpoint string
-}
-
-func GetDeviceAuthorizationFlowInfo(ctx context.Context, config *Config) (DeviceAuthorizationFlow, error) {
-	// validate our peer's Wireguard PRIVATE key
-	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
-	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-		return DeviceAuthorizationFlow{}, err
-	}
-
-	var mgmTlsEnabled bool
-	if config.ManagementURL.Scheme == "https" {
-		mgmTlsEnabled = true
-	}
-
-	log.Debugf("connecting to Management Service %s", config.ManagementURL.String())
-	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
-	if err != nil {
-		log.Errorf("failed connecting to Management Service %s %v", config.ManagementURL.String(), err)
-		return DeviceAuthorizationFlow{}, err
-	}
-	log.Debugf("connected to the Management service %s", config.ManagementURL.String())
-	defer func() {
-		err = mgmClient.Close()
-		if err != nil {
-			log.Warnf("failed to close the Management service client %v", err)
-		}
-	}()
-
-	serverKey, err := mgmClient.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return DeviceAuthorizationFlow{}, err
-	}
-
-	protoDeviceAuthorizationFlow, err := mgmClient.GetDeviceAuthorizationFlow(*serverKey)
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
-			log.Warnf("server couldn't find device flow, contact admin: %v", err)
-			return DeviceAuthorizationFlow{}, err
-		} else {
-			log.Errorf("failed to retrieve device flow: %v", err)
-			return DeviceAuthorizationFlow{}, err
-		}
-	}
-
-	deviceAuthorizationFlow := DeviceAuthorizationFlow{
-		Provider: protoDeviceAuthorizationFlow.Provider.String(),
-
-		ProviderConfig: ProviderConfig{
-			Audience:           protoDeviceAuthorizationFlow.GetProviderConfig().GetAudience(),
-			ClientID:           protoDeviceAuthorizationFlow.GetProviderConfig().GetClientID(),
-			ClientSecret:       protoDeviceAuthorizationFlow.GetProviderConfig().GetClientSecret(),
-			Domain:             protoDeviceAuthorizationFlow.GetProviderConfig().Domain,
-			TokenEndpoint:      protoDeviceAuthorizationFlow.GetProviderConfig().GetTokenEndpoint(),
-			DeviceAuthEndpoint: protoDeviceAuthorizationFlow.GetProviderConfig().GetDeviceAuthEndpoint(),
-		},
-	}
-
-	err = isProviderConfigValid(deviceAuthorizationFlow.ProviderConfig)
-	if err != nil {
-		return DeviceAuthorizationFlow{}, err
-	}
-
-	return deviceAuthorizationFlow, nil
-}
-
-func isProviderConfigValid(config ProviderConfig) error {
-	errorMSGFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
-	if config.Audience == "" {
-		return fmt.Errorf(errorMSGFormat, "Audience")
-	}
-	if config.ClientID == "" {
-		return fmt.Errorf(errorMSGFormat, "Client ID")
-	}
-	if config.TokenEndpoint == "" {
-		return fmt.Errorf(errorMSGFormat, "Token Endpoint")
-	}
-	if config.DeviceAuthEndpoint == "" {
-		return fmt.Errorf(errorMSGFormat, "Device Auth Endpoint")
-	}
-	return nil
-}
-
 // don't overwrite pre-shared key if we receive asterisks from UI
 func isPreSharedKeyHidden(preSharedKey *string) bool {
 	if preSharedKey != nil && *preSharedKey == "**********" {
 		return true
 	}
 	return false
+}
+
+func configFileIsExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
 }

@@ -55,6 +55,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 			peer := &Peer{
 				LoginExpirationEnabled: c.expirationEnabled,
 				LastLogin:              c.lastLogin,
+				UserID:                 userID,
 			}
 
 			expired, _ := peer.LoginExpired(c.accountSettings.PeerLoginExpiration)
