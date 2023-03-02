@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -639,24 +640,33 @@ func (a *Account) GetPeer(peerID string) *Peer {
 }
 
 // ruleToPolicy converts a Rule to a Policy query object
-func (a *Account) ruleToPolicy(rule *Rule) *Policy {
-	getGroups := func(groups []string) (result string) {
-		for i := range groups {
-			groups[i] = fmt.Sprintf(`"%s"`, strings.Trim(groups[i], `"`))
-		}
-		return strings.Join(groups, ",")
+func (a *Account) ruleToPolicy(rule *Rule) (*Policy, error) {
+	input := struct {
+		All         []string
+		Source      []string
+		Destination []string
+	}{
+		All:         append(append([]string{}, rule.Destination...), rule.Source...),
+		Source:      rule.Source,
+		Destination: rule.Destination,
+	}
+	buff := new(bytes.Buffer)
+	if err := defaultPolicyTemplate.Execute(buff, input); err != nil {
+		return nil, err
 	}
 	return &Policy{
 		ID:          rule.ID,
 		Name:        rule.Name,
 		Description: rule.Description,
-		Query: fmt.Sprintf(
-			defaultPolicy,
-			getGroups(rule.Destination),
-			getGroups(rule.Source),
-		),
-		Disabled: rule.Disabled,
-	}
+		Query:       buff.String(),
+		Disabled:    rule.Disabled,
+		Meta: &PolicyMeta{
+			Action:       PolicyTrafficActionAccept,
+			Destinations: rule.Destination,
+			Sources:      rule.Source,
+			Port:         "",
+		},
+	}, nil
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -695,7 +705,9 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 
 		_, err := account.GetGroupAll()
 		if err != nil {
-			addAllGroup(account)
+			if err := addAllGroup(account); err != nil {
+				return nil, err
+			}
 			shouldSave = true
 		}
 
@@ -1301,7 +1313,7 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 }
 
 // addAllGroup to account object if it doesn't exists
-func addAllGroup(account *Account) {
+func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
 			ID:   xid.New().String(),
@@ -1322,8 +1334,13 @@ func addAllGroup(account *Account) {
 		}
 		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
 
-		account.Policies = []*Policy{account.ruleToPolicy(defaultRule)}
+		defaultPolicy, err := account.ruleToPolicy(defaultRule)
+		if err != nil {
+			return fmt.Errorf("convert rule to policy: %w", err)
+		}
+		account.Policies = []*Policy{defaultPolicy}
 	}
+	return nil
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
@@ -1364,7 +1381,9 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 		},
 	}
 
-	addAllGroup(acc)
+	if err := addAllGroup(acc); err != nil {
+		log.Errorf("error adding all group to account %s: %v", acc.Id, err)
+	}
 	return acc
 }
 

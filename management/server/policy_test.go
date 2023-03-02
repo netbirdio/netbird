@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"net"
 	"testing"
 
@@ -31,16 +30,22 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Peers: []string{"peer1", "peer2", "peer3"},
 			},
 		},
-		Policies: []*Policy{
-			{
+		Rules: map[string]*Rule{
+			"default": {
 				ID:          "default",
 				Name:        "default",
 				Description: "default",
 				Disabled:    false,
-				Query:       fmt.Sprintf(defaultPolicy, `"gid1"`, `"gid1"`),
+				Source:      []string{"gid1"},
+				Destination: []string{"gid1"},
 			},
 		},
 	}
+
+	rule, err := account.ruleToPolicy(account.Rules["default"])
+	assert.NoError(t, err)
+
+	account.Policies = append(account.Policies, rule)
 
 	peers, firewallRules := account.getPeersByPolicy("peer1")
 	expected := []*Peer{account.Peers["peer2"], account.Peers["peer3"]}

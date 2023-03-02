@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,22 +117,10 @@ func restore(file string) (*FileStore, error) {
 		if len(account.Policies) == 0 {
 			account.Policies = make([]*Policy, 0)
 			for _, rule := range account.Rules {
-				policy := &Policy{
-					ID:          xid.New().String(),
-					Name:        rule.Name,
-					Disabled:    rule.Disabled,
-					Description: rule.Description,
-					Query: fmt.Sprintf(
-						defaultPolicy,
-						strings.Join(rule.Destination, ","),
-						strings.Join(rule.Source, ","),
-					),
-					Meta: &PolicyMeta{
-						Action:       PolicyTrafficActionAccept,
-						Destinations: rule.Destination,
-						Sources:      rule.Source,
-						Port:         "",
-					},
+				policy, err := account.ruleToPolicy(rule)
+				if err != nil {
+					log.Errorf("unable to migrate rule to policy: %v", err)
+					continue
 				}
 				account.Policies = append(account.Policies, policy)
 			}

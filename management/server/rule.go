@@ -139,7 +139,11 @@ func (am *DefaultAccountManager) SaveRule(accountID, userID string, rule *Rule) 
 
 	account.Rules[rule.ID] = rule
 	// temporary solution until we drop rules support
-	_ = am.savePolicy(account, account.ruleToPolicy(rule))
+	policy, err := account.ruleToPolicy(rule)
+	if err != nil {
+		return err
+	}
+	_ = am.savePolicy(account, policy)
 
 	account.Network.IncSerial()
 	if err = am.Store.SaveAccount(account); err != nil {

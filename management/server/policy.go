@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"html/template"
 	"strings"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -47,7 +48,10 @@ type PolicyUpdateOperation struct {
 var defaultPolicyModule string
 
 //go:embed rego/default_policy.rego
-var defaultPolicy string
+var defaultPolicyText string
+
+// defaultPolicyTemplate is a template for the default policy
+var defaultPolicyTemplate = template.Must(template.New("policy").Parse(defaultPolicyText))
 
 // PolicyMeta is the metadata of the policy
 type PolicyMeta struct {
@@ -181,6 +185,9 @@ func (a *Account) getRegoQuery(policies ...*Policy) (rego.PreparedEvalQuery, err
 		rego.Module("netbird", defaultPolicyModule),
 	}
 	for i, p := range policies {
+		if p.Disabled {
+			continue
+		}
 		queries = append(queries, rego.Module(fmt.Sprintf("netbird-%d", i), p.Query))
 	}
 	return rego.New(queries...).PrepareForEval(context.TODO())
