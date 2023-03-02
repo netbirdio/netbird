@@ -1498,6 +1498,7 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 						LoginExpired: false,
 					},
 					LastLogin: time.Now().Add(-30 * time.Minute),
+					UserID:    userID,
 				},
 				"peer-2": {
 					ID:                     "peer-2",
@@ -1508,6 +1509,7 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 						LoginExpired: false,
 					},
 					LastLogin: time.Now().Add(-2 * time.Hour),
+					UserID:    userID,
 				},
 
 				"peer-3": {
@@ -1519,6 +1521,7 @@ func TestAccount_GetExpiredPeers(t *testing.T) {
 						LoginExpired: false,
 					},
 					LastLogin: time.Now().Add(-1 * time.Hour),
+					UserID:    userID,
 				},
 			},
 			expectedPeers: map[string]struct{}{
