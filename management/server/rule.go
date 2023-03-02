@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"strings"
 
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -98,6 +99,44 @@ func (r *Rule) EventMeta() map[string]any {
 	return map[string]any{"name": r.Name}
 }
 
+// ToPolicyRule converts a Rule to a PolicyRule object
+func (r *Rule) ToPolicyRule() *PolicyRule {
+	return &PolicyRule{
+		ID:           r.ID,
+		Name:         r.Name,
+		Description:  r.Description,
+		Action:       PolicyTrafficActionAccept,
+		Destinations: r.Destination,
+		Sources:      r.Source,
+		Port:         "",
+	}
+}
+
+// RuleToPolicy converts a Rule to a Policy query object
+func RuleToPolicy(rule *Rule) (*Policy, error) {
+	input := struct {
+		All         []string
+		Source      []string
+		Destination []string
+	}{
+		All:         append(append([]string{}, rule.Destination...), rule.Source...),
+		Source:      rule.Source,
+		Destination: rule.Destination,
+	}
+	buff := new(bytes.Buffer)
+	if err := defaultPolicyTemplate.Execute(buff, input); err != nil {
+		return nil, err
+	}
+	return &Policy{
+		ID:          rule.ID,
+		Name:        rule.Name,
+		Description: rule.Description,
+		Query:       buff.String(),
+		Disabled:    rule.Disabled,
+		Rules:       []*PolicyRule{rule.ToPolicyRule()},
+	}, nil
+}
+
 // GetRule of ACL from the store
 func (am *DefaultAccountManager) GetRule(accountID, ruleID, userID string) (*Rule, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
@@ -139,7 +178,7 @@ func (am *DefaultAccountManager) SaveRule(accountID, userID string, rule *Rule) 
 
 	account.Rules[rule.ID] = rule
 	// temporary solution until we drop rules support
-	policy, err := account.ruleToPolicy(rule)
+	policy, err := RuleToPolicy(rule)
 	if err != nil {
 		return err
 	}

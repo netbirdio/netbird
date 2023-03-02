@@ -95,16 +95,18 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		Query:       req.Query,
 	}
 	if req.Meta != nil {
-		policy.Meta = &server.PolicyMeta{
-			Destinations: toGroupMinimumsToGroups(account, req.Meta.Destinations),
-			Sources:      toGroupMinimumsToGroups(account, req.Meta.Sources),
-			Port:         req.Meta.Port,
+		policy.Rules = []*server.PolicyRule{
+			{
+				Destinations: toGroupMinimumsToGroups(account, req.Meta.Destinations),
+				Sources:      toGroupMinimumsToGroups(account, req.Meta.Sources),
+				Port:         req.Meta.Port,
+			},
 		}
 		switch req.Meta.Action {
 		case api.PolicyMetaActionAccept:
-			policy.Meta.Action = server.PolicyTrafficActionAccept
+			policy.Rules[0].Action = server.PolicyTrafficActionAccept
 		case api.PolicyMetaActionDrop:
-			policy.Meta.Action = server.PolicyTrafficActionDrop
+			policy.Rules[0].Action = server.PolicyTrafficActionDrop
 		default:
 			util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
 			return
@@ -148,16 +150,18 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Meta != nil {
-		policy.Meta = &server.PolicyMeta{
-			Destinations: toGroupMinimumsToGroups(account, req.Meta.Destinations),
-			Sources:      toGroupMinimumsToGroups(account, req.Meta.Sources),
-			Port:         req.Meta.Port,
+		policy.Rules = []*server.PolicyRule{
+			{
+				Destinations: toGroupMinimumsToGroups(account, req.Meta.Destinations),
+				Sources:      toGroupMinimumsToGroups(account, req.Meta.Sources),
+				Port:         req.Meta.Port,
+			},
 		}
 		switch req.Meta.Action {
 		case api.PolicyMetaActionAccept:
-			policy.Meta.Action = server.PolicyTrafficActionAccept
+			policy.Rules[0].Action = server.PolicyTrafficActionAccept
 		case api.PolicyMetaActionDrop:
-			policy.Meta.Action = server.PolicyTrafficActionDrop
+			policy.Rules[0].Action = server.PolicyTrafficActionDrop
 		default:
 			util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
 			return
@@ -236,16 +240,16 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 		Disabled:    policy.Disabled,
 		Query:       policy.Query,
 	}
-	if policy.Meta == nil {
+	if len(policy.Rules) == 0 {
 		return ap
 	}
 
 	ap.Meta = &api.PolicyMeta{
-		Port:   policy.Meta.Port,
-		Action: api.PolicyMetaAction(policy.Meta.Action),
+		Port:   policy.Rules[0].Port,
+		Action: api.PolicyMetaAction(policy.Rules[0].Action),
 	}
 
-	for _, gid := range policy.Meta.Sources {
+	for _, gid := range policy.Rules[0].Sources {
 		_, ok := cache[gid]
 		if ok {
 			continue
@@ -263,7 +267,7 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 		}
 	}
 
-	for _, gid := range policy.Meta.Destinations {
+	for _, gid := range policy.Rules[0].Destinations {
 		cachedMinimum, ok := cache[gid]
 		if ok {
 			ap.Meta.Destinations = append(ap.Meta.Destinations, cachedMinimum)

@@ -42,7 +42,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 		},
 	}
 
-	rule, err := account.ruleToPolicy(account.Rules["default"])
+	rule, err := RuleToPolicy(account.Rules["default"])
 	assert.NoError(t, err)
 
 	account.Policies = append(account.Policies, rule)

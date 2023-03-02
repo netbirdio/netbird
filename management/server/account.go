@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"math/rand"
@@ -637,36 +636,6 @@ func (a *Account) GetGroupAll() (*Group, error) {
 // GetPeer looks up a Peer by ID
 func (a *Account) GetPeer(peerID string) *Peer {
 	return a.Peers[peerID]
-}
-
-// ruleToPolicy converts a Rule to a Policy query object
-func (a *Account) ruleToPolicy(rule *Rule) (*Policy, error) {
-	input := struct {
-		All         []string
-		Source      []string
-		Destination []string
-	}{
-		All:         append(append([]string{}, rule.Destination...), rule.Source...),
-		Source:      rule.Source,
-		Destination: rule.Destination,
-	}
-	buff := new(bytes.Buffer)
-	if err := defaultPolicyTemplate.Execute(buff, input); err != nil {
-		return nil, err
-	}
-	return &Policy{
-		ID:          rule.ID,
-		Name:        rule.Name,
-		Description: rule.Description,
-		Query:       buff.String(),
-		Disabled:    rule.Disabled,
-		Meta: &PolicyMeta{
-			Action:       PolicyTrafficActionAccept,
-			Destinations: rule.Destination,
-			Sources:      rule.Source,
-			Port:         "",
-		},
-	}, nil
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1334,7 +1303,7 @@ func addAllGroup(account *Account) error {
 		}
 		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
 
-		defaultPolicy, err := account.ruleToPolicy(defaultRule)
+		defaultPolicy, err := RuleToPolicy(defaultRule)
 		if err != nil {
 			return fmt.Errorf("convert rule to policy: %w", err)
 		}

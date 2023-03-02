@@ -117,7 +117,7 @@ func restore(file string) (*FileStore, error) {
 		if len(account.Policies) == 0 {
 			account.Policies = make([]*Policy, 0)
 			for _, rule := range account.Rules {
-				policy, err := account.ruleToPolicy(rule)
+				policy, err := RuleToPolicy(rule)
 				if err != nil {
 					log.Errorf("unable to migrate rule to policy: %v", err)
 					continue

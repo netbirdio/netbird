@@ -40,14 +40,16 @@ func (h *RulesHandler) GetAllRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountRules, err := h.accountManager.ListRules(account.Id, user.Id)
+	accountPolicies, err := h.accountManager.ListPolicies(account.Id, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
 	}
 	rules := []*api.Rule{}
-	for _, r := range accountRules {
-		rules = append(rules, toRuleResponse(account, r))
+	for _, policy := range accountPolicies {
+		for _, r := range policy.Rules {
+			rules = append(rules, toRuleResponse(account, r.ToRule()))
+		}
 	}
 
 	util.WriteJSONObject(w, rules)
@@ -113,13 +115,18 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.SaveRule(account.Id, user.Id, &rule)
+	policy, err := server.RuleToPolicy(&rule)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+	err = h.accountManager.SavePolicy(account.Id, user.Id, policy)
 	if err != nil {
 		util.WriteError(err, w)
 		return
 	}
 
-	resp := toRuleResponse(account, &rule)
+	resp := toRuleResponse(account, policy.Rules[0].ToRule())
 
 	util.WriteJSONObject(w, &resp)
 }
@@ -315,7 +322,12 @@ func (h *RulesHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.SaveRule(account.Id, user.Id, &rule)
+	policy, err := server.RuleToPolicy(&rule)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+	err = h.accountManager.SavePolicy(account.Id, user.Id, policy)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -342,7 +354,7 @@ func (h *RulesHandler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteRule(aID, rID, user.Id)
+	err = h.accountManager.DeletePolicy(aID, rID, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -368,13 +380,13 @@ func (h *RulesHandler) GetRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		rule, err := h.accountManager.GetRule(account.Id, ruleID, user.Id)
+		policy, err := h.accountManager.GetPolicy(account.Id, ruleID, user.Id)
 		if err != nil {
 			util.WriteError(status.Errorf(status.NotFound, "rule not found"), w)
 			return
 		}
 
-		util.WriteJSONObject(w, toRuleResponse(account, rule))
+		util.WriteJSONObject(w, toRuleResponse(account, policy.Rules[0].ToRule()))
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "method not found"), w)
 	}

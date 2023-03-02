@@ -53,8 +53,20 @@ var defaultPolicyText string
 // defaultPolicyTemplate is a template for the default policy
 var defaultPolicyTemplate = template.Must(template.New("policy").Parse(defaultPolicyText))
 
-// PolicyMeta is the metadata of the policy
-type PolicyMeta struct {
+// PolicyRule is the metadata of the policy
+type PolicyRule struct {
+	// ID of the policy rule
+	ID string
+
+	// Name of the rule visible in the UI
+	Name string
+
+	// Description of the rule visible in the UI
+	Description string
+
+	// Disabled status of rule in the system
+	Disabled bool
+
 	// Action policy accept or drops packets
 	Action PolicyTrafficActionType `json:"action"`
 
@@ -69,12 +81,28 @@ type PolicyMeta struct {
 }
 
 // Copy returns a copy of the policy.
-func (pm *PolicyMeta) Copy() *PolicyMeta {
-	return &PolicyMeta{
+func (pm *PolicyRule) Copy() *PolicyRule {
+	return &PolicyRule{
+		ID:           pm.ID,
+		Name:         pm.Name,
+		Description:  pm.Description,
+		Disabled:     pm.Disabled,
 		Action:       pm.Action,
 		Destinations: pm.Destinations[:],
 		Sources:      pm.Sources[:],
 		Port:         pm.Port,
+	}
+}
+
+func (pm *PolicyRule) ToRule() *Rule {
+	return &Rule{
+		ID:          pm.ID,
+		Name:        pm.Name,
+		Description: pm.Description,
+		Disabled:    pm.Disabled,
+		Flow:        TrafficFlowBidirect,
+		Destination: pm.Destinations,
+		Source:      pm.Sources,
 	}
 }
 
@@ -95,8 +123,8 @@ type Policy struct {
 	// Query of Rego the policy
 	Query string
 
-	// Meta of the policy
-	Meta *PolicyMeta
+	// Rules of the policy
+	Rules []*PolicyRule
 }
 
 // Copy returns a copy of the policy.
@@ -108,8 +136,8 @@ func (p *Policy) Copy() *Policy {
 		Disabled:    p.Disabled,
 		Query:       p.Query,
 	}
-	if p.Meta != nil {
-		c.Meta = p.Meta.Copy()
+	for _, r := range p.Rules {
+		c.Rules = append(c.Rules, r.Copy())
 	}
 	return c
 }
