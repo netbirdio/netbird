@@ -36,7 +36,8 @@ type ProviderConfig struct {
 	DeviceAuthEndpoint string
 }
 
-func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmUrl *url.URL) (DeviceAuthorizationFlow, error) {
+// GetDeviceAuthorizationFlowInfo initialize a DeviceAuthorizationFlow instance and return with it
+func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmURL *url.URL) (DeviceAuthorizationFlow, error) {
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
@@ -44,18 +45,18 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 		return DeviceAuthorizationFlow{}, err
 	}
 
-	var mgmTlsEnabled bool
-	if mgmUrl.Scheme == "https" {
-		mgmTlsEnabled = true
+	var mgmTLSEnabled bool
+	if mgmURL.Scheme == "https" {
+		mgmTLSEnabled = true
 	}
 
-	log.Debugf("connecting to Management Service %s", mgmUrl.String())
-	mgmClient, err := mgm.NewClient(ctx, mgmUrl.Host, myPrivateKey, mgmTlsEnabled)
+	log.Debugf("connecting to Management Service %s", mgmURL.String())
+	mgmClient, err := mgm.NewClient(ctx, mgmURL.Host, myPrivateKey, mgmTLSEnabled)
 	if err != nil {
-		log.Errorf("failed connecting to Management Service %s %v", mgmUrl.String(), err)
+		log.Errorf("failed connecting to Management Service %s %v", mgmURL.String(), err)
 		return DeviceAuthorizationFlow{}, err
 	}
-	log.Debugf("connected to the Management service %s", mgmUrl.String())
+	log.Debugf("connected to the Management service %s", mgmURL.String())
 	defer func() {
 		err = mgmClient.Close()
 		if err != nil {
@@ -74,10 +75,9 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 		if s, ok := status.FromError(err); ok && s.Code() == codes.NotFound {
 			log.Warnf("server couldn't find device flow, contact admin: %v", err)
 			return DeviceAuthorizationFlow{}, err
-		} else {
-			log.Errorf("failed to retrieve device flow: %v", err)
-			return DeviceAuthorizationFlow{}, err
 		}
+		log.Errorf("failed to retrieve device flow: %v", err)
+		return DeviceAuthorizationFlow{}, err
 	}
 
 	deviceAuthorizationFlow := DeviceAuthorizationFlow{
