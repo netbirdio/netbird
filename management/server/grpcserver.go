@@ -284,7 +284,6 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	// JWT token is not always provided, it is fine for userID to be empty cuz it might be that peer is already registered,
 	// or it uses a setup key to register.
 	if loginReq.GetJwtToken() != "" {
-		// todo what about the case when JWT provided is expired?
 		userID, err = s.validateToken(loginReq.GetJwtToken())
 		if err != nil {
 			log.Warnf("failed validating JWT token sent from peer %s", peerKey)
