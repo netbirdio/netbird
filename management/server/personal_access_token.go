@@ -8,9 +8,11 @@ import (
 	"time"
 
 	"codeberg.org/ac/base62"
+	"github.com/rs/xid"
 )
 
 type PersonalAccessToken struct {
+	ID             string
 	Description    string
 	HashedToken    [32]byte
 	ExpirationDate time.Time
@@ -38,6 +40,7 @@ func CreateNewPAT(description string, expirationInDays int, createdBy User) (*Pe
 	hashedToken, plainToken := generateNewToken()
 	currentTime := time.Now().UTC()
 	return &PersonalAccessToken{
+		ID:             xid.New().String(),
 		Description:    description,
 		HashedToken:    hashedToken,
 		ExpirationDate: currentTime.AddDate(0, 0, expirationInDays),
