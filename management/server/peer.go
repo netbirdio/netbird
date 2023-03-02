@@ -108,11 +108,15 @@ func (p *Peer) MarkLoginExpired(expired bool) {
 // Return true if a login has expired, false otherwise, and time left to expiration (negative when expired).
 // Login expiration can be disabled/enabled on a Peer level via Peer.LoginExpirationEnabled property.
 // Login expiration can also be disabled/enabled globally on the Account level via Settings.PeerLoginExpirationEnabled.
+// Only peers added by interactive SSO login can be expired.
 func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
+	if !p.AddedWithSSOLogin() || !p.LoginExpirationEnabled {
+		return false, 0
+	}
 	expiresAt := p.LastLogin.Add(expiresIn)
 	now := time.Now()
 	timeLeft := expiresAt.Sub(now)
-	return p.LoginExpirationEnabled && (timeLeft <= 0), timeLeft
+	return timeLeft <= 0, timeLeft
 }
 
 // FQDN returns peers FQDN combined of the peer's DNS label and the system's DNS domain
@@ -433,8 +437,17 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 	}
 
 	aclPeers := account.getPeersByACL(peerID)
+	// exclude expired peers
+	var peersToConnect []*Peer
+	for _, p := range aclPeers {
+		expired, _ := peer.LoginExpired(account.Settings.PeerLoginExpiration)
+		if expired {
+			continue
+		}
+		peersToConnect = append(peersToConnect, p)
+	}
 	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-	routesUpdate := account.getRoutesToSync(peerID, aclPeers)
+	routesUpdate := account.getRoutesToSync(peerID, peersToConnect)
 
 	dnsManagementStatus := account.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
@@ -452,7 +465,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 	}
 
 	return &NetworkMap{
-		Peers:     aclPeers,
+		Peers:     peersToConnect,
 		Network:   account.Network.Copy(),
 		Routes:    routesUpdate,
 		DNSConfig: dnsUpdate,
@@ -798,10 +811,6 @@ func (a *Account) getPeersByACL(peerID string) []*Peer {
 					g.ID,
 					a.Id,
 				)
-				continue
-			}
-			expired, _ := peer.LoginExpired(a.Settings.PeerLoginExpiration)
-			if expired {
 				continue
 			}
 			// exclude original peer
