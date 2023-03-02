@@ -309,8 +309,17 @@ func (a *Account) GetGroup(groupID string) *Group {
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
 func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	aclPeers := a.getPeersByACL(peerID)
+	// exclude expired peers
+	var peersToConnect []*Peer
+	for _, p := range aclPeers {
+		expired, _ := p.LoginExpired(a.Settings.PeerLoginExpiration)
+		if expired {
+			continue
+		}
+		peersToConnect = append(peersToConnect, p)
+	}
 	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
-	routesUpdate := a.getRoutesToSync(peerID, aclPeers)
+	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
 
 	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
 	dnsUpdate := nbdns.Config{
@@ -328,7 +337,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	}
 
 	return &NetworkMap{
-		Peers:     aclPeers,
+		Peers:     peersToConnect,
 		Network:   a.Network.Copy(),
 		Routes:    routesUpdate,
 		DNSConfig: dnsUpdate,
