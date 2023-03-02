@@ -49,14 +49,12 @@ type AccountManager interface {
 	SaveUser(accountID, userID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
-	GetAccountByPeerID(peerID string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
-	MarkPeerLoginExpired(peerPubKey string, loginExpired bool) error
 	DeletePeer(accountID, peerID, userID string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
@@ -801,11 +799,6 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 	log.Infof("warmed up IDP cache with %d entries", len(userData))
 	return nil
-}
-
-// GetAccountByPeerID returns account from the store by a provided peer ID
-func (am *DefaultAccountManager) GetAccountByPeerID(peerID string) (*Account, error) {
-	return am.Store.GetAccountByPeerID(peerID)
 }
 
 // GetAccountByUserOrAccountID looks for an account by user or accountID, if no account is provided and
