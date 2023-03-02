@@ -39,8 +39,6 @@ func init() {
 
 type Client struct {
 	cfgFile       string
-	adminURL      string
-	mgmUrl        string
 	tunAdapter    iface.TunAdapter
 	recorder      *status.Status
 	ctxCancel     context.CancelFunc
@@ -49,14 +47,12 @@ type Client struct {
 	deviceName    string
 }
 
-func NewClient(cfgFile, adminURL, mgmURL string, deviceName string, tunAdapter TunAdapter, urlOpener UrlOpener) *Client {
+func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, urlOpener UrlOpener) *Client {
 	lvl, _ := log.ParseLevel("trace")
 	log.SetLevel(lvl)
 
 	return &Client{
 		cfgFile:       cfgFile,
-		adminURL:      adminURL,
-		mgmUrl:        mgmURL,
 		deviceName:    deviceName,
 		tunAdapter:    tunAdapter,
 		urlOpener:     urlOpener,
@@ -67,9 +63,7 @@ func NewClient(cfgFile, adminURL, mgmURL string, deviceName string, tunAdapter T
 
 func (c *Client) Run() error {
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
-		ManagementURL: c.mgmUrl,
-		AdminURL:      c.adminURL,
-		ConfigPath:    c.cfgFile,
+		ConfigPath: c.cfgFile,
 	})
 
 	var ctx context.Context
@@ -174,7 +168,7 @@ func (c *Client) foregroundGetTokenInfo(ctx context.Context, config *internal.Co
 				"https://github.com/netbirdio/netbird/tree/main/management for details")
 		} else if ok && s.Code() == codes.Unimplemented {
 			return nil, fmt.Errorf("the management server, %s, does not support SSO providers, "+
-				"please update your servver or use Setup Keys to login", c.mgmUrl)
+				"please update your servver or use Setup Keys to login", config.ManagementURL)
 		} else {
 			return nil, fmt.Errorf("getting device authorization flow info failed with error: %v", err)
 		}
