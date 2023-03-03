@@ -733,7 +733,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		return nil, nil, err
 	}
 
-	peer = am.updatePeerMeta(peer, peer.Meta, account)
+	peer = updatePeerMeta(peer, login.Meta, account)
 
 	peer, err = am.checkAndUpdatePeerSSHKey(peer, account, login.SSHKey)
 	if err != nil {
@@ -875,7 +875,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
 }
 
-func (am *DefaultAccountManager) updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) *Peer {
+func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) *Peer {
 	peer.UpdateMeta(meta)
 	account.UpdatePeer(peer)
 	return peer
