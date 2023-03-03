@@ -39,7 +39,7 @@ func TestUpdatePeerState(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
 	status := NewRecorder()
-	peerState := PeerState{
+	peerState := State{
 		PubKey: key,
 	}
 
@@ -59,7 +59,7 @@ func TestStatus_UpdatePeerFQDN(t *testing.T) {
 	key := "abc"
 	fqdn := "peer-a.netbird.local"
 	status := NewRecorder()
-	peerState := PeerState{
+	peerState := State{
 		PubKey: key,
 	}
 
@@ -77,7 +77,7 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
 	status := NewRecorder()
-	peerState := PeerState{
+	peerState := State{
 		PubKey: key,
 	}
 
@@ -101,7 +101,7 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 func TestRemovePeer(t *testing.T) {
 	key := "abc"
 	status := NewRecorder()
-	peerState := PeerState{
+	peerState := State{
 		PubKey: key,
 	}
 
@@ -221,11 +221,11 @@ func TestGetFullStatus(t *testing.T) {
 		URL:       "https://signal",
 		Connected: true,
 	}
-	peerState1 := PeerState{
+	peerState1 := State{
 		PubKey: key1,
 	}
 
-	peerState2 := PeerState{
+	peerState2 := State{
 		PubKey: key2,
 	}
 
@@ -240,5 +240,5 @@ func TestGetFullStatus(t *testing.T) {
 
 	assert.Equal(t, managementState, fullStatus.ManagementState, "management status should be equal")
 	assert.Equal(t, signalState, fullStatus.SignalState, "signal status should be equal")
-	assert.ElementsMatch(t, []PeerState{peerState1, peerState2}, fullStatus.Peers, "peers states should match")
+	assert.ElementsMatch(t, []State{peerState1, peerState2}, fullStatus.Peers, "peers states should match")
 }

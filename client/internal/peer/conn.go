@@ -190,7 +190,7 @@ func (conn *Conn) reCreateAgent() error {
 func (conn *Conn) Open() error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
-	peerState := PeerState{PubKey: conn.config.Key}
+	peerState := State{PubKey: conn.config.Key}
 
 	peerState.IP = strings.Split(conn.config.ProxyConfig.AllowedIps, "/")[0]
 	peerState.ConnStatusUpdate = time.Now()
@@ -250,7 +250,7 @@ func (conn *Conn) Open() error {
 	defer conn.notifyDisconnected()
 	conn.mu.Unlock()
 
-	peerState = PeerState{PubKey: conn.config.Key}
+	peerState = State{PubKey: conn.config.Key}
 
 	peerState.ConnStatus = conn.status
 	peerState.ConnStatusUpdate = time.Now()
@@ -359,7 +359,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 		return err
 	}
 
-	peerState := PeerState{PubKey: conn.config.Key}
+	peerState := State{PubKey: conn.config.Key}
 	useProxy := shouldUseProxy(pair)
 	var p proxy.Proxy
 	if useProxy {
@@ -422,7 +422,7 @@ func (conn *Conn) cleanup() error {
 
 	conn.status = StatusDisconnected
 
-	peerState := PeerState{PubKey: conn.config.Key}
+	peerState := State{PubKey: conn.config.Key}
 	peerState.ConnStatus = conn.status
 	peerState.ConnStatusUpdate = time.Now()
 

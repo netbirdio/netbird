@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// PeerState contains the latest state of a peer
-type PeerState struct {
+// State contains the latest state of a peer
+type State struct {
 	IP                     string
 	PubKey                 string
 	FQDN                   string
@@ -41,7 +41,7 @@ type ManagementState struct {
 
 // FullStatus contains the full state held by the Status instance
 type FullStatus struct {
-	Peers           []PeerState
+	Peers           []State
 	ManagementState ManagementState
 	SignalState     SignalState
 	LocalPeerState  LocalPeerState
@@ -50,7 +50,7 @@ type FullStatus struct {
 // Status holds a state of peers, signal and management connections
 type Status struct {
 	mux          sync.Mutex
-	peers        map[string]PeerState
+	peers        map[string]State
 	changeNotify map[string]chan struct{}
 	signal       SignalState
 	management   ManagementState
@@ -60,7 +60,7 @@ type Status struct {
 // NewRecorder returns a new Status instance
 func NewRecorder() *Status {
 	return &Status{
-		peers:        make(map[string]PeerState),
+		peers:        make(map[string]State),
 		changeNotify: make(map[string]chan struct{}),
 	}
 }
@@ -74,18 +74,18 @@ func (d *Status) AddPeer(peerPubKey string) error {
 	if ok {
 		return errors.New("peer already exist")
 	}
-	d.peers[peerPubKey] = PeerState{PubKey: peerPubKey}
+	d.peers[peerPubKey] = State{PubKey: peerPubKey}
 	return nil
 }
 
 // GetPeer adds peer to Daemon status map
-func (d *Status) GetPeer(peerPubKey string) (PeerState, error) {
+func (d *Status) GetPeer(peerPubKey string) (State, error) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
 	state, ok := d.peers[peerPubKey]
 	if !ok {
-		return PeerState{}, errors.New("peer not found")
+		return State{}, errors.New("peer not found")
 	}
 	return state, nil
 }
@@ -105,7 +105,7 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 }
 
 // UpdatePeerState updates peer status
-func (d *Status) UpdatePeerState(receivedState PeerState) error {
+func (d *Status) UpdatePeerState(receivedState State) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
