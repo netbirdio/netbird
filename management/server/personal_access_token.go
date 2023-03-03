@@ -22,20 +22,6 @@ type PersonalAccessToken struct {
 	LastUsed  time.Time
 }
 
-const (
-	// IEEE is by far and away the most common CRC-32 polynomial.
-	// Used by ethernet (IEEE 802.3), v.42, fddi, gzip, zip, png, ...
-	IEEE = 0xedb88320
-	// Castagnoli polynomial, used in iSCSI.
-	// Has better error detection characteristics than IEEE.
-	// https://dx.doi.org/10.1109/26.231911
-	Castagnoli = 0x82f63b78
-	// Koopman polynomial.
-	// Also has better error detection characteristics than IEEE.
-	// https://dx.doi.org/10.1109/DSN.2002.1028931
-	Koopman = 0xeb31d82e
-)
-
 func CreateNewPAT(description string, expirationInDays int, createdBy User) (*PersonalAccessToken, string) {
 	hashedToken, plainToken := generateNewToken()
 	currentTime := time.Now().UTC()
@@ -53,8 +39,7 @@ func CreateNewPAT(description string, expirationInDays int, createdBy User) (*Pe
 func generateNewToken() ([32]byte, string) {
 	token := randStringRunes(30)
 
-	crc32q := crc32.MakeTable(IEEE)
-	checksum := crc32.Checksum([]byte(token), crc32q)
+	checksum := crc32.ChecksumIEEE([]byte(token))
 	encodedChecksum := base62.Encode(checksum)
 	paddedChecksum := fmt.Sprintf("%06s", encodedChecksum)
 	plainToken := "nbp_" + token + paddedChecksum
