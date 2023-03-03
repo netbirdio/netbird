@@ -25,6 +25,31 @@ import (
 func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 	return &RulesHandler{
 		accountManager: &mock_server.MockAccountManager{
+			GetPolicyFunc: func(_, policyID, _ string) (*server.Policy, error) {
+				if policyID != "idoftherule" {
+					return nil, fmt.Errorf("not found")
+				}
+				return &server.Policy{
+					ID:          "idoftherule",
+					Name:        "Policy",
+					Description: "Description",
+					Rules: []*server.PolicyRule{
+						{
+							ID:           "idoftherule",
+							Name:         "Rule",
+							Sources:      []string{"idofsrcrule"},
+							Destinations: []string{"idofdestrule"},
+							Action:       server.PolicyTrafficActionAccept,
+						},
+					},
+				}, nil
+			},
+			SavePolicyFunc: func(_, _ string, policy *server.Policy) error {
+				if !strings.HasPrefix(policy.ID, "id-") {
+					policy.ID = "id-was-set"
+				}
+				return nil
+			},
 			SaveRuleFunc: func(_, _ string, rule *server.Rule) error {
 				if !strings.HasPrefix(rule.ID, "id-") {
 					rule.ID = "id-was-set"
@@ -307,6 +332,7 @@ func TestRulesWriteRule(t *testing.T) {
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
+			tc.expectedRule.Id = got.Id
 
 			assert.Equal(t, got, tc.expectedRule)
 		})
