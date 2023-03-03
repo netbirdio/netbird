@@ -13,8 +13,8 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
-	nbStatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -94,7 +94,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	SetupCloseHandler(ctx, cancel)
-	return internal.RunClient(ctx, config, nbStatus.NewRecorder())
+	return internal.RunClient(ctx, config, peer.NewRecorder())
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {

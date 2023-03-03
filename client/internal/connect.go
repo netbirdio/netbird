@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/ssh"
-	nbStatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -22,7 +22,7 @@ import (
 )
 
 // RunClient with main logic.
-func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Status) error {
+func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
@@ -103,7 +103,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *nbStatus.Sta
 		}
 		statusRecorder.MarkManagementConnected(managementURL)
 
-		localPeerState := nbStatus.LocalPeerState{
+		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
 			KernelInterface: iface.WireguardModuleIsLoaded(),

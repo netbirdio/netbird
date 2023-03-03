@@ -1,14 +1,15 @@
 package peer
 
 import (
-	"github.com/magiconair/properties/assert"
-	"github.com/netbirdio/netbird/client/internal/proxy"
-	nbstatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/iface"
-	"github.com/pion/ice/v2"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/magiconair/properties/assert"
+	"github.com/pion/ice/v2"
+
+	"github.com/netbirdio/netbird/client/internal/proxy"
+	"github.com/netbirdio/netbird/iface"
 )
 
 var connConf = ConnConfig{
@@ -46,7 +47,7 @@ func TestConn_GetKey(t *testing.T) {
 
 func TestConn_OnRemoteOffer(t *testing.T) {
 
-	conn, err := NewConn(connConf, nbstatus.NewRecorder())
+	conn, err := NewConn(connConf, NewRecorder())
 	if err != nil {
 		return
 	}
@@ -80,7 +81,7 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
 
-	conn, err := NewConn(connConf, nbstatus.NewRecorder())
+	conn, err := NewConn(connConf, NewRecorder())
 	if err != nil {
 		return
 	}
@@ -113,7 +114,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 }
 func TestConn_Status(t *testing.T) {
 
-	conn, err := NewConn(connConf, nbstatus.NewRecorder())
+	conn, err := NewConn(connConf, NewRecorder())
 	if err != nil {
 		return
 	}
@@ -140,7 +141,7 @@ func TestConn_Status(t *testing.T) {
 
 func TestConn_Close(t *testing.T) {
 
-	conn, err := NewConn(connConf, nbstatus.NewRecorder())
+	conn, err := NewConn(connConf, NewRecorder())
 	if err != nil {
 		return
 	}

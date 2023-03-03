@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"net/netip"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
-	log "github.com/sirupsen/logrus"
 )
 
 type routerPeerStatus struct {
@@ -26,7 +26,7 @@ type routesUpdate struct {
 type clientNetwork struct {
 	ctx                 context.Context
 	stop                context.CancelFunc
-	statusRecorder      *status.Status
+	statusRecorder      *peer.Status
 	wgInterface         *iface.WGIface
 	routes              map[string]*route.Route
 	routeUpdate         chan routesUpdate
@@ -37,7 +37,7 @@ type clientNetwork struct {
 	updateSerial        uint64
 }
 
-func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, statusRecorder *status.Status, network netip.Prefix) *clientNetwork {
+func newClientNetworkWatcher(ctx context.Context, wgInterface *iface.WGIface, statusRecorder *peer.Status, network netip.Prefix) *clientNetwork {
 	ctx, cancel := context.WithCancel(ctx)
 	client := &clientNetwork{
 		ctx:                 ctx,
@@ -62,7 +62,7 @@ func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 			continue
 		}
 		routePeerStatuses[r.ID] = routerPeerStatus{
-			connected: peerStatus.ConnStatus == peer.StatusConnected.String(),
+			connected: peerStatus.ConnStatus == peer.StatusConnected,
 			relayed:   peerStatus.Relayed,
 			direct:    peerStatus.Direct,
 		}
@@ -123,7 +123,7 @@ func (c *clientNetwork) watchPeerStatusChanges(ctx context.Context, peerKey stri
 			return
 		case <-c.statusRecorder.GetPeerStateChangeNotifier(peerKey):
 			state, err := c.statusRecorder.GetPeer(peerKey)
-			if err != nil || state.ConnStatus == peer.StatusConnecting.String() {
+			if err != nil || state.ConnStatus == peer.StatusConnecting {
 				continue
 			}
 			peerStateUpdate <- struct{}{}
@@ -144,7 +144,7 @@ func (c *clientNetwork) startPeersStatusChangeWatcher() {
 
 func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 	state, err := c.statusRecorder.GetPeer(peerKey)
-	if err != nil || state.ConnStatus != peer.StatusConnected.String() {
+	if err != nil || state.ConnStatus != peer.StatusConnected {
 		return nil
 	}
 
