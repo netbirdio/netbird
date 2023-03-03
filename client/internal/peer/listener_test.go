@@ -1,4 +1,4 @@
-package status
+package peer
 
 type MocListener struct {
 	state string

@@ -199,6 +199,7 @@ func (d *Status) MarkManagementDisconnected(managementURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
+
 	d.management = ManagementState{
 		URL:       managementURL,
 		Connected: false,
@@ -210,6 +211,7 @@ func (d *Status) MarkManagementConnected(managementURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
+
 	d.management = ManagementState{
 		URL:       managementURL,
 		Connected: true,
@@ -221,6 +223,7 @@ func (d *Status) MarkSignalDisconnected(signalURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
+
 	d.signal = SignalState{
 		signalURL,
 		false,
@@ -232,6 +235,7 @@ func (d *Status) MarkSignalConnected(signalURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
+
 	d.signal = SignalState{
 		signalURL,
 		true,
