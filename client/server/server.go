@@ -13,8 +13,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
-	nbStatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
 )
 
@@ -33,7 +33,7 @@ type Server struct {
 	config *internal.Config
 	proto.UnimplementedDaemonServiceServer
 
-	statusRecorder *nbStatus.Status
+	statusRecorder *peer.Status
 }
 
 type oauthAuthFlow struct {
@@ -96,7 +96,7 @@ func (s *Server) Start() error {
 	s.config = config
 
 	if s.statusRecorder == nil {
-		s.statusRecorder = nbStatus.NewRecorder()
+		s.statusRecorder = peer.NewRecorder()
 	}
 
 	go func() {
@@ -386,7 +386,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	}
 
 	if s.statusRecorder == nil {
-		s.statusRecorder = nbStatus.NewRecorder()
+		s.statusRecorder = peer.NewRecorder()
 	}
 
 	go func() {
@@ -430,7 +430,7 @@ func (s *Server) Status(
 	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: system.NetbirdVersion()}
 
 	if s.statusRecorder == nil {
-		s.statusRecorder = nbStatus.NewRecorder()
+		s.statusRecorder = peer.NewRecorder()
 	}
 
 	if msg.GetFullPeerStatus {
@@ -476,7 +476,7 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	}, nil
 }
 
-func toProtoFullStatus(fullStatus nbStatus.FullStatus) *proto.FullStatus {
+func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus := proto.FullStatus{
 		ManagementState: &proto.ManagementState{},
 		SignalState:     &proto.SignalState{},
@@ -499,7 +499,7 @@ func toProtoFullStatus(fullStatus nbStatus.FullStatus) *proto.FullStatus {
 		pbPeerState := &proto.PeerState{
 			IP:                     peerState.IP,
 			PubKey:                 peerState.PubKey,
-			ConnStatus:             peerState.ConnStatus,
+			ConnStatus:             peerState.ConnStatus.String(),
 			ConnStatusUpdate:       timestamppb.New(peerState.ConnStatusUpdate),
 			Relayed:                peerState.Relayed,
 			Direct:                 peerState.Direct,

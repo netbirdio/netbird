@@ -6,11 +6,12 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/netbirdio/netbird/client/status"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
-	log "github.com/sirupsen/logrus"
 )
 
 // Manager is a route manager interface
@@ -27,13 +28,13 @@ type DefaultManager struct {
 	clientNetworks map[string]*clientNetwork
 	serverRoutes   map[string]*route.Route
 	serverRouter   *serverRouter
-	statusRecorder *status.Status
+	statusRecorder *peer.Status
 	wgInterface    *iface.WGIface
 	pubKey         string
 }
 
 // NewManager returns a new route manager
-func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *status.Status) *DefaultManager {
+func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	return &DefaultManager{
 		ctx:            mCTX,
