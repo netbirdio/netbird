@@ -49,21 +49,18 @@ type AccountManager interface {
 	SaveUser(accountID, userID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
-	GetAccountByPeerID(peerID string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
 	MarkPeerConnected(peerKey string, connected bool) error
-	MarkPeerLoginExpired(peerPubKey string, loginExpired bool) error
 	DeletePeer(accountID, peerID, userID string) (*Peer, error)
 	GetPeerByIP(accountId string, peerIP string) (*Peer, error)
 	UpdatePeer(accountID, userID string, peer *Peer) (*Peer, error)
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
-	AddPeer(setupKey, userID string, peer *Peer) (*Peer, error)
-	UpdatePeerMeta(peerID string, meta PeerSystemMeta) error
+	AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
@@ -96,8 +93,9 @@ type AccountManager interface {
 	GetDNSSettings(accountID string, userID string) (*DNSSettings, error)
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*Peer, error)
-	UpdatePeerLastLogin(peerID string) error
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
+	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) //used by peer gRPC API
+	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    //used by peer gRPC API
 }
 
 type DefaultAccountManager struct {
@@ -306,6 +304,44 @@ func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rul
 // GetGroup returns a group by ID if exists, nil otherwise
 func (a *Account) GetGroup(groupID string) *Group {
 	return a.Groups[groupID]
+}
+
+// GetPeerNetworkMap returns a group by ID if exists, nil otherwise
+func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
+	aclPeers := a.getPeersByACL(peerID)
+	// exclude expired peers
+	var peersToConnect []*Peer
+	for _, p := range aclPeers {
+		expired, _ := p.LoginExpired(a.Settings.PeerLoginExpiration)
+		if expired {
+			continue
+		}
+		peersToConnect = append(peersToConnect, p)
+	}
+	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
+	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
+
+	dnsManagementStatus := a.getPeerDNSManagementStatus(peerID)
+	dnsUpdate := nbdns.Config{
+		ServiceEnable: dnsManagementStatus,
+	}
+
+	if dnsManagementStatus {
+		var zones []nbdns.CustomZone
+		peersCustomZone := getPeersCustomZone(a, dnsDomain)
+		if peersCustomZone.Domain != "" {
+			zones = append(zones, peersCustomZone)
+		}
+		dnsUpdate.CustomZones = zones
+		dnsUpdate.NameServerGroups = getPeerNSGroups(a, peerID)
+	}
+
+	return &NetworkMap{
+		Peers:     peersToConnect,
+		Network:   a.Network.Copy(),
+		Routes:    routesUpdate,
+		DNSConfig: dnsUpdate,
+	}
 }
 
 // GetExpiredPeers returns peers that have been expired
@@ -801,11 +837,6 @@ func (am *DefaultAccountManager) warmupIDPCache() error {
 	}
 	log.Infof("warmed up IDP cache with %d entries", len(userData))
 	return nil
-}
-
-// GetAccountByPeerID returns account from the store by a provided peer ID
-func (am *DefaultAccountManager) GetAccountByPeerID(peerID string) (*Account, error) {
-	return am.Store.GetAccountByPeerID(peerID)
 }
 
 // GetAccountByUserOrAccountID looks for an account by user or accountID, if no account is provided and
