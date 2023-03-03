@@ -19,6 +19,10 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/route"
 
+	"github.com/pion/ice/v2"
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/iface"
@@ -27,9 +31,6 @@ import (
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
-	"github.com/pion/ice/v2"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -336,42 +337,6 @@ func (e *Engine) removePeer(peerKey string) error {
 		}
 	}
 	return nil
-}
-
-// GetPeerConnectionStatus returns a connection Status or nil if peer connection wasn't found
-func (e *Engine) GetPeerConnectionStatus(peerKey string) peer.ConnStatus {
-	conn, exists := e.peerConns[peerKey]
-	if exists && conn != nil {
-		return conn.Status()
-	}
-
-	return -1
-}
-
-func (e *Engine) GetPeers() []string {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-
-	peers := []string{}
-	for s := range e.peerConns {
-		peers = append(peers, s)
-	}
-	return peers
-}
-
-// GetConnectedPeers returns a connection Status or nil if peer connection wasn't found
-func (e *Engine) GetConnectedPeers() []string {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-
-	peers := []string{}
-	for s, conn := range e.peerConns {
-		if conn.Status() == peer.StatusConnected {
-			peers = append(peers, s)
-		}
-	}
-
-	return peers
 }
 
 func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client) error {

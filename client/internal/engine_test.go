@@ -3,16 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/dns"
-	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/ssh"
-	nbstatus "github.com/netbirdio/netbird/client/status"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/route"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"net"
 	"net/netip"
 	"os"
@@ -23,18 +13,30 @@ import (
 	"testing"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
+
+	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/ssh"
+	nbstatus "github.com/netbirdio/netbird/client/status"
 	"github.com/netbirdio/netbird/client/system"
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
 	mgmt "github.com/netbirdio/netbird/management/client"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/route"
 	signal "github.com/netbirdio/netbird/signal/client"
 	"github.com/netbirdio/netbird/signal/proto"
 	signalServer "github.com/netbirdio/netbird/signal/server"
 	"github.com/netbirdio/netbird/util"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/keepalive"
 )
 
 var (
@@ -439,7 +441,7 @@ func TestEngine_Sync(t *testing.T) {
 		default:
 		}
 
-		if len(engine.GetPeers()) == 3 && engine.networkSerial == 10 {
+		if getPeers(engine) == 3 && engine.networkSerial == 10 {
 			break
 		}
 	}
@@ -846,7 +848,7 @@ loop:
 		case <-ticker.C:
 			totalConnected := 0
 			for _, engine := range engines {
-				totalConnected = totalConnected + len(engine.GetConnectedPeers())
+				totalConnected = totalConnected + getConnectedPeers(engine)
 			}
 			if totalConnected == expectedConnected {
 				log.Infof("total connected=%d", totalConnected)
@@ -1043,4 +1045,24 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 	}()
 
 	return s, lis.Addr().String(), nil
+}
+
+// getConnectedPeers returns a connection Status or nil if peer connection wasn't found
+func getConnectedPeers(e *Engine) int {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+	i := 0
+	for _, conn := range e.peerConns {
+		if conn.Status() == peer.StatusConnected {
+			i++
+		}
+	}
+	return i
+}
+
+func getPeers(e *Engine) int {
+	e.syncMsgMux.Lock()
+	defer e.syncMsgMux.Unlock()
+
+	return len(e.peerConns)
 }
