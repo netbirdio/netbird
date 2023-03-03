@@ -40,7 +40,6 @@ type MockAccountManager struct {
 	GroupListPeersFunc              func(accountID, groupID string) ([]*server.Peer, error)
 	GetRuleFunc                     func(accountID, ruleID, userID string) (*server.Rule, error)
 	SaveRuleFunc                    func(accountID, userID string, rule *server.Rule) error
-	UpdateRuleFunc                  func(accountID string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error)
 	DeleteRuleFunc                  func(accountID, ruleID, userID string) error
 	ListRulesFunc                   func(accountID, userID string) ([]*server.Rule, error)
 	GetPolicyFunc                   func(accountID, policyID, userID string) (*server.Policy, error)
@@ -282,14 +281,6 @@ func (am *MockAccountManager) SaveRule(accountID, userID string, rule *server.Ru
 		return am.SaveRuleFunc(accountID, userID, rule)
 	}
 	return status.Errorf(codes.Unimplemented, "method SaveRule is not implemented")
-}
-
-// UpdateRule mock implementation of UpdateRule from server.AccountManager interface
-func (am *MockAccountManager) UpdateRule(accountID string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error) {
-	if am.UpdateRuleFunc != nil {
-		return am.UpdateRuleFunc(accountID, ruleID, operations)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateRule not implemented")
 }
 
 // DeleteRule mock implementation of DeleteRule from server.AccountManager interface

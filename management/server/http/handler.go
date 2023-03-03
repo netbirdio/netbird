@@ -123,7 +123,6 @@ func (apiHandler *apiHandler) addRulesEndpoint() {
 	apiHandler.Router.HandleFunc("/rules", rulesHandler.GetAllRules).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/rules", rulesHandler.CreateRule).Methods("POST", "OPTIONS")
 	apiHandler.Router.HandleFunc("/rules/{id}", rulesHandler.UpdateRule).Methods("PUT", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules/{id}", rulesHandler.PatchRule).Methods("PATCH", "OPTIONS")
 	apiHandler.Router.HandleFunc("/rules/{id}", rulesHandler.GetRule).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/rules/{id}", rulesHandler.DeleteRule).Methods("DELETE", "OPTIONS")
 }

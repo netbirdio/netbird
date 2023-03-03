@@ -29,7 +29,7 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 				if policyID != "idoftherule" {
 					return nil, fmt.Errorf("not found")
 				}
-				return &server.Policy{
+				policy := &server.Policy{
 					ID:          "idoftherule",
 					Name:        "Policy",
 					Description: "Description",
@@ -42,7 +42,11 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 							Action:       server.PolicyTrafficActionAccept,
 						},
 					},
-				}, nil
+				}
+				if err := policy.UpdateQueryFromRules(); err != nil {
+					return nil, err
+				}
+				return policy, nil
 			},
 			SavePolicyFunc: func(_, _ string, policy *server.Policy) error {
 				if !strings.HasPrefix(policy.ID, "id-") {
@@ -67,32 +71,6 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 					Destination: []string{"idofdestrule"},
 					Flow:        server.TrafficFlowBidirect,
 				}, nil
-			},
-			UpdateRuleFunc: func(_ string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error) {
-				var rule server.Rule
-				rule.ID = ruleID
-				for _, operation := range operations {
-					switch operation.Type {
-					case server.UpdateRuleName:
-						rule.Name = operation.Values[0]
-					case server.UpdateRuleDescription:
-						rule.Description = operation.Values[0]
-					case server.UpdateRuleFlow:
-						if server.TrafficFlowBidirectString == operation.Values[0] {
-							rule.Flow = server.TrafficFlowBidirect
-						} else {
-							rule.Flow = 100
-						}
-					case server.UpdateSourceGroups, server.InsertGroupsToSource:
-						rule.Source = operation.Values
-					case server.UpdateDestinationGroups, server.InsertGroupsToDestination:
-						rule.Destination = operation.Values
-					case server.RemoveGroupsFromSource, server.RemoveGroupsFromDestination:
-					default:
-						return nil, fmt.Errorf("no operation")
-					}
-				}
-				return &rule, nil
 			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
@@ -246,55 +224,6 @@ func TestRulesWriteRule(t *testing.T) {
 				[]byte(`{"Name":"","Flow":"bidirect"}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
-		{
-			name:        "Write Rule PATCH Name OK",
-			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"name","value":["Default POSTed Rule"]}]`)),
-			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedRule: &api.Rule{
-				Id:   "id-existed",
-				Name: "Default POSTed Rule",
-				Flow: server.TrafficFlowBidirectString,
-			},
-		},
-		{
-			name:        "Write Rule PATCH Invalid Name OP",
-			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"insert","path":"name","value":[""]}]`)),
-			expectedStatus: http.StatusUnprocessableEntity,
-			expectedBody:   false,
-		},
-		{
-			name:        "Write Rule PATCH Invalid Name",
-			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"name","value":[]}]`)),
-			expectedStatus: http.StatusUnprocessableEntity,
-			expectedBody:   false,
-		},
-		{
-			name:        "Write Rule PATCH Sources OK",
-			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"sources","value":["G","F"]}]`)),
-			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedRule: &api.Rule{
-				Id:   "id-existed",
-				Flow: server.TrafficFlowBidirectString,
-				Sources: []api.GroupMinimum{
-					{Id: "G"},
-					{Id: "F"},
-				},
-			},
-		},
 	}
 
 	p := initRulesTestData()
@@ -307,7 +236,6 @@ func TestRulesWriteRule(t *testing.T) {
 			router := mux.NewRouter()
 			router.HandleFunc("/api/rules", p.CreateRule).Methods("POST")
 			router.HandleFunc("/api/rules/{id}", p.UpdateRule).Methods("PUT")
-			router.HandleFunc("/api/rules/{id}", p.PatchRule).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

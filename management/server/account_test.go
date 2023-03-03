@@ -839,10 +839,18 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		Peers: []string{peer1.ID, peer2.ID, peer3.ID},
 	}
 
-	rule := Rule{
-		Source:      []string{"group-id"},
-		Destination: []string{"group-id"},
-		Flow:        TrafficFlowBidirect,
+	policy := Policy{
+		Rules: []*PolicyRule{
+			{
+				Sources:      []string{"group-id"},
+				Destinations: []string{"group-id"},
+				Action:       PolicyTrafficActionAccept,
+			},
+		},
+	}
+	if err := policy.UpdateQueryFromRules(); err != nil {
+		t.Errorf("update policy query from rules: %v", err)
+		return
 	}
 
 	wg := sync.WaitGroup{}
@@ -866,7 +874,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		wg.Wait()
 	})
 
-	t.Run("delete rule update", func(t *testing.T) {
+	t.Run("delete policy update", func(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -878,12 +886,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		var defaultRule *Rule
-		for _, r := range account.Rules {
-			defaultRule = r
-		}
-
-		if err := manager.DeleteRule(account.Id, defaultRule.ID, userID); err != nil {
+		if err := manager.DeletePolicy(account.Id, account.Policies[0].ID, userID); err != nil {
 			t.Errorf("delete default rule: %v", err)
 			return
 		}
@@ -891,7 +894,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		wg.Wait()
 	})
 
-	t.Run("save rule update", func(t *testing.T) {
+	t.Run("save policy update", func(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -903,7 +906,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.SaveRule(account.Id, userID, &rule); err != nil {
+		if err := manager.SavePolicy(account.Id, userID, &policy); err != nil {
 			t.Errorf("delete default rule: %v", err)
 			return
 		}
@@ -944,7 +947,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		}()
 
 		if err := manager.DeleteGroup(account.Id, group.ID); err != nil {
-			t.Errorf("delete group rule: %v", err)
+			t.Errorf("delete group: %v", err)
 			return
 		}
 

@@ -71,11 +71,6 @@ type AccountManager interface {
 	GroupAddPeer(accountId, groupID, peerID string) error
 	GroupDeletePeer(accountId, groupID, peerKey string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
-	GetRule(accountID, ruleID, userID string) (*Rule, error)
-	SaveRule(accountID, userID string, rule *Rule) error
-	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
-	DeleteRule(accountID, ruleID, userID string) error
-	ListRules(accountID, userID string) ([]*Rule, error)
 	GetPolicy(accountID, policyID, userID string) (*Policy, error)
 	SavePolicy(accountID, userID string, policy *Policy) error
 	DeletePolicy(accountID, policyID, userID string) error
@@ -268,42 +263,6 @@ func (a *Account) GetPeerByIP(peerIP string) *Peer {
 	}
 
 	return nil
-}
-
-// GetPeerRules returns a list of source or destination rules of a given peer.
-func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rule) {
-	// Rules are group based so there is no direct access to peers.
-	// First, find all groups that the given peer belongs to
-	peerGroups := make(map[string]struct{})
-
-	for s, group := range a.Groups {
-		for _, peer := range group.Peers {
-			if peerID == peer {
-				peerGroups[s] = struct{}{}
-				break
-			}
-		}
-	}
-
-	// Second, find all rules that have discovered source and destination groups
-	srcRulesMap := make(map[string]*Rule)
-	dstRulesMap := make(map[string]*Rule)
-	for _, rule := range a.Rules {
-		for _, g := range rule.Source {
-			if _, ok := peerGroups[g]; ok && srcRulesMap[rule.ID] == nil {
-				srcRules = append(srcRules, rule)
-				srcRulesMap[rule.ID] = rule
-			}
-		}
-		for _, g := range rule.Destination {
-			if _, ok := peerGroups[g]; ok && dstRulesMap[rule.ID] == nil {
-				dstRules = append(dstRules, rule)
-				dstRulesMap[rule.ID] = rule
-			}
-		}
-	}
-
-	return srcRules, dstRules
 }
 
 // GetGroup returns a group by ID if exists, nil otherwise

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"fmt"
@@ -16,17 +17,6 @@ import (
 
 // PolicyUpdateOperationType operation type
 type PolicyUpdateOperationType int
-
-const (
-	// UpdatePolicyName indicates a policy name update operation
-	UpdatePolicyName PolicyUpdateOperationType = iota
-	// UpdatePolicyDescription indicates a policy description update operation
-	UpdatePolicyDescription
-	// UpdatePolicyStatus indicates a policy status update operation
-	UpdatePolicyStatus
-	// UpdatePolicyQuery indicates a policy query update operation
-	UpdatePolicyQuery
-)
 
 // PolicyTrafficActionType action type for the firewall
 type PolicyTrafficActionType string
@@ -145,6 +135,34 @@ func (p *Policy) Copy() *Policy {
 // EventMeta returns activity event meta related to this policy
 func (p *Policy) EventMeta() map[string]any {
 	return map[string]any{"name": p.Name}
+}
+
+// UpdateQueryFromRules marshals policy rules to Rego string and set it to Query
+func (p *Policy) UpdateQueryFromRules() error {
+	type templateVars struct {
+		All         []string
+		Source      []string
+		Destination []string
+	}
+	queries := []string{}
+	for _, r := range p.Rules {
+		if r.Disabled {
+			continue
+		}
+
+		buff := new(bytes.Buffer)
+		input := templateVars{
+			All:         append(r.Destinations[:], r.Sources...),
+			Source:      r.Sources,
+			Destination: r.Destinations,
+		}
+		if err := defaultPolicyTemplate.Execute(buff, input); err != nil {
+			return err
+		}
+		queries = append(queries, buff.String())
+	}
+	p.Query = strings.Join(queries, "\n")
+	return nil
 }
 
 // FirewallRule is a rule of the firewall.
@@ -325,66 +343,6 @@ func (am *DefaultAccountManager) SavePolicy(accountID, userID string, policy *Po
 	am.storeEvent(userID, policy.ID, accountID, action, policy.EventMeta())
 
 	return am.updateAccountPeers(account)
-}
-
-// UpdatePolicy updates a rule using a list of operations
-func (am *DefaultAccountManager) UpdatePolicy(accountID string, ruleID string,
-	operations []PolicyUpdateOperation,
-) (*Policy, error) {
-	unlock := am.Store.AcquireAccountLock(accountID)
-	defer unlock()
-
-	account, err := am.Store.GetAccount(accountID)
-	if err != nil {
-		return nil, err
-	}
-
-	policyIdx := -1
-	for i, policy := range account.Policies {
-		if policy.ID == ruleID {
-			policyIdx = i
-			break
-		}
-	}
-	if policyIdx >= 0 {
-		return nil, status.Errorf(status.NotFound, "policy %s no longer exists", ruleID)
-	}
-	policyToUpdate := account.Policies[policyIdx]
-
-	policy := policyToUpdate.Copy()
-
-	for _, operation := range operations {
-		switch operation.Type {
-		case UpdatePolicyName:
-			policy.Name = operation.Values[0]
-		case UpdatePolicyDescription:
-			policy.Description = operation.Values[0]
-		case UpdatePolicyQuery:
-			policy.Query = operation.Values[0]
-		case UpdatePolicyStatus:
-			if strings.ToLower(operation.Values[0]) == "true" {
-				policy.Disabled = true
-			} else if strings.ToLower(operation.Values[0]) == "false" {
-				policy.Disabled = false
-			} else {
-				return nil, status.Errorf(status.InvalidArgument, "failed to parse status")
-			}
-		}
-	}
-
-	account.Policies[policyIdx] = policy
-
-	account.Network.IncSerial()
-	if err = am.Store.SaveAccount(account); err != nil {
-		return nil, err
-	}
-
-	err = am.updateAccountPeers(account)
-	if err != nil {
-		return nil, status.Errorf(status.Internal, "failed to update account peers")
-	}
-
-	return policy, nil
 }
 
 // DeletePolicy from the store

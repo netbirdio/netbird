@@ -832,62 +832,6 @@ func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) *Peer {
 	return peer
 }
 
-// getPeersByACL returns all peers that given peer has access to.
-func (a *Account) getPeersByACL(peerID string) []*Peer {
-	var peers []*Peer
-	srcRules, dstRules := a.GetPeerRules(peerID)
-
-	groups := map[string]*Group{}
-	for _, r := range srcRules {
-		if r.Disabled {
-			continue
-		}
-		if r.Flow == TrafficFlowBidirect {
-			for _, gid := range r.Destination {
-				if group, ok := a.Groups[gid]; ok {
-					groups[gid] = group
-				}
-			}
-		}
-	}
-
-	for _, r := range dstRules {
-		if r.Disabled {
-			continue
-		}
-		if r.Flow == TrafficFlowBidirect {
-			for _, gid := range r.Source {
-				if group, ok := a.Groups[gid]; ok {
-					groups[gid] = group
-				}
-			}
-		}
-	}
-
-	peersSet := make(map[string]struct{})
-	for _, g := range groups {
-		for _, pid := range g.Peers {
-			peer, ok := a.Peers[pid]
-			if !ok {
-				log.Warnf(
-					"peer %s found in group %s but doesn't belong to account %s",
-					pid,
-					g.ID,
-					a.Id,
-				)
-				continue
-			}
-			// exclude original peer
-			if _, ok := peersSet[peer.ID]; peer.ID != peerID && !ok {
-				peersSet[peer.ID] = struct{}{}
-				peers = append(peers, peer.Copy())
-			}
-		}
-	}
-
-	return peers
-}
-
 // updateAccountPeers updates all peers that belong to an account.
 // Should be called when changes have to be synced to peers.
 func (am *DefaultAccountManager) updateAccountPeers(account *Account) error {

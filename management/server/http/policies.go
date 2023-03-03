@@ -147,6 +147,7 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		Name:        req.Name,
 		Disabled:    req.Disabled,
 		Description: req.Description,
+		Query:       req.Query,
 	}
 
 	if req.Meta != nil {
