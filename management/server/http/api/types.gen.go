@@ -94,10 +94,10 @@ const (
 	PatchMinimumOpReplace PatchMinimumOp = "replace"
 )
 
-// Defines values for PolicyMetaAction.
+// Defines values for PolicyRuleAction.
 const (
-	PolicyMetaActionAccept PolicyMetaAction = "accept"
-	PolicyMetaActionDrop   PolicyMetaAction = "drop"
+	PolicyRuleActionAccept PolicyRuleAction = "accept"
+	PolicyRuleActionDrop   PolicyRuleAction = "drop"
 )
 
 // Defines values for RoutePatchOperationOp.
@@ -117,23 +117,6 @@ const (
 	RoutePatchOperationPathNetwork     RoutePatchOperationPath = "network"
 	RoutePatchOperationPathNetworkId   RoutePatchOperationPath = "network_id"
 	RoutePatchOperationPathPeer        RoutePatchOperationPath = "peer"
-)
-
-// Defines values for RulePatchOperationOp.
-const (
-	RulePatchOperationOpAdd     RulePatchOperationOp = "add"
-	RulePatchOperationOpRemove  RulePatchOperationOp = "remove"
-	RulePatchOperationOpReplace RulePatchOperationOp = "replace"
-)
-
-// Defines values for RulePatchOperationPath.
-const (
-	RulePatchOperationPathDescription  RulePatchOperationPath = "description"
-	RulePatchOperationPathDestinations RulePatchOperationPath = "destinations"
-	RulePatchOperationPathDisabled     RulePatchOperationPath = "disabled"
-	RulePatchOperationPathFlow         RulePatchOperationPath = "flow"
-	RulePatchOperationPathName         RulePatchOperationPath = "name"
-	RulePatchOperationPathSources      RulePatchOperationPath = "sources"
 )
 
 // Defines values for UserStatus.
@@ -402,23 +385,55 @@ type Policy struct {
 	Disabled bool `json:"disabled"`
 
 	// Id Policy ID
-	Id   string      `json:"id"`
-	Meta *PolicyMeta `json:"meta,omitempty"`
+	Id string `json:"id"`
 
 	// Name Policy name identifier
 	Name string `json:"name"`
 
 	// Query Policy Rego query
 	Query string `json:"query"`
+
+	// Rules Policy rule object for policy UI editor
+	Rules *[]PolicyRule `json:"rules,omitempty"`
 }
 
-// PolicyMeta defines model for PolicyMeta.
-type PolicyMeta struct {
+// PolicyMinimum defines model for PolicyMinimum.
+type PolicyMinimum struct {
+	// Description Policy friendly description
+	Description string `json:"description"`
+
+	// Disabled Policy status
+	Disabled bool `json:"disabled"`
+
+	// Name Policy name identifier
+	Name string `json:"name"`
+
+	// Query Policy Rego query
+	Query string `json:"query"`
+
+	// Rules Policy rule object for policy UI editor
+	Rules *[]PolicyRule `json:"rules,omitempty"`
+}
+
+// PolicyRule defines model for PolicyRule.
+type PolicyRule struct {
 	// Action policy accept or drops packets
-	Action PolicyMetaAction `json:"action"`
+	Action PolicyRuleAction `json:"action"`
+
+	// Description Rule friendly description
+	Description *string `json:"description,omitempty"`
 
 	// Destinations policy destination groups
 	Destinations []GroupMinimum `json:"destinations"`
+
+	// Disabled Rules status
+	Disabled *bool `json:"disabled,omitempty"`
+
+	// Id Rule ID
+	Id *string `json:"id,omitempty"`
+
+	// Name Rule name identifier
+	Name string `json:"name"`
 
 	// Port port of the service or range of the ports, and optional protocol (by default TCP)
 	Port string `json:"port"`
@@ -427,24 +442,8 @@ type PolicyMeta struct {
 	Sources []GroupMinimum `json:"sources"`
 }
 
-// PolicyMetaAction policy accept or drops packets
-type PolicyMetaAction string
-
-// PolicyMinimum defines model for PolicyMinimum.
-type PolicyMinimum struct {
-	// Description Policy friendly description
-	Description string `json:"description"`
-
-	// Disabled Policy status
-	Disabled bool        `json:"disabled"`
-	Meta     *PolicyMeta `json:"meta,omitempty"`
-
-	// Name Policy name identifier
-	Name string `json:"name"`
-
-	// Query Policy Rego query
-	Query string `json:"query"`
-}
+// PolicyRuleAction policy accept or drops packets
+type PolicyRuleAction string
 
 // Route defines model for Route.
 type Route struct {
@@ -562,24 +561,6 @@ type RuleMinimum struct {
 	// Name Rule name identifier
 	Name string `json:"name"`
 }
-
-// RulePatchOperation defines model for RulePatchOperation.
-type RulePatchOperation struct {
-	// Op Patch operation type
-	Op RulePatchOperationOp `json:"op"`
-
-	// Path Rule field to update in form /<field>
-	Path RulePatchOperationPath `json:"path"`
-
-	// Value Values to be applied
-	Value []string `json:"value"`
-}
-
-// RulePatchOperationOp Patch operation type
-type RulePatchOperationOp string
-
-// RulePatchOperationPath Rule field to update in form /<field>
-type RulePatchOperationPath string
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
@@ -751,9 +732,6 @@ type PostApiRulesJSONBody struct {
 	Sources *[]string `json:"sources,omitempty"`
 }
 
-// PatchApiRulesIdJSONBody defines parameters for PatchApiRulesId.
-type PatchApiRulesIdJSONBody = []RulePatchOperation
-
 // PutApiRulesIdJSONBody defines parameters for PutApiRulesId.
 type PutApiRulesIdJSONBody struct {
 	// Description Rule friendly description
@@ -815,9 +793,6 @@ type PutApiRoutesIdJSONRequestBody = RouteRequest
 
 // PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
 type PostApiRulesJSONRequestBody PostApiRulesJSONBody
-
-// PatchApiRulesIdJSONRequestBody defines body for PatchApiRulesId for application/json ContentType.
-type PatchApiRulesIdJSONRequestBody = PatchApiRulesIdJSONBody
 
 // PutApiRulesIdJSONRequestBody defines body for PutApiRulesId for application/json ContentType.
 type PutApiRulesIdJSONRequestBody PutApiRulesIdJSONBody

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -94,23 +95,39 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		Query:       req.Query,
 	}
-	if req.Meta != nil {
-		policy.Rules = []*server.PolicyRule{
-			{
-				Destinations: toGroupMinimumsToGroups(account, req.Meta.Destinations),
-				Sources:      toGroupMinimumsToGroups(account, req.Meta.Sources),
-				Port:         req.Meta.Port,
-			},
+	if req.Rules != nil {
+		for _, r := range *req.Rules {
+			pr := server.PolicyRule{
+				Destinations: groupMinimumsToStrings(account, r.Destinations),
+				Sources:      groupMinimumsToStrings(account, r.Sources),
+				Port:         r.Port,
+				Name:         r.Name,
+			}
+			if r.Disabled != nil {
+				pr.Disabled = *r.Disabled
+			}
+			if r.Description != nil {
+				pr.Description = *r.Description
+			}
+			if r.Id != nil {
+				pr.ID = *r.Id
+			}
+			switch r.Action {
+			case api.PolicyRuleActionAccept:
+				pr.Action = server.PolicyTrafficActionAccept
+			case api.PolicyRuleActionDrop:
+				pr.Action = server.PolicyTrafficActionDrop
+			default:
+				util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
+				return
+			}
+			policy.Rules = append(policy.Rules, &pr)
 		}
-		switch req.Meta.Action {
-		case api.PolicyMetaActionAccept:
-			policy.Rules[0].Action = server.PolicyTrafficActionAccept
-		case api.PolicyMetaActionDrop:
-			policy.Rules[0].Action = server.PolicyTrafficActionDrop
-		default:
-			util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
-			return
-		}
+	}
+	if err := policy.UpdateQueryFromRules(); err != nil {
+		log.Errorf("failed to update policy query: %v", err)
+		util.WriteError(status.Errorf(status.BadRequest, "failed to update policy query"), w)
+		return
 	}
 
 	if err = h.accountManager.SavePolicy(account.Id, user.Id, &policy); err != nil {
@@ -150,23 +167,37 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		Query:       req.Query,
 	}
 
-	if req.Meta != nil {
-		policy.Rules = []*server.PolicyRule{
-			{
-				Destinations: toGroupMinimumsToGroups(account, req.Meta.Destinations),
-				Sources:      toGroupMinimumsToGroups(account, req.Meta.Sources),
-				Port:         req.Meta.Port,
-			},
+	if req.Rules != nil {
+		for _, r := range *req.Rules {
+			pr := server.PolicyRule{
+				ID:           xid.New().String(),
+				Destinations: groupMinimumsToStrings(account, r.Destinations),
+				Sources:      groupMinimumsToStrings(account, r.Sources),
+				Port:         r.Port,
+				Name:         r.Name,
+			}
+			if r.Disabled != nil {
+				pr.Disabled = *r.Disabled
+			}
+			if r.Description != nil {
+				pr.Description = *r.Description
+			}
+			switch r.Action {
+			case api.PolicyRuleActionAccept:
+				pr.Action = server.PolicyTrafficActionAccept
+			case api.PolicyRuleActionDrop:
+				pr.Action = server.PolicyTrafficActionDrop
+			default:
+				util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
+				return
+			}
+			policy.Rules = append(policy.Rules, &pr)
 		}
-		switch req.Meta.Action {
-		case api.PolicyMetaActionAccept:
-			policy.Rules[0].Action = server.PolicyTrafficActionAccept
-		case api.PolicyMetaActionDrop:
-			policy.Rules[0].Action = server.PolicyTrafficActionDrop
-		default:
-			util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
-			return
-		}
+	}
+	if err := policy.UpdateQueryFromRules(); err != nil {
+		log.Errorf("failed to update policy query: %v", err)
+		util.WriteError(status.Errorf(status.BadRequest, "failed to update policy query"), w)
+		return
 	}
 
 	if err = h.accountManager.SavePolicy(account.Id, user.Id, policy); err != nil {
@@ -245,50 +276,56 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 		return ap
 	}
 
-	ap.Meta = &api.PolicyMeta{
-		Port:   policy.Rules[0].Port,
-		Action: api.PolicyMetaAction(policy.Rules[0].Action),
-	}
-
-	for _, gid := range policy.Rules[0].Sources {
-		_, ok := cache[gid]
-		if ok {
-			continue
+	rules := make([]api.PolicyRule, 0, len(policy.Rules))
+	for _, r := range policy.Rules {
+		rule := api.PolicyRule{
+			Id:          &r.ID,
+			Name:        r.Name,
+			Disabled:    &r.Disabled,
+			Description: &r.Description,
+			Port:        r.Port,
 		}
-
-		if group, ok := account.Groups[gid]; ok {
-			minimum := api.GroupMinimum{
-				Id:         group.ID,
-				Name:       group.Name,
-				PeersCount: len(group.Peers),
+		for _, gid := range r.Sources {
+			_, ok := cache[gid]
+			if ok {
+				continue
 			}
-
-			ap.Meta.Sources = append(ap.Meta.Sources, minimum)
-			cache[gid] = minimum
-		}
-	}
-
-	for _, gid := range policy.Rules[0].Destinations {
-		cachedMinimum, ok := cache[gid]
-		if ok {
-			ap.Meta.Destinations = append(ap.Meta.Destinations, cachedMinimum)
-			continue
-		}
-		if group, ok := account.Groups[gid]; ok {
-			minimum := api.GroupMinimum{
-				Id:         group.ID,
-				Name:       group.Name,
-				PeersCount: len(group.Peers),
+			if group, ok := account.Groups[gid]; ok {
+				minimum := api.GroupMinimum{
+					Id:         group.ID,
+					Name:       group.Name,
+					PeersCount: len(group.Peers),
+				}
+				rule.Sources = append(rule.Sources, minimum)
+				cache[gid] = minimum
 			}
-			ap.Meta.Destinations = append(ap.Meta.Destinations, minimum)
-			cache[gid] = minimum
 		}
+		for _, gid := range r.Destinations {
+			cachedMinimum, ok := cache[gid]
+			if ok {
+				rule.Destinations = append(rule.Destinations, cachedMinimum)
+				continue
+			}
+			if group, ok := account.Groups[gid]; ok {
+				minimum := api.GroupMinimum{
+					Id:         group.ID,
+					Name:       group.Name,
+					PeersCount: len(group.Peers),
+				}
+				rule.Destinations = append(rule.Destinations, minimum)
+				cache[gid] = minimum
+			}
+		}
+		rules = append(rules, rule)
+	}
+	if len(rules) != 0 {
+		ap.Rules = &rules
 	}
 
 	return ap
 }
 
-func toGroupMinimumsToGroups(account *server.Account, gm []api.GroupMinimum) []string {
+func groupMinimumsToStrings(account *server.Account, gm []api.GroupMinimum) []string {
 	result := make([]string, 0, len(gm))
 	for _, gm := range gm {
 		if _, ok := account.Groups[gm.Id]; ok {

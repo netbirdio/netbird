@@ -395,20 +395,21 @@ components:
               enum: [ "name","description","disabled","flow","sources","destinations" ]
           required:
             - path
-    PolicyPatchOperation:
-      allOf:
-        - $ref: '#/components/schemas/PatchMinimum'
-        - type: object
-          properties:
-            path:
-              description: Polocy field to update in form /<field>
-              type: string
-              enum: [ "name","description","disabled","meta","query" ]
-          required:
-            - path
-    PolicyMeta:
+    PolicyRule:
       type: object
       properties:
+        id:
+          description: Rule ID
+          type: string
+        name:
+          description: Rule name identifier
+          type: string
+        description:
+          description: Rule friendly description
+          type: string
+        disabled:
+          description: Rules status
+          type: boolean
         sources:
           description: policy source groups
           type: array
@@ -427,6 +428,7 @@ components:
           description: port of the service or range of the ports, and optional protocol (by default TCP)
           type: string
       required:
+        - name
         - sources
         - destinations
         - action
@@ -446,9 +448,11 @@ components:
         query:
           description: Policy Rego query
           type: string
-        meta:
-          description: Policy meta object for policy UI editor
-          $ref: '#/components/schemas/PolicyMeta'
+        rules:
+          description: Policy rule object for policy UI editor
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyRule'
       required:
         - name
         - description
@@ -1392,41 +1396,6 @@ paths:
                       type: array
                       items:
                         type: string
-      responses:
-        '200':
-          description: A Rule object
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Rule'
-        '400':
-          "$ref": "#/components/responses/bad_request"
-        '401':
-          "$ref": "#/components/responses/requires_authentication"
-        '403':
-          "$ref": "#/components/responses/forbidden"
-        '500':
-          "$ref": "#/components/responses/internal_error"
-    patch:
-      summary: Update information about a Rule
-      tags: [ Rules ]
-      security:
-        - BearerAuth: [ ]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-          description: The Rule ID
-      requestBody:
-        description: Update Rule request using a list of json patch objects
-        content:
-          'application/json':
-            schema:
-              type: array
-              items:
-                $ref: '#/components/schemas/RulePatchOperation'
       responses:
         '200':
           description: A Rule object
