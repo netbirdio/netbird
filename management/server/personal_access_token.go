@@ -17,12 +17,12 @@ type PersonalAccessToken struct {
 	HashedToken    [32]byte
 	ExpirationDate time.Time
 	// scope could be added in future
-	CreatedBy User // should we add that?
+	CreatedBy string
 	CreatedAt time.Time
 	LastUsed  time.Time
 }
 
-func CreateNewPAT(description string, expirationInDays int, createdBy User) (*PersonalAccessToken, string) {
+func CreateNewPAT(description string, expirationInDays int, createdBy string) (*PersonalAccessToken, string) {
 	hashedToken, plainToken := generateNewToken()
 	currentTime := time.Now().UTC()
 	return &PersonalAccessToken{
