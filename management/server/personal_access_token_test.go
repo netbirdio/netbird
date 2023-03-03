@@ -31,8 +31,7 @@ func TestPAT_GenerateToken_Checksum(t *testing.T) {
 	token := tokenWithoutPrefix[:len(tokenWithoutPrefix)-6]
 	tokenCheckSum := tokenWithoutPrefix[len(tokenWithoutPrefix)-6:]
 
-	crc32q := crc32.MakeTable(IEEE)
-	expectedChecksum := crc32.Checksum([]byte(token), crc32q)
+	expectedChecksum := crc32.ChecksumIEEE([]byte(token))
 	actualChecksum, err := base62.Decode(tokenCheckSum)
 	if err != nil {
 		t.Fatal(err)
