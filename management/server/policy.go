@@ -84,6 +84,7 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 	}
 }
 
+// ToRule converts the policy rule to a rule.
 func (pm *PolicyRule) ToRule() *Rule {
 	return &Rule{
 		ID:          pm.ID,

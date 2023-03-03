@@ -21,6 +21,7 @@ type Policies struct {
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
+// NewPoliciesHandler creates a new Policies handler
 func NewPoliciesHandler(accountManager server.AccountManager, authCfg AuthCfg) *Policies {
 	return &Policies{
 		accountManager: accountManager,
