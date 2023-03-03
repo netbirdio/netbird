@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal/proxy"
-	nbStatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
+
+	"github.com/netbirdio/netbird/client/internal/proxy"
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/iface"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -83,7 +83,7 @@ type Conn struct {
 	agent  *ice.Agent
 	status ConnStatus
 
-	statusRecorder *nbStatus.Status
+	statusRecorder *Status
 
 	proxy proxy.Proxy
 }
@@ -100,7 +100,7 @@ func (conn *Conn) UpdateConf(conf ConnConfig) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *nbStatus.Status) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -190,11 +190,11 @@ func (conn *Conn) reCreateAgent() error {
 func (conn *Conn) Open() error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
-	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
+	peerState := PeerState{PubKey: conn.config.Key}
 
 	peerState.IP = strings.Split(conn.config.ProxyConfig.AllowedIps, "/")[0]
 	peerState.ConnStatusUpdate = time.Now()
-	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatus = conn.status
 
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -250,9 +250,9 @@ func (conn *Conn) Open() error {
 	defer conn.notifyDisconnected()
 	conn.mu.Unlock()
 
-	peerState = nbStatus.PeerState{PubKey: conn.config.Key}
+	peerState = PeerState{PubKey: conn.config.Key}
 
-	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatus = conn.status
 	peerState.ConnStatusUpdate = time.Now()
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -359,7 +359,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 		return err
 	}
 
-	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
+	peerState := PeerState{PubKey: conn.config.Key}
 	useProxy := shouldUseProxy(pair)
 	var p proxy.Proxy
 	if useProxy {
@@ -377,7 +377,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 
 	conn.status = StatusConnected
 
-	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatus = conn.status
 	peerState.ConnStatusUpdate = time.Now()
 	peerState.LocalIceCandidateType = pair.Local.Type().String()
 	peerState.RemoteIceCandidateType = pair.Remote.Type().String()
@@ -422,8 +422,8 @@ func (conn *Conn) cleanup() error {
 
 	conn.status = StatusDisconnected
 
-	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
-	peerState.ConnStatus = conn.status.String()
+	peerState := PeerState{PubKey: conn.config.Key}
+	peerState.ConnStatus = conn.status
 	peerState.ConnStatusUpdate = time.Now()
 
 	err := conn.statusRecorder.UpdatePeerState(peerState)
