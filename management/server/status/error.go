@@ -31,6 +31,9 @@ const (
 
 	// BadRequest indicates that user is not authorized
 	BadRequest Type = 9
+
+	// Unauthenticated indicates that user is not authenticated due to absence of valid credentials
+	Unauthenticated Type = 10
 )
 
 // Type is a type of the Error
