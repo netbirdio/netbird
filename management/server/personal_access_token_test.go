@@ -18,7 +18,7 @@ func TestPAT_GenerateToken_Hashing(t *testing.T) {
 
 func TestPAT_GenerateToken_Prefix(t *testing.T) {
 	_, plainToken := generateNewToken()
-	fourLetterPrefix := plainToken[:4] // should be 3
+	fourLetterPrefix := plainToken[:4]
 	assert.Equal(t, "nbp_", fourLetterPrefix)
 }
 
