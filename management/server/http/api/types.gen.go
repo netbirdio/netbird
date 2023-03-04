@@ -381,8 +381,8 @@ type Policy struct {
 	// Description Policy friendly description
 	Description string `json:"description"`
 
-	// Disabled Policy status
-	Disabled bool `json:"disabled"`
+	// Enabled Policy status
+	Enabled bool `json:"enabled"`
 
 	// Id Policy ID
 	Id string `json:"id"`
@@ -402,8 +402,8 @@ type PolicyMinimum struct {
 	// Description Policy friendly description
 	Description string `json:"description"`
 
-	// Disabled Policy status
-	Disabled bool `json:"disabled"`
+	// Enabled Policy status
+	Enabled bool `json:"enabled"`
 
 	// Name Policy name identifier
 	Name string `json:"name"`
@@ -426,17 +426,14 @@ type PolicyRule struct {
 	// Destinations policy destination groups
 	Destinations []GroupMinimum `json:"destinations"`
 
-	// Disabled Rules status
-	Disabled *bool `json:"disabled,omitempty"`
+	// Enabled Rules status
+	Enabled *bool `json:"enabled,omitempty"`
 
 	// Id Rule ID
 	Id *string `json:"id,omitempty"`
 
 	// Name Rule name identifier
 	Name string `json:"name"`
-
-	// Port port of the service or range of the ports, and optional protocol (by default TCP)
-	Port string `json:"port"`
 
 	// Sources policy source groups
 	Sources []GroupMinimum `json:"sources"`

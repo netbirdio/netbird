@@ -32,11 +32,13 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 				policy := &server.Policy{
 					ID:          "idoftherule",
 					Name:        "Policy",
+					Enabled:     true,
 					Description: "Description",
 					Rules: []*server.PolicyRule{
 						{
 							ID:           "idoftherule",
 							Name:         "Rule",
+							Enabled:      true,
 							Sources:      []string{"idofsrcrule"},
 							Destinations: []string{"idofdestrule"},
 							Action:       server.PolicyTrafficActionAccept,

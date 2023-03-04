@@ -840,8 +840,10 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 	}
 
 	policy := Policy{
+		Enabled: true,
 		Rules: []*PolicyRule{
 			{
+				Enabled:      true,
 				Sources:      []string{"group-id"},
 				Destinations: []string{"group-id"},
 				Action:       PolicyTrafficActionAccept,
@@ -1288,7 +1290,8 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Policies: []*Policy{
 			{
-				ID: "policy1",
+				ID:      "policy1",
+				Enabled: true,
 			},
 		},
 		Routes: map[string]*route.Route{

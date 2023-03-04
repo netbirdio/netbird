@@ -92,7 +92,7 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	policy := server.Policy{
 		ID:          policyID,
 		Name:        req.Name,
-		Disabled:    req.Disabled,
+		Enabled:     req.Enabled,
 		Description: req.Description,
 		Query:       req.Query,
 	}
@@ -101,11 +101,10 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 			pr := server.PolicyRule{
 				Destinations: groupMinimumsToStrings(account, r.Destinations),
 				Sources:      groupMinimumsToStrings(account, r.Sources),
-				Port:         r.Port,
 				Name:         r.Name,
 			}
-			if r.Disabled != nil {
-				pr.Disabled = *r.Disabled
+			if r.Enabled != nil {
+				pr.Enabled = *r.Enabled
 			}
 			if r.Description != nil {
 				pr.Description = *r.Description
@@ -163,7 +162,7 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	policy := &server.Policy{
 		ID:          xid.New().String(),
 		Name:        req.Name,
-		Disabled:    req.Disabled,
+		Enabled:     req.Enabled,
 		Description: req.Description,
 		Query:       req.Query,
 	}
@@ -174,11 +173,10 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 				ID:           xid.New().String(),
 				Destinations: groupMinimumsToStrings(account, r.Destinations),
 				Sources:      groupMinimumsToStrings(account, r.Sources),
-				Port:         r.Port,
 				Name:         r.Name,
 			}
-			if r.Disabled != nil {
-				pr.Disabled = *r.Disabled
+			if r.Enabled != nil {
+				pr.Enabled = *r.Enabled
 			}
 			if r.Description != nil {
 				pr.Description = *r.Description
@@ -270,7 +268,7 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 		Id:          policy.ID,
 		Name:        policy.Name,
 		Description: policy.Description,
-		Disabled:    policy.Disabled,
+		Enabled:     policy.Enabled,
 		Query:       policy.Query,
 	}
 	if len(policy.Rules) == 0 {
@@ -282,9 +280,8 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 		rule := api.PolicyRule{
 			Id:          &r.ID,
 			Name:        r.Name,
-			Disabled:    &r.Disabled,
+			Enabled:     &r.Enabled,
 			Description: &r.Description,
-			Port:        r.Port,
 		}
 		for _, gid := range r.Sources {
 			_, ok := cache[gid]

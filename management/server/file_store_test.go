@@ -204,7 +204,7 @@ func TestRestorePolicies_Migration(t *testing.T) {
 
 	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
 	require.Len(t, account.Groups, 1, "failed to restore a FileStore file - missing Account Groups")
-	require.Len(t, account.Rules, 1, "failed to restore a FileStore file - missing Account Rules")
+	require.Len(t, account.Rules, 0, "failed to restore a FileStore file - Account Rules should be removed")
 	require.Len(t, account.Policies, 1, "failed to restore a FileStore file - missing Account Policies")
 
 	policy := account.Policies[0]
@@ -212,8 +212,9 @@ func TestRestorePolicies_Migration(t *testing.T) {
 	require.Equal(t, policy.Description,
 		"This is a default rule that allows connections between all the resources",
 		"failed to restore a FileStore file - missing Account Policies Description")
-	expectedPolicy, err := RuleToPolicy(account.Rules["cfefqs706sqkneg59g40"])
-	require.NoError(t, err, "failed to restore a FileStore file - missing Account Policies Rule")
+	expectedPolicy := policy.Copy()
+	err = expectedPolicy.UpdateQueryFromRules()
+	require.NoError(t, err, "failed to upldate query")
 	require.Equal(t, policy.Query, expectedPolicy.Query, "failed to restore a FileStore file - missing Account Policies Query")
 	require.Len(t, policy.Rules, 1, "failed to restore a FileStore file - missing Account Policy Rules")
 	require.Equal(t, policy.Rules[0].Action, PolicyTrafficActionAccept, "failed to restore a FileStore file - missing Account Policies Action")

@@ -407,7 +407,7 @@ components:
         description:
           description: Rule friendly description
           type: string
-        disabled:
+        enabled:
           description: Rules status
           type: boolean
         sources:
@@ -424,15 +424,11 @@ components:
           description: policy accept or drops packets
           type: string
           enum: ["accept","drop"]
-        port:
-          description: port of the service or range of the ports, and optional protocol (by default TCP)
-          type: string
       required:
         - name
         - sources
         - destinations
         - action
-        - port
     PolicyMinimum:
       type: object
       properties:
@@ -442,7 +438,7 @@ components:
         description:
           description: Policy friendly description
           type: string
-        disabled:
+        enabled:
           description: Policy status
           type: boolean
         query:
@@ -456,7 +452,7 @@ components:
       required:
         - name
         - description
-        - disabled
+        - enabled
         - query
     Policy:
       allOf:

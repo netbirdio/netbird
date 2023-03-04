@@ -54,33 +54,29 @@ type PolicyRule struct {
 	// Description of the rule visible in the UI
 	Description string
 
-	// Disabled status of rule in the system
-	Disabled bool
+	// Enabled status of rule in the system
+	Enabled bool
 
 	// Action policy accept or drops packets
-	Action PolicyTrafficActionType `json:"action"`
+	Action PolicyTrafficActionType
 
 	// Destinations policy destination groups
-	Destinations []string `json:"destinations"`
+	Destinations []string
 
 	// Sources policy source groups
-	Sources []string `json:"sources"`
-
-	// Port port of the service or range of the ports, and optional protocol (by default TCP)
-	Port string `json:"port"`
+	Sources []string
 }
 
-// Copy returns a copy of the policy.
+// Copy returns a copy of a policy rule
 func (pm *PolicyRule) Copy() *PolicyRule {
 	return &PolicyRule{
 		ID:           pm.ID,
 		Name:         pm.Name,
 		Description:  pm.Description,
-		Disabled:     pm.Disabled,
+		Enabled:      pm.Enabled,
 		Action:       pm.Action,
 		Destinations: pm.Destinations[:],
 		Sources:      pm.Sources[:],
-		Port:         pm.Port,
 	}
 }
 
@@ -90,7 +86,7 @@ func (pm *PolicyRule) ToRule() *Rule {
 		ID:          pm.ID,
 		Name:        pm.Name,
 		Description: pm.Description,
-		Disabled:    pm.Disabled,
+		Disabled:    !pm.Enabled,
 		Flow:        TrafficFlowBidirect,
 		Destination: pm.Destinations,
 		Source:      pm.Sources,
@@ -108,8 +104,8 @@ type Policy struct {
 	// Description of the policy visible in the UI
 	Description string
 
-	// Disabled status of the policy
-	Disabled bool
+	// Enabled status of the policy
+	Enabled bool
 
 	// Query of Rego the policy
 	Query string
@@ -124,7 +120,7 @@ func (p *Policy) Copy() *Policy {
 		ID:          p.ID,
 		Name:        p.Name,
 		Description: p.Description,
-		Disabled:    p.Disabled,
+		Enabled:     p.Enabled,
 		Query:       p.Query,
 	}
 	for _, r := range p.Rules {
@@ -147,7 +143,7 @@ func (p *Policy) UpdateQueryFromRules() error {
 	}
 	queries := []string{}
 	for _, r := range p.Rules {
-		if r.Disabled {
+		if !r.Enabled {
 			continue
 		}
 
@@ -232,7 +228,7 @@ func (a *Account) getRegoQuery(policies ...*Policy) (rego.PreparedEvalQuery, err
 		rego.Module("netbird", defaultPolicyModule),
 	}
 	for i, p := range policies {
-		if p.Disabled {
+		if !p.Enabled {
 			continue
 		}
 		queries = append(queries, rego.Module(fmt.Sprintf("netbird-%d", i), p.Query))
@@ -267,15 +263,15 @@ func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
 		log.Error("empty Rego query eval result")
 		return nil, nil
 	}
-	expression, ok := evalResult[0].Expressions[0].Value.([]interface{})
+	expressions, ok := evalResult[0].Expressions[0].Value.([]interface{})
 	if !ok {
 		return nil, nil
 	}
 
 	set := make(map[string]struct{})
-	peers := make([]*Peer, 0, len(expression))
-	rules := make([]*FirewallRule, 0, len(expression))
-	for _, v := range expression {
+	peers := make([]*Peer, 0, len(expressions))
+	rules := make([]*FirewallRule, 0, len(expressions))
+	for _, v := range expressions {
 		rule := &FirewallRule{}
 		if err := rule.parseFromRegoResult(v); err != nil {
 			log.WithError(err).Error("parse Rego query eval result")

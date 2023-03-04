@@ -222,8 +222,10 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	}
 
 	policy.Name = "test"
+	policy.Enabled = true
 	policy.Rules = []*PolicyRule{
 		{
+			Enabled:      true,
 			Sources:      []string{group1.ID},
 			Destinations: []string{group2.ID},
 			Action:       PolicyTrafficActionAccept,
@@ -280,7 +282,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 		)
 	}
 
-	policy.Disabled = true
+	policy.Enabled = false
 	err = manager.SavePolicy(account.Id, userID, &policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)

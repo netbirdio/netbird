@@ -124,6 +124,7 @@ func restore(file string) (*FileStore, error) {
 				}
 				account.Policies = append(account.Policies, policy)
 			}
+			account.Rules = nil
 		}
 
 		// for data migration. Can be removed once most base will be with labels
