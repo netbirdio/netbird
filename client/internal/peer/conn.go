@@ -310,16 +310,20 @@ func (conn *Conn) Open() error {
 }
 
 // useProxy determines whether a direct connection (without a go proxy) is possible
+//
 // There are 2 cases:
+//
 // * When neither candidate is from hard nat and one of the peers has a public IP
+//
 // * both peers are in the same private network
+//
 // Please note, that this check happens when peers were already able to ping each other using ICE layer.
 func shouldUseProxy(pair *ice.CandidatePair) bool {
-	if isHostCandidateWithPublicIP(pair.Remote) && !isHardNATCandidate(pair.Local) {
+	if !isHardNATCandidate(pair.Local) && isHostCandidateWithPublicIP(pair.Remote) {
 		return false
 	}
 
-	if isHostCandidateWithPublicIP(pair.Local) && !isHardNATCandidate(pair.Remote) {
+	if !isHardNATCandidate(pair.Remote) && isHostCandidateWithPublicIP(pair.Local) {
 		return false
 	}
 
