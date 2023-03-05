@@ -113,6 +113,7 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 		return nil
 	}
 
+	d.notifyPeerListChanged()
 	return errors.New("no peer with to remove")
 }
 
@@ -147,6 +148,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		d.changeNotify[receivedState.PubKey] = nil
 	}
 
+	d.notifyPeerListChanged()
 	return nil
 }
 
@@ -163,6 +165,7 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 	peerState.FQDN = fqdn
 	d.peers[peerPubKey] = peerState
 
+	d.notifyPeerListChanged()
 	return nil
 }
 
@@ -199,7 +202,6 @@ func (d *Status) MarkManagementDisconnected(managementURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-
 	d.management = ManagementState{
 		URL:       managementURL,
 		Connected: false,
@@ -211,7 +213,6 @@ func (d *Status) MarkManagementConnected(managementURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-
 	d.management = ManagementState{
 		URL:       managementURL,
 		Connected: true,
@@ -223,7 +224,6 @@ func (d *Status) MarkSignalDisconnected(signalURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-
 	d.signal = SignalState{
 		signalURL,
 		false,
@@ -235,7 +235,6 @@ func (d *Status) MarkSignalConnected(signalURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-
 	d.signal = SignalState{
 		signalURL,
 		true,
@@ -284,4 +283,8 @@ func (d *Status) RemoveConnectionListener(listener Listener) {
 
 func (d *Status) onConnectionChanged() {
 	d.notifier.updateServerStates(d.management.Connected, d.signal.Connected)
+}
+
+func (d *Status) notifyPeerListChanged() {
+	d.notifier.peerListChanged(len(d.peers))
 }

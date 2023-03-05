@@ -5,4 +5,5 @@ type Listener interface {
 	OnConnected()
 	OnDisconnected()
 	OnConnecting()
+	OnPeersListChanged(int)
 }

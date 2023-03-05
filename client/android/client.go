@@ -13,7 +13,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/cmd"
 	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/iface"
@@ -21,7 +21,7 @@ import (
 
 // ConnectionListener export internal Listener for mobile
 type ConnectionListener interface {
-	status.Listener
+	peer.Listener
 }
 
 // TunAdapter export internal TunAdapter for mobile
@@ -40,7 +40,7 @@ func init() {
 type Client struct {
 	cfgFile       string
 	tunAdapter    iface.TunAdapter
-	recorder      *status.Status
+	recorder      *peer.Status
 	ctxCancel     context.CancelFunc
 	ctxCancelLock *sync.Mutex
 	urlOpener     UrlOpener
@@ -56,7 +56,7 @@ func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, urlOpener UrlO
 		deviceName:    deviceName,
 		tunAdapter:    tunAdapter,
 		urlOpener:     urlOpener,
-		recorder:      status.NewRecorder(),
+		recorder:      peer.NewRecorder(),
 		ctxCancelLock: &sync.Mutex{},
 	}
 }
@@ -92,6 +92,24 @@ func (c *Client) Stop() {
 	}
 
 	c.ctxCancel()
+}
+
+func (c *Client) PeersList() *PeerInfoArray {
+
+	fullStatus := c.recorder.GetFullStatus()
+
+	peerInfos := make([]PeerInfo, len(fullStatus.Peers))
+	for n, p := range fullStatus.Peers {
+		pi := PeerInfo{
+			p.IP,
+			p.FQDN,
+			p.ConnStatus.String(), // Todo replace to enum
+			p.Direct,
+		}
+		peerInfos[n] = pi
+	}
+
+	return &PeerInfoArray{items: peerInfos}
 }
 
 func (c *Client) AddConnectionListener(listener ConnectionListener) {

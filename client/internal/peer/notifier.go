@@ -113,3 +113,12 @@ func (n *notifier) calculateState(serverState bool, clientState bool) int {
 
 	return stateConnecting
 }
+
+func (n *notifier) peerListChanged(numOfPeers int) {
+	n.listenersLock.Lock()
+	defer n.listenersLock.Unlock()
+
+	for l, _ := range n.listeners {
+		l.OnPeersListChanged(numOfPeers)
+	}
+}

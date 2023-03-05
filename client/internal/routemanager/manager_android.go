@@ -3,7 +3,7 @@ package routemanager
 import (
 	"context"
 
-	"github.com/netbirdio/netbird/client/status"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
 )
@@ -22,7 +22,7 @@ type DefaultManager struct {
 }
 
 // NewManager returns a new dummy route manager what doing nothing
-func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *status.Status) *DefaultManager {
+func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status) *DefaultManager {
 	return &DefaultManager{}
 }
 
