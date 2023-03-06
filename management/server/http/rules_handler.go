@@ -71,8 +71,8 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, ok := account.Rules[ruleID]
-	if !ok {
+	policy, err := h.accountManager.GetPolicy(account.Id, ruleID, user.Id)
+	if err != nil {
 		util.WriteError(status.Errorf(status.NotFound, "couldn't find rule id %s", ruleID), w)
 		return
 	}
@@ -98,28 +98,33 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		reqDestinations = *req.Destinations
 	}
 
-	rule := server.Rule{
-		ID:          ruleID,
-		Name:        req.Name,
-		Source:      reqSources,
-		Destination: reqDestinations,
-		Disabled:    req.Disabled,
-		Description: req.Description,
+	if len(policy.Rules) != 1 {
+		util.WriteError(status.Errorf(status.Internal, "policy should contain exactly one rule"), w)
+		return
+	}
+
+	policy.Name = req.Name
+	policy.Description = req.Description
+	policy.Enabled = !req.Disabled
+	policy.Rules[0].ID = ruleID
+	policy.Rules[0].Name = req.Name
+	policy.Rules[0].Sources = reqSources
+	policy.Rules[0].Destinations = reqDestinations
+	policy.Rules[0].Enabled = !req.Disabled
+	policy.Rules[0].Description = req.Description
+	if err := policy.UpdateQueryFromRules(); err != nil {
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid rule to convert it to policy"), w)
+		return
 	}
 
 	switch req.Flow {
 	case server.TrafficFlowBidirectString:
-		rule.Flow = server.TrafficFlowBidirect
+		policy.Rules[0].Action = server.PolicyTrafficActionAccept
 	default:
 		util.WriteError(status.Errorf(status.InvalidArgument, "unknown flow type"), w)
 		return
 	}
 
-	policy, err := server.RuleToPolicy(&rule)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
 	err = h.accountManager.SavePolicy(account.Id, user.Id, policy)
 	if err != nil {
 		util.WriteError(err, w)

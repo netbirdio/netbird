@@ -23,30 +23,23 @@ import (
 )
 
 func initRulesTestData(rules ...*server.Rule) *RulesHandler {
+	testPolicies := make(map[string]*server.Policy, len(rules))
+	for _, rule := range rules {
+		policy, err := server.RuleToPolicy(rule)
+		if err != nil {
+			panic(err)
+		}
+		if err := policy.UpdateQueryFromRules(); err != nil {
+			panic(err)
+		}
+		testPolicies[policy.ID] = policy
+	}
 	return &RulesHandler{
 		accountManager: &mock_server.MockAccountManager{
 			GetPolicyFunc: func(_, policyID, _ string) (*server.Policy, error) {
-				if policyID != "idoftherule" {
+				policy, ok := testPolicies[policyID]
+				if !ok {
 					return nil, fmt.Errorf("not found")
-				}
-				policy := &server.Policy{
-					ID:          "idoftherule",
-					Name:        "Policy",
-					Enabled:     true,
-					Description: "Description",
-					Rules: []*server.PolicyRule{
-						{
-							ID:           "idoftherule",
-							Name:         "Rule",
-							Enabled:      true,
-							Sources:      []string{"idofsrcrule"},
-							Destinations: []string{"idofdestrule"},
-							Action:       server.PolicyTrafficActionAccept,
-						},
-					},
-				}
-				if err := policy.UpdateQueryFromRules(); err != nil {
-					return nil, err
 				}
 				return policy, nil
 			},
@@ -228,7 +221,11 @@ func TestRulesWriteRule(t *testing.T) {
 		},
 	}
 
-	p := initRulesTestData()
+	p := initRulesTestData(&server.Rule{
+		ID:   "id-existed",
+		Name: "Default POSTed Rule",
+		Flow: server.TrafficFlowBidirect,
+	})
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {

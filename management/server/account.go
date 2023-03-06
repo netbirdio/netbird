@@ -1262,6 +1262,7 @@ func addAllGroup(account *Account) error {
 		}
 		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
 
+		// TODO: after migration we need to drop rule and create policy directly
 		defaultPolicy, err := RuleToPolicy(defaultRule)
 		if err != nil {
 			return fmt.Errorf("convert rule to policy: %w", err)
