@@ -55,6 +55,7 @@ type Status struct {
 	signal       SignalState
 	management   ManagementState
 	localPeer    LocalPeerState
+	offlinePeers []State
 }
 
 // NewRecorder returns a new Status instance
@@ -62,6 +63,17 @@ func NewRecorder() *Status {
 	return &Status{
 		peers:        make(map[string]State),
 		changeNotify: make(map[string]chan struct{}),
+		offlinePeers: make([]State, 0),
+	}
+}
+
+// ReplaceOfflinePeers replaces
+func (d *Status) ReplaceOfflinePeers(replacement []State) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.offlinePeers = make([]State, len(replacement))
+	for i, peer := range replacement {
+		d.offlinePeers[i] = peer
 	}
 }
 
@@ -74,7 +86,7 @@ func (d *Status) AddPeer(peerPubKey string) error {
 	if ok {
 		return errors.New("peer already exist")
 	}
-	d.peers[peerPubKey] = State{PubKey: peerPubKey}
+	d.peers[peerPubKey] = State{PubKey: peerPubKey, ConnStatus: StatusDisconnected}
 	return nil
 }
 
@@ -235,6 +247,10 @@ func (d *Status) GetFullStatus() FullStatus {
 
 	for _, status := range d.peers {
 		fullStatus.Peers = append(fullStatus.Peers, status)
+	}
+
+	for _, peer := range d.offlinePeers {
+		fullStatus.Peers = append(fullStatus.Peers, peer)
 	}
 
 	return fullStatus

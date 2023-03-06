@@ -132,7 +132,7 @@ func NewEngine(
 		cancel:         cancel,
 		signal:         signalClient,
 		mgmClient:      mgmClient,
-		peerConns:      map[string]*peer.Conn{},
+		peerConns:      make(map[string]*peer.Conn),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
 		STUNs:          []*ice.URL{},
@@ -557,6 +557,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
 
+	e.updateOfflinePeers(networkMap.GetOfflinePeers())
+
 	// cleanup request, most likely our peer has been deleted
 	if networkMap.GetRemotePeersIsEmpty() {
 		err := e.removeAllPeers()
@@ -671,6 +673,23 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
 		dnsUpdate.NameServerGroups = append(dnsUpdate.NameServerGroups, dnsNSGroup)
 	}
 	return dnsUpdate
+}
+
+func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
+	replacement := make([]peer.State, len(offlinePeers))
+	if len(offlinePeers) > 0 {
+		for i, offlinePeer := range offlinePeers {
+			log.Debugf("added offline peer %s", offlinePeer.Fqdn)
+			replacement[i] = peer.State{
+				IP:               offlinePeer.GetAllowedIps()[0],
+				PubKey:           offlinePeer.GetWgPubKey(),
+				FQDN:             offlinePeer.GetFqdn(),
+				ConnStatus:       peer.StatusDisconnected,
+				ConnStatusUpdate: time.Now(),
+			}
+		}
+	}
+	e.statusRecorder.ReplaceOfflinePeers(replacement)
 }
 
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update
