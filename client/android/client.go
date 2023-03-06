@@ -120,14 +120,6 @@ func (c *Client) RemoveConnectionListener(listener ConnectionListener) {
 	c.recorder.RemoveConnectionListener(listener)
 }
 
-func (c *Client) ctxWithCancel(parentCtx context.Context) context.Context {
-	c.ctxCancelLock.Lock()
-	defer c.ctxCancelLock.Unlock()
-	var ctx context.Context
-	ctx, c.ctxCancel = context.WithCancel(parentCtx)
-	return ctx
-}
-
 func (c *Client) login(ctx context.Context, config *internal.Config, setupKey string) error {
 	needsLogin := false
 
