@@ -32,7 +32,7 @@ func CreateNewPAT(description string, expirationInDays int, createdBy string) (*
 		ExpirationDate: currentTime.AddDate(0, 0, expirationInDays),
 		CreatedBy:      createdBy,
 		CreatedAt:      currentTime,
-		LastUsed:       currentTime, // using creation time as nil not possible
+		LastUsed:       currentTime,
 	}, plainToken
 }
 

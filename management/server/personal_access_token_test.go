@@ -18,8 +18,8 @@ func TestPAT_GenerateToken_Hashing(t *testing.T) {
 
 func TestPAT_GenerateToken_Prefix(t *testing.T) {
 	_, plainToken := generateNewToken()
-	fourLetterPrefix := plainToken[:4]
-	assert.Equal(t, "nbp_", fourLetterPrefix)
+	fourCharPrefix := plainToken[:4]
+	assert.Equal(t, "nbp_", fourCharPrefix)
 }
 
 func TestPAT_GenerateToken_Checksum(t *testing.T) {
@@ -28,10 +28,10 @@ func TestPAT_GenerateToken_Checksum(t *testing.T) {
 	if len(tokenWithoutPrefix) != 36 {
 		t.Fatal("Token has wrong length")
 	}
-	token := tokenWithoutPrefix[:len(tokenWithoutPrefix)-6]
+	secret := tokenWithoutPrefix[:len(tokenWithoutPrefix)-6]
 	tokenCheckSum := tokenWithoutPrefix[len(tokenWithoutPrefix)-6:]
 
-	expectedChecksum := crc32.ChecksumIEEE([]byte(token))
+	expectedChecksum := crc32.ChecksumIEEE([]byte(secret))
 	actualChecksum, err := base62.Decode(tokenCheckSum)
 	if err != nil {
 		t.Fatal(err)
