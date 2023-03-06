@@ -249,9 +249,7 @@ func (d *Status) GetFullStatus() FullStatus {
 		fullStatus.Peers = append(fullStatus.Peers, status)
 	}
 
-	for _, peer := range d.offlinePeers {
-		fullStatus.Peers = append(fullStatus.Peers, peer)
-	}
+	fullStatus.Peers = append(fullStatus.Peers, d.offlinePeers...)
 
 	return fullStatus
 }
