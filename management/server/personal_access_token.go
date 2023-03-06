@@ -37,12 +37,12 @@ func CreateNewPAT(description string, expirationInDays int, createdBy string) (*
 }
 
 func generateNewToken() ([32]byte, string) {
-	token := randStringRunes(30)
+	secret := randStringRunes(30)
 
-	checksum := crc32.ChecksumIEEE([]byte(token))
+	checksum := crc32.ChecksumIEEE([]byte(secret))
 	encodedChecksum := base62.Encode(checksum)
 	paddedChecksum := fmt.Sprintf("%06s", encodedChecksum)
-	plainToken := "nbp_" + token + paddedChecksum
+	plainToken := "nbp_" + secret + paddedChecksum
 	hashedToken := sha256.Sum256([]byte(plainToken))
 	return hashedToken, plainToken
 }
