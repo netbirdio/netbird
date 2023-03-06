@@ -680,7 +680,7 @@ func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
 	for i, offlinePeer := range offlinePeers {
 		log.Debugf("added offline peer %s", offlinePeer.Fqdn)
 		replacement[i] = peer.State{
-			IP:               offlinePeer.GetAllowedIps()[0],
+			IP:               strings.Join(offlinePeer.GetAllowedIps(), ","),
 			PubKey:           offlinePeer.GetWgPubKey(),
 			FQDN:             offlinePeer.GetFqdn(),
 			ConnStatus:       peer.StatusDisconnected,
