@@ -310,38 +310,44 @@ func (conn *Conn) Open() error {
 }
 
 // useProxy determines whether a direct connection (without a go proxy) is possible
-// There are 3 cases: one of the peers has a public IP or both peers are in the same private network
+//
+// There are 2 cases:
+//
+// * When neither candidate is from hard nat and one of the peers has a public IP
+//
+// * both peers are in the same private network
+//
 // Please note, that this check happens when peers were already able to ping each other using ICE layer.
 func shouldUseProxy(pair *ice.CandidatePair) bool {
-	remoteIP := net.ParseIP(pair.Remote.Address())
-	myIp := net.ParseIP(pair.Local.Address())
-	remoteIsPublic := IsPublicIP(remoteIP)
-	myIsPublic := IsPublicIP(myIp)
-
-	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
-		return true
-	}
-
-	//one of the hosts has a public IP
-	if remoteIsPublic && pair.Remote.Type() == ice.CandidateTypeHost {
-		return false
-	}
-	if myIsPublic && pair.Local.Type() == ice.CandidateTypeHost {
+	if !isHardNATCandidate(pair.Local) && isHostCandidateWithPublicIP(pair.Remote) {
 		return false
 	}
 
-	if pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost {
-		if !remoteIsPublic && !myIsPublic {
-			//both hosts are in the same private network
-			return false
-		}
+	if !isHardNATCandidate(pair.Remote) && isHostCandidateWithPublicIP(pair.Local) {
+		return false
+	}
+
+	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) {
+		return false
 	}
 
 	return true
 }
 
-// IsPublicIP indicates whether IP is public or not.
-func IsPublicIP(ip net.IP) bool {
+func isHardNATCandidate(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypeRelay || candidate.Type() == ice.CandidateTypePeerReflexive
+}
+
+func isHostCandidateWithPublicIP(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypeHost && isPublicIP(candidate.Address())
+}
+
+func isHostCandidateWithPrivateIP(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypeHost && !isPublicIP(candidate.Address())
+}
+
+func isPublicIP(address string) bool {
+	ip := net.ParseIP(address)
 	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
 		return false
 	}
