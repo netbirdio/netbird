@@ -98,6 +98,7 @@ func (u *User) Copy() *User {
 		Id:         u.Id,
 		Role:       u.Role,
 		AutoGroups: autoGroups,
+		PATs:       u.PATs,
 	}
 }
 
