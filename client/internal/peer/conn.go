@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
+	sProto "github.com/netbirdio/netbird/signal/proto"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -69,8 +71,9 @@ type Conn struct {
 	// signalCandidate is a handler function to signal remote peer about local connection candidate
 	signalCandidate func(candidate ice.Candidate) error
 	// signalOffer is a handler function to signal remote peer our connection offer (credentials)
-	signalOffer  func(OfferAnswer) error
-	signalAnswer func(OfferAnswer) error
+	signalOffer       func(OfferAnswer) error
+	signalAnswer      func(OfferAnswer) error
+	sendSignalMessage func(message *sProto.Message) error
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -85,7 +88,14 @@ type Conn struct {
 
 	statusRecorder *Status
 
-	proxy proxy.Proxy
+	proxy   proxy.Proxy
+	modeMsg chan ModeMessage
+}
+
+// ModeMessage represents a connection mode chosen by the peer
+type ModeMessage struct {
+	// Direct indicates that it decided to use a direct connection
+	Direct bool
 }
 
 // GetConf returns the connection config
@@ -109,6 +119,7 @@ func NewConn(config ConnConfig, statusRecorder *Status) (*Conn, error) {
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
+		modeMsg:        make(chan ModeMessage),
 	}, nil
 }
 
@@ -366,15 +377,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	}
 
 	peerState := State{PubKey: conn.config.Key}
-	useProxy := shouldUseProxy(pair)
-	var p proxy.Proxy
-	if useProxy {
-		p = proxy.NewWireguardProxy(conn.config.ProxyConfig)
-		peerState.Direct = false
-	} else {
-		p = proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
-		peerState.Direct = true
-	}
+	p := conn.getProxyWithMessageExchange(pair, remoteWgPort)
 	conn.proxy = p
 	err = p.Start(remoteConn)
 	if err != nil {
@@ -397,6 +400,41 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	}
 
 	return nil
+}
+
+func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
+	useProxy := shouldUseProxy(pair)
+
+	err := conn.sendSignalMessage(&sProto.Message{
+		Key:       conn.config.LocalKey,
+		RemoteKey: conn.config.Key,
+		Body: &sProto.Body{
+			Type: sProto.Body_MODE,
+			Mode: &sProto.Mode{
+				Direct: !useProxy,
+			},
+		},
+	})
+	if err != nil {
+		log.Errorf("got an error while sending the signal message with the connection mode, error: %s", err)
+	}
+
+	waitTimeout := time.After(time.Second)
+
+	select {
+	case receivedMSG := <-conn.modeMsg:
+		if receivedMSG.Direct != useProxy {
+			useProxy = true
+		}
+	case <-waitTimeout:
+		log.Debugf("skip waiting for mode message. We are possible talking to an older peer version")
+	}
+
+	if useProxy {
+		return proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	}
+
+	return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
 }
 
 // cleanup closes all open resources and sets status to StatusDisconnected
@@ -457,6 +495,11 @@ func (conn *Conn) SetSignalAnswer(handler func(answer OfferAnswer) error) {
 // SetSignalCandidate sets a handler function to be triggered by Conn when a new ICE local connection candidate has to be signalled to the remote peer
 func (conn *Conn) SetSignalCandidate(handler func(candidate ice.Candidate) error) {
 	conn.signalCandidate = handler
+}
+
+// SetSendSignalMessage sets a handler function to be triggered by Conn when there is new message to send via signal
+func (conn *Conn) SetSendSignalMessage(handler func(message *sProto.Message) error) {
+	conn.sendSignalMessage = handler
 }
 
 // onICECandidate is a callback attached to an ICE Agent to receive new local connection candidates
@@ -612,4 +655,14 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) {
 
 func (conn *Conn) GetKey() string {
 	return conn.config.Key
+}
+
+// OnModeMessage unmarshall the payload message and send it to the mode message channel
+func (conn *Conn) OnModeMessage(message ModeMessage) error {
+	select {
+	case conn.modeMsg <- message:
+		return nil
+	default:
+		return fmt.Errorf("unable to send mode message: channel busy")
+	}
 }

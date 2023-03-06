@@ -46,10 +46,16 @@ message Body {
     OFFER = 0;
     ANSWER = 1;
     CANDIDATE = 2;
+    MODE = 4;
   }
   Type type = 1;
   string payload = 2;
   // wgListenPort is an actual WireGuard listen port
   uint32 wgListenPort = 3;
   string netBirdVersion = 4;
+  Mode mode = 5;
+}
+
+message Mode {
+  bool direct = 1;
 }
