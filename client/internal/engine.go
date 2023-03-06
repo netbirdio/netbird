@@ -677,16 +677,14 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
 
 func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
 	replacement := make([]peer.State, len(offlinePeers))
-	if len(offlinePeers) > 0 {
-		for i, offlinePeer := range offlinePeers {
-			log.Debugf("added offline peer %s", offlinePeer.Fqdn)
-			replacement[i] = peer.State{
-				IP:               offlinePeer.GetAllowedIps()[0],
-				PubKey:           offlinePeer.GetWgPubKey(),
-				FQDN:             offlinePeer.GetFqdn(),
-				ConnStatus:       peer.StatusDisconnected,
-				ConnStatusUpdate: time.Now(),
-			}
+	for i, offlinePeer := range offlinePeers {
+		log.Debugf("added offline peer %s", offlinePeer.Fqdn)
+		replacement[i] = peer.State{
+			IP:               offlinePeer.GetAllowedIps()[0],
+			PubKey:           offlinePeer.GetWgPubKey(),
+			FQDN:             offlinePeer.GetFqdn(),
+			ConnStatus:       peer.StatusDisconnected,
+			ConnStatusUpdate: time.Now(),
 		}
 	}
 	e.statusRecorder.ReplaceOfflinePeers(replacement)
