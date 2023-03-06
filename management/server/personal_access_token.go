@@ -11,6 +11,7 @@ import (
 	"github.com/rs/xid"
 )
 
+// PersonalAccessToken holds all information about a PAT including a hashed version of it for verification
 type PersonalAccessToken struct {
 	ID             string
 	Description    string
@@ -22,6 +23,8 @@ type PersonalAccessToken struct {
 	LastUsed  time.Time
 }
 
+// CreateNewPAT will generate a new PersonalAccessToken that can be assigned to a User.
+// Additionally, it will return the token in plain text once, to give to the user and only save a hashed version
 func CreateNewPAT(description string, expirationInDays int, createdBy string) (*PersonalAccessToken, string) {
 	hashedToken, plainToken := generateNewToken()
 	currentTime := time.Now().UTC()
