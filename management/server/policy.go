@@ -260,7 +260,7 @@ func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
 	}
 
 	if len(evalResult) == 0 || len(evalResult[0].Expressions) == 0 {
-		log.Error("empty Rego query eval result")
+		log.Trace("empty Rego query eval result")
 		return nil, nil
 	}
 	expressions, ok := evalResult[0].Expressions[0].Value.([]interface{})

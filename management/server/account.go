@@ -93,8 +93,8 @@ type AccountManager interface {
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*Peer, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
-	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) //used by peer gRPC API
-	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    //used by peer gRPC API
+	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) // used by peer gRPC API
+	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    // used by peer gRPC API
 }
 
 type DefaultAccountManager struct {
@@ -272,7 +272,7 @@ func (a *Account) GetGroup(groupID string) *Group {
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
 func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
-	aclPeers := a.getPeersByACL(peerID)
+	aclPeers, _ := a.getPeersByPolicy(peerID)
 	// exclude expired peers
 	var peersToConnect []*Peer
 	var expiredPeers []*Peer
