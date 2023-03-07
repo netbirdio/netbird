@@ -2,6 +2,7 @@ package android
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/netbirdio/netbird/client/cmd"
@@ -17,6 +18,8 @@ type UrlOpener interface {
 	Open(string)
 }
 
+var ErrInvalidURLOpener = errors.New("invalid url opener")
+
 // Auth can register or login new client
 type Auth struct {
 	ctx       context.Context
@@ -26,7 +29,7 @@ type Auth struct {
 }
 
 // NewAuth instantiate Auth struct and validate the management URL
-func NewAuth(urlOpener UrlOpener, cfgPath string, mgmUrl string) (*Auth, error) {
+func NewAuth(cfgPath string, mgmUrl string) (*Auth, error) {
 	inputCfg := internal.ConfigInput{
 		ManagementURL: mgmUrl,
 	}
@@ -37,10 +40,9 @@ func NewAuth(urlOpener UrlOpener, cfgPath string, mgmUrl string) (*Auth, error) 
 	}
 
 	return &Auth{
-		ctx:       context.Background(),
-		urlOpener: urlOpener,
-		config:    cfg,
-		cfgPath:   cfgPath,
+		ctx:     context.Background(),
+		config:  cfg,
+		cfgPath: cfgPath,
 	}, nil
 }
 
@@ -89,6 +91,9 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string) error {
 
 // Login try register the client on the server
 func (a *Auth) Login() error {
+	if a.urlOpener == nil {
+		return ErrInvalidURLOpener
+	}
 	var needsLogin bool
 
 	// check if we need to generate JWT token
