@@ -72,9 +72,7 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	d.offlinePeers = make([]State, len(replacement))
-	for i, peer := range replacement {
-		d.offlinePeers[i] = peer
-	}
+	copy(d.offlinePeers, replacement)
 }
 
 // AddPeer adds peer to Daemon status map
