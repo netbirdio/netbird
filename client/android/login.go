@@ -53,9 +53,9 @@ func NewAuthWithConfig(ctx context.Context, urlOpener UrlOpener, config *interna
 	}
 }
 
-// LoginCheckAndSave test the connectivity with the management server. If it is success save the configuration.
-// Return with bool what indicate the server support SSO or not
-func (a *Auth) LoginCheckAndSave() (bool, error) {
+// LoginAndSaveConfigIfSSOSupported test the connectivity with the management server.
+// If the SSO is supported than save the configuration. Return with the SSO login is supported or not.
+func (a *Auth) LoginAndSaveConfigIfSSOSupported() (bool, error) {
 	var needsLogin bool
 	err := a.withBackOff(a.ctx, func() (err error) {
 		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config.SSHKey)
@@ -64,12 +64,15 @@ func (a *Auth) LoginCheckAndSave() (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("backoff cycle failed: %v", err)
 	}
+	if !needsLogin {
+		return false, nil
+	}
 	err = internal.WriteOutConfig(a.cfgPath, a.config)
 	return needsLogin, err
 }
 
-// LoginWithSetupKey test the connectivity with the management server with the setup key.
-func (a *Auth) LoginWithSetupKey(setupKey string) error {
+// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
+func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string) error {
 	err := a.withBackOff(a.ctx, func() error {
 		err := internal.Login(a.ctx, a.config, setupKey, "")
 		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
@@ -81,7 +84,7 @@ func (a *Auth) LoginWithSetupKey(setupKey string) error {
 		return fmt.Errorf("backoff cycle failed: %v", err)
 	}
 
-	return nil
+	return internal.WriteOutConfig(a.cfgPath, a.config)
 }
 
 // Login try register the client on the server
