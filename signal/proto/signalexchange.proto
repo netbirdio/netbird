@@ -54,15 +54,10 @@ message Body {
   uint32 wgListenPort = 3;
   string netBirdVersion = 4;
   Mode mode = 5;
-  ProtoSupport protoSupport = 6;
+  repeated uint32 protoSupport = 6;
 }
 
 // Mode indicates a connection mode
 message Mode {
   bool direct = 1;
-}
-
-// ProtoSupport indicates a feature support
-message ProtoSupport {
-  optional bool directCheck = 1;
 }

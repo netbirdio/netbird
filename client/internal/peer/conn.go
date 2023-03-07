@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
+	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 )
 
@@ -90,17 +91,12 @@ type Conn struct {
 
 	proxy        proxy.Proxy
 	remoteModeCh chan ModeMessage
-	meta         *meta
+	meta         meta
 }
 
 // meta holds meta information about a connection
 type meta struct {
-	protoSupport protoSupport
-}
-
-// protoSupport register protocol supported messages
-type protoSupport struct {
-	directCheck bool
+	protoSupport signal.ProtoSupport
 }
 
 // ModeMessage represents a connection mode chosen by the peer
@@ -426,7 +422,7 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 }
 
 func (conn *Conn) exchangeDirectMode(useProxy bool) bool {
-	if !conn.meta.protoSupport.directCheck {
+	if !conn.meta.protoSupport.DirectCheck {
 		return useProxy
 	}
 
@@ -690,13 +686,8 @@ func (conn *Conn) OnModeMessage(message ModeMessage) error {
 	}
 }
 
-func (conn *Conn) RegisterConnMeta(support *sProto.ProtoSupport) {
-	if support != nil {
-		return
-	}
-	conn.meta = &meta{
-		protoSupport: protoSupport{
-			directCheck: support.GetDirectCheck(),
-		},
-	}
+// RegisterProtoSupportMeta register supported proto message in the connection metadata
+func (conn *Conn) RegisterProtoSupportMeta(support []uint32) {
+	protoSupport := signal.ParseSupportedFeatures(support)
+	conn.meta.protoSupport = protoSupport
 }

@@ -2,11 +2,13 @@ package client
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/signal/proto"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"io"
 	"strings"
+
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/signal/proto"
 )
 
 // A set of tools to exchange connection details (Wireguard endpoints) with the remote peer.
@@ -16,6 +18,16 @@ type Status string
 
 const StreamConnected Status = "Connected"
 const StreamDisconnected Status = "Disconnected"
+
+const (
+	// DirectCheck indicates support to direct mode checks
+	DirectCheck uint32 = 1
+)
+
+// ProtoSupport register protocol supported messages
+type ProtoSupport struct {
+	DirectCheck bool
+}
 
 type Client interface {
 	io.Closer
@@ -59,4 +71,14 @@ func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey wgtypes.Key, cre
 type Credential struct {
 	UFrag string
 	Pwd   string
+}
+
+func ParseSupportedFeatures(featuresMessage []uint32) ProtoSupport {
+	var protoSupport ProtoSupport
+	for _, feature := range featuresMessage {
+		if feature == DirectCheck {
+			protoSupport.DirectCheck = true
+		}
+	}
+	return protoSupport
 }
