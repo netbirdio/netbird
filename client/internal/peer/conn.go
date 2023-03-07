@@ -90,6 +90,17 @@ type Conn struct {
 
 	proxy        proxy.Proxy
 	remoteModeCh chan ModeMessage
+	meta         *meta
+}
+
+// meta holds meta information about a connection
+type meta struct {
+	protoSupport protoSupport
+}
+
+// protoSupport register protocol supported messages
+type protoSupport struct {
+	directCheck bool
 }
 
 // ModeMessage represents a connection mode chosen by the peer
@@ -405,6 +416,21 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
 	useProxy := shouldUseProxy(pair)
 
+	exchangedMode := conn.exchangeDirectMode(useProxy)
+
+	if exchangedMode {
+		return proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	}
+
+	return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
+}
+
+func (conn *Conn) exchangeDirectMode(useProxy bool) bool {
+	if !conn.meta.protoSupport.directCheck {
+		return useProxy
+	}
+
+	exchangedMode := useProxy
 	err := conn.sendSignalMessage(&sProto.Message{
 		Key:       conn.config.LocalKey,
 		RemoteKey: conn.config.Key,
@@ -416,26 +442,22 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 			NetBirdVersion: system.NetbirdVersion(),
 		},
 	})
+
 	if err != nil {
 		log.Errorf("got an error while sending the signal message with the connection mode, error: %s", err)
 	}
-
 	waitTimer := time.NewTimer(time.Second)
 
 	select {
 	case receivedMSG := <-conn.remoteModeCh:
 		if receivedMSG.Direct != useProxy {
-			useProxy = true
+			exchangedMode = true
 		}
 	case <-waitTimer.C:
 		log.Debugf("skip waiting for mode message. We are possible talking to an older peer version")
 	}
 
-	if useProxy {
-		return proxy.NewWireguardProxy(conn.config.ProxyConfig)
-	}
-
-	return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
+	return exchangedMode
 }
 
 // cleanup closes all open resources and sets status to StatusDisconnected
@@ -665,5 +687,16 @@ func (conn *Conn) OnModeMessage(message ModeMessage) error {
 		return nil
 	default:
 		return fmt.Errorf("unable to process mode message: channel busy")
+	}
+}
+
+func (conn *Conn) RegisterConnMeta(support *sProto.ProtoSupport) {
+	if support != nil {
+		return
+	}
+	conn.meta = &meta{
+		protoSupport: protoSupport{
+			directCheck: support.GetDirectCheck(),
+		},
 	}
 }

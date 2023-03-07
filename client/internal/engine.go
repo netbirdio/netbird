@@ -374,7 +374,11 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 		return err
 	}
 	// indicates message support in gRPC
-	msg.Body.Mode = &sProto.Mode{Direct: false}
+	directCheck := true
+	msg.Body.ProtoSupport = &sProto.ProtoSupport{
+		DirectCheck: &directCheck,
+	}
+
 	err = s.Send(msg)
 	if err != nil {
 		return err
