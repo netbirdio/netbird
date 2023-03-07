@@ -2,7 +2,6 @@ package android
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/netbirdio/netbird/client/cmd"
@@ -18,14 +17,11 @@ type UrlOpener interface {
 	Open(string)
 }
 
-var ErrInvalidURLOpener = errors.New("invalid url opener")
-
 // Auth can register or login new client
 type Auth struct {
-	ctx       context.Context
-	urlOpener UrlOpener
-	config    *internal.Config
-	cfgPath   string
+	ctx     context.Context
+	config  *internal.Config
+	cfgPath string
 }
 
 // NewAuth instantiate Auth struct and validate the management URL
@@ -47,11 +43,10 @@ func NewAuth(cfgPath string, mgmUrl string) (*Auth, error) {
 }
 
 // NewAuthWithConfig instantiate Auth based on existing config
-func NewAuthWithConfig(ctx context.Context, urlOpener UrlOpener, config *internal.Config) *Auth {
+func NewAuthWithConfig(ctx context.Context, config *internal.Config) *Auth {
 	return &Auth{
-		ctx:       ctx,
-		urlOpener: urlOpener,
-		config:    config,
+		ctx:    ctx,
+		config: config,
 	}
 }
 
@@ -90,10 +85,7 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string) error {
 }
 
 // Login try register the client on the server
-func (a *Auth) Login() error {
-	if a.urlOpener == nil {
-		return ErrInvalidURLOpener
-	}
+func (a *Auth) Login(urlOpener UrlOpener) error {
 	var needsLogin bool
 
 	// check if we need to generate JWT token
@@ -107,7 +99,7 @@ func (a *Auth) Login() error {
 
 	jwtToken := ""
 	if needsLogin {
-		tokenInfo, err := a.foregroundGetTokenInfo()
+		tokenInfo, err := a.foregroundGetTokenInfo(urlOpener)
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
@@ -128,7 +120,7 @@ func (a *Auth) Login() error {
 	return nil
 }
 
-func (a *Auth) foregroundGetTokenInfo() (*internal.TokenInfo, error) {
+func (a *Auth) foregroundGetTokenInfo(urlOpener UrlOpener) (*internal.TokenInfo, error) {
 	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
 	if err != nil {
 		s, ok := gstatus.FromError(err)
@@ -156,7 +148,7 @@ func (a *Auth) foregroundGetTokenInfo() (*internal.TokenInfo, error) {
 		return nil, fmt.Errorf("getting a request device code failed: %v", err)
 	}
 
-	go a.urlOpener.Open(flowInfo.VerificationURIComplete)
+	go urlOpener.Open(flowInfo.VerificationURIComplete)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn)
 	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout*time.Second)

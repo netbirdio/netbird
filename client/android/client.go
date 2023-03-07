@@ -66,8 +66,8 @@ func (c *Client) Run() error {
 	defer c.ctxCancel()
 	c.ctxCancelLock.Unlock()
 
-	auth := NewAuthWithConfig(ctx, c.urlOpener, cfg)
-	err = auth.Login()
+	auth := NewAuthWithConfig(ctx, cfg)
+	err = auth.Login(c.urlOpener)
 	if err != nil {
 		return err
 	}
