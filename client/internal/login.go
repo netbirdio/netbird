@@ -2,17 +2,69 @@ package internal
 
 import (
 	"context"
+	"net/url"
+
 	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/client/ssh"
-	"github.com/netbirdio/netbird/client/system"
-	mgm "github.com/netbirdio/netbird/management/client"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/client/system"
+	mgm "github.com/netbirdio/netbird/management/client"
+	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
+func IsLoginRequired(ctx context.Context, privateKey string, mgmUrl *url.URL, sshKey string) (bool, error) {
+	// validate our peer's Wireguard PRIVATE key
+	myPrivateKey, err := wgtypes.ParseKey(privateKey)
+	if err != nil {
+		log.Errorf("failed parsing Wireguard key %s: [%s]", privateKey, err.Error())
+		return false, err
+	}
+
+	var mgmTlsEnabled bool
+	if mgmUrl.Scheme == "https" {
+		mgmTlsEnabled = true
+	}
+
+	log.Debugf("connecting to the Management service %s", mgmUrl.String())
+	mgmClient, err := mgm.NewClient(ctx, mgmUrl.Host, myPrivateKey, mgmTlsEnabled)
+	if err != nil {
+		log.Errorf("failed connecting to the Management service %s %v", mgmUrl.String(), err)
+		return false, err
+	}
+	log.Debugf("connected to the Management service %s", mgmUrl.String())
+	defer func() {
+		err = mgmClient.Close()
+		if err != nil {
+			cStatus, ok := status.FromError(err)
+			if !ok || ok && cStatus.Code() != codes.Canceled {
+				log.Warnf("failed to close the Management service client, err: %v", err)
+			}
+		}
+	}()
+
+	serverKey, err := mgmClient.GetServerPublicKey()
+	if err != nil {
+		log.Errorf("failed while getting Management Service public key: %v", err)
+		return false, err
+	}
+
+	pubSSHKey, err := ssh.GeneratePublicKey([]byte(sshKey))
+	if err != nil {
+		return false, err
+	}
+	sysInfo := system.GetInfo(ctx)
+	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey)
+	if isLoginNeeded(err) {
+		return true, nil
+	}
+	return false, err
+}
+
+// Login or register the client
 func Login(ctx context.Context, config *Config, setupKey string, jwtToken string) error {
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
@@ -53,29 +105,19 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 	if err != nil {
 		return err
 	}
-	_, err = loginPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
-	if err != nil {
-		log.Errorf("failed logging-in peer on Management Service : %v", err)
+	sysInfo := system.GetInfo(ctx)
+	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey)
+	if err == nil {
+		return nil
+	}
+
+	if isRegistrationNeeded(err) {
+		log.Debugf("peer registration required")
+		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
 		return err
 	}
-	log.Infof("peer has successfully logged-in to the Management service %s", config.ManagementURL.String())
-	return nil
-}
 
-// loginPeer attempts to login to Management Service. If peer wasn't registered, tries the registration flow.
-func loginPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.GrpcClient, setupKey string, jwtToken string, pubSSHKey []byte) (*mgmProto.LoginResponse, error) {
-	sysInfo := system.GetInfo(ctx)
-	loginResp, err := client.Login(serverPublicKey, sysInfo, pubSSHKey)
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Code() == codes.PermissionDenied {
-			log.Debugf("peer registration required")
-			return registerPeer(ctx, serverPublicKey, client, setupKey, jwtToken, pubSSHKey)
-		} else {
-			return nil, err
-		}
-	}
-
-	return loginResp, nil
+	return err
 }
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
@@ -97,4 +139,32 @@ func registerPeer(ctx context.Context, serverPublicKey wgtypes.Key, client *mgm.
 	log.Infof("peer has been successfully registered on Management Service")
 
 	return loginResp, nil
+}
+
+func isLoginNeeded(err error) bool {
+	if err == nil {
+		return false
+	}
+	s, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	if s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied {
+		return true
+	}
+	return false
+}
+
+func isRegistrationNeeded(err error) bool {
+	if err == nil {
+		return false
+	}
+	s, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+	if s.Code() == codes.PermissionDenied {
+		return true
+	}
+	return false
 }
