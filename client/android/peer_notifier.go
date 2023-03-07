@@ -3,7 +3,7 @@ package android
 type PeerInfo struct {
 	IP         string
 	FQDN       string
-	ConnStatus string
+	ConnStatus string // Todo replace to enum
 	Direct     bool
 }
 
