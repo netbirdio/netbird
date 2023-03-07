@@ -418,6 +418,8 @@ func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials
 
 	dnsUpdate := toProtocolDNSConfig(networkMap.DNSConfig)
 
+	offlinePeers := toRemotePeerConfig(networkMap.OfflinePeers, dnsName)
+
 	return &proto.SyncResponse{
 		WiretrusteeConfig:  wtConfig,
 		PeerConfig:         pConfig,
@@ -427,6 +429,7 @@ func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials
 			Serial:             networkMap.Network.CurrentSerial(),
 			PeerConfig:         pConfig,
 			RemotePeers:        remotePeers,
+			OfflinePeers:       offlinePeers,
 			RemotePeersIsEmpty: len(remotePeers) == 0,
 			Routes:             routesUpdate,
 			DNSConfig:          dnsUpdate,

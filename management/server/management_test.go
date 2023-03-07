@@ -127,6 +127,7 @@ var _ = Describe("Management service", func() {
 				actualTURN := resp.WiretrusteeConfig.Turns[0]
 				Expect(len(actualTURN.User) > 0).To(BeTrue())
 				Expect(actualTURN.HostConfig).To(BeEquivalentTo(expectedTRUNHost))
+				Expect(len(resp.NetworkMap.OfflinePeers) == 0).To(BeTrue())
 			})
 		})
 
