@@ -427,13 +427,14 @@ func (conn *Conn) exchangeDirectMode(useProxy bool) bool {
 	}
 
 	exchangedMode := useProxy
+	direct := !useProxy
 	err := conn.sendSignalMessage(&sProto.Message{
 		Key:       conn.config.LocalKey,
 		RemoteKey: conn.config.Key,
 		Body: &sProto.Body{
 			Type: sProto.Body_MODE,
 			Mode: &sProto.Mode{
-				Direct: !useProxy,
+				Direct: &direct,
 			},
 			NetBirdVersion: system.NetbirdVersion(),
 		},

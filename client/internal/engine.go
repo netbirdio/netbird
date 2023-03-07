@@ -885,7 +885,7 @@ func (e *Engine) receiveSignalEvents() {
 				}
 
 				err := conn.OnModeMessage(peer.ModeMessage{
-					Direct: protoMode.Direct,
+					Direct: protoMode.GetDirect(),
 				})
 				if err != nil {
 					log.Errorf("failed processing a mode message -> %s", err)
