@@ -846,6 +846,9 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
+
+				conn.RegisterConnMeta(msg.Body.GetProtoSupport())
+
 				conn.OnRemoteOffer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
@@ -859,6 +862,9 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
+
+				conn.RegisterConnMeta(msg.Body.GetProtoSupport())
+
 				conn.OnRemoteAnswer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
