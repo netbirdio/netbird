@@ -311,9 +311,11 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	aclPeers := a.getPeersByACL(peerID)
 	// exclude expired peers
 	var peersToConnect []*Peer
+	var expiredPeers []*Peer
 	for _, p := range aclPeers {
 		expired, _ := p.LoginExpired(a.Settings.PeerLoginExpiration)
 		if expired {
+			expiredPeers = append(expiredPeers, p)
 			continue
 		}
 		peersToConnect = append(peersToConnect, p)
@@ -337,10 +339,11 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	}
 
 	return &NetworkMap{
-		Peers:     peersToConnect,
-		Network:   a.Network.Copy(),
-		Routes:    routesUpdate,
-		DNSConfig: dnsUpdate,
+		Peers:        peersToConnect,
+		Network:      a.Network.Copy(),
+		Routes:       routesUpdate,
+		DNSConfig:    dnsUpdate,
+		OfflinePeers: expiredPeers,
 	}
 }
 
