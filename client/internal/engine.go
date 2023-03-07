@@ -354,12 +354,7 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 }
 
 func sendSignal(message *sProto.Message, s signal.Client) error {
-	err := s.Send(message)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return s.Send(message)
 }
 
 // SignalOfferAnswer signals either an offer or an answer to remote peer
@@ -378,6 +373,8 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	if err != nil {
 		return err
 	}
+	// indicates message support in gRPC
+	msg.Body.Mode = &sProto.Mode{Direct: false}
 	err = s.Send(msg)
 	if err != nil {
 		return err

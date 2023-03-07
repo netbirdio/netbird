@@ -88,8 +88,8 @@ type Conn struct {
 
 	statusRecorder *Status
 
-	proxy   proxy.Proxy
-	modeMsg chan ModeMessage
+	proxy        proxy.Proxy
+	remoteModeCh chan ModeMessage
 }
 
 // ModeMessage represents a connection mode chosen by the peer
@@ -119,7 +119,7 @@ func NewConn(config ConnConfig, statusRecorder *Status) (*Conn, error) {
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
-		modeMsg:        make(chan ModeMessage),
+		remoteModeCh:   make(chan ModeMessage),
 	}, nil
 }
 
@@ -413,20 +413,21 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 			Mode: &sProto.Mode{
 				Direct: !useProxy,
 			},
+			NetBirdVersion: system.NetbirdVersion(),
 		},
 	})
 	if err != nil {
 		log.Errorf("got an error while sending the signal message with the connection mode, error: %s", err)
 	}
 
-	waitTimeout := time.After(time.Second)
+	waitTimer := time.NewTimer(time.Second)
 
 	select {
-	case receivedMSG := <-conn.modeMsg:
+	case receivedMSG := <-conn.remoteModeCh:
 		if receivedMSG.Direct != useProxy {
 			useProxy = true
 		}
-	case <-waitTimeout:
+	case <-waitTimer.C:
 		log.Debugf("skip waiting for mode message. We are possible talking to an older peer version")
 	}
 
@@ -660,9 +661,9 @@ func (conn *Conn) GetKey() string {
 // OnModeMessage unmarshall the payload message and send it to the mode message channel
 func (conn *Conn) OnModeMessage(message ModeMessage) error {
 	select {
-	case conn.modeMsg <- message:
+	case conn.remoteModeCh <- message:
 		return nil
 	default:
-		return fmt.Errorf("unable to send mode message: channel busy")
+		return fmt.Errorf("unable to process mode message: channel busy")
 	}
 }
