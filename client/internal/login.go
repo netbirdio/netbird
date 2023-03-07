@@ -59,13 +59,6 @@ func Login(ctx context.Context, config *Config, setupKey string, jwtToken string
 		return err
 	}
 	log.Infof("peer has successfully logged-in to the Management service %s", config.ManagementURL.String())
-
-	err = mgmClient.Close()
-	if err != nil {
-		log.Errorf("failed to close the Management service client: %v", err)
-		return err
-	}
-
 	return nil
 }
 
