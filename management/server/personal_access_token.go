@@ -11,6 +11,11 @@ import (
 	"github.com/rs/xid"
 )
 
+const (
+	PATPrefix    = "nbp_"
+	secretLength = 30
+)
+
 // PersonalAccessToken holds all information about a PAT including a hashed version of it for verification
 type PersonalAccessToken struct {
 	ID             string
@@ -43,7 +48,7 @@ func CreateNewPAT(description string, expirationInDays int, createdBy string) (*
 }
 
 func generateNewToken() (string, string, error) {
-	secret, err := b.Random(30)
+	secret, err := b.Random(secretLength)
 	if err != nil {
 		return "", "", err
 	}
@@ -51,7 +56,7 @@ func generateNewToken() (string, string, error) {
 	checksum := crc32.ChecksumIEEE([]byte(secret))
 	encodedChecksum := base62.Encode(checksum)
 	paddedChecksum := fmt.Sprintf("%06s", encodedChecksum)
-	plainToken := "nbp_" + secret + paddedChecksum
+	plainToken := PATPrefix + secret + paddedChecksum
 	hashedToken := sha256.Sum256([]byte(plainToken))
 	return string(hashedToken[:]), plainToken, nil
 }
