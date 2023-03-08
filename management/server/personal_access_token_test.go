@@ -12,8 +12,8 @@ import (
 
 func TestPAT_GenerateToken_Hashing(t *testing.T) {
 	hashedToken, plainToken := generateNewToken()
-
-	assert.Equal(t, hashedToken, sha256.Sum256([]byte(plainToken)))
+	expectedToken := sha256.Sum256([]byte(plainToken))
+	assert.Equal(t, hashedToken, string(expectedToken[:]))
 }
 
 func TestPAT_GenerateToken_Prefix(t *testing.T) {

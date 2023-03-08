@@ -15,7 +15,7 @@ import (
 type PersonalAccessToken struct {
 	ID             string
 	Description    string
-	HashedToken    [32]byte
+	HashedToken    string
 	ExpirationDate time.Time
 	// scope could be added in future
 	CreatedBy string
@@ -39,7 +39,7 @@ func CreateNewPAT(description string, expirationInDays int, createdBy string) (*
 	}, plainToken
 }
 
-func generateNewToken() ([32]byte, string) {
+func generateNewToken() (string, string) {
 	secret := randStringRunes(30)
 
 	checksum := crc32.ChecksumIEEE([]byte(secret))
@@ -47,7 +47,7 @@ func generateNewToken() ([32]byte, string) {
 	paddedChecksum := fmt.Sprintf("%06s", encodedChecksum)
 	plainToken := "nbp_" + secret + paddedChecksum
 	hashedToken := sha256.Sum256([]byte(plainToken))
-	return hashedToken, plainToken
+	return string(hashedToken[:]), plainToken
 }
 
 var letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
