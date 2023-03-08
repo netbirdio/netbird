@@ -94,11 +94,13 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 func (u *User) Copy() *User {
 	autoGroups := make([]string, 0)
 	autoGroups = append(autoGroups, u.AutoGroups...)
+	pats := make([]PersonalAccessToken, 0)
+	pats = append(pats, u.PATs...)
 	return &User{
 		Id:         u.Id,
 		Role:       u.Role,
 		AutoGroups: autoGroups,
-		PATs:       u.PATs,
+		PATs:       pats,
 	}
 }
 
