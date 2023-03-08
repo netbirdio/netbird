@@ -2,19 +2,21 @@ package server
 
 import (
 	"fmt"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/route"
 	"net"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/route"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
 func verifyCanAddPeerToAccount(t *testing.T, manager AccountManager, account *Account, userID string) {
@@ -1229,6 +1231,17 @@ func TestAccount_Copy(t *testing.T) {
 				Id:         "user1",
 				Role:       UserRoleAdmin,
 				AutoGroups: []string{"group1"},
+				PATs: []PersonalAccessToken{
+					{
+						ID:             "pat1",
+						Description:    "First PAT",
+						HashedToken:    "SoMeHaShEdToKeN",
+						ExpirationDate: time.Now().AddDate(0, 0, 7),
+						CreatedBy:      "user1",
+						CreatedAt:      time.Now(),
+						LastUsed:       time.Now(),
+					},
+				},
 			},
 		},
 		Groups: map[string]*Group{
