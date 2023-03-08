@@ -11,19 +11,19 @@ import (
 )
 
 func TestPAT_GenerateToken_Hashing(t *testing.T) {
-	hashedToken, plainToken := generateNewToken()
+	hashedToken, plainToken, _ := generateNewToken()
 	expectedToken := sha256.Sum256([]byte(plainToken))
 	assert.Equal(t, hashedToken, string(expectedToken[:]))
 }
 
 func TestPAT_GenerateToken_Prefix(t *testing.T) {
-	_, plainToken := generateNewToken()
+	_, plainToken, _ := generateNewToken()
 	fourCharPrefix := plainToken[:4]
 	assert.Equal(t, "nbp_", fourCharPrefix)
 }
 
 func TestPAT_GenerateToken_Checksum(t *testing.T) {
-	_, plainToken := generateNewToken()
+	_, plainToken, _ := generateNewToken()
 	tokenWithoutPrefix := strings.Split(plainToken, "_")[1]
 	if len(tokenWithoutPrefix) != 36 {
 		t.Fatal("Token has wrong length")
