@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	// PATPrefix is the globally used, 4 char prefix for personal access tokens
 	PATPrefix    = "nbp_"
 	secretLength = 30
 )
