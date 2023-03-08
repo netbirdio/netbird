@@ -33,11 +33,10 @@ type Client struct {
 	recorder      *peer.Status
 	ctxCancel     context.CancelFunc
 	ctxCancelLock *sync.Mutex
-	urlOpener     UrlOpener
 	deviceName    string
 }
 
-func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, urlOpener UrlOpener) *Client {
+func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter) *Client {
 	lvl, _ := log.ParseLevel("trace")
 	log.SetLevel(lvl)
 
@@ -45,13 +44,12 @@ func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, urlOpener UrlO
 		cfgFile:       cfgFile,
 		deviceName:    deviceName,
 		tunAdapter:    tunAdapter,
-		urlOpener:     urlOpener,
 		recorder:      peer.NewRecorder(),
 		ctxCancelLock: &sync.Mutex{},
 	}
 }
 
-func (c *Client) Run() error {
+func (c *Client) Run(urlOpener UrlOpener) error {
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -67,7 +65,7 @@ func (c *Client) Run() error {
 	c.ctxCancelLock.Unlock()
 
 	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.Login(c.urlOpener)
+	err = auth.Login(urlOpener)
 	if err != nil {
 		return err
 	}
