@@ -24,8 +24,8 @@ const (
 	DirectCheck uint32 = 1
 )
 
-// ProtoSupport register protocol supported messages
-type ProtoSupport struct {
+// FeaturesSupport register protocol supported features
+type FeaturesSupport struct {
 	DirectCheck bool
 }
 
@@ -73,8 +73,9 @@ type Credential struct {
 	Pwd   string
 }
 
-func ParseSupportedFeatures(featuresMessage []uint32) ProtoSupport {
-	var protoSupport ProtoSupport
+// ParseFeaturesSupported parses a slice of supported features into FeaturesSupport
+func ParseFeaturesSupported(featuresMessage []uint32) FeaturesSupport {
+	var protoSupport FeaturesSupport
 	for _, feature := range featuresMessage {
 		if feature == DirectCheck {
 			protoSupport.DirectCheck = true

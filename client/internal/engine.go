@@ -375,7 +375,7 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	}
 
 	// indicates message support in gRPC
-	msg.Body.ProtoSupport = []uint32{signal.DirectCheck}
+	msg.Body.FeaturesSupported = []uint32{signal.DirectCheck}
 
 	err = s.Send(msg)
 	if err != nil {
@@ -845,7 +845,7 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.RegisterProtoSupportMeta(msg.Body.GetProtoSupport())
+				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
 
 				conn.OnRemoteOffer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
@@ -861,7 +861,7 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 
-				conn.RegisterProtoSupportMeta(msg.Body.GetProtoSupport())
+				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
 
 				conn.OnRemoteAnswer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{

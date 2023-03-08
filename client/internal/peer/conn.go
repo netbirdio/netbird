@@ -96,7 +96,7 @@ type Conn struct {
 
 // meta holds meta information about a connection
 type meta struct {
-	protoSupport signal.ProtoSupport
+	protoSupport signal.FeaturesSupport
 }
 
 // ModeMessage represents a connection mode chosen by the peer
@@ -689,6 +689,6 @@ func (conn *Conn) OnModeMessage(message ModeMessage) error {
 
 // RegisterProtoSupportMeta register supported proto message in the connection metadata
 func (conn *Conn) RegisterProtoSupportMeta(support []uint32) {
-	protoSupport := signal.ParseSupportedFeatures(support)
+	protoSupport := signal.ParseFeaturesSupported(support)
 	conn.meta.protoSupport = protoSupport
 }

@@ -54,7 +54,9 @@ message Body {
   uint32 wgListenPort = 3;
   string netBirdVersion = 4;
   Mode mode = 5;
-  repeated uint32 protoSupport = 6;
+
+  // featuresSupported list of supported features by the client of this protocol
+  repeated uint32 featuresSupported = 6;
 }
 
 // Mode indicates a connection mode
