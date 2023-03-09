@@ -140,6 +140,10 @@ func restore(file string) (*FileStore, error) {
 		// Swap Peer.Key with Peer.ID in the Account.Peers map.
 		migrationPeers := make(map[string]*Peer) // key to Peer
 		for key, peer := range account.Peers {
+			// set LastLogin for the peers that were onboarded before the peer login expiration feature
+			if peer.LastLogin.IsZero() {
+				peer.LastLogin = time.Now()
+			}
 			if peer.ID != "" {
 				continue
 			}

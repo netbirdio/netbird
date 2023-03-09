@@ -314,7 +314,7 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	var expiredPeers []*Peer
 	for _, p := range aclPeers {
 		expired, _ := p.LoginExpired(a.Settings.PeerLoginExpiration)
-		if expired {
+		if a.Settings.PeerLoginExpirationEnabled && expired {
 			expiredPeers = append(expiredPeers, p)
 			continue
 		}
