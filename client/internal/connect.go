@@ -80,6 +80,9 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 
 		log.Debugf("conecting to the Management service %s", config.ManagementURL.Host)
 		mgmClient, err := mgm.NewClient(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+		mgmNotifier := statusRecorderToMgmConnStateNotifier(statusRecorder)
+		mgmClient.SetConnStateListener(mgmNotifier)
+
 		if err != nil {
 			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))
 		}
@@ -319,4 +322,10 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 	}
 
 	return config, nil
+}
+
+func statusRecorderToMgmConnStateNotifier(statusRecorder *peer.Status) mgm.ConnStateNotifier {
+	var sri interface{} = statusRecorder
+	mgmNotifier, _ := sri.(mgm.ConnStateNotifier)
+	return mgmNotifier
 }

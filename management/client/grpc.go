@@ -4,15 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"google.golang.org/grpc/codes"
-	gstatus "google.golang.org/grpc/status"
 	"io"
+	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
-	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/management/proto"
+	"google.golang.org/grpc/codes"
+	gstatus "google.golang.org/grpc/status"
+
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -20,13 +18,25 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/cenkalti/backoff/v4"
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/proto"
 )
 
+type ConnStateNotifier interface {
+	MarkManagementDisconnected(signalURL string)
+	MarkManagementConnected(signalURL string)
+}
+
 type GrpcClient struct {
-	key        wgtypes.Key
-	realClient proto.ManagementServiceClient
-	ctx        context.Context
-	conn       *grpc.ClientConn
+	key                   wgtypes.Key
+	realClient            proto.ManagementServiceClient
+	ctx                   context.Context
+	conn                  *grpc.ClientConn
+	connStateCallback     ConnStateNotifier
+	connStateCallbackLock sync.RWMutex
 }
 
 // NewClient creates a new client to Management service
@@ -66,6 +76,12 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 // Close closes connection to the Management Service
 func (c *GrpcClient) Close() error {
 	return c.conn.Close()
+}
+
+func (c *GrpcClient) SetConnStateListener(notifier ConnStateNotifier) {
+	c.connStateCallbackLock.Lock()
+	defer c.connStateCallbackLock.Unlock()
+	c.connStateCallback = notifier
 }
 
 // defaultBackoff is a basic backoff mechanism for general issues
@@ -121,7 +137,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 		}
 
 		log.Infof("connected to the Management Service stream")
-
+		c.notifyConnected()
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
@@ -131,6 +147,7 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
 			// reset times and next try will start with a long delay
 			backOff.Reset()
+			c.notifyDisconnected()
 			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
 			return err
 		}
@@ -296,6 +313,26 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 	}
 
 	return flowInfoResp, nil
+}
+
+func (c *GrpcClient) notifyDisconnected() {
+	c.connStateCallbackLock.RLock()
+	defer c.connStateCallbackLock.RUnlock()
+
+	if c.connStateCallback == nil {
+		return
+	}
+	c.connStateCallback.MarkManagementConnected(c.conn.Target())
+}
+
+func (c *GrpcClient) notifyConnected() {
+	c.connStateCallbackLock.RLock()
+	defer c.connStateCallbackLock.RUnlock()
+
+	if c.connStateCallback == nil {
+		return
+	}
+	c.connStateCallback.MarkManagementConnected(c.conn.Target())
 }
 
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
