@@ -412,55 +412,61 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 
 func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
 	useProxy := shouldUseProxy(pair)
+	localDirectMode := !useProxy
 
-	exchangedMode := conn.exchangeDirectMode(useProxy)
+	if conn.meta.protoSupport.DirectCheck {
+		remoteDirectMode, exchanged := conn.exchangeDirectMode(localDirectMode)
+		if exchanged && (remoteDirectMode != localDirectMode) {
+			useProxy = true
+		}
+	}
 
-	if exchangedMode {
+	if useProxy {
 		return proxy.NewWireguardProxy(conn.config.ProxyConfig)
 	}
 
 	return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
 }
 
-func (conn *Conn) exchangeDirectMode(useProxy bool) bool {
-	if !conn.meta.protoSupport.DirectCheck {
-		select {
-		case <-conn.remoteModeCh:
-		default:
-		}
-
-		return useProxy
+// exchangeDirectMode exchanges the message and returns the remote mode and if the exchange was successful
+func (conn *Conn) exchangeDirectMode(localMode bool) (bool, bool) {
+	err := conn.sendLocalProxyMode(localMode)
+	if err != nil {
+		log.Errorf("fail to send local proxy mode to remote, error: %s", err)
+		return false, false
 	}
 
-	exchangedMode := useProxy
-	direct := !useProxy
-	err := conn.sendSignalMessage(&sProto.Message{
+	remoteMode, err := conn.readRemoteProxyMode()
+	if err != nil {
+		log.Debug(err)
+		return false, false
+	}
+	return remoteMode, true
+}
+
+func (conn *Conn) sendLocalProxyMode(localMode bool) error {
+	return conn.sendSignalMessage(&sProto.Message{
 		Key:       conn.config.LocalKey,
 		RemoteKey: conn.config.Key,
 		Body: &sProto.Body{
 			Type: sProto.Body_MODE,
 			Mode: &sProto.Mode{
-				Direct: &direct,
+				Direct: &localMode,
 			},
 			NetBirdVersion: system.NetbirdVersion(),
 		},
 	})
+}
 
-	if err != nil {
-		log.Errorf("got an error while sending the signal message with the connection mode, error: %s", err)
-	}
-	waitTimer := time.NewTimer(time.Second)
-
+func (conn *Conn) readRemoteProxyMode() (bool, error) {
+	timeout := time.Second
+	waitTimer := time.NewTimer(timeout)
 	select {
 	case receivedMSG := <-conn.remoteModeCh:
-		if receivedMSG.Direct != direct {
-			exchangedMode = true
-		}
+		return receivedMSG.Direct, nil
 	case <-waitTimer.C:
-		log.Debugf("skip waiting for mode message. We are possible talking to an older peer version")
+		return false, fmt.Errorf("timeout after %s while waiting for remote direct mode message from remote", timeout)
 	}
-
-	return exchangedMode
 }
 
 // cleanup closes all open resources and sets status to StatusDisconnected
