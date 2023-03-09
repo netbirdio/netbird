@@ -48,8 +48,9 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 	account.Policies = append(account.Policies, rule)
 
 	peers, firewallRules := account.getPeersByPolicy("peer1")
-	expected := []*Peer{account.Peers["peer2"], account.Peers["peer3"]}
-	assert.Equal(t, peers, expected)
+	assert.Len(t, peers, 2)
+	assert.Contains(t, peers, account.Peers["peer2"])
+	assert.Contains(t, peers, account.Peers["peer3"])
 
 	epectedFirewallRules := []*FirewallRule{
 		{PeerID: "peer1", PeerIP: "10.20.0.1", Direction: "dst", Action: "accept", Port: ""},
