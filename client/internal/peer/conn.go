@@ -126,7 +126,7 @@ func NewConn(config ConnConfig, statusRecorder *Status) (*Conn, error) {
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
-		remoteModeCh:   make(chan ModeMessage),
+		remoteModeCh:   make(chan ModeMessage, 1),
 	}, nil
 }
 
@@ -400,6 +400,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
 	}
+	peerState.Direct = p.Type() == proxy.TypeNoProxy
 
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -423,6 +424,11 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 
 func (conn *Conn) exchangeDirectMode(useProxy bool) bool {
 	if !conn.meta.protoSupport.DirectCheck {
+		select {
+		case <-conn.remoteModeCh:
+		default:
+		}
+
 		return useProxy
 	}
 
@@ -447,7 +453,7 @@ func (conn *Conn) exchangeDirectMode(useProxy bool) bool {
 
 	select {
 	case receivedMSG := <-conn.remoteModeCh:
-		if receivedMSG.Direct != useProxy {
+		if receivedMSG.Direct != direct {
 			exchangedMode = true
 		}
 	case <-waitTimer.C:

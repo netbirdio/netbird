@@ -7,9 +7,11 @@ import (
 
 	"github.com/magiconair/properties/assert"
 	"github.com/pion/ice/v2"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/iface"
+	sproto "github.com/netbirdio/netbird/signal/proto"
 )
 
 var connConf = ConnConfig{
@@ -325,6 +327,81 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 			result := shouldUseProxy(testCase.candatePair)
 			if result != testCase.expected {
 				t.Errorf("got a different result. Expected %t Got %t", testCase.expected, result)
+			}
+		})
+	}
+}
+
+func TestExchangeDirectMode(t *testing.T) {
+	testCases := []struct {
+		name                   string
+		inputProxy             bool
+		inputDirectModeSupport bool
+		inputRemoteModeMessage bool
+		expected               bool
+	}{
+		{
+			name:                   "Should Result In Using Proxy When Local Eval Is True",
+			inputProxy:             true,
+			inputDirectModeSupport: true,
+			inputRemoteModeMessage: true,
+			expected:               true,
+		},
+		{
+			name:                   "Should Result In Using Proxy When Remote Direct Mode Is False",
+			inputProxy:             false,
+			inputDirectModeSupport: true,
+			inputRemoteModeMessage: false,
+			expected:               true,
+		},
+		{
+			name:                   "Should Result In Using Proxy When Remote Direct Mode Support Is False And Local Eval Is True",
+			inputProxy:             true,
+			inputDirectModeSupport: false,
+			inputRemoteModeMessage: false,
+			expected:               true,
+		},
+		{
+			name:                   "Should Result In Using Direct When Remote Direct Mode Support Is False And Local Eval Is False",
+			inputProxy:             false,
+			inputDirectModeSupport: false,
+			inputRemoteModeMessage: false,
+			expected:               false,
+		},
+		{
+			name:                   "Should Result In Using Direct When Local And Remote Eval Allows",
+			inputProxy:             false,
+			inputDirectModeSupport: true,
+			inputRemoteModeMessage: true,
+			expected:               false,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			g := errgroup.Group{}
+			conn, err := NewConn(connConf, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			conn.meta.protoSupport.DirectCheck = testCase.inputDirectModeSupport
+			conn.SetSendSignalMessage(func(message *sproto.Message) error {
+				return nil
+			})
+
+			g.Go(func() error {
+				return conn.OnModeMessage(ModeMessage{
+					Direct: testCase.inputRemoteModeMessage,
+				})
+			})
+
+			result := conn.exchangeDirectMode(testCase.inputProxy)
+
+			err = g.Wait()
+			if err != nil {
+				t.Error(err)
+			}
+			if result != testCase.expected {
+				t.Errorf("result didn't match expected value: Expected: %t, Got: %t", testCase.expected, result)
 			}
 		})
 	}
