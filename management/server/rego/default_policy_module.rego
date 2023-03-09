@@ -21,7 +21,7 @@ get_rule(peer_id, direction, action, port) := rule if {
 peers_from_group(group_id) := peers if {
 	group := input.groups[_]
 	group.ID == group_id
-	peers := [peer | peer := group.Peers[_]; peer != input.peer_id]
+	peers := [peer | peer := group.Peers[_]]
 }
 
 # netbird_rules_from_groups returns a list of netbird rules for a given list of group names

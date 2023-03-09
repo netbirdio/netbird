@@ -268,7 +268,8 @@ func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
 		return nil, nil
 	}
 
-	set := make(map[string]struct{})
+	dst := make(map[string]struct{})
+	src := make(map[string]struct{})
 	peers := make([]*Peer, 0, len(expressions))
 	rules := make([]*FirewallRule, 0, len(expressions))
 	for _, v := range expressions {
@@ -278,13 +279,42 @@ func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
 			continue
 		}
 		rules = append(rules, rule)
-		if _, ok := set[rule.PeerID]; ok {
+		switch rule.Direction {
+		case "dst":
+			if _, ok := dst[rule.PeerID]; ok {
+				continue
+			}
+			dst[rule.PeerID] = struct{}{}
+		case "src":
+			if _, ok := src[rule.PeerID]; ok {
+				continue
+			}
+			src[rule.PeerID] = struct{}{}
+		default:
+			log.WithField("direction", rule.Direction).Error("invalid direction")
 			continue
 		}
-		peers = append(peers, a.Peers[rule.PeerID])
-		set[rule.PeerID] = struct{}{}
 	}
 
+	added := make(map[string]struct{})
+	if _, ok := src[peerID]; ok {
+		for id := range dst {
+			if _, ok := added[id]; !ok && id != peerID {
+				added[id] = struct{}{}
+			}
+		}
+	}
+	if _, ok := dst[peerID]; ok {
+		for id := range src {
+			if _, ok := added[id]; !ok && id != peerID {
+				added[id] = struct{}{}
+			}
+		}
+	}
+
+	for id := range added {
+		peers = append(peers, a.Peers[id])
+	}
 	return peers, rules
 }
 

@@ -52,8 +52,10 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 	assert.Equal(t, peers, expected)
 
 	epectedFirewallRules := []*FirewallRule{
+		{PeerID: "peer1", PeerIP: "10.20.0.1", Direction: "dst", Action: "accept", Port: ""},
 		{PeerID: "peer2", PeerIP: "10.20.0.2", Direction: "dst", Action: "accept", Port: ""},
 		{PeerID: "peer3", PeerIP: "10.20.0.3", Direction: "dst", Action: "accept", Port: ""},
+		{PeerID: "peer1", PeerIP: "10.20.0.1", Direction: "src", Action: "accept", Port: ""},
 		{PeerID: "peer2", PeerIP: "10.20.0.2", Direction: "src", Action: "accept", Port: ""},
 		{PeerID: "peer3", PeerIP: "10.20.0.3", Direction: "src", Action: "accept", Port: ""},
 	}
