@@ -73,7 +73,7 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 
 	policy, err := h.accountManager.GetPolicy(account.Id, ruleID, user.Id)
 	if err != nil {
-		util.WriteError(status.Errorf(status.NotFound, "couldn't find rule id %s", ruleID), w)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -113,7 +113,7 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	policy.Rules[0].Enabled = !req.Disabled
 	policy.Rules[0].Description = req.Description
 	if err := policy.UpdateQueryFromRules(); err != nil {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid rule to convert it to policy"), w)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -244,7 +244,7 @@ func (h *RulesHandler) GetRule(w http.ResponseWriter, r *http.Request) {
 
 		policy, err := h.accountManager.GetPolicy(account.Id, ruleID, user.Id)
 		if err != nil {
-			util.WriteError(status.Errorf(status.NotFound, "rule not found"), w)
+			util.WriteError(err, w)
 			return
 		}
 

@@ -104,6 +104,12 @@ const (
 	RuleRemovedMessage string = "Rule deleted"
 	// RuleUpdatedMessage is a human-readable text message of the RuleRemoved activity
 	RuleUpdatedMessage string = "Rule updated"
+	// PolicyAddedMessage is a human-readable text message of the PolicyAdded activity
+	PolicyAddedMessage string = "Policy added"
+	// PolicyRemovedMessage is a human-readable text message of the PolicyRemoved activity
+	PolicyRemovedMessage string = "Policy deleted"
+	// PolicyUpdatedMessage is a human-readable text message of the PolicyRemoved activity
+	PolicyUpdatedMessage string = "Policy updated"
 	// SetupKeyCreatedMessage is a human-readable text message of the SetupKeyCreated activity
 	SetupKeyCreatedMessage string = "Setup key created"
 	// SetupKeyUpdatedMessage is a human-readable text message of the SetupKeyUpdated activity
@@ -188,6 +194,12 @@ func (a Activity) Message() string {
 		return RuleRemovedMessage
 	case RuleUpdated:
 		return RuleUpdatedMessage
+	case PolicyAdded:
+		return PolicyAddedMessage
+	case PolicyRemoved:
+		return PolicyRemovedMessage
+	case PolicyUpdated:
+		return PolicyUpdatedMessage
 	case SetupKeyCreated:
 		return SetupKeyCreatedMessage
 	case SetupKeyUpdated:

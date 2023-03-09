@@ -80,7 +80,7 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 	}
 }
 
-// ToRule converts the policy rule to a rule.
+// ToRule converts the PolicyRule to a legacy representation of the Rule (for backwards compatibility)
 func (pm *PolicyRule) ToRule() *Rule {
 	return &Rule{
 		ID:          pm.ID,
@@ -154,7 +154,7 @@ func (p *Policy) UpdateQueryFromRules() error {
 			Destination: r.Destinations,
 		}
 		if err := defaultPolicyTemplate.Execute(buff, input); err != nil {
-			return err
+			return status.Errorf(status.BadRequest, "failed to update policy query: %v", err)
 		}
 		queries = append(queries, buff.String())
 	}

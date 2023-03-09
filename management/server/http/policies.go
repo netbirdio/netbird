@@ -82,6 +82,7 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
 	}
 
 	if req.Name == "" {
@@ -126,7 +127,7 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := policy.UpdateQueryFromRules(); err != nil {
 		log.Errorf("failed to update policy query: %v", err)
-		util.WriteError(status.Errorf(status.BadRequest, "failed to update policy query"), w)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -194,8 +195,7 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := policy.UpdateQueryFromRules(); err != nil {
-		log.Errorf("failed to update policy query: %v", err)
-		util.WriteError(status.Errorf(status.BadRequest, "failed to update policy query"), w)
+		util.WriteError(err, w)
 		return
 	}
 
@@ -252,7 +252,7 @@ func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 
 		policy, err := h.accountManager.GetPolicy(account.Id, policyID, user.Id)
 		if err != nil {
-			util.WriteError(status.Errorf(status.NotFound, "policy not found"), w)
+			util.WriteError(err, w)
 			return
 		}
 

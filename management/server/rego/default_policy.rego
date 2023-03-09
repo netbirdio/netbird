@@ -1,6 +1,5 @@
 package netbird
 
-# all rules for peer connectivity and firewall
 all[rule] {
 	is_peer_in_any_group([{{range $i, $e := .All}}{{if $i}},{{end}}"{{$e}}"{{end}}])
 	rule := array.concat(
