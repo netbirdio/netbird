@@ -98,6 +98,122 @@ func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy 
 	}
 }
 
+func TestAccount_GetPeerNetworkMap(t *testing.T) {
+	peerID1 := "peer-1"
+	peerID2 := "peer-2"
+	tt := []struct {
+		name                 string
+		accountSettings      Settings
+		peerID               string
+		expectedPeers        []string
+		expectedOfflinePeers []string
+		peers                map[string]*Peer
+	}{
+		{
+			name:                 "Should return ALL peers when global peer login expiration disabled",
+			accountSettings:      Settings{PeerLoginExpirationEnabled: false, PeerLoginExpiration: time.Hour},
+			peerID:               peerID1,
+			expectedPeers:        []string{peerID2},
+			expectedOfflinePeers: []string{},
+			peers: map[string]*Peer{
+				"peer-1": {
+					ID:       peerID1,
+					Key:      "peer-1-key",
+					IP:       net.IP{100, 64, 0, 1},
+					Name:     peerID1,
+					DNSLabel: peerID1,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    false,
+						LoginExpired: true,
+					},
+					UserID:    userID,
+					LastLogin: time.Now().Add(-time.Hour * 24 * 30 * 30),
+				},
+				"peer-2": {
+					ID:       peerID2,
+					Key:      "peer-2-key",
+					IP:       net.IP{100, 64, 0, 1},
+					Name:     peerID2,
+					DNSLabel: peerID2,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    false,
+						LoginExpired: false,
+					},
+					UserID:                 userID,
+					LastLogin:              time.Now(),
+					LoginExpirationEnabled: true,
+				},
+			},
+		},
+		{
+			name:                 "Should return no peers when global peer login expiration enabled and peers expired",
+			accountSettings:      Settings{PeerLoginExpirationEnabled: true, PeerLoginExpiration: time.Hour},
+			peerID:               peerID1,
+			expectedPeers:        []string{},
+			expectedOfflinePeers: []string{peerID2},
+			peers: map[string]*Peer{
+				"peer-1": {
+					ID:       peerID1,
+					Key:      "peer-1-key",
+					IP:       net.IP{100, 64, 0, 1},
+					Name:     peerID1,
+					DNSLabel: peerID1,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    false,
+						LoginExpired: true,
+					},
+					UserID:                 userID,
+					LastLogin:              time.Now().Add(-time.Hour * 24 * 30 * 30),
+					LoginExpirationEnabled: true,
+				},
+				"peer-2": {
+					ID:       peerID2,
+					Key:      "peer-2-key",
+					IP:       net.IP{100, 64, 0, 1},
+					Name:     peerID2,
+					DNSLabel: peerID2,
+					Status: &PeerStatus{
+						LastSeen:     time.Now(),
+						Connected:    false,
+						LoginExpired: true,
+					},
+					UserID:                 userID,
+					LastLogin:              time.Now().Add(-time.Hour * 24 * 30 * 30),
+					LoginExpirationEnabled: true,
+				},
+			},
+		},
+	}
+
+	netIP := net.IP{100, 64, 0, 0}
+	netMask := net.IPMask{255, 255, 0, 0}
+	network := &Network{
+		Id:     "network",
+		Net:    net.IPNet{IP: netIP, Mask: netMask},
+		Dns:    "netbird.selfhosted",
+		Serial: 0,
+		mu:     sync.Mutex{},
+	}
+
+	for _, testCase := range tt {
+		account := newAccountWithId("account-1", userID, "netbird.io")
+		account.Network = network
+		account.Peers = testCase.peers
+		for _, peer := range account.Peers {
+			all, _ := account.GetGroupAll()
+			account.Groups[all.ID].Peers = append(account.Groups[all.ID].Peers, peer.ID)
+		}
+
+		networkMap := account.GetPeerNetworkMap(testCase.peerID, "netbird.io")
+		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
+		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
+	}
+
+}
+
 func TestNewAccount(t *testing.T) {
 
 	domain := "netbird.io"
