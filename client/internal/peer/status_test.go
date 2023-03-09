@@ -8,7 +8,7 @@ import (
 
 func TestAddPeer(t *testing.T) {
 	key := "abc"
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
 	err := status.AddPeer(key)
 	assert.NoError(t, err, "shouldn't return error")
 
@@ -22,7 +22,7 @@ func TestAddPeer(t *testing.T) {
 
 func TestGetPeer(t *testing.T) {
 	key := "abc"
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
 	err := status.AddPeer(key)
 	assert.NoError(t, err, "shouldn't return error")
 
@@ -38,7 +38,7 @@ func TestGetPeer(t *testing.T) {
 func TestUpdatePeerState(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
 	peerState := State{
 		PubKey: key,
 	}
@@ -58,7 +58,7 @@ func TestUpdatePeerState(t *testing.T) {
 func TestStatus_UpdatePeerFQDN(t *testing.T) {
 	key := "abc"
 	fqdn := "peer-a.netbird.local"
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
 	peerState := State{
 		PubKey: key,
 	}
@@ -76,7 +76,7 @@ func TestStatus_UpdatePeerFQDN(t *testing.T) {
 func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 	key := "abc"
 	ip := "10.10.10.10"
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
 	peerState := State{
 		PubKey: key,
 	}
@@ -100,7 +100,7 @@ func TestGetPeerStateChangeNotifierLogic(t *testing.T) {
 
 func TestRemovePeer(t *testing.T) {
 	key := "abc"
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
 	peerState := State{
 		PubKey: key,
 	}
@@ -123,7 +123,7 @@ func TestUpdateLocalPeerState(t *testing.T) {
 		PubKey:          "abc",
 		KernelInterface: false,
 	}
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
 
 	status.UpdateLocalPeerState(localPeerState)
 
@@ -137,7 +137,7 @@ func TestCleanLocalPeerState(t *testing.T) {
 		PubKey:          "abc",
 		KernelInterface: false,
 	}
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
 
 	status.localPeer = localPeerState
 
@@ -151,27 +151,21 @@ func TestUpdateSignalState(t *testing.T) {
 	var tests = []struct {
 		name      string
 		connected bool
-		want      SignalState
+		want      bool
 	}{
-		{"should mark as connected", true, SignalState{
-
-			URL:       url,
-			Connected: true,
-		}},
-		{"should mark as disconnected", false, SignalState{
-			URL:       url,
-			Connected: false,
-		}},
+		{"should mark as connected", true, true},
+		{"should mark as disconnected", false, false},
 	}
 
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
+	status.UpdateSignalAddress(url)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if test.connected {
-				status.MarkSignalConnected(url)
+				status.MarkSignalConnected()
 			} else {
-				status.MarkSignalDisconnected(url)
+				status.MarkSignalDisconnected()
 			}
 			assert.Equal(t, test.want, status.signalState, "signal status should be equal")
 		})
@@ -183,27 +177,20 @@ func TestUpdateManagementState(t *testing.T) {
 	var tests = []struct {
 		name      string
 		connected bool
-		want      ManagementState
+		want      bool
 	}{
-		{"should mark as connected", true, ManagementState{
-
-			URL:       url,
-			Connected: true,
-		}},
-		{"should mark as disconnected", false, ManagementState{
-			URL:       url,
-			Connected: false,
-		}},
+		{"should mark as connected", true, true},
+		{"should mark as disconnected", false, false},
 	}
 
-	status := NewRecorder()
+	status := NewRecorder(url)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			if test.connected {
-				status.MarkManagementConnected(url)
+				status.MarkManagementConnected()
 			} else {
-				status.MarkManagementDisconnected(url)
+				status.MarkManagementDisconnected()
 			}
 			assert.Equal(t, test.want, status.managementState, "signalState status should be equal")
 		})
@@ -213,12 +200,13 @@ func TestUpdateManagementState(t *testing.T) {
 func TestGetFullStatus(t *testing.T) {
 	key1 := "abc"
 	key2 := "def"
+	signalAddr := "https://signal"
 	managementState := ManagementState{
-		URL:       "https://signal",
+		URL:       "https://mgm",
 		Connected: true,
 	}
 	signalState := SignalState{
-		URL:       "https://signal",
+		URL:       signalAddr,
 		Connected: true,
 	}
 	peerState1 := State{
@@ -229,10 +217,11 @@ func TestGetFullStatus(t *testing.T) {
 		PubKey: key2,
 	}
 
-	status := NewRecorder()
+	status := NewRecorder("https://mgm")
+	status.UpdateSignalAddress(signalAddr)
 
-	status.managementState = managementState
-	status.signalState = signalState
+	status.managementState = managementState.Connected
+	status.signalState = signalState.Connected
 	status.peers[key1] = peerState1
 	status.peers[key2] = peerState2
 
