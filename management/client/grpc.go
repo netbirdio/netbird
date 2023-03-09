@@ -66,10 +66,11 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 	realClient := proto.NewManagementServiceClient(conn)
 
 	return &GrpcClient{
-		key:        ourPrivateKey,
-		realClient: realClient,
-		ctx:        ctx,
-		conn:       conn,
+		key:                   ourPrivateKey,
+		realClient:            realClient,
+		ctx:                   ctx,
+		conn:                  conn,
+		connStateCallbackLock: sync.RWMutex{},
 	}, nil
 }
 
