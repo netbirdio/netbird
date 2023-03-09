@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
 
 	"github.com/gorilla/mux"
 
@@ -39,7 +40,7 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 			GetPolicyFunc: func(_, policyID, _ string) (*server.Policy, error) {
 				policy, ok := testPolicies[policyID]
 				if !ok {
-					return nil, fmt.Errorf("not found")
+					return nil, status.Errorf(status.NotFound, "policy not found")
 				}
 				return policy, nil
 			},
