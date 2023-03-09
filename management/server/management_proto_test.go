@@ -244,7 +244,7 @@ func Test_SyncProtocol(t *testing.T) {
 	}
 
 	if len(networkMap.GetRemotePeers()) != 3 {
-		t.Fatal("expecting SyncResponse to have NetworkMap with 3 remote peers")
+		t.Fatalf("expecting SyncResponse to have NetworkMap with 3 remote peers, got %d", len(networkMap.GetRemotePeers()))
 	}
 
 	// expired peers come separately.
