@@ -22,6 +22,7 @@ import (
 	"time"
 )
 
+// ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
 	MarkSignalDisconnected()
 	MarkSignalConnected()
@@ -96,6 +97,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	}, nil
 }
 
+// SetConnStateListener set the ConnStateNotifier
 func (c *GrpcClient) SetConnStateListener(notifier ConnStateNotifier) {
 	c.connStateCallbackLock.Lock()
 	defer c.connStateCallbackLock.Unlock()

@@ -209,6 +209,7 @@ func (d *Status) MarkManagementConnected() {
 	d.managementState = true
 }
 
+// UpdateSignalAddress update the address of the signal server
 func (d *Status) UpdateSignalAddress(signalURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()

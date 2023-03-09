@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/management/proto"
 )
 
+// ConnStateNotifier is a wrapper interface of the status recorders
 type ConnStateNotifier interface {
 	MarkManagementDisconnected()
 	MarkManagementConnected()
@@ -79,6 +80,7 @@ func (c *GrpcClient) Close() error {
 	return c.conn.Close()
 }
 
+// SetConnStateListener set the ConnStateNotifier
 func (c *GrpcClient) SetConnStateListener(notifier ConnStateNotifier) {
 	c.connStateCallbackLock.Lock()
 	defer c.connStateCallbackLock.Unlock()
