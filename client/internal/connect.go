@@ -121,8 +121,8 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 
 		statusRecorder.UpdateSignalAddress(signalURL)
 
-		statusRecorder.MarkSignalDisconnected(signalURL)
-		defer statusRecorder.MarkSignalDisconnected(signalURL)
+		statusRecorder.MarkSignalDisconnected()
+		defer statusRecorder.MarkSignalDisconnected()
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
@@ -137,7 +137,10 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 			}
 		}()
 
-		statusRecorder.MarkSignalConnected(signalURL)
+		signalNotifier := statusRecorderToSignalConnStateNotifier(statusRecorder)
+		signalClient.SetConnStateListener(signalNotifier)
+
+		statusRecorder.MarkSignalConnected()
 
 		peerConfig := loginResp.GetPeerConfig()
 
@@ -329,4 +332,10 @@ func statusRecorderToMgmConnStateNotifier(statusRecorder *peer.Status) mgm.ConnS
 	var sri interface{} = statusRecorder
 	mgmNotifier, _ := sri.(mgm.ConnStateNotifier)
 	return mgmNotifier
+}
+
+func statusRecorderToSignalConnStateNotifier(statusRecorder *peer.Status) signal.ConnStateNotifier {
+	var sri interface{} = statusRecorder
+	notifier, _ := sri.(signal.ConnStateNotifier)
+	return notifier
 }

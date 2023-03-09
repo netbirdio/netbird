@@ -52,11 +52,12 @@ type Status struct {
 	mux             sync.Mutex
 	peers           map[string]State
 	changeNotify    map[string]chan struct{}
-	signalState     SignalState
+	signalState     bool
 	managementState bool
 	localPeer       LocalPeerState
 	offlinePeers    []State
 	mgmAddress      string
+	signalAddress   string
 }
 
 // NewRecorder returns a new Status instance
@@ -208,24 +209,24 @@ func (d *Status) MarkManagementConnected() {
 	d.managementState = true
 }
 
-// MarkSignalDisconnected sets SignalState to disconnected
-func (d *Status) MarkSignalDisconnected(signalURL string) {
+func (d *Status) UpdateSignalAddress(signalURL string) {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	d.signalState = SignalState{
-		signalURL,
-		false,
-	}
+	d.signalAddress = signalURL
+}
+
+// MarkSignalDisconnected sets SignalState to disconnected
+func (d *Status) MarkSignalDisconnected() {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.signalState = false
 }
 
 // MarkSignalConnected sets SignalState to connected
-func (d *Status) MarkSignalConnected(signalURL string) {
+func (d *Status) MarkSignalConnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	d.signalState = SignalState{
-		signalURL,
-		true,
-	}
+	d.signalState = true
 }
 
 // GetFullStatus gets full status
@@ -238,7 +239,10 @@ func (d *Status) GetFullStatus() FullStatus {
 			d.mgmAddress,
 			d.managementState,
 		},
-		SignalState:    d.signalState,
+		SignalState: SignalState{
+			d.signalAddress,
+			d.signalState,
+		},
 		LocalPeerState: d.localPeer,
 	}
 
