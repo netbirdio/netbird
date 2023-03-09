@@ -173,7 +173,7 @@ func TestUpdateSignalState(t *testing.T) {
 			} else {
 				status.MarkSignalDisconnected(url)
 			}
-			assert.Equal(t, test.want, status.signal, "signal status should be equal")
+			assert.Equal(t, test.want, status.signalState, "signal status should be equal")
 		})
 	}
 }
@@ -205,7 +205,7 @@ func TestUpdateManagementState(t *testing.T) {
 			} else {
 				status.MarkManagementDisconnected(url)
 			}
-			assert.Equal(t, test.want, status.management, "signal status should be equal")
+			assert.Equal(t, test.want, status.managementState, "signalState status should be equal")
 		})
 	}
 }
@@ -231,8 +231,8 @@ func TestGetFullStatus(t *testing.T) {
 
 	status := NewRecorder()
 
-	status.management = managementState
-	status.signal = signalState
+	status.managementState = managementState
+	status.signalState = signalState
 	status.peers[key1] = peerState1
 	status.peers[key2] = peerState2
 

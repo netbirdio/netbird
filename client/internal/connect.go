@@ -58,8 +58,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 		return err
 	}
 
-	managementURL := config.ManagementURL.String()
-	statusRecorder.MarkManagementDisconnected(managementURL)
+	statusRecorder.MarkManagementDisconnected()
 
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
@@ -73,7 +72,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 
 		engineCtx, cancel := context.WithCancel(ctx)
 		defer func() {
-			statusRecorder.MarkManagementDisconnected(managementURL)
+			statusRecorder.MarkManagementDisconnected()
 			statusRecorder.CleanLocalPeerState()
 			cancel()
 		}()
@@ -104,7 +103,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 			}
 			return wrapErr(err)
 		}
-		statusRecorder.MarkManagementConnected(managementURL)
+		statusRecorder.MarkManagementConnected()
 
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
@@ -119,6 +118,8 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 			strings.ToLower(loginResp.GetWiretrusteeConfig().GetSignal().GetProtocol().String()),
 			loginResp.GetWiretrusteeConfig().GetSignal().GetUri(),
 		)
+
+		statusRecorder.UpdateSignalAddress(signalURL)
 
 		statusRecorder.MarkSignalDisconnected(signalURL)
 		defer statusRecorder.MarkSignalDisconnected(signalURL)

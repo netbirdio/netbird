@@ -26,8 +26,8 @@ import (
 )
 
 type ConnStateNotifier interface {
-	MarkManagementDisconnected(signalURL string)
-	MarkManagementConnected(signalURL string)
+	MarkManagementDisconnected()
+	MarkManagementConnected()
 }
 
 type GrpcClient struct {
@@ -322,7 +322,7 @@ func (c *GrpcClient) notifyDisconnected() {
 	if c.connStateCallback == nil {
 		return
 	}
-	c.connStateCallback.MarkManagementConnected(c.conn.Target())
+	c.connStateCallback.MarkManagementDisconnected()
 }
 
 func (c *GrpcClient) notifyConnected() {
@@ -332,7 +332,7 @@ func (c *GrpcClient) notifyConnected() {
 	if c.connStateCallback == nil {
 		return
 	}
-	c.connStateCallback.MarkManagementConnected(c.conn.Target())
+	c.connStateCallback.MarkManagementConnected()
 }
 
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {
