@@ -37,8 +37,8 @@ func (c *tunDevice) WgAddress() WGAddress {
 	return c.address
 }
 
-func (t *tunDevice) DeviceName() string {
-	return t.name
+func (c *tunDevice) DeviceName() string {
+	return c.name
 }
 
 func (c *tunDevice) Close() error {
