@@ -58,6 +58,7 @@ func (c *Client) Run(urlOpener UrlOpener) error {
 	}
 
 	var ctx context.Context
+	//nolint
 	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
 	c.ctxCancelLock.Lock()
 	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)

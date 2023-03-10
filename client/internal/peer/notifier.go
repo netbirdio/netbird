@@ -86,7 +86,7 @@ func (n *notifier) notifyAll(state int) {
 	n.listenersLock.Lock()
 	defer n.listenersLock.Unlock()
 
-	for l, _ := range n.listeners {
+	for l := range n.listeners {
 		n.notifyListener(l, state)
 	}
 }
@@ -118,7 +118,7 @@ func (n *notifier) peerListChanged(numOfPeers int) {
 	n.listenersLock.Lock()
 	defer n.listenersLock.Unlock()
 
-	for l, _ := range n.listeners {
+	for l := range n.listeners {
 		l.OnPeersListChanged(numOfPeers)
 	}
 }
