@@ -16,6 +16,7 @@ import (
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
+// IsLoginRequired check that the server is support SSO or not
 func IsLoginRequired(ctx context.Context, privateKey string, mgmUrl *url.URL, sshKey string) (bool, error) {
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(privateKey)
