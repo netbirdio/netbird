@@ -633,28 +633,6 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	return newPeer, networkMap, nil
 }
 
-// checkPeerExpired and return auth error if peer is unauthenticated
-func (am *DefaultAccountManager) checkPeerExpired(loginUserID string, peer *Peer, account *Account) error {
-	if peer.AddedWithSSOLogin() {
-		expired, expiresIn := peer.LoginExpired(account.Settings.PeerLoginExpiration)
-		expired = account.Settings.PeerLoginExpirationEnabled && expired
-		if expired || peer.Status.LoginExpired {
-			log.Debugf("peer %s login expired", peer.ID)
-			if loginUserID == "" {
-				// absence of a user ID indicates that JWT wasn't provided.
-				return status.Errorf(status.PermissionDenied,
-					"peer login has expired %v ago. Please log in once more", expiresIn)
-			}
-			if peer.UserID != loginUserID {
-				log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
-				return status.Errorf(status.Unauthenticated, "can't login")
-			}
-		}
-	}
-
-	return nil
-}
-
 // SyncPeer checks whether peer is eligible for receiving NetworkMap (authenticated) and returns its NetworkMap if eligible
 func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error) {
 	account, err := am.Store.GetAccountByPeerPubKey(sync.WireGuardPubKey)
