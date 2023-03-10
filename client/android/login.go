@@ -13,9 +13,9 @@ import (
 	gstatus "google.golang.org/grpc/status"
 )
 
-// UrlOpener it is a callback interface. The Open function will be triggered if
+// URLOpener it is a callback interface. The Open function will be triggered if
 // the backend want to show an url for the user
-type UrlOpener interface {
+type URLOpener interface {
 	Open(string)
 }
 
@@ -87,7 +87,7 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string) error {
 }
 
 // Login try register the client on the server
-func (a *Auth) Login(urlOpener UrlOpener) error {
+func (a *Auth) Login(urlOpener URLOpener) error {
 	var needsLogin bool
 
 	// check if we need to generate JWT token
@@ -122,7 +122,7 @@ func (a *Auth) Login(urlOpener UrlOpener) error {
 	return nil
 }
 
-func (a *Auth) foregroundGetTokenInfo(urlOpener UrlOpener) (*internal.TokenInfo, error) {
+func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*internal.TokenInfo, error) {
 	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
 	if err != nil {
 		s, ok := gstatus.FromError(err)

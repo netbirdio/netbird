@@ -52,7 +52,7 @@ func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter) *Client {
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(urlOpener UrlOpener) error {
+func (c *Client) Run(urlOpener URLOpener) error {
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
