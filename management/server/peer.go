@@ -633,7 +633,8 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	return newPeer, networkMap, nil
 }
 
-func (am *DefaultAccountManager) checkPeerLoginExpiration(loginUserID string, peer *Peer, account *Account) error {
+// checkPeerExpired and return auth error if peer is unauthenticated
+func (am *DefaultAccountManager) checkPeerExpired(loginUserID string, peer *Peer, account *Account) error {
 	if peer.AddedWithSSOLogin() {
 		expired, expiresIn := peer.LoginExpired(account.Settings.PeerLoginExpiration)
 		expired = account.Settings.PeerLoginExpirationEnabled && expired
@@ -648,12 +649,10 @@ func (am *DefaultAccountManager) checkPeerLoginExpiration(loginUserID string, pe
 				return status.Errorf(status.PermissionDenied,
 					"peer login has expired %v ago. Please log in once more", expiresIn)
 			}
-			// user ID is there meaning that JWT validation passed successfully in the API layer.
 			if peer.UserID != loginUserID {
 				log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
 				return status.Errorf(status.Unauthenticated, "can't login")
 			}
-			_ = am.updatePeerLastLogin(peer, account)
 		}
 	}
 
@@ -685,7 +684,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
-	err = am.checkPeerLoginExpiration("", peer, account)
+	err = am.checkPeerExpired("", peer, account)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -728,9 +727,17 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
-	err = am.checkPeerLoginExpiration(login.UserID, peer, account)
+	err = am.checkPeerExpired(login.UserID, peer, account)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// If peer was expired before, if it reached this point, it is re-authenticated
+	// user ID is there meaning that JWT validation passed successfully in the API layer.
+	updateRemotePeers := false
+	if peer.AddedWithSSOLogin() && peer.Status.LoginExpired {
+		updatePeerLastLogin(peer, account)
+		updateRemotePeers = true
 	}
 
 	peer = updatePeerMeta(peer, login.Meta, account)
@@ -744,18 +751,28 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 	if err != nil {
 		return nil, nil, err
 	}
-	networkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
-	return peer, networkMap, nil
+	if updateRemotePeers {
+		err = am.updateAccountPeers(account)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 
 }
 
-func (am *DefaultAccountManager) updatePeerLastLogin(peer *Peer, account *Account) *Peer {
-	peer.LastLogin = time.Now()
-	newStatus := peer.Status.Copy()
-	newStatus.LoginExpired = false
-	peer.Status = newStatus
+func updatePeerLastLogin(peer *Peer, account *Account) {
+	peer.UpdateLastLogin()
 	account.UpdatePeer(peer)
-	return peer
+}
+
+// UpdateLastLogin and set login expired false
+func (p *Peer) UpdateLastLogin() *Peer {
+	p.LastLogin = time.Now()
+	newStatus := p.Status.Copy()
+	newStatus.LoginExpired = false
+	p.Status = newStatus
+	return p
 }
 
 func (am *DefaultAccountManager) checkAndUpdatePeerSSHKey(peer *Peer, account *Account, newSSHKey string) (*Peer, error) {
