@@ -420,10 +420,6 @@ func (am *DefaultAccountManager) GetPeerByIP(accountID string, peerIP string) (*
 	return nil, status.Errorf(status.NotFound, "peer with IP %s not found", peerIP)
 }
 
-func (am *DefaultAccountManager) getNetworkMap(peer *Peer, account *Account) *NetworkMap {
-	return account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
-}
-
 // GetNetworkMap returns Network map for a given peer (omits original peer from the Peers result)
 func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, error) {
 
@@ -436,8 +432,7 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 	if peer == nil {
 		return nil, status.Errorf(status.NotFound, "peer with ID %s not found", peerID)
 	}
-
-	return am.getNetworkMap(peer, account), nil
+	return account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
 // GetPeerNetwork returns the Network for a given peer
@@ -618,9 +613,7 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 	if peerLoginExpired(peer, account) {
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
-
-	return peer, am.getNetworkMap(peer, account), nil
-
+	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 }
 
 // LoginPeer logs in or registers a peer.
