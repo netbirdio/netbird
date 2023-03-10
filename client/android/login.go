@@ -13,6 +13,8 @@ import (
 	gstatus "google.golang.org/grpc/status"
 )
 
+// UrlOpener it is a callback interface. The Open function will be triggered if
+// the backend want to show an url for the user
 type UrlOpener interface {
 	Open(string)
 }
@@ -25,9 +27,9 @@ type Auth struct {
 }
 
 // NewAuth instantiate Auth struct and validate the management URL
-func NewAuth(cfgPath string, mgmUrl string) (*Auth, error) {
+func NewAuth(cfgPath string, mgmURL string) (*Auth, error) {
 	inputCfg := internal.ConfigInput{
-		ManagementURL: mgmUrl,
+		ManagementURL: mgmURL,
 	}
 
 	cfg, err := internal.CreateInMemoryConfig(inputCfg)

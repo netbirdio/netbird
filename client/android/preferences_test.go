@@ -76,13 +76,13 @@ func TestPreferences_ReadUncommitedValues(t *testing.T) {
 }
 
 func TestPreferences_Commit(t *testing.T) {
-	exampleUrl := "https://myurl.com:443"
+	exampleURL := "https://myurl.com:443"
 	examplePresharedKey := "topsecret"
 	cfgFile := filepath.Join(t.TempDir(), "netbird.json")
 	p := NewPreferences(cfgFile)
 
-	p.SetAdminURL(exampleUrl)
-	p.SetManagementURL(exampleUrl)
+	p.SetAdminURL(exampleURL)
+	p.SetManagementURL(exampleURL)
 	p.SetPreSharedKey(examplePresharedKey)
 
 	err := p.Commit()
@@ -96,7 +96,7 @@ func TestPreferences_Commit(t *testing.T) {
 		t.Fatalf("failed to read admin url: %s", err)
 	}
 
-	if resp != exampleUrl {
+	if resp != exampleURL {
 		t.Errorf("unexpected admin url: %s", resp)
 	}
 
@@ -105,7 +105,7 @@ func TestPreferences_Commit(t *testing.T) {
 		t.Fatalf("failed to read managmenet url: %s", err)
 	}
 
-	if resp != exampleUrl {
+	if resp != exampleURL {
 		t.Errorf("unexpected managemenet url: %s", resp)
 	}
 

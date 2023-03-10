@@ -27,6 +27,7 @@ func init() {
 	formatter.SetLogcatFormatter(log.StandardLogger())
 }
 
+// Client struct manage the life circle of background service
 type Client struct {
 	cfgFile       string
 	tunAdapter    iface.TunAdapter
@@ -36,6 +37,7 @@ type Client struct {
 	deviceName    string
 }
 
+// NewClient instantiate a new Client
 func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter) *Client {
 	lvl, _ := log.ParseLevel("trace")
 	log.SetLevel(lvl)
@@ -49,6 +51,7 @@ func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter) *Client {
 	}
 }
 
+// Run start the internal client. It is a blocker function
 func (c *Client) Run(urlOpener UrlOpener) error {
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ConfigPath: c.cfgFile,
@@ -76,6 +79,7 @@ func (c *Client) Run(urlOpener UrlOpener) error {
 	return internal.RunClient(ctx, cfg, c.recorder, c.tunAdapter)
 }
 
+// Stop the internal client and free the resources
 func (c *Client) Stop() {
 	c.ctxCancelLock.Lock()
 	defer c.ctxCancelLock.Unlock()
@@ -86,6 +90,7 @@ func (c *Client) Stop() {
 	c.ctxCancel()
 }
 
+// PeersList return with the list of the PeerInfos
 func (c *Client) PeersList() *PeerInfoArray {
 
 	fullStatus := c.recorder.GetFullStatus()
@@ -104,10 +109,12 @@ func (c *Client) PeersList() *PeerInfoArray {
 	return &PeerInfoArray{items: peerInfos}
 }
 
+// AddConnectionListener add new network connection listener
 func (c *Client) AddConnectionListener(listener ConnectionListener) {
 	c.recorder.AddConnectionListener(listener)
 }
 
+// RemoveConnectionListener remove connection listener
 func (c *Client) RemoveConnectionListener(listener ConnectionListener) {
 	c.recorder.RemoveConnectionListener(listener)
 }
