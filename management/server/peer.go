@@ -642,10 +642,6 @@ func (am *DefaultAccountManager) checkPeerExpired(loginUserID string, peer *Peer
 			log.Debugf("peer %s login expired", peer.ID)
 			if loginUserID == "" {
 				// absence of a user ID indicates that JWT wasn't provided.
-				_, err := am.markPeerLoginExpired(peer, account, true)
-				if err != nil {
-					return err
-				}
 				return status.Errorf(status.PermissionDenied,
 					"peer login has expired %v ago. Please log in once more", expiresIn)
 			}
@@ -684,9 +680,8 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
-	err = am.checkPeerExpired("", peer, account)
-	if err != nil {
-		return nil, nil, err
+	if peerLoginExpired(peer, account) {
+		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
 
 	return peer, am.getNetworkMap(peer, account), nil
@@ -727,15 +722,18 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
-	err = am.checkPeerExpired(login.UserID, peer, account)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// If peer was expired before, if it reached this point, it is re-authenticated
-	// user ID is there meaning that JWT validation passed successfully in the API layer.
 	updateRemotePeers := false
-	if peer.AddedWithSSOLogin() && peer.Status.LoginExpired {
+	if peerLoginExpired(peer, account) {
+		if login.UserID == "" {
+			// absence of a user ID indicates that JWT wasn't provided.
+			return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
+		}
+		if peer.UserID != login.UserID {
+			log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, login.UserID)
+			return nil, nil, status.Errorf(status.Unauthenticated, "can't login")
+		}
+		// If peer was expired before and if it reached this point, it is re-authenticated.
+		// UserID is present, meaning that JWT validation passed successfully in the API layer.
 		updatePeerLastLogin(peer, account)
 		updateRemotePeers = true
 	}
@@ -759,6 +757,16 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 	}
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 
+}
+
+func peerLoginExpired(peer *Peer, account *Account) bool {
+	expired, expiresIn := peer.LoginExpired(account.Settings.PeerLoginExpiration)
+	expired = account.Settings.PeerLoginExpirationEnabled && expired
+	if expired || peer.Status.LoginExpired {
+		log.Debugf("peer's %s login expired %v ago", peer.ID, expiresIn)
+		return true
+	}
+	return false
 }
 
 func updatePeerLastLogin(peer *Peer, account *Account) {
