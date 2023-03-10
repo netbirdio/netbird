@@ -23,14 +23,17 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 	return &DefaultServer{}, nil
 }
 
+// Start dummy implementation
 func (s DefaultServer) Start() {
 
 }
 
+// Stop dummy implementation
 func (s DefaultServer) Stop() {
 
 }
 
+// UpdateDNSServer dummy implementation
 func (s DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
 	return nil
 }
