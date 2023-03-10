@@ -724,13 +724,9 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 
 	updateRemotePeers := false
 	if peerLoginExpired(peer, account) {
-		if login.UserID == "" {
-			// absence of a user ID indicates that JWT wasn't provided.
-			return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
-		}
-		if peer.UserID != login.UserID {
-			log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, login.UserID)
-			return nil, nil, status.Errorf(status.Unauthenticated, "can't login")
+		err = checkAuth(login.UserID, peer)
+		if err != nil {
+			return nil, nil, err
 		}
 		// If peer was expired before and if it reached this point, it is re-authenticated.
 		// UserID is present, meaning that JWT validation passed successfully in the API layer.
@@ -757,6 +753,18 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 	}
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
 
+}
+
+func checkAuth(loginUserID string, peer *Peer) error {
+	if loginUserID == "" {
+		// absence of a user ID indicates that JWT wasn't provided.
+		return status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
+	}
+	if peer.UserID != loginUserID {
+		log.Warnf("user mismatch when loggin in peer %s: peer user %s, login user %s ", peer.ID, peer.UserID, loginUserID)
+		return status.Errorf(status.Unauthenticated, "can't login")
+	}
+	return nil
 }
 
 func peerLoginExpired(peer *Peer, account *Account) bool {
