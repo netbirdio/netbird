@@ -17,7 +17,7 @@ import (
 )
 
 // IsLoginRequired check that the server is support SSO or not
-func IsLoginRequired(ctx context.Context, privateKey string, mgmUrl *url.URL, sshKey string) (bool, error) {
+func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, sshKey string) (bool, error) {
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
@@ -26,17 +26,17 @@ func IsLoginRequired(ctx context.Context, privateKey string, mgmUrl *url.URL, ss
 	}
 
 	var mgmTlsEnabled bool
-	if mgmUrl.Scheme == "https" {
+	if mgmURL.Scheme == "https" {
 		mgmTlsEnabled = true
 	}
 
-	log.Debugf("connecting to the Management service %s", mgmUrl.String())
-	mgmClient, err := mgm.NewClient(ctx, mgmUrl.Host, myPrivateKey, mgmTlsEnabled)
+	log.Debugf("connecting to the Management service %s", mgmURL.String())
+	mgmClient, err := mgm.NewClient(ctx, mgmURL.Host, myPrivateKey, mgmTlsEnabled)
 	if err != nil {
-		log.Errorf("failed connecting to the Management service %s %v", mgmUrl.String(), err)
+		log.Errorf("failed connecting to the Management service %s %v", mgmURL.String(), err)
 		return false, err
 	}
-	log.Debugf("connected to the Management service %s", mgmUrl.String())
+	log.Debugf("connected to the Management service %s", mgmURL.String())
 	defer func() {
 		err = mgmClient.Close()
 		if err != nil {
