@@ -222,49 +222,6 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 	return peers, nil
 }
 
-func (am *DefaultAccountManager) markPeerLoginExpired(peer *Peer, account *Account, expired bool) (*Peer, error) {
-	peer.MarkLoginExpired(expired)
-	account.UpdatePeer(peer)
-
-	err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
-	if err != nil {
-		return nil, err
-	}
-
-	return peer, nil
-}
-
-// MarkPeerLoginExpired when peer login has expired
-func (am *DefaultAccountManager) MarkPeerLoginExpired(peerPubKey string, loginExpired bool) error {
-	account, err := am.Store.GetAccountByPeerPubKey(peerPubKey)
-	if err != nil {
-		return err
-	}
-
-	unlock := am.Store.AcquireAccountLock(account.Id)
-	defer unlock()
-
-	// ensure that we consider modification happened meanwhile (because we were outside the account lock when we fetched the account)
-	account, err = am.Store.GetAccount(account.Id)
-	if err != nil {
-		return err
-	}
-
-	peer, err := account.FindPeerByPubKey(peerPubKey)
-	if err != nil {
-		return err
-	}
-
-	peer.MarkLoginExpired(loginExpired)
-	account.UpdatePeer(peer)
-
-	err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 // MarkPeerConnected marks peer as connected (true) or disconnected (false)
 func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected bool) error {
 
