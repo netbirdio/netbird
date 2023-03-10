@@ -786,7 +786,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 		if len(peerIDs) != 0 {
 			// this will trigger peer disconnect from the management service
 			am.peersUpdateManager.CloseChannels(peerIDs)
-			err := am.updateAccountPeers(account)
+			err = am.updateAccountPeers(account)
 			if err != nil {
 				log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
 				return account.GetNextPeerExpiration()
