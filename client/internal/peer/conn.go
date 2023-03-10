@@ -453,10 +453,13 @@ func (conn *Conn) sendLocalDirectMode(localMode bool) {
 
 func (conn *Conn) receiveRemoteDirectMode() bool {
 	timeout := time.Second
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case receivedMSG := <-conn.remoteModeCh:
 		return receivedMSG.Direct
-	case <-time.After(timeout):
+	case <-timer.C:
 		// we didn't receive a message from remote so we assume that it supports the direct mode to keep the old behaviour
 		log.Debugf("timeout after %s while waiting for remote direct mode message from remote peer %s",
 			timeout, conn.config.Key)

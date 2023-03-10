@@ -332,48 +332,80 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 	}
 }
 
-func TestExchangeDirectMode(t *testing.T) {
+func TestGetProxyWithMessageExchange(t *testing.T) {
+	publicHostCandidate := &mockICECandidate{
+		AddressFunc: func() string {
+			return "8.8.8.8"
+		},
+		TypeFunc: func() ice.CandidateType {
+			return ice.CandidateTypeHost
+		},
+	}
+	relayCandidate := &mockICECandidate{
+		AddressFunc: func() string {
+			return "1.1.1.1"
+		},
+		TypeFunc: func() ice.CandidateType {
+			return ice.CandidateTypeRelay
+		},
+	}
+
 	testCases := []struct {
 		name                   string
-		inputProxy             bool
+		candatePair            *ice.CandidatePair
 		inputDirectModeSupport bool
 		inputRemoteModeMessage bool
-		expected               bool
+		expected               proxy.Type
 	}{
 		{
-			name:                   "Should Result In Using Proxy When Local Eval Is True",
-			inputProxy:             true,
+			name: "Should Result In Using Wireguard Proxy When Local Eval Is Use Proxy",
+			candatePair: &ice.CandidatePair{
+				Local:  relayCandidate,
+				Remote: publicHostCandidate,
+			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: true,
-			expected:               true,
+			expected:               proxy.TypeWireguard,
 		},
 		{
-			name:                   "Should Result In Using Proxy When Remote Direct Mode Is False",
-			inputProxy:             false,
+			name: "Should Result In Using Wireguard Proxy When Remote Eval Is Use Proxy",
+			candatePair: &ice.CandidatePair{
+				Local:  publicHostCandidate,
+				Remote: publicHostCandidate,
+			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: false,
-			expected:               true,
+			expected:               proxy.TypeWireguard,
 		},
 		{
-			name:                   "Should Result In Using Proxy When Remote Direct Mode Support Is False And Local Eval Is True",
-			inputProxy:             true,
+			name: "Should Result In Using Wireguard Proxy When Remote Direct Mode Support Is False And Local Eval Is Use Proxy",
+			candatePair: &ice.CandidatePair{
+				Local:  relayCandidate,
+				Remote: publicHostCandidate,
+			},
 			inputDirectModeSupport: false,
 			inputRemoteModeMessage: false,
-			expected:               true,
+			expected:               proxy.TypeWireguard,
 		},
 		{
-			name:                   "Should Result In Using Direct When Remote Direct Mode Support Is False And Local Eval Is False",
-			inputProxy:             false,
+			name: "Should Result In Using Direct When Remote Direct Mode Support Is False And Local Eval Is No Use Proxy",
+			candatePair: &ice.CandidatePair{
+				Local:  publicHostCandidate,
+				Remote: publicHostCandidate,
+			},
 			inputDirectModeSupport: false,
 			inputRemoteModeMessage: false,
-			expected:               false,
+			expected:               proxy.TypeNoProxy,
 		},
 		{
-			name:                   "Should Result In Using Direct When Local And Remote Eval Allows",
-			inputProxy:             false,
+			name: "Should Result In Using Direct When Local And Remote Eval Is No Proxy",
+			candatePair: &ice.CandidatePair{
+				Local:  publicHostCandidate,
+				Remote: publicHostCandidate,
+			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: true,
-			expected:               false,
+			expected:               proxy.TypeNoProxy,
 		},
 	}
 	for _, testCase := range testCases {
@@ -394,15 +426,14 @@ func TestExchangeDirectMode(t *testing.T) {
 				})
 			})
 
-			conn.sendLocalDirectMode(testCase.inputProxy)
-			result := conn.receiveRemoteDirectMode()
+			resultProxy := conn.getProxyWithMessageExchange(testCase.candatePair, 1000)
 
 			err = g.Wait()
 			if err != nil {
 				t.Error(err)
 			}
-			if result != testCase.expected {
-				t.Errorf("result didn't match expected value: Expected: %t, Got: %t", testCase.expected, result)
+			if resultProxy.Type() != testCase.expected {
+				t.Errorf("result didn't match expected value: Expected: %s, Got: %s", testCase.expected, resultProxy.Type())
 			}
 		})
 	}

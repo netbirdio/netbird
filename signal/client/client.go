@@ -79,6 +79,7 @@ func ParseFeaturesSupported(featuresMessage []uint32) FeaturesSupport {
 	for _, feature := range featuresMessage {
 		if feature == DirectCheck {
 			protoSupport.DirectCheck = true
+			return protoSupport
 		}
 	}
 	return protoSupport
