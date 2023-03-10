@@ -119,10 +119,12 @@ func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 	return update(input)
 }
 
+// CreateInMemoryConfig generate a new config but do not write out it to the store
 func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
 	return createNewConfig(input)
 }
 
+// WriteOutConfig write put the prepared config to the given path
 func WriteOutConfig(path string, config *Config) error {
 	return util.WriteJson(path, config)
 }
