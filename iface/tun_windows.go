@@ -29,19 +29,6 @@ func (c *tunDevice) Create() error {
 	return c.assignAddr()
 }
 
-func (c *tunDevice) GetInterfaceGUIDString() (string, error) {
-	if c.netInterface == nil {
-		return "", fmt.Errorf("interface has not been initialized yet")
-	}
-	windowsDevice := c.netInterface.(*driver.Adapter)
-	luid := windowsDevice.LUID()
-	guid, err := luid.GUID()
-	if err != nil {
-		return "", err
-	}
-	return guid.String(), nil
-}
-
 func (c *tunDevice) UpdateAddr(address WGAddress) error {
 	c.address = address
 	return c.assignAddr()
@@ -61,6 +48,19 @@ func (c *tunDevice) Close() error {
 	}
 
 	return c.netInterface.Close()
+}
+
+func (c *tunDevice) getInterfaceGUIDString() (string, error) {
+	if c.netInterface == nil {
+		return "", fmt.Errorf("interface has not been initialized yet")
+	}
+	windowsDevice := c.netInterface.(*driver.Adapter)
+	luid := windowsDevice.LUID()
+	guid, err := luid.GUID()
+	if err != nil {
+		return "", err
+	}
+	return guid.String(), nil
 }
 
 func (c *tunDevice) createAdapter() (NetInterface, error) {
