@@ -394,7 +394,8 @@ func TestExchangeDirectMode(t *testing.T) {
 				})
 			})
 
-			result := conn.exchangeDirectMode(testCase.inputProxy)
+			conn.sendLocalDirectMode(testCase.inputProxy)
+			result := conn.receiveRemoteDirectMode()
 
 			err = g.Wait()
 			if err != nil {

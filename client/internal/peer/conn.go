@@ -411,41 +411,31 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 }
 
 func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
+
 	useProxy := shouldUseProxy(pair)
 	localDirectMode := !useProxy
+	remoteDirectMode := localDirectMode
 
 	if conn.meta.protoSupport.DirectCheck {
-		remoteDirectMode, exchanged := conn.exchangeDirectMode(localDirectMode)
-		if exchanged && (remoteDirectMode != localDirectMode) {
-			useProxy = true
-		}
+		go conn.sendLocalDirectMode(localDirectMode)
+		// will block until message received or timeout
+		remoteDirectMode = conn.receiveRemoteDirectMode()
 	}
 
-	if useProxy {
-		return proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	if localDirectMode && remoteDirectMode {
+		log.Debugf("using WireGuard direct mode with peer %s", conn.config.Key)
+		return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
 	}
 
-	return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
+	log.Debugf("falling back to local proxy mode with peer %s", conn.config.Key)
+	return proxy.NewWireguardProxy(conn.config.ProxyConfig)
 }
 
-// exchangeDirectMode exchanges the message and returns the remote mode and if the exchange was successful
-func (conn *Conn) exchangeDirectMode(localMode bool) (bool, bool) {
-	err := conn.sendLocalProxyMode(localMode)
-	if err != nil {
-		log.Errorf("fail to send local proxy mode to remote, error: %s", err)
-		return false, false
-	}
+func (conn *Conn) sendLocalDirectMode(localMode bool) {
+	// todo what happens when we couldn't deliver this message?
+	// we could retry, etc but there is no guarantee
 
-	remoteMode, err := conn.readRemoteProxyMode()
-	if err != nil {
-		log.Debug(err)
-		return false, false
-	}
-	return remoteMode, true
-}
-
-func (conn *Conn) sendLocalProxyMode(localMode bool) error {
-	return conn.sendSignalMessage(&sProto.Message{
+	err := conn.sendSignalMessage(&sProto.Message{
 		Key:       conn.config.LocalKey,
 		RemoteKey: conn.config.Key,
 		Body: &sProto.Body{
@@ -456,16 +446,21 @@ func (conn *Conn) sendLocalProxyMode(localMode bool) error {
 			NetBirdVersion: system.NetbirdVersion(),
 		},
 	})
+	if err != nil {
+		log.Errorf("failed to send local proxy mode to remote peer %s, error: %s", conn.config.Key, err)
+	}
 }
 
-func (conn *Conn) readRemoteProxyMode() (bool, error) {
+func (conn *Conn) receiveRemoteDirectMode() bool {
 	timeout := time.Second
-	waitTimer := time.NewTimer(timeout)
 	select {
 	case receivedMSG := <-conn.remoteModeCh:
-		return receivedMSG.Direct, nil
-	case <-waitTimer.C:
-		return false, fmt.Errorf("timeout after %s while waiting for remote direct mode message from remote", timeout)
+		return receivedMSG.Direct
+	case <-time.After(timeout):
+		// we didn't receive a message from remote so we assume that it supports the direct mode to keep the old behaviour
+		log.Debugf("timeout after %s while waiting for remote direct mode message from remote peer %s",
+			timeout, conn.config.Key)
+		return true
 	}
 }
 
