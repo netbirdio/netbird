@@ -1,13 +1,18 @@
 package idp
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	log "github.com/sirupsen/logrus"
 )
 
 // KeycloakManager keycloak manager client instance.
@@ -79,9 +84,105 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 	}, nil
 }
 
+// jwtStillValid returns true if the token still valid and have enough time to be used and get a response from keycloak.
+func (kc *KeycloakCredentials) jwtStillValid() bool {
+	return !kc.jwtToken.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(kc.jwtToken.expiresInTime)
+}
+
+// requestJWTToken performs request to get jwt token.
+func (kc *KeycloakCredentials) requestJWTToken() (*http.Response, error) {
+	data := url.Values{}
+	data.Set("client_id", kc.clientConfig.ClientID)
+	data.Set("client_secret", kc.clientConfig.ClientSecret)
+	data.Set("grant_type", kc.clientConfig.GrantType)
+
+	payload := strings.NewReader(data.Encode())
+	req, err := http.NewRequest(http.MethodPost, kc.clientConfig.TokenEndpoint, payload)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("content-type", "application/x-www-form-urlencoded")
+
+	log.Debug("requesting new jwt token for keycloak idp manager")
+
+	resp, err := kc.httpClient.Do(req)
+	if err != nil {
+		if kc.appMetrics != nil {
+			kc.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unable to get keycloak token, statusCode %d", resp.StatusCode)
+	}
+
+	return resp, nil
+}
+
+// parseRequestJWTResponse parses jwt raw response body and extracts token and expires in seconds
+func (kc *KeycloakCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JWTToken, error) {
+	jwtToken := JWTToken{}
+	body, err := io.ReadAll(rawBody)
+	if err != nil {
+		return jwtToken, err
+	}
+
+	err = kc.helper.Unmarshal(body, &jwtToken)
+	if err != nil {
+		return jwtToken, err
+	}
+
+	if jwtToken.ExpiresIn == 0 && jwtToken.AccessToken == "" {
+		return jwtToken, fmt.Errorf("error while reading response body, expires_in: %d and access_token: %s", jwtToken.ExpiresIn, jwtToken.AccessToken)
+	}
+
+	data, err := jwt.DecodeSegment(strings.Split(jwtToken.AccessToken, ".")[1])
+	if err != nil {
+		return jwtToken, err
+	}
+
+	// Exp maps into exp from jwt token
+	var IssuedAt struct{ Exp int64 }
+	err = json.Unmarshal(data, &IssuedAt)
+	if err != nil {
+		return jwtToken, err
+	}
+	jwtToken.expiresInTime = time.Unix(IssuedAt.Exp, 0)
+
+	return jwtToken, nil
+}
+
 // Authenticate retrieves access token to use the keycloak Management API.
 func (kc *KeycloakCredentials) Authenticate() (JWTToken, error) {
-	panic("not implemented")
+	kc.mux.Lock()
+	defer kc.mux.Unlock()
+
+	if kc.appMetrics != nil {
+		kc.appMetrics.IDPMetrics().CountAuthenticate()
+	}
+
+	// reuse the token without requesting a new one if it is not expired,
+	// and if expiry time is sufficient time available to make a request.
+	if kc.jwtStillValid() {
+		return kc.jwtToken, nil
+	}
+
+	resp, err := kc.requestJWTToken()
+	if err != nil {
+		return kc.jwtToken, err
+	}
+	defer resp.Body.Close()
+
+	jwtToken, err := kc.parseRequestJWTResponse(resp.Body)
+	if err != nil {
+		return kc.jwtToken, err
+	}
+
+	kc.jwtToken = jwtToken
+
+	return kc.jwtToken, nil
 }
 
 // CreateUser creates a new user in Auth0 Idp and sends an invite.
