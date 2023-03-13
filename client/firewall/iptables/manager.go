@@ -12,12 +12,13 @@ import (
 )
 
 const (
-	chainFilterName = "NETBIRD-ACL"
+	// ChainFilterName is the name of the chain that is used for filtering by the Netbird client
+	ChainFilterName = "NETBIRD-ACL"
 )
 
 // Manager of iptables firewall
 type Manager struct {
-	mutex   *sync.Mutex
+	mutex   sync.Mutex
 	ruleCnt int
 
 	ipv4Client *iptables.IPTables
@@ -58,6 +59,16 @@ func (m *Manager) AddFiltering(
 ) (fw.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+	client := m.client(ip)
+	ok, err := client.ChainExists("filter", ChainFilterName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if chain exists: %s", err)
+	}
+	if !ok {
+		if err := client.NewChain("filter", ChainFilterName); err != nil {
+			return nil, fmt.Errorf("failed to create chain: %s", err)
+		}
+	}
 	if port == nil || port.Values == nil || (port.IsRange && len(port.Values) != 2) {
 		return nil, fmt.Errorf("invalid port definition")
 	}
@@ -65,8 +76,8 @@ func (m *Manager) AddFiltering(
 	if port.IsRange {
 		pv += ":" + strconv.Itoa(port.Values[1])
 	}
-	specs := m.filterRuleSpecs("filter", "INPUT", ip, pv, direction, action, comment)
-	if err := m.client(ip).AppendUnique("filter", "INPUT", specs...); err != nil {
+	specs := m.filterRuleSpecs("filter", ChainFilterName, ip, pv, direction, action, comment)
+	if err := client.AppendUnique("filter", ChainFilterName, specs...); err != nil {
 		return nil, err
 	}
 	m.ruleCnt++
@@ -75,6 +86,8 @@ func (m *Manager) AddFiltering(
 
 // DeleteRule deletes a rule from the firewall
 func (m *Manager) DeleteRule(rule fw.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 	r, ok := rule.(*Rule)
 	if !ok {
 		return fmt.Errorf("invalid rule type")
@@ -83,20 +96,35 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 	if r.v6 {
 		client = m.ipv6Client
 	}
-	client.Delete("filter", chainFilterName, r.specs...)
+	client.Delete("filter", ChainFilterName, r.specs...)
 	return nil
 }
 
 // Reset firewall to the default state
 func (m *Manager) Reset() error {
-	// clear chains from rules, if they doesn't exists create them
-	if err := m.ipv4Client.ClearChain("filter", chainFilterName); err != nil {
-		return err
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	if err := m.reset(m.ipv4Client, "filter", ChainFilterName); err != nil {
+		return fmt.Errorf("clean ipv4 firewall ACL chain: %w", err)
 	}
-	if err := m.ipv6Client.ClearChain("filter", chainFilterName); err != nil {
-		return err
+	if err := m.reset(m.ipv6Client, "filter", ChainFilterName); err != nil {
+		return fmt.Errorf("clean ipv6 firewall ACL chain: %w", err)
 	}
 	return nil
+}
+
+func (m *Manager) reset(client *iptables.IPTables, table, chain string) error {
+	ok, err := client.ChainExists(table, chain)
+	if err != nil {
+		return fmt.Errorf("failed to check if chain exists: %w", err)
+	}
+	if !ok {
+		return nil
+	}
+	if err := client.ClearChain(table, ChainFilterName); err != nil {
+		return fmt.Errorf("failed to clear chain: %w", err)
+	}
+	return client.DeleteChain(table, ChainFilterName)
 }
 
 // filterRuleSpecs returns the specs of a filtering rule and its id
@@ -111,7 +139,7 @@ func (m *Manager) filterRuleSpecs(
 	}
 	specs = append(specs, "-p", "tcp", "--dport", port)
 	specs = append(specs, "-j", m.action(action))
-	return append(specs, "-m", comment)
+	return append(specs, "-m", "comment", "--comment", comment)
 }
 
 // client returns corresponding iptables client for the given ip
