@@ -53,7 +53,6 @@ func (g *Group) Copy() *Group {
 
 // GetGroup object of the peers
 func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, error) {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -72,7 +71,6 @@ func (am *DefaultAccountManager) GetGroup(accountID, groupID string) (*Group, er
 
 // SaveGroup object of the peers
 func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *Group) error {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -112,8 +110,10 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			continue
 		}
 		am.storeEvent(userID, peer.ID, accountID, activity.GroupAddedToPeer,
-			map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
-				"peer_fqdn": peer.FQDN(am.GetDNSDomain())})
+			map[string]any{
+				"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
+				"peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+			})
 	}
 
 	for _, p := range removedPeers {
@@ -123,8 +123,10 @@ func (am *DefaultAccountManager) SaveGroup(accountID, userID string, newGroup *G
 			continue
 		}
 		am.storeEvent(userID, peer.ID, accountID, activity.GroupRemovedFromPeer,
-			map[string]any{"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
-				"peer_fqdn": peer.FQDN(am.GetDNSDomain())})
+			map[string]any{
+				"group": newGroup.Name, "group_id": newGroup.ID, "peer_ip": peer.IP.String(),
+				"peer_fqdn": peer.FQDN(am.GetDNSDomain()),
+			})
 	}
 
 	return nil
@@ -147,8 +149,8 @@ func difference(a, b []string) []string {
 
 // UpdateGroup updates a group using a list of operations
 func (am *DefaultAccountManager) UpdateGroup(accountID string,
-	groupID string, operations []GroupUpdateOperation) (*Group, error) {
-
+	groupID string, operations []GroupUpdateOperation,
+) (*Group, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -198,7 +200,6 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 
 // DeleteGroup object of the peers
 func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -219,7 +220,6 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 
 // ListGroups objects of the peers
 func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -238,7 +238,6 @@ func (am *DefaultAccountManager) ListGroups(accountID string) ([]*Group, error) 
 
 // GroupAddPeer appends peer to the group
 func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string) error {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -273,7 +272,6 @@ func (am *DefaultAccountManager) GroupAddPeer(accountID, groupID, peerID string)
 
 // GroupDeletePeer removes peer from the group
 func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey string) error {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -302,7 +300,6 @@ func (am *DefaultAccountManager) GroupDeletePeer(accountID, groupID, peerKey str
 
 // GroupListPeers returns list of the peers from the group
 func (am *DefaultAccountManager) GroupListPeers(accountID, groupID string) ([]*Peer, error) {
-
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 

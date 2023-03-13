@@ -40,14 +40,16 @@ func (h *RulesHandler) GetAllRules(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	accountRules, err := h.accountManager.ListRules(account.Id, user.Id)
+	accountPolicies, err := h.accountManager.ListPolicies(account.Id, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
 	}
 	rules := []*api.Rule{}
-	for _, r := range accountRules {
-		rules = append(rules, toRuleResponse(account, r))
+	for _, policy := range accountPolicies {
+		for _, r := range policy.Rules {
+			rules = append(rules, toRuleResponse(account, r.ToRule()))
+		}
 	}
 
 	util.WriteJSONObject(w, rules)
@@ -69,9 +71,9 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, ok := account.Rules[ruleID]
-	if !ok {
-		util.WriteError(status.Errorf(status.NotFound, "couldn't find rule id %s", ruleID), w)
+	policy, err := h.accountManager.GetPolicy(account.Id, ruleID, user.Id)
+	if err != nil {
+		util.WriteError(err, w)
 		return
 	}
 
@@ -96,173 +98,40 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		reqDestinations = *req.Destinations
 	}
 
-	rule := server.Rule{
-		ID:          ruleID,
-		Name:        req.Name,
-		Source:      reqSources,
-		Destination: reqDestinations,
-		Disabled:    req.Disabled,
-		Description: req.Description,
+	if len(policy.Rules) != 1 {
+		util.WriteError(status.Errorf(status.Internal, "policy should contain exactly one rule"), w)
+		return
+	}
+
+	policy.Name = req.Name
+	policy.Description = req.Description
+	policy.Enabled = !req.Disabled
+	policy.Rules[0].ID = ruleID
+	policy.Rules[0].Name = req.Name
+	policy.Rules[0].Sources = reqSources
+	policy.Rules[0].Destinations = reqDestinations
+	policy.Rules[0].Enabled = !req.Disabled
+	policy.Rules[0].Description = req.Description
+	if err := policy.UpdateQueryFromRules(); err != nil {
+		util.WriteError(err, w)
+		return
 	}
 
 	switch req.Flow {
 	case server.TrafficFlowBidirectString:
-		rule.Flow = server.TrafficFlowBidirect
+		policy.Rules[0].Action = server.PolicyTrafficActionAccept
 	default:
 		util.WriteError(status.Errorf(status.InvalidArgument, "unknown flow type"), w)
 		return
 	}
 
-	err = h.accountManager.SaveRule(account.Id, user.Id, &rule)
+	err = h.accountManager.SavePolicy(account.Id, user.Id, policy)
 	if err != nil {
 		util.WriteError(err, w)
 		return
 	}
 
-	resp := toRuleResponse(account, &rule)
-
-	util.WriteJSONObject(w, &resp)
-}
-
-// PatchRule handles patch updates to a rule identified by a given ID
-func (h *RulesHandler) PatchRule(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	vars := mux.Vars(r)
-	ruleID := vars["id"]
-	if len(ruleID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid rule ID"), w)
-		return
-	}
-
-	_, ok := account.Rules[ruleID]
-	if !ok {
-		util.WriteError(status.Errorf(status.NotFound, "couldn't find rule ID %s", ruleID), w)
-		return
-	}
-
-	var req api.PatchApiRulesIdJSONRequestBody
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if len(req) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "no patch instruction received"), w)
-		return
-	}
-
-	var operations []server.RuleUpdateOperation
-
-	for _, patch := range req {
-		switch patch.Path {
-		case api.RulePatchOperationPathName:
-			if patch.Op != api.RulePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"name field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			if len(patch.Value) == 0 || patch.Value[0] == "" {
-				util.WriteError(status.Errorf(status.InvalidArgument, "rule name shouldn't be empty"), w)
-				return
-			}
-			operations = append(operations, server.RuleUpdateOperation{
-				Type:   server.UpdateRuleName,
-				Values: patch.Value,
-			})
-		case api.RulePatchOperationPathDescription:
-			if patch.Op != api.RulePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"description field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			operations = append(operations, server.RuleUpdateOperation{
-				Type:   server.UpdateRuleDescription,
-				Values: patch.Value,
-			})
-		case api.RulePatchOperationPathFlow:
-			if patch.Op != api.RulePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"flow field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			operations = append(operations, server.RuleUpdateOperation{
-				Type:   server.UpdateRuleFlow,
-				Values: patch.Value,
-			})
-		case api.RulePatchOperationPathDisabled:
-			if patch.Op != api.RulePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"disabled field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			operations = append(operations, server.RuleUpdateOperation{
-				Type:   server.UpdateRuleStatus,
-				Values: patch.Value,
-			})
-		case api.RulePatchOperationPathSources:
-			switch patch.Op {
-			case api.RulePatchOperationOpReplace:
-				operations = append(operations, server.RuleUpdateOperation{
-					Type:   server.UpdateSourceGroups,
-					Values: patch.Value,
-				})
-			case api.RulePatchOperationOpRemove:
-				operations = append(operations, server.RuleUpdateOperation{
-					Type:   server.RemoveGroupsFromSource,
-					Values: patch.Value,
-				})
-			case api.RulePatchOperationOpAdd:
-				operations = append(operations, server.RuleUpdateOperation{
-					Type:   server.InsertGroupsToSource,
-					Values: patch.Value,
-				})
-			default:
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"invalid operation \"%s\" on Source field", patch.Op), w)
-				return
-			}
-		case api.RulePatchOperationPathDestinations:
-			switch patch.Op {
-			case api.RulePatchOperationOpReplace:
-				operations = append(operations, server.RuleUpdateOperation{
-					Type:   server.UpdateDestinationGroups,
-					Values: patch.Value,
-				})
-			case api.RulePatchOperationOpRemove:
-				operations = append(operations, server.RuleUpdateOperation{
-					Type:   server.RemoveGroupsFromDestination,
-					Values: patch.Value,
-				})
-			case api.RulePatchOperationOpAdd:
-				operations = append(operations, server.RuleUpdateOperation{
-					Type:   server.InsertGroupsToDestination,
-					Values: patch.Value,
-				})
-			default:
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"invalid operation \"%s\" on Destination field", patch.Op), w)
-				return
-			}
-		default:
-			util.WriteError(status.Errorf(status.InvalidArgument, "invalid patch path"), w)
-			return
-		}
-	}
-
-	rule, err := h.accountManager.UpdateRule(account.Id, ruleID, operations)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	resp := toRuleResponse(account, rule)
+	resp := toRuleResponse(account, policy.Rules[0].ToRule())
 
 	util.WriteJSONObject(w, &resp)
 }
@@ -315,7 +184,12 @@ func (h *RulesHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.SaveRule(account.Id, user.Id, &rule)
+	policy, err := server.RuleToPolicy(&rule)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+	err = h.accountManager.SavePolicy(account.Id, user.Id, policy)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -342,7 +216,7 @@ func (h *RulesHandler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteRule(aID, rID, user.Id)
+	err = h.accountManager.DeletePolicy(aID, rID, user.Id)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -368,13 +242,13 @@ func (h *RulesHandler) GetRule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		rule, err := h.accountManager.GetRule(account.Id, ruleID, user.Id)
+		policy, err := h.accountManager.GetPolicy(account.Id, ruleID, user.Id)
 		if err != nil {
-			util.WriteError(status.Errorf(status.NotFound, "rule not found"), w)
+			util.WriteError(err, w)
 			return
 		}
 
-		util.WriteJSONObject(w, toRuleResponse(account, rule))
+		util.WriteJSONObject(w, toRuleResponse(account, policy.Rules[0].ToRule()))
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "method not found"), w)
 	}
