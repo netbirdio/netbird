@@ -275,7 +275,48 @@ func (km *KeycloakManager) CreateUser(email string, name string, accountID strin
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
 func (km *KeycloakManager) GetUserByEmail(email string) ([]*UserData, error) {
-	panic("not implemented") // TODO: Implement
+	jwtToken, err := km.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := fmt.Sprintf("%s/users?email=%s&exact=true", km.adminEndpoint, url.QueryEscape(email))
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := km.httpClient.Do(req)
+	if err != nil {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get UserData, statusCode %d", resp.StatusCode)
+	}
+
+	profiles := make([]keycloakProfile, 0)
+	err = json.NewDecoder(resp.Body).Decode(&profiles)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]*UserData, 0)
+	for _, profile := range profiles {
+		users = append(users, profile.userData())
+	}
+
+	return users, nil
 }
 
 // GetUserDataByID requests user data from keycloak via ID.
@@ -308,6 +349,9 @@ func (km *KeycloakManager) GetUserDataByID(userId string, appMetadata AppMetadat
 	}
 
 	if resp.StatusCode != 200 {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
 		return nil, fmt.Errorf("unable to get UserData, statusCode %d", resp.StatusCode)
 	}
 
@@ -317,23 +361,7 @@ func (km *KeycloakManager) GetUserDataByID(userId string, appMetadata AppMetadat
 		return nil, err
 	}
 
-	// get app metadata from additional profile attributes
-	value, exist := profile.Attributes["app_metadata"]
-	if exist {
-		metadata, ok := value.(AppMetadata)
-		if ok {
-			appMetadata = metadata
-		}
-
-	}
-
-	userData := &UserData{
-		Email:       profile.Email,
-		Name:        profile.Username,
-		ID:          profile.ID,
-		AppMetadata: appMetadata,
-	}
-	return userData, nil
+	return profile.userData(), nil
 }
 
 // GetAccount returns all the users for a given profile.
@@ -387,4 +415,25 @@ func extractUserIdFromLocationHeader(locationHeader string) (string, error) {
 	}
 
 	return path.Base(userUrl.Path), nil
+}
+
+func (kp keycloakProfile) userData() *UserData {
+	var appMetadata AppMetadata
+
+	// get app metadata from additional profile attributes
+	value, exist := kp.Attributes["app_metadata"]
+	if exist {
+		metadata, ok := value.(AppMetadata)
+		if ok {
+			appMetadata = metadata
+		}
+
+	}
+
+	return &UserData{
+		Email:       kp.Email,
+		Name:        kp.Username,
+		ID:          kp.ID,
+		AppMetadata: appMetadata,
+	}
 }
