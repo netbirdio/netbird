@@ -60,7 +60,7 @@ type keycloakCreateUserRequest struct {
 	Enabled       bool                     `json:"enabled"`
 	EmailVerified bool                     `json:"emailVerified"`
 	Credentials   []keycloakUserCredential `json:"credentials"`
-	AppMeta       AppMetadata              `json:"app_metadata"`
+	Attributes    map[string]interface{}   `json:"attributes"`
 }
 
 // NewKeycloakManager creates a new instance of the KeycloakManager.
@@ -303,7 +303,9 @@ func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadat
 				Temporary: false,
 			},
 		},
-		AppMeta: appMetadata,
+		Attributes: map[string]interface{}{
+			"app_metadata": appMetadata,
+		},
 	}
 
 	str, err := json.Marshal(req)
