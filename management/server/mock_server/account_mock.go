@@ -40,9 +40,12 @@ type MockAccountManager struct {
 	GroupListPeersFunc              func(accountID, groupID string) ([]*server.Peer, error)
 	GetRuleFunc                     func(accountID, ruleID, userID string) (*server.Rule, error)
 	SaveRuleFunc                    func(accountID, userID string, rule *server.Rule) error
-	UpdateRuleFunc                  func(accountID string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error)
 	DeleteRuleFunc                  func(accountID, ruleID, userID string) error
 	ListRulesFunc                   func(accountID, userID string) ([]*server.Rule, error)
+	GetPolicyFunc                   func(accountID, policyID, userID string) (*server.Policy, error)
+	SavePolicyFunc                  func(accountID, userID string, policy *server.Policy) error
+	DeletePolicyFunc                func(accountID, policyID, userID string) error
+	ListPoliciesFunc                func(accountID, userID string) ([]*server.Policy, error)
 	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
 	UpdatePeerMetaFunc              func(peerID string, meta server.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerID string, sshKey string) error
@@ -280,14 +283,6 @@ func (am *MockAccountManager) SaveRule(accountID, userID string, rule *server.Ru
 	return status.Errorf(codes.Unimplemented, "method SaveRule is not implemented")
 }
 
-// UpdateRule mock implementation of UpdateRule from server.AccountManager interface
-func (am *MockAccountManager) UpdateRule(accountID string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error) {
-	if am.UpdateRuleFunc != nil {
-		return am.UpdateRuleFunc(accountID, ruleID, operations)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateRule not implemented")
-}
-
 // DeleteRule mock implementation of DeleteRule from server.AccountManager interface
 func (am *MockAccountManager) DeleteRule(accountID, ruleID, userID string) error {
 	if am.DeleteRuleFunc != nil {
@@ -302,6 +297,38 @@ func (am *MockAccountManager) ListRules(accountID, userID string) ([]*server.Rul
 		return am.ListRulesFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListRules is not implemented")
+}
+
+// GetPolicy mock implementation of GetPolicy from server.AccountManager interface
+func (am *MockAccountManager) GetPolicy(accountID, policyID, userID string) (*server.Policy, error) {
+	if am.GetPolicyFunc != nil {
+		return am.GetPolicyFunc(accountID, policyID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPolicy is not implemented")
+}
+
+// SavePolicy mock implementation of SavePolicy from server.AccountManager interface
+func (am *MockAccountManager) SavePolicy(accountID, userID string, policy *server.Policy) error {
+	if am.SavePolicyFunc != nil {
+		return am.SavePolicyFunc(accountID, userID, policy)
+	}
+	return status.Errorf(codes.Unimplemented, "method SavePolicy is not implemented")
+}
+
+// DeletePolicy mock implementation of DeletePolicy from server.AccountManager interface
+func (am *MockAccountManager) DeletePolicy(accountID, policyID, userID string) error {
+	if am.DeletePolicyFunc != nil {
+		return am.DeletePolicyFunc(accountID, policyID, userID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeletePolicy is not implemented")
+}
+
+// ListPolicies mock implementation of ListPolicies from server.AccountManager interface
+func (am *MockAccountManager) ListPolicies(accountID, userID string) ([]*server.Policy, error) {
+	if am.ListPoliciesFunc != nil {
+		return am.ListPoliciesFunc(accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListPolicies is not implemented")
 }
 
 // UpdatePeerMeta mock implementation of UpdatePeerMeta from server.AccountManager interface
@@ -477,7 +504,8 @@ func (am *MockAccountManager) CreateUser(accountID, userID string, invite *serve
 
 // GetAccountFromToken mocks GetAccountFromToken of the AccountManager interface
 func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User,
-	error) {
+	error,
+) {
 	if am.GetAccountFromTokenFunc != nil {
 		return am.GetAccountFromTokenFunc(claims)
 	}
