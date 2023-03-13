@@ -15,14 +15,18 @@ const (
 )
 
 var (
+	// will be replaced with the release version when using goreleaser
+	version = "development"
+
 	logLevel       string
 	defaultLogFile string
 	logFile        string
 
 	rootCmd = &cobra.Command{
-		Use:   "netbird-signal",
-		Short: "",
-		Long:  "",
+		Use:     "netbird-signal",
+		Short:   "",
+		Long:    "",
+		Version: version,
 	}
 
 	// Execution control channel for stopCh signal
