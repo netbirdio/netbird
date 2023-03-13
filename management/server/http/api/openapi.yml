@@ -429,6 +429,7 @@ components:
         - sources
         - destinations
         - action
+        - enabled
     PolicyMinimum:
       type: object
       properties:
@@ -454,6 +455,7 @@ components:
         - description
         - enabled
         - query
+        - rules
     Policy:
       allOf:
         - $ref: '#/components/schemas/PolicyMinimum'

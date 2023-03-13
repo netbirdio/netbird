@@ -29,6 +29,9 @@ const (
 	EventActivityCodePeerRename                               EventActivityCode = "peer.rename"
 	EventActivityCodePeerSshDisable                           EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                            EventActivityCode = "peer.ssh.enable"
+	EventActivityCodePolicyAdd                                EventActivityCode = "policy.add"
+	EventActivityCodePolicyDelete                             EventActivityCode = "policy.delete"
+	EventActivityCodePolicyUpdate                             EventActivityCode = "policy.update"
 	EventActivityCodeRouteAdd                                 EventActivityCode = "route.add"
 	EventActivityCodeRouteDelete                              EventActivityCode = "route.delete"
 	EventActivityCodeRouteUpdate                              EventActivityCode = "route.update"
@@ -394,7 +397,7 @@ type Policy struct {
 	Query string `json:"query"`
 
 	// Rules Policy rule object for policy UI editor
-	Rules *[]PolicyRule `json:"rules,omitempty"`
+	Rules []PolicyRule `json:"rules"`
 }
 
 // PolicyMinimum defines model for PolicyMinimum.
@@ -412,7 +415,7 @@ type PolicyMinimum struct {
 	Query string `json:"query"`
 
 	// Rules Policy rule object for policy UI editor
-	Rules *[]PolicyRule `json:"rules,omitempty"`
+	Rules []PolicyRule `json:"rules"`
 }
 
 // PolicyRule defines model for PolicyRule.
@@ -427,7 +430,7 @@ type PolicyRule struct {
 	Destinations []GroupMinimum `json:"destinations"`
 
 	// Enabled Rules status
-	Enabled *bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// Id Rule ID
 	Id *string `json:"id,omitempty"`

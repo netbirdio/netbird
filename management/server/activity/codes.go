@@ -284,6 +284,12 @@ func (a Activity) StringCode() string {
 		return "rule.delete"
 	case RuleUpdated:
 		return "rule.update"
+	case PolicyAdded:
+		return "policy.add"
+	case PolicyRemoved:
+		return "policy.delete"
+	case PolicyUpdated:
+		return "policy.update"
 	case SetupKeyCreated:
 		return "setupkey.add"
 	case SetupKeyRevoked:

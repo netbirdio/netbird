@@ -222,12 +222,12 @@ func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
 }
 
 // getRegoQuery returns a initialized Rego object with default rule.
-func (a *Account) getRegoQuery(policies ...*Policy) (rego.PreparedEvalQuery, error) {
+func (a *Account) getRegoQuery() (rego.PreparedEvalQuery, error) {
 	queries := []func(*rego.Rego){
 		rego.Query("data.netbird.all"),
 		rego.Module("netbird", defaultPolicyModule),
 	}
-	for i, p := range policies {
+	for i, p := range a.Policies {
 		if !p.Enabled {
 			continue
 		}
@@ -244,7 +244,7 @@ func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
 		"groups":  a.Groups,
 	}
 
-	query, err := a.getRegoQuery(a.Policies...)
+	query, err := a.getRegoQuery()
 	if err != nil {
 		log.WithError(err).Error("get Rego query")
 		return nil, nil
