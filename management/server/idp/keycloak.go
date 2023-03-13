@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -17,19 +18,19 @@ import (
 
 // KeycloakManager keycloak manager client instance.
 type KeycloakManager struct {
-	authIssuer  string
-	httpClient  ManagerHTTPClient
-	credentials ManagerCredentials
-	helper      ManagerHelper
-	appMetrics  telemetry.AppMetrics
+	adminEndpoint string
+	httpClient    ManagerHTTPClient
+	credentials   ManagerCredentials
+	helper        ManagerHelper
+	appMetrics    telemetry.AppMetrics
 }
 
 // KeycloakClientConfig keycloak manager client configurations.
 type KeycloakClientConfig struct {
 	Audience      string
-	AuthIssuer    string
 	ClientID      string
 	ClientSecret  string
+	AdminEndpoint string
 	TokenEndpoint string
 	GrantType     string
 }
@@ -44,6 +45,24 @@ type KeycloakCredentials struct {
 	appMetrics   telemetry.AppMetrics
 }
 
+// keycloakUserCredential describe the authentication method for,
+// newly created user profile.
+type keycloakUserCredential struct {
+	Type      string `json:"type"`
+	Value     string `json:"value"`
+	Temporary bool   `json:"temporary"`
+}
+
+// createUserRequest is a user create request
+type keycloakCreateUserRequest struct {
+	Email         string                   `json:"email"`
+	Username      string                   `json:"username"`
+	Enabled       bool                     `json:"enabled"`
+	EmailVerified bool                     `json:"emailVerified"`
+	Credentials   []keycloakUserCredential `json:"credentials"`
+	AppMeta       AppMetadata              `json:"app_metadata"`
+}
+
 // NewKeycloakManager creates a new instance of the KeycloakManager.
 func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMetrics) (*KeycloakManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
@@ -56,7 +75,7 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 
 	helper := JsonParser{}
 
-	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.Audience == "" || config.AuthIssuer == "" || config.TokenEndpoint == "" {
+	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.Audience == "" || config.AdminEndpoint == "" || config.TokenEndpoint == "" {
 		return nil, fmt.Errorf("keycloak idp configuration is not complete")
 	}
 
@@ -64,7 +83,7 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 		return nil, fmt.Errorf("keycloak idp configuration failed. Grant Type should be client_credentials")
 	}
 
-	if !strings.HasPrefix(strings.ToLower(config.AuthIssuer), "https://") {
+	if !strings.HasPrefix(strings.ToLower(config.AdminEndpoint), "https://") {
 		return nil, fmt.Errorf("keycloak idp configuration failed. AuthIssuer should contain https://")
 	}
 
@@ -76,11 +95,11 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 	}
 
 	return &KeycloakManager{
-		authIssuer:  config.AuthIssuer,
-		httpClient:  httpClient,
-		credentials: credentials,
-		helper:      helper,
-		appMetrics:  appMetrics,
+		adminEndpoint: config.AdminEndpoint,
+		httpClient:    httpClient,
+		credentials:   credentials,
+		helper:        helper,
+		appMetrics:    appMetrics,
 	}, nil
 }
 
@@ -185,9 +204,63 @@ func (kc *KeycloakCredentials) Authenticate() (JWTToken, error) {
 	return kc.jwtToken, nil
 }
 
-// CreateUser creates a new user in Auth0 Idp and sends an invite.
+// CreateUser creates a new user in keycloak Idp and sends an invite.
 func (km *KeycloakManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
-	panic("not implemented") // TODO: Implement
+	jwtToken, err := km.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	invite := true
+	appMetadata := AppMetadata{
+		WTAccountID:     accountID,
+		WTPendingInvite: &invite,
+	}
+
+	payloadString, err := buildKeycloakCreateUserRequestPayload(email, name, appMetadata)
+	if err != nil {
+		return nil, err
+	}
+
+	url := km.adminEndpoint + "/users"
+	payload := strings.NewReader(payloadString)
+
+	req, err := http.NewRequest(http.MethodPost, url, payload)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	if km.appMetrics != nil {
+		km.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	resp, err := km.httpClient.Do(req)
+	if err != nil {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 201 {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return nil, fmt.Errorf("unable to create user, statusCode %d", resp.StatusCode)
+	}
+
+	locationHeader := resp.Header.Get("location")
+	userId, err := extractUserIdFromLocationHeader(locationHeader)
+	if err != nil {
+		return nil, err
+	}
+
+	return km.GetUserDataByID(userId, appMetadata)
 }
 
 // GetUserByEmail searches users with a given email.
@@ -196,12 +269,12 @@ func (km *KeycloakManager) GetUserByEmail(email string) ([]*UserData, error) {
 	panic("not implemented") // TODO: Implement
 }
 
-// GetUserDataByID requests user data from auth0 via ID.
+// GetUserDataByID requests user data from keycloak via ID.
 func (km *KeycloakManager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
 	panic("not implemented") // TODO: Implement
 }
 
-// UpdateUserAppMetadata updates user app metadata based on userId and metadata map.
+// GetAccount returns all the users for a given profile.
 func (km *KeycloakManager) GetAccount(accountId string) ([]*UserData, error) {
 	panic("not implemented") // TODO: Implement
 }
@@ -215,4 +288,39 @@ func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
 // UpdateUserAppMetadata updates user app metadata based on userId and metadata map.
 func (km *KeycloakManager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
 	panic("not implemented") // TODO: Implement
+}
+
+func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadata AppMetadata) (string, error) {
+	req := &keycloakCreateUserRequest{
+		Email:         email,
+		Username:      name,
+		Enabled:       true,
+		EmailVerified: true,
+		Credentials: []keycloakUserCredential{
+			{
+				Type:      "password",
+				Value:     GeneratePassword(8, 1, 1, 1),
+				Temporary: false,
+			},
+		},
+		AppMeta: appMetadata,
+	}
+
+	str, err := json.Marshal(req)
+	if err != nil {
+		return "", err
+	}
+
+	return string(str), nil
+}
+
+// extractUserIdFromLocationHeader" extracts the user ID from the location,
+// header once the user is created successfully
+func extractUserIdFromLocationHeader(locationHeader string) (string, error) {
+	userUrl, err := url.Parse(locationHeader)
+	if err != nil {
+		return "", err
+	}
+
+	return path.Base(userUrl.Path), nil
 }
