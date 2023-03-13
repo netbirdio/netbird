@@ -53,7 +53,7 @@ type keycloakUserCredential struct {
 	Temporary bool   `json:"temporary"`
 }
 
-// createUserRequest is a user create request
+// createUserRequest is a user create request.
 type keycloakCreateUserRequest struct {
 	Email         string                   `json:"email"`
 	Username      string                   `json:"username"`
@@ -61,6 +61,15 @@ type keycloakCreateUserRequest struct {
 	EmailVerified bool                     `json:"emailVerified"`
 	Credentials   []keycloakUserCredential `json:"credentials"`
 	Attributes    map[string]interface{}   `json:"attributes"`
+}
+
+// keycloakProfile represents an keycloak user profile response.
+type keycloakProfile struct {
+	ID               string                 `json:"id"`
+	CreatedTimestamp int64                  `json:"createdTimestamp"`
+	Username         string                 `json:"username"`
+	Email            string                 `json:"email"`
+	Attributes       map[string]interface{} `json:"attributes"`
 }
 
 // NewKeycloakManager creates a new instance of the KeycloakManager.
@@ -222,10 +231,10 @@ func (km *KeycloakManager) CreateUser(email string, name string, accountID strin
 		return nil, err
 	}
 
-	url := km.adminEndpoint + "/users"
+	reqURL := fmt.Sprintf("%s/users", km.adminEndpoint)
 	payload := strings.NewReader(payloadString)
 
-	req, err := http.NewRequest(http.MethodPost, url, payload)
+	req, err := http.NewRequest(http.MethodPost, reqURL, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +280,60 @@ func (km *KeycloakManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 // GetUserDataByID requests user data from keycloak via ID.
 func (km *KeycloakManager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
-	panic("not implemented") // TODO: Implement
+	jwtToken, err := km.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userId)
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := km.httpClient.Do(req)
+	if err != nil {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if km.appMetrics != nil {
+		km.appMetrics.IDPMetrics().CountGetUserDataByID()
+	}
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unable to get UserData, statusCode %d", resp.StatusCode)
+	}
+
+	var profile keycloakProfile
+	err = json.NewDecoder(resp.Body).Decode(&profile)
+	if err != nil {
+		return nil, err
+	}
+
+	// get app metadata from additional profile attributes
+	value, exist := profile.Attributes["app_metadata"]
+	if exist {
+		metadata, ok := value.(AppMetadata)
+		if ok {
+			appMetadata = metadata
+		}
+
+	}
+
+	userData := &UserData{
+		Email:       profile.Email,
+		Name:        profile.Username,
+		ID:          profile.ID,
+		AppMetadata: appMetadata,
+	}
+	return userData, nil
 }
 
 // GetAccount returns all the users for a given profile.
