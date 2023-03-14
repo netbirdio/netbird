@@ -10,7 +10,7 @@ import (
 // and implement the Rule interface
 type Rule interface {
 	// GetRuleID returns the rule id
-	GetRuleID() int
+	GetRuleID() string
 }
 
 // Direction is the direction of the traffic

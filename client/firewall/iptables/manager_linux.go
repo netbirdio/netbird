@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/google/uuid"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
 )
@@ -18,8 +19,7 @@ const (
 
 // Manager of iptables firewall
 type Manager struct {
-	mutex   sync.Mutex
-	ruleCnt int
+	mutex sync.Mutex
 
 	ipv4Client *iptables.IPTables
 	ipv6Client *iptables.IPTables
@@ -80,8 +80,12 @@ func (m *Manager) AddFiltering(
 	if err := client.AppendUnique("filter", ChainFilterName, specs...); err != nil {
 		return nil, err
 	}
-	m.ruleCnt++
-	return &Rule{ruleNumber: m.ruleCnt, specs: specs, v6: ip.To4() == nil}, nil
+	rule := &Rule{
+		id:    uuid.New().String(),
+		specs: specs,
+		v6:    ip.To4() == nil,
+	}
+	return rule, nil
 }
 
 // DeleteRule deletes a rule from the firewall
