@@ -38,7 +38,6 @@ func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, ss
 		return false, err
 	}
 
-	log.Debugf("connected to the Management service %s", mgmURL.String())
 	_, err = doMgmLogin(ctx, mgmClient, pubSSHKey)
 	if isLoginNeeded(err) {
 		return true, nil
