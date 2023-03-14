@@ -562,10 +562,15 @@ func (kp keycloakProfile) userData() *UserData {
 	}
 }
 
+// Set sets the key to value. It replaces any existing
+// values.
 func (ka keycloakAttributes) Set(key, value string) {
 	ka[key] = []string{value}
 }
 
+// Get returns the first value associated with the given key.
+// If there are no values associated with the key, Get returns
+// the empty string.
 func (ka keycloakAttributes) Get(key string) string {
 	if ka == nil {
 		return ""
