@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -377,7 +378,13 @@ func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
 		return nil, err
 	}
 
-	reqURL := fmt.Sprintf("%s/users", km.adminEndpoint)
+	reqURL := fmt.Sprintf("%s/users/count", km.adminEndpoint)
+	totalUsers, err := totalUsersCount(km.httpClient, reqURL, jwtToken.AccessToken)
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL = fmt.Sprintf("%s/users?max=%d", km.adminEndpoint, *totalUsers)
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
@@ -456,6 +463,37 @@ func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadat
 	}
 
 	return string(str), nil
+}
+
+// totalUsersCount returns the total count of all user created.
+// Used when fetching all registered accounts with pagination.
+func totalUsersCount(client ManagerHTTPClient, url, token string) (*int, error) {
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("unable to get %s, statusCode %d", url, resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	count, err := strconv.Atoi(string(body))
+	if err != nil {
+		return nil, err
+	}
+
+	return &count, nil
 }
 
 // extractUserIdFromLocationHeader" extracts the user ID from the location,
