@@ -2,7 +2,6 @@ package iptables
 
 import (
 	"net"
-	"runtime"
 	"testing"
 
 	"github.com/coreos/go-iptables/iptables"
@@ -10,10 +9,6 @@ import (
 )
 
 func TestNewManager(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("iptables is only supported on linux")
-	}
-
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		t.Fatal(err)

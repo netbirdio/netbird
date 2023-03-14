@@ -96,8 +96,7 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 	if r.v6 {
 		client = m.ipv6Client
 	}
-	client.Delete("filter", ChainFilterName, r.specs...)
-	return nil
+	return client.Delete("filter", ChainFilterName, r.specs...)
 }
 
 // Reset firewall to the default state
