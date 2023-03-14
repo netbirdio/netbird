@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
 )
 
 func TestLogcatMessageFormat(t *testing.T) {
@@ -21,6 +20,9 @@ func TestLogcatMessageFormat(t *testing.T) {
 	result, _ := formatter.Format(someEntry)
 
 	expectedString := "[WARN] [att1: 1, att2: 2] some/fancy/path.go:46 Some Message\n"
+	expectedStringVariant := "[WARN] [att2: 2, att1: 1] some/fancy/path.go:46 Some Message\n"
 	parsedString := string(result)
-	assert.Equal(t, expectedString, parsedString, "The log messages don't match.")
+	if parsedString != expectedString && parsedString != expectedStringVariant {
+		t.Errorf("The log messages don't match. Expected: '%s', got: '%s'", expectedString, parsedString)
+	}
 }
