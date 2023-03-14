@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/version"
 )
 
 var resp = &proto.StatusResponse{
@@ -89,7 +89,7 @@ var overview = statusOutputOverview{
 			},
 		},
 	},
-	CliVersion:    system.NetbirdVersion(),
+	CliVersion:    version.NetbirdVersion(),
 	DaemonVersion: "0.14.1",
 	ManagementState: managementStateOutput{
 		URL:       "my-awesome-management.com:443",
