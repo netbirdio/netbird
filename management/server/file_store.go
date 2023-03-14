@@ -1,14 +1,15 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -81,7 +82,6 @@ func restore(file string) (*FileStore, error) {
 	store.PeerID2AccountID = make(map[string]string)
 
 	for accountID, account := range store.Accounts {
-
 		if account.Settings == nil {
 			account.Settings = &Settings{
 				PeerLoginExpirationEnabled: false,
@@ -111,6 +111,20 @@ func restore(file string) (*FileStore, error) {
 		if account.Domain != "" && account.DomainCategory == PrivateCategory &&
 			account.IsDomainPrimaryAccount {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
+		}
+
+		// if no policies are defined, that means we need to migrate Rules to policies
+		if len(account.Policies) == 0 {
+			account.Policies = make([]*Policy, 0)
+			for _, rule := range account.Rules {
+				policy, err := RuleToPolicy(rule)
+				if err != nil {
+					log.Errorf("unable to migrate rule to policy: %v", err)
+					continue
+				}
+				account.Policies = append(account.Policies, policy)
+			}
+			account.Rules = nil
 		}
 
 		// for data migration. Can be removed once most base will be with labels
@@ -153,7 +167,6 @@ func restore(file string) (*FileStore, error) {
 		}
 
 		if len(migrationPeers) > 0 {
-
 			// swap Peer.Key with Peer.ID in the Account.Peers map.
 			for key, peer := range migrationPeers {
 				delete(account.Peers, key)
@@ -169,6 +182,7 @@ func restore(file string) (*FileStore, error) {
 					}
 				}
 			}
+
 			// detect routes that have Peer.Key as a reference and replace it with ID.
 			for _, route := range account.Routes {
 				if peer, ok := migrationPeers[route.Peer]; ok {

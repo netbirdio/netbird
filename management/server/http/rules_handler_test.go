@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/status"
 
 	"github.com/gorilla/mux"
 
@@ -23,8 +24,32 @@ import (
 )
 
 func initRulesTestData(rules ...*server.Rule) *RulesHandler {
+	testPolicies := make(map[string]*server.Policy, len(rules))
+	for _, rule := range rules {
+		policy, err := server.RuleToPolicy(rule)
+		if err != nil {
+			panic(err)
+		}
+		if err := policy.UpdateQueryFromRules(); err != nil {
+			panic(err)
+		}
+		testPolicies[policy.ID] = policy
+	}
 	return &RulesHandler{
 		accountManager: &mock_server.MockAccountManager{
+			GetPolicyFunc: func(_, policyID, _ string) (*server.Policy, error) {
+				policy, ok := testPolicies[policyID]
+				if !ok {
+					return nil, status.Errorf(status.NotFound, "policy not found")
+				}
+				return policy, nil
+			},
+			SavePolicyFunc: func(_, _ string, policy *server.Policy) error {
+				if !strings.HasPrefix(policy.ID, "id-") {
+					policy.ID = "id-was-set"
+				}
+				return nil
+			},
 			SaveRuleFunc: func(_, _ string, rule *server.Rule) error {
 				if !strings.HasPrefix(rule.ID, "id-") {
 					rule.ID = "id-was-set"
@@ -42,32 +67,6 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 					Destination: []string{"idofdestrule"},
 					Flow:        server.TrafficFlowBidirect,
 				}, nil
-			},
-			UpdateRuleFunc: func(_ string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error) {
-				var rule server.Rule
-				rule.ID = ruleID
-				for _, operation := range operations {
-					switch operation.Type {
-					case server.UpdateRuleName:
-						rule.Name = operation.Values[0]
-					case server.UpdateRuleDescription:
-						rule.Description = operation.Values[0]
-					case server.UpdateRuleFlow:
-						if server.TrafficFlowBidirectString == operation.Values[0] {
-							rule.Flow = server.TrafficFlowBidirect
-						} else {
-							rule.Flow = 100
-						}
-					case server.UpdateSourceGroups, server.InsertGroupsToSource:
-						rule.Source = operation.Values
-					case server.UpdateDestinationGroups, server.InsertGroupsToDestination:
-						rule.Destination = operation.Values
-					case server.RemoveGroupsFromSource, server.RemoveGroupsFromDestination:
-					default:
-						return nil, fmt.Errorf("no operation")
-					}
-				}
-				return &rule, nil
 			},
 			GetAccountFromTokenFunc: func(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				user := server.NewAdminUser("test_user")
@@ -221,58 +220,13 @@ func TestRulesWriteRule(t *testing.T) {
 				[]byte(`{"Name":"","Flow":"bidirect"}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
-		{
-			name:        "Write Rule PATCH Name OK",
-			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"name","value":["Default POSTed Rule"]}]`)),
-			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedRule: &api.Rule{
-				Id:   "id-existed",
-				Name: "Default POSTed Rule",
-				Flow: server.TrafficFlowBidirectString,
-			},
-		},
-		{
-			name:        "Write Rule PATCH Invalid Name OP",
-			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"insert","path":"name","value":[""]}]`)),
-			expectedStatus: http.StatusUnprocessableEntity,
-			expectedBody:   false,
-		},
-		{
-			name:        "Write Rule PATCH Invalid Name",
-			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"name","value":[]}]`)),
-			expectedStatus: http.StatusUnprocessableEntity,
-			expectedBody:   false,
-		},
-		{
-			name:        "Write Rule PATCH Sources OK",
-			requestType: http.MethodPatch,
-			requestPath: "/api/rules/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"sources","value":["G","F"]}]`)),
-			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedRule: &api.Rule{
-				Id:   "id-existed",
-				Flow: server.TrafficFlowBidirectString,
-				Sources: []api.GroupMinimum{
-					{Id: "G"},
-					{Id: "F"},
-				},
-			},
-		},
 	}
 
-	p := initRulesTestData()
+	p := initRulesTestData(&server.Rule{
+		ID:   "id-existed",
+		Name: "Default POSTed Rule",
+		Flow: server.TrafficFlowBidirect,
+	})
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -282,7 +236,6 @@ func TestRulesWriteRule(t *testing.T) {
 			router := mux.NewRouter()
 			router.HandleFunc("/api/rules", p.CreateRule).Methods("POST")
 			router.HandleFunc("/api/rules/{id}", p.UpdateRule).Methods("PUT")
-			router.HandleFunc("/api/rules/{id}", p.PatchRule).Methods("PATCH")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -307,6 +260,7 @@ func TestRulesWriteRule(t *testing.T) {
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
+			tc.expectedRule.Id = got.Id
 
 			assert.Equal(t, got, tc.expectedRule)
 		})
