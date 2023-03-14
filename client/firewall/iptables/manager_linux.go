@@ -19,7 +19,6 @@ const (
 
 // Manager of iptables firewall
 type Manager struct {
-<<<<<<< HEAD
 	mutex sync.Mutex
 
 	ipv4Client *iptables.IPTables
