@@ -372,7 +372,59 @@ func (km *KeycloakManager) GetAccount(accountId string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
-	panic("not implemented") // TODO: Implement
+	jwtToken, err := km.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := fmt.Sprintf("%s/users", km.adminEndpoint)
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := km.httpClient.Do(req)
+	if err != nil {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
+	}
+
+	profiles := make([]keycloakProfile, 0)
+	err = json.NewDecoder(resp.Body).Decode(&profiles)
+	if err != nil {
+		return nil, err
+	}
+
+	indexedUsers := make(map[string][]*UserData)
+	for _, profile := range profiles {
+		userData := profile.userData()
+
+		accountId := userData.AppMetadata.WTAccountID
+		if accountId != "" {
+			users, ok := indexedUsers[accountId]
+			if !ok {
+				indexedUsers[accountId] = make([]*UserData, 0)
+			}
+
+			users = append(users, userData)
+			indexedUsers[accountId] = users
+		}
+	}
+
+	return indexedUsers, nil
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userId and metadata map.
@@ -417,6 +469,7 @@ func extractUserIdFromLocationHeader(locationHeader string) (string, error) {
 	return path.Base(userUrl.Path), nil
 }
 
+// userData construct user data from keycloak profile.
 func (kp keycloakProfile) userData() *UserData {
 	var appMetadata AppMetadata
 
