@@ -3,10 +3,13 @@ package system
 import (
 	"context"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/sys/windows/registry"
 	"os"
 	"runtime"
+
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/windows/registry"
+
+	"github.com/netbirdio/netbird/version"
 )
 
 // GetInfo retrieves and parses the system information
@@ -14,7 +17,7 @@ func GetInfo(ctx context.Context) *Info {
 	ver := getOSVersion()
 	gio := &Info{Kernel: "windows", OSVersion: ver, Core: ver, Platform: "unknown", OS: "windows", GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
-	gio.WiretrusteeVersion = NetbirdVersion()
+	gio.WiretrusteeVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
@@ -32,7 +35,7 @@ func getOSVersion() string {
 			log.Error(deferErr)
 		}
 	}()
-	
+
 	major, _, err := k.GetIntegerValue("CurrentMajorVersionNumber")
 	if err != nil {
 		log.Error(err)
