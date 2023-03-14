@@ -54,6 +54,9 @@ type keycloakUserCredential struct {
 	Temporary bool   `json:"temporary"`
 }
 
+// keycloakAttributes is additional user data fields.
+type keycloakAttributes map[string][]string
+
 // createUserRequest is a user create request.
 type keycloakCreateUserRequest struct {
 	Email         string                   `json:"email"`
@@ -61,16 +64,16 @@ type keycloakCreateUserRequest struct {
 	Enabled       bool                     `json:"enabled"`
 	EmailVerified bool                     `json:"emailVerified"`
 	Credentials   []keycloakUserCredential `json:"credentials"`
-	Attributes    map[string]interface{}   `json:"attributes"`
+	Attributes    keycloakAttributes       `json:"attributes"`
 }
 
 // keycloakProfile represents an keycloak user profile response.
 type keycloakProfile struct {
-	ID               string                 `json:"id"`
-	CreatedTimestamp int64                  `json:"createdTimestamp"`
-	Username         string                 `json:"username"`
-	Email            string                 `json:"email"`
-	Attributes       map[string]interface{} `json:"attributes"`
+	ID               string             `json:"id"`
+	CreatedTimestamp int64              `json:"createdTimestamp"`
+	Username         string             `json:"username"`
+	Email            string             `json:"email"`
+	Attributes       keycloakAttributes `json:"attributes"`
 }
 
 // NewKeycloakManager creates a new instance of the KeycloakManager.
@@ -143,7 +146,7 @@ func (kc *KeycloakCredentials) requestJWTToken() (*http.Response, error) {
 		return nil, err
 	}
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unable to get keycloak token, statusCode %d", resp.StatusCode)
 	}
 
@@ -256,7 +259,7 @@ func (km *KeycloakManager) CreateUser(email string, name string, accountID strin
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 201 {
+	if resp.StatusCode != http.StatusCreated {
 		if km.appMetrics != nil {
 			km.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
@@ -442,6 +445,10 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userId string, appMetadata AppM
 }
 
 func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadata AppMetadata) (string, error) {
+	attrs := keycloakAttributes{}
+	attrs.Set("wt_account_id", appMetadata.WTAccountID)
+	attrs.Set("wt_pending_invite", strconv.FormatBool(*appMetadata.WTPendingInvite))
+
 	req := &keycloakCreateUserRequest{
 		Email:         email,
 		Username:      name,
@@ -454,9 +461,7 @@ func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadat
 				Temporary: false,
 			},
 		},
-		Attributes: map[string]interface{}{
-			"app_metadata": appMetadata,
-		},
+		Attributes: attrs,
 	}
 
 	str, err := json.Marshal(req)
@@ -543,22 +548,32 @@ func extractUserIdFromLocationHeader(locationHeader string) (string, error) {
 
 // userData construct user data from keycloak profile.
 func (kp keycloakProfile) userData() *UserData {
-	var appMetadata AppMetadata
-
-	// get app metadata from additional profile attributes
-	value, exist := kp.Attributes["app_metadata"]
-	if exist {
-		metadata, ok := value.(AppMetadata)
-		if ok {
-			appMetadata = metadata
-		}
-
-	}
+	accountId := kp.Attributes.Get("wp_account_id")
+	pendingInvite, _ := strconv.ParseBool(kp.Attributes.Get("wt_pending_invite"))
 
 	return &UserData{
-		Email:       kp.Email,
-		Name:        kp.Username,
-		ID:          kp.ID,
-		AppMetadata: appMetadata,
+		Email: kp.Email,
+		Name:  kp.Username,
+		ID:    kp.ID,
+		AppMetadata: AppMetadata{
+			WTAccountID:     accountId,
+			WTPendingInvite: &pendingInvite,
+		},
 	}
+}
+
+func (ka keycloakAttributes) Set(key, value string) {
+	ka[key] = []string{value}
+}
+
+func (ka keycloakAttributes) Get(key string) string {
+	if ka == nil {
+		return ""
+	}
+
+	values := ka[key]
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
