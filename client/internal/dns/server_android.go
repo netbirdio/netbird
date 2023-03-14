@@ -7,13 +7,6 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
-// Server is a dns server interface
-type Server interface {
-	Start()
-	Stop()
-	UpdateDNSServer(serial uint64, update nbdns.Config) error
-}
-
 // DefaultServer dummy dns server
 type DefaultServer struct {
 }
