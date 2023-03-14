@@ -276,38 +276,21 @@ func (km *KeycloakManager) CreateUser(email string, name string, accountID strin
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
 func (km *KeycloakManager) GetUserByEmail(email string) ([]*UserData, error) {
-	jwtToken, err := km.credentials.Authenticate()
+	q := url.Values{}
+	q.Add("email", email)
+	q.Add("exact", "true")
+
+	body, err := km.get("users", q)
 	if err != nil {
 		return nil, err
 	}
 
-	reqURL := fmt.Sprintf("%s/users?email=%s&exact=true", km.adminEndpoint, url.QueryEscape(email))
-	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
-	req.Header.Add("content-type", "application/json")
-
-	resp, err := km.httpClient.Do(req)
-	if err != nil {
-		if km.appMetrics != nil {
-			km.appMetrics.IDPMetrics().CountRequestError()
-		}
-
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		if km.appMetrics != nil {
-			km.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to get UserData, statusCode %d", resp.StatusCode)
+	if km.appMetrics != nil {
+		km.appMetrics.IDPMetrics().CountGetUserByEmail()
 	}
 
 	profiles := make([]keycloakProfile, 0)
-	err = json.NewDecoder(resp.Body).Decode(&profiles)
+	err = km.helper.Unmarshal(body, &profiles)
 	if err != nil {
 		return nil, err
 	}
@@ -322,42 +305,17 @@ func (km *KeycloakManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 // GetUserDataByID requests user data from keycloak via ID.
 func (km *KeycloakManager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
-	jwtToken, err := km.credentials.Authenticate()
+	body, err := km.get("users/"+userId, nil)
 	if err != nil {
 		return nil, err
 	}
-
-	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userId)
-	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
-	req.Header.Add("content-type", "application/json")
-
-	resp, err := km.httpClient.Do(req)
-	if err != nil {
-		if km.appMetrics != nil {
-			km.appMetrics.IDPMetrics().CountRequestError()
-		}
-
-		return nil, err
-	}
-	defer resp.Body.Close()
 
 	if km.appMetrics != nil {
 		km.appMetrics.IDPMetrics().CountGetUserDataByID()
 	}
 
-	if resp.StatusCode != 200 {
-		if km.appMetrics != nil {
-			km.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to get UserData, statusCode %d", resp.StatusCode)
-	}
-
 	var profile keycloakProfile
-	err = json.NewDecoder(resp.Body).Decode(&profile)
+	err = km.helper.Unmarshal(body, &profile)
 	if err != nil {
 		return nil, err
 	}
@@ -367,38 +325,20 @@ func (km *KeycloakManager) GetUserDataByID(userId string, appMetadata AppMetadat
 
 // GetAccount returns all the users for a given profile.
 func (km *KeycloakManager) GetAccount(accountId string) ([]*UserData, error) {
-	jwtToken, err := km.credentials.Authenticate()
+	q := url.Values{}
+	q.Add("q", "wt_account_id:"+accountId)
+
+	body, err := km.get("users", q)
 	if err != nil {
 		return nil, err
 	}
 
-	reqURL := fmt.Sprintf("%s/users?q=wt_account_id:%s", km.adminEndpoint, accountId)
-	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
-	req.Header.Add("content-type", "application/json")
-
-	resp, err := km.httpClient.Do(req)
-	if err != nil {
-		if km.appMetrics != nil {
-			km.appMetrics.IDPMetrics().CountRequestError()
-		}
-
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		if km.appMetrics != nil {
-			km.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to get account, statusCode %d", resp.StatusCode)
+	if km.appMetrics != nil {
+		km.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
 	profiles := make([]keycloakProfile, 0)
-	err = json.NewDecoder(resp.Body).Decode(&profiles)
+	err = km.helper.Unmarshal(body, &profiles)
 	if err != nil {
 		return nil, err
 	}
@@ -414,44 +354,25 @@ func (km *KeycloakManager) GetAccount(accountId string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
-	jwtToken, err := km.credentials.Authenticate()
+	totalUsers, err := km.totalUsersCount()
 	if err != nil {
 		return nil, err
 	}
 
-	reqURL := fmt.Sprintf("%s/users/count", km.adminEndpoint)
-	totalUsers, err := totalUsersCount(km.httpClient, reqURL, jwtToken.AccessToken)
+	q := url.Values{}
+	q.Add("max", fmt.Sprint(*totalUsers))
+
+	body, err := km.get("users", q)
 	if err != nil {
 		return nil, err
 	}
 
-	reqURL = fmt.Sprintf("%s/users?max=%d", km.adminEndpoint, *totalUsers)
-	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
-	req.Header.Add("content-type", "application/json")
-
-	resp, err := km.httpClient.Do(req)
-	if err != nil {
-		if km.appMetrics != nil {
-			km.appMetrics.IDPMetrics().CountRequestError()
-		}
-
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		if km.appMetrics != nil {
-			km.appMetrics.IDPMetrics().CountRequestStatusError()
-		}
-		return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
+	if km.appMetrics != nil {
+		km.appMetrics.IDPMetrics().CountGetAllAccounts()
 	}
 
 	profiles := make([]keycloakProfile, 0)
-	err = json.NewDecoder(resp.Body).Decode(&profiles)
+	err = km.helper.Unmarshal(body, &profiles)
 	if err != nil {
 		return nil, err
 	}
@@ -462,13 +383,10 @@ func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 		accountId := userData.AppMetadata.WTAccountID
 		if accountId != "" {
-			users, ok := indexedUsers[accountId]
-			if !ok {
+			if _, ok := indexedUsers[accountId]; !ok {
 				indexedUsers[accountId] = make([]*UserData, 0)
 			}
-
-			users = append(users, userData)
-			indexedUsers[accountId] = users
+			indexedUsers[accountId] = append(indexedUsers[accountId], userData)
 		}
 	}
 
@@ -549,25 +467,57 @@ func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadat
 	return string(str), nil
 }
 
-// totalUsersCount returns the total count of all user created.
-// Used when fetching all registered accounts with pagination.
-func totalUsersCount(client ManagerHTTPClient, url, token string) (*int, error) {
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+// get perform Get requests.
+func (km *KeycloakManager) get(resource string, q url.Values) ([]byte, error) {
+	jwtToken, err := km.credentials.Authenticate()
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := client.Do(req)
+	u, err := url.Parse(km.adminEndpoint)
 	if err != nil {
+		return nil, err
+	}
+
+	u, err = u.Parse(resource)
+	if err != nil {
+		return nil, err
+	}
+	u.RawQuery = q.Encode()
+
+	reqURL := u.String()
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := km.httpClient.Do(req)
+	if err != nil {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestError()
+		}
+
 		return nil, err
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("unable to get %s, statusCode %d", url, resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return nil, fmt.Errorf("unable to get %s, statusCode %d", reqURL, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	return io.ReadAll(resp.Body)
+}
+
+// totalUsersCount returns the total count of all user created.
+// Used when fetching all registered accounts with pagination.
+func (km *KeycloakManager) totalUsersCount() (*int, error) {
+	body, err := km.get("users/count", nil)
 	if err != nil {
 		return nil, err
 	}
