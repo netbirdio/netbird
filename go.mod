@@ -45,7 +45,7 @@ require (
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pion/transport/v2 v2.0.2
-	github.com/prometheus/client_golang v1.13.0
+	github.com/prometheus/client_golang v1.14.0
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.8.1
