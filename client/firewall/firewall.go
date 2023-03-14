@@ -4,10 +4,10 @@ import (
 	"net"
 )
 
-// Rule to handle management of rules
+// Rule abstraction should be implemented by each firewall manager
 //
-// Eacn type of firewall manager should encapsulate its own rule type
-// and implement the Rule interface
+// Each firewall type for different OS can use different type
+// of the properties to hold data of the created rule
 type Rule interface {
 	// GetRuleID returns the rule id
 	GetRuleID() string
@@ -35,10 +35,10 @@ const (
 
 // Manager is the high level abstraction of a firewall manager
 //
-// It's declares methods which handles actions required by the
-// Netbird client to handle ACL and routing functionality
+// It declares methods which handle actions required by the
+// Netbird client for ACL and routing functionality
 type Manager interface {
-	// AddFiltering adds a filtering rule to the firewall
+	// AddFiltering rule to the firewall
 	AddFiltering(
 		ip net.IP,
 		port *Port,
@@ -47,10 +47,10 @@ type Manager interface {
 		comment string,
 	) (Rule, error)
 
-	// DeleteRuleByID deletes a rule from the firewall by id.
+	// DeleteRule from the firewall by rule definition
 	DeleteRule(rule Rule) error
 
-	// Reset firewall to the default state.
+	// Reset firewall to the default state
 	Reset() error
 
 	// TODO: migrate routemanager firewal actions to this interface

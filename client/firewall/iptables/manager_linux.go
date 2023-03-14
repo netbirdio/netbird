@@ -49,7 +49,7 @@ func Create() (*Manager, error) {
 	return m, nil
 }
 
-// AddFiltering adds a filtering rule to the firewall
+// AddFiltering rule to the firewall
 func (m *Manager) AddFiltering(
 	ip net.IP,
 	port *fw.Port,
@@ -88,7 +88,7 @@ func (m *Manager) AddFiltering(
 	return rule, nil
 }
 
-// DeleteRule deletes a rule from the firewall
+// DeleteRule from the firewall by rule definition
 func (m *Manager) DeleteRule(rule fw.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
@@ -116,6 +116,7 @@ func (m *Manager) Reset() error {
 	return nil
 }
 
+// reset firewall chain, clear it and drop it
 func (m *Manager) reset(client *iptables.IPTables, table, chain string) error {
 	ok, err := client.ChainExists(table, chain)
 	if err != nil {
@@ -130,9 +131,7 @@ func (m *Manager) reset(client *iptables.IPTables, table, chain string) error {
 	return client.DeleteChain(table, ChainFilterName)
 }
 
-// filterRuleSpecs returns the specs of a filtering rule and its id
-//
-// id builded by hashing the table, chain and specs together
+// filterRuleSpecs returns the specs of a filtering rule
 func (m *Manager) filterRuleSpecs(
 	table string, chain string, ip net.IP, port string,
 	direction fw.Direction, action fw.Action, comment string,
@@ -141,7 +140,7 @@ func (m *Manager) filterRuleSpecs(
 		specs = append(specs, "-s", ip.String())
 	}
 	specs = append(specs, "-p", "tcp", "--dport", port)
-	specs = append(specs, "-j", m.action(action))
+	specs = append(specs, "-j", m.actionToStr(action))
 	return append(specs, "-m", "comment", "--comment", comment)
 }
 
@@ -153,8 +152,7 @@ func (m *Manager) client(ip net.IP) *iptables.IPTables {
 	return m.ipv6Client
 }
 
-// action returns iptables action string for the given action
-func (m *Manager) action(action fw.Action) string {
+func (m *Manager) actionToStr(action fw.Action) string {
 	if action == fw.ActionAccept {
 		return "ACCEPT"
 	}
