@@ -18,11 +18,72 @@ import (
 
 // IsLoginRequired check that the server is support SSO or not
 func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, sshKey string) (bool, error) {
+	mgmClient, err := getMgmClient(ctx, privateKey, mgmURL)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		err = mgmClient.Close()
+		if err != nil {
+			cStatus, ok := status.FromError(err)
+			if !ok || ok && cStatus.Code() != codes.Canceled {
+				log.Warnf("failed to close the Management service client, err: %v", err)
+			}
+		}
+	}()
+	log.Debugf("connected to the Management service %s", mgmURL.String())
+
+	pubSSHKey, err := ssh.GeneratePublicKey([]byte(sshKey))
+	if err != nil {
+		return false, err
+	}
+
+	log.Debugf("connected to the Management service %s", mgmURL.String())
+	_, err = doMgmLogin(ctx, mgmClient, pubSSHKey)
+	if isLoginNeeded(err) {
+		return true, nil
+	}
+	return false, err
+}
+
+// Login or register the client
+func Login(ctx context.Context, config *Config, setupKey string, jwtToken string) error {
+	mgmClient, err := getMgmClient(ctx, config.PrivateKey, config.ManagementURL)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		err = mgmClient.Close()
+		if err != nil {
+			cStatus, ok := status.FromError(err)
+			if !ok || ok && cStatus.Code() != codes.Canceled {
+				log.Warnf("failed to close the Management service client, err: %v", err)
+			}
+		}
+	}()
+	log.Debugf("connected to the Management service %s", config.ManagementURL.String())
+
+	pubSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
+	if err != nil {
+		return err
+	}
+
+	serverKey, err := doMgmLogin(ctx, mgmClient, pubSSHKey)
+	if isRegistrationNeeded(err) {
+		log.Debugf("peer registration required")
+		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
+		return err
+	}
+
+	return err
+}
+
+func getMgmClient(ctx context.Context, privateKey string, mgmURL *url.URL) (*mgm.GrpcClient, error) {
 	// validate our peer's Wireguard PRIVATE key
 	myPrivateKey, err := wgtypes.ParseKey(privateKey)
 	if err != nil {
 		log.Errorf("failed parsing Wireguard key %s: [%s]", privateKey, err.Error())
-		return false, err
+		return nil, err
 	}
 
 	var mgmTlsEnabled bool
@@ -34,91 +95,21 @@ func IsLoginRequired(ctx context.Context, privateKey string, mgmURL *url.URL, ss
 	mgmClient, err := mgm.NewClient(ctx, mgmURL.Host, myPrivateKey, mgmTlsEnabled)
 	if err != nil {
 		log.Errorf("failed connecting to the Management service %s %v", mgmURL.String(), err)
-		return false, err
+		return nil, err
 	}
-	log.Debugf("connected to the Management service %s", mgmURL.String())
-	defer func() {
-		err = mgmClient.Close()
-		if err != nil {
-			cStatus, ok := status.FromError(err)
-			if !ok || ok && cStatus.Code() != codes.Canceled {
-				log.Warnf("failed to close the Management service client, err: %v", err)
-			}
-		}
-	}()
-
-	serverKey, err := mgmClient.GetServerPublicKey()
-	if err != nil {
-		log.Errorf("failed while getting Management Service public key: %v", err)
-		return false, err
-	}
-
-	pubSSHKey, err := ssh.GeneratePublicKey([]byte(sshKey))
-	if err != nil {
-		return false, err
-	}
-	sysInfo := system.GetInfo(ctx)
-	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey)
-	if isLoginNeeded(err) {
-		return true, nil
-	}
-	return false, err
+	return mgmClient, err
 }
 
-// Login or register the client
-func Login(ctx context.Context, config *Config, setupKey string, jwtToken string) error {
-	// validate our peer's Wireguard PRIVATE key
-	myPrivateKey, err := wgtypes.ParseKey(config.PrivateKey)
-	if err != nil {
-		log.Errorf("failed parsing Wireguard key %s: [%s]", config.PrivateKey, err.Error())
-		return err
-	}
-
-	var mgmTlsEnabled bool
-	if config.ManagementURL.Scheme == "https" {
-		mgmTlsEnabled = true
-	}
-
-	log.Debugf("connecting to the Management service %s", config.ManagementURL.String())
-	mgmClient, err := mgm.NewClient(ctx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
-	if err != nil {
-		log.Errorf("failed connecting to the Management service %s %v", config.ManagementURL.String(), err)
-		return err
-	}
-	log.Debugf("connected to the Management service %s", config.ManagementURL.String())
-	defer func() {
-		err = mgmClient.Close()
-		if err != nil {
-			cStatus, ok := status.FromError(err)
-			if !ok || ok && cStatus.Code() != codes.Canceled {
-				log.Warnf("failed to close the Management service client, err: %v", err)
-			}
-		}
-	}()
-
+func doMgmLogin(ctx context.Context, mgmClient *mgm.GrpcClient, pubSSHKey []byte) (*wgtypes.Key, error) {
 	serverKey, err := mgmClient.GetServerPublicKey()
 	if err != nil {
 		log.Errorf("failed while getting Management Service public key: %v", err)
-		return err
+		return nil, err
 	}
 
-	pubSSHKey, err := ssh.GeneratePublicKey([]byte(config.SSHKey))
-	if err != nil {
-		return err
-	}
 	sysInfo := system.GetInfo(ctx)
 	_, err = mgmClient.Login(*serverKey, sysInfo, pubSSHKey)
-	if err == nil {
-		return nil
-	}
-
-	if isRegistrationNeeded(err) {
-		log.Debugf("peer registration required")
-		_, err = registerPeer(ctx, *serverKey, mgmClient, setupKey, jwtToken, pubSSHKey)
-		return err
-	}
-
-	return err
+	return serverKey, err
 }
 
 // registerPeer checks whether setupKey was provided via cmd line and if not then it prompts user to enter a key.
