@@ -17,8 +17,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/version"
 )
 
 type peerStateDetailOutput struct {
@@ -209,7 +209,7 @@ func convertToStatusOutputOverview(resp *proto.StatusResponse) statusOutputOverv
 
 	overview := statusOutputOverview{
 		Peers:           peersOverview,
-		CliVersion:      system.NetbirdVersion(),
+		CliVersion:      version.NetbirdVersion(),
 		DaemonVersion:   resp.GetDaemonVersion(),
 		ManagementState: managementOverview,
 		SignalState:     signalOverview,
@@ -345,7 +345,7 @@ func parseGeneralSummary(overview statusOutputOverview, showURL bool) string {
 			"Interface type: %s\n"+
 			"Peers count: %s\n",
 		overview.DaemonVersion,
-		system.NetbirdVersion(),
+		version.NetbirdVersion(),
 		managementConnString,
 		signalConnString,
 		overview.FQDN,

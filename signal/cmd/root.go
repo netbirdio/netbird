@@ -7,6 +7,8 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -15,9 +17,6 @@ const (
 )
 
 var (
-	// will be replaced with the release version when using goreleaser
-	version = "development"
-
 	logLevel       string
 	defaultLogFile string
 	logFile        string
@@ -26,7 +25,7 @@ var (
 		Use:     "netbird-signal",
 		Short:   "",
 		Long:    "",
-		Version: version,
+		Version: version.NetbirdVersion(),
 	}
 
 	// Execution control channel for stopCh signal

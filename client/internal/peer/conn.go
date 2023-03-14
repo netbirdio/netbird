@@ -12,8 +12,8 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl"
 
 	"github.com/netbirdio/netbird/client/internal/proxy"
-	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/version"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -500,7 +500,7 @@ func (conn *Conn) sendAnswer() error {
 	err = conn.signalAnswer(OfferAnswer{
 		IceCredentials: IceCredentials{localUFrag, localPwd},
 		WgListenPort:   conn.config.LocalWgPort,
-		Version:        system.NetbirdVersion(),
+		Version:        version.NetbirdVersion(),
 	})
 	if err != nil {
 		return err
@@ -521,7 +521,7 @@ func (conn *Conn) sendOffer() error {
 	err = conn.signalOffer(OfferAnswer{
 		IceCredentials: IceCredentials{localUFrag, localPwd},
 		WgListenPort:   conn.config.LocalWgPort,
-		Version:        system.NetbirdVersion(),
+		Version:        version.NetbirdVersion(),
 	})
 	if err != nil {
 		return err
