@@ -97,6 +97,8 @@ func (s *Server) Start() error {
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder(config.ManagementURL.String())
+	} else {
+		s.statusRecorder.UpdateManagementAddress(config.ManagementURL.String())
 	}
 
 	go func() {
@@ -387,6 +389,8 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
+	} else {
+		s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	}
 
 	go func() {
@@ -431,6 +435,8 @@ func (s *Server) Status(
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder(s.config.ManagementURL.String())
+	} else {
+		s.statusRecorder.UpdateManagementAddress(s.config.ManagementURL.String())
 	}
 
 	if msg.GetFullPeerStatus {

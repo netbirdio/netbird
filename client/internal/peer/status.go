@@ -216,6 +216,13 @@ func (d *Status) UpdateSignalAddress(signalURL string) {
 	d.signalAddress = signalURL
 }
 
+// UpdateManagementAddress update the address of the management server
+func (d *Status) UpdateManagementAddress(mgmAddress string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.mgmAddress = mgmAddress
+}
+
 // MarkSignalDisconnected sets SignalState to disconnected
 func (d *Status) MarkSignalDisconnected() {
 	d.mux.Lock()
