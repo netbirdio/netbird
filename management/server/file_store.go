@@ -124,7 +124,6 @@ func restore(file string) (*FileStore, error) {
 				}
 				account.Policies = append(account.Policies, policy)
 			}
-			account.Rules = nil
 		}
 
 		// for data migration. Can be removed once most base will be with labels
@@ -263,6 +262,15 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	if accountCopy.DomainCategory == PrivateCategory && accountCopy.IsDomainPrimaryAccount {
 		s.PrivateDomain2AccountID[accountCopy.Domain] = accountCopy.Id
+	}
+
+	if accountCopy.Rules == nil {
+		accountCopy.Rules = make(map[string]*Rule)
+	}
+	for _, policy := range accountCopy.Policies {
+		for _, rule := range policy.Rules {
+			accountCopy.Rules[rule.ID] = rule.ToRule()
+		}
 	}
 
 	return s.persist(s.storeFile)
