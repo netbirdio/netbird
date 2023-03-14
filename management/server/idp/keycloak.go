@@ -367,7 +367,48 @@ func (km *KeycloakManager) GetUserDataByID(userId string, appMetadata AppMetadat
 
 // GetAccount returns all the users for a given profile.
 func (km *KeycloakManager) GetAccount(accountId string) ([]*UserData, error) {
-	panic("not implemented") // TODO: Implement
+	jwtToken, err := km.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := fmt.Sprintf("%s/users?q=wt_account_id:%s", km.adminEndpoint, accountId)
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := km.httpClient.Do(req)
+	if err != nil {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get account, statusCode %d", resp.StatusCode)
+	}
+
+	profiles := make([]keycloakProfile, 0)
+	err = json.NewDecoder(resp.Body).Decode(&profiles)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]*UserData, 0)
+	for _, profile := range profiles {
+		users = append(users, profile.userData())
+	}
+
+	return users, nil
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
