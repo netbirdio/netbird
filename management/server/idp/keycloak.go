@@ -477,7 +477,50 @@ func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 // UpdateUserAppMetadata updates user app metadata based on userId and metadata map.
 func (km *KeycloakManager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
-	panic("not implemented") // TODO: Implement
+	jwtToken, err := km.credentials.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userId)
+	data, err := km.helper.Marshal(map[string]any{
+		"attributes": map[string]any{
+			"wt_account_id":     appMetadata.WTAccountID,
+			"wt_pending_invite": *appMetadata.WTPendingInvite,
+		},
+	})
+	if err != nil {
+		return err
+	}
+	payload := strings.NewReader(string(data))
+
+	req, err := http.NewRequest(http.MethodPut, reqURL, payload)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	log.Debugf("updating IdP metadata for user %s", userId)
+
+	resp, err := km.httpClient.Do(req)
+	if err != nil {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+	defer resp.Body.Close()
+
+	if km.appMetrics != nil {
+		km.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
+	}
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("unable to update the appMetadata, statusCode %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadata AppMetadata) (string, error) {
