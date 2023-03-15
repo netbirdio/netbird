@@ -28,7 +28,6 @@ type KeycloakManager struct {
 
 // KeycloakClientConfig keycloak manager client configurations.
 type KeycloakClientConfig struct {
-	Audience      string
 	ClientID      string
 	ClientSecret  string
 	AdminEndpoint string
@@ -88,7 +87,7 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 
 	helper := JsonParser{}
 
-	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.Audience == "" || config.AdminEndpoint == "" || config.TokenEndpoint == "" {
+	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.AdminEndpoint == "" || config.TokenEndpoint == "" {
 		return nil, fmt.Errorf("keycloak idp configuration is not complete")
 	}
 
