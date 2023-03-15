@@ -5,16 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/hashicorp/go-version"
-	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/management/server"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"net/http"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/hashicorp/go-version"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server"
+	nbversion "github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -176,7 +178,7 @@ func (w *Worker) generateProperties() properties {
 	osUIClients = make(map[string]int)
 	uptime = time.Since(w.startupTime).Seconds()
 	connections := w.connManager.GetAllConnectedPeers()
-	version = system.NetbirdVersion()
+	version = nbversion.NetbirdVersion()
 
 	for _, account := range w.dataSource.GetAllAccounts() {
 		accounts++

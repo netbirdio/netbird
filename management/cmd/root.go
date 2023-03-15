@@ -2,9 +2,12 @@ package cmd
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
 	"os"
 	"os/signal"
+
+	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -25,6 +28,7 @@ var (
 		Use:          "netbird-mgmt",
 		Short:        "",
 		Long:         "",
+		Version:      version.NetbirdVersion(),
 		SilenceUsage: true,
 	}
 

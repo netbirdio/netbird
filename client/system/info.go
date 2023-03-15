@@ -2,15 +2,14 @@ package system
 
 import (
 	"context"
-	"google.golang.org/grpc/metadata"
 	"strings"
+
+	"google.golang.org/grpc/metadata"
+
+	"github.com/netbirdio/netbird/version"
 )
 
-// this is the wiretrustee version
-// will be replaced with the release version when using goreleaser
-var version = "development"
-
-//Info is an object that contains machine information
+// Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
 type Info struct {
 	GoOS               string
@@ -23,11 +22,6 @@ type Info struct {
 	CPUs               int
 	WiretrusteeVersion string
 	UIVersion          string
-}
-
-// NetbirdVersion returns the Netbird version
-func NetbirdVersion() string {
-	return version
 }
 
 // extractUserAgent extracts Netbird's agent (client) name and version from the outgoing context
@@ -48,5 +42,5 @@ func extractUserAgent(ctx context.Context) string {
 
 // GetDesktopUIUserAgent returns the Desktop ui user agent
 func GetDesktopUIUserAgent() string {
-	return "netbird-desktop-ui/" + NetbirdVersion()
+	return "netbird-desktop-ui/" + version.NetbirdVersion()
 }
