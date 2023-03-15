@@ -46,7 +46,7 @@ func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter) *Client {
 		cfgFile:       cfgFile,
 		deviceName:    deviceName,
 		tunAdapter:    tunAdapter,
-		recorder:      peer.NewRecorder(),
+		recorder:      peer.NewRecorder(""),
 		ctxCancelLock: &sync.Mutex{},
 	}
 }
@@ -59,6 +59,7 @@ func (c *Client) Run(urlOpener URLOpener) error {
 	if err != nil {
 		return err
 	}
+	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
 
 	var ctx context.Context
 	//nolint
