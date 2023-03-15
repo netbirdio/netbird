@@ -404,7 +404,11 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userId string, appMetadata AppM
 
 	attrs := keycloakUserAttributes{}
 	attrs.Set("wt_account_id", appMetadata.WTAccountID)
-	attrs.Set("wt_pending_invite", strconv.FormatBool(*appMetadata.WTPendingInvite))
+	if appMetadata.WTPendingInvite != nil {
+		attrs.Set("wt_pending_invite", strconv.FormatBool(*appMetadata.WTPendingInvite))
+	} else {
+		attrs.Set("wt_pending_invite", "false")
+	}
 
 	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userId)
 	data, err := km.helper.Marshal(map[string]any{
