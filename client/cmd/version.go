@@ -1,8 +1,9 @@
 package cmd
 
 import (
-	"github.com/netbirdio/netbird/client/system"
 	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/version"
 )
 
 var (
@@ -11,7 +12,7 @@ var (
 		Short: "prints Netbird version",
 		Run: func(cmd *cobra.Command, args []string) {
 			cmd.SetOut(cmd.OutOrStdout())
-			cmd.Println(system.NetbirdVersion())
+			cmd.Println(version.NetbirdVersion())
 		},
 	}
 )
