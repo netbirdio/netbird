@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/version"
 )
 
 // GetInfo retrieves and parses the system information
@@ -23,7 +25,7 @@ func GetInfo(ctx context.Context) *Info {
 
 	gio := &Info{Kernel: kernel, Core: osVersion(), Platform: "unknown", OS: "android", OSVersion: osVersion(), GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname = extractDeviceName(ctx)
-	gio.WiretrusteeVersion = NetbirdVersion()
+	gio.WiretrusteeVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
