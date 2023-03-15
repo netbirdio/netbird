@@ -54,8 +54,8 @@ type keycloakUserCredential struct {
 	Temporary bool   `json:"temporary"`
 }
 
-// keycloakAttributes is additional user data fields.
-type keycloakAttributes map[string][]string
+// keycloakUserAttributes holds additional user data fields.
+type keycloakUserAttributes map[string][]string
 
 // createUserRequest is a user create request.
 type keycloakCreateUserRequest struct {
@@ -64,16 +64,16 @@ type keycloakCreateUserRequest struct {
 	Enabled       bool                     `json:"enabled"`
 	EmailVerified bool                     `json:"emailVerified"`
 	Credentials   []keycloakUserCredential `json:"credentials"`
-	Attributes    keycloakAttributes       `json:"attributes"`
+	Attributes    keycloakUserAttributes   `json:"attributes"`
 }
 
 // keycloakProfile represents an keycloak user profile response.
 type keycloakProfile struct {
-	ID               string             `json:"id"`
-	CreatedTimestamp int64              `json:"createdTimestamp"`
-	Username         string             `json:"username"`
-	Email            string             `json:"email"`
-	Attributes       keycloakAttributes `json:"attributes"`
+	ID               string                 `json:"id"`
+	CreatedTimestamp int64                  `json:"createdTimestamp"`
+	Username         string                 `json:"username"`
+	Email            string                 `json:"email"`
+	Attributes       keycloakUserAttributes `json:"attributes"`
 }
 
 // NewKeycloakManager creates a new instance of the KeycloakManager.
@@ -177,7 +177,7 @@ func (kc *KeycloakCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (J
 
 	// Exp maps into exp from jwt token
 	var IssuedAt struct{ Exp int64 }
-	err = json.Unmarshal(data, &IssuedAt)
+	err = kc.helper.Unmarshal(data, &IssuedAt)
 	if err != nil {
 		return jwtToken, err
 	}
@@ -403,12 +403,13 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userId string, appMetadata AppM
 		return err
 	}
 
+	attrs := keycloakUserAttributes{}
+	attrs.Set("wt_account_id", appMetadata.WTAccountID)
+	attrs.Set("wt_pending_invite", strconv.FormatBool(*appMetadata.WTPendingInvite))
+
 	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userId)
 	data, err := km.helper.Marshal(map[string]any{
-		"attributes": map[string]any{
-			"wt_account_id":     appMetadata.WTAccountID,
-			"wt_pending_invite": *appMetadata.WTPendingInvite,
-		},
+		"attributes": attrs,
 	})
 	if err != nil {
 		return err
@@ -445,7 +446,7 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userId string, appMetadata AppM
 }
 
 func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadata AppMetadata) (string, error) {
-	attrs := keycloakAttributes{}
+	attrs := keycloakUserAttributes{}
 	attrs.Set("wt_account_id", appMetadata.WTAccountID)
 	attrs.Set("wt_pending_invite", strconv.FormatBool(*appMetadata.WTPendingInvite))
 
@@ -564,14 +565,14 @@ func (kp keycloakProfile) userData() *UserData {
 
 // Set sets the key to value. It replaces any existing
 // values.
-func (ka keycloakAttributes) Set(key, value string) {
+func (ka keycloakUserAttributes) Set(key, value string) {
 	ka[key] = []string{value}
 }
 
 // Get returns the first value associated with the given key.
 // If there are no values associated with the key, Get returns
 // the empty string.
-func (ka keycloakAttributes) Get(key string) string {
+func (ka keycloakUserAttributes) Get(key string) string {
 	if ka == nil {
 		return ""
 	}
