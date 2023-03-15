@@ -398,7 +398,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
 
-			statusRecorder := peer.NewRecorder()
+			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
 			routeManager := NewManager(ctx, localPeerKey, wgInterface, statusRecorder)
 			defer routeManager.Stop()

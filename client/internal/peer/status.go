@@ -49,23 +49,26 @@ type FullStatus struct {
 
 // Status holds a state of peers, signal and management connections
 type Status struct {
-	mux          sync.Mutex
-	peers        map[string]State
-	changeNotify map[string]chan struct{}
-	signal       SignalState
-	management   ManagementState
-	localPeer    LocalPeerState
-	offlinePeers []State
-	notifier     *notifier
+	mux             sync.Mutex
+	peers           map[string]State
+	changeNotify    map[string]chan struct{}
+	signalState     bool
+	managementState bool
+	localPeer       LocalPeerState
+	offlinePeers    []State
+	mgmAddress      string
+	signalAddress   string
+	notifier        *notifier
 }
 
 // NewRecorder returns a new Status instance
-func NewRecorder() *Status {
+func NewRecorder(mgmAddress string) *Status {
 	return &Status{
 		peers:        make(map[string]State),
 		changeNotify: make(map[string]chan struct{}),
 		offlinePeers: make([]State, 0),
 		notifier:     newNotifier(),
+		mgmAddress:   mgmAddress,
 	}
 }
 
@@ -198,47 +201,49 @@ func (d *Status) CleanLocalPeerState() {
 }
 
 // MarkManagementDisconnected sets ManagementState to disconnected
-func (d *Status) MarkManagementDisconnected(managementURL string) {
+func (d *Status) MarkManagementDisconnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-	d.management = ManagementState{
-		URL:       managementURL,
-		Connected: false,
-	}
+	d.managementState = false
 }
 
 // MarkManagementConnected sets ManagementState to connected
-func (d *Status) MarkManagementConnected(managementURL string) {
+func (d *Status) MarkManagementConnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-	d.management = ManagementState{
-		URL:       managementURL,
-		Connected: true,
-	}
+	d.managementState = true
+}
+
+// UpdateSignalAddress update the address of the signal server
+func (d *Status) UpdateSignalAddress(signalURL string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.signalAddress = signalURL
+}
+
+// UpdateManagementAddress update the address of the management server
+func (d *Status) UpdateManagementAddress(mgmAddress string) {
+	d.mux.Lock()
+	defer d.mux.Unlock()
+	d.mgmAddress = mgmAddress
 }
 
 // MarkSignalDisconnected sets SignalState to disconnected
-func (d *Status) MarkSignalDisconnected(signalURL string) {
+func (d *Status) MarkSignalDisconnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-	d.signal = SignalState{
-		signalURL,
-		false,
-	}
+	d.signalState = false
 }
 
 // MarkSignalConnected sets SignalState to connected
-func (d *Status) MarkSignalConnected(signalURL string) {
+func (d *Status) MarkSignalConnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-	d.signal = SignalState{
-		signalURL,
-		true,
-	}
+	d.signalState = true
 }
 
 // GetFullStatus gets full status
@@ -247,9 +252,15 @@ func (d *Status) GetFullStatus() FullStatus {
 	defer d.mux.Unlock()
 
 	fullStatus := FullStatus{
-		ManagementState: d.management,
-		SignalState:     d.signal,
-		LocalPeerState:  d.localPeer,
+		ManagementState: ManagementState{
+			d.mgmAddress,
+			d.managementState,
+		},
+		SignalState: SignalState{
+			d.signalAddress,
+			d.signalState,
+		},
+		LocalPeerState: d.localPeer,
 	}
 
 	for _, status := range d.peers {
@@ -282,7 +293,7 @@ func (d *Status) RemoveConnectionListener(listener Listener) {
 }
 
 func (d *Status) onConnectionChanged() {
-	d.notifier.updateServerStates(d.management.Connected, d.signal.Connected)
+	d.notifier.updateServerStates(d.managementState, d.signalState)
 }
 
 func (d *Status) notifyPeerListChanged() {
