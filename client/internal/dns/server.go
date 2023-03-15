@@ -1,5 +1,3 @@
-//go:build !android
-
 package dns
 
 import nbdns "github.com/netbirdio/netbird/dns"
