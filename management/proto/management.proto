@@ -186,6 +186,9 @@ message NetworkMap {
 
   // RemotePeerConfig represents a list of remote peers that the receiver can connect to
   repeated RemotePeerConfig offlinePeers = 7;
+
+  // FirewallRule represents a list of firewall rules to be applied to peer
+  repeated FirewallRule FirewallRules = 8;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
@@ -293,4 +296,13 @@ message NameServer {
   string IP = 1;
   int64  NSType = 2;
   int64  Port = 3;
+}
+
+// FirewallRule represents a firewall rule
+message FirewallRule {
+  string PeerID = 1;
+  string PeerIP = 2;
+  string Direction = 3;
+  string Action = 4;
+  string Port = 5;
 }
