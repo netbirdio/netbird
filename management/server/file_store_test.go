@@ -123,6 +123,38 @@ func TestStore(t *testing.T) {
 		Name:     "peer name",
 		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
 	}
+	account.Groups["all"] = &Group{
+		ID:    "all",
+		Name:  "all",
+		Peers: []string{"testpeer"},
+	}
+	account.Rules["all"] = &Rule{
+		ID:          "all",
+		Name:        "all",
+		Source:      []string{"all"},
+		Destination: []string{"all"},
+		Flow:        TrafficFlowBidirect,
+	}
+	account.Policies = append(account.Policies, &Policy{
+		ID:      "all",
+		Name:    "all",
+		Enabled: true,
+		Rules:   []*PolicyRule{account.Rules["all"].ToPolicyRule()},
+	})
+	account.Policies = append(account.Policies, &Policy{
+		ID:      "dmz",
+		Name:    "dmz",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				ID:           "dmz",
+				Name:         "dmz",
+				Enabled:      true,
+				Sources:      []string{"all"},
+				Destinations: []string{"all"},
+			},
+		},
+	})
 
 	// SaveAccount should trigger persist
 	err := store.SaveAccount(account)
@@ -138,23 +170,48 @@ func TestStore(t *testing.T) {
 	restoredAccount := restored.Accounts[account.Id]
 	if restoredAccount == nil {
 		t.Errorf("failed to restore a FileStore file - missing Account %s", account.Id)
+		return
 	}
 
-	if restoredAccount != nil && restoredAccount.Peers["testpeer"] == nil {
+	if restoredAccount.Peers["testpeer"] == nil {
 		t.Errorf("failed to restore a FileStore file - missing Peer testpeer")
 	}
 
-	if restoredAccount != nil && restoredAccount.CreatedBy != "testuser" {
+	if restoredAccount.CreatedBy != "testuser" {
 		t.Errorf("failed to restore a FileStore file - missing Account CreatedBy")
 	}
 
-	if restoredAccount != nil && restoredAccount.Users["testuser"] == nil {
+	if restoredAccount.Users["testuser"] == nil {
 		t.Errorf("failed to restore a FileStore file - missing User testuser")
 	}
 
-	if restoredAccount != nil && restoredAccount.Network == nil {
+	if restoredAccount.Network == nil {
 		t.Errorf("failed to restore a FileStore file - missing Network")
 	}
+
+	if restoredAccount.Groups["all"] == nil {
+		t.Errorf("failed to restore a FileStore file - missing Group all")
+	}
+
+	if restoredAccount.Rules["all"] == nil {
+		t.Errorf("failed to restore a FileStore file - missing Rule all")
+		return
+	}
+
+	if restoredAccount.Rules["dmz"] == nil {
+		t.Errorf("failed to restore a FileStore file - missing Rule dmz")
+		return
+	}
+	assert.Equal(t, account.Rules["all"], restoredAccount.Rules["all"], "failed to restore a FileStore file - missing Rule all")
+	assert.Equal(t, account.Rules["dmz"], restoredAccount.Rules["dmz"], "failed to restore a FileStore file - missing Rule dmz")
+
+	if len(restoredAccount.Policies) != 2 {
+		t.Errorf("failed to restore a FileStore file - missing Policies")
+		return
+	}
+
+	assert.Equal(t, account.Policies[0], restoredAccount.Policies[0], "failed to restore a FileStore file - missing Policy all")
+	assert.Equal(t, account.Policies[1], restoredAccount.Policies[1], "failed to restore a FileStore file - missing Policy dmz")
 }
 
 func TestRestore(t *testing.T) {
@@ -204,7 +261,7 @@ func TestRestorePolicies_Migration(t *testing.T) {
 
 	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
 	require.Len(t, account.Groups, 1, "failed to restore a FileStore file - missing Account Groups")
-	require.Len(t, account.Rules, 0, "failed to restore a FileStore file - Account Rules should be removed")
+	require.Len(t, account.Rules, 1, "failed to restore a FileStore file - missing Account Rules")
 	require.Len(t, account.Policies, 1, "failed to restore a FileStore file - missing Account Policies")
 
 	policy := account.Policies[0]
