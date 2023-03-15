@@ -96,7 +96,11 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 	}
 
 	if !strings.HasPrefix(strings.ToLower(config.AdminEndpoint), "https://") {
-		return nil, fmt.Errorf("keycloak idp configuration failed. AuthIssuer should contain https://")
+		return nil, fmt.Errorf("keycloak idp configuration failed. AdminEndpoint should contain https://")
+	}
+
+	if !strings.HasPrefix(strings.ToLower(config.TokenEndpoint), "https://") {
+		return nil, fmt.Errorf("keycloak idp configuration failed. TokenEndpoint should contain https://")
 	}
 
 	credentials := &KeycloakCredentials{
