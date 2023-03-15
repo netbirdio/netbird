@@ -479,18 +479,7 @@ func (km *KeycloakManager) get(resource string, q url.Values) ([]byte, error) {
 		return nil, err
 	}
 
-	u, err := url.Parse(km.adminEndpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	u, err = u.Parse(resource)
-	if err != nil {
-		return nil, err
-	}
-	u.RawQuery = q.Encode()
-
-	reqURL := u.String()
+	reqURL := fmt.Sprintf("%s/%s?%s", km.adminEndpoint, resource, q.Encode())
 	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
 	if err != nil {
 		return nil, err
