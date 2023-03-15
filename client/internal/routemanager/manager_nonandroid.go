@@ -11,9 +11,9 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/version"
 )
 
 // DefaultManager is the default instance of a route manager
@@ -167,7 +167,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 				// we skip this route management
 				if newRoute.Network.Bits() < 7 {
 					log.Errorf("this agent version: %s, doesn't support default routes, received %s, skiping this route",
-						system.NetbirdVersion(), newRoute.Network)
+						version.NetbirdVersion(), newRoute.Network)
 					continue
 				}
 				newClientRoutesIDMap[networkID] = append(newClientRoutesIDMap[networkID], newRoute)

@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/version"
 )
 
 // GetInfo retrieves and parses the system information
@@ -49,7 +51,7 @@ func GetInfo(ctx context.Context) *Info {
 	}
 	gio := &Info{Kernel: osInfo[0], Core: osInfo[1], Platform: osInfo[2], OS: osName, OSVersion: osVer, GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
 	gio.Hostname, _ = os.Hostname()
-	gio.WiretrusteeVersion = NetbirdVersion()
+	gio.WiretrusteeVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
