@@ -53,8 +53,7 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 		}
 
 		if p.PersistentKeepaliveInterval != nil {
-			// todo: is it Seconds?
-			sb.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", p.PersistentKeepaliveInterval.Milliseconds()))
+			sb.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", int(p.PersistentKeepaliveInterval.Seconds())))
 		}
 	}
 	return sb.String()
