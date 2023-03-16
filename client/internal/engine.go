@@ -353,6 +353,10 @@ func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtyp
 	return nil
 }
 
+func sendSignal(message *sProto.Message, s signal.Client) error {
+	return s.Send(message)
+}
+
 // SignalOfferAnswer signals either an offer or an answer to remote peer
 func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client, isAnswer bool) error {
 	var t sProto.Body_Type
@@ -369,6 +373,10 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	if err != nil {
 		return err
 	}
+
+	// indicates message support in gRPC
+	msg.Body.FeaturesSupported = []uint32{signal.DirectCheck}
+
 	err = s.Send(msg)
 	if err != nil {
 		return err
@@ -827,6 +835,9 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	peerConn.SetSignalCandidate(signalCandidate)
 	peerConn.SetSignalOffer(signalOffer)
 	peerConn.SetSignalAnswer(signalAnswer)
+	peerConn.SetSendSignalMessage(func(message *sProto.Message) error {
+		return sendSignal(message, e.signal)
+	})
 
 	return peerConn, nil
 }
@@ -850,6 +861,9 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
+
+				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
+
 				conn.OnRemoteOffer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
@@ -863,6 +877,9 @@ func (e *Engine) receiveSignalEvents() {
 				if err != nil {
 					return err
 				}
+
+				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
+
 				conn.OnRemoteAnswer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
@@ -878,6 +895,19 @@ func (e *Engine) receiveSignalEvents() {
 					return err
 				}
 				conn.OnRemoteCandidate(candidate)
+			case sProto.Body_MODE:
+				protoMode := msg.GetBody().GetMode()
+				if protoMode == nil {
+					return fmt.Errorf("received an empty mode message")
+				}
+
+				err := conn.OnModeMessage(peer.ModeMessage{
+					Direct: protoMode.GetDirect(),
+				})
+				if err != nil {
+					log.Errorf("failed processing a mode message -> %s", err)
+					return err
+				}
 			}
 
 			return nil

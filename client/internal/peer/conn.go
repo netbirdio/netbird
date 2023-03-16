@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -14,6 +15,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/version"
+	signal "github.com/netbirdio/netbird/signal/client"
+	sProto "github.com/netbirdio/netbird/signal/proto"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -69,8 +72,9 @@ type Conn struct {
 	// signalCandidate is a handler function to signal remote peer about local connection candidate
 	signalCandidate func(candidate ice.Candidate) error
 	// signalOffer is a handler function to signal remote peer our connection offer (credentials)
-	signalOffer  func(OfferAnswer) error
-	signalAnswer func(OfferAnswer) error
+	signalOffer       func(OfferAnswer) error
+	signalAnswer      func(OfferAnswer) error
+	sendSignalMessage func(message *sProto.Message) error
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -85,7 +89,20 @@ type Conn struct {
 
 	statusRecorder *Status
 
-	proxy proxy.Proxy
+	proxy        proxy.Proxy
+	remoteModeCh chan ModeMessage
+	meta         meta
+}
+
+// meta holds meta information about a connection
+type meta struct {
+	protoSupport signal.FeaturesSupport
+}
+
+// ModeMessage represents a connection mode chosen by the peer
+type ModeMessage struct {
+	// Direct indicates that it decided to use a direct connection
+	Direct bool
 }
 
 // GetConf returns the connection config
@@ -109,6 +126,7 @@ func NewConn(config ConnConfig, statusRecorder *Status) (*Conn, error) {
 		remoteOffersCh: make(chan OfferAnswer),
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
+		remoteModeCh:   make(chan ModeMessage, 1),
 	}, nil
 }
 
@@ -366,15 +384,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	}
 
 	peerState := State{PubKey: conn.config.Key}
-	useProxy := shouldUseProxy(pair)
-	var p proxy.Proxy
-	if useProxy {
-		p = proxy.NewWireguardProxy(conn.config.ProxyConfig)
-		peerState.Direct = false
-	} else {
-		p = proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
-		peerState.Direct = true
-	}
+	p := conn.getProxyWithMessageExchange(pair, remoteWgPort)
 	conn.proxy = p
 	err = p.Start(remoteConn)
 	if err != nil {
@@ -390,6 +400,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
 	}
+	peerState.Direct = p.Type() == proxy.TypeNoProxy
 
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -397,6 +408,63 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	}
 
 	return nil
+}
+
+func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
+
+	useProxy := shouldUseProxy(pair)
+	localDirectMode := !useProxy
+	remoteDirectMode := localDirectMode
+
+	if conn.meta.protoSupport.DirectCheck {
+		go conn.sendLocalDirectMode(localDirectMode)
+		// will block until message received or timeout
+		remoteDirectMode = conn.receiveRemoteDirectMode()
+	}
+
+	if localDirectMode && remoteDirectMode {
+		log.Debugf("using WireGuard direct mode with peer %s", conn.config.Key)
+		return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
+	}
+
+	log.Debugf("falling back to local proxy mode with peer %s", conn.config.Key)
+	return proxy.NewWireguardProxy(conn.config.ProxyConfig)
+}
+
+func (conn *Conn) sendLocalDirectMode(localMode bool) {
+	// todo what happens when we couldn't deliver this message?
+	// we could retry, etc but there is no guarantee
+
+	err := conn.sendSignalMessage(&sProto.Message{
+		Key:       conn.config.LocalKey,
+		RemoteKey: conn.config.Key,
+		Body: &sProto.Body{
+			Type: sProto.Body_MODE,
+			Mode: &sProto.Mode{
+				Direct: &localMode,
+			},
+			NetBirdVersion: version.NetbirdVersion(),
+		},
+	})
+	if err != nil {
+		log.Errorf("failed to send local proxy mode to remote peer %s, error: %s", conn.config.Key, err)
+	}
+}
+
+func (conn *Conn) receiveRemoteDirectMode() bool {
+	timeout := time.Second
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case receivedMSG := <-conn.remoteModeCh:
+		return receivedMSG.Direct
+	case <-timer.C:
+		// we didn't receive a message from remote so we assume that it supports the direct mode to keep the old behaviour
+		log.Debugf("timeout after %s while waiting for remote direct mode message from remote peer %s",
+			timeout, conn.config.Key)
+		return true
+	}
 }
 
 // cleanup closes all open resources and sets status to StatusDisconnected
@@ -457,6 +525,11 @@ func (conn *Conn) SetSignalAnswer(handler func(answer OfferAnswer) error) {
 // SetSignalCandidate sets a handler function to be triggered by Conn when a new ICE local connection candidate has to be signalled to the remote peer
 func (conn *Conn) SetSignalCandidate(handler func(candidate ice.Candidate) error) {
 	conn.signalCandidate = handler
+}
+
+// SetSendSignalMessage sets a handler function to be triggered by Conn when there is new message to send via signal
+func (conn *Conn) SetSendSignalMessage(handler func(message *sProto.Message) error) {
+	conn.sendSignalMessage = handler
 }
 
 // onICECandidate is a callback attached to an ICE Agent to receive new local connection candidates
@@ -612,4 +685,20 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) {
 
 func (conn *Conn) GetKey() string {
 	return conn.config.Key
+}
+
+// OnModeMessage unmarshall the payload message and send it to the mode message channel
+func (conn *Conn) OnModeMessage(message ModeMessage) error {
+	select {
+	case conn.remoteModeCh <- message:
+		return nil
+	default:
+		return fmt.Errorf("unable to process mode message: channel busy")
+	}
+}
+
+// RegisterProtoSupportMeta register supported proto message in the connection metadata
+func (conn *Conn) RegisterProtoSupportMeta(support []uint32) {
+	protoSupport := signal.ParseFeaturesSupported(support)
+	conn.meta.protoSupport = protoSupport
 }

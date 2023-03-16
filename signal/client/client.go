@@ -19,6 +19,16 @@ type Status string
 const StreamConnected Status = "Connected"
 const StreamDisconnected Status = "Disconnected"
 
+const (
+	// DirectCheck indicates support to direct mode checks
+	DirectCheck uint32 = 1
+)
+
+// FeaturesSupport register protocol supported features
+type FeaturesSupport struct {
+	DirectCheck bool
+}
+
 type Client interface {
 	io.Closer
 	StreamConnected() bool
@@ -61,4 +71,16 @@ func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey wgtypes.Key, cre
 type Credential struct {
 	UFrag string
 	Pwd   string
+}
+
+// ParseFeaturesSupported parses a slice of supported features into FeaturesSupport
+func ParseFeaturesSupported(featuresMessage []uint32) FeaturesSupport {
+	var protoSupport FeaturesSupport
+	for _, feature := range featuresMessage {
+		if feature == DirectCheck {
+			protoSupport.DirectCheck = true
+			return protoSupport
+		}
+	}
+	return protoSupport
 }
