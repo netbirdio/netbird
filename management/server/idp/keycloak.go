@@ -546,7 +546,10 @@ func extractUserIdFromLocationHeader(locationHeader string) (string, error) {
 // userData construct user data from keycloak profile.
 func (kp keycloakProfile) userData() *UserData {
 	accountId := kp.Attributes.Get("wp_account_id")
-	pendingInvite, _ := strconv.ParseBool(kp.Attributes.Get("wt_pending_invite"))
+	pendingInvite, err := strconv.ParseBool(kp.Attributes.Get("wt_pending_invite"))
+	if err != nil {
+		pendingInvite = false
+	}
 
 	return &UserData{
 		Email: kp.Email,
