@@ -1,9 +1,12 @@
 package idp
 
 import (
+	"fmt"
+	"io"
 	"testing"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -74,6 +77,80 @@ func TestNewKeycloakManager(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, err := NewKeycloakManager(testCase.inputConfig, &telemetry.MockAppMetrics{})
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
+		})
+	}
+}
+
+type mockKeycloakCredentials struct {
+	jwtToken JWTToken
+	err      error
+}
+
+func (mc *mockKeycloakCredentials) Authenticate() (JWTToken, error) {
+	return mc.jwtToken, mc.err
+}
+
+func TestKeycloakRequestJWTToken(t *testing.T) {
+
+	type requestJWTTokenTest struct {
+		name                    string
+		inputCode               int
+		inputRespBody           string
+		helper                  ManagerHelper
+		expectedFuncExitErrDiff error
+		expectedToken           string
+	}
+	exp := 5
+	token := newTestJWT(t, exp)
+
+	requestJWTTokenTesttCase1 := requestJWTTokenTest{
+		name:          "Good JWT Response",
+		inputCode:     200,
+		inputRespBody: fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
+		helper:        JsonParser{},
+		expectedToken: token,
+	}
+	requestJWTTokenTestCase2 := requestJWTTokenTest{
+		name:                    "Request Bad Status Code",
+		inputCode:               400,
+		inputRespBody:           "{}",
+		helper:                  JsonParser{},
+		expectedFuncExitErrDiff: fmt.Errorf("unable to get keycloak token, statusCode 400"),
+		expectedToken:           "",
+	}
+
+	for _, testCase := range []requestJWTTokenTest{requestJWTTokenTesttCase1, requestJWTTokenTestCase2} {
+		t.Run(testCase.name, func(t *testing.T) {
+
+			jwtReqClient := mockHTTPClient{
+				resBody: testCase.inputRespBody,
+				code:    testCase.inputCode,
+			}
+			config := KeycloakClientConfig{}
+
+			creds := KeycloakCredentials{
+				clientConfig: config,
+				httpClient:   &jwtReqClient,
+				helper:       testCase.helper,
+			}
+
+			resp, err := creds.requestJWTToken()
+			if err != nil {
+				if testCase.expectedFuncExitErrDiff != nil {
+					assert.EqualError(t, err, testCase.expectedFuncExitErrDiff.Error(), "errors should be the same")
+				} else {
+					t.Fatal(err)
+				}
+			} else {
+				body, err := io.ReadAll(resp.Body)
+				assert.NoError(t, err, "unable to read the response body")
+
+				jwtToken := JWTToken{}
+				err = testCase.helper.Unmarshal(body, &jwtToken)
+				assert.NoError(t, err, "unable to parse the json input")
+
+				assert.Equalf(t, testCase.expectedToken, jwtToken.AccessToken, "two tokens should be the same")
+			}
 		})
 	}
 }
