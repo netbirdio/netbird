@@ -271,12 +271,12 @@ func (km *KeycloakManager) CreateUser(email string, name string, accountID strin
 	}
 
 	locationHeader := resp.Header.Get("location")
-	userId, err := extractUserIdFromLocationHeader(locationHeader)
+	userID, err := extractUserIDFromLocationHeader(locationHeader)
 	if err != nil {
 		return nil, err
 	}
 
-	return km.GetUserDataByID(userId, appMetadata)
+	return km.GetUserDataByID(userID, appMetadata)
 }
 
 // GetUserByEmail searches users with a given email.
@@ -310,8 +310,8 @@ func (km *KeycloakManager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 // GetUserDataByID requests user data from keycloak via ID.
-func (km *KeycloakManager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
-	body, err := km.get("users/"+userId, nil)
+func (km *KeycloakManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
+	body, err := km.get("users/"+userID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -330,9 +330,9 @@ func (km *KeycloakManager) GetUserDataByID(userId string, appMetadata AppMetadat
 }
 
 // GetAccount returns all the users for a given profile.
-func (km *KeycloakManager) GetAccount(accountId string) ([]*UserData, error) {
+func (km *KeycloakManager) GetAccount(accountID string) ([]*UserData, error) {
 	q := url.Values{}
-	q.Add("q", "wt_account_id:"+accountId)
+	q.Add("q", "wt_account_id:"+accountID)
 
 	body, err := km.get("users", q)
 	if err != nil {
@@ -387,20 +387,20 @@ func (km *KeycloakManager) GetAllAccounts() (map[string][]*UserData, error) {
 	for _, profile := range profiles {
 		userData := profile.userData()
 
-		accountId := userData.AppMetadata.WTAccountID
-		if accountId != "" {
-			if _, ok := indexedUsers[accountId]; !ok {
-				indexedUsers[accountId] = make([]*UserData, 0)
+		accountID := userData.AppMetadata.WTAccountID
+		if accountID != "" {
+			if _, ok := indexedUsers[accountID]; !ok {
+				indexedUsers[accountID] = make([]*UserData, 0)
 			}
-			indexedUsers[accountId] = append(indexedUsers[accountId], userData)
+			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
 		}
 	}
 
 	return indexedUsers, nil
 }
 
-// UpdateUserAppMetadata updates user app metadata based on userId and metadata map.
-func (km *KeycloakManager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
+// UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
+func (km *KeycloakManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	jwtToken, err := km.credentials.Authenticate()
 	if err != nil {
 		return err
@@ -414,7 +414,7 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userId string, appMetadata AppM
 		attrs.Set("wt_pending_invite", "false")
 	}
 
-	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userId)
+	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userID)
 	data, err := km.helper.Marshal(map[string]any{
 		"attributes": attrs,
 	})
@@ -430,7 +430,7 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userId string, appMetadata AppM
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
 
-	log.Debugf("updating IdP metadata for user %s", userId)
+	log.Debugf("updating IdP metadata for user %s", userID)
 
 	resp, err := km.httpClient.Do(req)
 	if err != nil {
@@ -532,20 +532,20 @@ func (km *KeycloakManager) totalUsersCount() (*int, error) {
 	return &count, nil
 }
 
-// extractUserIdFromLocationHeader" extracts the user ID from the location,
+// extractUserIDFromLocationHeader extracts the user ID from the location,
 // header once the user is created successfully
-func extractUserIdFromLocationHeader(locationHeader string) (string, error) {
-	userUrl, err := url.Parse(locationHeader)
+func extractUserIDFromLocationHeader(locationHeader string) (string, error) {
+	userURL, err := url.Parse(locationHeader)
 	if err != nil {
 		return "", err
 	}
 
-	return path.Base(userUrl.Path), nil
+	return path.Base(userURL.Path), nil
 }
 
 // userData construct user data from keycloak profile.
 func (kp keycloakProfile) userData() *UserData {
-	accountId := kp.Attributes.Get("wp_account_id")
+	accountID := kp.Attributes.Get("wp_account_id")
 	pendingInvite, err := strconv.ParseBool(kp.Attributes.Get("wt_pending_invite"))
 	if err != nil {
 		pendingInvite = false
@@ -556,7 +556,7 @@ func (kp keycloakProfile) userData() *UserData {
 		Name:  kp.Username,
 		ID:    kp.ID,
 		AppMetadata: AppMetadata{
-			WTAccountID:     accountId,
+			WTAccountID:     accountID,
 			WTPendingInvite: &pendingInvite,
 		},
 	}
