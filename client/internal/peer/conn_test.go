@@ -49,7 +49,7 @@ func TestConn_GetKey(t *testing.T) {
 
 func TestConn_OnRemoteOffer(t *testing.T) {
 
-	conn, err := NewConn(connConf, NewRecorder())
+	conn, err := NewConn(connConf, NewRecorder("https://mgm"))
 	if err != nil {
 		return
 	}
@@ -83,7 +83,7 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
 
-	conn, err := NewConn(connConf, NewRecorder())
+	conn, err := NewConn(connConf, NewRecorder("https://mgm"))
 	if err != nil {
 		return
 	}
@@ -116,7 +116,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 }
 func TestConn_Status(t *testing.T) {
 
-	conn, err := NewConn(connConf, NewRecorder())
+	conn, err := NewConn(connConf, NewRecorder("https://mgm"))
 	if err != nil {
 		return
 	}
@@ -143,7 +143,7 @@ func TestConn_Status(t *testing.T) {
 
 func TestConn_Close(t *testing.T) {
 
-	conn, err := NewConn(connConf, NewRecorder())
+	conn, err := NewConn(connConf, NewRecorder("https://mgm"))
 	if err != nil {
 		return
 	}

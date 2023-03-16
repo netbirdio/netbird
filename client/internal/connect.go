@@ -58,8 +58,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 		return err
 	}
 
-	managementURL := config.ManagementURL.String()
-	statusRecorder.MarkManagementDisconnected(managementURL)
+	statusRecorder.MarkManagementDisconnected()
 
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
@@ -73,13 +72,16 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 
 		engineCtx, cancel := context.WithCancel(ctx)
 		defer func() {
-			statusRecorder.MarkManagementDisconnected(managementURL)
+			statusRecorder.MarkManagementDisconnected()
 			statusRecorder.CleanLocalPeerState()
 			cancel()
 		}()
 
 		log.Debugf("conecting to the Management service %s", config.ManagementURL.Host)
 		mgmClient, err := mgm.NewClient(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
+		mgmNotifier := statusRecorderToMgmConnStateNotifier(statusRecorder)
+		mgmClient.SetConnStateListener(mgmNotifier)
+
 		if err != nil {
 			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))
 		}
@@ -101,7 +103,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 			}
 			return wrapErr(err)
 		}
-		statusRecorder.MarkManagementConnected(managementURL)
+		statusRecorder.MarkManagementConnected()
 
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
@@ -117,8 +119,10 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 			loginResp.GetWiretrusteeConfig().GetSignal().GetUri(),
 		)
 
-		statusRecorder.MarkSignalDisconnected(signalURL)
-		defer statusRecorder.MarkSignalDisconnected(signalURL)
+		statusRecorder.UpdateSignalAddress(signalURL)
+
+		statusRecorder.MarkSignalDisconnected()
+		defer statusRecorder.MarkSignalDisconnected()
 
 		// with the global Wiretrustee config in hand connect (just a connection, no stream yet) Signal
 		signalClient, err := connectToSignal(engineCtx, loginResp.GetWiretrusteeConfig(), myPrivateKey)
@@ -133,7 +137,10 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 			}
 		}()
 
-		statusRecorder.MarkSignalConnected(signalURL)
+		signalNotifier := statusRecorderToSignalConnStateNotifier(statusRecorder)
+		signalClient.SetConnStateListener(signalNotifier)
+
+		statusRecorder.MarkSignalConnected()
 
 		peerConfig := loginResp.GetPeerConfig()
 
@@ -319,4 +326,16 @@ func UpdateOldManagementPort(ctx context.Context, config *Config, configPath str
 	}
 
 	return config, nil
+}
+
+func statusRecorderToMgmConnStateNotifier(statusRecorder *peer.Status) mgm.ConnStateNotifier {
+	var sri interface{} = statusRecorder
+	mgmNotifier, _ := sri.(mgm.ConnStateNotifier)
+	return mgmNotifier
+}
+
+func statusRecorderToSignalConnStateNotifier(statusRecorder *peer.Status) signal.ConnStateNotifier {
+	var sri interface{} = statusRecorder
+	notifier, _ := sri.(signal.ConnStateNotifier)
+	return notifier
 }
