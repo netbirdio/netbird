@@ -3,6 +3,7 @@ package idp
 import (
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -151,6 +152,58 @@ func TestKeycloakRequestJWTToken(t *testing.T) {
 
 				assert.Equalf(t, testCase.expectedToken, jwtToken.AccessToken, "two tokens should be the same")
 			}
+		})
+	}
+}
+
+func TestKeycloakParseRequestJWTResponse(t *testing.T) {
+	type parseRequestJWTResponseTest struct {
+		name                 string
+		inputRespBody        string
+		helper               ManagerHelper
+		expectedToken        string
+		expectedExpiresIn    int
+		assertErrFunc        assert.ErrorAssertionFunc
+		assertErrFuncMessage string
+	}
+
+	exp := 100
+	token := newTestJWT(t, exp)
+
+	parseRequestJWTResponseTestCase1 := parseRequestJWTResponseTest{
+		name:                 "Parse Good JWT Body",
+		inputRespBody:        fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
+		helper:               JsonParser{},
+		expectedToken:        token,
+		expectedExpiresIn:    exp,
+		assertErrFunc:        assert.NoError,
+		assertErrFuncMessage: "no error was expected",
+	}
+	parseRequestJWTResponseTestCase2 := parseRequestJWTResponseTest{
+		name:                 "Parse Bad json JWT Body",
+		inputRespBody:        "",
+		helper:               JsonParser{},
+		expectedToken:        "",
+		expectedExpiresIn:    0,
+		assertErrFunc:        assert.Error,
+		assertErrFuncMessage: "json error was expected",
+	}
+
+	for _, testCase := range []parseRequestJWTResponseTest{parseRequestJWTResponseTestCase1, parseRequestJWTResponseTestCase2} {
+		t.Run(testCase.name, func(t *testing.T) {
+
+			rawBody := io.NopCloser(strings.NewReader(testCase.inputRespBody))
+			config := KeycloakClientConfig{}
+
+			creds := KeycloakCredentials{
+				clientConfig: config,
+				helper:       testCase.helper,
+			}
+			jwtToken, err := creds.parseRequestJWTResponse(rawBody)
+			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
+
+			assert.Equalf(t, testCase.expectedToken, jwtToken.AccessToken, "two tokens should be the same")
+			assert.Equalf(t, testCase.expectedExpiresIn, jwtToken.ExpiresIn, "the two expire times should be the same")
 		})
 	}
 }
