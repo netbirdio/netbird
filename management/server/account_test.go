@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"reflect"
@@ -456,6 +457,61 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 			require.EqualValues(t, testCase.expectedDomain, account.Domain, "expected account domain should match")
 		})
 	}
+}
+
+func TestAccountManager_GetAccountFromPAT(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId("account_id", "testuser", "")
+	account.Peers["testpeer"] = &Peer{
+		Key:      "peerkey",
+		SetupKey: "peerkeysetupkey",
+		IP:       net.IP{127, 0, 0, 1},
+		Meta:     PeerSystemMeta{},
+		Name:     "peer name",
+		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
+	}
+
+	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
+	hashedToken := sha256.Sum256([]byte(token))
+	pat := PersonalAccessToken{
+		ID:             "tokenId",
+		Description:    "some Description",
+		HashedToken:    string(hashedToken[:]),
+		ExpirationDate: time.Time{},
+		CreatedBy:      "testuser",
+		CreatedAt:      time.Time{},
+		LastUsed:       time.Time{},
+	}
+	account.Users["someUser"] = &User{
+		Id:         "someUser",
+		Role:       "",
+		AutoGroups: nil,
+		PATs:       []PersonalAccessToken{pat},
+	}
+	store.SaveAccount(account)
+
+	am := DefaultAccountManager{
+		Store:                   store,
+		cacheMux:                sync.Mutex{},
+		cacheLoading:            nil,
+		peersUpdateManager:      nil,
+		idpManager:              nil,
+		cacheManager:            nil,
+		ctx:                     nil,
+		eventStore:              nil,
+		singleAccountMode:       false,
+		singleAccountModeDomain: "",
+		dnsDomain:               "",
+		peerLoginExpiry:         nil,
+	}
+
+	account, user, err := am.GetAccountFromPAT(token)
+	if err != nil {
+		t.Fatalf("Error when getting Account from PAT: %s", err)
+	}
+
+	assert.Equal(t, "account_id", account.Id)
+	assert.Equal(t, "someUser", user.Id)
 }
 
 func TestAccountManager_PrivateAccount(t *testing.T) {

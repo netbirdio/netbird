@@ -189,6 +189,30 @@ func (am *DefaultAccountManager) CreateUser(accountID, userID string, invite *Us
 
 }
 
+// AddPATToUser takes the userID and the accountID the user belongs to and assigns a provided PersonalAccessToken to that user
+func (am *DefaultAccountManager) AddPATToUser(accountID string, userID string, pat PersonalAccessToken) error {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	user := account.Users[userID]
+	if user == nil {
+		return status.Errorf(status.NotFound, "user not found")
+	}
+
+	user.PATs = append(user.PATs, pat)
+
+	if err = am.Store.SaveAccount(account); err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.
 // Only User.AutoGroups field is allowed to be updated for now.
 func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User) (*UserInfo, error) {

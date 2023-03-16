@@ -33,7 +33,18 @@
                 },
                 "f4f6d672-63fb-11ec-90d6-0242ac120003": {
                     "Id": "f4f6d672-63fb-11ec-90d6-0242ac120003",
-                    "Role": "user"
+                    "Role": "user",
+                    "PATs":[
+                        {
+                            "ID":"9dj38s35-63fb-11ec-90d6-0242ac120003",
+                            "Description":"some Description",
+                            "HashedToken":"SoMeHaShEdToKeN",
+                            "ExpirationDate":"2023-02-27T00:00:00Z",
+                            "CreatedBy":"user",
+                            "CreatedAt":"2023-01-01T00:00:00Z",
+                            "LastUsed":"2023-02-01T00:00:00Z"
+                        }
+                    ]
                 }
             }
         }

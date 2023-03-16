@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"hash/crc32"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -12,17 +14,19 @@ import (
 	"sync"
 	"time"
 
+	"codeberg.org/ac/base62"
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	gocache "github.com/patrickmn/go-cache"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -50,6 +54,7 @@ type AccountManager interface {
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
+	GetAccountFromPAT(pat string) (*Account, *User, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
@@ -1110,6 +1115,47 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	}
 
 	return nil
+}
+
+// GetAccountFromPAT returns Account and User associated with a personal access token
+func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *User, error) {
+	if len(token) != PATLength {
+		return nil, nil, fmt.Errorf("token invalid")
+	}
+
+	prefix := token[:len(PATPrefix)]
+	if prefix != PATPrefix {
+		return nil, nil, fmt.Errorf("token invalid")
+	}
+	secret := token[len(PATPrefix):len(PATPrefix)]
+	encodedChecksum := token[34:40]
+
+	verificationChecksum, err := base62.Decode(encodedChecksum)
+	if err != nil {
+		return nil, nil, fmt.Errorf("token invalid")
+	}
+
+	secretChecksum := crc32.ChecksumIEEE([]byte(secret))
+	if secretChecksum != verificationChecksum {
+		return nil, nil, fmt.Errorf("token invalid")
+	}
+
+	hashedToken := sha256.Sum256([]byte(token))
+	tokenID, err := am.Store.GetTokenIDByHashedToken(string(hashedToken[:]))
+	if err != nil {
+		return nil, nil, fmt.Errorf("token invalid")
+	}
+
+	user, err := am.Store.GetUserByTokenID(tokenID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("token invalid")
+	}
+
+	account, err := am.Store.GetAccountByUser(user.Id)
+	if err != nil {
+		return nil, nil, fmt.Errorf("token invalid")
+	}
+	return account, user, nil
 }
 
 // GetAccountFromToken returns an account associated with this token
