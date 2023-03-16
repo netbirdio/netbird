@@ -22,6 +22,12 @@ import (
 	"time"
 )
 
+// ConnStateNotifier is a wrapper interface of the status recorder
+type ConnStateNotifier interface {
+	MarkSignalDisconnected()
+	MarkSignalConnected()
+}
+
 // GrpcClient Wraps the Signal Exchange Service gRpc client
 type GrpcClient struct {
 	key        wgtypes.Key
@@ -34,6 +40,9 @@ type GrpcClient struct {
 	mux         sync.Mutex
 	// StreamConnected indicates whether this client is StreamConnected to the Signal stream
 	status Status
+
+	connStateCallback     ConnStateNotifier
+	connStateCallbackLock sync.RWMutex
 }
 
 func (c *GrpcClient) StreamConnected() bool {
@@ -78,13 +87,21 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 	log.Debugf("connected to Signal Service: %v", conn.Target())
 
 	return &GrpcClient{
-		realClient: proto.NewSignalExchangeClient(conn),
-		ctx:        ctx,
-		signalConn: conn,
-		key:        key,
-		mux:        sync.Mutex{},
-		status:     StreamDisconnected,
+		realClient:            proto.NewSignalExchangeClient(conn),
+		ctx:                   ctx,
+		signalConn:            conn,
+		key:                   key,
+		mux:                   sync.Mutex{},
+		status:                StreamDisconnected,
+		connStateCallbackLock: sync.RWMutex{},
 	}, nil
+}
+
+// SetConnStateListener set the ConnStateNotifier
+func (c *GrpcClient) SetConnStateListener(notifier ConnStateNotifier) {
+	c.connStateCallbackLock.Lock()
+	defer c.connStateCallbackLock.Unlock()
+	c.connStateCallback = notifier
 }
 
 // defaultBackoff is a basic backoff mechanism for general issues
@@ -134,13 +151,14 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 		c.notifyStreamConnected()
 
 		log.Infof("connected to the Signal Service stream")
-
+		c.notifyConnected()
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream, msgHandler)
 		if err != nil {
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
 			// reset times and next try will start with a long delay
 			backOff.Reset()
+			c.notifyDisconnected()
 			log.Warnf("disconnected from the Signal service but will retry silently. Reason: %v", err)
 			return err
 		}
@@ -340,4 +358,24 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 			//todo send something??
 		}
 	}
+}
+
+func (c *GrpcClient) notifyDisconnected() {
+	c.connStateCallbackLock.RLock()
+	defer c.connStateCallbackLock.RUnlock()
+
+	if c.connStateCallback == nil {
+		return
+	}
+	c.connStateCallback.MarkSignalDisconnected()
+}
+
+func (c *GrpcClient) notifyConnected() {
+	c.connStateCallbackLock.RLock()
+	defer c.connStateCallbackLock.RUnlock()
+
+	if c.connStateCallback == nil {
+		return
+	}
+	c.connStateCallback.MarkSignalConnected()
 }
