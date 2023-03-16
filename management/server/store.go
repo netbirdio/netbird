@@ -6,8 +6,10 @@ type Store interface {
 	GetAccountByUser(userID string) (*Account, error)
 	GetAccountByPeerPubKey(peerKey string) (*Account, error)
 	GetAccountByPeerID(peerID string) (*Account, error)
-	GetAccountBySetupKey(setupKey string) (*Account, error) //todo use key hash later
+	GetAccountBySetupKey(setupKey string) (*Account, error) // todo use key hash later
 	GetAccountByPrivateDomain(domain string) (*Account, error)
+	GetTokenIDByHashedToken(secret string) (string, error)
+	GetUserByTokenID(tokenID string) (*User, error)
 	SaveAccount(account *Account) error
 	GetInstallationID() string
 	SaveInstallationID(ID string) error

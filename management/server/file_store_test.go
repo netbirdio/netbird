@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/sha256"
 	"net"
 	"path/filepath"
 	"testing"
@@ -70,6 +71,14 @@ func TestNewStore(t *testing.T) {
 
 	if store.UserID2AccountID == nil || len(store.UserID2AccountID) != 0 {
 		t.Errorf("expected to create a new empty UserID2AccountID map when creating a new FileStore")
+	}
+
+	if store.HashedPAT2TokenID == nil || len(store.HashedPAT2TokenID) != 0 {
+		t.Errorf("expected to create a new empty HashedPAT2TokenID map when creating a new FileStore")
+	}
+
+	if store.TokenID2UserID == nil || len(store.TokenID2UserID) != 0 {
+		t.Errorf("expected to create a new empty TokenID2UserID map when creating a new FileStore")
 	}
 }
 
@@ -239,11 +248,17 @@ func TestRestore(t *testing.T) {
 
 	require.NotNil(t, account.SetupKeys["A2C8E62B-38F5-4553-B31E-DD66C696CEBB"], "failed to restore a FileStore file - missing Account SetupKey A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
 
+	require.Len(t, account.Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs, 1, "failed to restore a FileStore wrong PATs length")
+
 	require.Len(t, store.UserID2AccountID, 2, "failed to restore a FileStore wrong UserID2AccountID mapping length")
 
 	require.Len(t, store.SetupKeyID2AccountID, 1, "failed to restore a FileStore wrong SetupKeyID2AccountID mapping length")
 
 	require.Len(t, store.PrivateDomain2AccountID, 1, "failed to restore a FileStore wrong PrivateDomain2AccountID mapping length")
+
+	require.Len(t, store.HashedPAT2TokenID, 1, "failed to restore a FileStore wrong HashedPAT2TokenID mapping length")
+
+	require.Len(t, store.TokenID2UserID, 1, "failed to restore a FileStore wrong TokenID2UserID mapping length")
 }
 
 func TestRestorePolicies_Migration(t *testing.T) {
@@ -346,6 +361,110 @@ func TestFileStore_GetAccount(t *testing.T) {
 	assert.Len(t, account.Rules, len(expected.Rules))
 	assert.Len(t, account.Routes, len(expected.Routes))
 	assert.Len(t, account.NameServerGroups, len(expected.NameServerGroups))
+}
+
+func TestFileStore_GetTokenIDByHashedToken(t *testing.T) {
+	storeDir := t.TempDir()
+	storeFile := filepath.Join(storeDir, "store.json")
+	err := util.CopyFileContents("testdata/store.json", storeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	accounts := &accounts{}
+	_, err = util.ReadJson(storeFile, accounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hashedToken := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].HashedToken
+	tokenID, err := store.GetTokenIDByHashedToken(hashedToken)
+
+	expectedTokenID := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].ID
+	assert.Equal(t, expectedTokenID, tokenID)
+}
+
+func TestFileStore_GetTokenIDByHashedToken_Failure(t *testing.T) {
+	storeDir := t.TempDir()
+	storeFile := filepath.Join(storeDir, "store.json")
+	err := util.CopyFileContents("testdata/store.json", storeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	accounts := &accounts{}
+	_, err = util.ReadJson(storeFile, accounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wrongToken := sha256.Sum256([]byte("someNotValidTokenThatFails1234"))
+	_, err = store.GetTokenIDByHashedToken(string(wrongToken[:]))
+
+	assert.Error(t, err, "GetTokenIDByHashedToken should throw error if token invalid")
+}
+
+func TestFileStore_GetUserByTokenID(t *testing.T) {
+	storeDir := t.TempDir()
+	storeFile := filepath.Join(storeDir, "store.json")
+	err := util.CopyFileContents("testdata/store.json", storeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	accounts := &accounts{}
+	_, err = util.ReadJson(storeFile, accounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tokenId := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].ID
+	user, err := store.GetUserByTokenID(tokenId)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assert.Equal(t, "f4f6d672-63fb-11ec-90d6-0242ac120003", user.Id)
+}
+
+func TestFileStore_GetUserByTokenID_Failure(t *testing.T) {
+	storeDir := t.TempDir()
+	storeFile := filepath.Join(storeDir, "store.json")
+	err := util.CopyFileContents("testdata/store.json", storeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	accounts := &accounts{}
+	_, err = util.ReadJson(storeFile, accounts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wrongTokenID := "someNonExistingTokenID"
+	_, err = store.GetUserByTokenID(wrongTokenID)
+
+	assert.Error(t, err, "GetUserByTokenID should throw error if tokenID invalid")
 }
 
 func TestFileStore_SavePeerStatus(t *testing.T) {

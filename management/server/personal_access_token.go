@@ -15,6 +15,7 @@ const (
 	// PATPrefix is the globally used, 4 char prefix for personal access tokens
 	PATPrefix    = "nbp_"
 	secretLength = 30
+	PATLength    = 40
 )
 
 // PersonalAccessToken holds all information about a PAT including a hashed version of it for verification

@@ -7,9 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/status"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -25,6 +26,8 @@ type FileStore struct {
 	PeerID2AccountID        map[string]string `json:"-"`
 	UserID2AccountID        map[string]string `json:"-"`
 	PrivateDomain2AccountID map[string]string `json:"-"`
+	HashedPAT2TokenID       map[string]string `json:"-"`
+	TokenID2UserID          map[string]string `json:"-"`
 	InstallationID          string
 
 	// mutex to synchronise Store read/write operations
@@ -57,6 +60,8 @@ func restore(file string) (*FileStore, error) {
 			UserID2AccountID:        make(map[string]string),
 			PrivateDomain2AccountID: make(map[string]string),
 			PeerID2AccountID:        make(map[string]string),
+			HashedPAT2TokenID:       make(map[string]string),
+			TokenID2UserID:          make(map[string]string),
 			storeFile:               file,
 		}
 
@@ -80,6 +85,8 @@ func restore(file string) (*FileStore, error) {
 	store.UserID2AccountID = make(map[string]string)
 	store.PrivateDomain2AccountID = make(map[string]string)
 	store.PeerID2AccountID = make(map[string]string)
+	store.HashedPAT2TokenID = make(map[string]string)
+	store.TokenID2UserID = make(map[string]string)
 
 	for accountID, account := range store.Accounts {
 		if account.Settings == nil {
@@ -103,9 +110,10 @@ func restore(file string) (*FileStore, error) {
 		}
 		for _, user := range account.Users {
 			store.UserID2AccountID[user.Id] = accountID
-		}
-		for _, user := range account.Users {
-			store.UserID2AccountID[user.Id] = accountID
+			for _, pat := range user.PATs {
+				store.TokenID2UserID[pat.ID] = user.Id
+				store.HashedPAT2TokenID[string(pat.HashedToken[:])] = pat.ID
+			}
 		}
 
 		if account.Domain != "" && account.DomainCategory == PrivateCategory &&
@@ -258,6 +266,10 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	for _, user := range accountCopy.Users {
 		s.UserID2AccountID[user.Id] = accountCopy.Id
+		for _, pat := range user.PATs {
+			s.TokenID2UserID[pat.ID] = user.Id
+			s.HashedPAT2TokenID[string(pat.HashedToken[:])] = pat.ID
+		}
 	}
 
 	if accountCopy.DomainCategory == PrivateCategory && accountCopy.IsDomainPrimaryAccount {
@@ -310,6 +322,42 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 	}
 
 	return account.Copy(), nil
+}
+
+// GetTokenIDByHashedToken returns the id of a personal access token by its hashed secret
+func (s *FileStore) GetTokenIDByHashedToken(token string) (string, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	tokenID, tokenIDFound := s.HashedPAT2TokenID[token]
+	if !tokenIDFound {
+		return "", status.Errorf(status.NotFound, "tokenID not found: provided token doesn't exists")
+	}
+
+	return tokenID, nil
+}
+
+// GetUserByTokenID returns a User object a tokenID belongs to
+func (s *FileStore) GetUserByTokenID(tokenID string) (*User, error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	userID, userIDFound := s.TokenID2UserID[tokenID]
+	if !userIDFound {
+		return nil, status.Errorf(status.NotFound, "user not found: provided tokenID doesn't exists")
+	}
+
+	accountID, accountIDFound := s.UserID2AccountID[userID]
+	if !accountIDFound {
+		return nil, status.Errorf(status.NotFound, "accountID not found: provided userID doesn't exists")
+	}
+
+	account, err := s.getAccount(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return account.Users[userID].Copy(), nil
 }
 
 // GetAllAccounts returns all accounts
