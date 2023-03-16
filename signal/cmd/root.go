@@ -7,6 +7,8 @@ import (
 	"runtime"
 
 	"github.com/spf13/cobra"
+
+	"github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -20,9 +22,10 @@ var (
 	logFile        string
 
 	rootCmd = &cobra.Command{
-		Use:   "netbird-signal",
-		Short: "",
-		Long:  "",
+		Use:     "netbird-signal",
+		Short:   "",
+		Long:    "",
+		Version: version.NetbirdVersion(),
 	}
 
 	// Execution control channel for stopCh signal

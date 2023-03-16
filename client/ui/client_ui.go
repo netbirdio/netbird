@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"flag"
 	"fmt"
 	"os"
@@ -17,25 +18,22 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/netbirdio/netbird/client/system"
-
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/app"
+	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/widget"
 	"github.com/cenkalti/backoff/v4"
-
-	_ "embed"
-
 	"github.com/getlantern/systray"
-	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/proto"
 	log "github.com/sirupsen/logrus"
 	"github.com/skratchdot/open-golang/open"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/widget"
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/version"
 )
 
 const (
@@ -373,7 +371,7 @@ func (s *serviceClient) onTrayReady() {
 	systray.AddSeparator()
 	s.mSettings = systray.AddMenuItem("Settings", "Settings of the application")
 	systray.AddSeparator()
-	v := systray.AddMenuItem("v"+system.NetbirdVersion(), "Client Version: "+system.NetbirdVersion())
+	v := systray.AddMenuItem("v"+version.NetbirdVersion(), "Client Version: "+version.NetbirdVersion())
 	v.Disable()
 	systray.AddSeparator()
 	s.mQuit = systray.AddMenuItem("Quit", "Quit the client app")

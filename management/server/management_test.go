@@ -2,7 +2,6 @@ package server_test
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/management/server/activity"
 	"math/rand"
 	"net"
 	"os"
@@ -10,6 +9,8 @@ import (
 	"runtime"
 	sync2 "sync"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/activity"
 
 	server "github.com/netbirdio/netbird/management/server"
 	"google.golang.org/grpc/credentials/insecure"
@@ -29,6 +30,7 @@ import (
 
 const (
 	ValidSetupKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+	AccountKey    = "bf1c8084-ba50-4ce7-9439-34653001fc3b"
 )
 
 var _ = Describe("Management service", func() {
@@ -127,6 +129,7 @@ var _ = Describe("Management service", func() {
 				actualTURN := resp.WiretrusteeConfig.Turns[0]
 				Expect(len(actualTURN.User) > 0).To(BeTrue())
 				Expect(actualTURN.HostConfig).To(BeEquivalentTo(expectedTRUNHost))
+				Expect(len(resp.NetworkMap.OfflinePeers) == 0).To(BeTrue())
 			})
 		})
 
@@ -240,7 +243,8 @@ var _ = Describe("Management service", func() {
 		Context("with an invalid setup key", func() {
 			Specify("an error is returned", func() {
 				key, _ := wgtypes.GenerateKey()
-				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: "invalid setup key"})
+				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{SetupKey: "invalid setup key",
+					Meta: &mgmtProto.PeerSystemMeta{}})
 				Expect(err).NotTo(HaveOccurred())
 
 				resp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
@@ -269,7 +273,7 @@ var _ = Describe("Management service", func() {
 				Expect(regResp).NotTo(BeNil())
 
 				// just login without registration
-				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{})
+				message, err := encryption.EncryptMessage(serverPubKey, key, &mgmtProto.LoginRequest{Meta: &mgmtProto.PeerSystemMeta{}})
 				Expect(err).NotTo(HaveOccurred())
 				loginResp, err := client.Login(context.TODO(), &mgmtProto.EncryptedMessage{
 					WgPubKey: key.PublicKey().String(),

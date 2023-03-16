@@ -1,16 +1,16 @@
 package server
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 
 	"github.com/rs/xid"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 func TestPeer_LoginExpired(t *testing.T) {
-
 	tt := []struct {
 		name              string
 		expirationEnabled bool
@@ -55,6 +55,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 			peer := &Peer{
 				LoginExpirationEnabled: c.expirationEnabled,
 				LastLogin:              c.lastLogin,
+				UserID:                 userID,
 			}
 
 			expired, _ := peer.LoginExpired(c.accountSettings.PeerLoginExpiration)
@@ -90,12 +91,10 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		return
 	}
 
-	peer1, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer1, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
-		Meta: PeerSystemMeta{},
-		Name: "test-peer-2",
+		Meta: PeerSystemMeta{Hostname: "test-peer-1"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -106,10 +105,9 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
+	_, _, err = manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
-		Meta: PeerSystemMeta{},
-		Name: "test-peer-2",
+		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
 
 	if err != nil {
@@ -125,6 +123,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 
 	if len(networkMap.Peers) != 1 {
 		t.Errorf("expecting Account NetworkMap to have 1 peers, got %v", len(networkMap.Peers))
+		return
 	}
 
 	if networkMap.Peers[0].Key != peerKey2.PublicKey().String() {
@@ -136,7 +135,7 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 	}
 }
 
-func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
+func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
@@ -163,12 +162,10 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	peer1, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer1, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
-		Meta: PeerSystemMeta{},
-		Name: "test-peer-2",
+		Meta: PeerSystemMeta{Hostname: "test-peer-1"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -179,24 +176,22 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	peer2, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer2, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
-		Meta: PeerSystemMeta{},
-		Name: "test-peer-2",
+		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
 	}
 
-	rules, err := manager.ListRules(account.Id, userID)
+	policies, err := manager.ListPolicies(account.Id, userID)
 	if err != nil {
 		t.Errorf("expecting to get a list of rules, got failure %v", err)
 		return
 	}
 
-	err = manager.DeleteRule(account.Id, rules[0].ID, userID)
+	err = manager.DeletePolicy(account.Id, policies[0].ID, userID)
 	if err != nil {
 		t.Errorf("expecting to delete 1 group, got failure %v", err)
 		return
@@ -204,14 +199,14 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 	var (
 		group1 Group
 		group2 Group
-		rule   Rule
+		policy Policy
 	)
 
 	group1.ID = xid.New().String()
 	group2.ID = xid.New().String()
 	group1.Name = "src"
 	group2.Name = "dst"
-	rule.ID = xid.New().String()
+	policy.ID = xid.New().String()
 	group1.Peers = append(group1.Peers, peer1.ID)
 	group2.Peers = append(group2.Peers, peer2.ID)
 
@@ -226,11 +221,21 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		return
 	}
 
-	rule.Name = "test"
-	rule.Source = append(rule.Source, group1.ID)
-	rule.Destination = append(rule.Destination, group2.ID)
-	rule.Flow = TrafficFlowBidirect
-	err = manager.SaveRule(account.Id, userID, &rule)
+	policy.Name = "test"
+	policy.Enabled = true
+	policy.Rules = []*PolicyRule{
+		{
+			Enabled:      true,
+			Sources:      []string{group1.ID},
+			Destinations: []string{group2.ID},
+			Action:       PolicyTrafficActionAccept,
+		},
+	}
+	if err := policy.UpdateQueryFromRules(); err != nil {
+		t.Errorf("expecting policy to be updated, got failure %v", err)
+		return
+	}
+	err = manager.SavePolicy(account.Id, userID, &policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -277,8 +282,8 @@ func TestAccountManager_GetNetworkMapWithRule(t *testing.T) {
 		)
 	}
 
-	rule.Disabled = true
-	err = manager.SaveRule(account.Id, userID, &rule)
+	policy.Enabled = false
+	err = manager.SavePolicy(account.Id, userID, &policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)
 		return
@@ -332,12 +337,10 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		return
 	}
 
-	peer1, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer1, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey1.PublicKey().String(),
-		Meta: PeerSystemMeta{},
-		Name: "test-peer-2",
+		Meta: PeerSystemMeta{Hostname: "test-peer-1"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -348,10 +351,9 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-	_, err = manager.AddPeer(setupKey.Key, "", &Peer{
+	_, _, err = manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
-		Meta: PeerSystemMeta{},
-		Name: "test-peer-2",
+		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
 
 	if err != nil {
@@ -368,7 +370,6 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 	if account.Network.Id != network.Id {
 		t.Errorf("expecting Account Networks ID to be equal, got %s expected %s", network.Id, account.Network.Id)
 	}
-
 }
 
 func TestDefaultAccountManager_GetPeer(t *testing.T) {
@@ -401,12 +402,10 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 
-	peer1, err := manager.AddPeer("", someUser, &Peer{
+	peer1, _, err := manager.AddPeer("", someUser, &Peer{
 		Key:  peerKey1.PublicKey().String(),
-		Meta: PeerSystemMeta{},
-		Name: "test-peer-2",
+		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
-
 	if err != nil {
 		t.Errorf("expecting peer to be added, got failure %v", err)
 		return
@@ -419,12 +418,10 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// the second peer added with a setup key
-	peer2, err := manager.AddPeer(setupKey.Key, "", &Peer{
+	peer2, _, err := manager.AddPeer(setupKey.Key, "", &Peer{
 		Key:  peerKey2.PublicKey().String(),
-		Meta: PeerSystemMeta{},
-		Name: "test-peer-2",
+		Meta: PeerSystemMeta{Hostname: "test-peer-2"},
 	})
-
 	if err != nil {
 		t.Fatal(err)
 		return
@@ -446,9 +443,9 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 	assert.NotNil(t, peer)
 
-	// delete the all-to-all rule so that user's peer1 has no access to peer2
-	for _, rule := range account.Rules {
-		err = manager.DeleteRule(accountID, rule.ID, adminUser)
+	// delete the all-to-all policy so that user's peer1 has no access to peer2
+	for _, policy := range account.Policies {
+		err = manager.DeletePolicy(accountID, policy.ID, adminUser)
 		if err != nil {
 			t.Fatal(err)
 			return
@@ -473,11 +470,9 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 	assert.NotNil(t, peer)
-
 }
 
 func getSetupKey(account *Account, keyType SetupKeyType) *SetupKey {
-
 	var setupKey *SetupKey
 	for _, key := range account.SetupKeys {
 		if key.Type == keyType {

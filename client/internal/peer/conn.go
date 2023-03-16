@@ -7,13 +7,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal/proxy"
-	nbStatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/client/system"
-	"github.com/netbirdio/netbird/iface"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
+
+	"github.com/netbirdio/netbird/client/internal/proxy"
+	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/version"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -83,7 +83,7 @@ type Conn struct {
 	agent  *ice.Agent
 	status ConnStatus
 
-	statusRecorder *nbStatus.Status
+	statusRecorder *Status
 
 	proxy proxy.Proxy
 }
@@ -100,7 +100,7 @@ func (conn *Conn) UpdateConf(conf ConnConfig) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *nbStatus.Status) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -190,11 +190,11 @@ func (conn *Conn) reCreateAgent() error {
 func (conn *Conn) Open() error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
-	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
+	peerState := State{PubKey: conn.config.Key}
 
 	peerState.IP = strings.Split(conn.config.ProxyConfig.AllowedIps, "/")[0]
 	peerState.ConnStatusUpdate = time.Now()
-	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatus = conn.status
 
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -250,9 +250,9 @@ func (conn *Conn) Open() error {
 	defer conn.notifyDisconnected()
 	conn.mu.Unlock()
 
-	peerState = nbStatus.PeerState{PubKey: conn.config.Key}
+	peerState = State{PubKey: conn.config.Key}
 
-	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatus = conn.status
 	peerState.ConnStatusUpdate = time.Now()
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -310,38 +310,44 @@ func (conn *Conn) Open() error {
 }
 
 // useProxy determines whether a direct connection (without a go proxy) is possible
-// There are 3 cases: one of the peers has a public IP or both peers are in the same private network
+//
+// There are 2 cases:
+//
+// * When neither candidate is from hard nat and one of the peers has a public IP
+//
+// * both peers are in the same private network
+//
 // Please note, that this check happens when peers were already able to ping each other using ICE layer.
 func shouldUseProxy(pair *ice.CandidatePair) bool {
-	remoteIP := net.ParseIP(pair.Remote.Address())
-	myIp := net.ParseIP(pair.Local.Address())
-	remoteIsPublic := IsPublicIP(remoteIP)
-	myIsPublic := IsPublicIP(myIp)
-
-	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
-		return true
-	}
-
-	//one of the hosts has a public IP
-	if remoteIsPublic && pair.Remote.Type() == ice.CandidateTypeHost {
-		return false
-	}
-	if myIsPublic && pair.Local.Type() == ice.CandidateTypeHost {
+	if !isHardNATCandidate(pair.Local) && isHostCandidateWithPublicIP(pair.Remote) {
 		return false
 	}
 
-	if pair.Local.Type() == ice.CandidateTypeHost && pair.Remote.Type() == ice.CandidateTypeHost {
-		if !remoteIsPublic && !myIsPublic {
-			//both hosts are in the same private network
-			return false
-		}
+	if !isHardNATCandidate(pair.Remote) && isHostCandidateWithPublicIP(pair.Local) {
+		return false
+	}
+
+	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) {
+		return false
 	}
 
 	return true
 }
 
-// IsPublicIP indicates whether IP is public or not.
-func IsPublicIP(ip net.IP) bool {
+func isHardNATCandidate(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypeRelay || candidate.Type() == ice.CandidateTypePeerReflexive
+}
+
+func isHostCandidateWithPublicIP(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypeHost && isPublicIP(candidate.Address())
+}
+
+func isHostCandidateWithPrivateIP(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypeHost && !isPublicIP(candidate.Address())
+}
+
+func isPublicIP(address string) bool {
+	ip := net.ParseIP(address)
 	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
 		return false
 	}
@@ -359,7 +365,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 		return err
 	}
 
-	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
+	peerState := State{PubKey: conn.config.Key}
 	useProxy := shouldUseProxy(pair)
 	var p proxy.Proxy
 	if useProxy {
@@ -377,7 +383,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 
 	conn.status = StatusConnected
 
-	peerState.ConnStatus = conn.status.String()
+	peerState.ConnStatus = conn.status
 	peerState.ConnStatusUpdate = time.Now()
 	peerState.LocalIceCandidateType = pair.Local.Type().String()
 	peerState.RemoteIceCandidateType = pair.Remote.Type().String()
@@ -422,8 +428,8 @@ func (conn *Conn) cleanup() error {
 
 	conn.status = StatusDisconnected
 
-	peerState := nbStatus.PeerState{PubKey: conn.config.Key}
-	peerState.ConnStatus = conn.status.String()
+	peerState := State{PubKey: conn.config.Key}
+	peerState.ConnStatus = conn.status
 	peerState.ConnStatusUpdate = time.Now()
 
 	err := conn.statusRecorder.UpdatePeerState(peerState)
@@ -494,7 +500,7 @@ func (conn *Conn) sendAnswer() error {
 	err = conn.signalAnswer(OfferAnswer{
 		IceCredentials: IceCredentials{localUFrag, localPwd},
 		WgListenPort:   conn.config.LocalWgPort,
-		Version:        system.NetbirdVersion(),
+		Version:        version.NetbirdVersion(),
 	})
 	if err != nil {
 		return err
@@ -515,7 +521,7 @@ func (conn *Conn) sendOffer() error {
 	err = conn.signalOffer(OfferAnswer{
 		IceCredentials: IceCredentials{localUFrag, localPwd},
 		WgListenPort:   conn.config.LocalWgPort,
-		Version:        system.NetbirdVersion(),
+		Version:        version.NetbirdVersion(),
 	})
 	if err != nil {
 		return err

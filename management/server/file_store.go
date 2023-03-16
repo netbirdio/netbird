@@ -1,14 +1,15 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -81,7 +82,6 @@ func restore(file string) (*FileStore, error) {
 	store.PeerID2AccountID = make(map[string]string)
 
 	for accountID, account := range store.Accounts {
-
 		if account.Settings == nil {
 			account.Settings = &Settings{
 				PeerLoginExpirationEnabled: false,
@@ -113,6 +113,19 @@ func restore(file string) (*FileStore, error) {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
 
+		// if no policies are defined, that means we need to migrate Rules to policies
+		if len(account.Policies) == 0 {
+			account.Policies = make([]*Policy, 0)
+			for _, rule := range account.Rules {
+				policy, err := RuleToPolicy(rule)
+				if err != nil {
+					log.Errorf("unable to migrate rule to policy: %v", err)
+					continue
+				}
+				account.Policies = append(account.Policies, policy)
+			}
+		}
+
 		// for data migration. Can be removed once most base will be with labels
 		existingLabels := account.getPeerDNSLabels()
 		if len(existingLabels) != len(account.Peers) {
@@ -140,6 +153,10 @@ func restore(file string) (*FileStore, error) {
 		// Swap Peer.Key with Peer.ID in the Account.Peers map.
 		migrationPeers := make(map[string]*Peer) // key to Peer
 		for key, peer := range account.Peers {
+			// set LastLogin for the peers that were onboarded before the peer login expiration feature
+			if peer.LastLogin.IsZero() {
+				peer.LastLogin = time.Now()
+			}
 			if peer.ID != "" {
 				continue
 			}
@@ -149,7 +166,6 @@ func restore(file string) (*FileStore, error) {
 		}
 
 		if len(migrationPeers) > 0 {
-
 			// swap Peer.Key with Peer.ID in the Account.Peers map.
 			for key, peer := range migrationPeers {
 				delete(account.Peers, key)
@@ -165,6 +181,7 @@ func restore(file string) (*FileStore, error) {
 					}
 				}
 			}
+
 			// detect routes that have Peer.Key as a reference and replace it with ID.
 			for _, route := range account.Routes {
 				if peer, ok := migrationPeers[route.Peer]; ok {
@@ -245,6 +262,15 @@ func (s *FileStore) SaveAccount(account *Account) error {
 
 	if accountCopy.DomainCategory == PrivateCategory && accountCopy.IsDomainPrimaryAccount {
 		s.PrivateDomain2AccountID[accountCopy.Domain] = accountCopy.Id
+	}
+
+	if accountCopy.Rules == nil {
+		accountCopy.Rules = make(map[string]*Rule)
+	}
+	for _, policy := range accountCopy.Policies {
+		for _, rule := range policy.Rules {
+			accountCopy.Rules[rule.ID] = rule.ToRule()
+		}
 	}
 
 	return s.persist(s.storeFile)

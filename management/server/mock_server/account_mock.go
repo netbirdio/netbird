@@ -25,12 +25,11 @@ type MockAccountManager struct {
 	GetPeerByKeyFunc                func(peerKey string) (*server.Peer, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
 	MarkPeerConnectedFunc           func(peerKey string, connected bool) error
-	MarkPeerLoginExpiredFunc        func(peerPubKey string, loginExpired bool) error
 	DeletePeerFunc                  func(accountID, peerKey, userID string) (*server.Peer, error)
 	GetPeerByIPFunc                 func(accountId string, peerIP string) (*server.Peer, error)
 	GetNetworkMapFunc               func(peerKey string) (*server.NetworkMap, error)
 	GetPeerNetworkFunc              func(peerKey string) (*server.Network, error)
-	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, error)
+	AddPeerFunc                     func(setupKey string, userId string, peer *server.Peer) (*server.Peer, *server.NetworkMap, error)
 	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
 	UpdateGroupFunc                 func(accountID string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error)
@@ -41,9 +40,12 @@ type MockAccountManager struct {
 	GroupListPeersFunc              func(accountID, groupID string) ([]*server.Peer, error)
 	GetRuleFunc                     func(accountID, ruleID, userID string) (*server.Rule, error)
 	SaveRuleFunc                    func(accountID, userID string, rule *server.Rule) error
-	UpdateRuleFunc                  func(accountID string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error)
 	DeleteRuleFunc                  func(accountID, ruleID, userID string) error
 	ListRulesFunc                   func(accountID, userID string) ([]*server.Rule, error)
+	GetPolicyFunc                   func(accountID, policyID, userID string) (*server.Policy, error)
+	SavePolicyFunc                  func(accountID, userID string, policy *server.Policy) error
+	DeletePolicyFunc                func(accountID, policyID, userID string) error
+	ListPoliciesFunc                func(accountID, userID string) ([]*server.Policy, error)
 	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
 	UpdatePeerMetaFunc              func(peerID string, meta server.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerID string, sshKey string) error
@@ -70,9 +72,9 @@ type MockAccountManager struct {
 	GetDNSSettingsFunc              func(accountID, userID string) (*server.DNSSettings, error)
 	SaveDNSSettingsFunc             func(accountID, userID string, dnsSettingsToSave *server.DNSSettings) error
 	GetPeerFunc                     func(accountID, peerID, userID string) (*server.Peer, error)
-	GetAccountByPeerIDFunc          func(peerID string) (*server.Account, error)
-	UpdatePeerLastLoginFunc         func(peerID string) error
 	UpdateAccountSettingsFunc       func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
+	LoginPeerFunc                   func(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error)
+	SyncPeerFunc                    func(sync server.PeerSync) (*server.Peer, *server.NetworkMap, error)
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -165,14 +167,6 @@ func (am *MockAccountManager) MarkPeerConnected(peerKey string, connected bool) 
 	return status.Errorf(codes.Unimplemented, "method MarkPeerConnected is not implemented")
 }
 
-// MarkPeerLoginExpired mock implementation of MarkPeerLoginExpired from server.AccountManager interface
-func (am *MockAccountManager) MarkPeerLoginExpired(peerPubKey string, loginExpired bool) error {
-	if am.MarkPeerLoginExpiredFunc != nil {
-		return am.MarkPeerLoginExpiredFunc(peerPubKey, loginExpired)
-	}
-	return status.Errorf(codes.Unimplemented, "method MarkPeerLoginExpired is not implemented")
-}
-
 // GetPeerByIP mock implementation of GetPeerByIP from server.AccountManager interface
 func (am *MockAccountManager) GetPeerByIP(accountId string, peerIP string) (*server.Peer, error) {
 	if am.GetPeerByIPFunc != nil {
@@ -202,11 +196,11 @@ func (am *MockAccountManager) AddPeer(
 	setupKey string,
 	userId string,
 	peer *server.Peer,
-) (*server.Peer, error) {
+) (*server.Peer, *server.NetworkMap, error) {
 	if am.AddPeerFunc != nil {
 		return am.AddPeerFunc(setupKey, userId, peer)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
+	return nil, nil, status.Errorf(codes.Unimplemented, "method AddPeer is not implemented")
 }
 
 // GetGroup mock implementation of GetGroup from server.AccountManager interface
@@ -289,14 +283,6 @@ func (am *MockAccountManager) SaveRule(accountID, userID string, rule *server.Ru
 	return status.Errorf(codes.Unimplemented, "method SaveRule is not implemented")
 }
 
-// UpdateRule mock implementation of UpdateRule from server.AccountManager interface
-func (am *MockAccountManager) UpdateRule(accountID string, ruleID string, operations []server.RuleUpdateOperation) (*server.Rule, error) {
-	if am.UpdateRuleFunc != nil {
-		return am.UpdateRuleFunc(accountID, ruleID, operations)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method UpdateRule not implemented")
-}
-
 // DeleteRule mock implementation of DeleteRule from server.AccountManager interface
 func (am *MockAccountManager) DeleteRule(accountID, ruleID, userID string) error {
 	if am.DeleteRuleFunc != nil {
@@ -311,6 +297,38 @@ func (am *MockAccountManager) ListRules(accountID, userID string) ([]*server.Rul
 		return am.ListRulesFunc(accountID, userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method ListRules is not implemented")
+}
+
+// GetPolicy mock implementation of GetPolicy from server.AccountManager interface
+func (am *MockAccountManager) GetPolicy(accountID, policyID, userID string) (*server.Policy, error) {
+	if am.GetPolicyFunc != nil {
+		return am.GetPolicyFunc(accountID, policyID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPolicy is not implemented")
+}
+
+// SavePolicy mock implementation of SavePolicy from server.AccountManager interface
+func (am *MockAccountManager) SavePolicy(accountID, userID string, policy *server.Policy) error {
+	if am.SavePolicyFunc != nil {
+		return am.SavePolicyFunc(accountID, userID, policy)
+	}
+	return status.Errorf(codes.Unimplemented, "method SavePolicy is not implemented")
+}
+
+// DeletePolicy mock implementation of DeletePolicy from server.AccountManager interface
+func (am *MockAccountManager) DeletePolicy(accountID, policyID, userID string) error {
+	if am.DeletePolicyFunc != nil {
+		return am.DeletePolicyFunc(accountID, policyID, userID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeletePolicy is not implemented")
+}
+
+// ListPolicies mock implementation of ListPolicies from server.AccountManager interface
+func (am *MockAccountManager) ListPolicies(accountID, userID string) ([]*server.Policy, error) {
+	if am.ListPoliciesFunc != nil {
+		return am.ListPoliciesFunc(accountID, userID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method ListPolicies is not implemented")
 }
 
 // UpdatePeerMeta mock implementation of UpdatePeerMeta from server.AccountManager interface
@@ -486,7 +504,8 @@ func (am *MockAccountManager) CreateUser(accountID, userID string, invite *serve
 
 // GetAccountFromToken mocks GetAccountFromToken of the AccountManager interface
 func (am *MockAccountManager) GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*server.Account, *server.User,
-	error) {
+	error,
+) {
 	if am.GetAccountFromTokenFunc != nil {
 		return am.GetAccountFromTokenFunc(claims)
 	}
@@ -541,26 +560,26 @@ func (am *MockAccountManager) GetPeer(accountID, peerID, userID string) (*server
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeer is not implemented")
 }
 
-// GetAccountByPeerID mocks GetAccountByPeerID of the AccountManager interface
-func (am *MockAccountManager) GetAccountByPeerID(peerID string) (*server.Account, error) {
-	if am.GetAccountByPeerIDFunc != nil {
-		return am.GetAccountByPeerIDFunc(peerID)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByPeerID is not implemented")
-}
-
-// UpdatePeerLastLogin mocks UpdatePeerLastLogin of the AccountManager interface
-func (am *MockAccountManager) UpdatePeerLastLogin(peerID string) error {
-	if am.UpdatePeerLastLoginFunc != nil {
-		return am.UpdatePeerLastLoginFunc(peerID)
-	}
-	return status.Errorf(codes.Unimplemented, "method UpdatePeerLastLogin is not implemented")
-}
-
 // UpdateAccountSettings mocks UpdateAccountSettings of the AccountManager interface
 func (am *MockAccountManager) UpdateAccountSettings(accountID, userID string, newSettings *server.Settings) (*server.Account, error) {
 	if am.UpdateAccountSettingsFunc != nil {
 		return am.UpdateAccountSettingsFunc(accountID, userID, newSettings)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateAccountSettings is not implemented")
+}
+
+// LoginPeer mocks LoginPeer of the AccountManager interface
+func (am *MockAccountManager) LoginPeer(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error) {
+	if am.LoginPeerFunc != nil {
+		return am.LoginPeerFunc(login)
+	}
+	return nil, nil, status.Errorf(codes.Unimplemented, "method LoginPeer is not implemented")
+}
+
+// SyncPeer mocks SyncPeer of the AccountManager interface
+func (am *MockAccountManager) SyncPeer(sync server.PeerSync) (*server.Peer, *server.NetworkMap, error) {
+	if am.SyncPeerFunc != nil {
+		return am.SyncPeerFunc(sync)
+	}
+	return nil, nil, status.Errorf(codes.Unimplemented, "method SyncPeer is not implemented")
 }

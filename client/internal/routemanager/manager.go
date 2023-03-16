@@ -6,11 +6,12 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/client/system"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/route"
-	log "github.com/sirupsen/logrus"
+	"github.com/netbirdio/netbird/version"
 )
 
 // Manager is a route manager interface
@@ -27,13 +28,13 @@ type DefaultManager struct {
 	clientNetworks map[string]*clientNetwork
 	serverRoutes   map[string]*route.Route
 	serverRouter   *serverRouter
-	statusRecorder *status.Status
+	statusRecorder *peer.Status
 	wgInterface    *iface.WGIface
 	pubKey         string
 }
 
 // NewManager returns a new route manager
-func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *status.Status) *DefaultManager {
+func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status) *DefaultManager {
 	mCTX, cancel := context.WithCancel(ctx)
 	return &DefaultManager{
 		ctx:            mCTX,
@@ -170,7 +171,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 				// we skip this route management
 				if newRoute.Network.Bits() < 7 {
 					log.Errorf("this agent version: %s, doesn't support default routes, received %s, skiping this route",
-						system.NetbirdVersion(), newRoute.Network)
+						version.NetbirdVersion(), newRoute.Network)
 					continue
 				}
 				newClientRoutesIDMap[networkID] = append(newClientRoutesIDMap[networkID], newRoute)

@@ -12,24 +12,23 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal/dns"
-	"github.com/netbirdio/netbird/client/internal/routemanager"
-	nbssh "github.com/netbirdio/netbird/client/ssh"
-	nbstatus "github.com/netbirdio/netbird/client/status"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/route"
-
-	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/proxy"
-	"github.com/netbirdio/netbird/iface"
-	mgm "github.com/netbirdio/netbird/management/client"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
-	signal "github.com/netbirdio/netbird/signal/client"
-	sProto "github.com/netbirdio/netbird/signal/proto"
-	"github.com/netbirdio/netbird/util"
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
+
+	"github.com/netbirdio/netbird/client/internal/dns"
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/proxy"
+	"github.com/netbirdio/netbird/client/internal/routemanager"
+	nbssh "github.com/netbirdio/netbird/client/ssh"
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
+	mgm "github.com/netbirdio/netbird/management/client"
+	mgmProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/route"
+	signal "github.com/netbirdio/netbird/signal/client"
+	sProto "github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/util"
 )
 
 // PeerConnectionTimeoutMax is a timeout of an initial connection attempt to a remote peer.
@@ -109,7 +108,7 @@ type Engine struct {
 	sshServerFunc func(hostKeyPEM []byte, addr string) (nbssh.Server, error)
 	sshServer     nbssh.Server
 
-	statusRecorder *nbstatus.Status
+	statusRecorder *peer.Status
 
 	routeManager routemanager.Manager
 
@@ -126,14 +125,14 @@ type Peer struct {
 func NewEngine(
 	ctx context.Context, cancel context.CancelFunc,
 	signalClient signal.Client, mgmClient mgm.Client,
-	config *EngineConfig, statusRecorder *nbstatus.Status,
+	config *EngineConfig, statusRecorder *peer.Status,
 ) *Engine {
 	return &Engine{
 		ctx:            ctx,
 		cancel:         cancel,
 		signal:         signalClient,
 		mgmClient:      mgmClient,
-		peerConns:      map[string]*peer.Conn{},
+		peerConns:      make(map[string]*peer.Conn),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
 		STUNs:          []*ice.URL{},
@@ -338,42 +337,6 @@ func (e *Engine) removePeer(peerKey string) error {
 	return nil
 }
 
-// GetPeerConnectionStatus returns a connection Status or nil if peer connection wasn't found
-func (e *Engine) GetPeerConnectionStatus(peerKey string) peer.ConnStatus {
-	conn, exists := e.peerConns[peerKey]
-	if exists && conn != nil {
-		return conn.Status()
-	}
-
-	return -1
-}
-
-func (e *Engine) GetPeers() []string {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-
-	peers := []string{}
-	for s := range e.peerConns {
-		peers = append(peers, s)
-	}
-	return peers
-}
-
-// GetConnectedPeers returns a connection Status or nil if peer connection wasn't found
-func (e *Engine) GetConnectedPeers() []string {
-	e.syncMsgMux.Lock()
-	defer e.syncMsgMux.Unlock()
-
-	peers := []string{}
-	for s, conn := range e.peerConns {
-		if conn.Status() == peer.StatusConnected {
-			peers = append(peers, s)
-		}
-	}
-
-	return peers
-}
-
 func signalCandidate(candidate ice.Candidate, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client) error {
 	err := s.Send(&sProto.Message{
 		Key:       myKey.PublicKey().String(),
@@ -509,7 +472,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		}
 	}
 
-	e.statusRecorder.UpdateLocalPeerState(nbstatus.LocalPeerState{
+	e.statusRecorder.UpdateLocalPeerState(peer.LocalPeerState{
 		IP:              e.config.WgAddr,
 		PubKey:          e.config.WgPrivateKey.PublicKey().String(),
 		KernelInterface: iface.WireguardModuleIsLoaded(),
@@ -593,6 +556,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	log.Debugf("got peers update from Management Service, total peers to connect to = %d", len(networkMap.GetRemotePeers()))
+
+	e.updateOfflinePeers(networkMap.GetOfflinePeers())
 
 	// cleanup request, most likely our peer has been deleted
 	if networkMap.GetRemotePeersIsEmpty() {
@@ -708,6 +673,21 @@ func toDNSConfig(protoDNSConfig *mgmProto.DNSConfig) nbdns.Config {
 		dnsUpdate.NameServerGroups = append(dnsUpdate.NameServerGroups, dnsNSGroup)
 	}
 	return dnsUpdate
+}
+
+func (e *Engine) updateOfflinePeers(offlinePeers []*mgmProto.RemotePeerConfig) {
+	replacement := make([]peer.State, len(offlinePeers))
+	for i, offlinePeer := range offlinePeers {
+		log.Debugf("added offline peer %s", offlinePeer.Fqdn)
+		replacement[i] = peer.State{
+			IP:               strings.Join(offlinePeer.GetAllowedIps(), ","),
+			PubKey:           offlinePeer.GetWgPubKey(),
+			FQDN:             offlinePeer.GetFqdn(),
+			ConnStatus:       peer.StatusDisconnected,
+			ConnStatusUpdate: time.Now(),
+		}
+	}
+	e.statusRecorder.ReplaceOfflinePeers(replacement)
 }
 
 // addNewPeers adds peers that were not know before but arrived from the Management service with the update

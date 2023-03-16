@@ -1,12 +1,13 @@
 package server
 
 import (
+	"net/netip"
+	"testing"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
-	"net/netip"
-	"testing"
 )
 
 const (
@@ -21,7 +22,6 @@ const (
 )
 
 func TestCreateRoute(t *testing.T) {
-
 	type input struct {
 		network     string
 		netID       string
@@ -265,13 +265,11 @@ func TestCreateRoute(t *testing.T) {
 			if !testCase.expectedRoute.IsEqual(outRoute) {
 				t.Errorf("new route didn't match expected route:\nGot %#v\nExpected:%#v\n", outRoute, testCase.expectedRoute)
 			}
-
 		})
 	}
 }
 
 func TestSaveRoute(t *testing.T) {
-
 	validPeer := peer2ID
 	invalidPeer := "nonExisting"
 	validPrefix := netip.MustParsePrefix("192.168.0.0/24")
@@ -521,7 +519,6 @@ func TestSaveRoute(t *testing.T) {
 			if !testCase.expectedRoute.IsEqual(savedRoute) {
 				t.Errorf("new route didn't match expected route:\nGot %#v\nExpected:%#v\n", savedRoute, testCase.expectedRoute)
 			}
-
 		})
 	}
 }
@@ -781,13 +778,11 @@ func TestUpdateRoute(t *testing.T) {
 			if !testCase.expectedRoute.IsEqual(updatedRoute) {
 				t.Errorf("new route didn't match expected route:\nGot %#v\nExpected:%#v\n", updatedRoute, testCase.expectedRoute)
 			}
-
 		})
 	}
 }
 
 func TestDeleteRoute(t *testing.T) {
-
 	testingRoute := &route.Route{
 		ID:          "testingRoute",
 		Network:     netip.MustParsePrefix("192.168.0.0/16"),
@@ -906,20 +901,22 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	err = am.SaveGroup(account.Id, userID, newGroup)
 	require.NoError(t, err)
 
-	rules, err := am.ListRules(account.Id, "testingUser")
+	rules, err := am.ListPolicies(account.Id, "testingUser")
 	require.NoError(t, err)
 
 	defaultRule := rules[0]
-	newRule := defaultRule.Copy()
-	newRule.ID = xid.New().String()
-	newRule.Name = "peer1 only"
-	newRule.Source = []string{newGroup.ID}
-	newRule.Destination = []string{newGroup.ID}
-
-	err = am.SaveRule(account.Id, userID, newRule)
+	newPolicy := defaultRule.Copy()
+	newPolicy.ID = xid.New().String()
+	newPolicy.Name = "peer1 only"
+	newPolicy.Rules[0].Sources = []string{newGroup.ID}
+	newPolicy.Rules[0].Destinations = []string{newGroup.ID}
+	err = newPolicy.UpdateQueryFromRules()
 	require.NoError(t, err)
 
-	err = am.DeleteRule(account.Id, defaultRule.ID, userID)
+	err = am.SavePolicy(account.Id, userID, newPolicy)
+	require.NoError(t, err)
+
+	err = am.DeletePolicy(account.Id, defaultRule.ID, userID)
 	require.NoError(t, err)
 
 	peer1GroupRoutes, err := am.GetNetworkMap(peer1ID)
@@ -936,7 +933,6 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	peer1DeletedRoute, err := am.GetNetworkMap(peer1ID)
 	require.NoError(t, err)
 	require.Len(t, peer1DeletedRoute.Routes, 0, "we should receive one route for peer1")
-
 }
 
 func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
@@ -959,7 +955,6 @@ func createRouterStore(t *testing.T) (Store, error) {
 }
 
 func initTestRouteAccount(t *testing.T, am *DefaultAccountManager) (*Account, error) {
-
 	accountID := "testingAcc"
 	domain := "example.com"
 
