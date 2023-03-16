@@ -1147,11 +1147,11 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 		return nil, err
 	}
 
-	_, err = am.AddPeer("", userID, peer1)
+	_, _, err = am.AddPeer("", userID, peer1)
 	if err != nil {
 		return nil, err
 	}
-	_, err = am.AddPeer("", userID, peer2)
+	_, _, err = am.AddPeer("", userID, peer2)
 	if err != nil {
 		return nil, err
 	}

@@ -1,0 +1,130 @@
+{
+    "Accounts": {
+        "bf1c8084-ba50-4ce7-9439-34653001fc3b": {
+            "Id": "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+            "Domain": "test.com",
+            "DomainCategory": "private",
+            "IsDomainPrimaryAccount": true,
+            "Settings": {
+                "PeerLoginExpirationEnabled": true,
+                "PeerLoginExpiration": 3600000000000
+            },
+            "SetupKeys": {
+                "A2C8E62B-38F5-4553-B31E-DD66C696CEBB": {
+                    "Key": "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
+                    "Name": "Default key",
+                    "Type": "reusable",
+                    "CreatedAt": "2021-08-19T20:46:20.005936822+02:00",
+                    "ExpiresAt": "2321-09-18T20:46:20.005936822+02:00",
+                    "Revoked": false,
+                    "UsedTimes": 0
+
+                }
+            },
+            "Network": {
+                "Id": "af1c8024-ha40-4ce2-9418-34653101fc3c",
+                "Net": {
+                    "IP": "100.64.0.0",
+                    "Mask": "//8AAA=="
+                },
+                "Dns": null
+            },
+            "Peers": {
+                "cfvprsrlo1hqoo49ohog": {
+                    "ID": "cfvprsrlo1hqoo49ohog",
+                    "Key": "5rvhvriKJZ3S9oxYToVj5TzDM9u9y8cxg7htIMWlYAg=",
+                    "SetupKey": "72546A29-6BC8-4311-BCFC-9CDBF33F1A48",
+                    "IP": "100.64.114.31",
+                    "Meta": {
+                        "Hostname": "f2a34f6a4731",
+                        "GoOS": "linux",
+                        "Kernel": "Linux",
+                        "Core": "11",
+                        "Platform": "unknown",
+                        "OS": "Debian GNU/Linux",
+                        "WtVersion": "0.12.0",
+                        "UIVersion": ""
+                    },
+                    "Name": "f2a34f6a4731",
+                    "DNSLabel": "f2a34f6a4731",
+                    "Status": {
+                        "LastSeen": "2023-03-02T09:21:02.189035775+01:00",
+                        "Connected": false,
+                        "LoginExpired": false
+                    },
+                    "UserID": "",
+                    "SSHKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILzUUSYG/LGnV8zarb2SGN+tib/PZ+M7cL4WtTzUrTpk",
+                    "SSHEnabled": false,
+                    "LoginExpirationEnabled": true,
+                    "LastLogin": "2023-03-01T19:48:19.817799698+01:00"
+                },
+                "cg05lnblo1hkg2j514p0": {
+                    "ID": "cg05lnblo1hkg2j514p0",
+                    "Key": "RlSy2vzoG2HyMBTUImXOiVhCBiiBa5qD5xzMxkiFDW4=",
+                    "SetupKey": "",
+                    "IP": "100.64.39.54",
+                    "Meta": {
+                        "Hostname": "expiredhost",
+                        "GoOS": "linux",
+                        "Kernel": "Linux",
+                        "Core": "22.04",
+                        "Platform": "x86_64",
+                        "OS": "Ubuntu",
+                        "WtVersion": "development",
+                        "UIVersion": ""
+                    },
+                    "Name": "expiredhost",
+                    "DNSLabel": "expiredhost",
+                    "Status": {
+                        "LastSeen": "2023-03-02T09:19:57.276717255+01:00",
+                        "Connected": false,
+                        "LoginExpired": true
+                    },
+                    "UserID": "edafee4e-63fb-11ec-90d6-0242ac120003",
+                    "SSHKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMbK5ZXJsGOOWoBT4OmkPtgdPZe2Q7bDuS/zjn2CZxhK",
+                    "SSHEnabled": false,
+                    "LoginExpirationEnabled": true,
+                    "LastLogin": "2023-03-02T09:14:21.791679181+01:00"
+                },
+                "cg3161rlo1hs9cq94gdg": {
+                    "ID": "cg3161rlo1hs9cq94gdg",
+                    "Key": "mVABSKj28gv+JRsf7e0NEGKgSOGTfU/nPB2cpuG56HU=",
+                    "SetupKey": "",
+                    "IP": "100.64.117.96",
+                    "Meta": {
+                        "Hostname": "testhost",
+                        "GoOS": "linux",
+                        "Kernel": "Linux",
+                        "Core": "22.04",
+                        "Platform": "x86_64",
+                        "OS": "Ubuntu",
+                        "WtVersion": "development",
+                        "UIVersion": ""
+                    },
+                    "Name": "testhost",
+                    "DNSLabel": "testhost",
+                    "Status": {
+                        "LastSeen": "2023-03-06T18:21:27.252010027+01:00",
+                        "Connected": false,
+                        "LoginExpired": false
+                    },
+                    "UserID": "edafee4e-63fb-11ec-90d6-0242ac120003",
+                    "SSHKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINWvvUkFFcrj48CWTkNUb/do/n52i1L5dH4DhGu+4ZuM",
+                    "SSHEnabled": false,
+                    "LoginExpirationEnabled": false,
+                    "LastLogin": "2023-03-07T09:02:47.442857106+01:00"
+                }
+            },
+            "Users": {
+                "edafee4e-63fb-11ec-90d6-0242ac120003": {
+                    "Id": "edafee4e-63fb-11ec-90d6-0242ac120003",
+                    "Role": "admin"
+                },
+                "f4f6d672-63fb-11ec-90d6-0242ac120003": {
+                    "Id": "f4f6d672-63fb-11ec-90d6-0242ac120003",
+                    "Role": "user"
+                }
+            }
+        }
+    }
+}

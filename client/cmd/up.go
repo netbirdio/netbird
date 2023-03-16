@@ -3,17 +3,19 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal"
-	"github.com/netbirdio/netbird/client/proto"
-	nbStatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/util"
+	"net"
+	"net/netip"
+	"strings"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
-	"net"
-	"net/netip"
-	"strings"
+
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -70,7 +72,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	config, err := internal.GetConfig(internal.ConfigInput{
+	config, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ManagementURL:    managementURL,
 		AdminURL:         adminURL,
 		ConfigPath:       configPath,
@@ -92,7 +94,7 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(ctx)
 	SetupCloseHandler(ctx, cancel)
-	return internal.RunClient(ctx, config, nbStatus.NewRecorder())
+	return internal.RunClient(ctx, config, peer.NewRecorder())
 }
 
 func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {

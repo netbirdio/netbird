@@ -1,0 +1,116 @@
+{
+    "Accounts": {
+        "bf1c8084-ba50-4ce7-9439-34653001fc3b": {
+            "Id": "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+            "Domain": "test.com",
+            "DomainCategory": "private",
+            "IsDomainPrimaryAccount": true,
+            "SetupKeys": {
+                "A2C8E62B-38F5-4553-B31E-DD66C696CEBB": {
+                    "Key": "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
+                    "Name": "Default key",
+                    "Type": "reusable",
+                    "CreatedAt": "2021-08-19T20:46:20.005936822+02:00",
+                    "ExpiresAt": "2321-09-18T20:46:20.005936822+02:00",
+                    "Revoked": false,
+                    "UsedTimes": 0
+                }
+            },
+            "Network": {
+                "Id": "af1c8024-ha40-4ce2-9418-34653101fc3c",
+                "Net": {
+                    "IP": "100.64.0.0",
+                    "Mask": "//8AAA=="
+                },
+                "Dns": null
+            },
+            "Peers": {
+                "cfefqs706sqkneg59g4g": {
+                    "ID": "cfefqs706sqkneg59g4g",
+                    "Key": "MI5mHfJhbggPfD3FqEIsXm8X5bSWeUI2LhO9MpEEtWA=",
+                    "SetupKey": "",
+                    "IP": "100.103.179.238",
+                    "Meta": {
+                        "Hostname": "Ubuntu-2204-jammy-amd64-base",
+                        "GoOS": "linux",
+                        "Kernel": "Linux",
+                        "Core": "22.04",
+                        "Platform": "x86_64",
+                        "OS": "Ubuntu",
+                        "WtVersion": "development",
+                        "UIVersion": ""
+                    },
+                    "Name": "crocodile",
+                    "DNSLabel": "crocodile",
+                    "Status": {
+                        "LastSeen": "2023-02-13T12:37:12.635454796Z",
+                        "Connected": true
+                    },
+                    "UserID": "edafee4e-63fb-11ec-90d6-0242ac120003",
+                    "SSHKey": "AAAAC3NzaC1lZDI1NTE5AAAAIJN1NM4bpB9K",
+                    "SSHEnabled": false
+                },
+                "cfeg6sf06sqkneg59g50": {
+                    "ID": "cfeg6sf06sqkneg59g50",
+                    "Key": "zMAOKUeIYIuun4n0xPR1b3IdYZPmsyjYmB2jWCuloC4=",
+                    "SetupKey": "",
+                    "IP": "100.103.26.180",
+                    "Meta": {
+                        "Hostname": "borg",
+                        "GoOS": "linux",
+                        "Kernel": "Linux",
+                        "Core": "22.04",
+                        "Platform": "x86_64",
+                        "OS": "Ubuntu",
+                        "WtVersion": "development",
+                        "UIVersion": ""
+                    },
+                    "Name": "dingo",
+                    "DNSLabel": "dingo",
+                    "Status": {
+                        "LastSeen": "2023-02-21T09:37:42.565899199Z",
+                        "Connected": false
+                    },
+                    "UserID": "f4f6d672-63fb-11ec-90d6-0242ac120003",
+                    "SSHKey": "AAAAC3NzaC1lZDI1NTE5AAAAILHW",
+                    "SSHEnabled": true
+                }
+            },
+            "Groups": {
+                "cfefqs706sqkneg59g3g": {
+                    "ID": "cfefqs706sqkneg59g3g",
+                    "Name": "All",
+                    "Peers": [
+                        "cfefqs706sqkneg59g4g",
+                        "cfeg6sf06sqkneg59g50"
+                    ]
+                }
+            },
+            "Rules": {
+                "cfefqs706sqkneg59g40": {
+                    "ID": "cfefqs706sqkneg59g40",
+                    "Name": "Default",
+                    "Description": "This is a default rule that allows connections between all the resources",
+                    "Disabled": false,
+                    "Source": [
+                        "cfefqs706sqkneg59g3g"
+                    ],
+                    "Destination": [
+                        "cfefqs706sqkneg59g3g"
+                    ],
+                    "Flow": 0
+                }
+            },
+            "Users": {
+                "edafee4e-63fb-11ec-90d6-0242ac120003": {
+                    "Id": "edafee4e-63fb-11ec-90d6-0242ac120003",
+                    "Role": "admin"
+                },
+                "f4f6d672-63fb-11ec-90d6-0242ac120003": {
+                    "Id": "f4f6d672-63fb-11ec-90d6-0242ac120003",
+                    "Role": "user"
+                }
+            }
+        }
+    }
+}

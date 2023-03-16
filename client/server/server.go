@@ -3,20 +3,19 @@ package server
 import (
 	"context"
 	"fmt"
-	nbStatus "github.com/netbirdio/netbird/client/status"
-	"github.com/netbirdio/netbird/client/system"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	gstatus "google.golang.org/grpc/status"
-
-	log "github.com/sirupsen/logrus"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/version"
 )
 
 // Server for service control.
@@ -34,7 +33,7 @@ type Server struct {
 	config *internal.Config
 	proto.UnimplementedDaemonServiceServer
 
-	statusRecorder *nbStatus.Status
+	statusRecorder *peer.Status
 }
 
 type oauthAuthFlow struct {
@@ -77,9 +76,9 @@ func (s *Server) Start() error {
 
 	// if configuration exists, we just start connections. if is new config we skip and set status NeedsLogin
 	// on failure we return error to retry
-	config, err := internal.ReadConfig(s.latestConfigInput)
+	config, err := internal.UpdateConfig(s.latestConfigInput)
 	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
-		config, err = internal.GetConfig(s.latestConfigInput)
+		config, err = internal.UpdateOrCreateConfig(s.latestConfigInput)
 		if err != nil {
 			log.Warnf("unable to create configuration file: %v", err)
 			return err
@@ -97,7 +96,7 @@ func (s *Server) Start() error {
 	s.config = config
 
 	if s.statusRecorder == nil {
-		s.statusRecorder = nbStatus.NewRecorder()
+		s.statusRecorder = peer.NewRecorder()
 	}
 
 	go func() {
@@ -182,7 +181,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 	inputConfig.PreSharedKey = &msg.PreSharedKey
 
-	config, err := internal.GetConfig(inputConfig)
+	config, err := internal.UpdateOrCreateConfig(inputConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +204,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config)
+		providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
 			s, ok := gstatus.FromError(err)
@@ -387,7 +386,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	}
 
 	if s.statusRecorder == nil {
-		s.statusRecorder = nbStatus.NewRecorder()
+		s.statusRecorder = peer.NewRecorder()
 	}
 
 	go func() {
@@ -428,10 +427,10 @@ func (s *Server) Status(
 		return nil, err
 	}
 
-	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: system.NetbirdVersion()}
+	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion()}
 
 	if s.statusRecorder == nil {
-		s.statusRecorder = nbStatus.NewRecorder()
+		s.statusRecorder = peer.NewRecorder()
 	}
 
 	if msg.GetFullPeerStatus {
@@ -477,7 +476,7 @@ func (s *Server) GetConfig(_ context.Context, _ *proto.GetConfigRequest) (*proto
 	}, nil
 }
 
-func toProtoFullStatus(fullStatus nbStatus.FullStatus) *proto.FullStatus {
+func toProtoFullStatus(fullStatus peer.FullStatus) *proto.FullStatus {
 	pbFullStatus := proto.FullStatus{
 		ManagementState: &proto.ManagementState{},
 		SignalState:     &proto.SignalState{},
@@ -500,7 +499,7 @@ func toProtoFullStatus(fullStatus nbStatus.FullStatus) *proto.FullStatus {
 		pbPeerState := &proto.PeerState{
 			IP:                     peerState.IP,
 			PubKey:                 peerState.PubKey,
-			ConnStatus:             peerState.ConnStatus,
+			ConnStatus:             peerState.ConnStatus.String(),
 			ConnStatusUpdate:       timestamppb.New(peerState.ConnStatusUpdate),
 			Relayed:                peerState.Relayed,
 			Direct:                 peerState.Direct,
