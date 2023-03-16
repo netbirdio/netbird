@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/stretchr/testify/assert"
@@ -191,7 +192,6 @@ func TestKeycloakParseRequestJWTResponse(t *testing.T) {
 
 	for _, testCase := range []parseRequestJWTResponseTest{parseRequestJWTResponseTestCase1, parseRequestJWTResponseTestCase2} {
 		t.Run(testCase.name, func(t *testing.T) {
-
 			rawBody := io.NopCloser(strings.NewReader(testCase.inputRespBody))
 			config := KeycloakClientConfig{}
 
@@ -204,6 +204,41 @@ func TestKeycloakParseRequestJWTResponse(t *testing.T) {
 
 			assert.Equalf(t, testCase.expectedToken, jwtToken.AccessToken, "two tokens should be the same")
 			assert.Equalf(t, testCase.expectedExpiresIn, jwtToken.ExpiresIn, "the two expire times should be the same")
+		})
+	}
+}
+
+func TestKeycloakJwtStillValid(t *testing.T) {
+	type jwtStillValidTest struct {
+		name           string
+		inputTime      time.Time
+		expectedResult bool
+		message        string
+	}
+
+	jwtStillValidTestCase1 := jwtStillValidTest{
+		name:           "JWT still valid",
+		inputTime:      time.Now().Add(10 * time.Second),
+		expectedResult: true,
+		message:        "should be true",
+	}
+	jwtStillValidTestCase2 := jwtStillValidTest{
+		name:           "JWT is invalid",
+		inputTime:      time.Now(),
+		expectedResult: false,
+		message:        "should be false",
+	}
+
+	for _, testCase := range []jwtStillValidTest{jwtStillValidTestCase1, jwtStillValidTestCase2} {
+		t.Run(testCase.name, func(t *testing.T) {
+			config := KeycloakClientConfig{}
+
+			creds := KeycloakCredentials{
+				clientConfig: config,
+			}
+			creds.jwtToken.expiresInTime = testCase.inputTime
+
+			assert.Equalf(t, testCase.expectedResult, creds.jwtStillValid(), testCase.message)
 		})
 	}
 }
