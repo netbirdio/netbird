@@ -2,8 +2,11 @@ package client
 
 import (
 	"context"
-	sigProto "github.com/netbirdio/netbird/signal/proto"
-	"github.com/netbirdio/netbird/signal/server"
+	"net"
+	"sync"
+	"testing"
+	"time"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	log "github.com/sirupsen/logrus"
@@ -12,9 +15,9 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
-	"net"
-	"sync"
-	"time"
+
+	sigProto "github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/signal/server"
 )
 
 var _ = Describe("GrpcClient", func() {
@@ -43,15 +46,18 @@ var _ = Describe("GrpcClient", func() {
 				var msgReceived sync.WaitGroup
 				msgReceived.Add(2)
 
-				var receivedOnA string
-				var receivedOnB string
+				var payloadReceivedOnA string
+				var payloadReceivedOnB string
+				var featuresSupportedReceivedOnA []uint32
+				var featuresSupportedReceivedOnB []uint32
 
 				// connect PeerA to Signal
 				keyA, _ := wgtypes.GenerateKey()
 				clientA := createSignalClient(addr, keyA)
 				go func() {
 					err := clientA.Receive(func(msg *sigProto.Message) error {
-						receivedOnA = msg.GetBody().GetPayload()
+						payloadReceivedOnA = msg.GetBody().GetPayload()
+						featuresSupportedReceivedOnA = msg.GetBody().GetFeaturesSupported()
 						msgReceived.Done()
 						return nil
 					})
@@ -67,7 +73,8 @@ var _ = Describe("GrpcClient", func() {
 
 				go func() {
 					err := clientB.Receive(func(msg *sigProto.Message) error {
-						receivedOnB = msg.GetBody().GetPayload()
+						payloadReceivedOnB = msg.GetBody().GetPayload()
+						featuresSupportedReceivedOnB = msg.GetBody().GetFeaturesSupported()
 						err := clientB.Send(&sigProto.Message{
 							Key:       keyB.PublicKey().String(),
 							RemoteKey: keyA.PublicKey().String(),
@@ -90,7 +97,7 @@ var _ = Describe("GrpcClient", func() {
 				err := clientA.Send(&sigProto.Message{
 					Key:       keyA.PublicKey().String(),
 					RemoteKey: keyB.PublicKey().String(),
-					Body:      &sigProto.Body{Payload: "ping"},
+					Body:      &sigProto.Body{Payload: "ping", FeaturesSupported: []uint32{DirectCheck}},
 				})
 				if err != nil {
 					Fail("failed sending a message to PeerB")
@@ -100,9 +107,10 @@ var _ = Describe("GrpcClient", func() {
 					Fail("test timed out on waiting for peers to exchange messages")
 				}
 
-				Expect(receivedOnA).To(BeEquivalentTo("pong"))
-				Expect(receivedOnB).To(BeEquivalentTo("ping"))
-
+				Expect(payloadReceivedOnA).To(BeEquivalentTo("pong"))
+				Expect(payloadReceivedOnB).To(BeEquivalentTo("ping"))
+				Expect(featuresSupportedReceivedOnA).To(BeNil())
+				Expect(featuresSupportedReceivedOnB).To(ContainElements([]uint32{DirectCheck}))
 			})
 		})
 	})
@@ -159,6 +167,41 @@ var _ = Describe("GrpcClient", func() {
 	})
 
 })
+
+func TestParseFeaturesSupported(t *testing.T) {
+	expectedOnEmptyOrUnsupported := FeaturesSupport{DirectCheck: false}
+	expectedWithDirectCheck := FeaturesSupport{DirectCheck: true}
+	testCases := []struct {
+		name     string
+		input    []uint32
+		expected FeaturesSupport
+	}{
+		{
+			name:     "Should Return DirectCheck Supported",
+			input:    []uint32{DirectCheck},
+			expected: expectedWithDirectCheck,
+		},
+		{
+			name:     "Should Return DirectCheck Unsupported When Nil",
+			input:    nil,
+			expected: expectedOnEmptyOrUnsupported,
+		},
+		{
+			name:     "Should Return DirectCheck Unsupported When Not Known Feature",
+			input:    []uint32{9999},
+			expected: expectedOnEmptyOrUnsupported,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := ParseFeaturesSupported(testCase.input)
+			if result.DirectCheck != testCase.expected.DirectCheck {
+				t.Errorf("Direct check feature should match: Expected: %t, Got: %t", testCase.expected.DirectCheck, result.DirectCheck)
+			}
+		})
+	}
+}
 
 func createSignalClient(addr string, key wgtypes.Key) *GrpcClient {
 	var sigTLSEnabled = false

@@ -205,6 +205,7 @@ func (d *Status) MarkManagementDisconnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
+
 	d.managementState = false
 }
 
@@ -213,7 +214,8 @@ func (d *Status) MarkManagementConnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-	d.managementState = true
+
+    d.managementState = true
 }
 
 // UpdateSignalAddress update the address of the signal server
@@ -235,7 +237,8 @@ func (d *Status) MarkSignalDisconnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
-	d.signalState = false
+
+    d.signalState = false
 }
 
 // MarkSignalConnected sets SignalState to connected
@@ -243,6 +246,7 @@ func (d *Status) MarkSignalConnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
+
 	d.signalState = true
 }
 

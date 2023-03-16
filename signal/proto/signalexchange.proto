@@ -46,10 +46,20 @@ message Body {
     OFFER = 0;
     ANSWER = 1;
     CANDIDATE = 2;
+    MODE = 4;
   }
   Type type = 1;
   string payload = 2;
   // wgListenPort is an actual WireGuard listen port
   uint32 wgListenPort = 3;
   string netBirdVersion = 4;
+  Mode mode = 5;
+
+  // featuresSupported list of supported features by the client of this protocol
+  repeated uint32 featuresSupported = 6;
+}
+
+// Mode indicates a connection mode
+message Mode {
+  optional bool direct = 1;
 }
