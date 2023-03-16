@@ -22,7 +22,7 @@ services:
       # SSL
       - NGINX_SSL_PORT=443
       # Letsencrypt
-      - LETSENCRYPT_DOMAIN=$NETBIRD_DOMAIN
+      - LETSENCRYPT_DOMAIN=$NETBIRD_LETSENCRYPT_DOMAIN
       - LETSENCRYPT_EMAIL=$NETBIRD_LETSENCRYPT_EMAIL
     volumes:
       - $LETSENCRYPT_VOLUMENAME:/etc/letsencrypt/
@@ -37,7 +37,7 @@ services:
       - 10000:80
   #      # port and command for Let's Encrypt validation
   #      - 443:443
-  #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
+  #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
 
   # Management
   management:
@@ -52,7 +52,7 @@ services:
     ports:
       - $NETBIRD_MGMT_API_PORT:443 #API port
   #    # command for Let's Encrypt validation without dashboard container
-  #    command: ["--letsencrypt-domain", "$NETBIRD_DOMAIN", "--log-file", "console"]
+  #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
     command: [
       "--port", "443",
       "--log-file", "console",

@@ -46,6 +46,29 @@ then
   exit 1
 fi
 
+# Check if letsencrypt was disabled
+if [[ "$NETBIRD_DISABLE_LETSENCRYPT" == "true" ]]
+then
+  export NETBIRD_DASHBOARD_ENDPOINT="https://$NETBIRD_DOMAIN:443"
+
+  echo "Letsencrypt was disabled, the Https-endpoints cannot be used anymore"
+  echo " and a reverse-proxy with Https needs to be placed in front of netbird!"
+  echo "The following forwards have to be setup:"
+  echo "- $NETBIRD_DASHBOARD_ENDPOINT -> dashboard"
+  echo "- $NETBIRD_MGMT_API_ENDPOINT -> management"
+  echo "You most likely also have to change NETBIRD_MGMT_API_ENDPOINT in base.setup.env and port-mappings in docker-compose.yml.tmpl and rerun this script."
+  echo " The target of the forwards depends on your setup."
+  echo "You are also free to remove any occurences of the Letsencrypt-volume $LETSENCRYPT_VOLUMENAME"
+  echo ""
+
+  export NETBIRD_LETSENCRYPT_DOMAIN="none"
+  unset NETBIRD_MGMT_API_CERT_FILE
+  unset NETBIRD_MGMT_API_CERT_KEY_FILE
+else
+  # Kinda ugly, but the dashboard expects the domain or 'none'
+  export NETBIRD_LETSENCRYPT_DOMAIN="$NETBIRD_DOMAIN"
+fi
+
 # local development or tests
 if [[ $NETBIRD_DOMAIN == "localhost" || $NETBIRD_DOMAIN == "127.0.0.1" ]]
 then
