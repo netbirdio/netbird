@@ -1,5 +1,5 @@
 <p align="center">
- <strong>:hatching_chick: New Release! DNS support.</strong>
+ <strong>:hatching_chick: New Release! Peer expiration.</strong>
   <a href="https://github.com/netbirdio/netbird/releases">
        Learn more
      </a>   

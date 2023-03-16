@@ -75,7 +75,7 @@ func getServerKey(client mgmtProto.ManagementServiceClient) (*wgtypes.Key, error
 
 func Test_SyncProtocol(t *testing.T) {
 	dir := t.TempDir()
-	err := util.CopyFileContents("testdata/store.json", filepath.Join(dir, "store.json"))
+	err := util.CopyFileContents("testdata/store_with_expired_peers.json", filepath.Join(dir, "store.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +117,7 @@ func Test_SyncProtocol(t *testing.T) {
 
 	defer clientConn.Close()
 
+	// there are two peers already in the store, add two more
 	peers, err := registerPeers(2, client)
 	if err != nil {
 		t.Fatal(err)
@@ -129,7 +130,7 @@ func Test_SyncProtocol(t *testing.T) {
 		return
 	}
 
-	// take the first registered peer as a base for the test
+	// take the first registered peer as a base for the test. Total four.
 	key := *peers[0]
 
 	message, err := encryption.EncryptMessage(*serverKey, key, &mgmtProto.SyncRequest{})
@@ -242,8 +243,18 @@ func Test_SyncProtocol(t *testing.T) {
 		t.Fatal("expecting SyncResponse to have non-nil NetworkMap")
 	}
 
-	if len(networkMap.GetRemotePeers()) != 1 {
-		t.Fatal("expecting SyncResponse to have NetworkMap with 1 remote peer")
+	if len(networkMap.GetRemotePeers()) != 3 {
+		t.Fatalf("expecting SyncResponse to have NetworkMap with 3 remote peers, got %d", len(networkMap.GetRemotePeers()))
+	}
+
+	// expired peers come separately.
+	if len(networkMap.GetOfflinePeers()) != 1 {
+		t.Fatal("expecting SyncResponse to have NetworkMap with 1 offline peer")
+	}
+
+	expiredPeerPubKey := "RlSy2vzoG2HyMBTUImXOiVhCBiiBa5qD5xzMxkiFDW4="
+	if networkMap.GetOfflinePeers()[0].WgPubKey != expiredPeerPubKey {
+		t.Fatalf("expecting SyncResponse to have NetworkMap with 1 offline peer with a key %s", expiredPeerPubKey)
 	}
 
 	if networkMap.GetPeerConfig() == nil {

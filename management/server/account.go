@@ -71,11 +71,10 @@ type AccountManager interface {
 	GroupAddPeer(accountId, groupID, peerID string) error
 	GroupDeletePeer(accountId, groupID, peerKey string) error
 	GroupListPeers(accountId, groupID string) ([]*Peer, error)
-	GetRule(accountID, ruleID, userID string) (*Rule, error)
-	SaveRule(accountID, userID string, rule *Rule) error
-	UpdateRule(accountID string, ruleID string, operations []RuleUpdateOperation) (*Rule, error)
-	DeleteRule(accountID, ruleID, userID string) error
-	ListRules(accountID, userID string) ([]*Rule, error)
+	GetPolicy(accountID, policyID, userID string) (*Policy, error)
+	SavePolicy(accountID, userID string, policy *Policy) error
+	DeletePolicy(accountID, policyID, userID string) error
+	ListPolicies(accountID, userID string) ([]*Policy, error)
 	GetRoute(accountID, routeID, userID string) (*route.Route, error)
 	CreateRoute(accountID string, prefix, peerID, description, netID string, masquerade bool, metric int, groups []string, enabled bool, userID string) (*route.Route, error)
 	SaveRoute(accountID, userID string, route *route.Route) error
@@ -94,8 +93,8 @@ type AccountManager interface {
 	SaveDNSSettings(accountID string, userID string, dnsSettingsToSave *DNSSettings) error
 	GetPeer(accountID, peerID, userID string) (*Peer, error)
 	UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error)
-	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) //used by peer gRPC API
-	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    //used by peer gRPC API
+	LoginPeer(login PeerLogin) (*Peer, *NetworkMap, error) // used by peer gRPC API
+	SyncPeer(sync PeerSync) (*Peer, *NetworkMap, error)    // used by peer gRPC API
 }
 
 type DefaultAccountManager struct {
@@ -152,6 +151,7 @@ type Account struct {
 	Users                  map[string]*User
 	Groups                 map[string]*Group
 	Rules                  map[string]*Rule
+	Policies               []*Policy
 	Routes                 map[string]*route.Route
 	NameServerGroups       map[string]*nbdns.NameServerGroup
 	DNSSettings            *DNSSettings
@@ -265,42 +265,6 @@ func (a *Account) GetPeerByIP(peerIP string) *Peer {
 	return nil
 }
 
-// GetPeerRules returns a list of source or destination rules of a given peer.
-func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rule) {
-	// Rules are group based so there is no direct access to peers.
-	// First, find all groups that the given peer belongs to
-	peerGroups := make(map[string]struct{})
-
-	for s, group := range a.Groups {
-		for _, peer := range group.Peers {
-			if peerID == peer {
-				peerGroups[s] = struct{}{}
-				break
-			}
-		}
-	}
-
-	// Second, find all rules that have discovered source and destination groups
-	srcRulesMap := make(map[string]*Rule)
-	dstRulesMap := make(map[string]*Rule)
-	for _, rule := range a.Rules {
-		for _, g := range rule.Source {
-			if _, ok := peerGroups[g]; ok && srcRulesMap[rule.ID] == nil {
-				srcRules = append(srcRules, rule)
-				srcRulesMap[rule.ID] = rule
-			}
-		}
-		for _, g := range rule.Destination {
-			if _, ok := peerGroups[g]; ok && dstRulesMap[rule.ID] == nil {
-				dstRules = append(dstRules, rule)
-				dstRulesMap[rule.ID] = rule
-			}
-		}
-	}
-
-	return srcRules, dstRules
-}
-
 // GetGroup returns a group by ID if exists, nil otherwise
 func (a *Account) GetGroup(groupID string) *Group {
 	return a.Groups[groupID]
@@ -308,12 +272,14 @@ func (a *Account) GetGroup(groupID string) *Group {
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
 func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
-	aclPeers := a.getPeersByACL(peerID)
+	aclPeers, _ := a.getPeersByPolicy(peerID)
 	// exclude expired peers
 	var peersToConnect []*Peer
+	var expiredPeers []*Peer
 	for _, p := range aclPeers {
 		expired, _ := p.LoginExpired(a.Settings.PeerLoginExpiration)
-		if expired {
+		if a.Settings.PeerLoginExpirationEnabled && expired {
+			expiredPeers = append(expiredPeers, p)
 			continue
 		}
 		peersToConnect = append(peersToConnect, p)
@@ -337,10 +303,11 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	}
 
 	return &NetworkMap{
-		Peers:     peersToConnect,
-		Network:   a.Network.Copy(),
-		Routes:    routesUpdate,
-		DNSConfig: dnsUpdate,
+		Peers:        peersToConnect,
+		Network:      a.Network.Copy(),
+		Routes:       routesUpdate,
+		DNSConfig:    dnsUpdate,
+		OfflinePeers: expiredPeers,
 	}
 }
 
@@ -361,7 +328,6 @@ func (a *Account) GetExpiredPeers() []*Peer {
 // If there is no peer that expires this function returns false and a duration of 0.
 // This function only considers peers that haven't been expired yet and that are connected.
 func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
-
 	peersWithExpiry := a.GetPeersWithExpiration()
 	if len(peersWithExpiry) == 0 {
 		return 0, false
@@ -453,7 +419,6 @@ func (a *Account) FindPeerByPubKey(peerPubKey string) (*Peer, error) {
 
 // FindUserPeers returns a list of peers that user owns (created)
 func (a *Account) FindUserPeers(userID string) ([]*Peer, error) {
-
 	peers := make([]*Peer, 0)
 	for _, peer := range a.Peers {
 		if peer.UserID == userID {
@@ -573,6 +538,11 @@ func (a *Account) Copy() *Account {
 		rules[id] = rule.Copy()
 	}
 
+	policies := []*Policy{}
+	for _, policy := range a.Policies {
+		policies = append(policies, policy.Copy())
+	}
+
 	routes := map[string]*route.Route{}
 	for id, route := range a.Routes {
 		routes[id] = route.Copy()
@@ -605,6 +575,7 @@ func (a *Account) Copy() *Account {
 		Users:                  users,
 		Groups:                 groups,
 		Rules:                  rules,
+		Policies:               policies,
 		Routes:                 routes,
 		NameServerGroups:       nsGroups,
 		DNSSettings:            dnsSettings,
@@ -662,7 +633,9 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 
 		_, err := account.GetGroupAll()
 		if err != nil {
-			addAllGroup(account)
+			if err := addAllGroup(account); err != nil {
+				return nil, err
+			}
 			shouldSave = true
 		}
 
@@ -698,7 +671,6 @@ func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManage
 // User that performs the update has to belong to the account.
 // Returns an updated Account
 func (am *DefaultAccountManager) UpdateAccountSettings(accountID, userID string, newSettings *Settings) (*Account, error) {
-
 	halfYearLimit := 180 * 24 * time.Hour
 	if newSettings.PeerLoginExpiration > halfYearLimit {
 		return nil, status.Errorf(status.InvalidArgument, "peer login expiration can't be larger than 180 days")
@@ -783,7 +755,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 		if len(peerIDs) != 0 {
 			// this will trigger peer disconnect from the management service
 			am.peersUpdateManager.CloseChannels(peerIDs)
-			err := am.updateAccountPeers(account)
+			err = am.updateAccountPeers(account)
 			if err != nil {
 				log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
 				return account.GetNextPeerExpiration()
@@ -881,10 +853,6 @@ func (am *DefaultAccountManager) addAccountIDToIDPAppMeta(userID string, account
 		}
 
 		err = am.idpManager.UpdateUserAppMetadata(userID, idp.AppMetadata{WTAccountID: account.Id})
-		if err != nil {
-			return err
-		}
-
 		if err != nil {
 			return status.Errorf(status.Internal, "updating user's app metadata failed with: %v", err)
 		}
@@ -1273,7 +1241,7 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 }
 
 // addAllGroup to account object if it doesn't exists
-func addAllGroup(account *Account) {
+func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
 			ID:   xid.New().String(),
@@ -1293,7 +1261,15 @@ func addAllGroup(account *Account) {
 			Destination: []string{allGroup.ID},
 		}
 		account.Rules = map[string]*Rule{defaultRule.ID: defaultRule}
+
+		// TODO: after migration we need to drop rule and create policy directly
+		defaultPolicy, err := RuleToPolicy(defaultRule)
+		if err != nil {
+			return fmt.Errorf("convert rule to policy: %w", err)
+		}
+		account.Policies = []*Policy{defaultPolicy}
 	}
+	return nil
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
@@ -1334,7 +1310,9 @@ func newAccountWithId(accountId, userId, domain string) *Account {
 		},
 	}
 
-	addAllGroup(acc)
+	if err := addAllGroup(acc); err != nil {
+		log.Errorf("error adding all group to account %s: %v", acc.Id, err)
+	}
 	return acc
 }
 

@@ -19,6 +19,12 @@ const (
 	RuleUpdated
 	// RuleRemoved indicates that a user removed a rule
 	RuleRemoved
+	// PolicyAdded indicates that a user added a new policy
+	PolicyAdded
+	// PolicyUpdated indicates that a user updated a policy
+	PolicyUpdated
+	// PolicyRemoved indicates that a user removed a policy
+	PolicyRemoved
 	// SetupKeyCreated indicates that a user created a new setup key
 	SetupKeyCreated
 	// SetupKeyUpdated indicates that a user updated a setup key
@@ -84,11 +90,11 @@ const (
 	PeerAddedByUserMessage string = "Peer added"
 	// PeerAddedWithSetupKeyMessage is a human-readable text message of the PeerAddedWithSetupKey activity
 	PeerAddedWithSetupKeyMessage = PeerAddedByUserMessage
-	//UserJoinedMessage is a human-readable text message of the UserJoined activity
+	// UserJoinedMessage is a human-readable text message of the UserJoined activity
 	UserJoinedMessage string = "User joined"
-	//UserInvitedMessage is a human-readable text message of the UserInvited activity
+	// UserInvitedMessage is a human-readable text message of the UserInvited activity
 	UserInvitedMessage string = "User invited"
-	//AccountCreatedMessage is a human-readable text message of the AccountCreated activity
+	// AccountCreatedMessage is a human-readable text message of the AccountCreated activity
 	AccountCreatedMessage string = "Account created"
 	// PeerRemovedByUserMessage is a human-readable text message of the PeerRemovedByUser activity
 	PeerRemovedByUserMessage string = "Peer deleted"
@@ -98,6 +104,12 @@ const (
 	RuleRemovedMessage string = "Rule deleted"
 	// RuleUpdatedMessage is a human-readable text message of the RuleRemoved activity
 	RuleUpdatedMessage string = "Rule updated"
+	// PolicyAddedMessage is a human-readable text message of the PolicyAdded activity
+	PolicyAddedMessage string = "Policy added"
+	// PolicyRemovedMessage is a human-readable text message of the PolicyRemoved activity
+	PolicyRemovedMessage string = "Policy deleted"
+	// PolicyUpdatedMessage is a human-readable text message of the PolicyRemoved activity
+	PolicyUpdatedMessage string = "Policy updated"
 	// SetupKeyCreatedMessage is a human-readable text message of the SetupKeyCreated activity
 	SetupKeyCreatedMessage string = "Setup key created"
 	// SetupKeyUpdatedMessage is a human-readable text message of the SetupKeyUpdated activity
@@ -182,6 +194,12 @@ func (a Activity) Message() string {
 		return RuleRemovedMessage
 	case RuleUpdated:
 		return RuleUpdatedMessage
+	case PolicyAdded:
+		return PolicyAddedMessage
+	case PolicyRemoved:
+		return PolicyRemovedMessage
+	case PolicyUpdated:
+		return PolicyUpdatedMessage
 	case SetupKeyCreated:
 		return SetupKeyCreatedMessage
 	case SetupKeyUpdated:
@@ -266,6 +284,12 @@ func (a Activity) StringCode() string {
 		return "rule.delete"
 	case RuleUpdated:
 		return "rule.update"
+	case PolicyAdded:
+		return "policy.add"
+	case PolicyRemoved:
+		return "policy.delete"
+	case PolicyUpdated:
+		return "policy.update"
 	case SetupKeyCreated:
 		return "setupkey.add"
 	case SetupKeyRevoked:

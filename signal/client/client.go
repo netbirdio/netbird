@@ -5,10 +5,10 @@ import (
 	"io"
 	"strings"
 
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-
-	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/version"
+
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 // A set of tools to exchange connection details (Wireguard endpoints) with the remote peer.
@@ -62,7 +62,7 @@ func MarshalCredential(myKey wgtypes.Key, myPort int, remoteKey wgtypes.Key, cre
 			Type:           t,
 			Payload:        fmt.Sprintf("%s:%s", credential.UFrag, credential.Pwd),
 			WgListenPort:   uint32(myPort),
-			NetBirdVersion: system.NetbirdVersion(),
+			NetBirdVersion: version.NetbirdVersion(),
 		},
 	}, nil
 }

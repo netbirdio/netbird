@@ -15,7 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
-	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/version"
 )
 
 // Server for service control.
@@ -427,7 +427,7 @@ func (s *Server) Status(
 		return nil, err
 	}
 
-	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: system.NetbirdVersion()}
+	statusResponse := proto.StatusResponse{Status: string(status), DaemonVersion: version.NetbirdVersion()}
 
 	if s.statusRecorder == nil {
 		s.statusRecorder = peer.NewRecorder()

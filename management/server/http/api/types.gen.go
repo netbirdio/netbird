@@ -29,6 +29,9 @@ const (
 	EventActivityCodePeerRename                               EventActivityCode = "peer.rename"
 	EventActivityCodePeerSshDisable                           EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                            EventActivityCode = "peer.ssh.enable"
+	EventActivityCodePolicyAdd                                EventActivityCode = "policy.add"
+	EventActivityCodePolicyDelete                             EventActivityCode = "policy.delete"
+	EventActivityCodePolicyUpdate                             EventActivityCode = "policy.update"
 	EventActivityCodeRouteAdd                                 EventActivityCode = "route.add"
 	EventActivityCodeRouteDelete                              EventActivityCode = "route.delete"
 	EventActivityCodeRouteUpdate                              EventActivityCode = "route.update"
@@ -94,6 +97,12 @@ const (
 	PatchMinimumOpReplace PatchMinimumOp = "replace"
 )
 
+// Defines values for PolicyRuleAction.
+const (
+	PolicyRuleActionAccept PolicyRuleAction = "accept"
+	PolicyRuleActionDrop   PolicyRuleAction = "drop"
+)
+
 // Defines values for RoutePatchOperationOp.
 const (
 	RoutePatchOperationOpAdd     RoutePatchOperationOp = "add"
@@ -111,23 +120,6 @@ const (
 	RoutePatchOperationPathNetwork     RoutePatchOperationPath = "network"
 	RoutePatchOperationPathNetworkId   RoutePatchOperationPath = "network_id"
 	RoutePatchOperationPathPeer        RoutePatchOperationPath = "peer"
-)
-
-// Defines values for RulePatchOperationOp.
-const (
-	RulePatchOperationOpAdd     RulePatchOperationOp = "add"
-	RulePatchOperationOpRemove  RulePatchOperationOp = "remove"
-	RulePatchOperationOpReplace RulePatchOperationOp = "replace"
-)
-
-// Defines values for RulePatchOperationPath.
-const (
-	RulePatchOperationPathDescription  RulePatchOperationPath = "description"
-	RulePatchOperationPathDestinations RulePatchOperationPath = "destinations"
-	RulePatchOperationPathDisabled     RulePatchOperationPath = "disabled"
-	RulePatchOperationPathFlow         RulePatchOperationPath = "flow"
-	RulePatchOperationPathName         RulePatchOperationPath = "name"
-	RulePatchOperationPathSources      RulePatchOperationPath = "sources"
 )
 
 // Defines values for UserStatus.
@@ -387,6 +379,72 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
+// Policy defines model for Policy.
+type Policy struct {
+	// Description Policy friendly description
+	Description string `json:"description"`
+
+	// Enabled Policy status
+	Enabled bool `json:"enabled"`
+
+	// Id Policy ID
+	Id string `json:"id"`
+
+	// Name Policy name identifier
+	Name string `json:"name"`
+
+	// Query Policy Rego query
+	Query string `json:"query"`
+
+	// Rules Policy rule object for policy UI editor
+	Rules []PolicyRule `json:"rules"`
+}
+
+// PolicyMinimum defines model for PolicyMinimum.
+type PolicyMinimum struct {
+	// Description Policy friendly description
+	Description string `json:"description"`
+
+	// Enabled Policy status
+	Enabled bool `json:"enabled"`
+
+	// Name Policy name identifier
+	Name string `json:"name"`
+
+	// Query Policy Rego query
+	Query string `json:"query"`
+
+	// Rules Policy rule object for policy UI editor
+	Rules []PolicyRule `json:"rules"`
+}
+
+// PolicyRule defines model for PolicyRule.
+type PolicyRule struct {
+	// Action policy accept or drops packets
+	Action PolicyRuleAction `json:"action"`
+
+	// Description Rule friendly description
+	Description *string `json:"description,omitempty"`
+
+	// Destinations policy destination groups
+	Destinations []GroupMinimum `json:"destinations"`
+
+	// Enabled Rules status
+	Enabled bool `json:"enabled"`
+
+	// Id Rule ID
+	Id *string `json:"id,omitempty"`
+
+	// Name Rule name identifier
+	Name string `json:"name"`
+
+	// Sources policy source groups
+	Sources []GroupMinimum `json:"sources"`
+}
+
+// PolicyRuleAction policy accept or drops packets
+type PolicyRuleAction string
+
 // Route defines model for Route.
 type Route struct {
 	// Description Route description
@@ -503,24 +561,6 @@ type RuleMinimum struct {
 	// Name Rule name identifier
 	Name string `json:"name"`
 }
-
-// RulePatchOperation defines model for RulePatchOperation.
-type RulePatchOperation struct {
-	// Op Patch operation type
-	Op RulePatchOperationOp `json:"op"`
-
-	// Path Rule field to update in form /<field>
-	Path RulePatchOperationPath `json:"path"`
-
-	// Value Values to be applied
-	Value []string `json:"value"`
-}
-
-// RulePatchOperationOp Patch operation type
-type RulePatchOperationOp string
-
-// RulePatchOperationPath Rule field to update in form /<field>
-type RulePatchOperationPath string
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
@@ -666,6 +706,12 @@ type PutApiPeersIdJSONBody struct {
 	SshEnabled             bool   `json:"ssh_enabled"`
 }
 
+// PostApiPoliciesJSONBody defines parameters for PostApiPolicies.
+type PostApiPoliciesJSONBody = PolicyMinimum
+
+// PutApiPoliciesIdJSONBody defines parameters for PutApiPoliciesId.
+type PutApiPoliciesIdJSONBody = PolicyMinimum
+
 // PatchApiRoutesIdJSONBody defines parameters for PatchApiRoutesId.
 type PatchApiRoutesIdJSONBody = []RoutePatchOperation
 
@@ -685,9 +731,6 @@ type PostApiRulesJSONBody struct {
 	Name    string    `json:"name"`
 	Sources *[]string `json:"sources,omitempty"`
 }
-
-// PatchApiRulesIdJSONBody defines parameters for PatchApiRulesId.
-type PatchApiRulesIdJSONBody = []RulePatchOperation
 
 // PutApiRulesIdJSONBody defines parameters for PutApiRulesId.
 type PutApiRulesIdJSONBody struct {
@@ -733,6 +776,12 @@ type PutApiGroupsIdJSONRequestBody PutApiGroupsIdJSONBody
 // PutApiPeersIdJSONRequestBody defines body for PutApiPeersId for application/json ContentType.
 type PutApiPeersIdJSONRequestBody PutApiPeersIdJSONBody
 
+// PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
+type PostApiPoliciesJSONRequestBody = PostApiPoliciesJSONBody
+
+// PutApiPoliciesIdJSONRequestBody defines body for PutApiPoliciesId for application/json ContentType.
+type PutApiPoliciesIdJSONRequestBody = PutApiPoliciesIdJSONBody
+
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest
 
@@ -744,9 +793,6 @@ type PutApiRoutesIdJSONRequestBody = RouteRequest
 
 // PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
 type PostApiRulesJSONRequestBody PostApiRulesJSONBody
-
-// PatchApiRulesIdJSONRequestBody defines body for PatchApiRulesId for application/json ContentType.
-type PatchApiRulesIdJSONRequestBody = PatchApiRulesIdJSONBody
 
 // PutApiRulesIdJSONRequestBody defines body for PutApiRulesId for application/json ContentType.
 type PutApiRulesIdJSONRequestBody PutApiRulesIdJSONBody

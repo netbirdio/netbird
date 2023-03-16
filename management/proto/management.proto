@@ -183,16 +183,19 @@ message NetworkMap {
 
   // DNS config to be applied
   DNSConfig DNSConfig = 6;
+
+  // RemotePeerConfig represents a list of remote peers that the receiver can connect to
+  repeated RemotePeerConfig offlinePeers = 7;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.
-// The properties are used to configure Wireguard Peers sections
+// The properties are used to configure WireGuard Peers sections
 message RemotePeerConfig {
 
-  // A Wireguard public key of a remote peer
+  // A WireGuard public key of a remote peer
   string wgPubKey = 1;
 
-  // Wireguard allowed IPs of a remote peer e.g. [10.30.30.1/32]
+  // WireGuard allowed IPs of a remote peer e.g. [10.30.30.1/32]
   repeated string allowedIps = 2;
 
   // SSHConfig is a SSH config of the remote peer. SSHConfig.sshPubKey should be ignored because peer knows it's SSH key.

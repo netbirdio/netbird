@@ -1,13 +1,14 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/util"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"net"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/netbirdio/netbird/util"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type accounts struct {
@@ -70,7 +71,6 @@ func TestNewStore(t *testing.T) {
 	if store.UserID2AccountID == nil || len(store.UserID2AccountID) != 0 {
 		t.Errorf("expected to create a new empty UserID2AccountID map when creating a new FileStore")
 	}
-
 }
 
 func TestSaveAccount(t *testing.T) {
@@ -109,7 +109,6 @@ func TestSaveAccount(t *testing.T) {
 	if store.SetupKeyID2AccountID[setupKey.Key] == "" {
 		t.Errorf("expecting SetupKeyID2AccountID index updated after SaveAccount()")
 	}
-
 }
 
 func TestStore(t *testing.T) {
@@ -124,6 +123,38 @@ func TestStore(t *testing.T) {
 		Name:     "peer name",
 		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
 	}
+	account.Groups["all"] = &Group{
+		ID:    "all",
+		Name:  "all",
+		Peers: []string{"testpeer"},
+	}
+	account.Rules["all"] = &Rule{
+		ID:          "all",
+		Name:        "all",
+		Source:      []string{"all"},
+		Destination: []string{"all"},
+		Flow:        TrafficFlowBidirect,
+	}
+	account.Policies = append(account.Policies, &Policy{
+		ID:      "all",
+		Name:    "all",
+		Enabled: true,
+		Rules:   []*PolicyRule{account.Rules["all"].ToPolicyRule()},
+	})
+	account.Policies = append(account.Policies, &Policy{
+		ID:      "dmz",
+		Name:    "dmz",
+		Enabled: true,
+		Rules: []*PolicyRule{
+			{
+				ID:           "dmz",
+				Name:         "dmz",
+				Enabled:      true,
+				Sources:      []string{"all"},
+				Destinations: []string{"all"},
+			},
+		},
+	})
 
 	// SaveAccount should trigger persist
 	err := store.SaveAccount(account)
@@ -139,24 +170,48 @@ func TestStore(t *testing.T) {
 	restoredAccount := restored.Accounts[account.Id]
 	if restoredAccount == nil {
 		t.Errorf("failed to restore a FileStore file - missing Account %s", account.Id)
+		return
 	}
 
-	if restoredAccount != nil && restoredAccount.Peers["testpeer"] == nil {
+	if restoredAccount.Peers["testpeer"] == nil {
 		t.Errorf("failed to restore a FileStore file - missing Peer testpeer")
 	}
 
-	if restoredAccount != nil && restoredAccount.CreatedBy != "testuser" {
+	if restoredAccount.CreatedBy != "testuser" {
 		t.Errorf("failed to restore a FileStore file - missing Account CreatedBy")
 	}
 
-	if restoredAccount != nil && restoredAccount.Users["testuser"] == nil {
+	if restoredAccount.Users["testuser"] == nil {
 		t.Errorf("failed to restore a FileStore file - missing User testuser")
 	}
 
-	if restoredAccount != nil && restoredAccount.Network == nil {
+	if restoredAccount.Network == nil {
 		t.Errorf("failed to restore a FileStore file - missing Network")
 	}
 
+	if restoredAccount.Groups["all"] == nil {
+		t.Errorf("failed to restore a FileStore file - missing Group all")
+	}
+
+	if restoredAccount.Rules["all"] == nil {
+		t.Errorf("failed to restore a FileStore file - missing Rule all")
+		return
+	}
+
+	if restoredAccount.Rules["dmz"] == nil {
+		t.Errorf("failed to restore a FileStore file - missing Rule dmz")
+		return
+	}
+	assert.Equal(t, account.Rules["all"], restoredAccount.Rules["all"], "failed to restore a FileStore file - missing Rule all")
+	assert.Equal(t, account.Rules["dmz"], restoredAccount.Rules["dmz"], "failed to restore a FileStore file - missing Rule dmz")
+
+	if len(restoredAccount.Policies) != 2 {
+		t.Errorf("failed to restore a FileStore file - missing Policies")
+		return
+	}
+
+	assert.Equal(t, account.Policies[0], restoredAccount.Policies[0], "failed to restore a FileStore file - missing Policy all")
+	assert.Equal(t, account.Policies[1], restoredAccount.Policies[1], "failed to restore a FileStore file - missing Policy dmz")
 }
 
 func TestRestore(t *testing.T) {
@@ -189,6 +244,43 @@ func TestRestore(t *testing.T) {
 	require.Len(t, store.SetupKeyID2AccountID, 1, "failed to restore a FileStore wrong SetupKeyID2AccountID mapping length")
 
 	require.Len(t, store.PrivateDomain2AccountID, 1, "failed to restore a FileStore wrong PrivateDomain2AccountID mapping length")
+}
+
+func TestRestorePolicies_Migration(t *testing.T) {
+	storeDir := t.TempDir()
+
+	err := util.CopyFileContents("testdata/store_policy_migrate.json", filepath.Join(storeDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir)
+	if err != nil {
+		return
+	}
+
+	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+	require.Len(t, account.Groups, 1, "failed to restore a FileStore file - missing Account Groups")
+	require.Len(t, account.Rules, 1, "failed to restore a FileStore file - missing Account Rules")
+	require.Len(t, account.Policies, 1, "failed to restore a FileStore file - missing Account Policies")
+
+	policy := account.Policies[0]
+	require.Equal(t, policy.Name, "Default", "failed to restore a FileStore file - missing Account Policies Name")
+	require.Equal(t, policy.Description,
+		"This is a default rule that allows connections between all the resources",
+		"failed to restore a FileStore file - missing Account Policies Description")
+	expectedPolicy := policy.Copy()
+	err = expectedPolicy.UpdateQueryFromRules()
+	require.NoError(t, err, "failed to upldate query")
+	require.Equal(t, policy.Query, expectedPolicy.Query, "failed to restore a FileStore file - missing Account Policies Query")
+	require.Len(t, policy.Rules, 1, "failed to restore a FileStore file - missing Account Policy Rules")
+	require.Equal(t, policy.Rules[0].Action, PolicyTrafficActionAccept, "failed to restore a FileStore file - missing Account Policies Action")
+	require.Equal(t, policy.Rules[0].Destinations,
+		[]string{"cfefqs706sqkneg59g3g"},
+		"failed to restore a FileStore file - missing Account Policies Destinations")
+	require.Equal(t, policy.Rules[0].Sources,
+		[]string{"cfefqs706sqkneg59g3g"},
+		"failed to restore a FileStore file - missing Account Policies Sources")
 }
 
 func TestGetAccountByPrivateDomain(t *testing.T) {

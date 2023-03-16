@@ -59,6 +59,7 @@ func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics
 	api.addUsersEndpoint()
 	api.addSetupKeysEndpoint()
 	api.addRulesEndpoint()
+	api.addPoliciesEndpoint()
 	api.addGroupsEndpoint()
 	api.addRoutesEndpoint()
 	api.addDNSNameserversEndpoint()
@@ -122,9 +123,17 @@ func (apiHandler *apiHandler) addRulesEndpoint() {
 	apiHandler.Router.HandleFunc("/rules", rulesHandler.GetAllRules).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/rules", rulesHandler.CreateRule).Methods("POST", "OPTIONS")
 	apiHandler.Router.HandleFunc("/rules/{id}", rulesHandler.UpdateRule).Methods("PUT", "OPTIONS")
-	apiHandler.Router.HandleFunc("/rules/{id}", rulesHandler.PatchRule).Methods("PATCH", "OPTIONS")
 	apiHandler.Router.HandleFunc("/rules/{id}", rulesHandler.GetRule).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/rules/{id}", rulesHandler.DeleteRule).Methods("DELETE", "OPTIONS")
+}
+
+func (apiHandler *apiHandler) addPoliciesEndpoint() {
+	policiesHandler := NewPoliciesHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
+	apiHandler.Router.HandleFunc("/policies", policiesHandler.GetAllPolicies).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/policies", policiesHandler.CreatePolicy).Methods("POST", "OPTIONS")
+	apiHandler.Router.HandleFunc("/policies/{id}", policiesHandler.UpdatePolicy).Methods("PUT", "OPTIONS")
+	apiHandler.Router.HandleFunc("/policies/{id}", policiesHandler.GetPolicy).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/policies/{id}", policiesHandler.DeletePolicy).Methods("DELETE", "OPTIONS")
 }
 
 func (apiHandler *apiHandler) addGroupsEndpoint() {
