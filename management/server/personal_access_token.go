@@ -13,9 +13,10 @@ import (
 
 const (
 	// PATPrefix is the globally used, 4 char prefix for personal access tokens
-	PATPrefix    = "nbp_"
-	secretLength = 30
-	PATLength    = 40
+	PATPrefix         = "nbp_"
+	PATsecretLength   = 30
+	PATLength         = 40
+	PATChecksumLength = 6
 )
 
 // PersonalAccessToken holds all information about a PAT including a hashed version of it for verification
@@ -50,7 +51,7 @@ func CreateNewPAT(description string, expirationInDays int, createdBy string) (*
 }
 
 func generateNewToken() (string, string, error) {
-	secret, err := b.Random(secretLength)
+	secret, err := b.Random(PATsecretLength)
 	if err != nil {
 		return "", "", err
 	}

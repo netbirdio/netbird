@@ -1127,8 +1127,8 @@ func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *Use
 	if prefix != PATPrefix {
 		return nil, nil, fmt.Errorf("token invalid")
 	}
-	secret := token[len(PATPrefix):len(PATPrefix)]
-	encodedChecksum := token[34:40]
+	secret := token[len(PATPrefix) : len(PATPrefix)+PATsecretLength]
+	encodedChecksum := token[len(PATPrefix)+PATsecretLength : len(PATPrefix)+PATsecretLength+PATChecksumLength]
 
 	verificationChecksum, err := base62.Decode(encodedChecksum)
 	if err != nil {
