@@ -242,3 +242,75 @@ func TestKeycloakJwtStillValid(t *testing.T) {
 		})
 	}
 }
+
+func TestKeycloakAuthenticate(t *testing.T) {
+	type authenticateTest struct {
+		name                    string
+		inputCode               int
+		inputResBody            string
+		inputExpireToken        time.Time
+		helper                  ManagerHelper
+		expectedFuncExitErrDiff error
+		expectedCode            int
+		expectedToken           string
+	}
+	exp := 5
+	token := newTestJWT(t, exp)
+
+	authenticateTestCase1 := authenticateTest{
+		name:                    "Get Cached token",
+		inputExpireToken:        time.Now().Add(30 * time.Second),
+		helper:                  JsonParser{},
+		expectedFuncExitErrDiff: nil,
+		expectedCode:            200,
+		expectedToken:           "",
+	}
+
+	authenticateTestCase2 := authenticateTest{
+		name:          "Get Good JWT Response",
+		inputCode:     200,
+		inputResBody:  fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
+		helper:        JsonParser{},
+		expectedCode:  200,
+		expectedToken: token,
+	}
+
+	authenticateTestCase3 := authenticateTest{
+		name:                    "Get Bad Status Code",
+		inputCode:               400,
+		inputResBody:            "{}",
+		helper:                  JsonParser{},
+		expectedFuncExitErrDiff: fmt.Errorf("unable to get keycloak token, statusCode 400"),
+		expectedCode:            200,
+		expectedToken:           "",
+	}
+
+	for _, testCase := range []authenticateTest{authenticateTestCase1, authenticateTestCase2, authenticateTestCase3} {
+		t.Run(testCase.name, func(t *testing.T) {
+
+			jwtReqClient := mockHTTPClient{
+				resBody: testCase.inputResBody,
+				code:    testCase.inputCode,
+			}
+			config := KeycloakClientConfig{}
+
+			creds := KeycloakCredentials{
+				clientConfig: config,
+				httpClient:   &jwtReqClient,
+				helper:       testCase.helper,
+			}
+			creds.jwtToken.expiresInTime = testCase.inputExpireToken
+
+			_, err := creds.Authenticate()
+			if err != nil {
+				if testCase.expectedFuncExitErrDiff != nil {
+					assert.EqualError(t, err, testCase.expectedFuncExitErrDiff.Error(), "errors should be the same")
+				} else {
+					t.Fatal(err)
+				}
+			}
+
+			assert.Equalf(t, testCase.expectedToken, creds.jwtToken.AccessToken, "two tokens should be the same")
+		})
+	}
+}
