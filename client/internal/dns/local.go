@@ -8,6 +8,8 @@ import (
 	"sync"
 )
 
+type registrationMap map[string]struct{}
+
 type localResolver struct {
 	registeredMap registrationMap
 	records       sync.Map

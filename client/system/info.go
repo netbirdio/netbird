@@ -9,6 +9,9 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+// DeviceNameCtxKey context key for device name
+const DeviceNameCtxKey = "deviceName"
+
 // Info is an object that contains machine information
 // Most of the code is taken from https://github.com/matishsiao/goInfo
 type Info struct {

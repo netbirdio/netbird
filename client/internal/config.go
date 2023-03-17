@@ -73,6 +73,25 @@ type Config struct {
 	CustomDNSAddress string
 }
 
+// ReadConfig read config file and return with Config. If it is not exists create a new with default values
+func ReadConfig(configPath string) (*Config, error) {
+	if configFileIsExists(configPath) {
+		config := &Config{}
+		if _, err := util.ReadJson(configPath, config); err != nil {
+			return nil, err
+		}
+		return config, nil
+	}
+
+	cfg, err := createNewConfig(ConfigInput{ConfigPath: configPath})
+	if err != nil {
+		return nil, err
+	}
+
+	err = WriteOutConfig(configPath, cfg)
+	return cfg, err
+}
+
 // UpdateConfig update existing configuration according to input configuration and return with the configuration
 func UpdateConfig(input ConfigInput) (*Config, error) {
 	if !configFileIsExists(input.ConfigPath) {
@@ -86,13 +105,28 @@ func UpdateConfig(input ConfigInput) (*Config, error) {
 func UpdateOrCreateConfig(input ConfigInput) (*Config, error) {
 	if !configFileIsExists(input.ConfigPath) {
 		log.Infof("generating new config %s", input.ConfigPath)
-		return createNewConfig(input)
+		cfg, err := createNewConfig(input)
+		if err != nil {
+			return nil, err
+		}
+		err = WriteOutConfig(input.ConfigPath, cfg)
+		return cfg, err
 	}
 
 	if isPreSharedKeyHidden(input.PreSharedKey) {
 		input.PreSharedKey = nil
 	}
 	return update(input)
+}
+
+// CreateInMemoryConfig generate a new config but do not write out it to the store
+func CreateInMemoryConfig(input ConfigInput) (*Config, error) {
+	return createNewConfig(input)
+}
+
+// WriteOutConfig write put the prepared config to the given path
+func WriteOutConfig(path string, config *Config) error {
+	return util.WriteJson(path, config)
 }
 
 // createNewConfig creates a new config generating a new Wireguard key and saving to file
@@ -146,12 +180,6 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 	}
 
 	config.IFaceBlackList = defaultInterfaceBlacklist
-
-	err = util.WriteJson(input.ConfigPath, config)
-	if err != nil {
-		return nil, err
-	}
-
 	return config, nil
 }
 

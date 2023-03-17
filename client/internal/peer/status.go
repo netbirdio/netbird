@@ -58,6 +58,7 @@ type Status struct {
 	offlinePeers    []State
 	mgmAddress      string
 	signalAddress   string
+	notifier        *notifier
 }
 
 // NewRecorder returns a new Status instance
@@ -66,6 +67,7 @@ func NewRecorder(mgmAddress string) *Status {
 		peers:        make(map[string]State),
 		changeNotify: make(map[string]chan struct{}),
 		offlinePeers: make([]State, 0),
+		notifier:     newNotifier(),
 		mgmAddress:   mgmAddress,
 	}
 }
@@ -114,6 +116,7 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 		return nil
 	}
 
+	d.notifyPeerListChanged()
 	return errors.New("no peer with to remove")
 }
 
@@ -148,6 +151,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		d.changeNotify[receivedState.PubKey] = nil
 	}
 
+	d.notifyPeerListChanged()
 	return nil
 }
 
@@ -164,6 +168,7 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 	peerState.FQDN = fqdn
 	d.peers[peerPubKey] = peerState
 
+	d.notifyPeerListChanged()
 	return nil
 }
 
@@ -199,6 +204,8 @@ func (d *Status) CleanLocalPeerState() {
 func (d *Status) MarkManagementDisconnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+	defer d.onConnectionChanged()
+
 	d.managementState = false
 }
 
@@ -206,7 +213,9 @@ func (d *Status) MarkManagementDisconnected() {
 func (d *Status) MarkManagementConnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	d.managementState = true
+	defer d.onConnectionChanged()
+
+    d.managementState = true
 }
 
 // UpdateSignalAddress update the address of the signal server
@@ -227,13 +236,17 @@ func (d *Status) UpdateManagementAddress(mgmAddress string) {
 func (d *Status) MarkSignalDisconnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
-	d.signalState = false
+	defer d.onConnectionChanged()
+
+    d.signalState = false
 }
 
 // MarkSignalConnected sets SignalState to connected
 func (d *Status) MarkSignalConnected() {
 	d.mux.Lock()
 	defer d.mux.Unlock()
+	defer d.onConnectionChanged()
+
 	d.signalState = true
 }
 
@@ -261,4 +274,32 @@ func (d *Status) GetFullStatus() FullStatus {
 	fullStatus.Peers = append(fullStatus.Peers, d.offlinePeers...)
 
 	return fullStatus
+}
+
+// ClientStart will notify all listeners about the new service state
+func (d *Status) ClientStart() {
+	d.notifier.clientStart()
+}
+
+// ClientStop will notify all listeners about the new service state
+func (d *Status) ClientStop() {
+	d.notifier.clientStop()
+}
+
+// AddConnectionListener add a listener to the notifier
+func (d *Status) AddConnectionListener(listener Listener) {
+	d.notifier.addListener(listener)
+}
+
+// RemoveConnectionListener remove a listener from the notifier
+func (d *Status) RemoveConnectionListener(listener Listener) {
+	d.notifier.removeListener(listener)
+}
+
+func (d *Status) onConnectionChanged() {
+	d.notifier.updateServerStates(d.managementState, d.signalState)
+}
+
+func (d *Status) notifyPeerListChanged() {
+	d.notifier.peerListChanged(len(d.peers))
 }
