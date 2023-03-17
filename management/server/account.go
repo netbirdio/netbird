@@ -272,7 +272,7 @@ func (a *Account) GetGroup(groupID string) *Group {
 
 // GetPeerNetworkMap returns a group by ID if exists, nil otherwise
 func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
-	aclPeers, _ := a.getPeersByPolicy(peerID)
+	aclPeers, firewallRules := a.getPeersByPolicy(peerID)
 	// exclude expired peers
 	var peersToConnect []*Peer
 	var expiredPeers []*Peer
@@ -303,11 +303,12 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 	}
 
 	return &NetworkMap{
-		Peers:        peersToConnect,
-		Network:      a.Network.Copy(),
-		Routes:       routesUpdate,
-		DNSConfig:    dnsUpdate,
-		OfflinePeers: expiredPeers,
+		Peers:         peersToConnect,
+		Network:       a.Network.Copy(),
+		Routes:        routesUpdate,
+		DNSConfig:     dnsUpdate,
+		OfflinePeers:  expiredPeers,
+		FirewallRules: firewallRules,
 	}
 }
 
