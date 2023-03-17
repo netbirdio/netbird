@@ -44,7 +44,7 @@ services:
   #    command: ["--letsencrypt-domain", "$NETBIRD_LETSENCRYPT_DOMAIN", "--log-file", "console"]
     labels:
     - traefik.enable=true
-    - traefik.http.routers.netbird-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/signalexchange`)
+    - traefik.http.routers.netbird-signal.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/signalexchange.SignalExchange/`)
     - traefik.http.services.netbird-signal.loadbalancer.server.port=80
     - traefik.http.services.netbird-signal.loadbalancer.server.scheme=h2c
 
@@ -75,7 +75,7 @@ services:
     - traefik.http.routers.netbird-api.service=netbird-api
     - traefik.http.services.netbird-api.loadbalancer.server.port=443
 
-    - traefik.http.routers.netbird-management.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/management`)
+    - traefik.http.routers.netbird-management.rule=Host(`$NETBIRD_DOMAIN`) && PathPrefix(`/management.ManagementService/`)
     - traefik.http.routers.netbird-management.service=netbird-management
     - traefik.http.services.netbird-management.loadbalancer.server.port=443
     - traefik.http.services.netbird-management.loadbalancer.server.scheme=h2c
