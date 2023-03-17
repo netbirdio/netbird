@@ -64,6 +64,7 @@ then
   echo "You are also free to remove any occurences of the Letsencrypt-volume $LETSENCRYPT_VOLUMENAME"
   echo ""
 
+  export NETBIRD_SIGNAL_PROTOCOL="https"
   export NETBIRD_LETSENCRYPT_DOMAIN="none"
   unset NETBIRD_MGMT_API_CERT_FILE
   unset NETBIRD_MGMT_API_CERT_KEY_FILE
