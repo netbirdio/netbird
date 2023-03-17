@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/pion/ice/v2"
+	"github.com/pion/transport/v2/stdnet"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 
@@ -161,7 +162,10 @@ func (conn *Conn) reCreateAgent() error {
 	defer conn.mu.Unlock()
 
 	failedTimeout := 6 * time.Second
-	var err error
+	transportNet, err := stdnet.NewNet()
+	if err != nil {
+		log.Warnf("failed to create pion's stdnet: %s", err)
+	}
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
@@ -172,6 +176,7 @@ func (conn *Conn) reCreateAgent() error {
 		UDPMux:           conn.config.UDPMux,
 		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
 		NAT1To1IPs:       conn.config.NATExternalIPs,
+		Net:              transportNet,
 	}
 
 	if conn.config.DisableIPv6Discovery {

@@ -1,5 +1,4 @@
-//go:build linux || darwin
-// +build linux darwin
+//go:build (linux || darwin) && !android
 
 package iface
 
@@ -14,24 +13,44 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-// GetInterfaceGUIDString returns an interface GUID. This is useful on Windows only
-func (w *WGIface) GetInterfaceGUIDString() (string, error) {
-	return "", nil
+type tunDevice struct {
+	name         string
+	address      WGAddress
+	mtu          int
+	netInterface NetInterface
 }
 
-// Close closes the tunnel interface
-func (w *WGIface) Close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.netInterface == nil {
+func newTunDevice(name string, address WGAddress, mtu int) *tunDevice {
+	return &tunDevice{
+		name:    name,
+		address: address,
+		mtu:     mtu,
+	}
+}
+
+func (c *tunDevice) UpdateAddr(address WGAddress) error {
+	c.address = address
+	return c.assignAddr()
+}
+
+func (c *tunDevice) WgAddress() WGAddress {
+	return c.address
+}
+
+func (c *tunDevice) DeviceName() string {
+	return c.name
+}
+
+func (c *tunDevice) Close() error {
+	if c.netInterface == nil {
 		return nil
 	}
-	err := w.netInterface.Close()
+	err := c.netInterface.Close()
 	if err != nil {
 		return err
 	}
 
-	sockPath := "/var/run/wireguard/" + w.name + ".sock"
+	sockPath := "/var/run/wireguard/" + c.name + ".sock"
 	if _, statErr := os.Stat(sockPath); statErr == nil {
 		statErr = os.Remove(sockPath)
 		if statErr != nil {
@@ -43,24 +62,23 @@ func (w *WGIface) Close() error {
 }
 
 // createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
-func (w *WGIface) createWithUserspace() error {
-
-	tunIface, err := tun.CreateTUN(w.name, w.mtu)
+func (c *tunDevice) createWithUserspace() (NetInterface, error) {
+	tunIface, err := tun.CreateTUN(c.name, c.mtu)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	w.netInterface = tunIface
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	err = tunDevice.Up()
 	if err != nil {
-		return err
+		return tunIface, err
 	}
-	uapi, err := getUAPI(w.name)
+
+	// todo: after this line in case of error close the tunSock
+	uapi, err := c.getUAPI(c.name)
 	if err != nil {
-		return err
+		return tunIface, err
 	}
 
 	go func() {
@@ -75,16 +93,11 @@ func (w *WGIface) createWithUserspace() error {
 	}()
 
 	log.Debugln("UAPI listener started")
-
-	err = w.assignAddr()
-	if err != nil {
-		return err
-	}
-	return nil
+	return tunIface, nil
 }
 
 // getUAPI returns a Listener
-func getUAPI(iface string) (net.Listener, error) {
+func (c *tunDevice) getUAPI(iface string) (net.Listener, error) {
 	tunSock, err := ipc.UAPIOpen(iface)
 	if err != nil {
 		return nil, err

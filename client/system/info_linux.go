@@ -1,3 +1,6 @@
+//go:build !android
+// +build !android
+
 package system
 
 import (

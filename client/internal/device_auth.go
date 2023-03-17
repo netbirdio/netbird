@@ -57,6 +57,7 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 		return DeviceAuthorizationFlow{}, err
 	}
 	log.Debugf("connected to the Management service %s", mgmURL.String())
+
 	defer func() {
 		err = mgmClient.Close()
 		if err != nil {

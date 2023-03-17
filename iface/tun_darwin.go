@@ -6,23 +6,25 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Create Creates a new Wireguard interface, sets a given IP and brings it up.
-func (w *WGIface) Create() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+func (c *tunDevice) Create() error {
+	var err error
+	c.netInterface, err = c.createWithUserspace()
+	if err != nil {
+		return err
+	}
 
-	return w.createWithUserspace()
+	return c.assignAddr()
 }
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
-func (w *WGIface) assignAddr() error {
-	cmd := exec.Command("ifconfig", w.name, "inet", w.address.IP.String(), w.address.IP.String())
+func (c *tunDevice) assignAddr() error {
+	cmd := exec.Command("ifconfig", c.name, "inet", c.address.IP.String(), c.address.IP.String())
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Infof(`adding addreess command "%v" failed with output %s and error: `, cmd.String(), out)
 		return err
 	}
 
-	routeCmd := exec.Command("route", "add", "-net", w.address.Network.String(), "-interface", w.name)
+	routeCmd := exec.Command("route", "add", "-net", c.address.Network.String(), "-interface", c.name)
 	if out, err := routeCmd.CombinedOutput(); err != nil {
 		log.Printf(`adding route command "%v" failed with output %s and error: `, routeCmd.String(), out)
 		return err

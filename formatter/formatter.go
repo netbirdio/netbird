@@ -10,15 +10,15 @@ import (
 
 // TextFormatter formats logs into text with included source code's path
 type TextFormatter struct {
-	TimestampFormat string
-	LevelDesc       []string
+	timestampFormat string
+	levelDesc       []string
 }
 
 // NewTextFormatter create new MyTextFormatter instance
 func NewTextFormatter() *TextFormatter {
 	return &TextFormatter{
-		LevelDesc:       []string{"PANC", "FATL", "ERRO", "WARN", "INFO", "DEBG", "TRAC"},
-		TimestampFormat: time.RFC3339, // or RFC3339
+		levelDesc:       []string{"PANC", "FATL", "ERRO", "WARN", "INFO", "DEBG", "TRAC"},
+		timestampFormat: time.RFC3339, // or RFC3339
 	}
 }
 
@@ -39,13 +39,13 @@ func (f *TextFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 
 	level := f.parseLevel(entry.Level)
 
-	return []byte(fmt.Sprintf("%s %s %s%s: %s\n", entry.Time.Format(f.TimestampFormat), level, fields, entry.Data["source"], entry.Message)), nil
+	return []byte(fmt.Sprintf("%s %s %s%s: %s\n", entry.Time.Format(f.timestampFormat), level, fields, entry.Data["source"], entry.Message)), nil
 }
 
 func (f *TextFormatter) parseLevel(level logrus.Level) string {
-	if len(f.LevelDesc) < int(level) {
+	if len(f.levelDesc) < int(level) {
 		return ""
 	}
 
-	return f.LevelDesc[level]
+	return f.levelDesc[level]
 }
