@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"strings"
 
+	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 
@@ -474,4 +475,18 @@ func (am *DefaultAccountManager) savePolicy(account *Account, policy *Policy) (e
 		account.Policies = append(account.Policies, policy)
 	}
 	return
+}
+
+func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
+	result := make([]*proto.FirewallRule, len(update))
+	for i := range update {
+		result[i] = &proto.FirewallRule{
+			PeerID:    update[i].PeerID,
+			PeerIP:    update[i].PeerIP,
+			Direction: update[i].Direction,
+			Port:      update[i].Port,
+			Action:    update[i].Action,
+		}
+	}
+	return result
 }
