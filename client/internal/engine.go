@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
@@ -112,7 +114,9 @@ type Engine struct {
 
 	statusRecorder *peer.Status
 
-	routeManager routemanager.Manager
+	routeManager    routemanager.Manager
+	firewallManager firewall.Manager
+	firewallRules   map[string]firewall.Rule
 
 	dnsServer dns.Server
 }
@@ -236,6 +240,12 @@ func (e *Engine) Start() error {
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
+
+	e.firewallManager, err = buildFirewallManager()
+	if err != nil {
+		log.Error("failed to create firewall manager, ACL policy will not work: %s", err.Error())
+	}
+	e.firewallRules = make(map[string]firewall.Rule)
 
 	if e.dnsServer == nil {
 		// todo fix custom address
@@ -640,6 +650,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
+	if err := e.applyFirewallRules(networkMap.FirewallRules); err != nil {
+		log.Errorf("failed apply firewall rules, err: %v", err)
+	}
 	e.networkSerial = serial
 	return nil
 }
@@ -1041,6 +1054,96 @@ func (e *Engine) close() {
 		e.dnsServer.Stop()
 	}
 
+}
+
+// applyFirewallRules to the local firewall manager processed by ACL policy.
+func (e *Engine) applyFirewallRules(rules []*mgmProto.FirewallRule) error {
+	if e.firewallManager == nil {
+		log.Debug("firewall manager is not supported, skipping firewall rules")
+		return nil
+	}
+
+	newRules := make([]string, 0)
+	for _, r := range rules {
+		rule := e.protoRuleToFirewallRule(r)
+		if rule == nil {
+			continue
+		}
+		newRules = append(newRules, rule.GetRuleID())
+	}
+
+	for _, ruleID := range newRules {
+		if rule, ok := e.firewallRules[ruleID]; ok {
+			if err := e.firewallManager.DeleteRule(rule); err != nil {
+				log.Debug("failed to delete firewall rule: %v", err)
+				continue
+			}
+			delete(e.firewallRules, ruleID)
+		}
+	}
+
+	return nil
+}
+
+func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule {
+	ip := net.ParseIP(r.PeerIP)
+	if ip == nil {
+		log.Debug("invalid IP address, skipping firewall rule")
+		return nil
+	}
+
+	var port firewall.Port
+	if r.Port != "" {
+		split := strings.Split(r.Port, "/")
+		value, err := strconv.Atoi(split[0])
+		if err != nil {
+			log.Debug("invalid port, skipping firewall rule")
+			return nil
+		}
+		port.Values = []int{value}
+		// get protocol from the port suffix if it exists
+		if len(split) > 1 {
+			switch split[1] {
+			case "tcp":
+				port.Proto = firewall.PortProtocolTCP
+			case "udp":
+				port.Proto = firewall.PortProtocolUDP
+			default:
+				log.Debug("invalid protocol, skipping firewall rule")
+				return nil
+			}
+		}
+	}
+
+	var direction firewall.Direction
+	switch r.Direction {
+	case "src":
+		direction = firewall.DirectionSrc
+	case "dst":
+		direction = firewall.DirectionDst
+	default:
+		log.Debug("invalid direction, skipping firewall rule")
+		return nil
+	}
+
+	var action firewall.Action
+	switch r.Action {
+	case "accept":
+		action = firewall.ActionAccept
+	case "drop":
+		action = firewall.ActionDrop
+	default:
+		log.Debug("invalid action, skipping firewall rule")
+		return nil
+	}
+
+	rule, err := e.firewallManager.AddFiltering(ip, &port, direction, action, "")
+	if err != nil {
+		log.Debug("failed to add firewall rule: %v", err)
+		return nil
+	}
+	e.firewallRules[rule.GetRuleID()] = rule
+	return rule
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
