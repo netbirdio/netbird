@@ -288,6 +288,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	return s.persist(s.storeFile)
 }
 
+// DeleteHashedPAT2TokenIDIndex removes an entry from the indexing map HashedPAT2TokenID
 func (s *FileStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
@@ -297,6 +298,7 @@ func (s *FileStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 	return s.persist(s.storeFile)
 }
 
+// DeleteTokenID2UserIDIndex removes an entry from the indexing map TokenID2UserID
 func (s *FileStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
