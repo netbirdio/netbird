@@ -11,6 +11,8 @@ type Store interface {
 	GetTokenIDByHashedToken(secret string) (string, error)
 	GetUserByTokenID(tokenID string) (*User, error)
 	SaveAccount(account *Account) error
+	DeleteHashedPAT2TokenIDIndex(hashedToken string) error
+	DeleteTokenID2UserIDIndex(tokenID string) error
 	GetInstallationID() string
 	SaveInstallationID(ID string) error
 	// AcquireAccountLock should attempt to acquire account lock and return a function that releases the lock

@@ -473,20 +473,21 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
 	hashedToken := sha256.Sum256([]byte(token))
-	pat := PersonalAccessToken{
-		ID:             "tokenId",
-		Description:    "some Description",
-		HashedToken:    string(hashedToken[:]),
-		ExpirationDate: time.Time{},
-		CreatedBy:      "testuser",
-		CreatedAt:      time.Time{},
-		LastUsed:       time.Time{},
-	}
 	account.Users["someUser"] = &User{
 		Id:         "someUser",
 		Role:       "",
 		AutoGroups: nil,
-		PATs:       []PersonalAccessToken{pat},
+		PATs: map[string]*PersonalAccessToken{
+			"pat1": {
+				ID:             "tokenId",
+				Description:    "some Description",
+				HashedToken:    string(hashedToken[:]),
+				ExpirationDate: time.Time{},
+				CreatedBy:      "testuser",
+				CreatedAt:      time.Time{},
+				LastUsed:       time.Time{},
+			},
+		},
 	}
 	err := store.SaveAccount(account)
 	if err != nil {
@@ -1267,8 +1268,8 @@ func TestAccount_Copy(t *testing.T) {
 				Id:         "user1",
 				Role:       UserRoleAdmin,
 				AutoGroups: []string{"group1"},
-				PATs: []PersonalAccessToken{
-					{
+				PATs: map[string]*PersonalAccessToken{
+					"pat1": {
 						ID:             "pat1",
 						Description:    "First PAT",
 						HashedToken:    "SoMeHaShEdToKeN",
