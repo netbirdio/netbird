@@ -112,7 +112,7 @@ func restore(file string) (*FileStore, error) {
 			store.UserID2AccountID[user.Id] = accountID
 			for _, pat := range user.PATs {
 				store.TokenID2UserID[pat.ID] = user.Id
-				store.HashedPAT2TokenID[string(pat.HashedToken[:])] = pat.ID
+				store.HashedPAT2TokenID[pat.HashedToken[:]] = pat.ID
 			}
 		}
 
@@ -268,7 +268,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.UserID2AccountID[user.Id] = accountCopy.Id
 		for _, pat := range user.PATs {
 			s.TokenID2UserID[pat.ID] = user.Id
-			s.HashedPAT2TokenID[string(pat.HashedToken[:])] = pat.ID
+			s.HashedPAT2TokenID[pat.HashedToken[:]] = pat.ID
 		}
 	}
 
