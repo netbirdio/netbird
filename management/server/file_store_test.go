@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/util"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 type accounts struct {
@@ -384,6 +385,9 @@ func TestFileStore_GetTokenIDByHashedToken(t *testing.T) {
 
 	hashedToken := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].HashedToken
 	tokenID, err := store.GetTokenIDByHashedToken(hashedToken)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	expectedTokenID := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].ID
 	assert.Equal(t, expectedTokenID, tokenID)
@@ -433,8 +437,8 @@ func TestFileStore_GetUserByTokenID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tokenId := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].ID
-	user, err := store.GetUserByTokenID(tokenId)
+	tokenID := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].ID
+	user, err := store.GetUserByTokenID(tokenID)
 	if err != nil {
 		t.Fatal(err)
 	}

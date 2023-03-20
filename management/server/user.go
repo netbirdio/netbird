@@ -206,11 +206,8 @@ func (am *DefaultAccountManager) AddPATToUser(accountID string, userID string, p
 
 	user.PATs = append(user.PATs, pat)
 
-	if err = am.Store.SaveAccount(account); err != nil {
-		return err
-	}
-
-	return nil
+	err = am.Store.SaveAccount(account)
+	return err
 }
 
 // SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.

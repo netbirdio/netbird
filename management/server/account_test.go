@@ -488,7 +488,10 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		AutoGroups: nil,
 		PATs:       []PersonalAccessToken{pat},
 	}
-	store.SaveAccount(account)
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
 
 	am := DefaultAccountManager{
 		Store:                   store,
