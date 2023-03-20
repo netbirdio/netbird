@@ -50,6 +50,8 @@ func Create() (*Manager, error) {
 }
 
 // AddFiltering rule to the firewall
+//
+// If comment is empty rule ID is used as comment
 func (m *Manager) AddFiltering(
 	ip net.IP,
 	port *fw.Port,
@@ -59,33 +61,35 @@ func (m *Manager) AddFiltering(
 ) (fw.Rule, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
 	client := m.client(ip)
 	ok, err := client.ChainExists("filter", ChainFilterName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if chain exists: %s", err)
 	}
+
 	if !ok {
 		if err := client.NewChain("filter", ChainFilterName); err != nil {
 			return nil, fmt.Errorf("failed to create chain: %s", err)
 		}
 	}
-	if port == nil || port.Values == nil || (port.IsRange && len(port.Values) != 2) {
-		return nil, fmt.Errorf("invalid port definition")
+
+	var pv string
+	if port != nil && port.Values != nil {
+		// TODO: we support only one port per rule in current implementation of ACLs
+		pv = strconv.Itoa(port.Values[0])
 	}
-	pv := strconv.Itoa(port.Values[0])
-	if port.IsRange {
-		pv += ":" + strconv.Itoa(port.Values[1])
+	ruleID := uuid.New().String()
+	if comment == "" {
+		comment = ruleID
 	}
+
 	specs := m.filterRuleSpecs("filter", ChainFilterName, ip, pv, direction, action, comment)
 	if err := client.AppendUnique("filter", ChainFilterName, specs...); err != nil {
 		return nil, err
 	}
-	rule := &Rule{
-		id:    uuid.New().String(),
-		specs: specs,
-		v6:    ip.To4() == nil,
-	}
-	return rule, nil
+
+	return &Rule{id: ruleID, specs: specs, v6: ip.To4() == nil}, nil
 }
 
 // DeleteRule from the firewall by rule definition
@@ -139,7 +143,10 @@ func (m *Manager) filterRuleSpecs(
 	if direction == fw.DirectionSrc {
 		specs = append(specs, "-s", ip.String())
 	}
-	specs = append(specs, "-p", "tcp", "--dport", port)
+	specs = append(specs, "-p", "tcp")
+	if port != "" {
+		specs = append(specs, "--dport", port)
+	}
 	specs = append(specs, "-j", m.actionToStr(action))
 	return append(specs, "-m", "comment", "--comment", comment)
 }
