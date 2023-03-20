@@ -74,17 +74,27 @@ func (m *Manager) AddFiltering(
 		}
 	}
 
-	var pv string
+	var portValue, protocolValue string
 	if port != nil && port.Values != nil {
 		// TODO: we support only one port per rule in current implementation of ACLs
-		pv = strconv.Itoa(port.Values[0])
+		portValue = strconv.Itoa(port.Values[0])
+		switch port.Proto {
+		case fw.PortProtocolTCP:
+			protocolValue = "tcp"
+		case fw.PortProtocolUDP:
+			protocolValue = "udp"
+		default:
+			return nil, fmt.Errorf("unsupported protocol: %s", port.Proto)
+		}
 	}
 	ruleID := uuid.New().String()
 	if comment == "" {
 		comment = ruleID
 	}
 
-	specs := m.filterRuleSpecs("filter", ChainFilterName, ip, pv, direction, action, comment)
+	specs := m.filterRuleSpecs(
+		"filter", ChainFilterName, ip, protocolValue,
+		portValue, direction, action, comment)
 	if err := client.AppendUnique("filter", ChainFilterName, specs...); err != nil {
 		return nil, err
 	}
@@ -137,13 +147,16 @@ func (m *Manager) reset(client *iptables.IPTables, table, chain string) error {
 
 // filterRuleSpecs returns the specs of a filtering rule
 func (m *Manager) filterRuleSpecs(
-	table string, chain string, ip net.IP, port string,
+	table string, chain string, ip net.IP, protocol string, port string,
 	direction fw.Direction, action fw.Action, comment string,
 ) (specs []string) {
-	if direction == fw.DirectionSrc {
+	switch direction {
+	case fw.DirectionSrc:
 		specs = append(specs, "-s", ip.String())
+	case fw.DirectionDst:
+		specs = append(specs, "-d", ip.String())
 	}
-	specs = append(specs, "-p", "tcp")
+	specs = append(specs, "-p", protocol)
 	if port != "" {
 		specs = append(specs, "--dport", port)
 	}

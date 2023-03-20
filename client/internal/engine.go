@@ -236,7 +236,7 @@ func (e *Engine) Start() error {
 
 	e.firewallManager, err = buildFirewallManager()
 	if err != nil {
-		log.Error("failed to create firewall manager, ACL policy will not work: %s", err.Error())
+		log.Errorf("failed to create firewall manager, ACL policy will not work: %s", err.Error())
 	}
 	e.firewallRules = make(map[string]firewall.Rule)
 
@@ -1081,7 +1081,7 @@ func (e *Engine) applyFirewallRules(rules []*mgmProto.FirewallRule) error {
 		}
 		if rule, ok := e.firewallRules[ruleID]; ok {
 			if err := e.firewallManager.DeleteRule(rule); err != nil {
-				log.Debug("failed to delete firewall rule: %v", err)
+				log.Debugf("failed to delete firewall rule: %v", err)
 				continue
 			}
 			delete(e.firewallRules, ruleID)
