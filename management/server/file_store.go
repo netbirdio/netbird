@@ -288,6 +288,24 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	return s.persist(s.storeFile)
 }
 
+func (s *FileStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	delete(s.HashedPAT2TokenID, hashedToken)
+
+	return s.persist(s.storeFile)
+}
+
+func (s *FileStore) DeleteTokenID2UserIDIndex(tokenID string) error {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	delete(s.TokenID2UserID, tokenID)
+
+	return s.persist(s.storeFile)
+}
+
 // GetAccountByPrivateDomain returns account by private domain
 func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 	s.mux.Lock()

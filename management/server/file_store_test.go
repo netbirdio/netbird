@@ -249,7 +249,7 @@ func TestRestore(t *testing.T) {
 
 	require.NotNil(t, account.SetupKeys["A2C8E62B-38F5-4553-B31E-DD66C696CEBB"], "failed to restore a FileStore file - missing Account SetupKey A2C8E62B-38F5-4553-B31E-DD66C696CEBB")
 
-	require.Len(t, account.Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs, 1, "failed to restore a FileStore wrong PATs length")
+	require.NotNil(t, account.Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs["9dj38s35-63fb-11ec-90d6-0242ac120003"], "failed to restore a FileStore wrong PATs length")
 
 	require.Len(t, store.UserID2AccountID, 2, "failed to restore a FileStore wrong UserID2AccountID mapping length")
 
@@ -383,14 +383,32 @@ func TestFileStore_GetTokenIDByHashedToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	hashedToken := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].HashedToken
+	hashedToken := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs["9dj38s35-63fb-11ec-90d6-0242ac120003"].HashedToken
 	tokenID, err := store.GetTokenIDByHashedToken(hashedToken)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	expectedTokenID := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].ID
+	expectedTokenID := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs["9dj38s35-63fb-11ec-90d6-0242ac120003"].ID
 	assert.Equal(t, expectedTokenID, tokenID)
+}
+
+func TestFileStore_DeleteHashedPAT2TokenIDIndex(t *testing.T) {
+	store := newStore(t)
+	store.HashedPAT2TokenID["someHashedToken"] = "someTokenId"
+
+	store.DeleteHashedPAT2TokenIDIndex("someHashedToken")
+
+	assert.Empty(t, store.HashedPAT2TokenID["someHashedToken"])
+}
+
+func TestFileStore_DeleteTokenID2UserIDIndex(t *testing.T) {
+	store := newStore(t)
+	store.TokenID2UserID["someTokenId"] = "someUserId"
+
+	store.DeleteTokenID2UserIDIndex("someTokenId")
+
+	assert.Empty(t, store.TokenID2UserID["someTokenId"])
 }
 
 func TestFileStore_GetTokenIDByHashedToken_Failure(t *testing.T) {
@@ -437,7 +455,7 @@ func TestFileStore_GetUserByTokenID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tokenID := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs[0].ID
+	tokenID := accounts.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"].Users["f4f6d672-63fb-11ec-90d6-0242ac120003"].PATs["9dj38s35-63fb-11ec-90d6-0242ac120003"].ID
 	user, err := store.GetUserByTokenID(tokenID)
 	if err != nil {
 		t.Fatal(err)
