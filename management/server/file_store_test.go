@@ -397,7 +397,10 @@ func TestFileStore_DeleteHashedPAT2TokenIDIndex(t *testing.T) {
 	store := newStore(t)
 	store.HashedPAT2TokenID["someHashedToken"] = "someTokenId"
 
-	store.DeleteHashedPAT2TokenIDIndex("someHashedToken")
+	err := store.DeleteHashedPAT2TokenIDIndex("someHashedToken")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	assert.Empty(t, store.HashedPAT2TokenID["someHashedToken"])
 }
@@ -406,7 +409,10 @@ func TestFileStore_DeleteTokenID2UserIDIndex(t *testing.T) {
 	store := newStore(t)
 	store.TokenID2UserID["someTokenId"] = "someUserId"
 
-	store.DeleteTokenID2UserIDIndex("someTokenId")
+	err := store.DeleteTokenID2UserIDIndex("someTokenId")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	assert.Empty(t, store.TokenID2UserID["someTokenId"])
 }

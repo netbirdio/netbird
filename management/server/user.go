@@ -214,6 +214,7 @@ func (am *DefaultAccountManager) AddPATToUser(accountID string, userID string, p
 	return err
 }
 
+// DeletePAT deletes a specific PAT from a user
 func (am *DefaultAccountManager) DeletePAT(accountID string, userID string, tokenID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
