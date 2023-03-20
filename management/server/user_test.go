@@ -20,7 +20,10 @@ func TestUser_AddPATToUser(t *testing.T) {
 		Name:     "peer name",
 		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
 	}
-	store.SaveAccount(account)
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
 
 	am := DefaultAccountManager{
 		Store:                   store,
@@ -39,7 +42,7 @@ func TestUser_AddPATToUser(t *testing.T) {
 
 	token := "someToken"
 	pat := PersonalAccessToken{
-		ID:             "tokenId",
+		ID:             "tokenID",
 		Description:    "some Description",
 		HashedToken:    token,
 		ExpirationDate: time.Time{},
@@ -48,20 +51,23 @@ func TestUser_AddPATToUser(t *testing.T) {
 		LastUsed:       time.Time{},
 	}
 
-	am.AddPATToUser("account_id", "testuser", pat)
+	err = am.AddPATToUser("account_id", "testuser", pat)
+	if err != nil {
+		t.Fatalf("Error when adding PAT to user: %s", err)
+	}
 
 	fileStore := am.Store.(*FileStore)
-	tokenId := fileStore.HashedPAT2TokenID[string(token[:])]
+	tokenID := fileStore.HashedPAT2TokenID[token[:]]
 
-	if tokenId == "" {
+	if tokenID == "" {
 		t.Fatal("GetTokenIDByHashedToken failed after adding PAT")
 	}
 
-	assert.Equal(t, "tokenId", tokenId)
+	assert.Equal(t, "tokenID", tokenID)
 
-	userId := fileStore.TokenID2UserID[tokenId]
-	if userId == "" {
+	userID := fileStore.TokenID2UserID[tokenID]
+	if userID == "" {
 		t.Fatal("GetUserByTokenId failed after adding PAT")
 	}
-	assert.Equal(t, "testuser", userId)
+	assert.Equal(t, "testuser", userID)
 }
