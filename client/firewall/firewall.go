@@ -39,6 +39,9 @@ const (
 // Netbird client for ACL and routing functionality
 type Manager interface {
 	// AddFiltering rule to the firewall
+	//
+	// If comment argument is empty firewall manager should set
+	// rule ID as comment for the rule
 	AddFiltering(
 		ip net.IP,
 		port *Port,
