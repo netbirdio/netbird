@@ -44,6 +44,7 @@ type Manager interface {
 	// rule ID as comment for the rule
 	AddFiltering(
 		ip net.IP,
+		proto Protocol,
 		port *Port,
 		direction Direction,
 		action Action,
