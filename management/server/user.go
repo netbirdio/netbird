@@ -210,8 +210,7 @@ func (am *DefaultAccountManager) AddPATToUser(accountID string, userID string, p
 
 	user.PATs[pat.ID] = pat
 
-	err = am.Store.SaveAccount(account)
-	return err
+	return am.Store.SaveAccount(account)
 }
 
 // DeletePAT deletes a specific PAT from a user
@@ -244,8 +243,7 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, userID string, toke
 	}
 	delete(user.PATs, tokenID)
 
-	err = am.Store.SaveAccount(account)
-	return err
+	return am.Store.SaveAccount(account)
 }
 
 // SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.
