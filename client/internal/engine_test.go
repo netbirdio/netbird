@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
@@ -28,6 +29,7 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	mgmt "github.com/netbirdio/netbird/management/client"
+	mgmProto "github.com/netbirdio/netbird/management/proto"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -936,6 +938,134 @@ func Test_ParseNATExternalIPMappings(t *testing.T) {
 			require.ElementsMatchf(t, testCase.expectedOutput, parsedList, "elements of parsed list should match expected list")
 		})
 	}
+}
+
+func TestEngine_firewallManager(t *testing.T) {
+	// TODO: enable when other platform will be added
+	if runtime.GOOS != "linux" {
+		t.Skipf("firewall manager not supported in the: %s", runtime.GOOS)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(CtxInitState(context.Background()), 10*time.Second)
+	defer cancel()
+
+	dir := t.TempDir()
+
+	err := util.CopyFileContents("../testdata/store.json", filepath.Join(dir, "store.json"))
+	if err != nil {
+		t.Errorf("copy temporary store file: %v", err)
+	}
+
+	sigServer, signalAddr, err := startSignal()
+	if err != nil {
+		t.Errorf("start signal server: %v", err)
+		return
+	}
+	defer sigServer.GracefulStop()
+
+	mgmtServer, mgmtAddr, err := startManagement(dir)
+	if err != nil {
+		t.Errorf("start management server: %v", err)
+		return
+	}
+	defer mgmtServer.GracefulStop()
+
+	setupKey := "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
+
+	engine, err := createEngine(ctx, cancel, setupKey, 0, mgmtAddr, signalAddr)
+	if err != nil {
+		t.Errorf("create engine: %v", err)
+		return
+	}
+	engine.dnsServer = &dns.MockServer{}
+
+	if err := engine.Start(); err != nil {
+		t.Logf("start engine: %v", err)
+		return
+	}
+
+	defer func() {
+		if err := engine.mgmClient.Close(); err != nil {
+			t.Logf("close management client: %v", err)
+		}
+
+		if err := engine.Stop(); err != nil {
+			t.Logf("stop engine: %v", err)
+		}
+	}()
+
+	// wait 2 seconds until all management and signal processing will be finished
+	time.Sleep(2 * time.Second)
+
+	if engine.firewallManager == nil {
+		t.Errorf("firewall manager is nil")
+		return
+	}
+
+	fwRules := []*mgmProto.FirewallRule{
+		{
+			PeerID:    "test",
+			PeerIP:    "10.93.0.1",
+			Direction: "dst",
+			Action:    "accept",
+			Protocol:  "tcp",
+			Port:      "80",
+		},
+		{
+			PeerID:    "test2",
+			PeerIP:    "10.93.0.2",
+			Direction: "dst",
+			Action:    "drop",
+			Protocol:  "udp",
+			Port:      "53",
+		},
+	}
+
+	// we receive one rule from the management so for testing purposes ignore it
+	engine.firewallRules = make(map[string]firewall.Rule)
+
+	t.Run("apply firewall rules", func(t *testing.T) {
+		engine.applyFirewallRules(fwRules)
+
+		if len(engine.firewallRules) != 2 {
+			t.Errorf("firewall rules not applied: %v", engine.firewallRules)
+			return
+		}
+	})
+
+	t.Run("add extra rules", func(t *testing.T) {
+		// remove first rule
+		fwRules = fwRules[1:]
+		fwRules = append(fwRules, &mgmtProto.FirewallRule{
+			PeerID:    "test3",
+			PeerIP:    "10.93.0.3",
+			Direction: "src",
+			Action:    "drop",
+			Protocol:  "icmp",
+		})
+
+		existedRulesID := map[string]struct{}{}
+		for id := range engine.firewallRules {
+			existedRulesID[id] = struct{}{}
+		}
+
+		engine.applyFirewallRules(fwRules)
+
+		// we should have one old and one new rule in the existed rules
+		if len(engine.firewallRules) != 2 {
+			t.Errorf("firewall rules not applied")
+			return
+		}
+
+		// check that old rules was removed
+		for id := range existedRulesID {
+			if _, ok := engine.firewallRules[id]; ok {
+				t.Errorf("old rule was not removed")
+				return
+			}
+		}
+	})
 }
 
 func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey string, i int, mgmtAddr string, signalAddr string) (*Engine, error) {

@@ -22,8 +22,8 @@ func TestNewManager(t *testing.T) {
 	var rule1 fw.Rule
 	t.Run("add first rule", func(t *testing.T) {
 		ip := net.ParseIP("10.20.0.2")
-		port := &fw.Port{Proto: fw.PortProtocolTCP, Values: []int{8080}}
-		rule1, err = manager.AddFiltering(ip, port, fw.DirectionDst, fw.ActionAccept, "accept HTTP traffic")
+		port := &fw.Port{Values: []int{8080}}
+		rule1, err = manager.AddFiltering(ip, "tcp", port, fw.DirectionDst, fw.ActionAccept, "accept HTTP traffic")
 		if err != nil {
 			t.Errorf("failed to add rule: %v", err)
 		}
@@ -35,11 +35,10 @@ func TestNewManager(t *testing.T) {
 	t.Run("add second rule", func(t *testing.T) {
 		ip := net.ParseIP("10.20.0.3")
 		port := &fw.Port{
-			Proto:  fw.PortProtocolTCP,
 			Values: []int{8043: 8046},
 		}
 		rule2, err = manager.AddFiltering(
-			ip, port, fw.DirectionDst, fw.ActionAccept, "accept HTTPS traffic from ports range")
+			ip, "tcp", port, fw.DirectionDst, fw.ActionAccept, "accept HTTPS traffic from ports range")
 		if err != nil {
 			t.Errorf("failed to add rule: %v", err)
 		}
@@ -66,8 +65,8 @@ func TestNewManager(t *testing.T) {
 	t.Run("reset check", func(t *testing.T) {
 		// add second rule
 		ip := net.ParseIP("10.20.0.3")
-		port := &fw.Port{Proto: fw.PortProtocolUDP, Values: []int{5353}}
-		_, err = manager.AddFiltering(ip, port, fw.DirectionDst, fw.ActionAccept, "accept Fake DNS traffic")
+		port := &fw.Port{Values: []int{5353}}
+		_, err = manager.AddFiltering(ip, "udp", port, fw.DirectionDst, fw.ActionAccept, "accept Fake DNS traffic")
 		if err != nil {
 			t.Errorf("failed to add rule: %v", err)
 		}
