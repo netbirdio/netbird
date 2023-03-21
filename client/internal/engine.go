@@ -1061,6 +1061,33 @@ func (e *Engine) close() {
 	}
 }
 
+// applyFirewallRules to the local firewall manager processed by ACL policy.
+func (e *Engine) applyFirewallRules(rules []*mgmProto.FirewallRule) {
+	if e.firewallManager == nil {
+		log.Debug("firewall manager is not supported, skipping firewall rules")
+		return
+	}
+
+	newRules := make(map[string]firewall.Rule)
+	for _, r := range rules {
+		rule := e.protoRuleToFirewallRule(r)
+		if rule == nil {
+			continue
+		}
+		newRules[rule.GetRuleID()] = rule
+	}
+
+	for ruleID := range e.firewallRules {
+		if rule, ok := newRules[ruleID]; !ok {
+			if err := e.firewallManager.DeleteRule(rule); err != nil {
+				log.Errorf("failed to delete firewall rule: %v", err)
+				continue
+			}
+			delete(e.firewallRules, ruleID)
+		}
+	}
+}
+
 func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule {
 	ip := net.ParseIP(r.PeerIP)
 	if ip == nil {
@@ -1070,12 +1097,13 @@ func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule
 
 	var port *firewall.Port
 	if r.Port != "" {
-		split := strings.Split(r.Port, "/")
-		// port can be empty, so ignore conversion error
-		value, _ := strconv.Atoi(split[0])
-		port = &firewall.Port{}
-		if value != 0 {
-			port.Values = []int{value}
+		value, err := strconv.Atoi(r.Port)
+		if err != nil {
+			log.Debug("invalid port, skipping firewall rule")
+			return nil
+		}
+		port = &firewall.Port{
+			Values: []int{value},
 		}
 	}
 
@@ -1087,6 +1115,9 @@ func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule
 		protocol = firewall.ProtocolUDP
 	case "icmp":
 		protocol = firewall.ProtocolICMP
+	default:
+		log.Errorf("invalid protocol, skipping firewall rule: %q", r.Protocol)
+		return nil
 	}
 
 	var direction firewall.Direction
@@ -1114,94 +1145,6 @@ func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule
 	rule, err := e.firewallManager.AddFiltering(ip, protocol, port, direction, action, "")
 	if err != nil {
 		log.Errorf("failed to add firewall rule: %v", err)
-		return nil
-	}
-	e.firewallRules[rule.GetRuleID()] = rule
-	return rule
-}
-
-// applyFirewallRules to the local firewall manager processed by ACL policy.
-func (e *Engine) applyFirewallRules(rules []*mgmProto.FirewallRule) {
-	if e.firewallManager == nil {
-		log.Debug("firewall manager is not supported, skipping firewall rules")
-		return
-	}
-
-	newRules := make(map[string]firewall.Rule)
-	for _, r := range rules {
-		rule := e.protoRuleToFirewallRule(r)
-		if rule == nil {
-			continue
-		}
-		newRules[rule.GetRuleID()] = rule
-	}
-
-	for ruleID := range e.firewallRules {
-		if rule, ok := newRules[ruleID]; !ok {
-			if err := e.firewallManager.DeleteRule(rule); err != nil {
-				log.Debug("failed to delete firewall rule: %v", err)
-				continue
-			}
-			delete(e.firewallRules, ruleID)
-		}
-	}
-}
-
-func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule {
-	ip := net.ParseIP(r.PeerIP)
-	if ip == nil {
-		log.Debug("invalid IP address, skipping firewall rule")
-		return nil
-	}
-
-	var port firewall.Port
-	if r.Port != "" {
-		split := strings.Split(r.Port, "/")
-		value, err := strconv.Atoi(split[0])
-		if err != nil {
-			log.Debug("invalid port, skipping firewall rule")
-			return nil
-		}
-		port.Values = []int{value}
-		// get protocol from the port suffix if it exists
-		if len(split) > 1 {
-			switch split[1] {
-			case "tcp":
-				port.Proto = firewall.PortProtocolTCP
-			case "udp":
-				port.Proto = firewall.PortProtocolUDP
-			default:
-				log.Debug("invalid protocol, skipping firewall rule")
-				return nil
-			}
-		}
-	}
-
-	var direction firewall.Direction
-	switch r.Direction {
-	case "src":
-		direction = firewall.DirectionSrc
-	case "dst":
-		direction = firewall.DirectionDst
-	default:
-		log.Debug("invalid direction, skipping firewall rule")
-		return nil
-	}
-
-	var action firewall.Action
-	switch r.Action {
-	case "accept":
-		action = firewall.ActionAccept
-	case "drop":
-		action = firewall.ActionDrop
-	default:
-		log.Debug("invalid action, skipping firewall rule")
-		return nil
-	}
-
-	rule, err := e.firewallManager.AddFiltering(ip, &port, direction, action, "")
-	if err != nil {
-		log.Debug("failed to add firewall rule: %v", err)
 		return nil
 	}
 	e.firewallRules[rule.GetRuleID()] = rule
