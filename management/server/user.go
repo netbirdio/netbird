@@ -46,7 +46,7 @@ type User struct {
 	Role UserRole
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string
-	PATs       []PersonalAccessToken
+	PATs       map[string]*PersonalAccessToken
 }
 
 // IsAdmin returns true if user is an admin, false otherwise
@@ -94,8 +94,12 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 func (u *User) Copy() *User {
 	autoGroups := make([]string, len(u.AutoGroups))
 	copy(autoGroups, u.AutoGroups)
-	pats := make([]PersonalAccessToken, len(u.PATs))
-	copy(pats, u.PATs)
+	pats := make(map[string]*PersonalAccessToken, len(u.PATs))
+	for k, v := range u.PATs {
+		patCopy := new(PersonalAccessToken)
+		*patCopy = *v
+		pats[k] = patCopy
+	}
 	return &User{
 		Id:         u.Id,
 		Role:       u.Role,
@@ -187,6 +191,59 @@ func (am *DefaultAccountManager) CreateUser(accountID, userID string, invite *Us
 
 	return newUser.toUserInfo(idpUser)
 
+}
+
+// AddPATToUser takes the userID and the accountID the user belongs to and assigns a provided PersonalAccessToken to that user
+func (am *DefaultAccountManager) AddPATToUser(accountID string, userID string, pat *PersonalAccessToken) error {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	user := account.Users[userID]
+	if user == nil {
+		return status.Errorf(status.NotFound, "user not found")
+	}
+
+	user.PATs[pat.ID] = pat
+
+	return am.Store.SaveAccount(account)
+}
+
+// DeletePAT deletes a specific PAT from a user
+func (am *DefaultAccountManager) DeletePAT(accountID string, userID string, tokenID string) error {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	account, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return err
+	}
+
+	user := account.Users[userID]
+	if user == nil {
+		return status.Errorf(status.NotFound, "user not found")
+	}
+
+	pat := user.PATs["tokenID"]
+	if pat == nil {
+		return status.Errorf(status.NotFound, "PAT not found")
+	}
+
+	err = am.Store.DeleteTokenID2UserIDIndex(pat.ID)
+	if err != nil {
+		return err
+	}
+	err = am.Store.DeleteHashedPAT2TokenIDIndex(pat.HashedToken)
+	if err != nil {
+		return err
+	}
+	delete(user.PATs, tokenID)
+
+	return am.Store.SaveAccount(account)
 }
 
 // SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.

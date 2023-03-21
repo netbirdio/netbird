@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"hash/crc32"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -12,17 +14,19 @@ import (
 	"sync"
 	"time"
 
+	"codeberg.org/ac/base62"
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
+	gocache "github.com/patrickmn/go-cache"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	gocache "github.com/patrickmn/go-cache"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -50,6 +54,7 @@ type AccountManager interface {
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
+	GetAccountFromPAT(pat string) (*Account, *User, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
@@ -61,6 +66,8 @@ type AccountManager interface {
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error)
+	AddPATToUser(accountID string, userID string, pat *PersonalAccessToken) error
+	DeletePAT(accountID string, userID string, tokenID string) error
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
@@ -1110,6 +1117,47 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	}
 
 	return nil
+}
+
+// GetAccountFromPAT returns Account and User associated with a personal access token
+func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *User, error) {
+	if len(token) != PATLength {
+		return nil, nil, fmt.Errorf("token has wrong length")
+	}
+
+	prefix := token[:len(PATPrefix)]
+	if prefix != PATPrefix {
+		return nil, nil, fmt.Errorf("token has wrong prefix")
+	}
+	secret := token[len(PATPrefix) : len(PATPrefix)+PATSecretLength]
+	encodedChecksum := token[len(PATPrefix)+PATSecretLength : len(PATPrefix)+PATSecretLength+PATChecksumLength]
+
+	verificationChecksum, err := base62.Decode(encodedChecksum)
+	if err != nil {
+		return nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
+	}
+
+	secretChecksum := crc32.ChecksumIEEE([]byte(secret))
+	if secretChecksum != verificationChecksum {
+		return nil, nil, fmt.Errorf("token checksum does not match")
+	}
+
+	hashedToken := sha256.Sum256([]byte(token))
+	tokenID, err := am.Store.GetTokenIDByHashedToken(string(hashedToken[:]))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	user, err := am.Store.GetUserByTokenID(tokenID)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	account, err := am.Store.GetAccountByUser(user.Id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return account, user, nil
 }
 
 // GetAccountFromToken returns an account associated with this token
