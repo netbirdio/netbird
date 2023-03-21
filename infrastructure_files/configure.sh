@@ -140,11 +140,10 @@ then
   echo ""
 
   export NETBIRD_SIGNAL_PROTOCOL="https"
-  export NETBIRD_LETSENCRYPT_DOMAIN="none"
+  unset NETBIRD_LETSENCRYPT_DOMAIN
   unset NETBIRD_MGMT_API_CERT_FILE
   unset NETBIRD_MGMT_API_CERT_KEY_FILE
 else
-  # Kinda ugly, but the dashboard expects the domain or 'none'
   export NETBIRD_LETSENCRYPT_DOMAIN="$NETBIRD_DOMAIN"
 fi
 
