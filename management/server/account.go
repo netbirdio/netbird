@@ -1122,40 +1122,40 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 // GetAccountFromPAT returns Account and User associated with a personal access token
 func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *User, error) {
 	if len(token) != PATLength {
-		return nil, nil, fmt.Errorf("token invalid")
+		return nil, nil, fmt.Errorf("token has wrong length")
 	}
 
 	prefix := token[:len(PATPrefix)]
 	if prefix != PATPrefix {
-		return nil, nil, fmt.Errorf("token invalid")
+		return nil, nil, fmt.Errorf("token has wrong prefix")
 	}
 	secret := token[len(PATPrefix) : len(PATPrefix)+PATSecretLength]
 	encodedChecksum := token[len(PATPrefix)+PATSecretLength : len(PATPrefix)+PATSecretLength+PATChecksumLength]
 
 	verificationChecksum, err := base62.Decode(encodedChecksum)
 	if err != nil {
-		return nil, nil, fmt.Errorf("token invalid")
+		return nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
 	}
 
 	secretChecksum := crc32.ChecksumIEEE([]byte(secret))
 	if secretChecksum != verificationChecksum {
-		return nil, nil, fmt.Errorf("token invalid")
+		return nil, nil, fmt.Errorf("token checksum does not match")
 	}
 
 	hashedToken := sha256.Sum256([]byte(token))
 	tokenID, err := am.Store.GetTokenIDByHashedToken(string(hashedToken[:]))
 	if err != nil {
-		return nil, nil, fmt.Errorf("token invalid")
+		return nil, nil, err
 	}
 
 	user, err := am.Store.GetUserByTokenID(tokenID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("token invalid")
+		return nil, nil, err
 	}
 
 	account, err := am.Store.GetAccountByUser(user.Id)
 	if err != nil {
-		return nil, nil, fmt.Errorf("token invalid")
+		return nil, nil, err
 	}
 	return account, user, nil
 }
