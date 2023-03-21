@@ -54,6 +54,7 @@ func Create() (*Manager, error) {
 // If comment is empty rule ID is used as comment
 func (m *Manager) AddFiltering(
 	ip net.IP,
+	protocol fw.Protocol,
 	port *fw.Port,
 	direction fw.Direction,
 	action fw.Action,
@@ -74,27 +75,27 @@ func (m *Manager) AddFiltering(
 		}
 	}
 
-	var portValue, protocolValue string
+	var portValue string
 	if port != nil && port.Values != nil {
 		// TODO: we support only one port per rule in current implementation of ACLs
 		portValue = strconv.Itoa(port.Values[0])
-		switch port.Proto {
-		case fw.PortProtocolTCP:
-			protocolValue = "tcp"
-		case fw.PortProtocolUDP:
-			protocolValue = "udp"
-		default:
-			return nil, fmt.Errorf("unsupported protocol: %s", port.Proto)
-		}
 	}
+
 	ruleID := uuid.New().String()
 	if comment == "" {
 		comment = ruleID
 	}
 
 	specs := m.filterRuleSpecs(
-		"filter", ChainFilterName, ip, protocolValue,
-		portValue, direction, action, comment)
+		"filter",
+		ChainFilterName,
+		ip,
+		string(protocol),
+		portValue,
+		direction,
+		action,
+		comment,
+	)
 	if err := client.AppendUnique("filter", ChainFilterName, specs...); err != nil {
 		return nil, err
 	}
