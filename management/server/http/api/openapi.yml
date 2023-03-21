@@ -6,6 +6,8 @@ info:
 tags:
   - name: Users
     description: Interact with and view information about users.
+  - name: Tokens
+    description: Interact with and view information about tokens.
   - name: Peers
     description: Interact with and view information about peers.
   - name: Setup Keys
@@ -284,6 +286,53 @@ components:
         - revoked
         - auto_groups
         - usage_limit
+    PersonalAccessToken:
+      type: object
+      properties:
+        id:
+          description: ID of a token
+          type: string
+        description:
+          description: Description of the token
+          type: string
+#        hashed_token:
+#          description: Hashed representation of the token
+#          type: string
+        expiration_date:
+          description: Date the token expires
+          type: string
+          format: date-time
+        created_by:
+          description: User ID of the user who created the token
+          type: string
+        created_at:
+          description: Date the token was created
+          type: string
+          format: date-time
+        last_used:
+          description: Date the token was last used
+          type: string
+          format: date-time
+      required:
+        - id
+        - description
+#        - hashed_token
+        - expiration_date
+        - created_by
+        - created_at
+        - last_used
+    PersonalAccessTokenRequest:
+      type: object
+      properties:
+        description:
+          description: Description of the token
+          type: string
+        expires_in:
+          description: Expiration in days
+          type: integer
+      required:
+        - description
+        - expires_in
     GroupMinimum:
       type: object
       properties:
@@ -840,6 +889,133 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/{userId}/tokens:
+    get:
+      summary: Returns a list of all tokens for a user
+      tags: [ Tokens ]
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The User ID
+      responses:
+        '200':
+          description: A JSON Array of PersonalAccessTokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PersonalAccessToken'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    post:
+      summary: Create a new token
+      tags: [ Tokens ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The User ID
+      requestBody:
+        description: PersonalAccessToken create parameters
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonalAccessTokenRequest'
+      responses:
+        '200':
+          description: The token in plain text
+          content:
+            text/plain:
+              schema:
+                type: string
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/{userId}/tokens/{tokenId}:
+    get:
+      summary: Returns a specific token
+      tags: [ Tokens ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The User ID
+        - in: path
+          name: tokenId
+          required: true
+          schema:
+            type: string
+          description: The Token ID
+      responses:
+        '200':
+          description: A PersonalAccessTokens Object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalAccessToken'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a token
+      tags: [ Tokens ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The User ID
+        - in: path
+          name: tokenId
+          required: true
+          schema:
+            type: string
+          description: The Token ID
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
