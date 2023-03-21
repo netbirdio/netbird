@@ -1,101 +1,66 @@
 package server
 
 import (
-	"net"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
+const (
+	mockAccountID = "accountID"
+	mockUserID    = "userID"
+	mockTokenID   = "tokenID"
+	mockToken     = "SoMeHaShEdToKeN"
+)
+
 func TestUser_AddPATToUser(t *testing.T) {
 	store := newStore(t)
-	account := newAccountWithId("account_id", "testuser", "")
-	account.Peers["testpeer"] = &Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
-	}
+	account := newAccountWithId(mockAccountID, mockUserID, "")
+
 	err := store.SaveAccount(account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
 	}
 
 	am := DefaultAccountManager{
-		Store:                   store,
-		cacheMux:                sync.Mutex{},
-		cacheLoading:            nil,
-		peersUpdateManager:      nil,
-		idpManager:              nil,
-		cacheManager:            nil,
-		ctx:                     nil,
-		eventStore:              nil,
-		singleAccountMode:       false,
-		singleAccountModeDomain: "",
-		dnsDomain:               "",
-		peerLoginExpiry:         nil,
+		Store: store,
 	}
 
-	token := "someToken"
 	pat := PersonalAccessToken{
-		ID:             "tokenID",
-		Description:    "some Description",
-		HashedToken:    token,
-		ExpirationDate: time.Time{},
-		CreatedBy:      "testuser",
-		CreatedAt:      time.Time{},
-		LastUsed:       time.Time{},
+		ID:          mockTokenID,
+		HashedToken: mockToken,
 	}
 
-	err = am.AddPATToUser("account_id", "testuser", &pat)
+	err = am.AddPATToUser(mockAccountID, mockUserID, &pat)
 	if err != nil {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
 
 	fileStore := am.Store.(*FileStore)
-	tokenID := fileStore.HashedPAT2TokenID[token[:]]
+	tokenID := fileStore.HashedPAT2TokenID[mockToken[:]]
 
 	if tokenID == "" {
 		t.Fatal("GetTokenIDByHashedToken failed after adding PAT")
 	}
 
-	assert.Equal(t, "tokenID", tokenID)
+	assert.Equal(t, mockTokenID, tokenID)
 
 	userID := fileStore.TokenID2UserID[tokenID]
 	if userID == "" {
 		t.Fatal("GetUserByTokenId failed after adding PAT")
 	}
-	assert.Equal(t, "testuser", userID)
+	assert.Equal(t, mockUserID, userID)
 }
 
 func TestUser_DeletePAT(t *testing.T) {
 	store := newStore(t)
-	account := newAccountWithId("account_id", "testuser", "")
-	account.Peers["testpeer"] = &Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
-	}
-	account.Users["user1"] = &User{
-		Id:         "user1",
-		Role:       "admin",
-		AutoGroups: nil,
+	account := newAccountWithId(mockAccountID, mockUserID, "")
+	account.Users[mockUserID] = &User{
+		Id: mockUserID,
 		PATs: map[string]*PersonalAccessToken{
-			"tokenID": {
-				ID:             "tokenID",
-				Description:    "some Description",
-				HashedToken:    "SoMeHaShEdToKeN",
-				ExpirationDate: time.Now().AddDate(0, 0, 7),
-				CreatedBy:      "user1",
-				CreatedAt:      time.Now(),
-				LastUsed:       time.Now(),
+			mockTokenID: {
+				ID:          mockTokenID,
+				HashedToken: mockToken,
 			},
 		},
 	}
@@ -105,26 +70,15 @@ func TestUser_DeletePAT(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store:                   store,
-		cacheMux:                sync.Mutex{},
-		cacheLoading:            nil,
-		peersUpdateManager:      nil,
-		idpManager:              nil,
-		cacheManager:            nil,
-		ctx:                     nil,
-		eventStore:              nil,
-		singleAccountMode:       false,
-		singleAccountModeDomain: "",
-		dnsDomain:               "",
-		peerLoginExpiry:         nil,
+		Store: store,
 	}
 
-	err = am.DeletePAT("account_id", "user1", "tokenID")
+	err = am.DeletePAT(mockAccountID, mockUserID, mockTokenID)
 	if err != nil {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
 
-	assert.Nil(t, store.Accounts["account_id"].Users["user1"].PATs["tokenID"])
-	assert.Empty(t, store.HashedPAT2TokenID["SoMeHaShEdToKeN"])
-	assert.Empty(t, store.TokenID2UserID["tokenID"])
+	assert.Nil(t, store.Accounts[mockAccountID].Users[mockUserID].PATs[mockTokenID])
+	assert.Empty(t, store.HashedPAT2TokenID[mockToken])
+	assert.Empty(t, store.TokenID2UserID[mockTokenID])
 }

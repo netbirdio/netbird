@@ -462,30 +462,15 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 	store := newStore(t)
 	account := newAccountWithId("account_id", "testuser", "")
-	account.Peers["testpeer"] = &Peer{
-		Key:      "peerkey",
-		SetupKey: "peerkeysetupkey",
-		IP:       net.IP{127, 0, 0, 1},
-		Meta:     PeerSystemMeta{},
-		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
-	}
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
 	hashedToken := sha256.Sum256([]byte(token))
 	account.Users["someUser"] = &User{
-		Id:         "someUser",
-		Role:       "",
-		AutoGroups: nil,
+		Id: "someUser",
 		PATs: map[string]*PersonalAccessToken{
 			"pat1": {
-				ID:             "tokenId",
-				Description:    "some Description",
-				HashedToken:    string(hashedToken[:]),
-				ExpirationDate: time.Time{},
-				CreatedBy:      "testuser",
-				CreatedAt:      time.Time{},
-				LastUsed:       time.Time{},
+				ID:          "tokenId",
+				HashedToken: string(hashedToken[:]),
 			},
 		},
 	}
@@ -495,18 +480,7 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store:                   store,
-		cacheMux:                sync.Mutex{},
-		cacheLoading:            nil,
-		peersUpdateManager:      nil,
-		idpManager:              nil,
-		cacheManager:            nil,
-		ctx:                     nil,
-		eventStore:              nil,
-		singleAccountMode:       false,
-		singleAccountModeDomain: "",
-		dnsDomain:               "",
-		peerLoginExpiry:         nil,
+		Store: store,
 	}
 
 	account, user, err := am.GetAccountFromPAT(token)
