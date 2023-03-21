@@ -177,6 +177,9 @@ type FirewallRule struct {
 	// Action of the traffic
 	Action string
 
+	// Protocol of the traffic
+	Protocol string
+
 	// Port of the traffic
 	Port string
 
@@ -211,16 +214,29 @@ func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
 		return fmt.Errorf("invalid Rego query eval result peer action type")
 	}
 
-	port, ok := object["Port"].(string)
-	if !ok {
-		return fmt.Errorf("invalid Rego query eval result peer port type")
+	if v, ok := object["Protocol"]; ok {
+		if protocol, ok := v.(string); ok {
+			f.Protocol = protocol
+		}
+	}
+
+	if v, ok := object["Port"]; ok {
+		if port, ok := v.(string); ok {
+			f.Port = port
+		}
 	}
 
 	f.PeerID = peerID
 	f.PeerIP = peerIP
 	f.Direction = direction
 	f.Action = action
-	f.Port = port
+
+	// TODO: remove this after migration from rules
+	//
+	// by default if protocol not present use TCP
+	if f.Protocol == "" {
+		f.Protocol = "tcp"
+	}
 
 	// NOTE: update this id each time when new field added
 	f.id = peerID + peerIP + direction + action + port
@@ -484,8 +500,9 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 			PeerID:    update[i].PeerID,
 			PeerIP:    update[i].PeerIP,
 			Direction: update[i].Direction,
-			Port:      update[i].Port,
 			Action:    update[i].Action,
+			Protocol:  update[i].Protocol,
+			Port:      update[i].Port,
 		}
 	}
 	return result

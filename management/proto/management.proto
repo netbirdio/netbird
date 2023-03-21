@@ -308,5 +308,6 @@ message FirewallRule {
   string PeerIP = 2;
   string Direction = 3;
   string Action = 4;
-  string Port = 5;
+  string Protocol = 5;
+  string Port = 6;
 }
