@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"reflect"
@@ -456,6 +457,39 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 			require.EqualValues(t, testCase.expectedDomain, account.Domain, "expected account domain should match")
 		})
 	}
+}
+
+func TestAccountManager_GetAccountFromPAT(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId("account_id", "testuser", "")
+
+	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
+	hashedToken := sha256.Sum256([]byte(token))
+	account.Users["someUser"] = &User{
+		Id: "someUser",
+		PATs: map[string]*PersonalAccessToken{
+			"pat1": {
+				ID:          "tokenId",
+				HashedToken: string(hashedToken[:]),
+			},
+		},
+	}
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store: store,
+	}
+
+	account, user, err := am.GetAccountFromPAT(token)
+	if err != nil {
+		t.Fatalf("Error when getting Account from PAT: %s", err)
+	}
+
+	assert.Equal(t, "account_id", account.Id)
+	assert.Equal(t, "someUser", user.Id)
 }
 
 func TestAccountManager_PrivateAccount(t *testing.T) {
@@ -1208,8 +1242,8 @@ func TestAccount_Copy(t *testing.T) {
 				Id:         "user1",
 				Role:       UserRoleAdmin,
 				AutoGroups: []string{"group1"},
-				PATs: []PersonalAccessToken{
-					{
+				PATs: map[string]*PersonalAccessToken{
+					"pat1": {
 						ID:             "pat1",
 						Description:    "First PAT",
 						HashedToken:    "SoMeHaShEdToKeN",
