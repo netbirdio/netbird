@@ -313,8 +313,8 @@ func (s *FileStore) GetAccountByPrivateDomain(domain string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	accountID, accountIDFound := s.PrivateDomain2AccountID[strings.ToLower(domain)]
-	if !accountIDFound {
+	accountID, ok := s.PrivateDomain2AccountID[strings.ToLower(domain)]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
 	}
 
@@ -331,8 +331,8 @@ func (s *FileStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	accountID, accountIDFound := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
-	if !accountIDFound {
+	accountID, ok := s.SetupKeyID2AccountID[strings.ToUpper(setupKey)]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "account not found: provided setup key doesn't exists")
 	}
 
@@ -349,8 +349,8 @@ func (s *FileStore) GetTokenIDByHashedToken(token string) (string, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	tokenID, tokenIDFound := s.HashedPAT2TokenID[token]
-	if !tokenIDFound {
+	tokenID, ok := s.HashedPAT2TokenID[token]
+	if !ok {
 		return "", status.Errorf(status.NotFound, "tokenID not found: provided token doesn't exists")
 	}
 
@@ -362,13 +362,13 @@ func (s *FileStore) GetUserByTokenID(tokenID string) (*User, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	userID, userIDFound := s.TokenID2UserID[tokenID]
-	if !userIDFound {
+	userID, ok := s.TokenID2UserID[tokenID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found: provided tokenID doesn't exists")
 	}
 
-	accountID, accountIDFound := s.UserID2AccountID[userID]
-	if !accountIDFound {
+	accountID, ok := s.UserID2AccountID[userID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "accountID not found: provided userID doesn't exists")
 	}
 
@@ -393,8 +393,8 @@ func (s *FileStore) GetAllAccounts() (all []*Account) {
 
 // getAccount returns a reference to the Account. Should not return a copy.
 func (s *FileStore) getAccount(accountID string) (*Account, error) {
-	account, accountFound := s.Accounts[accountID]
-	if !accountFound {
+	account, ok := s.Accounts[accountID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "account not found")
 	}
 
@@ -419,8 +419,8 @@ func (s *FileStore) GetAccountByUser(userID string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	accountID, accountIDFound := s.UserID2AccountID[userID]
-	if !accountIDFound {
+	accountID, ok := s.UserID2AccountID[userID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "account not found")
 	}
 
@@ -437,8 +437,8 @@ func (s *FileStore) GetAccountByPeerID(peerID string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	accountID, accountIDFound := s.PeerID2AccountID[peerID]
-	if !accountIDFound {
+	accountID, ok := s.PeerID2AccountID[peerID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "provided peer ID doesn't exists %s", peerID)
 	}
 
@@ -463,8 +463,8 @@ func (s *FileStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	accountID, accountIDFound := s.PeerKeyID2AccountID[peerKey]
-	if !accountIDFound {
+	accountID, ok := s.PeerKeyID2AccountID[peerKey]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "provided peer key doesn't exists %s", peerKey)
 	}
 
