@@ -17,6 +17,11 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+const (
+	wtAccountID     = "wt_account_id"
+	wtPendingInvite = "wt_pending_invite"
+)
+
 // KeycloakManager keycloak manager client instance.
 type KeycloakManager struct {
 	adminEndpoint string
@@ -324,7 +329,7 @@ func (km *KeycloakManager) GetUserDataByID(userID string, appMetadata AppMetadat
 // GetAccount returns all the users for a given profile.
 func (km *KeycloakManager) GetAccount(accountID string) ([]*UserData, error) {
 	q := url.Values{}
-	q.Add("q", "wt_account_id:"+accountID)
+	q.Add("q", wtAccountID+":"+accountID)
 
 	body, err := km.get("users", q)
 	if err != nil {
@@ -399,11 +404,11 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userID string, appMetadata AppM
 	}
 
 	attrs := keycloakUserAttributes{}
-	attrs.Set("wt_account_id", appMetadata.WTAccountID)
+	attrs.Set(wtAccountID, appMetadata.WTAccountID)
 	if appMetadata.WTPendingInvite != nil {
-		attrs.Set("wt_pending_invite", strconv.FormatBool(*appMetadata.WTPendingInvite))
+		attrs.Set(wtPendingInvite, strconv.FormatBool(*appMetadata.WTPendingInvite))
 	} else {
-		attrs.Set("wt_pending_invite", "false")
+		attrs.Set(wtPendingInvite, "false")
 	}
 
 	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userID)
@@ -446,8 +451,8 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userID string, appMetadata AppM
 
 func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadata AppMetadata) (string, error) {
 	attrs := keycloakUserAttributes{}
-	attrs.Set("wt_account_id", appMetadata.WTAccountID)
-	attrs.Set("wt_pending_invite", strconv.FormatBool(*appMetadata.WTPendingInvite))
+	attrs.Set(wtAccountID, appMetadata.WTAccountID)
+	attrs.Set(wtPendingInvite, strconv.FormatBool(*appMetadata.WTPendingInvite))
 
 	req := &keycloakCreateUserRequest{
 		Email:         email,
@@ -537,8 +542,8 @@ func extractUserIDFromLocationHeader(locationHeader string) (string, error) {
 
 // userData construct user data from keycloak profile.
 func (kp keycloakProfile) userData() *UserData {
-	accountID := kp.Attributes.Get("wp_account_id")
-	pendingInvite, err := strconv.ParseBool(kp.Attributes.Get("wt_pending_invite"))
+	accountID := kp.Attributes.Get(wtAccountID)
+	pendingInvite, err := strconv.ParseBool(kp.Attributes.Get(wtPendingInvite))
 	if err != nil {
 		pendingInvite = false
 	}
