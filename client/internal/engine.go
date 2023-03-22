@@ -194,19 +194,6 @@ func (e *Engine) Start() error {
 		log.Warnf("failed to create pion's stdnet: %s", err)
 	}
 
-	log.Printf("discover interfaces")
-
-	ifaces, err := transportNet.Interfaces()
-	if err != nil {
-		log.Printf("transport net err: %s", err)
-	}
-	for _, i := range ifaces {
-		a, _ := i.Addrs()
-		if len(a) > 0 {
-			log.Printf("iface: %s, %v", i.Name, a[0].String())
-		}
-	}
-
 	e.udpMuxConn, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxPort})
 	if err != nil {
 		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
