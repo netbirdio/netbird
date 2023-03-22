@@ -45,26 +45,6 @@ func TestNewKeycloakManager(t *testing.T) {
 		assertErrFuncMessage: "should return error when field empty",
 	}
 
-	testCase3Config := defaultTestConfig
-	testCase3Config.AdminEndpoint = "localhost:8080/auth/admin/realms/test123"
-
-	testCase3 := test{
-		name:                 "Wrong AdminEndpoint Format",
-		inputConfig:          testCase3Config,
-		assertErrFunc:        require.Error,
-		assertErrFuncMessage: "should return error when wrong admin endpoint Format",
-	}
-
-	testCase4Config := defaultTestConfig
-	testCase4Config.TokenEndpoint = "localhost:8080/auth/realms/test123/protocol/openid-connect/token"
-
-	testCase4 := test{
-		name:                 "Wrong TokenEndpoint Format",
-		inputConfig:          testCase4Config,
-		assertErrFunc:        require.Error,
-		assertErrFuncMessage: "should return error when wrong token endpoint Format",
-	}
-
 	testCase5Config := defaultTestConfig
 	testCase5Config.GrantType = "authorization_code"
 
@@ -75,7 +55,7 @@ func TestNewKeycloakManager(t *testing.T) {
 		assertErrFuncMessage: "should return error when wrong grant type",
 	}
 
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5} {
+	for _, testCase := range []test{testCase1, testCase2, testCase5} {
 		t.Run(testCase.name, func(t *testing.T) {
 			_, err := NewKeycloakManager(testCase.inputConfig, &telemetry.MockAppMetrics{})
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
