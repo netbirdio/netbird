@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
@@ -48,6 +49,8 @@ type EngineConfig struct {
 	WgIfaceName string
 	// TunAdapter is option. It is necessary for mobile version.
 	TunAdapter iface.TunAdapter
+
+	IFaceDiscover stdnet.IFaceDiscover
 
 	// WgAddr is a Wireguard local address (Netbird Network IP)
 	WgAddr string
@@ -186,12 +189,35 @@ func (e *Engine) Start() error {
 		networkName = "udp4"
 	}
 
+	transportNet, err := e.newStdNet()
+	if err != nil {
+		log.Warnf("failed to create pion's stdnet: %s", err)
+	}
+
+	log.Printf("discover interfaces")
+
+	ifaces, err := transportNet.Interfaces()
+	if err != nil {
+		log.Printf("transport net err: %s", err)
+	}
+	for _, i := range ifaces {
+		a, _ := i.Addrs()
+		if len(a) > 0 {
+			log.Printf("iface: %s, %v", i.Name, a[0].String())
+		}
+	}
+
 	e.udpMuxConn, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxPort})
 	if err != nil {
 		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
 		e.close()
 		return err
 	}
+	udpMuxParams := ice.UDPMuxParams{
+		UDPConn: e.udpMuxConn,
+		Net:     transportNet,
+	}
+	e.udpMux = ice.NewUDPMuxDefault(udpMuxParams)
 
 	e.udpMuxConnSrflx, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
 	if err != nil {
@@ -199,9 +225,7 @@ func (e *Engine) Start() error {
 		e.close()
 		return err
 	}
-
-	e.udpMux = ice.NewUDPMuxDefault(ice.UDPMuxParams{UDPConn: e.udpMuxConn})
-	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx})
+	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx, Net: transportNet})
 
 	err = e.wgInterface.Create()
 	if err != nil {
@@ -813,7 +837,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder)
+	peerConn, err := peer.NewConn(config, e.statusRecorder, e.config.TunAdapter, e.config.IFaceDiscover)
 	if err != nil {
 		return nil, err
 	}
