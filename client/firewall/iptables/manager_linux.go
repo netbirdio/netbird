@@ -63,16 +63,9 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	client := m.client(ip)
-	ok, err := client.ChainExists("filter", ChainFilterName)
+	client, err := m.clientWithChain(ip)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check if chain exists: %s", err)
-	}
-
-	if !ok {
-		if err := client.NewChain("filter", ChainFilterName); err != nil {
-			return nil, fmt.Errorf("failed to create chain: %s", err)
-		}
+		return nil, err
 	}
 
 	var portValue string
@@ -171,6 +164,27 @@ func (m *Manager) client(ip net.IP) *iptables.IPTables {
 		return m.ipv4Client
 	}
 	return m.ipv6Client
+}
+
+// clientWithChain returns client with initialized chain and default rules
+func (m *Manager) clientWithChain(ip net.IP) (*iptables.IPTables, error) {
+	client := m.client(ip)
+	ok, err := client.ChainExists("filter", ChainFilterName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if chain exists: %s", err)
+	}
+
+	if !ok {
+		if err := client.NewChain("filter", ChainFilterName); err != nil {
+			return nil, fmt.Errorf("failed to create chain: %s", err)
+		}
+
+		specs := []string{"-p", "icmp", "--icmp-type", "echo-request", "-j", "ACCEPT"}
+		if err := client.Insert("input", ChainFilterName, 1, specs...); err != nil {
+			return nil, fmt.Errorf("failed to create chain: %s", err)
+		}
+	}
+	return client, nil
 }
 
 func (m *Manager) actionToStr(action fw.Action) string {
