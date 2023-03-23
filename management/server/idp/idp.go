@@ -2,10 +2,11 @@ package idp
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 // Manager idp manager interface
@@ -20,8 +21,9 @@ type Manager interface {
 
 // Config an idp configuration struct to be loaded from management server's config file
 type Config struct {
-	ManagerType            string
-	Auth0ClientCredentials Auth0ClientConfig
+	ManagerType               string
+	Auth0ClientCredentials    Auth0ClientConfig
+	KeycloakClientCredentials KeycloakClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
@@ -71,6 +73,8 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		return nil, nil
 	case "auth0":
 		return NewAuth0Manager(config.Auth0ClientCredentials, appMetrics)
+	case "keycloak":
+		return NewKeycloakManager(config.KeycloakClientCredentials, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
