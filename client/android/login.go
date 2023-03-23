@@ -17,6 +17,16 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 )
 
+type SSOListener interface {
+	OnSuccess(bool)
+	OnError(error)
+}
+
+type ErrListener interface {
+	OnSuccess()
+	OnError(error)
+}
+
 // URLOpener it is a callback interface. The Open function will be triggered if
 // the backend want to show an url for the user
 type URLOpener interface {
@@ -56,10 +66,21 @@ func NewAuthWithConfig(ctx context.Context, config *internal.Config) *Auth {
 	}
 }
 
+func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
+	go func() {
+		sso, err := a.saveConfigIfSSOSupported()
+		if err != nil {
+			listener.OnError(err)
+		} else {
+			listener.OnSuccess(sso)
+		}
+	}()
+}
+
 // SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
 // If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
 // is not supported and returns false without saving the configuration. For other errors return false.
-func (a *Auth) SaveConfigIfSSOSupported() (bool, error) {
+func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 	supportsSSO := true
 	err := a.withBackOff(a.ctx, func() (err error) {
 		_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
@@ -82,8 +103,19 @@ func (a *Auth) SaveConfigIfSSOSupported() (bool, error) {
 	return true, err
 }
 
+func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
+	go func() {
+		err := a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
+		if err != nil {
+			resultListener.OnError(err)
+		} else {
+			resultListener.OnSuccess()
+		}
+	}()
+}
+
 // LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
-func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string, deviceName string) error {
+func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string) error {
 	//nolint
 	ctxWithValues := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
 
@@ -102,8 +134,19 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	return internal.WriteOutConfig(a.cfgPath, a.config)
 }
 
+func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener) {
+	go func() {
+		err := a.login(urlOpener)
+		if err != nil {
+			resultListener.OnError(err)
+		} else {
+			resultListener.OnSuccess()
+		}
+	}()
+}
+
 // Login try register the client on the server
-func (a *Auth) Login(urlOpener URLOpener) error {
+func (a *Auth) login(urlOpener URLOpener) error {
 	var needsLogin bool
 
 	// check if we need to generate JWT token
