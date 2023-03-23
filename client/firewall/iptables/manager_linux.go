@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -17,17 +18,30 @@ const (
 	ChainFilterName = "NETBIRD-ACL"
 )
 
+// jumpNetbirdDefaultRule always added by manager to the input chain for all trafic from the Netbird interface
+var jumpNetbirdDefaultRule = []string{
+	"-j", ChainFilterName, "-m", "comment", "--comment", "Netbird traffic chain jump"}
+
+// pingSupportDefaultRule always added by the manager to the Netbird ACL chain
+var pingSupportDefaultRule = []string{
+	"-p", "icmp", "--icmp-type", "echo-request", "-j",
+	"ACCEPT", "-m", "comment", "--comment", "Allow pings from the Netbird Devices"}
+
 // Manager of iptables firewall
 type Manager struct {
 	mutex sync.Mutex
 
 	ipv4Client *iptables.IPTables
 	ipv6Client *iptables.IPTables
+
+	wgIfaceName string
 }
 
 // Create iptables firewall manager
-func Create() (*Manager, error) {
-	m := &Manager{}
+func Create(wgIfaceName string) (*Manager, error) {
+	m := &Manager{
+		wgIfaceName: wgIfaceName,
+	}
 
 	// init clients for booth ipv4 and ipv6
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
@@ -38,14 +52,14 @@ func Create() (*Manager, error) {
 
 	ipv6Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 	if err != nil {
-		return nil, fmt.Errorf("ip6tables is not installed in the system or not supported")
+		log.Errorf("ip6tables is not installed in the system or not supported")
+	} else {
+		m.ipv6Client = ipv6Client
 	}
-	m.ipv6Client = ipv6Client
 
 	if err := m.Reset(); err != nil {
-		return nil, fmt.Errorf("failed to reset firewall: %s", err)
+		return nil, fmt.Errorf("failed to reset firewall: %v", err)
 	}
-
 	return m, nil
 }
 
@@ -63,7 +77,7 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	client, err := m.clientWithChain(ip)
+	client, err := m.client(ip)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +103,16 @@ func (m *Manager) AddFiltering(
 		action,
 		comment,
 	)
-	if err := client.AppendUnique("filter", ChainFilterName, specs...); err != nil {
+
+	ok, err := client.Exists("filter", ChainFilterName, specs...)
+	if err != nil {
+		return nil, fmt.Errorf("check is rule already exists: %w", err)
+	}
+	if ok {
+		return nil, fmt.Errorf("rule already exists")
+	}
+
+	if err := client.Insert("filter", ChainFilterName, 1, specs...); err != nil {
 		return nil, err
 	}
 
@@ -100,12 +123,17 @@ func (m *Manager) AddFiltering(
 func (m *Manager) DeleteRule(rule fw.Rule) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
 	r, ok := rule.(*Rule)
 	if !ok {
 		return fmt.Errorf("invalid rule type")
 	}
+
 	client := m.ipv4Client
 	if r.v6 {
+		if m.ipv6Client == nil {
+			return fmt.Errorf("ipv6 is not supported")
+		}
 		client = m.ipv6Client
 	}
 	return client.Delete("filter", ChainFilterName, r.specs...)
@@ -115,11 +143,14 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 func (m *Manager) Reset() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
+
 	if err := m.reset(m.ipv4Client, "filter", ChainFilterName); err != nil {
 		return fmt.Errorf("clean ipv4 firewall ACL chain: %w", err)
 	}
-	if err := m.reset(m.ipv6Client, "filter", ChainFilterName); err != nil {
-		return fmt.Errorf("clean ipv6 firewall ACL chain: %w", err)
+	if m.ipv6Client != nil {
+		if err := m.reset(m.ipv6Client, "filter", ChainFilterName); err != nil {
+			return fmt.Errorf("clean ipv6 firewall ACL chain: %w", err)
+		}
 	}
 	return nil
 }
@@ -133,10 +164,13 @@ func (m *Manager) reset(client *iptables.IPTables, table, chain string) error {
 	if !ok {
 		return nil
 	}
-	if err := client.ClearChain(table, ChainFilterName); err != nil {
-		return fmt.Errorf("failed to clear chain: %w", err)
+
+	specs := append([]string{"-i", m.wgIfaceName}, jumpNetbirdDefaultRule...)
+	if err := client.Delete("filter", "INPUT", specs...); err != nil {
+		return fmt.Errorf("failed to delete default rule: %w", err)
 	}
-	return client.DeleteChain(table, ChainFilterName)
+
+	return client.ClearAndDeleteChain(table, chain)
 }
 
 // filterRuleSpecs returns the specs of a filtering rule
@@ -158,31 +192,43 @@ func (m *Manager) filterRuleSpecs(
 	return append(specs, "-m", "comment", "--comment", comment)
 }
 
-// client returns corresponding iptables client for the given ip
-func (m *Manager) client(ip net.IP) *iptables.IPTables {
+// rawClient returns corresponding iptables client for the given ip
+func (m *Manager) rawClient(ip net.IP) (*iptables.IPTables, error) {
 	if ip.To4() != nil {
-		return m.ipv4Client
+		return m.ipv4Client, nil
 	}
-	return m.ipv6Client
+	if m.ipv6Client == nil {
+		return nil, fmt.Errorf("ipv6 is not supported")
+	}
+	return m.ipv6Client, nil
 }
 
-// clientWithChain returns client with initialized chain and default rules
-func (m *Manager) clientWithChain(ip net.IP) (*iptables.IPTables, error) {
-	client := m.client(ip)
+// client returns client with initialized chain and default rules
+func (m *Manager) client(ip net.IP) (*iptables.IPTables, error) {
+	client, err := m.rawClient(ip)
+	if err != nil {
+		return nil, err
+	}
+
 	ok, err := client.ChainExists("filter", ChainFilterName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check if chain exists: %s", err)
+		return nil, fmt.Errorf("failed to check if chain exists: %w", err)
 	}
 
 	if !ok {
 		if err := client.NewChain("filter", ChainFilterName); err != nil {
-			return nil, fmt.Errorf("failed to create chain: %s", err)
+			return nil, fmt.Errorf("failed to create chain: %w", err)
 		}
 
-		specs := []string{"-p", "icmp", "--icmp-type", "echo-request", "-j", "ACCEPT"}
-		if err := client.Insert("input", ChainFilterName, 1, specs...); err != nil {
-			return nil, fmt.Errorf("failed to create chain: %s", err)
+		if err := client.AppendUnique("filter", ChainFilterName, pingSupportDefaultRule...); err != nil {
+			return nil, fmt.Errorf("failed to create default ping allow rule: %w", err)
 		}
+
+		specs := append([]string{"-i", m.wgIfaceName}, jumpNetbirdDefaultRule...)
+		if err := client.AppendUnique("filter", "INPUT", specs...); err != nil {
+			return nil, fmt.Errorf("failed to create chain: %w", err)
+		}
+
 	}
 	return client, nil
 }
