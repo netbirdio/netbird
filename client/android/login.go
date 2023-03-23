@@ -63,8 +63,9 @@ func (a *Auth) LoginAndSaveConfigIfSSOSupported() (bool, error) {
 		_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
 			supportsSSO = false
+			err = nil
 		}
-		return
+		return err
 	})
 
 	if !supportsSSO {
