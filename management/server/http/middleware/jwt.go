@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/http/util"
-	"github.com/netbirdio/netbird/management/server/status"
-	"log"
 	"net/http"
 	"strings"
+
+	"github.com/golang-jwt/jwt"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 // A function called whenever an error is encountered
@@ -114,6 +116,9 @@ func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 
 		// If there was an error, do not continue.
 		if err != nil {
+			log.Errorf("received an error while validating the JWT token: %s. "+
+				"Review your IDP configuration and ensure that "+
+				"settings are in sync between dashboard and management", err)
 			return
 		}
 
