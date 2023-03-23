@@ -34,7 +34,7 @@ func GetInfo(ctx context.Context) *Info {
 func extractDeviceName(ctx context.Context) string {
 	v, ok := ctx.Value(DeviceNameCtxKey).(string)
 	if !ok {
-		return ""
+		return "android"
 	}
 	return v
 }
