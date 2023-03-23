@@ -14,7 +14,8 @@ func TestNewManager(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	manager, err := Create()
+	// just check on the local interface
+	manager, err := Create("lo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,6 +27,7 @@ func TestNewManager(t *testing.T) {
 		rule1, err = manager.AddFiltering(ip, "tcp", port, fw.DirectionDst, fw.ActionAccept, "accept HTTP traffic")
 		if err != nil {
 			t.Errorf("failed to add rule: %v", err)
+			return
 		}
 
 		checkRuleSpecs(t, ipv4Client, true, rule1.(*Rule).specs...)
@@ -41,6 +43,7 @@ func TestNewManager(t *testing.T) {
 			ip, "tcp", port, fw.DirectionDst, fw.ActionAccept, "accept HTTPS traffic from ports range")
 		if err != nil {
 			t.Errorf("failed to add rule: %v", err)
+			return
 		}
 
 		checkRuleSpecs(t, ipv4Client, true, rule2.(*Rule).specs...)
@@ -57,6 +60,7 @@ func TestNewManager(t *testing.T) {
 	t.Run("delete second rule", func(t *testing.T) {
 		if err := manager.DeleteRule(rule2); err != nil {
 			t.Errorf("failed to delete rule: %v", err)
+			return
 		}
 
 		checkRuleSpecs(t, ipv4Client, false, rule2.(*Rule).specs...)
@@ -69,15 +73,18 @@ func TestNewManager(t *testing.T) {
 		_, err = manager.AddFiltering(ip, "udp", port, fw.DirectionDst, fw.ActionAccept, "accept Fake DNS traffic")
 		if err != nil {
 			t.Errorf("failed to add rule: %v", err)
+			return
 		}
 
 		if err := manager.Reset(); err != nil {
 			t.Errorf("failed to reset: %v", err)
+			return
 		}
 
 		ok, err := ipv4Client.ChainExists("filter", ChainFilterName)
 		if err != nil {
 			t.Errorf("failed to drop chain: %v", err)
+			return
 		}
 
 		if ok {
