@@ -84,6 +84,7 @@ func (a *Auth) SaveConfigIfSSOSupported() (bool, error) {
 
 // LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string, deviceName string) error {
+	//nolint
 	ctxWithValues := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
 
 	err := a.withBackOff(a.ctx, func() error {
