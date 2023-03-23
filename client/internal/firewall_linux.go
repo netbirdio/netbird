@@ -1,11 +1,7 @@
 package internal
 
 import (
-<<<<<<< HEAD
-	log "github.com/sirupsen/logrus"
-=======
 	"fmt"
->>>>>>> 64bf769 (Add logic layer for the ACL firewall rules management.)
 
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/iptables"
