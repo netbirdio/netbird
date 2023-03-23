@@ -72,7 +72,7 @@ jobs:
         run: go test -c -o routemanager-testing.bin ./client/internal/routemanager/...
 
       - name: Generate Engine Test bin
-        run: go test -c -o engine-testing.bin ./client/internal/*.go
+        run: go test -c -o engine-testing.bin ./client/internal
 
       - name: Generate Peer Test bin
         run: go test -c -o peer-testing.bin ./client/internal/peer/...
