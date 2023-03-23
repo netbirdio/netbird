@@ -358,11 +358,11 @@ func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 	return *nextExpiry, true
 }
 
-// GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true
+// GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true and that were added by a user
 func (a *Account) GetPeersWithExpiration() []*Peer {
 	peers := make([]*Peer, 0)
 	for _, peer := range a.Peers {
-		if peer.LoginExpirationEnabled {
+		if peer.LoginExpirationEnabled && peer.AddedWithSSOLogin() {
 			peers = append(peers, peer)
 		}
 	}
