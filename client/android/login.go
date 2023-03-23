@@ -17,11 +17,13 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 )
 
+// SSOListener is async listener for mobile framework
 type SSOListener interface {
 	OnSuccess(bool)
 	OnError(error)
 }
 
+// ErrListener is async listener for mobile framework
 type ErrListener interface {
 	OnSuccess()
 	OnError(error)
@@ -66,6 +68,9 @@ func NewAuthWithConfig(ctx context.Context, config *internal.Config) *Auth {
 	}
 }
 
+// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
+// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
+// is not supported and returns false without saving the configuration. For other errors return false.
 func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 	go func() {
 		sso, err := a.saveConfigIfSSOSupported()
@@ -77,9 +82,6 @@ func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
 	}()
 }
 
-// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
-// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
-// is not supported and returns false without saving the configuration. For other errors return false.
 func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 	supportsSSO := true
 	err := a.withBackOff(a.ctx, func() (err error) {
@@ -103,6 +105,7 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 	return true, err
 }
 
+// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
 	go func() {
 		err := a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
@@ -114,7 +117,6 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupK
 	}()
 }
 
-// LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
 func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string) error {
 	//nolint
 	ctxWithValues := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
@@ -134,6 +136,7 @@ func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string
 	return internal.WriteOutConfig(a.cfgPath, a.config)
 }
 
+// Login try register the client on the server
 func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener) {
 	go func() {
 		err := a.login(urlOpener)
@@ -145,7 +148,6 @@ func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener) {
 	}()
 }
 
-// Login try register the client on the server
 func (a *Auth) login(urlOpener URLOpener) error {
 	var needsLogin bool
 
