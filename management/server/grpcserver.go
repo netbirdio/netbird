@@ -3,9 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
-	pb "github.com/golang/protobuf/proto" //nolint
 	"strings"
 	"time"
+
+	pb "github.com/golang/protobuf/proto" //nolint
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 
@@ -13,14 +14,15 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
-	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/management/proto"
-	internalStatus "github.com/netbirdio/netbird/management/server/status"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc/codes"
 	gRPCPeer "google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/management/proto"
+	internalStatus "github.com/netbirdio/netbird/management/server/status"
 )
 
 // GRPCServer an instance of a Management gRPC API server
@@ -222,7 +224,7 @@ func mapError(err error) error {
 		default:
 		}
 	}
-	return status.Errorf(codes.Internal, "failed handling request")
+	return status.Errorf(codes.Internal, "failed handling request, error: %s", err)
 }
 
 func extractPeerMeta(loginReq *proto.LoginRequest) PeerSystemMeta {
