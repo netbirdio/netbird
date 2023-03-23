@@ -234,7 +234,7 @@ func (e *Engine) Start() error {
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
 
-	e.firewallManager, err = buildFirewallManager()
+	e.firewallManager, err = buildFirewallManager(wgIfaceName)
 	if err != nil {
 		log.Errorf("failed to create firewall manager, ACL policy will not work: %s", err.Error())
 	} else {
