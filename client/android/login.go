@@ -68,7 +68,7 @@ func (a *Auth) LoginAndSaveConfigIfSSOSupported() (bool, error) {
 	})
 
 	if !supportsSSO {
-		return true, nil
+		return false, nil
 	}
 
 	if err != nil {
