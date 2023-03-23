@@ -224,7 +224,8 @@ func mapError(err error) error {
 		default:
 		}
 	}
-	return status.Errorf(codes.Internal, "failed handling request, error: %s", err)
+	log.Errorf("got an unhandled error: %s", err)
+	return status.Errorf(codes.Internal, "failed handling request")
 }
 
 func extractPeerMeta(loginReq *proto.LoginRequest) PeerSystemMeta {
