@@ -3,14 +3,17 @@ package android
 import (
 	"context"
 	"fmt"
-	"github.com/cenkalti/backoff/v4"
-	"github.com/netbirdio/netbird/client/cmd"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal"
+	"github.com/cenkalti/backoff/v4"
+
+	"github.com/netbirdio/netbird/client/cmd"
+
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/client/internal"
 )
 
 // URLOpener it is a callback interface. The Open function will be triggered if
@@ -55,28 +58,23 @@ func NewAuthWithConfig(ctx context.Context, config *internal.Config) *Auth {
 // LoginAndSaveConfigIfSSOSupported test the connectivity with the management server.
 // If the SSO is supported than save the configuration. Return with the SSO login is supported or not.
 func (a *Auth) LoginAndSaveConfigIfSSOSupported() (bool, error) {
-	var needsLogin bool
 	err := a.withBackOff(a.ctx, func() (err error) {
-		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config.SSHKey)
+		_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
 		return
 	})
+
 	if err != nil {
 		return false, fmt.Errorf("backoff cycle failed: %v", err)
 	}
-	if !needsLogin {
-		return false, nil
-	}
+
 	err = internal.WriteOutConfig(a.cfgPath, a.config)
-	return needsLogin, err
+	return true, err
 }
 
 // LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
 func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string) error {
 	err := a.withBackOff(a.ctx, func() error {
 		err := internal.Login(a.ctx, a.config, setupKey, "")
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			return nil
-		}
 		return err
 	})
 	if err != nil {
