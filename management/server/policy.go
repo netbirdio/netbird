@@ -228,13 +228,6 @@ func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
 	f.Direction = direction
 	f.Action = action
 
-	// TODO: remove this after migration from rules
-	//
-	// by default if protocol not present use TCP
-	if f.Protocol == "" {
-		f.Protocol = "tcp"
-	}
-
 	return nil
 }
 

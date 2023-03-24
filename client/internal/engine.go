@@ -1098,9 +1098,6 @@ func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule
 		protocol = firewall.ProtocolUDP
 	case "icmp":
 		protocol = firewall.ProtocolICMP
-	default:
-		log.Errorf("invalid protocol, skipping firewall rule: %q", r.Protocol)
-		return nil
 	}
 
 	var direction firewall.Direction
