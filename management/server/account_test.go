@@ -1605,9 +1605,11 @@ func TestAccount_GetPeersWithExpiration(t *testing.T) {
 			peers: map[string]*Peer{
 				"peer-1": {
 					LoginExpirationEnabled: false,
+					UserID:                 userID,
 				},
 				"peer-2": {
 					LoginExpirationEnabled: false,
+					UserID:                 userID,
 				},
 			},
 			expectedPeers: map[string]struct{}{},
@@ -1618,9 +1620,11 @@ func TestAccount_GetPeersWithExpiration(t *testing.T) {
 				"peer-1": {
 					ID:                     "peer-1",
 					LoginExpirationEnabled: true,
+					UserID:                 userID,
 				},
 				"peer-2": {
 					LoginExpirationEnabled: false,
+					UserID:                 userID,
 				},
 			},
 			expectedPeers: map[string]struct{}{
@@ -1680,12 +1684,14 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 						Connected: false,
 					},
 					LoginExpirationEnabled: true,
+					UserID:                 userID,
 				},
 				"peer-2": {
 					Status: &PeerStatus{
 						Connected: true,
 					},
 					LoginExpirationEnabled: false,
+					UserID:                 userID,
 				},
 			},
 			expiration:             time.Second,
@@ -1701,12 +1707,14 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 						Connected: true,
 					},
 					LoginExpirationEnabled: false,
+					UserID:                 userID,
 				},
 				"peer-2": {
 					Status: &PeerStatus{
 						Connected: true,
 					},
 					LoginExpirationEnabled: false,
+					UserID:                 userID,
 				},
 			},
 			expiration:             time.Second,
@@ -1723,6 +1731,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 						LoginExpired: true,
 					},
 					LoginExpirationEnabled: true,
+					UserID:                 userID,
 				},
 				"peer-2": {
 					Status: &PeerStatus{
@@ -1730,6 +1739,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 						LoginExpired: true,
 					},
 					LoginExpirationEnabled: true,
+					UserID:                 userID,
 				},
 			},
 			expiration:             time.Second,
@@ -1747,6 +1757,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 					},
 					LoginExpirationEnabled: true,
 					LastLogin:              time.Now(),
+					UserID:                 userID,
 				},
 				"peer-2": {
 					Status: &PeerStatus{
@@ -1754,12 +1765,38 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 						LoginExpired: true,
 					},
 					LoginExpirationEnabled: true,
+					UserID:                 userID,
 				},
 			},
 			expiration:             time.Minute,
 			expirationEnabled:      false,
 			expectedNextRun:        true,
 			expectedNextExpiration: expectedNextExpiration,
+		},
+		{
+			name: "Peers added with setup keys, no expiration",
+			peers: map[string]*Peer{
+				"peer-1": {
+					Status: &PeerStatus{
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LoginExpirationEnabled: true,
+					SetupKey:               "key",
+				},
+				"peer-2": {
+					Status: &PeerStatus{
+						Connected:    true,
+						LoginExpired: false,
+					},
+					LoginExpirationEnabled: true,
+					SetupKey:               "key",
+				},
+			},
+			expiration:             time.Second,
+			expirationEnabled:      false,
+			expectedNextRun:        false,
+			expectedNextExpiration: time.Duration(0),
 		},
 	}
 	for _, testCase := range testCases {

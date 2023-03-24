@@ -8,6 +8,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/formatter"
 	"github.com/netbirdio/netbird/iface"
@@ -23,6 +24,11 @@ type TunAdapter interface {
 	iface.TunAdapter
 }
 
+// IFaceDiscover export internal IFaceDiscover for mobile
+type IFaceDiscover interface {
+	stdnet.IFaceDiscover
+}
+
 func init() {
 	formatter.SetLogcatFormatter(log.StandardLogger())
 }
@@ -31,6 +37,7 @@ func init() {
 type Client struct {
 	cfgFile       string
 	tunAdapter    iface.TunAdapter
+	iFaceDiscover IFaceDiscover
 	recorder      *peer.Status
 	ctxCancel     context.CancelFunc
 	ctxCancelLock *sync.Mutex
@@ -38,7 +45,7 @@ type Client struct {
 }
 
 // NewClient instantiate a new Client
-func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter) *Client {
+func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover) *Client {
 	lvl, _ := log.ParseLevel("trace")
 	log.SetLevel(lvl)
 
@@ -46,6 +53,7 @@ func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter) *Client {
 		cfgFile:       cfgFile,
 		deviceName:    deviceName,
 		tunAdapter:    tunAdapter,
+		iFaceDiscover: iFaceDiscover,
 		recorder:      peer.NewRecorder(""),
 		ctxCancelLock: &sync.Mutex{},
 	}
@@ -77,7 +85,7 @@ func (c *Client) Run(urlOpener URLOpener) error {
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	return internal.RunClient(ctx, cfg, c.recorder, c.tunAdapter)
+	return internal.RunClient(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover)
 }
 
 // Stop the internal client and free the resources
