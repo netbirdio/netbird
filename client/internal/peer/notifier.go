@@ -122,3 +122,12 @@ func (n *notifier) peerListChanged(numOfPeers int) {
 		l.OnPeersListChanged(numOfPeers)
 	}
 }
+
+func (n *notifier) localAddressChanged(fqdn, address string) {
+	n.listenersLock.Lock()
+	defer n.listenersLock.Unlock()
+
+	for l := range n.listeners {
+		l.OnAddressChanged(fqdn, address)
+	}
+}
