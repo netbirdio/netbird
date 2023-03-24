@@ -19,6 +19,7 @@ func Test_parseInterfacesString(t *testing.T) {
 	}{
 		{"wlan0", 30, 1500, true, true, false, false, true, "10.1.10.131/24"},
 		{"rmnet0", 30, 1500, true, true, false, false, true, "192.168.0.56/24"},
+		{"rmnet_data1", 30, 1500, true, true, false, false, true, "fec0::118c:faf7:8d97:3cb2/64"},
 	}
 
 	var exampleString string
@@ -47,6 +48,19 @@ func Test_parseInterfacesString(t *testing.T) {
 
 		if net.Interface.Name != testData[i].name {
 			t.Errorf("invalid interface name: %s, expected: %s", net.Interface.Name, testData[i].name)
+		}
+
+		addr, err := net.Addrs()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if len(addr) == 0 {
+			t.Errorf("invalid address parsing")
+		}
+
+		if addr[0].String() != testData[i].addr {
+			t.Errorf("invalid address: %s, expected: %s", addr[0].String(), testData[i].addr)
 		}
 	}
 }
