@@ -27,6 +27,9 @@ var pingSupportDefaultRule = []string{
 	"-p", "icmp", "--icmp-type", "echo-request", "-j",
 	"ACCEPT", "-m", "comment", "--comment", "Allow pings from the Netbird Devices"}
 
+// dropAllDefaultRule in the Netbird chain
+var dropAllDefaultRule = []string{"-j", "DROP"}
+
 // Manager of iptables firewall
 type Manager struct {
 	mutex sync.Mutex
@@ -184,7 +187,9 @@ func (m *Manager) filterRuleSpecs(
 	case fw.DirectionDst:
 		specs = append(specs, "-d", ip.String())
 	}
-	specs = append(specs, "-p", protocol)
+	if protocol != "" {
+		specs = append(specs, "-p", protocol)
+	}
 	if port != "" {
 		specs = append(specs, "--dport", port)
 	}
@@ -222,6 +227,10 @@ func (m *Manager) client(ip net.IP) (*iptables.IPTables, error) {
 
 		if err := client.AppendUnique("filter", ChainFilterName, pingSupportDefaultRule...); err != nil {
 			return nil, fmt.Errorf("failed to create default ping allow rule: %w", err)
+		}
+
+		if err := client.AppendUnique("filter", ChainFilterName, dropAllDefaultRule...); err != nil {
+			return nil, fmt.Errorf("failed to create default drop all in netbird chain: %w", err)
 		}
 
 		specs := append([]string{"-i", m.wgIfaceName}, jumpNetbirdDefaultRule...)
