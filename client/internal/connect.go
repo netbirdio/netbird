@@ -13,6 +13,7 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/iface"
@@ -22,7 +23,7 @@ import (
 )
 
 // RunClient with main logic.
-func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter) error {
+func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
@@ -146,7 +147,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig, tunAdapter)
+		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig, tunAdapter, iFaceDiscover)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
@@ -193,12 +194,13 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig, tunAdapter iface.TunAdapter) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) (*EngineConfig, error) {
 
 	engineConf := &EngineConfig{
 		WgIfaceName:          config.WgIface,
 		WgAddr:               peerConfig.Address,
 		TunAdapter:           tunAdapter,
+		IFaceDiscover:        iFaceDiscover,
 		IFaceBlackList:       config.IFaceBlackList,
 		DisableIPv6Discovery: config.DisableIPv6Discovery,
 		WgPrivateKey:         key,
