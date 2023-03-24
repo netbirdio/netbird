@@ -9,15 +9,15 @@ import (
 	"time"
 
 	"github.com/pion/ice/v2"
-	"github.com/pion/transport/v2/stdnet"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
 
 	"github.com/netbirdio/netbird/client/internal/proxy"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/iface"
-	"github.com/netbirdio/netbird/version"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/version"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -93,6 +93,9 @@ type Conn struct {
 	proxy        proxy.Proxy
 	remoteModeCh chan ModeMessage
 	meta         meta
+
+	adapter       iface.TunAdapter
+	iFaceDiscover stdnet.IFaceDiscover
 }
 
 // meta holds meta information about a connection
@@ -118,7 +121,7 @@ func (conn *Conn) UpdateConf(conf ConnConfig) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -128,6 +131,8 @@ func NewConn(config ConnConfig, statusRecorder *Status) (*Conn, error) {
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
 		remoteModeCh:   make(chan ModeMessage, 1),
+		adapter:        adapter,
+		iFaceDiscover:  iFaceDiscover,
 	}, nil
 }
 
@@ -162,7 +167,9 @@ func (conn *Conn) reCreateAgent() error {
 	defer conn.mu.Unlock()
 
 	failedTimeout := 6 * time.Second
-	transportNet, err := stdnet.NewNet()
+
+	var err error
+	transportNet, err := conn.newStdNet()
 	if err != nil {
 		log.Warnf("failed to create pion's stdnet: %s", err)
 	}
