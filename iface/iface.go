@@ -1,6 +1,7 @@
 package iface
 
 import (
+	"github.com/netbirdio/netbird/iface/bind"
 	"net"
 	"sync"
 	"time"
@@ -19,6 +20,11 @@ type WGIface struct {
 	tun        *tunDevice
 	configurer wGConfigurer
 	mu         sync.Mutex
+}
+
+// GetBind returns a userspace implementation of WireGuard Bind interface
+func (w *WGIface) GetBind() *bind.ICEBind {
+	return w.tun.iceBind
 }
 
 // Create creates a new Wireguard interface, sets a given IP and brings it up.

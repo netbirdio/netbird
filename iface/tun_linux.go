@@ -11,10 +11,10 @@ import (
 )
 
 func (c *tunDevice) Create() error {
-	if WireguardModuleIsLoaded() {
+	/*if WireguardModuleIsLoaded() {
 		log.Info("using kernel WireGuard")
 		return c.createWithKernel()
-	}
+	}*/
 
 	if !tunModuleIsLoaded() {
 		return fmt.Errorf("couldn't check or load tun module")

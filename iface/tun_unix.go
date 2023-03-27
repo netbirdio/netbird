@@ -8,7 +8,6 @@ import (
 	"os"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
@@ -27,6 +26,7 @@ func newTunDevice(name string, address WGAddress, mtu int) *tunDevice {
 		name:    name,
 		address: address,
 		mtu:     mtu,
+		iceBind: &bind.ICEBind{},
 	}
 }
 
@@ -71,7 +71,7 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	}
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	tunDevice := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	err = tunDevice.Up()
 	if err != nil {
 		return tunIface, err

@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/iface/bind"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -102,8 +103,7 @@ type Engine struct {
 
 	wgInterface *iface.WGIface
 
-	udpMux          ice.UDPMux
-	udpMuxSrflx     ice.UniversalUDPMux
+	udpMux          *bind.UniversalUDPMuxDefault
 	udpMuxConn      *net.UDPConn
 	udpMuxConnSrflx *net.UDPConn
 
@@ -184,35 +184,10 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	networkName := "udp"
-	if e.config.DisableIPv6Discovery {
-		networkName = "udp4"
-	}
-
-	transportNet, err := e.newStdNet()
+	/*transportNet, err := e.newStdNet()
 	if err != nil {
 		log.Warnf("failed to create pion's stdnet: %s", err)
-	}
-
-	e.udpMuxConn, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxPort})
-	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
-		e.close()
-		return err
-	}
-	udpMuxParams := ice.UDPMuxParams{
-		UDPConn: e.udpMuxConn,
-		Net:     transportNet,
-	}
-	e.udpMux = ice.NewUDPMuxDefault(udpMuxParams)
-
-	e.udpMuxConnSrflx, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
-	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
-		e.close()
-		return err
-	}
-	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx, Net: transportNet})
+	}*/
 
 	err = e.wgInterface.Create()
 	if err != nil {
@@ -224,6 +199,13 @@ func (e *Engine) Start() error {
 	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
 	if err != nil {
 		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
+		e.close()
+		return err
+	}
+
+	iceBind := e.wgInterface.GetBind()
+	e.udpMux, err = iceBind.GetICEMux()
+	if err != nil {
 		e.close()
 		return err
 	}
@@ -818,7 +800,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 		Timeout:              timeout,
 		UDPMux:               e.udpMux,
-		UDPMuxSrflx:          e.udpMuxSrflx,
+		UDPMuxSrflx:          e.udpMux,
 		ProxyConfig:          proxyConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
@@ -1003,12 +985,6 @@ func (e *Engine) close() {
 	if e.udpMux != nil {
 		if err := e.udpMux.Close(); err != nil {
 			log.Debugf("close udp mux: %v", err)
-		}
-	}
-
-	if e.udpMuxSrflx != nil {
-		if err := e.udpMuxSrflx.Close(); err != nil {
-			log.Debugf("close server reflexive udp mux: %v", err)
 		}
 	}
 

@@ -1,11 +1,11 @@
 package iface
 
 import (
+	"github.com/netbirdio/netbird/iface/bind"
 	"net"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
-	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
@@ -16,10 +16,11 @@ type tunDevice struct {
 	mtu        int
 	tunAdapter TunAdapter
 
-	fd     int
-	name   string
-	device *device.Device
-	uapi   net.Listener
+	fd      int
+	name    string
+	device  *device.Device
+	uapi    net.Listener
+	iceBind *bind.ICEBind
 }
 
 func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter) *tunDevice {
@@ -27,6 +28,7 @@ func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter) *tunDevice 
 		address:    address,
 		mtu:        mtu,
 		tunAdapter: tunAdapter,
+		iceBind:    &bind.ICEBind{},
 	}
 }
 
@@ -46,7 +48,7 @@ func (t *tunDevice) Create() error {
 	t.name = name
 
 	log.Debugf("attaching to interface %v", name)
-	t.device = device.NewDevice(tunDevice, conn.NewStdNetBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	t.device = device.NewDevice(tunDevice, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
 	log.Debugf("create uapi")

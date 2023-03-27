@@ -13,10 +13,11 @@ type tunDevice struct {
 	name         string
 	address      WGAddress
 	netInterface NetInterface
+	iceBind      *bind.ICEBind
 }
 
 func newTunDevice(name string, address WGAddress, mtu int) *tunDevice {
-	return &tunDevice{name: name, address: address}
+	return &tunDevice{name: name, address: address, iceBind: &bind.ICEBind{}}
 }
 
 func (c *tunDevice) Create() error {
