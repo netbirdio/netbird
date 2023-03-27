@@ -228,7 +228,7 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, userID string, toke
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
-	pat := user.PATs["tokenID"]
+	pat := user.PATs[tokenID]
 	if pat == nil {
 		return status.Errorf(status.NotFound, "PAT not found")
 	}
