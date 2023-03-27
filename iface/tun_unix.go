@@ -3,6 +3,7 @@
 package iface
 
 import (
+	"github.com/netbirdio/netbird/iface/bind"
 	"net"
 	"os"
 
@@ -18,6 +19,7 @@ type tunDevice struct {
 	address      WGAddress
 	mtu          int
 	netInterface NetInterface
+	iceBind      *bind.ICEBind
 }
 
 func newTunDevice(name string, address WGAddress, mtu int) *tunDevice {
