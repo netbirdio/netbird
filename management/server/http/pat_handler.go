@@ -112,12 +112,12 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Name == "" {
-		util.WriteErrorResponse("name can't be empty", status.InvalidArgument, w)
+		util.WriteErrorResponse("name can't be empty", http.StatusBadRequest, w)
 		return
 	}
 
 	if req.ExpiresIn < 1 || req.ExpiresIn > 365 {
-		util.WriteErrorResponse("expiration has to be between 1 and 365", status.InvalidArgument, w)
+		util.WriteErrorResponse("expiration has to be between 1 and 365", http.StatusBadRequest, w)
 		return
 	}
 
