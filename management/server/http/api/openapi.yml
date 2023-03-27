@@ -292,12 +292,9 @@ components:
         id:
           description: ID of a token
           type: string
-        description:
-          description: Description of the token
+        name:
+          description: Name of the token
           type: string
-#        hashed_token:
-#          description: Hashed representation of the token
-#          type: string
         expiration_date:
           description: Date the token expires
           type: string
@@ -315,8 +312,7 @@ components:
           format: date-time
       required:
         - id
-        - description
-#        - hashed_token
+        - name
         - expiration_date
         - created_by
         - created_at
@@ -324,14 +320,14 @@ components:
     PersonalAccessTokenRequest:
       type: object
       properties:
-        description:
-          description: Description of the token
+        name:
+          description: Name of the token
           type: string
         expires_in:
           description: Expiration in days
           type: integer
       required:
-        - description
+        - name
         - expires_in
     GroupMinimum:
       type: object

@@ -1245,7 +1245,7 @@ func TestAccount_Copy(t *testing.T) {
 				PATs: map[string]*PersonalAccessToken{
 					"pat1": {
 						ID:             "pat1",
-						Description:    "First PAT",
+						Name:           "First PAT",
 						HashedToken:    "SoMeHaShEdToKeN",
 						ExpirationDate: time.Now().AddDate(0, 0, 7),
 						CreatedBy:      "user1",
