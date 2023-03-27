@@ -30,11 +30,6 @@ func NewPATsHandler(accountManager server.AccountManager, authCfg AuthCfg) *PATH
 }
 
 func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -62,11 +57,6 @@ func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -96,11 +86,6 @@ func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -126,7 +111,7 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pat, plainToken, err := server.CreateNewPAT(req.Description, req.ExpiresIn, user.Id)
+	pat, plainToken, err := server.CreateNewPAT(req.Name, req.ExpiresIn, user.Id)
 	err = h.accountManager.AddPATToUser(account.Id, userID, pat)
 	if err != nil {
 		util.WriteError(err, w)
@@ -137,11 +122,6 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
-		return
-	}
-
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
@@ -179,7 +159,7 @@ func toPATResponse(pat *server.PersonalAccessToken) *api.PersonalAccessToken {
 	return &api.PersonalAccessToken{
 		CreatedAt:      pat.CreatedAt,
 		CreatedBy:      pat.CreatedBy,
-		Description:    pat.Description,
+		Name:           pat.Name,
 		ExpirationDate: pat.ExpirationDate,
 		Id:             pat.ID,
 		LastUsed:       pat.LastUsed,

@@ -25,7 +25,7 @@ const (
 // PersonalAccessToken holds all information about a PAT including a hashed version of it for verification
 type PersonalAccessToken struct {
 	ID             string
-	Description    string
+	Name           string
 	HashedToken    string
 	ExpirationDate time.Time
 	// scope could be added in future
@@ -36,7 +36,7 @@ type PersonalAccessToken struct {
 
 // CreateNewPAT will generate a new PersonalAccessToken that can be assigned to a User.
 // Additionally, it will return the token in plain text once, to give to the user and only save a hashed version
-func CreateNewPAT(description string, expirationInDays int, createdBy string) (*PersonalAccessToken, string, error) {
+func CreateNewPAT(name string, expirationInDays int, createdBy string) (*PersonalAccessToken, string, error) {
 	hashedToken, plainToken, err := generateNewToken()
 	if err != nil {
 		return nil, "", err
@@ -44,7 +44,7 @@ func CreateNewPAT(description string, expirationInDays int, createdBy string) (*
 	currentTime := time.Now().UTC()
 	return &PersonalAccessToken{
 		ID:             xid.New().String(),
-		Description:    description,
+		Name:           name,
 		HashedToken:    hashedToken,
 		ExpirationDate: currentTime.AddDate(0, 0, expirationInDays),
 		CreatedBy:      createdBy,
