@@ -111,6 +111,16 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Name == "" {
+		util.WriteErrorResponse("name can't be empty", status.InvalidArgument, w)
+		return
+	}
+
+	if req.ExpiresIn < 1 || req.ExpiresIn > 365 {
+		util.WriteErrorResponse("expiration has to be between 1 and 365", status.InvalidArgument, w)
+		return
+	}
+
 	pat, plainToken, err := server.CreateNewPAT(req.Name, req.ExpiresIn, user.Id)
 	err = h.accountManager.AddPATToUser(account.Id, userID, pat)
 	if err != nil {
