@@ -78,7 +78,7 @@ func (s *Server) Start() error {
 	// on failure we return error to retry
 	config, err := internal.UpdateConfig(s.latestConfigInput)
 	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
-		config, err = internal.UpdateOrCreateConfig(s.latestConfigInput)
+		s.config, err = internal.UpdateOrCreateConfig(s.latestConfigInput)
 		if err != nil {
 			log.Warnf("unable to create configuration file: %v", err)
 			return err
