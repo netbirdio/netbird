@@ -121,15 +121,25 @@ func restore(file string) (*FileStore, error) {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
 
-		// if no policies are defined, that means we need to migrate Rules to policies
-		if len(account.Policies) == 0 {
+		// always regenerate policy objects which reflects Rules
+		// until we totally remove Rules we need ability to fix definitions
+		// between releases if they will need it
+		policies := make(map[string]int, len(account.Policies))
+		for i, policy := range account.Policies {
+			policies[policy.ID] = i
+		}
+		if account.Policies == nil {
 			account.Policies = make([]*Policy, 0)
-			for _, rule := range account.Rules {
-				policy, err := RuleToPolicy(rule)
-				if err != nil {
-					log.Errorf("unable to migrate rule to policy: %v", err)
-					continue
-				}
+		}
+		for _, rule := range account.Rules {
+			policy, err := RuleToPolicy(rule)
+			if err != nil {
+				log.Errorf("unable to migrate rule to policy: %v", err)
+				continue
+			}
+			if i, ok := policies[policy.ID]; ok {
+				account.Policies[i] = policy
+			} else {
 				account.Policies = append(account.Policies, policy)
 			}
 		}

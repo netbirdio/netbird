@@ -17,17 +17,11 @@ get_rule(peer_id, direction, action, port) := rule if {
     }
 }
 
-# peers_from_group returns a list of peer ids for a given group id
-peers_from_group(group_id) := peers if {
+# netbird_rules_from_group returns a list of netbird rules for a given group_id
+rules_from_group(group_id, direction, action, port) := rules if {
 	group := input.groups[_]
 	group.ID == group_id
-	peers := [peer | peer := group.Peers[_]]
-}
-
-# netbird_rules_from_groups returns a list of netbird rules for a given list of group names
-rules_from_groups(groups, direction, action, port) := rules if {
-	group_id := groups[_]
-	rules := [get_rule(peer, direction, action, port) | peer := peers_from_group(group_id)[_]]
+	rules := [get_rule(peer, direction, action, port) | peer := group.Peers[_]]
 }
 
 # is_peer_in_any_group checks that input peer present at least in one group
