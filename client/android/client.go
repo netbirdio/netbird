@@ -78,7 +78,7 @@ func (c *Client) Run(urlOpener URLOpener) error {
 	c.ctxCancelLock.Unlock()
 
 	auth := NewAuthWithConfig(ctx, cfg)
-	err = auth.Login(urlOpener)
+	err = auth.login(urlOpener)
 	if err != nil {
 		return err
 	}
