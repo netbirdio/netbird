@@ -3,7 +3,6 @@ package http
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -148,7 +147,7 @@ func TestTokenHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/users/" + existingUserID + "/tokens",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprint("{\"name\":\"name\",\"expires_in\":7}"))),
+				[]byte("{\"name\":\"name\",\"expires_in\":7}")),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 		},
