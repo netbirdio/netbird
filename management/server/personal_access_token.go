@@ -34,23 +34,33 @@ type PersonalAccessToken struct {
 	LastUsed  time.Time
 }
 
+// PersonalAccessTokenGenerated holds the new PersonalAccessToken and the plain text version of it
+type PersonalAccessTokenGenerated struct {
+	PlainToken string
+	PersonalAccessToken
+}
+
 // CreateNewPAT will generate a new PersonalAccessToken that can be assigned to a User.
 // Additionally, it will return the token in plain text once, to give to the user and only save a hashed version
-func CreateNewPAT(name string, expirationInDays int, createdBy string) (*PersonalAccessToken, string, error) {
+func CreateNewPAT(name string, expirationInDays int, createdBy string) (*PersonalAccessTokenGenerated, error) {
 	hashedToken, plainToken, err := generateNewToken()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 	currentTime := time.Now().UTC()
-	return &PersonalAccessToken{
-		ID:             xid.New().String(),
-		Name:           name,
-		HashedToken:    hashedToken,
-		ExpirationDate: currentTime.AddDate(0, 0, expirationInDays),
-		CreatedBy:      createdBy,
-		CreatedAt:      currentTime,
-		LastUsed:       currentTime,
-	}, plainToken, nil
+	return &PersonalAccessTokenGenerated{
+		PersonalAccessToken: PersonalAccessToken{
+			ID:             xid.New().String(),
+			Name:           name,
+			HashedToken:    hashedToken,
+			ExpirationDate: currentTime.AddDate(0, 0, expirationInDays),
+			CreatedBy:      createdBy,
+			CreatedAt:      currentTime,
+			LastUsed:       currentTime,
+		},
+		PlainToken: plainToken,
+	}, nil
+
 }
 
 func generateNewToken() (string, string, error) {

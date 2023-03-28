@@ -317,6 +317,17 @@ components:
         - created_by
         - created_at
         - last_used
+    PersonalAccessTokenGenerated:
+      type: object
+      properties:
+        plain_token:
+          description: Plain text representation of the generated token
+          type: string
+        personal_access_token:
+          $ref: '#/components/schemas/PersonalAccessToken'
+      required:
+        - plain_token
+        - personal_access_token
     PersonalAccessTokenRequest:
       type: object
       properties:
@@ -945,9 +956,9 @@ paths:
         '200':
           description: The token in plain text
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: '#/components/schemas/PersonalAccessTokenGenerated'
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':

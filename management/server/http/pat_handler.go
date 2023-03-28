@@ -81,7 +81,18 @@ func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pat := account.Users[userID].PATs[tokenID]
+	user = account.Users[userID]
+	if user == nil {
+		util.WriteError(status.Errorf(status.NotFound, "user not found"), w)
+		return
+	}
+
+	pat := user.PATs[tokenID]
+	if pat == nil {
+		util.WriteError(status.Errorf(status.NotFound, "PAT not found"), w)
+		return
+	}
+
 	util.WriteJSONObject(w, toPATResponse(pat))
 }
 
@@ -121,14 +132,14 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pat, plainToken, err := server.CreateNewPAT(req.Name, req.ExpiresIn, user.Id)
-	err = h.accountManager.AddPATToUser(account.Id, userID, pat)
+	pat, err := server.CreateNewPAT(req.Name, req.ExpiresIn, user.Id)
+	err = h.accountManager.AddPATToUser(account.Id, userID, &pat.PersonalAccessToken)
 	if err != nil {
 		util.WriteError(err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, plainToken)
+	util.WriteJSONObject(w, toPATGeneratedResponse(pat))
 }
 
 func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
@@ -173,5 +184,12 @@ func toPATResponse(pat *server.PersonalAccessToken) *api.PersonalAccessToken {
 		ExpirationDate: pat.ExpirationDate,
 		Id:             pat.ID,
 		LastUsed:       pat.LastUsed,
+	}
+}
+
+func toPATGeneratedResponse(pat *server.PersonalAccessTokenGenerated) *api.PersonalAccessTokenGenerated {
+	return &api.PersonalAccessTokenGenerated{
+		PlainToken:          pat.PlainToken,
+		PersonalAccessToken: *toPATResponse(&pat.PersonalAccessToken),
 	}
 }
