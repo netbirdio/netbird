@@ -133,6 +133,11 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pat, err := server.CreateNewPAT(req.Name, req.ExpiresIn, user.Id)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
 	err = h.accountManager.AddPATToUser(account.Id, userID, &pat.PersonalAccessToken)
 	if err != nil {
 		util.WriteError(err, w)
