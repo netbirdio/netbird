@@ -6,6 +6,8 @@ import (
 	"sync"
 
 	"github.com/google/nftables"
+	"github.com/google/uuid"
+
 	fw "github.com/netbirdio/netbird/client/firewall"
 )
 
@@ -52,13 +54,40 @@ func (m *Manager) AddFiltering(
 	action fw.Action,
 	comment string,
 ) (fw.Rule, error) {
+	// get filter chain
+	table, chain, err := m.chain(
+		ip,
+		FilterChainName,
+		nftables.ChainHookOutput,
+		nftables.ChainPriorityFilter,
+		nftables.ChainTypeFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	rule := &Rule{
+		Rule: m.conn.AddRule(&nftables.Rule{
+			Table: table,
+			Chain: chain,
+		}),
+		id: uuid.New().String(),
+	}
+
 	if err := m.conn.Flush(); err != nil {
 		return nil, err
 	}
-	return nil, fmt.Errorf("not implemented")
+
+	return rule, nil
 }
 
-func (m *Manager) filterChain(ip net.IP) (*nftables.Table, *nftables.Chain, error) {
+// chain returns the chain for the given IP address with specific settings
+func (m *Manager) chain(
+	ip net.IP,
+	name string,
+	hook nftables.ChainHook,
+	priority nftables.ChainPriority,
+	cType nftables.ChainType,
+) (*nftables.Table, *nftables.Chain, error) {
 	if ip.To4() != nil {
 		if m.filterChainIPv4 != nil {
 			return m.tableIPv4, m.filterChainIPv4, nil
@@ -66,10 +95,10 @@ func (m *Manager) filterChain(ip net.IP) (*nftables.Table, *nftables.Chain, erro
 
 		chain, err := m.createChainIfNotExists(
 			nftables.TableFamilyIPv4,
-			FilterChainName,
-			nftables.ChainHookInput+1,
-			nftables.ChainPriorityFirst,
-			nftables.ChainTypeFilter,
+			name,
+			hook,
+			priority,
+			cType,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -83,10 +112,10 @@ func (m *Manager) filterChain(ip net.IP) (*nftables.Table, *nftables.Chain, erro
 
 	chain, err := m.createChainIfNotExists(
 		nftables.TableFamilyIPv6,
-		FilterChainName,
-		nftables.ChainHookInput+1,
-		nftables.ChainPriorityFirst,
-		nftables.ChainTypeFilter,
+		name,
+		hook,
+		priority,
+		cType,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -95,6 +124,7 @@ func (m *Manager) filterChain(ip net.IP) (*nftables.Table, *nftables.Chain, erro
 	return m.tableIPv6, m.filterChainIPv6, nil
 }
 
+// table returns the table for the given family of the IP address
 func (m *Manager) table(family nftables.TableFamily) (*nftables.Table, error) {
 	if family == nftables.TableFamilyIPv4 {
 		if m.tableIPv4 != nil {
@@ -168,10 +198,35 @@ func (m *Manager) createChainIfNotExists(
 
 // DeleteRule from the firewall by rule definition
 func (m *Manager) DeleteRule(rule fw.Rule) error {
-	return fmt.Errorf("not implemented")
+	nativeRule, ok := rule.(*Rule)
+	if !ok {
+		return fmt.Errorf("invalid rule type")
+	}
+
+	return m.conn.DelRule(nativeRule.Rule)
 }
 
 // Reset firewall to the default state
 func (m *Manager) Reset() error {
-	return fmt.Errorf("not implemented")
+	chains, err := m.conn.ListChains()
+	if err != nil {
+		return fmt.Errorf("list of chains: %w", err)
+	}
+	for _, c := range chains {
+		if c.Name == FilterChainName {
+			m.conn.DelChain(c)
+		}
+	}
+
+	tables, err := m.conn.ListTables()
+	if err != nil {
+		return fmt.Errorf("list of tables: %w", err)
+	}
+	for _, t := range tables {
+		if t.Name == FilterTableName {
+			m.conn.DelTable(t)
+		}
+	}
+
+	return nil
 }
