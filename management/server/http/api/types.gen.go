@@ -400,6 +400,14 @@ type PersonalAccessToken struct {
 	Name string `json:"name"`
 }
 
+// PersonalAccessTokenGenerated defines model for PersonalAccessTokenGenerated.
+type PersonalAccessTokenGenerated struct {
+	PersonalAccessToken PersonalAccessToken `json:"personal_access_token"`
+
+	// PlainToken Plain text representation of the generated token
+	PlainToken string `json:"plain_token"`
+}
+
 // PersonalAccessTokenRequest defines model for PersonalAccessTokenRequest.
 type PersonalAccessTokenRequest struct {
 	// ExpiresIn Expiration in days
