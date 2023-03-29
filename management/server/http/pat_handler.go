@@ -19,6 +19,7 @@ type PATHandler struct {
 	claimsExtractor *jwtclaims.ClaimsExtractor
 }
 
+// NewPATsHandler creates a new PATHandler HTTP handler
 func NewPATsHandler(accountManager server.AccountManager, authCfg AuthCfg) *PATHandler {
 	return &PATHandler{
 		accountManager: accountManager,
@@ -29,6 +30,7 @@ func NewPATsHandler(accountManager server.AccountManager, authCfg AuthCfg) *PATH
 	}
 }
 
+// GetAllTokens is HTTP GET handler that returns a list of all personal access tokens for the given user
 func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
@@ -56,6 +58,7 @@ func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, pats)
 }
 
+// GetToken is HTTP GET handler that returns a personal access token for the given user
 func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
@@ -96,6 +99,7 @@ func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toPATResponse(pat))
 }
 
+// CreateToken is HTTP POST handler that creates a personal access token for the given user
 func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
@@ -147,6 +151,7 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, toPATGeneratedResponse(pat))
 }
 
+// DeleteToken is HTTP DELETE handler that deletes a personal access token for the given user
 func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
 	account, user, err := h.accountManager.GetAccountFromToken(claims)
