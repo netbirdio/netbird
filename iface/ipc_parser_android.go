@@ -33,7 +33,7 @@ func toWgUserspaceString(wgCfg wgtypes.Config) string {
 
 		if p.PresharedKey != nil {
 			preSharedHexKey := hex.EncodeToString(p.PresharedKey[:])
-			sb.WriteString(fmt.Sprintf("public_key=%s\n", preSharedHexKey))
+			sb.WriteString(fmt.Sprintf("preshared_key=%s\n", preSharedHexKey))
 		}
 
 		if p.Remove {
