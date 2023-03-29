@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/sha256"
+	b64 "encoding/base64"
 	"hash/crc32"
 	"strings"
 	"testing"
@@ -13,7 +14,8 @@ import (
 func TestPAT_GenerateToken_Hashing(t *testing.T) {
 	hashedToken, plainToken, _ := generateNewToken()
 	expectedToken := sha256.Sum256([]byte(plainToken))
-	assert.Equal(t, hashedToken, string(expectedToken[:]))
+	encodedExpectedToken := b64.StdEncoding.EncodeToString(expectedToken[:])
+	assert.Equal(t, hashedToken, encodedExpectedToken)
 }
 
 func TestPAT_GenerateToken_Prefix(t *testing.T) {
