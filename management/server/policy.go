@@ -222,35 +222,24 @@ func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
 }
 
 // getRegoQuery returns a initialized Rego object with default rule.
-func (a *Account) getRegoQuery() (rego.PreparedEvalQuery, error) {
-	queries := []func(*rego.Rego){
-		rego.Query("data.netbird.all"),
-		rego.Module("netbird", defaultPolicyModule),
-	}
-	for i, p := range a.Policies {
-		if !p.Enabled {
-			continue
-		}
-		queries = append(queries, rego.Module(fmt.Sprintf("netbird-%d", i), p.Query))
-	}
-	return rego.New(queries...).PrepareForEval(context.TODO())
-}
-
-// getPeersByPolicy returns all peers that given peer has access to.
-func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
+func (a *Account) getRegoQuery(peerID string, qeuryNumber int, query string) ([]*Peer, []*FirewallRule) {
 	input := map[string]interface{}{
 		"peer_id": peerID,
 		"peers":   a.Peers,
 		"groups":  a.Groups,
 	}
 
-	query, err := a.getRegoQuery()
+	stmt, err := rego.New(
+		rego.Query("data.netbird.all"),
+		rego.Module("netbird", defaultPolicyModule),
+		rego.Module(fmt.Sprintf("netbird-%d", qeuryNumber), query),
+	).PrepareForEval(context.TODO())
 	if err != nil {
 		log.WithError(err).Error("get Rego query")
 		return nil, nil
 	}
 
-	evalResult, err := query.Eval(
+	evalResult, err := stmt.Eval(
 		context.TODO(),
 		rego.EvalInput(input),
 	)
@@ -316,6 +305,26 @@ func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
 		peers = append(peers, a.Peers[id])
 	}
 	return peers, rules
+}
+
+// getPeersByPolicy returns all peers that given peer has access to.
+func (a *Account) getPeersByPolicy(peerID string) (peers []*Peer, rules []*FirewallRule) {
+	seen := make(map[string]struct{})
+	for i, policy := range a.Policies {
+		if !policy.Enabled {
+			continue
+		}
+		p, r := a.getRegoQuery(peerID, i, policy.Query)
+		for _, peer := range p {
+			if _, ok := seen[peer.ID]; ok {
+				continue
+			}
+			peers = append(peers, peer)
+			seen[peer.ID] = struct{}{}
+		}
+		rules = append(rules, r...)
+	}
+	return
 }
 
 // GetPolicy from the store
