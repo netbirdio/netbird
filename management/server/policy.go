@@ -3,7 +3,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/md5"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"strings"
@@ -178,6 +180,9 @@ type FirewallRule struct {
 
 	// Port of the traffic
 	Port string
+
+	// id for internal purposes
+	id string
 }
 
 // parseFromRegoResult parses the Rego result to a FirewallRule.
@@ -217,6 +222,10 @@ func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
 	f.Direction = direction
 	f.Action = action
 	f.Port = port
+
+	h := md5.New()
+	_, _ = h.Write([]byte(peerID + peerIP + direction + action + port))
+	f.id = hex.EncodeToString(h.Sum(nil))
 
 	return nil
 }
@@ -309,20 +318,27 @@ func (a *Account) getRegoQuery(peerID string, qeuryNumber int, query string) ([]
 
 // getPeersByPolicy returns all peers that given peer has access to.
 func (a *Account) getPeersByPolicy(peerID string) (peers []*Peer, rules []*FirewallRule) {
-	seen := make(map[string]struct{})
+	peersSeen := make(map[string]struct{})
+	ruleSeen := make(map[string]struct{})
 	for i, policy := range a.Policies {
 		if !policy.Enabled {
 			continue
 		}
 		p, r := a.getRegoQuery(peerID, i, policy.Query)
 		for _, peer := range p {
-			if _, ok := seen[peer.ID]; ok {
+			if _, ok := peersSeen[peer.ID]; ok {
 				continue
 			}
 			peers = append(peers, peer)
-			seen[peer.ID] = struct{}{}
+			peersSeen[peer.ID] = struct{}{}
 		}
-		rules = append(rules, r...)
+		for _, rule := range r {
+			if _, ok := ruleSeen[rule.id]; ok {
+				continue
+			}
+			rules = append(rules, rule)
+			ruleSeen[rule.id] = struct{}{}
+		}
 	}
 	return
 }
