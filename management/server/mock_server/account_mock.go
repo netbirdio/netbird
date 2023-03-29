@@ -47,7 +47,7 @@ type MockAccountManager struct {
 	DeletePolicyFunc                func(accountID, policyID, userID string) error
 	ListPoliciesFunc                func(accountID, userID string) ([]*server.Policy, error)
 	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
-	GetAccountFromPATFunc           func(pat string) (*server.Account, *server.User, error)
+	GetAccountFromPATFunc           func(pat string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
 	UpdatePeerMetaFunc              func(peerID string, meta server.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerID string, sshKey string) error
 	UpdatePeerFunc                  func(accountID, userID string, peer *server.Peer) (*server.Peer, error)
@@ -179,11 +179,11 @@ func (am *MockAccountManager) GetPeerByIP(accountId string, peerIP string) (*ser
 }
 
 // GetAccountFromPAT mock implementation of GetAccountFromPAT from server.AccountManager interface
-func (am *MockAccountManager) GetAccountFromPAT(pat string) (*server.Account, *server.User, error) {
+func (am *MockAccountManager) GetAccountFromPAT(pat string) (*server.Account, *server.User, *server.PersonalAccessToken, error) {
 	if am.GetAccountFromPATFunc != nil {
 		return am.GetAccountFromPATFunc(pat)
 	}
-	return nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromPAT is not implemented")
+	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromPAT is not implemented")
 }
 
 // AddPATToUser mock implementation of AddPATToUser from server.AccountManager interface
