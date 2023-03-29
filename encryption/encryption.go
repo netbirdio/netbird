@@ -3,9 +3,12 @@ package encryption
 import (
 	"crypto/rand"
 	"fmt"
+
 	"golang.org/x/crypto/nacl/box"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+const nonceSize = 24
 
 // A set of tools to encrypt/decrypt messages being sent through the Signal Exchange Service or Management Service
 // These tools use Golang crypto package (Curve25519, XSalsa20 and Poly1305 to encrypt and authenticate)
@@ -26,8 +29,11 @@ func Decrypt(encryptedMsg []byte, peerPublicKey wgtypes.Key, privateKey wgtypes.
 	if err != nil {
 		return nil, err
 	}
-	copy(nonce[:], encryptedMsg[:24])
-	opened, ok := box.Open(nil, encryptedMsg[24:], nonce, toByte32(peerPublicKey), toByte32(privateKey))
+	if len(encryptedMsg) < nonceSize {
+		return nil, fmt.Errorf("invalid encrypted message lenght")
+	}
+	copy(nonce[:], encryptedMsg[:nonceSize])
+	opened, ok := box.Open(nil, encryptedMsg[nonceSize:], nonce, toByte32(peerPublicKey), toByte32(privateKey))
 	if !ok {
 		return nil, fmt.Errorf("failed to decrypt message from peer %s", peerPublicKey.String())
 	}
@@ -36,8 +42,8 @@ func Decrypt(encryptedMsg []byte, peerPublicKey wgtypes.Key, privateKey wgtypes.
 }
 
 // Generates nonce of size 24
-func genNonce() (*[24]byte, error) {
-	var nonce [24]byte
+func genNonce() (*[nonceSize]byte, error) {
+	var nonce [nonceSize]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return nil, err
 	}
