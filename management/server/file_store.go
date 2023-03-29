@@ -349,13 +349,11 @@ func (s *FileStore) GetTokenIDByHashedToken(token string) (string, error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	log.Debugf("TOken still there: %v", token)
-	log.Debugf("TokenID2UserId %v", s.HashedPAT2TokenID)
 	tokenID, ok := s.HashedPAT2TokenID[token]
 	if !ok {
 		return "", status.Errorf(status.NotFound, "tokenID not found: provided token doesn't exists")
 	}
-	log.Debugf("TokenID for token %s is %s", token, tokenID)
+
 	return tokenID, nil
 }
 
@@ -368,12 +366,12 @@ func (s *FileStore) GetUserByTokenID(tokenID string) (*User, error) {
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found: provided tokenID doesn't exists")
 	}
-	log.Debugf("UserID for tokenID %s is %s", tokenID, userID)
+
 	accountID, ok := s.UserID2AccountID[userID]
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "accountID not found: provided userID doesn't exists")
 	}
-	log.Debugf("AccountID for userID %s is %s", userID, accountID)
+
 	account, err := s.getAccount(accountID)
 	if err != nil {
 		return nil, err
