@@ -184,7 +184,7 @@ func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(w, "")
+	util.WriteJSONObject(w, emptyObject{})
 }
 
 func toPATResponse(pat *server.PersonalAccessToken) *api.PersonalAccessToken {

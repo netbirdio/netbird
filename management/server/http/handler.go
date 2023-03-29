@@ -25,6 +25,9 @@ type apiHandler struct {
 	AuthCfg        AuthCfg
 }
 
+type emptyObject struct {
+}
+
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
 	jwtMiddleware, err := middleware.NewJwtMiddleware(
