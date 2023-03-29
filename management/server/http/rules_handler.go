@@ -222,7 +222,7 @@ func (h *RulesHandler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(w, "")
+	util.WriteJSONObject(w, emptyObject{})
 }
 
 // GetRule handles a group Get request identified by ID

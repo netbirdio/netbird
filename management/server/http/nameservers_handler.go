@@ -243,7 +243,7 @@ func (h *NameserversHandler) DeleteNameserverGroup(w http.ResponseWriter, r *htt
 		return
 	}
 
-	util.WriteJSONObject(w, "")
+	util.WriteJSONObject(w, emptyObject{})
 }
 
 // GetNameserverGroup handles a nameserver group Get request identified by ID
