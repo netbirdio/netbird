@@ -223,7 +223,7 @@ func toTokenResponse(serverToken server.PersonalAccessToken) api.PersonalAccessT
 		Id:             serverToken.ID,
 		Name:           serverToken.Name,
 		CreatedAt:      serverToken.CreatedAt,
-		LastUsed:       serverToken.LastUsed,
+		LastUsed:       &serverToken.LastUsed,
 		CreatedBy:      serverToken.CreatedBy,
 		ExpirationDate: serverToken.ExpirationDate,
 	}
