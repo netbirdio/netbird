@@ -288,6 +288,11 @@ func (d *Status) ClientStop() {
 	d.notifier.clientStop()
 }
 
+// ClientTeardown will notify all listeners about the service is under teardown
+func (d *Status) ClientTeardown() {
+	d.notifier.clientTearDown()
+}
+
 // AddConnectionListener add a listener to the notifier
 func (d *Status) AddConnectionListener(listener Listener) {
 	d.notifier.addListener(listener)
