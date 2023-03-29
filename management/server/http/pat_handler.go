@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gorilla/mux"
 
@@ -187,13 +188,17 @@ func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func toPATResponse(pat *server.PersonalAccessToken) *api.PersonalAccessToken {
+	var lastUsed *time.Time
+	if !pat.LastUsed.IsZero() {
+		lastUsed = &pat.LastUsed
+	}
 	return &api.PersonalAccessToken{
 		CreatedAt:      pat.CreatedAt,
 		CreatedBy:      pat.CreatedBy,
 		Name:           pat.Name,
 		ExpirationDate: pat.ExpirationDate,
 		Id:             pat.ID,
-		LastUsed:       pat.LastUsed,
+		LastUsed:       lastUsed,
 	}
 }
 

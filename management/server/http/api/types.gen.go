@@ -394,7 +394,7 @@ type PersonalAccessToken struct {
 	Id string `json:"id"`
 
 	// LastUsed Date the token was last used
-	LastUsed time.Time `json:"last_used"`
+	LastUsed *time.Time `json:"last_used,omitempty"`
 
 	// Name Name of the token
 	Name string `json:"name"`

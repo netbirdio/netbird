@@ -57,7 +57,7 @@ func CreateNewPAT(name string, expirationInDays int, createdBy string) (*Persona
 			ExpirationDate: currentTime.AddDate(0, 0, expirationInDays),
 			CreatedBy:      createdBy,
 			CreatedAt:      currentTime,
-			LastUsed:       currentTime,
+			LastUsed:       time.Time{},
 		},
 		PlainToken: plainToken,
 	}, nil
