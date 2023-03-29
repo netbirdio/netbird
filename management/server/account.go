@@ -1126,8 +1126,6 @@ func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *Use
 		return nil, nil, nil, fmt.Errorf("token has wrong length")
 	}
 
-	log.Debugf("Token: %s", token)
-
 	prefix := token[:len(PATPrefix)]
 	if prefix != PATPrefix {
 		return nil, nil, nil, fmt.Errorf("token has wrong prefix")
@@ -1151,10 +1149,8 @@ func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *Use
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	log.Debugf("TokenID: %s", tokenID)
 
 	user, err := am.Store.GetUserByTokenID(tokenID)
-	log.Debugf("User: %v", user)
 	if err != nil {
 		return nil, nil, nil, err
 	}
