@@ -173,17 +173,21 @@ func (conn *Conn) reCreateAgent() error {
 	if err != nil {
 		log.Warnf("failed to create pion's stdnet: %s", err)
 	}
+	hostWait := 500 * time.Millisecond
+	srflxWait := 1000 * time.Millisecond
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:             conn.config.StunTurn,
-		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
-		FailedTimeout:    &failedTimeout,
-		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
-		UDPMux:           conn.config.UDPMux,
-		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
-		NAT1To1IPs:       conn.config.NATExternalIPs,
-		Net:              transportNet,
+		//	Urls:                   conn.config.StunTurn,
+		CandidateTypes:         []ice.CandidateType{ice.CandidateTypeHost},
+		FailedTimeout:          &failedTimeout,
+		InterfaceFilter:        interfaceFilter(conn.config.InterfaceBlackList),
+		UDPMux:                 conn.config.UDPMux,
+		UDPMuxSrflx:            conn.config.UDPMuxSrflx,
+		NAT1To1IPs:             conn.config.NATExternalIPs,
+		Net:                    transportNet,
+		HostAcceptanceMinWait:  &hostWait,
+		SrflxAcceptanceMinWait: &srflxWait,
 	}
 
 	if conn.config.DisableIPv6Discovery {
@@ -423,7 +427,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 }
 
 func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
-
+	return proxy.NewWireguardProxy(conn.config.ProxyConfig)
 	useProxy := shouldUseProxy(pair)
 	localDirectMode := !useProxy
 	remoteDirectMode := localDirectMode

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/pion/stun"
+	"github.com/pion/transport/v2/stdnet"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/conn"
 	"net"
@@ -43,7 +44,11 @@ func (b *ICEBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 		return nil, 0, err
 	}
 	b.sharedConn = ipv4Conn
-	b.udpMux = NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: b.sharedConn})
+	newNet, err := stdnet.NewNet()
+	if err != nil {
+		return nil, 0, err
+	}
+	b.udpMux = NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: b.sharedConn, Net: newNet})
 
 	portAddr1, err := netip.ParseAddrPort(ipv4Conn.LocalAddr().String())
 	if err != nil {
@@ -99,11 +104,7 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn) conn.ReceiveFunc {
 		}
 		if !stun.IsMessage(buff[:20]) {
 			// WireGuard traffic
-			return n, (*conn.StdNetEndpoint)(&net.UDPAddr{
-				IP:   e.Addr().AsSlice(),
-				Port: int(e.Port()),
-				Zone: e.Addr().Zone(),
-			}), nil
+			return n, (conn.StdNetEndpoint)(netip.AddrPortFrom(e.Addr(), e.Port())), nil
 		}
 
 		msg, err := parseSTUNMessage(buff[:n])
@@ -155,20 +156,43 @@ func (b *ICEBind) SetMark(mark uint32) error {
 }
 
 func (b *ICEBind) Send(buff []byte, endpoint conn.Endpoint) error {
-	nend, ok := endpoint.(*conn.StdNetEndpoint)
+
+	nend, ok := endpoint.(conn.StdNetEndpoint)
 	if !ok {
 		return conn.ErrWrongEndpointType
 	}
-	_, err := b.sharedConn.WriteTo(buff, (*net.UDPAddr)(nend))
+	addrPort := netip.AddrPort(nend)
+	_, err := b.sharedConn.WriteTo(buff, &net.UDPAddr{
+		IP:   addrPort.Addr().AsSlice(),
+		Port: int(addrPort.Port()),
+		Zone: addrPort.Addr().Zone(),
+	})
 	return err
 }
 
 // ParseEndpoint creates a new endpoint from a string.
 func (b *ICEBind) ParseEndpoint(s string) (ep conn.Endpoint, err error) {
 	e, err := netip.ParseAddrPort(s)
-	return (*conn.StdNetEndpoint)(&net.UDPAddr{
-		IP:   e.Addr().AsSlice(),
-		Port: int(e.Port()),
-		Zone: e.Addr().Zone(),
-	}), err
+	return asEndpoint(e), err
+}
+
+// endpointPool contains a re-usable set of mapping from netip.AddrPort to Endpoint.
+// This exists to reduce allocations: Putting a netip.AddrPort in an Endpoint allocates,
+// but Endpoints are immutable, so we can re-use them.
+var endpointPool = sync.Pool{
+	New: func() any {
+		return make(map[netip.AddrPort]conn.Endpoint)
+	},
+}
+
+// asEndpoint returns an Endpoint containing ap.
+func asEndpoint(ap netip.AddrPort) conn.Endpoint {
+	m := endpointPool.Get().(map[netip.AddrPort]conn.Endpoint)
+	defer endpointPool.Put(m)
+	e, ok := m[ap]
+	if !ok {
+		e = conn.Endpoint(conn.StdNetEndpoint(ap))
+		m[ap] = e
+	}
+	return e
 }

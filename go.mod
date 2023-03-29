@@ -19,7 +19,7 @@ require (
 	github.com/vishvananda/netlink v1.1.0
 	golang.org/x/crypto v0.7.0
 	golang.org/x/sys v0.6.0
-	golang.zx2c4.com/wireguard v0.0.0-20211209221555-9c9e7e272434
+	golang.zx2c4.com/wireguard v0.0.0-20230223181233-21636207a675
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20211215182854-7a385b3431de
 	golang.zx2c4.com/wireguard/windows v0.5.1
 	google.golang.org/grpc v1.52.3

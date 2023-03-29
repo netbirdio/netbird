@@ -2,7 +2,9 @@ package bind
 
 import (
 	"fmt"
+	"github.com/pion/ice/v2"
 	"github.com/pion/stun"
+	"github.com/pion/transport/v2/stdnet"
 	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
@@ -35,6 +37,8 @@ type UDPMuxDefault struct {
 
 	// for UDP connection listen at unspecified address
 	localAddrsForUnspecified []net.Addr
+
+	used bool
 }
 
 const maxAddrSize = 512
@@ -50,10 +54,137 @@ type UDPMuxParams struct {
 	Net transport.Net
 }
 
+func localInterfaces(n transport.Net, interfaceFilter func(string) bool, ipFilter func(net.IP) bool, networkTypes []ice.NetworkType, includeLoopback bool) ([]net.IP, error) { //nolint:gocognit
+	ips := []net.IP{}
+	ifaces, err := n.Interfaces()
+	if err != nil {
+		return ips, err
+	}
+
+	var IPv4Requested, IPv6Requested bool
+	for _, typ := range networkTypes {
+		if typ.IsIPv4() {
+			IPv4Requested = true
+		}
+
+		if typ.IsIPv6() {
+			IPv6Requested = true
+		}
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if (iface.Flags&net.FlagLoopback != 0) && !includeLoopback {
+			continue // loopback interface
+		}
+
+		if interfaceFilter != nil && !interfaceFilter(iface.Name) {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			var ip net.IP
+			switch addr := addr.(type) {
+			case *net.IPNet:
+				ip = addr.IP
+			case *net.IPAddr:
+				ip = addr.IP
+			}
+			if ip == nil || (ip.IsLoopback() && !includeLoopback) {
+				continue
+			}
+
+			if ipv4 := ip.To4(); ipv4 == nil {
+				if !IPv6Requested {
+					continue
+				} else if !isSupportedIPv6(ip) {
+					continue
+				}
+			} else if !IPv4Requested {
+				continue
+			}
+
+			if ipFilter != nil && !ipFilter(ip) {
+				continue
+			}
+
+			ips = append(ips, ip)
+		}
+	}
+	return ips, nil
+}
+
+// The conditions of invalidation written below are defined in
+// https://tools.ietf.org/html/rfc8445#section-5.1.1.1
+func isSupportedIPv6(ip net.IP) bool {
+	if len(ip) != net.IPv6len ||
+		isZeros(ip[0:12]) || // !(IPv4-compatible IPv6)
+		ip[0] == 0xfe && ip[1]&0xc0 == 0xc0 || // !(IPv6 site-local unicast)
+		ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() {
+		return false
+	}
+	return true
+}
+
+func isZeros(ip net.IP) bool {
+	for i := 0; i < len(ip); i++ {
+		if ip[i] != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // NewUDPMuxDefault creates an implementation of UDPMux
 func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 	if params.Logger == nil {
 		params.Logger = logging.NewDefaultLoggerFactory().NewLogger("ice")
+	}
+
+	var localAddrsForUnspecified []net.Addr
+	if addr, ok := params.UDPConn.LocalAddr().(*net.UDPAddr); !ok {
+		params.Logger.Errorf("LocalAddr is not a net.UDPAddr, got %T", params.UDPConn.LocalAddr())
+	} else if ok && addr.IP.IsUnspecified() {
+		// For unspecified addresses, the correct behavior is to return errListenUnspecified, but
+		// it will break the applications that are already using unspecified UDP connection
+		// with UDPMuxDefault, so print a warn log and create a local address list for mux.
+		params.Logger.Warn("UDPMuxDefault should not listening on unspecified address, use NewMultiUDPMuxFromPort instead")
+		var networks []ice.NetworkType
+		switch {
+		case addr.IP.To4() != nil:
+			networks = []ice.NetworkType{ice.NetworkTypeUDP4}
+
+		case addr.IP.To16() != nil:
+			networks = []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6}
+
+		default:
+			params.Logger.Errorf("LocalAddr expected IPV4 or IPV6, got %T", params.UDPConn.LocalAddr())
+		}
+		if len(networks) > 0 {
+			if params.Net == nil {
+				var err error
+				if params.Net, err = stdnet.NewNet(); err != nil {
+					params.Logger.Errorf("failed to get create network: %v", err)
+				}
+			}
+
+			ips, err := localInterfaces(params.Net, nil, nil, networks, true)
+			if err == nil {
+				for _, ip := range ips {
+					localAddrsForUnspecified = append(localAddrsForUnspecified, &net.UDPAddr{IP: ip, Port: addr.Port})
+				}
+			} else {
+				params.Logger.Errorf("failed to get local interfaces for unspecified addr: %v", err)
+			}
+		}
 	}
 
 	return &UDPMuxDefault{
@@ -68,7 +199,7 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 				return newBufferHolder(receiveMTU + maxAddrSize)
 			},
 		},
-		localAddrsForUnspecified: []net.Addr{},
+		localAddrsForUnspecified: localAddrsForUnspecified,
 	}
 }
 
