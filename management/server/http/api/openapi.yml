@@ -316,7 +316,6 @@ components:
         - expiration_date
         - created_by
         - created_at
-        - last_used
     PersonalAccessTokenGenerated:
       type: object
       properties:
