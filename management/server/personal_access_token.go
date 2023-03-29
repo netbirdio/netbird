@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/sha256"
+	b64 "encoding/base64"
 	"fmt"
 	"hash/crc32"
 	"time"
@@ -74,5 +75,6 @@ func generateNewToken() (string, string, error) {
 	paddedChecksum := fmt.Sprintf("%06s", encodedChecksum)
 	plainToken := PATPrefix + secret + paddedChecksum
 	hashedToken := sha256.Sum256([]byte(plainToken))
-	return string(hashedToken[:]), plainToken, nil
+	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
+	return encodedHashedToken, plainToken, nil
 }

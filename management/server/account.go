@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	b64 "encoding/base64"
 	"fmt"
 	"hash/crc32"
 	"math/rand"
@@ -54,7 +55,7 @@ type AccountManager interface {
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
-	GetAccountFromPAT(pat string) (*Account, *User, error)
+	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
@@ -1120,44 +1121,55 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 }
 
 // GetAccountFromPAT returns Account and User associated with a personal access token
-func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *User, error) {
+func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *User, *PersonalAccessToken, error) {
 	if len(token) != PATLength {
-		return nil, nil, fmt.Errorf("token has wrong length")
+		return nil, nil, nil, fmt.Errorf("token has wrong length")
 	}
+
+	log.Debugf("Token: %s", token)
 
 	prefix := token[:len(PATPrefix)]
 	if prefix != PATPrefix {
-		return nil, nil, fmt.Errorf("token has wrong prefix")
+		return nil, nil, nil, fmt.Errorf("token has wrong prefix")
 	}
 	secret := token[len(PATPrefix) : len(PATPrefix)+PATSecretLength]
 	encodedChecksum := token[len(PATPrefix)+PATSecretLength : len(PATPrefix)+PATSecretLength+PATChecksumLength]
 
 	verificationChecksum, err := base62.Decode(encodedChecksum)
 	if err != nil {
-		return nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
+		return nil, nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
 	}
 
 	secretChecksum := crc32.ChecksumIEEE([]byte(secret))
 	if secretChecksum != verificationChecksum {
-		return nil, nil, fmt.Errorf("token checksum does not match")
+		return nil, nil, nil, fmt.Errorf("token checksum does not match")
 	}
 
 	hashedToken := sha256.Sum256([]byte(token))
-	tokenID, err := am.Store.GetTokenIDByHashedToken(string(hashedToken[:]))
+	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
+	tokenID, err := am.Store.GetTokenIDByHashedToken(encodedHashedToken)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
+	log.Debugf("TokenID: %s", tokenID)
 
 	user, err := am.Store.GetUserByTokenID(tokenID)
+	log.Debugf("User: %v", user)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	account, err := am.Store.GetAccountByUser(user.Id)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return account, user, nil
+
+	pat := user.PATs[tokenID]
+	if pat == nil {
+		return nil, nil, nil, fmt.Errorf("personal access token not found")
+	}
+
+	return account, user, pat, nil
 }
 
 // GetAccountFromToken returns an account associated with this token

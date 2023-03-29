@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/sha256"
+	b64 "encoding/base64"
 	"fmt"
 	"net"
 	"reflect"
@@ -465,12 +466,13 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
 	hashedToken := sha256.Sum256([]byte(token))
+	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
 	account.Users["someUser"] = &User{
 		Id: "someUser",
 		PATs: map[string]*PersonalAccessToken{
-			"pat1": {
+			"tokenId": {
 				ID:          "tokenId",
-				HashedToken: string(hashedToken[:]),
+				HashedToken: encodedHashedToken,
 			},
 		},
 	}
@@ -483,13 +485,14 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		Store: store,
 	}
 
-	account, user, err := am.GetAccountFromPAT(token)
+	account, user, pat, err := am.GetAccountFromPAT(token)
 	if err != nil {
 		t.Fatalf("Error when getting Account from PAT: %s", err)
 	}
 
 	assert.Equal(t, "account_id", account.Id)
 	assert.Equal(t, "someUser", user.Id)
+	assert.Equal(t, account.Users["someUser"].PATs["tokenId"], pat)
 }
 
 func TestAccountManager_PrivateAccount(t *testing.T) {

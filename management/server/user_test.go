@@ -37,7 +37,7 @@ func TestUser_AddPATToUser(t *testing.T) {
 	}
 
 	fileStore := am.Store.(*FileStore)
-	tokenID := fileStore.HashedPAT2TokenID[mockToken[:]]
+	tokenID := fileStore.HashedPAT2TokenID[mockToken]
 
 	if tokenID == "" {
 		t.Fatal("GetTokenIDByHashedToken failed after adding PAT")
