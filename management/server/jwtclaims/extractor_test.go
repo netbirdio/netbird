@@ -12,21 +12,21 @@ import (
 func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audiance string) *http.Request {
 	claimMaps := jwt.MapClaims{}
 	if claims.UserId != "" {
-		claimMaps[UserIDClaim] = claims.UserId
+		claimMaps[string(UserIDClaim)] = claims.UserId
 	}
 	if claims.AccountId != "" {
-		claimMaps[audiance+AccountIDSuffix] = claims.AccountId
+		claimMaps[audiance+string(AccountIDSuffix)] = claims.AccountId
 	}
 	if claims.Domain != "" {
-		claimMaps[audiance+DomainIDSuffix] = claims.Domain
+		claimMaps[audiance+string(DomainIDSuffix)] = claims.Domain
 	}
 	if claims.DomainCategory != "" {
-		claimMaps[audiance+DomainCategorySuffix] = claims.DomainCategory
+		claimMaps[audiance+string(DomainCategorySuffix)] = claims.DomainCategory
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	r, err := http.NewRequest(http.MethodGet, "http://localhost", nil)
 	require.NoError(t, err, "creating testing request failed")
-	testRequest := r.WithContext(context.WithValue(r.Context(), TokenUserProperty, token)) //nolint
+	testRequest := r.WithContext(context.WithValue(r.Context(), TokenUserProperty, token)) // nolint
 
 	return testRequest
 }
@@ -124,7 +124,7 @@ func TestExtractClaimsSetOptions(t *testing.T) {
 				t.Error("audience should be empty")
 				return
 			}
-			if c.extractor.userIDClaim != UserIDClaim {
+			if c.extractor.userIDClaim != string(UserIDClaim) {
 				t.Errorf("user id claim should be default, expected %s, got %s", UserIDClaim, c.extractor.userIDClaim)
 				return
 			}
