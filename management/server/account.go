@@ -1128,7 +1128,6 @@ func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
 	defer unlock()
 
 	user, err := am.Store.GetUserByTokenID(tokenID)
-	log.Debugf("User: %v", user)
 	if err != nil {
 		return err
 	}
@@ -1145,9 +1144,7 @@ func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
 
 	pat.LastUsed = time.Now()
 
-	am.Store.SaveAccount(account)
-
-	return nil
+	return am.Store.SaveAccount(account)
 }
 
 // GetAccountFromPAT returns Account and User associated with a personal access token
