@@ -46,10 +46,10 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		return nil, err
 	}
 
-	var jwtMiddleware *middleware.JWTMiddleware
+	var jwtValidator *jwtclaims.JWTValidator
 
 	if config.HttpConfig != nil && config.HttpConfig.AuthIssuer != "" && config.HttpConfig.AuthAudience != "" && validateURL(config.HttpConfig.AuthKeysLocation) {
-		jwtMiddleware, err = middleware.NewJwtMiddleware(
+		jwtValidator, err = jwtclaims.NewJWTValidator(
 			config.HttpConfig.AuthIssuer,
 			config.HttpConfig.AuthAudience,
 			config.HttpConfig.AuthKeysLocation)
@@ -87,7 +87,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		accountManager:         accountManager,
 		config:                 config,
 		turnCredentialsManager: turnCredentialsManager,
-		jwtMiddleware:          jwtMiddleware,
+		jwtValidator:           jwtValidator,
 		jwtClaimsExtractor:     jwtClaimsExtractor,
 		appMetrics:             appMetrics,
 	}, nil
@@ -188,11 +188,11 @@ func (s *GRPCServer) cancelPeerRoutines(peer *Peer) {
 }
 
 func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
-	if s.jwtMiddleware == nil {
-		return "", status.Error(codes.Internal, "no jwt middleware set")
+	if s.jwtValidator == nil {
+		return "", status.Error(codes.Internal, "no jwt validator set")
 	}
 
-	token, err := s.jwtMiddleware.ValidateAndParse(jwtToken)
+	token, err := s.jwtValidator.ValidateAndParse(jwtToken)
 	if err != nil {
 		return "", status.Errorf(codes.InvalidArgument, "invalid jwt token, err: %v", err)
 	}
