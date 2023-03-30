@@ -225,7 +225,7 @@ func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(w, "")
+	util.WriteJSONObject(w, emptyObject{})
 }
 
 // GetPolicy handles a group Get request identified by ID

@@ -66,7 +66,7 @@ func (h *PeersHandler) deletePeer(accountID, userID string, peerID string, w htt
 		util.WriteError(err, w)
 		return
 	}
-	util.WriteJSONObject(w, "")
+	util.WriteJSONObject(w, emptyObject{})
 }
 
 // HandlePeer handles all peer requests for GET, PUT and DELETE operations
