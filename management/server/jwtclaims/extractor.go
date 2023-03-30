@@ -9,11 +9,16 @@ import (
 type key string
 
 const (
-	TokenUserProperty    key = "user"
-	AccountIDSuffix      key = "wt_account_id"
-	DomainIDSuffix       key = "wt_account_domain"
+	// TokenUserProperty key for the user property in the request context
+	TokenUserProperty key = "user"
+	// AccountIDSuffix suffix for the account id claim
+	AccountIDSuffix key = "wt_account_id"
+	// DomainIDSuffix suffix for the domain id claim
+	DomainIDSuffix key = "wt_account_domain"
+	// DomainCategorySuffix suffix for the domain category claim
 	DomainCategorySuffix key = "wt_account_domain_category"
-	UserIDClaim          key = "sub"
+	// UserIDClaim claim for the user id
+	UserIDClaim key = "sub"
 )
 
 // Extract function type
