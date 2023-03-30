@@ -208,7 +208,7 @@ var (
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}
 
-			ka := grpcKeepAlive.NewKeepAlive(&mgmtProto.Empty{})
+			ka := grpcKeepAlive.NewKeepAlive(&mgmtProto.KeepAlive{})
 			defer ka.Stop()
 			sInterc := grpc.StreamInterceptor(ka.StreamInterceptor())
 			uInterc := grpc.UnaryInterceptor(ka.UnaryInterceptor())
