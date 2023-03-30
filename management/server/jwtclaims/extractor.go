@@ -19,7 +19,7 @@ const (
 	UserIDClaim = "sub"
 )
 
-// Extract function type
+// ExtractClaims Extract function type
 type ExtractClaims func(r *http.Request) AuthorizationClaims
 
 // ClaimsExtractor struct that holds the extract function
@@ -65,7 +65,7 @@ func NewClaimsExtractor(options ...ClaimsExtractorOption) *ClaimsExtractor {
 		ce.FromRequestContext = ce.fromRequestContext
 	}
 	if ce.userIDClaim == "" {
-		ce.userIDClaim = string(UserIDClaim)
+		ce.userIDClaim = UserIDClaim
 	}
 	return ce
 }
