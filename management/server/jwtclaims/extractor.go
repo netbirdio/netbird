@@ -6,19 +6,17 @@ import (
 	"github.com/golang-jwt/jwt"
 )
 
-type key string
-
 const (
 	// TokenUserProperty key for the user property in the request context
-	TokenUserProperty key = "user"
+	TokenUserProperty = "user"
 	// AccountIDSuffix suffix for the account id claim
-	AccountIDSuffix key = "wt_account_id"
+	AccountIDSuffix = "wt_account_id"
 	// DomainIDSuffix suffix for the domain id claim
-	DomainIDSuffix key = "wt_account_domain"
+	DomainIDSuffix = "wt_account_domain"
 	// DomainCategorySuffix suffix for the domain category claim
-	DomainCategorySuffix key = "wt_account_domain_category"
+	DomainCategorySuffix = "wt_account_domain_category"
 	// UserIDClaim claim for the user id
-	UserIDClaim key = "sub"
+	UserIDClaim = "sub"
 )
 
 // Extract function type
@@ -81,15 +79,15 @@ func (c *ClaimsExtractor) FromToken(token *jwt.Token) AuthorizationClaims {
 		return jwtClaims
 	}
 	jwtClaims.UserId = userID
-	accountIDClaim, ok := claims[c.authAudience+string(AccountIDSuffix)]
+	accountIDClaim, ok := claims[c.authAudience+AccountIDSuffix]
 	if ok {
 		jwtClaims.AccountId = accountIDClaim.(string)
 	}
-	domainClaim, ok := claims[c.authAudience+string(DomainIDSuffix)]
+	domainClaim, ok := claims[c.authAudience+DomainIDSuffix]
 	if ok {
 		jwtClaims.Domain = domainClaim.(string)
 	}
-	domainCategoryClaim, ok := claims[c.authAudience+string(DomainCategorySuffix)]
+	domainCategoryClaim, ok := claims[c.authAudience+DomainCategorySuffix]
 	if ok {
 		jwtClaims.DomainCategory = domainCategoryClaim.(string)
 	}
