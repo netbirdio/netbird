@@ -173,21 +173,17 @@ func (conn *Conn) reCreateAgent() error {
 	if err != nil {
 		log.Warnf("failed to create pion's stdnet: %s", err)
 	}
-	hostWait := 500 * time.Millisecond
-	srflxWait := 1000 * time.Millisecond
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		//	Urls:                   conn.config.StunTurn,
-		CandidateTypes:         []ice.CandidateType{ice.CandidateTypeHost},
-		FailedTimeout:          &failedTimeout,
-		InterfaceFilter:        interfaceFilter(conn.config.InterfaceBlackList),
-		UDPMux:                 conn.config.UDPMux,
-		UDPMuxSrflx:            conn.config.UDPMuxSrflx,
-		NAT1To1IPs:             conn.config.NATExternalIPs,
-		Net:                    transportNet,
-		HostAcceptanceMinWait:  &hostWait,
-		SrflxAcceptanceMinWait: &srflxWait,
+		Urls:             conn.config.StunTurn,
+		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive},
+		FailedTimeout:    &failedTimeout,
+		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
+		UDPMux:           conn.config.UDPMux,
+		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
+		NAT1To1IPs:       conn.config.NATExternalIPs,
+		Net:              transportNet,
 	}
 
 	if conn.config.DisableIPv6Discovery {

@@ -51,7 +51,8 @@ type UDPMuxParams struct {
 	// Required for gathering local addresses
 	// in case a un UDPConn is passed which does not
 	// bind to a specific local address.
-	Net transport.Net
+	Net             transport.Net
+	InterfaceFilter func(interfaceName string) bool
 }
 
 func localInterfaces(n transport.Net, interfaceFilter func(string) bool, ipFilter func(net.IP) bool, networkTypes []ice.NetworkType, includeLoopback bool) ([]net.IP, error) { //nolint:gocognit
@@ -176,7 +177,7 @@ func NewUDPMuxDefault(params UDPMuxParams) *UDPMuxDefault {
 				}
 			}
 
-			ips, err := localInterfaces(params.Net, nil, nil, networks, true)
+			ips, err := localInterfaces(params.Net, params.InterfaceFilter, nil, networks, true)
 			if err == nil {
 				for _, ip := range ips {
 					localAddrsForUnspecified = append(localAddrsForUnspecified, &net.UDPAddr{IP: ip, Port: addr.Port})
@@ -210,6 +211,7 @@ func (m *UDPMuxDefault) LocalAddr() net.Addr {
 
 // GetListenAddresses returns the list of addresses that this mux is listening on
 func (m *UDPMuxDefault) GetListenAddresses() []net.Addr {
+	log.Infof("---------------------------------")
 	if len(m.localAddrsForUnspecified) > 0 {
 		return m.localAddrsForUnspecified
 	}

@@ -799,7 +799,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		InterfaceBlackList:   e.config.IFaceBlackList,
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 		Timeout:              timeout,
-		UDPMux:               e.udpMux,
+		UDPMux:               e.udpMux.UDPMuxDefault,
 		UDPMuxSrflx:          e.udpMux,
 		ProxyConfig:          proxyConfig,
 		LocalWgPort:          e.config.WgPort,

@@ -70,6 +70,11 @@ type udpConn struct {
 	logger logging.LeveledLogger
 }
 
+func (m *UniversalUDPMuxDefault) GetListenAddresses() []net.Addr {
+	log.Infof("================================")
+	return []net.Addr{m.LocalAddr()}
+}
+
 // GetRelayedAddr creates relayed connection to the given TURN service and returns the relayed addr.
 // Not implemented yet.
 func (m *UniversalUDPMuxDefault) GetRelayedAddr(turnAddr net.Addr, deadline time.Duration) (*net.Addr, error) {
