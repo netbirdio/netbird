@@ -47,7 +47,7 @@ type MockAccountManager struct {
 	DeletePolicyFunc                func(accountID, policyID, userID string) error
 	ListPoliciesFunc                func(accountID, userID string) ([]*server.Policy, error)
 	GetUsersFromAccountFunc         func(accountID, userID string) ([]*server.UserInfo, error)
-	GetAccountFromPATFunc           func(pat string) (*server.Account, *server.User, error)
+	GetAccountFromPATFunc           func(pat string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
 	UpdatePeerMetaFunc              func(peerID string, meta server.PeerSystemMeta) error
 	UpdatePeerSSHKeyFunc            func(peerID string, sshKey string) error
 	UpdatePeerFunc                  func(accountID, userID string, peer *server.Peer) (*server.Peer, error)
@@ -60,8 +60,10 @@ type MockAccountManager struct {
 	SaveSetupKeyFunc                func(accountID string, key *server.SetupKey, userID string) (*server.SetupKey, error)
 	ListSetupKeysFunc               func(accountID, userID string) ([]*server.SetupKey, error)
 	SaveUserFunc                    func(accountID, userID string, user *server.User) (*server.UserInfo, error)
-	AddPATToUserFunc                func(accountID string, userID string, pat *server.PersonalAccessToken) error
-	DeletePATFunc                   func(accountID string, userID string, tokenID string) error
+	CreatePATFunc                   func(accountID string, executingUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
+	DeletePATFunc                   func(accountID string, executingUserID string, targetUserId string, tokenID string) error
+	GetPATFunc                      func(accountID string, executingUserID string, targetUserId string, tokenID string) (*server.PersonalAccessToken, error)
+	GetAllPATsFunc                  func(accountID string, executingUserID string, targetUserId string) ([]*server.PersonalAccessToken, error)
 	GetNameServerGroupFunc          func(accountID, nsGroupID string) (*nbdns.NameServerGroup, error)
 	CreateNameServerGroupFunc       func(accountID string, name, description string, nameServerList []nbdns.NameServer, groups []string, primary bool, domains []string, enabled bool, userID string) (*nbdns.NameServerGroup, error)
 	SaveNameServerGroupFunc         func(accountID, userID string, nsGroupToSave *nbdns.NameServerGroup) error
@@ -179,27 +181,43 @@ func (am *MockAccountManager) GetPeerByIP(accountId string, peerIP string) (*ser
 }
 
 // GetAccountFromPAT mock implementation of GetAccountFromPAT from server.AccountManager interface
-func (am *MockAccountManager) GetAccountFromPAT(pat string) (*server.Account, *server.User, error) {
+func (am *MockAccountManager) GetAccountFromPAT(pat string) (*server.Account, *server.User, *server.PersonalAccessToken, error) {
 	if am.GetAccountFromPATFunc != nil {
 		return am.GetAccountFromPATFunc(pat)
 	}
-	return nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromPAT is not implemented")
+	return nil, nil, nil, status.Errorf(codes.Unimplemented, "method GetAccountFromPAT is not implemented")
 }
 
-// AddPATToUser mock implementation of AddPATToUser from server.AccountManager interface
-func (am *MockAccountManager) AddPATToUser(accountID string, userID string, pat *server.PersonalAccessToken) error {
-	if am.AddPATToUserFunc != nil {
-		return am.AddPATToUserFunc(accountID, userID, pat)
+// CreatePAT mock implementation of GetPAT from server.AccountManager interface
+func (am *MockAccountManager) CreatePAT(accountID string, executingUserID string, targetUserID string, name string, expiresIn int) (*server.PersonalAccessTokenGenerated, error) {
+	if am.CreatePATFunc != nil {
+		return am.CreatePATFunc(accountID, executingUserID, targetUserID, name, expiresIn)
 	}
-	return status.Errorf(codes.Unimplemented, "method AddPATToUser is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method CreatePAT is not implemented")
 }
 
 // DeletePAT mock implementation of DeletePAT from server.AccountManager interface
-func (am *MockAccountManager) DeletePAT(accountID string, userID string, tokenID string) error {
+func (am *MockAccountManager) DeletePAT(accountID string, executingUserID string, targetUserID string, tokenID string) error {
 	if am.DeletePATFunc != nil {
-		return am.DeletePATFunc(accountID, userID, tokenID)
+		return am.DeletePATFunc(accountID, executingUserID, targetUserID, tokenID)
 	}
 	return status.Errorf(codes.Unimplemented, "method DeletePAT is not implemented")
+}
+
+// GetPAT mock implementation of GetPAT from server.AccountManager interface
+func (am *MockAccountManager) GetPAT(accountID string, executingUserID string, targetUserID string, tokenID string) (*server.PersonalAccessToken, error) {
+	if am.GetPATFunc != nil {
+		return am.GetPATFunc(accountID, executingUserID, targetUserID, tokenID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPAT is not implemented")
+}
+
+// GetAllPATs mock implementation of GetAllPATs from server.AccountManager interface
+func (am *MockAccountManager) GetAllPATs(accountID string, executingUserID string, targetUserID string) ([]*server.PersonalAccessToken, error) {
+	if am.GetAllPATsFunc != nil {
+		return am.GetAllPATsFunc(accountID, executingUserID, targetUserID)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetAllPATs is not implemented")
 }
 
 // GetNetworkMap mock implementation of GetNetworkMap from server.AccountManager interface

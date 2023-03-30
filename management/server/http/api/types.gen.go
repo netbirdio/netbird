@@ -379,6 +379,44 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
+// PersonalAccessToken defines model for PersonalAccessToken.
+type PersonalAccessToken struct {
+	// CreatedAt Date the token was created
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy User ID of the user who created the token
+	CreatedBy string `json:"created_by"`
+
+	// ExpirationDate Date the token expires
+	ExpirationDate time.Time `json:"expiration_date"`
+
+	// Id ID of a token
+	Id string `json:"id"`
+
+	// LastUsed Date the token was last used
+	LastUsed *time.Time `json:"last_used,omitempty"`
+
+	// Name Name of the token
+	Name string `json:"name"`
+}
+
+// PersonalAccessTokenGenerated defines model for PersonalAccessTokenGenerated.
+type PersonalAccessTokenGenerated struct {
+	PersonalAccessToken PersonalAccessToken `json:"personal_access_token"`
+
+	// PlainToken Plain text representation of the generated token
+	PlainToken string `json:"plain_token"`
+}
+
+// PersonalAccessTokenRequest defines model for PersonalAccessTokenRequest.
+type PersonalAccessTokenRequest struct {
+	// ExpiresIn Expiration in days
+	ExpiresIn int `json:"expires_in"`
+
+	// Name Name of the token
+	Name string `json:"name"`
+}
+
 // Policy defines model for Policy.
 type Policy struct {
 	// Description Policy friendly description
@@ -808,3 +846,6 @@ type PostApiUsersJSONRequestBody = UserCreateRequest
 
 // PutApiUsersIdJSONRequestBody defines body for PutApiUsersId for application/json ContentType.
 type PutApiUsersIdJSONRequestBody = UserRequest
+
+// PostApiUsersUserIdTokensJSONRequestBody defines body for PostApiUsersUserIdTokens for application/json ContentType.
+type PostApiUsersUserIdTokensJSONRequestBody = PersonalAccessTokenRequest

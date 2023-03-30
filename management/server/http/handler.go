@@ -25,6 +25,9 @@ type apiHandler struct {
 	AuthCfg        AuthCfg
 }
 
+type emptyObject struct {
+}
+
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
 func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
 	jwtMiddleware, err := middleware.NewJwtMiddleware(
@@ -57,6 +60,7 @@ func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics
 	api.addAccountsEndpoint()
 	api.addPeersEndpoint()
 	api.addUsersEndpoint()
+	api.addUsersTokensEndpoint()
 	api.addSetupKeysEndpoint()
 	api.addRulesEndpoint()
 	api.addPoliciesEndpoint()
@@ -108,6 +112,14 @@ func (apiHandler *apiHandler) addUsersEndpoint() {
 	apiHandler.Router.HandleFunc("/users", userHandler.GetAllUsers).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/users/{id}", userHandler.UpdateUser).Methods("PUT", "OPTIONS")
 	apiHandler.Router.HandleFunc("/users", userHandler.CreateUser).Methods("POST", "OPTIONS")
+}
+
+func (apiHandler *apiHandler) addUsersTokensEndpoint() {
+	tokenHandler := NewPATsHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
+	apiHandler.Router.HandleFunc("/users/{userId}/tokens", tokenHandler.GetAllTokens).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/users/{userId}/tokens", tokenHandler.CreateToken).Methods("POST", "OPTIONS")
+	apiHandler.Router.HandleFunc("/users/{userId}/tokens/{tokenId}", tokenHandler.GetToken).Methods("GET", "OPTIONS")
+	apiHandler.Router.HandleFunc("/users/{userId}/tokens/{tokenId}", tokenHandler.DeleteToken).Methods("DELETE", "OPTIONS")
 }
 
 func (apiHandler *apiHandler) addSetupKeysEndpoint() {
