@@ -58,10 +58,12 @@ type JSONWebKey struct {
 	X5c []string `json:"x5c"`
 }
 
+// JWTValidator struct to handle token validation and parsing
 type JWTValidator struct {
 	options Options
 }
 
+// NewJWTValidator constructor
 func NewJWTValidator(issuer string, audience string, keysLocation string) (*JWTValidator, error) {
 	keys, err := getPemKeys(keysLocation)
 	if err != nil {
@@ -102,6 +104,7 @@ func NewJWTValidator(issuer string, audience string, keysLocation string) (*JWTV
 	}, nil
 }
 
+// ValidateAndParse validates the token and returns the parsed token
 func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 	// If the token is empty...
 	if token == "" {

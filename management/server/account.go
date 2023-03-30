@@ -1123,6 +1123,7 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	return nil
 }
 
+// MarkPATUsed marks a personal access token as used
 func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
 	unlock := am.Store.AcquireGlobalLock()
 	defer unlock()

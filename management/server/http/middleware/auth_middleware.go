@@ -17,8 +17,13 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
+// GetAccountFromPATFunc function
 type GetAccountFromPATFunc func(token string) (*server.Account, *server.User, *server.PersonalAccessToken, error)
+
+// ValidateAndParseTokenFunc function
 type ValidateAndParseTokenFunc func(token string) (*jwt.Token, error)
+
+// MarkPATUsedFunc function
 type MarkPATUsedFunc func(token string) error
 
 // AuthMiddleware middleware to verify personal access tokens (PAT) and JWT tokens
@@ -29,8 +34,10 @@ type AuthMiddleware struct {
 	audience              string
 }
 
+type key string
+
 const (
-	userProperty = "user"
+	userProperty key = "user"
 )
 
 // NewAuthMiddleware instance constructor
@@ -44,13 +51,13 @@ func NewAuthMiddleware(getAccountFromPAT GetAccountFromPATFunc, validateAndParse
 }
 
 // Handler method of the middleware which authenticates a user either by JWT claims or by PAT
-func (a *AuthMiddleware) Handler(h http.Handler) http.Handler {
+func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := strings.Split(r.Header.Get("Authorization"), " ")
 		authType := auth[0]
 		switch strings.ToLower(authType) {
 		case "bearer":
-			err := a.CheckJWTFromRequest(w, r)
+			err := m.CheckJWTFromRequest(w, r)
 			if err != nil {
 				log.Debugf("Error when validating JWT claims: %s", err.Error())
 				util.WriteError(status.Errorf(status.Unauthorized, "Token invalid"), w)
@@ -58,7 +65,7 @@ func (a *AuthMiddleware) Handler(h http.Handler) http.Handler {
 			}
 			h.ServeHTTP(w, r)
 		case "token":
-			err := a.CheckPATFromRequest(w, r)
+			err := m.CheckPATFromRequest(w, r)
 			if err != nil {
 				log.Debugf("Error when validating PAT claims: %s", err.Error())
 				util.WriteError(status.Errorf(status.Unauthorized, "Token invalid"), w)
@@ -93,7 +100,7 @@ func (m *AuthMiddleware) CheckJWTFromRequest(w http.ResponseWriter, r *http.Requ
 
 	// If we get here, everything worked and we can set the
 	// user property in context.
-	newRequest := r.WithContext(context.WithValue(r.Context(), userProperty, validatedToken)) // nolint
+	newRequest := r.WithContext(context.WithValue(r.Context(), string(userProperty), validatedToken)) // nolint
 	// Update the current request with the new context information.
 	*r = *newRequest
 	return nil
