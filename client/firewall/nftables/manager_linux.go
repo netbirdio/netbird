@@ -1,12 +1,16 @@
 package nftables
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
+	"net/netip"
 	"sync"
 
 	"github.com/google/nftables"
+	"github.com/google/nftables/expr"
 	"github.com/google/uuid"
+	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
 )
@@ -65,10 +69,85 @@ func (m *Manager) AddFiltering(
 		return nil, err
 	}
 
+	expressions := []expr.Any{
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       uint32(9),
+			Len:          uint32(1),
+		},
+	}
+
+	var protoData []byte
+	switch proto {
+	case fw.ProtocolTCP:
+		protoData = []byte{unix.IPPROTO_TCP}
+	case fw.ProtocolUDP:
+		protoData = []byte{unix.IPPROTO_UDP}
+	case fw.ProtocolICMP:
+		protoData = []byte{unix.IPPROTO_ICMP}
+	default:
+		return nil, fmt.Errorf("unsupported protocol: %s", proto)
+	}
+	expressions = append(expressions, &expr.Cmp{
+		Register: 1,
+		Op:       expr.CmpOpEq,
+		Data:     protoData,
+	})
+
+	var adrLen, adrOffset uint32
+	if ip.To4() == nil {
+		adrLen = 16
+		adrOffset = 24
+	} else {
+		adrLen = 4
+		adrOffset = 16
+	}
+
+	if direction == fw.DirectionDst {
+		adrOffset += adrLen
+	}
+
+	ipToAdd, _ := netip.AddrFromSlice(ip)
+	add := ipToAdd.Unmap()
+
+	expressions = append(expressions,
+		&expr.Payload{
+			DestRegister: 1,
+			Base:         expr.PayloadBaseNetworkHeader,
+			Offset:       adrOffset,
+			Len:          adrLen,
+		},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     add.AsSlice(),
+		},
+	)
+
+	if port != nil {
+		expressions = append(expressions,
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseTransportHeader,
+				Offset:       0,
+				Len:          2,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     encodePort(*port),
+			},
+		)
+	}
+
+	// Add the rule to the chain
 	rule := &Rule{
 		Rule: m.conn.AddRule(&nftables.Rule{
-			Table: table,
-			Chain: chain,
+			Table:    table,
+			Chain:    chain,
+			Exprs:    expressions,
+			UserData: []byte(comment),
 		}),
 		id: uuid.New().String(),
 	}
@@ -229,4 +308,10 @@ func (m *Manager) Reset() error {
 	}
 
 	return nil
+}
+
+func encodePort(port fw.Port) []byte {
+	bs := make([]byte, 2)
+	binary.BigEndian.PutUint16(bs, uint16(port.Values[0]))
+	return bs
 }
