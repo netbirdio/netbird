@@ -888,7 +888,6 @@ func (e *Engine) receiveSignalEvents() {
 		err := e.signal.Receive(func(msg *sProto.Message) error {
 			e.syncMsgMux.Lock()
 			defer e.syncMsgMux.Unlock()
-
 			conn := e.peerConns[msg.Key]
 			if conn == nil {
 				return fmt.Errorf("wrongly addressed message %s", msg.Key)

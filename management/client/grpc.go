@@ -24,6 +24,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
+	appKeepAlive "github.com/netbirdio/netbird/keepalive"
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/version"
 )
@@ -69,7 +70,7 @@ func NewClient(ctx context.Context, addr string, ourPrivateKey wgtypes.Key, tlsE
 
 	realClient := proto.NewManagementServiceClient(conn)
 
-	md := metadata.Pairs("version", version.NetbirdVersion())
+	md := metadata.Pairs(appKeepAlive.GrpcVersionHeaderKey, version.NetbirdVersion())
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
 	return &GrpcClient{
@@ -252,7 +253,7 @@ func (c *GrpcClient) receiveEvents(stream proto.ManagementService_SyncClient, se
 			return err
 		}
 
-		if c.isKeepAliveMsg(update.Body) {
+		if appKeepAlive.IsKeepAliveMsg(update.Body) {
 			continue
 		}
 
@@ -394,10 +395,6 @@ func (c *GrpcClient) notifyConnected() {
 		return
 	}
 	c.connStateCallback.MarkManagementConnected()
-}
-
-func (c *GrpcClient) isKeepAliveMsg(body []byte) bool {
-	return len(body) == 0
 }
 
 func infoToMetaData(info *system.Info) *proto.PeerSystemMeta {

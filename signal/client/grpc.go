@@ -21,7 +21,9 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/encryption"
+	appKeepAlive "github.com/netbirdio/netbird/keepalive"
 	"github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/version"
 )
 
 const defaultSendTimeout = 5 * time.Second
@@ -73,6 +75,7 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 
 	sigCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+
 	conn, err := grpc.DialContext(
 		sigCtx,
 		addr,
@@ -211,9 +214,12 @@ func (c *GrpcClient) getStreamStatusChan() <-chan struct{} {
 func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExchange_ConnectStreamClient, error) {
 	c.stream = nil
 
-	// add key fingerprint to the request header to be identified on the server side
-	md := metadata.New(map[string]string{proto.HeaderId: key})
+	md := metadata.New(map[string]string{
+		proto.HeaderId:                    key,                      // add key fingerprint to the request header to be identified on the server side
+		appKeepAlive.GrpcVersionHeaderKey: version.NetbirdVersion(), // add version info to ensure keep alive is supported
+	})
 	metaCtx := metadata.NewOutgoingContext(ctx, md)
+
 	stream, err := c.realClient.ConnectStream(metaCtx, grpc.WaitForReady(true))
 	c.stream = stream
 	if err != nil {
@@ -366,6 +372,12 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 		} else if err != nil {
 			return err
 		}
+
+		if appKeepAlive.IsKeepAliveMsg(msg.Body) {
+			log.Printf("received keepalive")
+			continue
+		}
+
 		log.Tracef("received a new message from Peer [fingerprint: %s]", msg.Key)
 
 		decryptedMessage, err := c.decryptMessage(msg)

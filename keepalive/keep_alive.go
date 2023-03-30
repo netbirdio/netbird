@@ -11,8 +11,9 @@ import (
 )
 
 const (
+	GrpcVersionHeaderKey = "version"
+
 	reversProxyHeaderKey = "x-netbird-peer"
-	grpcVersionHeaderKey = "version"
 	keepAliveInterval    = 30 * time.Second
 )
 
@@ -112,7 +113,7 @@ func (k *KeepAlive) keepAliveIsSupported(ctx context.Context) (string, bool) {
 		return "", false
 	}
 
-	if len(md.Get(grpcVersionHeaderKey)) == 0 {
+	if len(md.Get(GrpcVersionHeaderKey)) == 0 {
 		log.Debugf("version info not found")
 		return "", false
 	}
