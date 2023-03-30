@@ -56,6 +56,7 @@ type AccountManager interface {
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
+	MarkPATUsed(tokenID string) error
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
@@ -1116,6 +1117,33 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 			am.storeEvent(userID, userID, account.Id, activity.UserJoined, nil)
 		}()
 	}
+
+	return nil
+}
+
+func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
+	unlock := am.Store.AcquireGlobalLock()
+	defer unlock()
+
+	user, err := am.Store.GetUserByTokenID(tokenID)
+	log.Debugf("User: %v", user)
+	if err != nil {
+		return err
+	}
+
+	account, err := am.Store.GetAccountByUser(user.Id)
+	if err != nil {
+		return err
+	}
+
+	pat, ok := account.Users[user.Id].PATs[tokenID]
+	if !ok {
+		return fmt.Errorf("token not found")
+	}
+
+	pat.LastUsed = time.Now()
+
+	am.Store.SaveAccount(account)
 
 	return nil
 }
