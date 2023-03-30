@@ -8,6 +8,7 @@ import (
 
 	s "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/middleware"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
@@ -25,18 +26,17 @@ type apiHandler struct {
 	AuthCfg        AuthCfg
 }
 
+// EmptyObject is an empty struct used to return empty JSON object
 type emptyObject struct {
 }
 
 // APIHandler creates the Management service HTTP API handler registering all the available endpoints.
-func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
-	jwtMiddleware, err := middleware.NewJwtMiddleware(
-		authCfg.Issuer,
-		authCfg.Audience,
-		authCfg.KeysLocation)
-	if err != nil {
-		return nil, err
-	}
+func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValidator, appMetrics telemetry.AppMetrics, authCfg AuthCfg) (http.Handler, error) {
+	authMiddleware := middleware.NewAuthMiddleware(
+		accountManager.GetAccountFromPAT,
+		jwtValidator.ValidateAndParse,
+		accountManager.MarkPATUsed,
+		authCfg.Audience)
 
 	corsMiddleware := cors.AllowAll()
 
@@ -49,7 +49,7 @@ func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics
 	metricsMiddleware := appMetrics.HTTPMiddleware()
 
 	router := rootRouter.PathPrefix("/api").Subrouter()
-	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, jwtMiddleware.Handler, acMiddleware.Handler)
+	router.Use(metricsMiddleware.Handler, corsMiddleware.Handler, authMiddleware.Handler, acMiddleware.Handler)
 
 	api := apiHandler{
 		Router:         router,
@@ -70,7 +70,7 @@ func APIHandler(accountManager s.AccountManager, appMetrics telemetry.AppMetrics
 	api.addDNSSettingEndpoint()
 	api.addEventsEndpoint()
 
-	err = api.Router.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
+	err := api.Router.Walk(func(route *mux.Route, _ *mux.Router, _ []*mux.Route) error {
 		methods, err := route.GetMethods()
 		if err != nil {
 			return err

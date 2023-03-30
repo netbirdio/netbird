@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 	"net/http"
 	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 // WriteJSONObject simply writes object to the HTTP reponse in JSON format
@@ -93,6 +95,8 @@ func WriteError(err error, w http.ResponseWriter) {
 			httpStatus = http.StatusInternalServerError
 		case status.InvalidArgument:
 			httpStatus = http.StatusUnprocessableEntity
+		case status.Unauthorized:
+			httpStatus = http.StatusUnauthorized
 		default:
 		}
 		msg = err.Error()
