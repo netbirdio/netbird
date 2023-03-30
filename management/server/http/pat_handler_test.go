@@ -63,30 +63,54 @@ var testAccount = &server.Account{
 func initPATTestData() *PATHandler {
 	return &PATHandler{
 		accountManager: &mock_server.MockAccountManager{
-			AddPATToUserFunc: func(accountID string, userID string, pat *server.PersonalAccessToken) error {
+			CreatePATFunc: func(accountID string, executingUserID string, targetUserID string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error) {
 				if accountID != existingAccountID {
-					return status.Errorf(status.NotFound, "account with ID %s not found", accountID)
+					return nil, status.Errorf(status.NotFound, "account with ID %s not found", accountID)
 				}
-				if userID != existingUserID {
-					return status.Errorf(status.NotFound, "user with ID %s not found", userID)
+				if targetUserID != existingUserID {
+					return nil, status.Errorf(status.NotFound, "user with ID %s not found", targetUserID)
 				}
-				return nil
+				return &server.PersonalAccessTokenGenerated{
+					PlainToken:          "nbp_z1pvsg2wP3EzmEou4S679KyTNhov632eyrXe",
+					PersonalAccessToken: server.PersonalAccessToken{},
+				}, nil
 			},
 
 			GetAccountFromTokenFunc: func(_ jwtclaims.AuthorizationClaims) (*server.Account, *server.User, error) {
 				return testAccount, testAccount.Users[existingUserID], nil
 			},
-			DeletePATFunc: func(accountID string, userID string, tokenID string) error {
+			DeletePATFunc: func(accountID string, executingUserID string, targetUserID string, tokenID string) error {
 				if accountID != existingAccountID {
 					return status.Errorf(status.NotFound, "account with ID %s not found", accountID)
 				}
-				if userID != existingUserID {
-					return status.Errorf(status.NotFound, "user with ID %s not found", userID)
+				if targetUserID != existingUserID {
+					return status.Errorf(status.NotFound, "user with ID %s not found", targetUserID)
 				}
 				if tokenID != existingTokenID {
 					return status.Errorf(status.NotFound, "token with ID %s not found", tokenID)
 				}
 				return nil
+			},
+			GetPATFunc: func(accountID string, executingUserID string, targetUserID string, tokenID string) (*server.PersonalAccessToken, error) {
+				if accountID != existingAccountID {
+					return nil, status.Errorf(status.NotFound, "account with ID %s not found", accountID)
+				}
+				if targetUserID != existingUserID {
+					return nil, status.Errorf(status.NotFound, "user with ID %s not found", targetUserID)
+				}
+				if tokenID != existingTokenID {
+					return nil, status.Errorf(status.NotFound, "token with ID %s not found", tokenID)
+				}
+				return testAccount.Users[existingUserID].PATs[existingTokenID], nil
+			},
+			GetAllPATsFunc: func(accountID string, executingUserID string, targetUserID string) ([]*server.PersonalAccessToken, error) {
+				if accountID != existingAccountID {
+					return nil, status.Errorf(status.NotFound, "account with ID %s not found", accountID)
+				}
+				if targetUserID != existingUserID {
+					return nil, status.Errorf(status.NotFound, "user with ID %s not found", targetUserID)
+				}
+				return []*server.PersonalAccessToken{testAccount.Users[existingUserID].PATs[existingTokenID], testAccount.Users[existingUserID].PATs["token2"]}, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
