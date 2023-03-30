@@ -2,6 +2,9 @@ package middleware
 
 import (
 	"net/http"
+	"regexp"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/http/util"
 	"github.com/netbirdio/netbird/management/server/status"
@@ -34,12 +37,23 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims := a.claimsExtract.FromRequestContext(r)
 
-		ok, err := a.isUserAdmin(claims)
+		ok, err := regexp.MatchString(`^.*/api/users/.*/tokens.*$`, r.URL.Path)
+		if err != nil {
+			log.Debugf("Regex failed")
+			util.WriteError(status.Errorf(status.Internal, ""), w)
+			return
+		}
+		if ok {
+			log.Debugf("Valid Path")
+			h.ServeHTTP(w, r)
+			return
+		}
+
+		ok, err = a.isUserAdmin(claims)
 		if err != nil {
 			util.WriteError(status.Errorf(status.Unauthorized, "invalid JWT"), w)
 			return
 		}
-
 		if !ok {
 			switch r.Method {
 			case http.MethodDelete, http.MethodPost, http.MethodPatch, http.MethodPut:
