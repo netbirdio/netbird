@@ -3,9 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
-	"crypto/md5"
 	_ "embed"
-	"encoding/hex"
 	"fmt"
 	"html/template"
 	"strings"
@@ -223,9 +221,8 @@ func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
 	f.Action = action
 	f.Port = port
 
-	h := md5.New()
-	_, _ = h.Write([]byte(peerID + peerIP + direction + action + port))
-	f.id = hex.EncodeToString(h.Sum(nil))
+	// NOTE: update this id each time when new field added
+	f.id = peerID + peerIP + direction + action + port
 
 	return nil
 }
