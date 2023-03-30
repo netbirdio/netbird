@@ -37,7 +37,7 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 }
 
 func TestConn_GetKey(t *testing.T) {
-	conn, err := NewConn(connConf, nil)
+	conn, err := NewConn(connConf, nil, nil, nil)
 	if err != nil {
 		return
 	}
@@ -49,7 +49,7 @@ func TestConn_GetKey(t *testing.T) {
 
 func TestConn_OnRemoteOffer(t *testing.T) {
 
-	conn, err := NewConn(connConf, NewRecorder("https://mgm"))
+	conn, err := NewConn(connConf, NewRecorder("https://mgm"), nil, nil)
 	if err != nil {
 		return
 	}
@@ -83,7 +83,7 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
 
-	conn, err := NewConn(connConf, NewRecorder("https://mgm"))
+	conn, err := NewConn(connConf, NewRecorder("https://mgm"), nil, nil)
 	if err != nil {
 		return
 	}
@@ -116,7 +116,7 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 }
 func TestConn_Status(t *testing.T) {
 
-	conn, err := NewConn(connConf, NewRecorder("https://mgm"))
+	conn, err := NewConn(connConf, NewRecorder("https://mgm"), nil, nil)
 	if err != nil {
 		return
 	}
@@ -143,7 +143,7 @@ func TestConn_Status(t *testing.T) {
 
 func TestConn_Close(t *testing.T) {
 
-	conn, err := NewConn(connConf, NewRecorder("https://mgm"))
+	conn, err := NewConn(connConf, NewRecorder("https://mgm"), nil, nil)
 	if err != nil {
 		return
 	}
@@ -411,7 +411,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			g := errgroup.Group{}
-			conn, err := NewConn(connConf, nil)
+			conn, err := NewConn(connConf, nil, nil, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

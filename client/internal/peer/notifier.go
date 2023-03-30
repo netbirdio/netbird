@@ -8,6 +8,7 @@ const (
 	stateDisconnected = iota
 	stateConnected
 	stateConnecting
+	stateDisconnecting
 )
 
 type notifier struct {
@@ -57,8 +58,12 @@ func (n *notifier) updateServerStates(mgmState bool, signalState bool) {
 	}
 
 	n.currentServerState = newState
-	n.lastNotification = n.calculateState(newState, n.currentClientState)
 
+	if n.lastNotification == stateDisconnecting {
+		return
+	}
+
+	n.lastNotification = n.calculateState(newState, n.currentClientState)
 	go n.notifyAll(n.lastNotification)
 }
 
@@ -75,6 +80,14 @@ func (n *notifier) clientStop() {
 	defer n.serverStateLock.Unlock()
 	n.currentClientState = false
 	n.lastNotification = n.calculateState(n.currentServerState, false)
+	go n.notifyAll(n.lastNotification)
+}
+
+func (n *notifier) clientTearDown() {
+	n.serverStateLock.Lock()
+	defer n.serverStateLock.Unlock()
+	n.currentClientState = false
+	n.lastNotification = stateDisconnecting
 	go n.notifyAll(n.lastNotification)
 }
 
@@ -99,6 +112,8 @@ func (n *notifier) notifyListener(l Listener, state int) {
 		l.OnConnected()
 	case stateConnecting:
 		l.OnConnecting()
+	case stateDisconnecting:
+		l.OnDisconnecting()
 	}
 }
 
@@ -120,5 +135,14 @@ func (n *notifier) peerListChanged(numOfPeers int) {
 
 	for l := range n.listeners {
 		l.OnPeersListChanged(numOfPeers)
+	}
+}
+
+func (n *notifier) localAddressChanged(fqdn, address string) {
+	n.listenersLock.Lock()
+	defer n.listenersLock.Unlock()
+
+	for l := range n.listeners {
+		l.OnAddressChanged(fqdn, address)
 	}
 }

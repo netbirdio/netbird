@@ -190,6 +190,7 @@ func (d *Status) UpdateLocalPeerState(localPeerState LocalPeerState) {
 	defer d.mux.Unlock()
 
 	d.localPeer = localPeerState
+	d.notifyAddressChanged()
 }
 
 // CleanLocalPeerState cleans local peer status
@@ -198,6 +199,7 @@ func (d *Status) CleanLocalPeerState() {
 	defer d.mux.Unlock()
 
 	d.localPeer = LocalPeerState{}
+	d.notifyAddressChanged()
 }
 
 // MarkManagementDisconnected sets ManagementState to disconnected
@@ -215,7 +217,7 @@ func (d *Status) MarkManagementConnected() {
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
 
-    d.managementState = true
+	d.managementState = true
 }
 
 // UpdateSignalAddress update the address of the signal server
@@ -238,7 +240,7 @@ func (d *Status) MarkSignalDisconnected() {
 	defer d.mux.Unlock()
 	defer d.onConnectionChanged()
 
-    d.signalState = false
+	d.signalState = false
 }
 
 // MarkSignalConnected sets SignalState to connected
@@ -286,6 +288,11 @@ func (d *Status) ClientStop() {
 	d.notifier.clientStop()
 }
 
+// ClientTeardown will notify all listeners about the service is under teardown
+func (d *Status) ClientTeardown() {
+	d.notifier.clientTearDown()
+}
+
 // AddConnectionListener add a listener to the notifier
 func (d *Status) AddConnectionListener(listener Listener) {
 	d.notifier.addListener(listener)
@@ -302,4 +309,8 @@ func (d *Status) onConnectionChanged() {
 
 func (d *Status) notifyPeerListChanged() {
 	d.notifier.peerListChanged(len(d.peers))
+}
+
+func (d *Status) notifyAddressChanged() {
+	d.notifier.localAddressChanged(d.localPeer.FQDN, d.localPeer.IP)
 }
