@@ -46,17 +46,19 @@ func (h *PATHandler) GetAllTokens(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
-	if userID != user.Id {
-		util.WriteErrorResponse("User not authorized to get tokens", http.StatusUnauthorized, w)
+
+	pats, err := h.accountManager.GetAllPATs(account.Id, user.Id, userID)
+	if err != nil {
+		util.WriteError(err, w)
 		return
 	}
 
-	var pats []*api.PersonalAccessToken
-	for _, pat := range account.Users[userID].PATs {
-		pats = append(pats, toPATResponse(pat))
+	var patResponse []*api.PersonalAccessToken
+	for _, pat := range pats {
+		patResponse = append(patResponse, toPATResponse(pat))
 	}
 
-	util.WriteJSONObject(w, pats)
+	util.WriteJSONObject(w, patResponse)
 }
 
 // GetToken is HTTP GET handler that returns a personal access token for the given user
@@ -69,13 +71,9 @@ func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	userID := vars["userId"]
-	if len(userID) == 0 {
+	targetUserID := vars["userId"]
+	if len(targetUserID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
-		return
-	}
-	if userID != user.Id {
-		util.WriteErrorResponse("User not authorized to get token", http.StatusUnauthorized, w)
 		return
 	}
 
@@ -85,15 +83,9 @@ func (h *PATHandler) GetToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user = account.Users[userID]
-	if user == nil {
-		util.WriteError(status.Errorf(status.NotFound, "user not found"), w)
-		return
-	}
-
-	pat := user.PATs[tokenID]
-	if pat == nil {
-		util.WriteError(status.Errorf(status.NotFound, "PAT not found"), w)
+	pat, err := h.accountManager.GetPAT(account.Id, user.Id, targetUserID, tokenID)
+	if err != nil {
+		util.WriteError(err, w)
 		return
 	}
 
@@ -110,13 +102,9 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	userID := vars["userId"]
-	if len(userID) == 0 {
+	targetUserID := vars["userId"]
+	if len(targetUserID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
-		return
-	}
-	if userID != user.Id {
-		util.WriteErrorResponse("User not authorized to create token", http.StatusUnauthorized, w)
 		return
 	}
 
@@ -127,23 +115,7 @@ func (h *PATHandler) CreateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Name == "" {
-		util.WriteErrorResponse("name can't be empty", http.StatusBadRequest, w)
-		return
-	}
-
-	if req.ExpiresIn < 1 || req.ExpiresIn > 365 {
-		util.WriteErrorResponse("expiration has to be between 1 and 365", http.StatusBadRequest, w)
-		return
-	}
-
-	pat, err := server.CreateNewPAT(req.Name, req.ExpiresIn, user.Id)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	err = h.accountManager.AddPATToUser(account.Id, userID, &pat.PersonalAccessToken)
+	pat, err := h.accountManager.CreatePAT(account.Id, user.Id, targetUserID, req.Name, req.ExpiresIn)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -162,13 +134,9 @@ func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	userID := vars["userId"]
-	if len(userID) == 0 {
+	targetUserID := vars["userId"]
+	if len(targetUserID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
-		return
-	}
-	if userID != user.Id {
-		util.WriteErrorResponse("User not authorized to delete token", http.StatusUnauthorized, w)
 		return
 	}
 
@@ -178,7 +146,7 @@ func (h *PATHandler) DeleteToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeletePAT(account.Id, userID, tokenID)
+	err = h.accountManager.DeletePAT(account.Id, user.Id, targetUserID, tokenID)
 	if err != nil {
 		util.WriteError(err, w)
 		return
