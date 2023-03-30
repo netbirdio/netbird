@@ -124,10 +124,10 @@ func (m *AuthMiddleware) CheckPATFromRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	claimMaps := jwt.MapClaims{}
-	claimMaps[jwtclaims.UserIDClaim] = user.Id
-	claimMaps[m.audience+jwtclaims.AccountIDSuffix] = account.Id
-	claimMaps[m.audience+jwtclaims.DomainIDSuffix] = account.Domain
-	claimMaps[m.audience+jwtclaims.DomainCategorySuffix] = account.DomainCategory
+	claimMaps[string(jwtclaims.UserIDClaim)] = user.Id
+	claimMaps[m.audience+string(jwtclaims.AccountIDSuffix)] = account.Id
+	claimMaps[m.audience+string(jwtclaims.DomainIDSuffix)] = account.Domain
+	claimMaps[m.audience+string(jwtclaims.DomainCategorySuffix)] = account.DomainCategory
 	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	newRequest := r.WithContext(context.WithValue(r.Context(), jwtclaims.TokenUserProperty, jwtToken))
 	// Update the current request with the new context information.
