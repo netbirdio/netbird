@@ -3,15 +3,31 @@ package android
 import (
 	"context"
 	"fmt"
-	"github.com/cenkalti/backoff/v4"
-	"github.com/netbirdio/netbird/client/cmd"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal"
+	"github.com/cenkalti/backoff/v4"
+
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/client/cmd"
+	"github.com/netbirdio/netbird/client/system"
+
+	"github.com/netbirdio/netbird/client/internal"
 )
+
+// SSOListener is async listener for mobile framework
+type SSOListener interface {
+	OnSuccess(bool)
+	OnError(error)
+}
+
+// ErrListener is async listener for mobile framework
+type ErrListener interface {
+	OnSuccess()
+	OnError(error)
+}
 
 // URLOpener it is a callback interface. The Open function will be triggered if
 // the backend want to show an url for the user
@@ -52,32 +68,66 @@ func NewAuthWithConfig(ctx context.Context, config *internal.Config) *Auth {
 	}
 }
 
-// LoginAndSaveConfigIfSSOSupported test the connectivity with the management server.
-// If the SSO is supported than save the configuration. Return with the SSO login is supported or not.
-func (a *Auth) LoginAndSaveConfigIfSSOSupported() (bool, error) {
-	var needsLogin bool
+// SaveConfigIfSSOSupported test the connectivity with the management server by retrieving the server device flow info.
+// If it returns a flow info than save the configuration and return true. If it gets a codes.NotFound, it means that SSO
+// is not supported and returns false without saving the configuration. For other errors return false.
+func (a *Auth) SaveConfigIfSSOSupported(listener SSOListener) {
+	go func() {
+		sso, err := a.saveConfigIfSSOSupported()
+		if err != nil {
+			listener.OnError(err)
+		} else {
+			listener.OnSuccess(sso)
+		}
+	}()
+}
+
+func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
+	supportsSSO := true
 	err := a.withBackOff(a.ctx, func() (err error) {
-		needsLogin, err = internal.IsLoginRequired(a.ctx, a.config.PrivateKey, a.config.ManagementURL, a.config.SSHKey)
-		return
+		_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
+		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
+			supportsSSO = false
+			err = nil
+		}
+		return err
 	})
+
+	if !supportsSSO {
+		return false, nil
+	}
+
 	if err != nil {
 		return false, fmt.Errorf("backoff cycle failed: %v", err)
 	}
-	if !needsLogin {
-		return false, nil
-	}
+
 	err = internal.WriteOutConfig(a.cfgPath, a.config)
-	return needsLogin, err
+	return true, err
 }
 
 // LoginWithSetupKeyAndSaveConfig test the connectivity with the management server with the setup key.
-func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string) error {
-	err := a.withBackOff(a.ctx, func() error {
-		err := internal.Login(a.ctx, a.config, setupKey, "")
-		if s, ok := gstatus.FromError(err); ok && (s.Code() == codes.InvalidArgument || s.Code() == codes.PermissionDenied) {
-			return nil
+func (a *Auth) LoginWithSetupKeyAndSaveConfig(resultListener ErrListener, setupKey string, deviceName string) {
+	go func() {
+		err := a.loginWithSetupKeyAndSaveConfig(setupKey, deviceName)
+		if err != nil {
+			resultListener.OnError(err)
+		} else {
+			resultListener.OnSuccess()
 		}
-		return err
+	}()
+}
+
+func (a *Auth) loginWithSetupKeyAndSaveConfig(setupKey string, deviceName string) error {
+	//nolint
+	ctxWithValues := context.WithValue(a.ctx, system.DeviceNameCtxKey, deviceName)
+
+	err := a.withBackOff(a.ctx, func() error {
+		backoffErr := internal.Login(ctxWithValues, a.config, setupKey, "")
+		if s, ok := gstatus.FromError(backoffErr); ok && (s.Code() == codes.PermissionDenied) {
+			// we got an answer from management, exit backoff earlier
+			return backoff.Permanent(backoffErr)
+		}
+		return backoffErr
 	})
 	if err != nil {
 		return fmt.Errorf("backoff cycle failed: %v", err)
@@ -87,7 +137,18 @@ func (a *Auth) LoginWithSetupKeyAndSaveConfig(setupKey string) error {
 }
 
 // Login try register the client on the server
-func (a *Auth) Login(urlOpener URLOpener) error {
+func (a *Auth) Login(resultListener ErrListener, urlOpener URLOpener) {
+	go func() {
+		err := a.login(urlOpener)
+		if err != nil {
+			resultListener.OnError(err)
+		} else {
+			resultListener.OnSuccess()
+		}
+	}()
+}
+
+func (a *Auth) login(urlOpener URLOpener) error {
 	var needsLogin bool
 
 	// check if we need to generate JWT token

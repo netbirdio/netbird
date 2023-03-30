@@ -68,10 +68,10 @@ type AccountManager interface {
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error)
-	CreatePAT(accountID string, executingUserID string, targetUserId string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
-	DeletePAT(accountID string, executingUserID string, targetUserId string, tokenID string) error
-	GetPAT(accountID string, executingUserID string, targetUserId string, tokenID string) (*PersonalAccessToken, error)
-	GetAllPATs(accountID string, executingUserID string, targetUserId string) ([]*PersonalAccessToken, error)
+	CreatePAT(accountID string, executingUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
+	DeletePAT(accountID string, executingUserID string, targetUserID string, tokenID string) error
+	GetPAT(accountID string, executingUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
+	GetAllPATs(accountID string, executingUserID string, targetUserID string) ([]*PersonalAccessToken, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
@@ -362,11 +362,11 @@ func (a *Account) GetNextPeerExpiration() (time.Duration, bool) {
 	return *nextExpiry, true
 }
 
-// GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true
+// GetPeersWithExpiration returns a list of peers that have Peer.LoginExpirationEnabled set to true and that were added by a user
 func (a *Account) GetPeersWithExpiration() []*Peer {
 	peers := make([]*Peer, 0)
 	for _, peer := range a.Peers {
-		if peer.LoginExpirationEnabled {
+		if peer.LoginExpirationEnabled && peer.AddedWithSSOLogin() {
 			peers = append(peers, peer)
 		}
 	}

@@ -78,7 +78,7 @@ func (s *Server) Start() error {
 	// on failure we return error to retry
 	config, err := internal.UpdateConfig(s.latestConfigInput)
 	if errorStatus, ok := gstatus.FromError(err); ok && errorStatus.Code() == codes.NotFound {
-		config, err = internal.UpdateOrCreateConfig(s.latestConfigInput)
+		s.config, err = internal.UpdateOrCreateConfig(s.latestConfigInput)
 		if err != nil {
 			log.Warnf("unable to create configuration file: %v", err)
 			return err
@@ -102,7 +102,7 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		if err := internal.RunClient(ctx, config, s.statusRecorder, nil); err != nil {
+		if err := internal.RunClient(ctx, config, s.statusRecorder, nil, nil); err != nil {
 			log.Errorf("init connections: %v", err)
 		}
 	}()
@@ -394,7 +394,7 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	}
 
 	go func() {
-		if err := internal.RunClient(ctx, s.config, s.statusRecorder, nil); err != nil {
+		if err := internal.RunClient(ctx, s.config, s.statusRecorder, nil, nil); err != nil {
 			log.Errorf("run client connection: %v", err)
 			return
 		}

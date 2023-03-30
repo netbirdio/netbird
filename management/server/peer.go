@@ -528,7 +528,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		SSHEnabled:             false,
 		SSHKey:                 peer.SSHKey,
 		LastLogin:              time.Now(),
-		LoginExpirationEnabled: true,
+		LoginExpirationEnabled: addedByUser,
 	}
 
 	// add peer to 'All' group
