@@ -329,3 +329,5 @@ message FirewallRule {
     ICMP = 4;
   }
 }
+
+message KeepAlive {}

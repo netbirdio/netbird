@@ -40,6 +40,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/netbirdio/netbird/encryption"
+	grpcKeepAlive "github.com/netbirdio/netbird/keepalive"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 )
 
@@ -207,7 +208,8 @@ var (
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}
 
-			ka := server.NewKeepAlive()
+			ka := grpcKeepAlive.NewKeepAlive(&mgmtProto.Empty{})
+			defer ka.Stop()
 			sInterc := grpc.StreamInterceptor(ka.StreamInterceptor())
 			uInterc := grpc.UnaryInterceptor(ka.UnaryInterceptor())
 			gRPCOpts = append(gRPCOpts, sInterc, uInterc)

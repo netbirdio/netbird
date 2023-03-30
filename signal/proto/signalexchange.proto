@@ -63,3 +63,5 @@ message Body {
 message Mode {
   optional bool direct = 1;
 }
+
+message KeepAlive {}

@@ -1,4 +1,4 @@
-package server
+package keepalive
 
 import (
 	"context"
@@ -8,8 +8,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-
-	"github.com/netbirdio/netbird/management/proto"
 )
 
 const (
@@ -18,44 +16,20 @@ const (
 	keepAliveInterval    = 30 * time.Second
 )
 
-type ioMonitor struct {
-	grpc.ServerStream
-	mu       sync.Mutex
-	lastSeen time.Time
-}
-
-func (l *ioMonitor) SendMsg(m interface{}) error {
-	l.updateLastSeen()
-	return l.ServerStream.SendMsg(m)
-}
-
-func (l *ioMonitor) updateLastSeen() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.lastSeen = time.Now()
-}
-
-func (l *ioMonitor) getLastSeen() time.Time {
-	l.mu.Lock()
-	t := l.lastSeen
-	l.mu.Unlock()
-	return t
-}
-
 type KeepAlive struct {
 	sync.RWMutex
-	ticker  *time.Ticker
-	done    chan struct{}
-	streams map[string]*ioMonitor
+	ticker       *time.Ticker
+	done         chan struct{}
+	streams      map[string]*ioMonitor
+	keepAliveMsg interface{}
 }
 
-// todo: write free resources function
-
-func NewKeepAlive() *KeepAlive {
+func NewKeepAlive(keepAliveMsg interface{}) *KeepAlive {
 	ka := &KeepAlive{
-		ticker:  time.NewTicker(1 * time.Second),
-		done:    make(chan struct{}),
-		streams: make(map[string]*ioMonitor),
+		ticker:       time.NewTicker(1 * time.Second),
+		done:         make(chan struct{}),
+		streams:      make(map[string]*ioMonitor),
+		keepAliveMsg: keepAliveMsg,
 	}
 	go ka.start()
 	return ka
@@ -69,8 +43,8 @@ func (k *KeepAlive) StreamInterceptor() grpc.StreamServerInterceptor {
 		}
 
 		m := &ioMonitor{
-			stream,
 			sync.Mutex{},
+			stream,
 			time.Now(),
 		}
 
@@ -87,6 +61,15 @@ func (k *KeepAlive) UnaryInterceptor() grpc.UnaryServerInterceptor {
 			k.updateLastSeen(address)
 		}
 		return handler(ctx, req)
+	}
+}
+
+func (k *KeepAlive) Stop() {
+	select {
+	case k.done <- struct{}{}:
+		k.ticker.Stop()
+		return
+	default:
 	}
 }
 
@@ -108,7 +91,6 @@ func (k *KeepAlive) checkKeepAlive(now time.Time) {
 		if k.isKeepAliveOutDated(now, m) {
 			continue
 		}
-		log.Debugf("send keepalive for: %s", addr)
 		err := k.sendKeepAlive(m)
 		if err != nil {
 			log.Debugf("stop keepalive for: %s", addr)
@@ -144,8 +126,7 @@ func (k *KeepAlive) addIoMonitor(address string, m *ioMonitor) {
 }
 
 func (k *KeepAlive) sendKeepAlive(m *ioMonitor) error {
-	msg := &proto.Empty{}
-	return m.SendMsg(msg)
+	return m.sendMsg(k.keepAliveMsg)
 }
 
 func (k *KeepAlive) updateLastSeen(address string) {

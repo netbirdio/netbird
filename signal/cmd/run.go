@@ -4,7 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"golang.org/x/crypto/acme/autocert"
 	"io"
 	"io/fs"
 	"net"
@@ -14,15 +13,18 @@ import (
 	"strings"
 	"time"
 
-	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/signal/proto"
-	"github.com/netbirdio/netbird/signal/server"
-	"github.com/netbirdio/netbird/util"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"golang.org/x/crypto/acme/autocert"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/netbirdio/netbird/encryption"
+	appKeepAlive "github.com/netbirdio/netbird/keepalive"
+	"github.com/netbirdio/netbird/signal/proto"
+	"github.com/netbirdio/netbird/signal/server"
+	"github.com/netbirdio/netbird/util"
 )
 
 var (
@@ -93,6 +95,13 @@ var (
 			}
 
 			opts = append(opts, signalKaep, signalKasp)
+
+			ka := appKeepAlive.NewKeepAlive(&proto.KeepAlive{})
+			defer ka.Stop()
+			sInterc := grpc.StreamInterceptor(ka.StreamInterceptor())
+			uInterc := grpc.UnaryInterceptor(ka.UnaryInterceptor())
+			opts = append(opts, sInterc, uInterc)
+
 			grpcServer := grpc.NewServer(opts...)
 			proto.RegisterSignalExchangeServer(grpcServer, server.NewServer())
 
