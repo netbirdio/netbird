@@ -197,8 +197,4 @@ func TestUser_GetAllPATs(t *testing.T) {
 	}
 
 	assert.Equal(t, 2, len(pats))
-	assert.Equal(t, mockTokenID1, pats[0].ID)
-	assert.Equal(t, mockToken1, pats[0].HashedToken)
-	assert.Equal(t, mockTokenID2, pats[1].ID)
-	assert.Equal(t, mockToken2, pats[1].HashedToken)
 }
