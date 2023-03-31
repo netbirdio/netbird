@@ -5,6 +5,7 @@ package stdnet
 
 import (
 	"fmt"
+	"golang.zx2c4.com/wireguard/wgctrl"
 	"net"
 	"strings"
 
@@ -18,24 +19,78 @@ import (
 type Net struct {
 	stdnet.Net
 	interfaces []*transport.Interface
+	// interfaceFilter should return true if the given interfaceName is allowed
+	interfaceFilter func(interfaceName string) bool
 }
 
 // NewNet creates a new StdNet instance.
-func NewNet(iFaceDiscover IFaceDiscover) (*Net, error) {
-	n := &Net{}
-
+// iFaceDiscover and disallowList can be nil.
+// iFaceDiscover
+func NewNet(iFaceDiscover IFaceDiscover, disallowList []string) (*Net, error) {
+	n := &Net{interfaceFilter: InterfaceFilter(disallowList)}
 	return n, n.UpdateInterfaces(iFaceDiscover)
 }
 
+func (n *Net) filterInterfaces(interfaces []*transport.Interface) []*transport.Interface {
+	if n.interfaceFilter == nil {
+		return interfaces
+	}
+	result := []*transport.Interface{}
+	for _, iface := range interfaces {
+		if n.interfaceFilter(iface.Name) {
+			result = append(result, iface)
+		}
+	}
+	return result
+}
+
 // UpdateInterfaces updates the internal list of network interfaces
-// and associated addresses.
+// and associated addresses filtering them by name.
+// The interfaces are discovered by an external iFaceDiscover function or by a default discoverer if the external one
+// wasn't specified.
 func (n *Net) UpdateInterfaces(iFaceDiscover IFaceDiscover) error {
-	ifacesString, err := iFaceDiscover.IFaces()
+	discoveredInterfaces := []*transport.Interface{}
+	var err error
+	if iFaceDiscover != nil {
+		interfacesString := ""
+		interfacesString, err = iFaceDiscover.IFaces()
+		discoveredInterfaces = parseInterfacesString(interfacesString)
+	} else {
+		// fallback to the default discovering if custom IFaceDiscover wasn't provided
+		discoveredInterfaces, err = discoverInterfaces()
+	}
 	if err != nil {
 		return err
 	}
-	n.interfaces = parseInterfacesString(ifacesString)
-	return err
+
+	n.interfaces = n.filterInterfaces(discoveredInterfaces)
+	return nil
+}
+
+func discoverInterfaces() ([]*transport.Interface, error) {
+	ifs := []*transport.Interface{}
+
+	oifs, err := net.Interfaces()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, oif := range oifs {
+		ifc := transport.NewInterface(oif)
+
+		addrs, err := oif.Addrs()
+		if err != nil {
+			return nil, err
+		}
+
+		for _, addr := range addrs {
+			ifc.AddAddress(addr)
+		}
+
+		ifs = append(ifs, ifc)
+	}
+
+	return ifs, nil
 }
 
 // Interfaces returns a slice of interfaces which are available on the
@@ -134,4 +189,30 @@ func parseInterfacesString(interfaces string) []*transport.Interface {
 		}
 	}
 	return ifs
+}
+
+// InterfaceFilter is a function passed to ICE Agent to filter out not allowed interfaces
+// to avoid building tunnel over them.
+func InterfaceFilter(disallowList []string) func(string) bool {
+
+	return func(iFace string) bool {
+		for _, s := range disallowList {
+			if strings.HasPrefix(iFace, s) {
+				log.Debugf("ignoring interface %s - it is not allowed", iFace)
+				return false
+			}
+		}
+		// look for unlisted WireGuard interfaces
+		wg, err := wgctrl.New()
+		if err != nil {
+			log.Debugf("trying to create a wgctrl client failed with: %v", err)
+			return true
+		}
+		defer func() {
+			_ = wg.Close()
+		}()
+
+		_, err = wg.Device(iFace)
+		return err != nil
+	}
 }

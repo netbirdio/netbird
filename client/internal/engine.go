@@ -166,7 +166,7 @@ func (e *Engine) Stop() error {
 	return nil
 }
 
-// Start creates a new Wireguard tunnel interface and listens to events from Signal and Management services
+// Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
 func (e *Engine) Start() error {
@@ -184,10 +184,11 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	/*transportNet, err := e.newStdNet()
+	transportNet, err := e.newStdNet()
 	if err != nil {
 		log.Warnf("failed to create pion's stdnet: %s", err)
-	}*/
+	}
+	fmt.Sprint(transportNet)
 
 	err = e.wgInterface.Create()
 	if err != nil {

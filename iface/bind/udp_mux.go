@@ -211,7 +211,6 @@ func (m *UDPMuxDefault) LocalAddr() net.Addr {
 
 // GetListenAddresses returns the list of addresses that this mux is listening on
 func (m *UDPMuxDefault) GetListenAddresses() []net.Addr {
-	log.Infof("---------------------------------")
 	if len(m.localAddrsForUnspecified) > 0 {
 		return m.localAddrsForUnspecified
 	}

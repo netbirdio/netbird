@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/pion/stun"
-	"github.com/pion/transport/v2/stdnet"
+	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/conn"
 	"net"
@@ -14,10 +14,23 @@ import (
 )
 
 type ICEBind struct {
+	// below fields, initialized on open
 	sharedConn net.PacketConn
 	udpMux     *UniversalUDPMuxDefault
 
-	mu sync.Mutex // protects following fields
+	// below are fields initialized on creation
+	transportNet transport.Net
+	mu           sync.Mutex
+}
+
+// NewICEBind create a new instance of ICEBind with a given transportNet and an interfaceFilter function.
+// The interfaceFilter function is used to exclude interfaces from hole punching (the IPs of that interfaces won't be used as connection candidates)
+// The transportNet can be nil.
+func NewICEBind(transportNet transport.Net, interfaceFilter func(interfaceName string) bool) *ICEBind {
+	return &ICEBind{
+		transportNet: transportNet,
+		mu:           sync.Mutex{},
+	}
 }
 
 func (b *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
@@ -44,11 +57,7 @@ func (b *ICEBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 		return nil, 0, err
 	}
 	b.sharedConn = ipv4Conn
-	newNet, err := stdnet.NewNet()
-	if err != nil {
-		return nil, 0, err
-	}
-	b.udpMux = NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: b.sharedConn, Net: newNet})
+	b.udpMux = NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: b.sharedConn, Net: b.transportNet})
 
 	portAddr1, err := netip.ParseAddrPort(ipv4Conn.LocalAddr().String())
 	if err != nil {

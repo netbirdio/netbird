@@ -8,16 +8,14 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v2"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl"
-
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/iface"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/version"
+	"github.com/pion/ice/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -136,32 +134,6 @@ func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter
 	}, nil
 }
 
-// interfaceFilter is a function passed to ICE Agent to filter out not allowed interfaces
-// to avoid building tunnel over them
-func interfaceFilter(blackList []string) func(string) bool {
-
-	return func(iFace string) bool {
-		for _, s := range blackList {
-			if strings.HasPrefix(iFace, s) {
-				log.Debugf("ignoring interface %s - it is not allowed", iFace)
-				return false
-			}
-		}
-		// look for unlisted WireGuard interfaces
-		wg, err := wgctrl.New()
-		if err != nil {
-			log.Debugf("trying to create a wgctrl client failed with: %v", err)
-			return true
-		}
-		defer func() {
-			_ = wg.Close()
-		}()
-
-		_, err = wg.Device(iFace)
-		return err != nil
-	}
-}
-
 func (conn *Conn) reCreateAgent() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
@@ -179,7 +151,7 @@ func (conn *Conn) reCreateAgent() error {
 		Urls:             conn.config.StunTurn,
 		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive},
 		FailedTimeout:    &failedTimeout,
-		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
+		InterfaceFilter:  stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
 		UDPMux:           conn.config.UDPMux,
 		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
 		NAT1To1IPs:       conn.config.NATExternalIPs,

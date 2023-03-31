@@ -1,6 +1,7 @@
 package peer
 
 import (
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"sync"
 	"testing"
 	"time"
@@ -28,7 +29,7 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 	ignore := []string{iface.WgInterfaceDefault, "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
 		"Tailscale", "tailscale"}
 
-	filter := interfaceFilter(ignore)
+	filter := stdnet.InterfaceFilter(ignore)
 
 	for _, s := range ignore {
 		assert.Equal(t, filter(s), false)

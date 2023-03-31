@@ -71,7 +71,6 @@ type udpConn struct {
 }
 
 func (m *UniversalUDPMuxDefault) GetListenAddresses() []net.Addr {
-	log.Infof("================================")
 	return []net.Addr{m.LocalAddr()}
 }
 
