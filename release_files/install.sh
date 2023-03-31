@@ -3,11 +3,6 @@
 # Source: https://github.com/physk/netbird-installer
 set -e
 
-if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root" 1>&2
-   exit 1
-fi
-
 OWNER="netbirdio"
 REPO="netbird"
 CLI_APP="netbird"
@@ -18,30 +13,49 @@ OS_NAME=""
 OS_TYPE=""
 ARCH="$(uname -m)"
 PACKAGE_MANAGER=""
-INSTALL_DIR="/usr/bin/"
+INSTALL_DIR=""
 
 get_latest_release() {
     curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
     | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
 }
 
-download_and_extract_tar() {
+download_release_binary() {
     VERSION=$(get_latest_release)
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
     
+    # for Darwin, download the signed Netbird-UI
+    if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
+        BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}_signed.zip"
+    fi
+
     BINARY_NAME="$1_${BINARY_BASE_NAME}"
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
-    echo "Downloading $1 from $DOWNLOAD_URL"
-    curl -LO "$DOWNLOAD_URL" 
-  
-    if tar -xzvf "$BINARY_NAME"; then
-        echo "Extraction $1 completed"
-        mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR"
+    echo "Installing $1 from $DOWNLOAD_URL"
+    cd /tmp && curl -LO "$DOWNLOAD_URL" 
+    
+    if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
+        # Unzip the app
+        unzip -q -o "$BINARY_NAME"
+
+        INSTALL_DIR="/Applications/NetBird UI.app/Contents"
+        UNZIPPED_FOLDER="netbird_ui_${OS_TYPE}_${ARCH}"
+    
+        if mkdir -p "${INSTALL_DIR}/MacOS/"; then
+            mv "$UNZIPPED_FOLDER"/netbird-ui "${INSTALL_DIR}/MacOS/"
+        fi
+
+        if mkdir -p "${INSTALL_DIR}/Resources/"; then
+            mv "$UNZIPPED_FOLDER"/Netbird.icns "${INSTALL_DIR}/Resources/"
+        fi
+
+        mv "$UNZIPPED_FOLDER"/Info.plist "${INSTALL_DIR}/"
+        mv "$UNZIPPED_FOLDER"/_CodeSignature/ "${INSTALL_DIR}/"
     else
-      echo "Failed to extract $1"
-      exit 2
+        tar -xzvf "$BINARY_NAME"
+        sudo mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR"
     fi
 }
 
@@ -75,11 +89,11 @@ install_native_binaries() {
         ;;
     esac
 
-    # download and extract netbird binaries to INSTAD_DIR
-    download_and_extract_tar "$CLI_APP"
+    # download and copy binaries to INSTALL_DIR
+    download_release_binary "$CLI_APP"
     if ! $SKIP_UI_APP; then 
-        download_and_extract_tar "$UI_APP"
-    fi
+        download_release_binary "$UI_APP"
+    fi  
 }
 
 install_netbird() {
@@ -94,6 +108,7 @@ install_netbird() {
         Linux)
             OS_NAME="$(. /etc/os-release && echo "$ID")" 
             OS_TYPE="linux"
+            INSTALL_DIR="/usr/bin"
             
             # Allow netbird UI installation for x64 arch only
             if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
@@ -124,13 +139,11 @@ install_netbird() {
 		Darwin)
             OS_NAME="macos"
 			OS_TYPE="darwin"
-            PACKAGE_MANAGER="brew"
-
-            # If Homebrew is not installed, install it
-            if [ -z "$(command -v $PACKAGE_MANAGER)" ]; then 
-                echo "Homebrew is not installed. Installing Homebrew..."
-                /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-                echo "Homebrew has been installed."
+            INSTALL_DIR="/usr/local/bin"
+            
+            # Check the availability of a compatible package manager
+            if [ -x "$(command -v brew)" ]; then 
+                PACKAGE_MANAGER="brew"
             fi
 		;;
 	esac
@@ -225,9 +238,9 @@ install_netbird() {
     esac
 
     # Start client daemon service if only CLI is installed
-    if $SKIP_UI_APP; then 
-        netbird service install
-        netbird service start
+    if ! $SKIP_UI_APP; then
+        sudo netbird service install 2>/dev/null
+        sudo netbird service start 2>/dev/null
     fi
 }
 
