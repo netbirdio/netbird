@@ -80,12 +80,6 @@ install_native_binaries() {
     if ! $SKIP_UI_APP; then 
         download_and_extract_tar "$UI_APP"
     fi
-
-    # Start client daemon service if only CLI is installed
-    if SKIP_UI_APP; then 
-        netbird service install
-        netbird service start
-    fi
 }
 
 install_netbird() {
@@ -122,6 +116,9 @@ install_netbird() {
             fi
             if [ -x "$(command -v dnf)" ]; then
                 PACKAGE_MANAGER="dnf"
+            fi
+            if [ -x "$(command -v pacman)" ]; then
+                PACKAGE_MANAGER="pacman"
             fi
 		;;
 		Darwin)
@@ -176,6 +173,19 @@ install_netbird() {
             dnf -y install netbird-ui
         fi
     ;;
+    pacman)
+        sudo pacman -Syy
+        sudo pacman -Sy --needed --noconfirm git base-devel go
+
+        # Build package from AUR
+        cd /tmp && git clone https://aur.archlinux.org/netbird.git 
+        cd netbird && makepkg -sri --noconfirm
+
+        if ! $SKIP_UI_APP; then 
+            cd /tmp && git clone https://aur.archlinux.org/netbird-ui.git
+            cd netbird-ui && makepkg -sri --noconfirm
+        fi
+    ;;
     brew)
         # Remove Wiretrustee if it had been installed using Homebrew before
         if brew ls --versions wiretrustee >/dev/null 2>&1; then
@@ -213,6 +223,12 @@ install_netbird() {
         install_native_binaries
     ;;
     esac
+
+    # Start client daemon service if only CLI is installed
+    if $SKIP_UI_APP; then 
+        netbird service install
+        netbird service start
+    fi
 }
 
 install_netbird
