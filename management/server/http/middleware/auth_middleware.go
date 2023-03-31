@@ -98,7 +98,7 @@ func (m *AuthMiddleware) CheckJWTFromRequest(w http.ResponseWriter, r *http.Requ
 
 	// If we get here, everything worked and we can set the
 	// user property in context.
-	newRequest := r.WithContext(context.WithValue(r.Context(), userProperty, validatedToken)) // nolint
+	newRequest := r.WithContext(context.WithValue(r.Context(), userProperty, validatedToken)) //nolint
 	// Update the current request with the new context information.
 	*r = *newRequest
 	return nil
@@ -134,7 +134,7 @@ func (m *AuthMiddleware) CheckPATFromRequest(w http.ResponseWriter, r *http.Requ
 	claimMaps[m.audience+jwtclaims.DomainIDSuffix] = account.Domain
 	claimMaps[m.audience+jwtclaims.DomainCategorySuffix] = account.DomainCategory
 	jwtToken := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
-	newRequest := r.WithContext(context.WithValue(r.Context(), jwtclaims.TokenUserProperty, jwtToken))
+	newRequest := r.WithContext(context.WithValue(r.Context(), jwtclaims.TokenUserProperty, jwtToken)) //nolint
 	// Update the current request with the new context information.
 	*r = *newRequest
 	return nil
