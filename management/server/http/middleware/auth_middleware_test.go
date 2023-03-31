@@ -65,7 +65,7 @@ func mockMarkPATUsed(token string) error {
 	return fmt.Errorf("Should never get reached")
 }
 
-func TestAccounts_AccountsHandler(t *testing.T) {
+func TestAuthMiddleware_Handler(t *testing.T) {
 	tt := []struct {
 		name               string
 		authHeader         string
