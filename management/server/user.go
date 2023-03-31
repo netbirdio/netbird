@@ -232,6 +232,9 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, executingUserID str
 		return nil, status.Errorf(status.Internal, "failed to save account: %v", err)
 	}
 
+	meta := map[string]any{"name": pat.Name}
+	am.storeEvent(executingUserID, targetUserId, accountID, activity.PersonalAccessTokenCreated, meta)
+
 	return pat, nil
 }
 
@@ -267,6 +270,10 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, executingUserID str
 	if err != nil {
 		return status.Errorf(status.Internal, "Failed to delete hashed token index: %s", err)
 	}
+
+	meta := map[string]any{"name": pat.Name}
+	am.storeEvent(executingUserID, targetUserID, accountID, activity.PersonalAccessTokenDeleted, meta)
+
 	delete(user.PATs, tokenID)
 
 	err = am.Store.SaveAccount(account)
