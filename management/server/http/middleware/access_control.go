@@ -37,19 +37,7 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims := a.claimsExtract.FromRequestContext(r)
 
-		ok, err := regexp.MatchString(`^.*/api/users/.*/tokens.*$`, r.URL.Path)
-		if err != nil {
-			log.Debugf("Regex failed")
-			util.WriteError(status.Errorf(status.Internal, ""), w)
-			return
-		}
-		if ok {
-			log.Debugf("Valid Path")
-			h.ServeHTTP(w, r)
-			return
-		}
-
-		ok, err = a.isUserAdmin(claims)
+		ok, err := a.isUserAdmin(claims)
 		if err != nil {
 			util.WriteError(status.Errorf(status.Unauthorized, "invalid JWT"), w)
 			return
@@ -57,6 +45,19 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 		if !ok {
 			switch r.Method {
 			case http.MethodDelete, http.MethodPost, http.MethodPatch, http.MethodPut:
+
+				ok, err := regexp.MatchString(`^.*/api/users/.*/tokens.*$`, r.URL.Path)
+				if err != nil {
+					log.Debugf("Regex failed")
+					util.WriteError(status.Errorf(status.Internal, ""), w)
+					return
+				}
+				if ok {
+					log.Debugf("Valid Path")
+					h.ServeHTTP(w, r)
+					return
+				}
+
 				util.WriteError(status.Errorf(status.PermissionDenied, "only admin can perform this operation"), w)
 				return
 			}
