@@ -1,10 +1,12 @@
 package nftables
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"net/netip"
+	"strings"
 	"sync"
 
 	"github.com/google/nftables"
@@ -95,15 +97,17 @@ func (m *Manager) AddFiltering(
 		Data:     protoData,
 	})
 
+	// source address position
 	var adrLen, adrOffset uint32
 	if ip.To4() == nil {
 		adrLen = 16
-		adrOffset = 24
+		adrOffset = 8
 	} else {
 		adrLen = 4
-		adrOffset = 16
+		adrOffset = 12
 	}
 
+	// change to destination address position if need
 	if direction == fw.DirectionDst {
 		adrOffset += adrLen
 	}
@@ -125,7 +129,7 @@ func (m *Manager) AddFiltering(
 		},
 	)
 
-	if port != nil {
+	if port != nil && len(port.Values) != 0 {
 		expressions = append(expressions,
 			&expr.Payload{
 				DestRegister: 1,
@@ -141,19 +145,35 @@ func (m *Manager) AddFiltering(
 		)
 	}
 
-	// Add the rule to the chain
-	rule := &Rule{
-		Rule: m.conn.AddRule(&nftables.Rule{
-			Table:    table,
-			Chain:    chain,
-			Exprs:    expressions,
-			UserData: []byte(comment),
-		}),
-		id: uuid.New().String(),
-	}
+	id := uuid.New().String()
+	userData := []byte(strings.Join([]string{id, comment}, " "))
+
+	_ = m.conn.AddRule(&nftables.Rule{
+		Table:    table,
+		Chain:    chain,
+		Exprs:    expressions,
+		UserData: userData,
+	})
 
 	if err := m.conn.Flush(); err != nil {
 		return nil, err
+	}
+
+	list, err := m.conn.GetRules(table, chain)
+	if err != nil {
+		return nil, err
+	}
+
+	// Add the rule to the chain
+	rule := &Rule{id: uuid.New().String()}
+	for _, r := range list {
+		if bytes.Equal(r.UserData, userData) {
+			rule.Rule = r
+			break
+		}
+	}
+	if rule.Rule == nil {
+		return nil, fmt.Errorf("rule not found")
 	}
 
 	return rule, nil
@@ -282,7 +302,11 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		return fmt.Errorf("invalid rule type")
 	}
 
-	return m.conn.DelRule(nativeRule.Rule)
+	if err := m.conn.DelRule(nativeRule.Rule); err != nil {
+		return err
+	}
+
+	return m.conn.Flush()
 }
 
 // Reset firewall to the default state
@@ -307,7 +331,7 @@ func (m *Manager) Reset() error {
 		}
 	}
 
-	return nil
+	return m.conn.Flush()
 }
 
 func encodePort(port fw.Port) []byte {

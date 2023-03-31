@@ -1,18 +1,22 @@
 package internal
 
 import (
-	"fmt"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/iptables"
+	"github.com/netbirdio/netbird/client/firewall/nftables"
 )
 
 // buildFirewallManager creates a firewall manager instance for the Linux
-func buildFirewallManager(wgIfaceName string) (firewall.Manager, error) {
-	fw, err := iptables.Create(wgIfaceName)
-	if err != nil {
-		// TODO: handle init nftables manager when it will be implemented
-		return nil, fmt.Errorf("create iptables manager: %w", err)
+func buildFirewallManager(wgIfaceName string) (fm firewall.Manager, err error) {
+	if fm, err = iptables.Create(wgIfaceName); err != nil {
+		log.Debugf("failed to create iptables manager: %s", err)
+		// fallback to nftables
+		if fm, err = nftables.Create(wgIfaceName); err != nil {
+			log.Errorf("failed to create nftables manager: %s", err)
+			return nil, err
+		}
 	}
-	return fw, nil
+	return fm, nil
 }
