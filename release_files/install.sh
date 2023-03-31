@@ -74,11 +74,17 @@ install_native_binaries() {
             exit 2
         ;;
     esac
-    
+
     # download and extract netbird binaries to INSTAD_DIR
     download_and_extract_tar "$CLI_APP"
     if ! $SKIP_UI_APP; then 
         download_and_extract_tar "$UI_APP"
+    fi
+
+    # Start client daemon service if only CLI is installed
+    if SKIP_UI_APP; then 
+        netbird service install
+        netbird service start
     fi
 }
 
@@ -162,7 +168,7 @@ install_netbird() {
     ;;
     dnf)
         add_rpm_repo
-        dnf install dnf-plugin-config-manager
+        dnf -y install dnf-plugin-config-manager
         dnf config-manager --add-repo /etc/yum.repos.d/wiretrustee.repo
         dnf -y install netbird
 
@@ -207,10 +213,6 @@ install_netbird() {
         install_native_binaries
     ;;
     esac
-
-    # Start client daemon service if only CLI is installed
-    netbird service install
-    netbird service start
 }
 
 install_netbird
