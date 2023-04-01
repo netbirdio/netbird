@@ -97,7 +97,9 @@ func (n *notifier) isServerStateChanged(newState bool) bool {
 func (n *notifier) notify(state int) {
 	n.listenersLock.Lock()
 	defer n.listenersLock.Unlock()
-
+	if n.listener == nil {
+		return
+	}
 	n.notifyListener(n.listener, state)
 }
 
@@ -131,11 +133,17 @@ func (n *notifier) calculateState(serverState bool, clientState bool) int {
 func (n *notifier) peerListChanged(numOfPeers int) {
 	n.listenersLock.Lock()
 	defer n.listenersLock.Unlock()
+	if n.listener == nil {
+		return
+	}
 	n.listener.OnPeersListChanged(numOfPeers)
 }
 
 func (n *notifier) localAddressChanged(fqdn, address string) {
 	n.listenersLock.Lock()
 	defer n.listenersLock.Unlock()
+	if n.listener == nil {
+		return
+	}
 	n.listener.OnAddressChanged(fqdn, address)
 }
