@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/activity"
 )
 
 const (
@@ -30,7 +32,8 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store: store,
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	pat, err := am.CreatePAT(mockAccountID, mockUserID, mockUserID, mockTokenName, mockExpiresIn)
@@ -64,7 +67,8 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store: store,
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	_, err = am.CreatePAT(mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
@@ -81,7 +85,8 @@ func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store: store,
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	_, err = am.CreatePAT(mockAccountID, mockUserID, mockUserID, mockTokenName, mockWrongExpiresIn)
@@ -98,7 +103,8 @@ func TestUser_CreatePAT_WithEmptyName(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store: store,
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	_, err = am.CreatePAT(mockAccountID, mockUserID, mockUserID, mockEmptyTokenName, mockExpiresIn)
@@ -123,7 +129,8 @@ func TestUser_DeletePAT(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store: store,
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	err = am.DeletePAT(mockAccountID, mockUserID, mockUserID, mockTokenID1)
@@ -154,7 +161,8 @@ func TestUser_GetPAT(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store: store,
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	pat, err := am.GetPAT(mockAccountID, mockUserID, mockUserID, mockTokenID1)
@@ -188,7 +196,8 @@ func TestUser_GetAllPATs(t *testing.T) {
 	}
 
 	am := DefaultAccountManager{
-		Store: store,
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
 	}
 
 	pats, err := am.GetAllPATs(mockAccountID, mockUserID, mockUserID)
