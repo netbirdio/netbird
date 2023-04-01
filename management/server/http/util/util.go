@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -99,7 +100,7 @@ func WriteError(err error, w http.ResponseWriter) {
 			httpStatus = http.StatusUnauthorized
 		default:
 		}
-		msg = err.Error()
+		msg = strings.ToLower(err.Error())
 	} else {
 		unhandledMSG := fmt.Sprintf("got unhandled error code, error: %s", err.Error())
 		log.Error(unhandledMSG)
