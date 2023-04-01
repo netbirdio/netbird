@@ -60,7 +60,7 @@ download_release_binary() {
 }
 
 add_rpm_repo() {
-cat <<-EOF |  tee /etc/yum.repos.d/wiretrustee.repo
+cat <<-EOF | sudo tee /etc/yum.repos.d/wiretrustee.repo
 [Wiretrustee]
 name=Wiretrustee
 baseurl=https://pkgs.wiretrustee.com/yum/
@@ -75,13 +75,13 @@ install_native_binaries() {
     # Checks  for supported architecture
     case "$ARCH" in
         x86_64|amd64)
-            ARCH='amd64'
+            ARCH="amd64"
         ;;
         i?86|x86)
-            ARCH='386'
+            ARCH="386"
         ;;
         aarch64|arm64)
-            ARCH='arm64'
+            ARCH="arm64"
         ;;
         *)
             echo "Architecture ${ARCH} not supported"
@@ -153,37 +153,37 @@ install_netbird() {
     # only the CLI will be installed
     case "$PACKAGE_MANAGER" in
     apt)
-        apt-get update
-        apt-get install ca-certificates gnupg -y
+        sudo apt-get update
+        sudo apt-get install ca-certificates gnupg -y
         
         curl -sSL https://pkgs.wiretrustee.com/debian/public.key \
         |  gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
         APT_REPO="deb [signed-by=/usr/share/keyrings/wiretrustee-archive-keyring.gpg] https://pkgs.wiretrustee.com/debian stable main"
-        echo "$APT_REPO" |  tee /etc/apt/sources.list.d/wiretrustee.list
+        echo "$APT_REPO" | sudo tee /etc/apt/sources.list.d/wiretrustee.list
 
-        apt-get update
-        apt-get install netbird -y
+        sudo apt-get update
+        sudo apt-get install netbird -y
         
         if ! $SKIP_UI_APP; then 
-            apt-get install netbird-ui -y
+            sudo apt-get install netbird-ui -y
         fi
     ;;
     yum)
         add_rpm_repo
-        yum -y install netbird
+        sudo yum -y install netbird
         if ! $SKIP_UI_APP; then 
-            yum -y install netbird-ui
+            sudo yum -y install netbird-ui
         fi
     ;;
     dnf)
         add_rpm_repo
-        dnf -y install dnf-plugin-config-manager
-        dnf config-manager --add-repo /etc/yum.repos.d/wiretrustee.repo
-        dnf -y install netbird
+        sudo dnf -y install dnf-plugin-config-manager
+        sudo dnf config-manager --add-repo /etc/yum.repos.d/wiretrustee.repo
+        sudo dnf -y install netbird
 
         if ! $SKIP_UI_APP; then 
-            dnf -y install netbird-ui
+            sudo dnf -y install netbird-ui
         fi
     ;;
     pacman)
@@ -242,6 +242,10 @@ install_netbird() {
         sudo netbird service install 2>/dev/null
         sudo netbird service start 2>/dev/null
     fi
+
+    echo "Installation has been finished. To connect, you need to run NetBird by executing the following command:"
+    echo ""
+    echo "sudo netbird up"
 }
 
 install_netbird
