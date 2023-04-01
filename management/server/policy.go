@@ -227,8 +227,12 @@ func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
 	return nil
 }
 
-// getRegoQuery returns a initialized Rego object with default rule.
-func (a *Account) getRegoQuery(peerID string, qeuryNumber int, query string) ([]*Peer, []*FirewallRule) {
+// queryPeersAndFwRulesByRego returns a list associated Peers and firewall rules list for this peer.
+func (a *Account) queryPeersAndFwRulesByRego(
+	peerID string,
+	queryNumber int,
+	query string,
+) ([]*Peer, []*FirewallRule) {
 	input := map[string]interface{}{
 		"peer_id": peerID,
 		"peers":   a.Peers,
@@ -238,7 +242,7 @@ func (a *Account) getRegoQuery(peerID string, qeuryNumber int, query string) ([]
 	stmt, err := rego.New(
 		rego.Query("data.netbird.all"),
 		rego.Module("netbird", defaultPolicyModule),
-		rego.Module(fmt.Sprintf("netbird-%d", qeuryNumber), query),
+		rego.Module(fmt.Sprintf("netbird-%d", queryNumber), query),
 	).PrepareForEval(context.TODO())
 	if err != nil {
 		log.WithError(err).Error("get Rego query")
@@ -321,7 +325,7 @@ func (a *Account) getPeersByPolicy(peerID string) (peers []*Peer, rules []*Firew
 		if !policy.Enabled {
 			continue
 		}
-		p, r := a.getRegoQuery(peerID, i, policy.Query)
+		p, r := a.queryPeersAndFwRulesByRego(peerID, i, policy.Query)
 		for _, peer := range p {
 			if _, ok := peersSeen[peer.ID]; ok {
 				continue

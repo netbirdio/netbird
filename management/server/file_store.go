@@ -121,9 +121,9 @@ func restore(file string) (*FileStore, error) {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
 
-		// always regenerate policy objects which reflects Rules
-		// until we totally remove Rules we need ability to fix definitions
-		// between releases if they will need it
+		// TODO: policy query generated from the Go template and rule object.
+		//       We need to refactor this part to avoid using templating for policies queries building
+		//       and drop this migration part.
 		policies := make(map[string]int, len(account.Policies))
 		for i, policy := range account.Policies {
 			policies[policy.ID] = i
