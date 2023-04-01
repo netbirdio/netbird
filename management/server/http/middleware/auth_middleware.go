@@ -58,7 +58,7 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 			err := m.CheckJWTFromRequest(w, r)
 			if err != nil {
 				log.Debugf("Error when validating JWT claims: %s", err.Error())
-				util.WriteError(status.Errorf(status.Unauthorized, "Token invalid"), w)
+				util.WriteError(status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}
 			h.ServeHTTP(w, r)
@@ -66,12 +66,12 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 			err := m.CheckPATFromRequest(w, r)
 			if err != nil {
 				log.Debugf("Error when validating PAT claims: %s", err.Error())
-				util.WriteError(status.Errorf(status.Unauthorized, "Token invalid"), w)
+				util.WriteError(status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}
 			h.ServeHTTP(w, r)
 		default:
-			util.WriteError(status.Errorf(status.Unauthorized, "No valid authentication provided"), w)
+			util.WriteError(status.Errorf(status.Unauthorized, "no valid authentication provided"), w)
 			return
 		}
 	})
@@ -115,11 +115,9 @@ func (m *AuthMiddleware) CheckPATFromRequest(w http.ResponseWriter, r *http.Requ
 
 	account, user, pat, err := m.getAccountFromPAT(token)
 	if err != nil {
-		util.WriteError(status.Errorf(status.Unauthorized, "Token invalid"), w)
 		return fmt.Errorf("invalid Token: %w", err)
 	}
 	if time.Now().After(pat.ExpirationDate) {
-		util.WriteError(status.Errorf(status.Unauthorized, "Token expired"), w)
 		return fmt.Errorf("token expired")
 	}
 
