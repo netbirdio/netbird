@@ -37,22 +37,11 @@ download_release_binary() {
     cd /tmp && curl -LO "$DOWNLOAD_URL" 
     
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
-        # Unzip the app
+        INSTALL_DIR="/Applications/NetBird UI.app"
+        
+        # Unzip the app and move to INSTALL_DIR
         unzip -q -o "$BINARY_NAME"
-
-        INSTALL_DIR="/Applications/NetBird UI.app/Contents"
-        UNZIPPED_FOLDER="netbird_ui_${OS_TYPE}_${ARCH}"
-    
-        if mkdir -p "${INSTALL_DIR}/MacOS/"; then
-            mv "$UNZIPPED_FOLDER"/netbird-ui "${INSTALL_DIR}/MacOS/"
-        fi
-
-        if mkdir -p "${INSTALL_DIR}/Resources/"; then
-            mv "$UNZIPPED_FOLDER"/Netbird.icns "${INSTALL_DIR}/Resources/"
-        fi
-
-        mv "$UNZIPPED_FOLDER"/Info.plist "${INSTALL_DIR}/"
-        mv "$UNZIPPED_FOLDER"/_CodeSignature/ "${INSTALL_DIR}/"
+        mv "netbird_ui_${OS_TYPE}_${ARCH}" "$INSTALL_DIR"
     else
         tar -xzvf "$BINARY_NAME"
         sudo mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR"
