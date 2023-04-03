@@ -56,6 +56,7 @@ type AccountManager interface {
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
+	MarkPATUsed(tokenID string) error
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
@@ -1120,6 +1121,39 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	}
 
 	return nil
+}
+
+// MarkPATUsed marks a personal access token as used
+func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
+	unlock := am.Store.AcquireGlobalLock()
+
+	user, err := am.Store.GetUserByTokenID(tokenID)
+	if err != nil {
+		return err
+	}
+
+	account, err := am.Store.GetAccountByUser(user.Id)
+	if err != nil {
+		return err
+	}
+
+	unlock()
+	unlock = am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	account, err = am.Store.GetAccountByUser(user.Id)
+	if err != nil {
+		return err
+	}
+
+	pat, ok := account.Users[user.Id].PATs[tokenID]
+	if !ok {
+		return fmt.Errorf("token not found")
+	}
+
+	pat.LastUsed = time.Now()
+
+	return am.Store.SaveAccount(account)
 }
 
 // GetAccountFromPAT returns Account and User associated with a personal access token
