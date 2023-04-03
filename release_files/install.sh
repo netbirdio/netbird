@@ -100,6 +100,11 @@ install_netbird() {
     # Checks if SKIP_UI_APP env is set
     if [ -z "$SKIP_UI_APP" ]; then
         SKIP_UI_APP=false
+    else
+        if $SKIP_UI_APP; then 
+            echo "SKIP_UI_APP has been set to true in the environment"
+            echo "Netbird UI installation will be omitted based on your preference"
+        fi
     fi
 
     # Identify OS name and default package manager
@@ -113,27 +118,32 @@ install_netbird() {
             # Allow netbird UI installation for x64 arch only
             if [ "$ARCH" != "amd64" ] && [ "$ARCH" != "arm64" ] \
                 && [ "$ARCH" != "x86_64" ];then
-                echo "$ARCH is not a compatible architecture for Netbird UI"
                 SKIP_UI_APP=true
+                echo "Netbird UI installation will be omitted as $ARCH is not a compactible architecture"
             fi
 
             # Allow netbird UI installation for linux running desktop enviroment
             if [ -z "$XDG_CURRENT_DESKTOP" ];then
                     SKIP_UI_APP=true
+                    echo "Netbird UI installation will be omitted as Linux does not run desktop environment"
             fi
 
-            # Check the availability of a compatible package manager
+            # Check the availability of a compactible package manager
             if [ -x "$(command -v apt)" ]; then
                 PACKAGE_MANAGER="apt"
+                echo "The installation will be performed using apt package manager"
             fi
             if [ -x "$(command -v yum)" ]; then
                 PACKAGE_MANAGER="yum"
+                echo "The installation will be performed using yum package manager"
             fi
             if [ -x "$(command -v dnf)" ]; then
                 PACKAGE_MANAGER="dnf"
+                echo "The installation will be performed using dnf package manager"
             fi
             if [ -x "$(command -v pacman)" ]; then
                 PACKAGE_MANAGER="pacman"
+                echo "The installation will be performed using pacman package manager"
             fi
 		;;
 		Darwin)
@@ -144,6 +154,7 @@ install_netbird() {
             # Check the availability of a compatible package manager
             if [ -x "$(command -v brew)" ]; then 
                 PACKAGE_MANAGER="brew"
+                echo "The installation will be performed using brew package manager"
             fi
 		;;
 	esac
