@@ -1,4 +1,4 @@
-package middleware
+package jwtclaims
 
 import (
 	"bytes"
@@ -17,6 +17,32 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// Options is a struct for specifying configuration options for the middleware.
+type Options struct {
+	// The function that will return the Key to validate the JWT.
+	// It can be either a shared secret or a public key.
+	// Default value: nil
+	ValidationKeyGetter jwt.Keyfunc
+	// The name of the property in the request where the user information
+	// from the JWT will be stored.
+	// Default value: "user"
+	UserProperty string
+	// The function that will be called when there's an error validating the token
+	// Default value:
+	CredentialsOptional bool
+	// A function that extracts the token from the request
+	// Default: FromAuthHeader (i.e., from Authorization header as bearer token)
+	Debug bool
+	// When set, all requests with the OPTIONS method will use authentication
+	// Default: false
+	EnableAuthOnOptions bool
+	// When set, the middelware verifies that tokens are signed with the specific signing algorithm
+	// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
+	// Important to avoid security issues described here: https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
+	// Default: nil
+	SigningMethod jwt.SigningMethod
+}
+
 // Jwks is a collection of JSONWebKey obtained from Config.HttpServerConfig.AuthKeysLocation
 type Jwks struct {
 	Keys []JSONWebKey `json:"keys"`
@@ -32,14 +58,19 @@ type JSONWebKey struct {
 	X5c []string `json:"x5c"`
 }
 
-// NewJwtMiddleware creates new middleware to verify the JWT token sent via Authorization header
-func NewJwtMiddleware(issuer string, audience string, keysLocation string) (*JWTMiddleware, error) {
+// JWTValidator struct to handle token validation and parsing
+type JWTValidator struct {
+	options Options
+}
+
+// NewJWTValidator constructor
+func NewJWTValidator(issuer string, audience string, keysLocation string) (*JWTValidator, error) {
 	keys, err := getPemKeys(keysLocation)
 	if err != nil {
 		return nil, err
 	}
 
-	return New(Options{
+	options := Options{
 		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
 			// Verify 'aud' claim
 			checkAud := token.Claims.(jwt.MapClaims).VerifyAudience(audience, false)
@@ -62,7 +93,59 @@ func NewJwtMiddleware(issuer string, audience string, keysLocation string) (*JWT
 		},
 		SigningMethod:       jwt.SigningMethodRS256,
 		EnableAuthOnOptions: false,
-	}), nil
+	}
+
+	if options.UserProperty == "" {
+		options.UserProperty = "user"
+	}
+
+	return &JWTValidator{
+		options: options,
+	}, nil
+}
+
+// ValidateAndParse validates the token and returns the parsed token
+func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
+	// If the token is empty...
+	if token == "" {
+		// Check if it was required
+		if m.options.CredentialsOptional {
+			log.Debugf("no credentials found (CredentialsOptional=true)")
+			// No error, just no token (and that is ok given that CredentialsOptional is true)
+			return nil, nil
+		}
+
+		// If we get here, the required token is missing
+		errorMsg := "required authorization token not found"
+		log.Debugf("  Error: No credentials found (CredentialsOptional=false)")
+		return nil, fmt.Errorf(errorMsg)
+	}
+
+	// Now parse the token
+	parsedToken, err := jwt.Parse(token, m.options.ValidationKeyGetter)
+
+	// Check if there was an error in parsing...
+	if err != nil {
+		log.Debugf("error parsing token: %v", err)
+		return nil, fmt.Errorf("Error parsing token: %w", err)
+	}
+
+	if m.options.SigningMethod != nil && m.options.SigningMethod.Alg() != parsedToken.Header["alg"] {
+		errorMsg := fmt.Sprintf("Expected %s signing method but token specified %s",
+			m.options.SigningMethod.Alg(),
+			parsedToken.Header["alg"])
+		log.Debugf("error validating token algorithm: %s", errorMsg)
+		return nil, fmt.Errorf("error validating token algorithm: %s", errorMsg)
+	}
+
+	// Check if the parsed token is valid...
+	if !parsedToken.Valid {
+		errorMsg := "token is invalid"
+		log.Debugf(errorMsg)
+		return nil, errors.New(errorMsg)
+	}
+
+	return parsedToken, nil
 }
 
 func getPemKeys(keysLocation string) (*Jwks, error) {

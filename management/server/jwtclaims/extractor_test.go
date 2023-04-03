@@ -26,7 +26,7 @@ func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audiance st
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	r, err := http.NewRequest(http.MethodGet, "http://localhost", nil)
 	require.NoError(t, err, "creating testing request failed")
-	testRequest := r.WithContext(context.WithValue(r.Context(), TokenUserProperty, token)) //nolint
+	testRequest := r.WithContext(context.WithValue(r.Context(), TokenUserProperty, token)) // nolint
 
 	return testRequest
 }

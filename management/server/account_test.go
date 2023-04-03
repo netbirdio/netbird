@@ -495,6 +495,44 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 	assert.Equal(t, account.Users["someUser"].PATs["tokenId"], pat)
 }
 
+func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId("account_id", "testuser", "")
+
+	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
+	hashedToken := sha256.Sum256([]byte(token))
+	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
+	account.Users["someUser"] = &User{
+		Id: "someUser",
+		PATs: map[string]*PersonalAccessToken{
+			"tokenId": {
+				ID:          "tokenId",
+				HashedToken: encodedHashedToken,
+				LastUsed:    time.Time{},
+			},
+		},
+	}
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store: store,
+	}
+
+	err = am.MarkPATUsed("tokenId")
+	if err != nil {
+		t.Fatalf("Error when marking PAT used: %s", err)
+	}
+
+	account, err = am.Store.GetAccount("account_id")
+	if err != nil {
+		t.Fatalf("Error when getting account: %s", err)
+	}
+	assert.True(t, !account.Users["someUser"].PATs["tokenId"].LastUsed.IsZero())
+}
+
 func TestAccountManager_PrivateAccount(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
