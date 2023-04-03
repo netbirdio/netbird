@@ -127,6 +127,16 @@ install_native_binaries() {
 }
 
 install_netbird() {
+    # Check if netbird CLI is installed
+    if [ -x "$(command -v netbird)" ]; then
+        if  netbird status > /dev/null 2>&1; then
+            echo "Netbird service is running, please stop it before proceeding"
+        fi
+
+        echo "Netbird seems to be installed already, please remove it before proceeding"
+        exit 1
+    fi
+
     # Checks if SKIP_UI_APP env is set
     if [ -z "$SKIP_UI_APP" ]; then
         SKIP_UI_APP=false
@@ -260,10 +270,9 @@ install_netbird() {
     ;;
     esac
 
-    # Start client daemon service if only CLI is installed
-    if ! $SKIP_UI_APP; then
+    if netbird status > /dev/null 2>&1; then
         sudo netbird service install 2>/dev/null
-        sudo netbird service start 2>/dev/null
+        sudo netbird service start
     fi
 
     echo "Installation has been finished. To connect, you need to run NetBird by executing the following command:"
