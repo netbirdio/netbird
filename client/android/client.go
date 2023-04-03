@@ -118,12 +118,12 @@ func (c *Client) PeersList() *PeerInfoArray {
 	return &PeerInfoArray{items: peerInfos}
 }
 
-// AddConnectionListener add new network connection listener
-func (c *Client) AddConnectionListener(listener ConnectionListener) {
-	c.recorder.AddConnectionListener(listener)
+// SetConnectionListener set the network connection listener
+func (c *Client) SetConnectionListener(listener ConnectionListener) {
+	c.recorder.SetConnectionListener(listener)
 }
 
 // RemoveConnectionListener remove connection listener
-func (c *Client) RemoveConnectionListener(listener ConnectionListener) {
-	c.recorder.RemoveConnectionListener(listener)
+func (c *Client) RemoveConnectionListener() {
+	c.recorder.RemoveConnectionListener()
 }
