@@ -270,10 +270,14 @@ install_netbird() {
     ;;
     esac
 
-    if netbird status > /dev/null 2>&1; then
-        sudo netbird service install 2>/dev/null
+    # Initiate the service for all OS except for Ubuntu
+    # prevent the script from failing with an error, 
+    # since the service has already been initialized on Ubuntu
+    if [ "$OS_NAME" != "ubuntu" ] ; then
         sudo netbird service start
     fi
+    sudo netbird service start
+    
 
     echo "Installation has been finished. To connect, you need to run NetBird by executing the following command:"
     echo ""
