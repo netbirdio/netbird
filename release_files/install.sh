@@ -48,6 +48,19 @@ download_release_binary() {
     fi
 }
 
+add_apt_repo() {
+    sudo apt-get update
+    sudo apt-get install ca-certificates gnupg -y
+        
+    curl -sSL https://pkgs.wiretrustee.com/debian/public.key \
+    |  gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
+
+    APT_REPO="deb [signed-by=/usr/share/keyrings/wiretrustee-archive-keyring.gpg] https://pkgs.wiretrustee.com/debian stable main"
+    echo "$APT_REPO" | sudo tee /etc/apt/sources.list.d/wiretrustee.list
+
+    sudo apt-get update
+}
+
 add_rpm_repo() {
 cat <<-EOF | sudo tee /etc/yum.repos.d/wiretrustee.repo
 [Wiretrustee]
@@ -181,16 +194,7 @@ install_netbird() {
     # only the CLI will be installed
     case "$PACKAGE_MANAGER" in
     apt)
-        sudo apt-get update
-        sudo apt-get install ca-certificates gnupg -y
-        
-        curl -sSL https://pkgs.wiretrustee.com/debian/public.key \
-        |  gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
-
-        APT_REPO="deb [signed-by=/usr/share/keyrings/wiretrustee-archive-keyring.gpg] https://pkgs.wiretrustee.com/debian stable main"
-        echo "$APT_REPO" | sudo tee /etc/apt/sources.list.d/wiretrustee.list
-
-        sudo apt-get update
+        add_apt_repo
         sudo apt-get install netbird -y
         
         if ! $SKIP_UI_APP; then 
