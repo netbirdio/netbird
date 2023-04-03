@@ -1,15 +1,17 @@
 package server
 
 import (
-	"github.com/c-robinson/iplib"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/netbirdio/netbird/route"
-	"github.com/rs/xid"
 	"math/rand"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/c-robinson/iplib"
+	"github.com/rs/xid"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/route"
 )
 
 const (
@@ -48,7 +50,7 @@ func NewNetwork() *Network {
 	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), NetSize)
 	sub, _ := n.Subnet(SubnetSize)
 
-	s := rand.NewSource(time.Now().Unix())
+	s := rand.NewSource(time.Now().UTC().Unix())
 	r := rand.New(s)
 	intn := r.Intn(len(sub))
 
@@ -99,7 +101,7 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	}
 
 	// pick a random IP
-	s := rand.NewSource(time.Now().Unix())
+	s := rand.NewSource(time.Now().UTC().Unix())
 	r := rand.New(s)
 	intn := r.Intn(len(ips))
 

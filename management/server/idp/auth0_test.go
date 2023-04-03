@@ -3,13 +3,15 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/assert"
@@ -63,7 +65,7 @@ func (mc *mockAuth0Credentials) Authenticate() (JWTToken, error) {
 }
 
 func newTestJWT(t *testing.T, expInt int) string {
-	now := time.Now()
+	now := time.Now().UTC()
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"iat": now.Unix(),
 		"exp": now.Add(time.Duration(expInt) * time.Second).Unix(),
@@ -207,13 +209,13 @@ func TestAuth0_JwtStillValid(t *testing.T) {
 	}
 	jwtStillValidTestCase1 := jwtStillValidTest{
 		name:           "JWT still valid",
-		inputTime:      time.Now().Add(10 * time.Second),
+		inputTime:      time.Now().UTC().Add(10 * time.Second),
 		expectedResult: true,
 		message:        "should be true",
 	}
 	jwtStillValidTestCase2 := jwtStillValidTest{
 		name:           "JWT is invalid",
-		inputTime:      time.Now(),
+		inputTime:      time.Now().UTC(),
 		expectedResult: false,
 		message:        "should be false",
 	}
@@ -249,9 +251,9 @@ func TestAuth0_Authenticate(t *testing.T) {
 
 	authenticateTestCase1 := authenticateTest{
 		name:             "Get Cached token",
-		inputExpireToken: time.Now().Add(30 * time.Second),
+		inputExpireToken: time.Now().UTC().Add(30 * time.Second),
 		helper:           JsonParser{},
-		//expectedFuncExitErrDiff: fmt.Errorf("unable to get token, statusCode 400"),
+		// expectedFuncExitErrDiff: fmt.Errorf("unable to get token, statusCode 400"),
 		expectedCode:  200,
 		expectedToken: "",
 	}

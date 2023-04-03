@@ -12,20 +12,23 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 
-	server "github.com/netbirdio/netbird/management/server"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/netbirdio/netbird/management/server"
+
 	pb "github.com/golang/protobuf/proto" //nolint
-	"github.com/netbirdio/netbird/encryption"
 	log "github.com/sirupsen/logrus"
 
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/encryption"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
+
+	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -368,7 +371,7 @@ var _ = Describe("Management service", func() {
 				for i := 0; i < additionalPeers; i++ {
 					key, _ := wgtypes.GenerateKey()
 					loginPeerWithValidSetupKey(serverPubKey, key, client)
-					rand.Seed(time.Now().UnixNano())
+					rand.Seed(time.Now().UTC().UnixNano())
 					n := rand.Intn(200)
 					time.Sleep(time.Duration(n) * time.Millisecond)
 				}

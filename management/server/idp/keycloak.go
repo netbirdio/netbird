@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 const (
@@ -118,7 +119,7 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 
 // jwtStillValid returns true if the token still valid and have enough time to be used and get a response from keycloak.
 func (kc *KeycloakCredentials) jwtStillValid() bool {
-	return !kc.jwtToken.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(kc.jwtToken.expiresInTime)
+	return !kc.jwtToken.expiresInTime.IsZero() && time.Now().UTC().Add(5*time.Second).Before(kc.jwtToken.expiresInTime)
 }
 
 // requestJWTToken performs request to get jwt token.

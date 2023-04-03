@@ -5,10 +5,12 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
-	"github.com/netbirdio/netbird/management/proto"
-	log "github.com/sirupsen/logrus"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/proto"
 )
 
 // TURNCredentialsManager used to manage TURN credentials
@@ -44,7 +46,7 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, config *T
 func (m *TimeBasedAuthSecretsManager) GenerateCredentials() TURNCredentials {
 	mac := hmac.New(sha1.New, []byte(m.config.Secret))
 
-	timeAuth := time.Now().Add(m.config.CredentialsTTL.Duration).Unix()
+	timeAuth := time.Now().UTC().Add(m.config.CredentialsTTL.Duration).Unix()
 
 	username := fmt.Sprint(timeAuth)
 
@@ -88,7 +90,7 @@ func (m *TimeBasedAuthSecretsManager) SetupRefresh(peerID string) {
 	log.Debugf("starting turn refresh for %s", peerID)
 
 	go func() {
-		//we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
+		// we don't want to regenerate credentials right on expiration, so we do it slightly before (at 3/4 of TTL)
 		ticker := time.NewTicker(m.config.CredentialsTTL.Duration / 4 * 3)
 
 		for {
