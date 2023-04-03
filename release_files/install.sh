@@ -62,13 +62,13 @@ add_apt_repo() {
 }
 
 add_rpm_repo() {
-cat <<-EOF | sudo tee /etc/yum.repos.d/wiretrustee.repo
-[Wiretrustee]
-name=Wiretrustee
-baseurl=https://pkgs.wiretrustee.com/yum/
+cat <<-EOF | sudo tee /etc/yum.repos.d/netbird.repo
+[Netbird]
+name=Netbird
+baseurl=https://pkgs.netbird.io/yum/
 enabled=1
 gpgcheck=0
-gpgkey=https://pkgs.wiretrustee.com/yum/repodata/repomd.xml.key
+gpgkey=https://pkgs.netbird.io/yum/repodata/repomd.xml.key
 repo_gpgcheck=1
 EOF
 } 
@@ -211,7 +211,7 @@ install_netbird() {
     dnf)
         add_rpm_repo
         sudo dnf -y install dnf-plugin-config-manager
-        sudo dnf config-manager --add-repo /etc/yum.repos.d/wiretrustee.repo
+        sudo dnf config-manager --add-repo /etc/yum.repos.d/netbird.repo
         sudo dnf -y install netbird
 
         if ! $SKIP_UI_APP; then 
