@@ -64,7 +64,7 @@ type JWTValidator struct {
 }
 
 // NewJWTValidator constructor
-func NewJWTValidator(issuer string, audience string, keysLocation string) (*JWTValidator, error) {
+func NewJWTValidator(issuer string, audienceList []string, keysLocation string) (*JWTValidator, error) {
 	keys, err := getPemKeys(keysLocation)
 	if err != nil {
 		return nil, err
@@ -73,7 +73,13 @@ func NewJWTValidator(issuer string, audience string, keysLocation string) (*JWTV
 	options := Options{
 		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
 			// Verify 'aud' claim
-			checkAud := token.Claims.(jwt.MapClaims).VerifyAudience(audience, false)
+			var checkAud bool
+			for _, audience := range audienceList {
+				checkAud = token.Claims.(jwt.MapClaims).VerifyAudience(audience, false)
+				if checkAud {
+					break
+				}
+			}
 			if !checkAud {
 				return token, errors.New("invalid audience")
 			}
