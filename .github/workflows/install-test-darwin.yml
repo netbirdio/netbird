@@ -1,12 +1,10 @@
 name: Test installation script
 
 on:
-  pull_request:
+  push:
     branches:
       - main
-    paths:
-      - "release_files/install.sh"
-  push:
+  pull_request:
     paths:
       - "release_files/install.sh"
 
@@ -17,9 +15,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Rename brew package
+        if: ${{ matrix.check_bin_install }}
+        run: mv /opt/homebrew/bin/brew /opt/homebrew/bin/brew.bak
+
       - name: Run install script
         run: |
-          sudo sh ./release_files/install.sh
+          sh ./release_files/install.sh
         env:
           SKIP_UI_APP: true
 
@@ -35,9 +37,13 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Rename brew package
+        if: ${{ matrix.check_bin_install }}
+        run: mv /opt/homebrew/bin/brew /opt/homebrew/bin/brew.bak
+
       - name: Run install script
         run: |
-          sudo sh ./release_files/install.sh
+          sh ./release_files/install.sh
 
       - name: Run tests
         run: |

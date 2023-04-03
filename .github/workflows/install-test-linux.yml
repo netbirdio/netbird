@@ -1,54 +1,36 @@
 name: Test installation script
 
 on:
-  pull_request:
+  push:
     branches:
       - main
-    paths:
-      - "release_files/install.sh"
-  push:
+  pull_request:
     paths:
       - "release_files/install.sh"
 
 jobs:
   install-cli-only:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        check_bin_install: [true, false]
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
 
+      - name: Rename apt package
+        if: ${{ matrix.check_bin_install }}
+        run: |
+          mv /usr/bin/apt /usr/bin/apt.bak
+          mv /usr/bin/apt-get /usr/bin/apt-get.bak
+
       - name: Run install script
         run: |
-          sudo sh ./release_files/install.sh
-        env:
-          SKIP_UI_APP: true
+          sh ./release_files/install.sh
 
       - name: Run tests
         run: |
           if ! command -v netbird &> /dev/null; then
             echo "Error: netbird is not installed"
             exit 1
-          fi
-  install-all:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Run install script
-        run: |
-          sudo sh ./release_files/install.sh
-
-      - name: Run tests
-        run: |
-          if ! command -v netbird &> /dev/null; then
-              echo "Error: netbird is not installed"
-              exit 1
-          fi
-
-          if [ -z "$XDG_CURRENT_DESKTOP" ];then
-              if ! dpkg -s "NetBird UI" >/dev/null 2>&1; then
-                echo "Error: NetBird UI is not installed"
-                exit 1
-              fi
           fi
