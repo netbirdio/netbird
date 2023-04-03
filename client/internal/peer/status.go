@@ -293,14 +293,14 @@ func (d *Status) ClientTeardown() {
 	d.notifier.clientTearDown()
 }
 
-// AddConnectionListener add a listener to the notifier
-func (d *Status) AddConnectionListener(listener Listener) {
-	d.notifier.addListener(listener)
+// SetConnectionListener set a listener to the notifier
+func (d *Status) SetConnectionListener(listener Listener) {
+	d.notifier.setListener(listener)
 }
 
-// RemoveConnectionListener remove a listener from the notifier
-func (d *Status) RemoveConnectionListener(listener Listener) {
-	d.notifier.removeListener(listener)
+// RemoveConnectionListener remove the listener from the notifier
+func (d *Status) RemoveConnectionListener() {
+	d.notifier.removeListener()
 }
 
 func (d *Status) onConnectionChanged() {
