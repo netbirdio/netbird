@@ -177,18 +177,15 @@ func (e *Engine) Start() error {
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
 	var err error
-
-	e.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, e.config.TunAdapter)
-	if err != nil {
-		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIfaceName, err.Error())
-		return err
-	}
-
 	transportNet, err := e.newStdNet()
 	if err != nil {
 		log.Warnf("failed to create pion's stdnet: %s", err)
 	}
-	fmt.Sprint(transportNet)
+	e.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, e.config.TunAdapter, transportNet)
+	if err != nil {
+		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIfaceName, err.Error())
+		return err
+	}
 
 	err = e.wgInterface.Create()
 	if err != nil {

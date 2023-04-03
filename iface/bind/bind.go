@@ -26,7 +26,7 @@ type ICEBind struct {
 // NewICEBind create a new instance of ICEBind with a given transportNet and an interfaceFilter function.
 // The interfaceFilter function is used to exclude interfaces from hole punching (the IPs of that interfaces won't be used as connection candidates)
 // The transportNet can be nil.
-func NewICEBind(transportNet transport.Net, interfaceFilter func(interfaceName string) bool) *ICEBind {
+func NewICEBind(transportNet transport.Net) *ICEBind {
 	return &ICEBind{
 		transportNet: transportNet,
 		mu:           sync.Mutex{},

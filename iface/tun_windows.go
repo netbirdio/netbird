@@ -2,6 +2,7 @@ package iface
 
 import (
 	"fmt"
+	"github.com/netbirdio/netbird/iface/bind"
 	"net"
 
 	log "github.com/sirupsen/logrus"
@@ -16,8 +17,8 @@ type tunDevice struct {
 	iceBind      *bind.ICEBind
 }
 
-func newTunDevice(name string, address WGAddress, mtu int) *tunDevice {
-	return &tunDevice{name: name, address: address, iceBind: &bind.ICEBind{}}
+func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) *tunDevice {
+	return &tunDevice{name: name, address: address, iceBind: bind.NewICEBind(transportNet)}
 }
 
 func (c *tunDevice) Create() error {

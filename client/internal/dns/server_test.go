@@ -3,6 +3,7 @@ package dns
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"net"
 	"net/netip"
 	"strings"
@@ -199,7 +200,11 @@ func TestUpdateDNSServer(t *testing.T) {
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU, nil)
+			newNet, err := stdnet.NewNet(nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU, nil, newNet)
 			if err != nil {
 				t.Fatal(err)
 			}

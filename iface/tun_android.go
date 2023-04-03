@@ -2,6 +2,7 @@ package iface
 
 import (
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/pion/transport/v2"
 	"net"
 
 	log "github.com/sirupsen/logrus"
@@ -23,12 +24,12 @@ type tunDevice struct {
 	iceBind *bind.ICEBind
 }
 
-func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter) *tunDevice {
+func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
 		address:    address,
 		mtu:        mtu,
 		tunAdapter: tunAdapter,
-		iceBind:    &bind.ICEBind{},
+		iceBind:    bind.NewICEBind(transportNet),
 	}
 }
 
