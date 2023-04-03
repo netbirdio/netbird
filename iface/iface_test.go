@@ -351,7 +351,7 @@ func Test_ConnectPeers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	newNet, err := stdnet.NewNet()
+	newNet, err = stdnet.NewNet()
 	if err != nil {
 		t.Fatal(err)
 	}
