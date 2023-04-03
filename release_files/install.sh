@@ -60,6 +60,34 @@ repo_gpgcheck=1
 EOF
 } 
 
+add_aur_repo() {
+    INSTALL_PKGS="git base-devel go"
+    REMOVE_PKGS=""
+
+    # Check if dependencies are installed
+    for PKG in $INSTALL_PKGS; do
+        if ! pacman -Q "$PKG" > /dev/null 2>&1; then
+            # Install missing package(s)
+            sudo pacman -S "$PKG" --noconfirm
+
+            # Add installed package for clean up later
+            REMOVE_PKGS="$REMOVE_PKGS $PKG"
+        fi
+    done
+
+    # Build package from AUR
+    cd /tmp && git clone https://aur.archlinux.org/netbird.git 
+    cd netbird && makepkg -sri --noconfirm
+
+    if ! $SKIP_UI_APP; then 
+        cd /tmp && git clone https://aur.archlinux.org/netbird-ui.git
+        cd netbird-ui && makepkg -sri --noconfirm
+    fi
+
+    # Clean up the installed packages
+    sudo pacman -Rs "$REMOVE_PKGS" --noconfirm
+}
+
 install_native_binaries() {
     # Checks  for supported architecture
     case "$ARCH" in
@@ -188,16 +216,7 @@ install_netbird() {
     ;;
     pacman)
         sudo pacman -Syy
-        sudo pacman -Sy --needed --noconfirm git base-devel go
-
-        # Build package from AUR
-        cd /tmp && git clone https://aur.archlinux.org/netbird.git 
-        cd netbird && makepkg -sri --noconfirm
-
-        if ! $SKIP_UI_APP; then 
-            cd /tmp && git clone https://aur.archlinux.org/netbird-ui.git
-            cd netbird-ui && makepkg -sri --noconfirm
-        fi
+        add_aur_repo
     ;;
     brew)
         # Remove Wiretrustee if it had been installed using Homebrew before
