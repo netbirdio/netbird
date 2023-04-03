@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/xid"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/rs/xid"
 
 	log "github.com/sirupsen/logrus"
 
@@ -143,7 +144,7 @@ func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
 		return false, 0
 	}
 	expiresAt := p.LastLogin.Add(expiresIn)
-	now := time.Now()
+	now := time.Now().UTC()
 	timeLeft := expiresAt.Sub(now)
 	return timeLeft <= 0, timeLeft
 }
@@ -245,7 +246,7 @@ func (am *DefaultAccountManager) MarkPeerConnected(peerPubKey string, connected 
 
 	oldStatus := peer.Status.Copy()
 	newStatus := oldStatus
-	newStatus.LastSeen = time.Now()
+	newStatus.LastSeen = time.Now().UTC()
 	newStatus.Connected = connected
 	// whenever peer got connected that means that it logged in successfully
 	if newStatus.Connected {
@@ -477,7 +478,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	}
 
 	opEvent := &activity.Event{
-		Timestamp: time.Now(),
+		Timestamp: time.Now().UTC(),
 		AccountID: account.Id,
 	}
 
@@ -524,10 +525,10 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		Name:                   peer.Meta.Hostname,
 		DNSLabel:               newLabel,
 		UserID:                 userID,
-		Status:                 &PeerStatus{Connected: false, LastSeen: time.Now()},
+		Status:                 &PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 		SSHEnabled:             false,
 		SSHKey:                 peer.SSHKey,
-		LastLogin:              time.Now(),
+		LastLogin:              time.Now().UTC(),
 		LoginExpirationEnabled: addedByUser,
 	}
 
@@ -704,7 +705,7 @@ func updatePeerLastLogin(peer *Peer, account *Account) {
 
 // UpdateLastLogin and set login expired false
 func (p *Peer) UpdateLastLogin() *Peer {
-	p.LastLogin = time.Now()
+	p.LastLogin = time.Now().UTC()
 	newStatus := p.Status.Copy()
 	newStatus.LoginExpired = false
 	p.Status = newStatus

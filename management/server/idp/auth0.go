@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 
 	"github.com/golang-jwt/jwt"
 	log "github.com/sirupsen/logrus"
@@ -151,7 +152,7 @@ func NewAuth0Manager(config Auth0ClientConfig, appMetrics telemetry.AppMetrics) 
 
 // jwtStillValid returns true if the token still valid and have enough time to be used and get a response from Auth0
 func (c *Auth0Credentials) jwtStillValid() bool {
-	return !c.jwtToken.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(c.jwtToken.expiresInTime)
+	return !c.jwtToken.expiresInTime.IsZero() && time.Now().UTC().Add(5*time.Second).Before(c.jwtToken.expiresInTime)
 }
 
 // requestJWTToken performs request to get jwt token

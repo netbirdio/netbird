@@ -173,7 +173,7 @@ func restore(file string) (*FileStore, error) {
 		for key, peer := range account.Peers {
 			// set LastLogin for the peers that were onboarded before the peer login expiration feature
 			if peer.LastLogin.IsZero() {
-				peer.LastLogin = time.Now()
+				peer.LastLogin = time.Now().UTC()
 			}
 			if peer.ID != "" {
 				continue
@@ -227,7 +227,7 @@ func (s *FileStore) persist(file string) error {
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
 func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 	log.Debugf("acquiring global lock")
-	start := time.Now()
+	start := time.Now().UTC()
 	s.globalAccountLock.Lock()
 
 	unlock = func() {
@@ -241,7 +241,7 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 // AcquireAccountLock acquires account lock and returns a function that releases the lock
 func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
 	log.Debugf("acquiring lock for account %s", accountID)
-	start := time.Now()
+	start := time.Now().UTC()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
 	mtx := value.(*sync.Mutex)
 	mtx.Lock()

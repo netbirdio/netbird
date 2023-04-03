@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 func TestNewKeycloakManager(t *testing.T) {
@@ -198,13 +199,13 @@ func TestKeycloakJwtStillValid(t *testing.T) {
 
 	jwtStillValidTestCase1 := jwtStillValidTest{
 		name:           "JWT still valid",
-		inputTime:      time.Now().Add(10 * time.Second),
+		inputTime:      time.Now().UTC().Add(10 * time.Second),
 		expectedResult: true,
 		message:        "should be true",
 	}
 	jwtStillValidTestCase2 := jwtStillValidTest{
 		name:           "JWT is invalid",
-		inputTime:      time.Now(),
+		inputTime:      time.Now().UTC(),
 		expectedResult: false,
 		message:        "should be false",
 	}
@@ -239,7 +240,7 @@ func TestKeycloakAuthenticate(t *testing.T) {
 
 	authenticateTestCase1 := authenticateTest{
 		name:                    "Get Cached token",
-		inputExpireToken:        time.Now().Add(30 * time.Second),
+		inputExpireToken:        time.Now().UTC().Add(30 * time.Second),
 		helper:                  JsonParser{},
 		expectedFuncExitErrDiff: nil,
 		expectedCode:            200,

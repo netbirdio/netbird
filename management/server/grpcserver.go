@@ -98,7 +98,7 @@ func (s *GRPCServer) GetServerKey(ctx context.Context, req *proto.Empty) (*proto
 	if s.appMetrics != nil {
 		s.appMetrics.GRPCMetrics().CountGetKeyRequest()
 	}
-	now := time.Now().Add(24 * time.Hour)
+	now := time.Now().UTC().Add(24 * time.Hour)
 	secs := int64(now.Second())
 	nanos := int32(now.Nanosecond())
 	expiresAt := &timestamp.Timestamp{Seconds: secs, Nanos: nanos}
