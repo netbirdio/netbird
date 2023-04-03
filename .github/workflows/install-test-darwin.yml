@@ -1,0 +1,52 @@
+name: Test installation script
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "release_files/install.sh"
+  push:
+    paths:
+      - "release_files/install.sh"
+
+jobs:
+  install-cli-only:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run install script
+        run: |
+          sudo sh ./release_files/install.sh
+        env:
+          SKIP_UI_APP: true
+
+      - name: Run tests
+        run: |
+          if ! command -v netbird &> /dev/null; then
+            echo "Error: netbird is not installed"
+            exit 1
+          fi
+  install-all:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run install script
+        run: |
+          sudo sh ./release_files/install.sh
+
+      - name: Run tests
+        run: |
+          if ! command -v netbird &> /dev/null; then
+              echo "Error: netbird is not installed"
+              exit 1
+          fi
+
+          if [[ $(mdfind "kMDItemContentType == 'com.apple.application-bundle' && kMDItemFSName == '*NetBird UI.app'") ]]; then
+            echo "Error: NetBird UI is not installed"
+            exit 1
+          fi
