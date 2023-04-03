@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/pion/transport/v2/stdnet"
 	"net"
 	"net/netip"
@@ -217,6 +218,11 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
 	}
+	conn, err := net.ListenUDP("udp4", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
 
 	type testCase struct {
 		name       string
