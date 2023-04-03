@@ -90,8 +90,13 @@ func NewClient(ctx context.Context, addr string, key wgtypes.Key, tlsEnabled boo
 		log.Errorf("failed to connect to the signalling server %v", err)
 		return nil, err
 	}
-
 	log.Debugf("connected to Signal Service: %v", conn.Target())
+
+	md := metadata.New(map[string]string{
+		proto.HeaderId:                    key.PublicKey().String(), // add key fingerprint to the request header to be identified on the server side
+		appKeepAlive.GrpcVersionHeaderKey: version.NetbirdVersion(), // add version info to ensure keep alive is supported
+	})
+	ctx = metadata.NewOutgoingContext(ctx, md)
 
 	return &GrpcClient{
 		realClient:            proto.NewSignalExchangeClient(conn),
@@ -149,7 +154,7 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 		// todo once the key rotation logic has been implemented, consider changing to some other identifier (received from management)
 		ctx, cancelStream := context.WithCancel(c.ctx)
 		defer cancelStream()
-		stream, err := c.connect(ctx, c.key.PublicKey().String())
+		stream, err := c.connect(ctx)
 		if err != nil {
 			log.Warnf("disconnected from the Signal Exchange due to an error: %v", err)
 			return err
@@ -211,16 +216,9 @@ func (c *GrpcClient) getStreamStatusChan() <-chan struct{} {
 	return c.connectedCh
 }
 
-func (c *GrpcClient) connect(ctx context.Context, key string) (proto.SignalExchange_ConnectStreamClient, error) {
+func (c *GrpcClient) connect(ctx context.Context) (proto.SignalExchange_ConnectStreamClient, error) {
 	c.stream = nil
-
-	md := metadata.New(map[string]string{
-		proto.HeaderId:                    key,                      // add key fingerprint to the request header to be identified on the server side
-		appKeepAlive.GrpcVersionHeaderKey: version.NetbirdVersion(), // add version info to ensure keep alive is supported
-	})
-	metaCtx := metadata.NewOutgoingContext(ctx, md)
-
-	stream, err := c.realClient.ConnectStream(metaCtx, grpc.WaitForReady(true))
+	stream, err := c.realClient.ConnectStream(ctx, grpc.WaitForReady(true))
 	c.stream = stream
 	if err != nil {
 		return nil, err
