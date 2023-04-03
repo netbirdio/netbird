@@ -1,4 +1,4 @@
-name: Test installation script
+name: Test installation Linux
 
 on:
   push:
@@ -21,8 +21,8 @@ jobs:
       - name: Rename apt package
         if: ${{ matrix.check_bin_install }}
         run: |
-          mv /usr/bin/apt /usr/bin/apt.bak
-          mv /usr/bin/apt-get /usr/bin/apt-get.bak
+          sudo mv /usr/bin/apt /usr/bin/apt.bak
+          sudo mv /usr/bin/apt-get /usr/bin/apt-get.bak
 
       - name: Run install script
         run: |
