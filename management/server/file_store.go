@@ -240,7 +240,7 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 
 // AcquireAccountLock acquires account lock and returns a function that releases the lock
 func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
-	log.Debugf("acquiring lock for account %s", accountID)
+	log.Tracef("acquiring lock for account %s", accountID)
 	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
 	mtx := value.(*sync.Mutex)
@@ -248,7 +248,7 @@ func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
 
 	unlock = func() {
 		mtx.Unlock()
-		log.Debugf("released lock for account %s in %v", accountID, time.Since(start))
+		log.Tracef("released lock for account %s in %v", accountID, time.Since(start))
 	}
 
 	return unlock
