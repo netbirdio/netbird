@@ -196,6 +196,12 @@ func parseInterfacesString(interfaces string) []*transport.Interface {
 func InterfaceFilter(disallowList []string) func(string) bool {
 
 	return func(iFace string) bool {
+
+		if strings.HasPrefix(iFace, "lo") {
+			// hardcoded loopback check to support already installed agents
+			return false
+		}
+
 		for _, s := range disallowList {
 			if strings.HasPrefix(iFace, s) {
 				log.Debugf("ignoring interface %s - it is not allowed", iFace)
