@@ -59,6 +59,10 @@ jobs:
           CI_NETBIRD_AUTH_TOKEN_ENDPOINT: https://example.eu.auth0.com/oauth/token
           CI_NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT: https://example.eu.auth0.com/oauth/device/code
           CI_NETBIRD_AUTH_REDIRECT_URI: "/peers"
+          CI_NETBIRD_TOKEN_SOURCE: "idToken"
+          CI_NETBIRD_AUTH_USER_ID_CLAIM: "email"
+          CI_NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID: "super"
+
         run: |
           grep AUTH_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_ID
           grep AUTH_AUTHORITY docker-compose.yml | grep $CI_NETBIRD_AUTH_AUTHORITY
@@ -68,6 +72,10 @@ jobs:
           grep NETBIRD_MGMT_API_ENDPOINT docker-compose.yml | grep "$CI_NETBIRD_DOMAIN:33073"
           grep AUTH_REDIRECT_URI docker-compose.yml | grep $CI_NETBIRD_AUTH_REDIRECT_URI
           grep AUTH_SILENT_REDIRECT_URI docker-compose.yml | egrep 'AUTH_SILENT_REDIRECT_URI=$'
+          grep LETSENCRYPT_DOMAIN docker-compose.yml | egrep 'LETSENCRYPT_DOMAIN=$'
+          grep NETBIRD_TOKEN_SOURCE docker-compose.yml | grep $CI_NETBIRD_AUTH_AUDIENCE
+          grep AuthUserIDClaim management.json | grep $CI_NETBIRD_AUTH_USER_ID_CLAIM
+          grep -A 1 ProviderConfig management.json | grep $CI_NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID
 
       - name: run docker compose up
         working-directory: infrastructure_files
