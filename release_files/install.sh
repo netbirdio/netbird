@@ -53,7 +53,7 @@ add_apt_repo() {
     sudo apt-get install ca-certificates gnupg -y
         
     curl -sSL https://pkgs.wiretrustee.com/debian/public.key \
-    |  gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
+    | sudo gpg --dearmor --output /usr/share/keyrings/wiretrustee-archive-keyring.gpg
 
     APT_REPO="deb [signed-by=/usr/share/keyrings/wiretrustee-archive-keyring.gpg] https://pkgs.wiretrustee.com/debian stable main"
     echo "$APT_REPO" | sudo tee /etc/apt/sources.list.d/wiretrustee.list
@@ -172,16 +172,13 @@ install_netbird() {
             if [ -x "$(command -v apt)" ]; then
                 PACKAGE_MANAGER="apt"
                 echo "The installation will be performed using apt package manager"
-            fi
-            if [ -x "$(command -v yum)" ]; then
-                PACKAGE_MANAGER="yum"
-                echo "The installation will be performed using yum package manager"
-            fi
-            if [ -x "$(command -v dnf)" ]; then
+            elif [ -x "$(command -v dnf)" ]; then
                 PACKAGE_MANAGER="dnf"
                 echo "The installation will be performed using dnf package manager"
-            fi
-            if [ -x "$(command -v pacman)" ]; then
+            elif [ -x "$(command -v yum)" ]; then
+                PACKAGE_MANAGER="yum"
+                echo "The installation will be performed using yum package manager"
+            elif [ -x "$(command -v pacman)" ]; then
                 PACKAGE_MANAGER="pacman"
                 echo "The installation will be performed using pacman package manager"
             fi
