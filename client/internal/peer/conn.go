@@ -419,13 +419,11 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 		remoteDirectMode = conn.receiveRemoteDirectMode()
 	}
 
-	if conn.config.UserspaceBind {
-		log.Debugf("using WireGuard no proxy userspace bind mode with peer %s", conn.config.Key)
+	if conn.config.UserspaceBind && localDirectMode {
 		return proxy.NewNoProxy(conn.config.ProxyConfig)
 	}
 
 	if localDirectMode && remoteDirectMode {
-		log.Debugf("using WireGuard direct mode with peer %s", conn.config.Key)
 		return proxy.NewDirectNoProxy(conn.config.ProxyConfig, remoteWgPort)
 	}
 
