@@ -5,12 +5,12 @@ import (
 	"net"
 )
 
-// NoProxy is used when there is no need for a proxy between ICE and Wireguard.
+// NoProxy is used when there is no need for a proxy between ICE and WireGuard.
 // This is possible in either of these cases:
 // - peers are in the same local network
 // - one of the peers has a public static IP (host)
-// NoProxy will just update remote peer with a remote host and fixed Wireguard port (r.g. 51820).
-// In order NoProxy to work, Wireguard port has to be fixed for the time being.
+// NoProxy will just update remote peer with a remote host and fixed WireGuard port (r.g. 51820).
+// In order NoProxy to work, WireGuard port has to be fixed for the time being.
 type NoProxy struct {
 	config Config
 	// RemoteWgListenPort is a WireGuard port of a remote peer.
@@ -31,7 +31,7 @@ func (p *NoProxy) Close() error {
 	return nil
 }
 
-// Start just updates Wireguard peer with the remote IP and default Wireguard port
+// Start just updates WireGuard peer with the remote IP and default WireGuard port
 func (p *NoProxy) Start(remoteConn net.Conn) error {
 
 	log.Debugf("using NoProxy while connecting to peer %s", p.config.RemoteKey)

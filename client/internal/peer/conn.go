@@ -149,7 +149,7 @@ func (conn *Conn) reCreateAgent() error {
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
 		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
 		Urls:             conn.config.StunTurn,
-		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive},
+		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
 		FailedTimeout:    &failedTimeout,
 		InterfaceFilter:  stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
 		UDPMux:           conn.config.UDPMux,
@@ -395,7 +395,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 }
 
 func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
-	return proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
 	useProxy := shouldUseProxy(pair)
 	localDirectMode := !useProxy
 	remoteDirectMode := localDirectMode
@@ -412,7 +412,7 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 	}
 
 	log.Debugf("falling back to local proxy mode with peer %s", conn.config.Key)
-	return proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
 }
 
 func (conn *Conn) sendLocalDirectMode(localMode bool) {

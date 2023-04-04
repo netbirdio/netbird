@@ -6,8 +6,8 @@ import (
 	"net"
 )
 
-// WireguardProxy proxies
-type WireguardProxy struct {
+// WireGuardProxy proxies
+type WireGuardProxy struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -17,13 +17,13 @@ type WireguardProxy struct {
 	localConn  net.Conn
 }
 
-func NewWireguardProxy(config Config) *WireguardProxy {
-	p := &WireguardProxy{config: config}
+func NewWireGuardProxy(config Config) *WireGuardProxy {
+	p := &WireGuardProxy{config: config}
 	p.ctx, p.cancel = context.WithCancel(context.Background())
 	return p
 }
 
-func (p *WireguardProxy) updateEndpoint() error {
+func (p *WireGuardProxy) updateEndpoint() error {
 	udpAddr, err := net.ResolveUDPAddr(p.localConn.LocalAddr().Network(), p.localConn.LocalAddr().String())
 	if err != nil {
 		return err
@@ -38,7 +38,7 @@ func (p *WireguardProxy) updateEndpoint() error {
 	return nil
 }
 
-func (p *WireguardProxy) Start(remoteConn net.Conn) error {
+func (p *WireGuardProxy) Start(remoteConn net.Conn) error {
 	p.remoteConn = remoteConn
 
 	var err error
@@ -60,7 +60,7 @@ func (p *WireguardProxy) Start(remoteConn net.Conn) error {
 	return nil
 }
 
-func (p *WireguardProxy) Close() error {
+func (p *WireGuardProxy) Close() error {
 	p.cancel()
 	if c := p.localConn; c != nil {
 		err := p.localConn.Close()
@@ -77,7 +77,7 @@ func (p *WireguardProxy) Close() error {
 
 // proxyToRemote proxies everything from Wireguard to the RemoteKey peer
 // blocks
-func (p *WireguardProxy) proxyToRemote() {
+func (p *WireGuardProxy) proxyToRemote() {
 
 	buf := make([]byte, 1500)
 	for {
@@ -101,7 +101,7 @@ func (p *WireguardProxy) proxyToRemote() {
 
 // proxyToLocal proxies everything from the RemoteKey peer to local Wireguard
 // blocks
-func (p *WireguardProxy) proxyToLocal() {
+func (p *WireGuardProxy) proxyToLocal() {
 
 	buf := make([]byte, 1500)
 	for {
@@ -123,6 +123,6 @@ func (p *WireguardProxy) proxyToLocal() {
 	}
 }
 
-func (p *WireguardProxy) Type() Type {
+func (p *WireGuardProxy) Type() Type {
 	return TypeWireguard
 }
