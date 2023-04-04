@@ -41,21 +41,14 @@ type Config struct {
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
 func (c Config) GetAuthAudiences() []string {
-	register := make(map[string]struct{})
-
-	register[c.HttpConfig.AuthAudience] = struct{}{}
+	audiences := []string{c.HttpConfig.AuthAudience}
 
 	if c.DeviceAuthorizationFlow != nil && c.DeviceAuthorizationFlow.ProviderConfig.Audience != "" {
-		register[c.DeviceAuthorizationFlow.ProviderConfig.Audience] = struct{}{}
+		audiences = append(audiences, c.DeviceAuthorizationFlow.ProviderConfig.Audience)
 	}
 
-	var audiences []string
-	for aud := range register {
-		audiences = append(audiences, aud)
-	}
 	return audiences
 }
-
 // TURNConfig is a config of the TURNCredentialsManager
 type TURNConfig struct {
 	TimeBasedCredentials bool
