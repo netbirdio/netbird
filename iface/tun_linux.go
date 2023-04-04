@@ -11,7 +11,7 @@ import (
 )
 
 func (c *tunDevice) Create() error {
-	if WireguardModuleIsLoaded() {
+	if WireGuardModuleIsLoaded() {
 		log.Info("using kernel WireGuard")
 		return c.createWithKernel()
 	}

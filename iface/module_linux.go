@@ -81,9 +81,10 @@ func tunModuleIsLoaded() bool {
 	return tunLoaded
 }
 
-// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
-func WireguardModuleIsLoaded() bool {
-	if canCreateFakeWireguardInterface() {
+// WireGuardModuleIsLoaded check if we can load WireGuard mod (linux only)
+func WireGuardModuleIsLoaded() bool {
+	return false
+	if canCreateFakeWireGuardInterface() {
 		return true
 	}
 
@@ -96,7 +97,7 @@ func WireguardModuleIsLoaded() bool {
 	return loaded
 }
 
-func canCreateFakeWireguardInterface() bool {
+func canCreateFakeWireGuardInterface() bool {
 	link := newWGLink("mustnotexist")
 
 	// We willingly try to create a device with an invalid

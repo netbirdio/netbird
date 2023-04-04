@@ -124,5 +124,5 @@ func (p *WireGuardProxy) proxyToLocal() {
 }
 
 func (p *WireGuardProxy) Type() Type {
-	return TypeWireguard
+	return TypeWireGuard
 }

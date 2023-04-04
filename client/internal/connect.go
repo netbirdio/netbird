@@ -111,7 +111,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
-			KernelInterface: iface.WireguardModuleIsLoaded(),
+			KernelInterface: iface.WireGuardModuleIsLoaded(),
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
 

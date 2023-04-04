@@ -7,19 +7,20 @@ import (
 	"sync"
 )
 
-// NewWGIFace Creates a new Wireguard interface instance
-func NewWGIFace(ifaceName string, address string, mtu int, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
-	wgIface := &WGIface{
+// NewWGIFace Creates a new WireGuard interface instance
+func NewWGIFace(iFaceName string, address string, mtu int, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
+	wgIFace := &WGIface{
 		mu: sync.Mutex{},
 	}
 
 	wgAddress, err := parseWGAddress(address)
 	if err != nil {
-		return wgIface, err
+		return wgIFace, err
 	}
 
-	wgIface.tun = newTunDevice(ifaceName, wgAddress, mtu, transportNet)
+	wgIFace.tun = newTunDevice(iFaceName, wgAddress, mtu, transportNet)
 
-	wgIface.configurer = newWGConfigurer(ifaceName)
-	return wgIface, nil
+	wgIFace.configurer = newWGConfigurer(iFaceName)
+	wgIFace.userspaceBind = !WireGuardModuleIsLoaded()
+	return wgIFace, nil
 }

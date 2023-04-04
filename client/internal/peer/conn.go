@@ -44,6 +44,9 @@ type ConnConfig struct {
 	LocalWgPort int
 
 	NATExternalIPs []string
+
+	// UsesBind indicates whether the WireGuard interface is userspace and uses bind.ICEBind
+	UserspaceBind bool
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -291,7 +294,7 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
-	if conn.proxy.Type() == proxy.TypeNoProxy {
+	if conn.proxy.Type() == proxy.TypeDirectNoProxy {
 		host, _, _ := net.SplitHostPort(remoteConn.LocalAddr().String())
 		rhost, _, _ := net.SplitHostPort(remoteConn.RemoteAddr().String())
 		// direct Wireguard connection
@@ -313,14 +316,21 @@ func (conn *Conn) Open() error {
 
 // useProxy determines whether a direct connection (without a go proxy) is possible
 //
-// There are 2 cases:
+// There are 3 cases:
 //
 // * When neither candidate is from hard nat and one of the peers has a public IP
 //
 // * both peers are in the same private network
 //
+// * Local peer uses userspace interface with bind.ICEBind and is not relayed
+//
 // Please note, that this check happens when peers were already able to ping each other using ICE layer.
-func shouldUseProxy(pair *ice.CandidatePair) bool {
+func shouldUseProxy(pair *ice.CandidatePair, userspaceBind bool) bool {
+
+	if !isRelayCandidate(pair.Local) && userspaceBind {
+		return false
+	}
+
 	if !isHardNATCandidate(pair.Local) && isHostCandidateWithPublicIP(pair.Remote) {
 		return false
 	}
@@ -334,6 +344,10 @@ func shouldUseProxy(pair *ice.CandidatePair) bool {
 	}
 
 	return true
+}
+
+func isRelayCandidate(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypeRelay
 }
 
 func isHardNATCandidate(candidate ice.Candidate) bool {
@@ -384,7 +398,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
 	}
-	peerState.Direct = p.Type() == proxy.TypeNoProxy
+	peerState.Direct = p.Type() == proxy.TypeDirectNoProxy
 
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -395,8 +409,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 }
 
 func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
-	return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
-	useProxy := shouldUseProxy(pair)
+	useProxy := shouldUseProxy(pair, conn.config.UserspaceBind)
 	localDirectMode := !useProxy
 	remoteDirectMode := localDirectMode
 
@@ -406,9 +419,14 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 		remoteDirectMode = conn.receiveRemoteDirectMode()
 	}
 
+	if conn.config.UserspaceBind {
+		log.Debugf("using WireGuard no proxy userspace bind mode with peer %s", conn.config.Key)
+		return proxy.NewNoProxy(conn.config.ProxyConfig)
+	}
+
 	if localDirectMode && remoteDirectMode {
 		log.Debugf("using WireGuard direct mode with peer %s", conn.config.Key)
-		return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
+		return proxy.NewDirectNoProxy(conn.config.ProxyConfig, remoteWgPort)
 	}
 
 	log.Debugf("falling back to local proxy mode with peer %s", conn.config.Key)

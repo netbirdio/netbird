@@ -17,9 +17,15 @@ const (
 
 // WGIface represents a interface instance
 type WGIface struct {
-	tun        *tunDevice
-	configurer wGConfigurer
-	mu         sync.Mutex
+	tun           *tunDevice
+	configurer    wGConfigurer
+	mu            sync.Mutex
+	userspaceBind bool
+}
+
+// IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
+func (w *WGIface) IsUserspaceBind() bool {
+	return w.userspaceBind
 }
 
 // GetBind returns a userspace implementation of WireGuard Bind interface
@@ -32,7 +38,7 @@ func (w *WGIface) GetBind() *bind.ICEBind {
 func (w *WGIface) Create() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	log.Debugf("create Wireguard interface %s", w.tun.DeviceName())
+	log.Debugf("create WireGuard interface %s", w.tun.DeviceName())
 	return w.tun.Create()
 }
 

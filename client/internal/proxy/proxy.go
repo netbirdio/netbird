@@ -13,9 +13,10 @@ const DefaultWgKeepAlive = 25 * time.Second
 type Type string
 
 const (
-	TypeNoProxy   Type = "NoProxy"
-	TypeWireguard Type = "Wireguard"
-	TypeDummy     Type = "Dummy"
+	TypeDirectNoProxy Type = "DirectNoProxy"
+	TypeWireGuard     Type = "WireGuard"
+	TypeDummy         Type = "Dummy"
+	TypeNoProxy       Type = "NoProxy"
 )
 
 type Config struct {

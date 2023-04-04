@@ -325,7 +325,7 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := shouldUseProxy(testCase.candatePair)
+			result := shouldUseProxy(testCase.candatePair, false)
 			if result != testCase.expected {
 				t.Errorf("got a different result. Expected %t Got %t", testCase.expected, result)
 			}
@@ -366,7 +366,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: true,
-			expected:               proxy.TypeWireguard,
+			expected:               proxy.TypeWireGuard,
 		},
 		{
 			name: "Should Result In Using Wireguard Proxy When Remote Eval Is Use Proxy",
@@ -376,7 +376,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: false,
-			expected:               proxy.TypeWireguard,
+			expected:               proxy.TypeWireGuard,
 		},
 		{
 			name: "Should Result In Using Wireguard Proxy When Remote Direct Mode Support Is False And Local Eval Is Use Proxy",
@@ -386,7 +386,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: false,
 			inputRemoteModeMessage: false,
-			expected:               proxy.TypeWireguard,
+			expected:               proxy.TypeWireGuard,
 		},
 		{
 			name: "Should Result In Using Direct When Remote Direct Mode Support Is False And Local Eval Is No Use Proxy",
@@ -396,7 +396,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: false,
 			inputRemoteModeMessage: false,
-			expected:               proxy.TypeNoProxy,
+			expected:               proxy.TypeDirectNoProxy,
 		},
 		{
 			name: "Should Result In Using Direct When Local And Remote Eval Is No Proxy",
@@ -406,7 +406,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: true,
-			expected:               proxy.TypeNoProxy,
+			expected:               proxy.TypeDirectNoProxy,
 		},
 	}
 	for _, testCase := range testCases {

@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/iface/bind"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -103,7 +102,8 @@ type Engine struct {
 
 	wgInterface *iface.WGIface
 
-	udpMux          *bind.UniversalUDPMuxDefault
+	udpMux          ice.UDPMux
+	udpMuxSrflx     ice.UniversalUDPMux
 	udpMuxConn      *net.UDPConn
 	udpMuxConnSrflx *net.UDPConn
 
@@ -118,6 +118,9 @@ type Engine struct {
 	routeManager routemanager.Manager
 
 	dnsServer dns.Server
+
+	// userspaceBind indicates whether a
+	userspaceBind bool
 }
 
 // Peer is an instance of the Connection Peer
@@ -173,7 +176,7 @@ func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	wgIfaceName := e.config.WgIfaceName
+	wgIFaceName := e.config.WgIfaceName
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
 	var err error
@@ -181,31 +184,60 @@ func (e *Engine) Start() error {
 	if err != nil {
 		log.Warnf("failed to create pion's stdnet: %s", err)
 	}
-	e.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, e.config.TunAdapter, transportNet)
+	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.config.TunAdapter, transportNet)
 	if err != nil {
-		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIfaceName, err.Error())
+		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err
 	}
 
 	err = e.wgInterface.Create()
 	if err != nil {
-		log.Errorf("failed creating tunnel interface %s: [%s]", wgIfaceName, err.Error())
+		log.Errorf("failed creating tunnel interface %s: [%s]", wgIFaceName, err.Error())
 		e.close()
 		return err
 	}
 
 	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
 	if err != nil {
-		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
+		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIFaceName, err.Error())
 		e.close()
 		return err
 	}
 
-	iceBind := e.wgInterface.GetBind()
-	e.udpMux, err = iceBind.GetICEMux()
-	if err != nil {
-		e.close()
-		return err
+	if e.wgInterface.IsUserspaceBind() {
+		iceBind := e.wgInterface.GetBind()
+		udpMux, err := iceBind.GetICEMux()
+		if err != nil {
+			e.close()
+			return err
+		}
+		e.udpMux = udpMux.UDPMuxDefault
+		e.udpMuxSrflx = udpMux
+		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
+	} else {
+		networkName := "udp"
+		if e.config.DisableIPv6Discovery {
+			networkName = "udp4"
+		}
+		e.udpMuxConn, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxPort})
+		if err != nil {
+			log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
+			e.close()
+			return err
+		}
+		udpMuxParams := ice.UDPMuxParams{
+			UDPConn: e.udpMuxConn,
+			Net:     transportNet,
+		}
+		e.udpMux = ice.NewUDPMuxDefault(udpMuxParams)
+
+		e.udpMuxConnSrflx, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
+		if err != nil {
+			log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
+			e.close()
+			return err
+		}
+		e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx, Net: transportNet})
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
@@ -476,7 +508,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	e.statusRecorder.UpdateLocalPeerState(peer.LocalPeerState{
 		IP:              e.config.WgAddr,
 		PubKey:          e.config.WgPrivateKey.PublicKey().String(),
-		KernelInterface: iface.WireguardModuleIsLoaded(),
+		KernelInterface: iface.WireGuardModuleIsLoaded(),
 		FQDN:            conf.GetFqdn(),
 	})
 
@@ -797,11 +829,12 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		InterfaceBlackList:   e.config.IFaceBlackList,
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 		Timeout:              timeout,
-		UDPMux:               e.udpMux.UDPMuxDefault,
-		UDPMuxSrflx:          e.udpMux,
+		UDPMux:               e.udpMux,
+		UDPMuxSrflx:          e.udpMuxSrflx,
 		ProxyConfig:          proxyConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
+		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder, e.config.TunAdapter, e.config.IFaceDiscover)
