@@ -19,6 +19,7 @@ services:
       - AUTH_SUPPORTED_SCOPES=$NETBIRD_AUTH_SUPPORTED_SCOPES
       - AUTH_REDIRECT_URI=$NETBIRD_AUTH_REDIRECT_URI
       - AUTH_SILENT_REDIRECT_URI=$NETBIRD_AUTH_SILENT_REDIRECT_URI
+      - NETBIRD_TOKEN_SOURCE=$NETBIRD_TOKEN_SOURCE
       # SSL
       - NGINX_SSL_PORT=443
       # Letsencrypt
@@ -60,7 +61,7 @@ services:
       "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN",
       "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"
       ]
-  
+
   # Coturn
   coturn:
     image: coturn/coturn
