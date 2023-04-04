@@ -61,7 +61,7 @@ jobs:
           CI_NETBIRD_AUTH_REDIRECT_URI: "/peers"
           CI_NETBIRD_TOKEN_SOURCE: "idToken"
           CI_NETBIRD_AUTH_USER_ID_CLAIM: "email"
-          CI_NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID: "super"
+          CI_NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE: "super"
 
         run: |
           grep AUTH_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_ID
@@ -75,7 +75,7 @@ jobs:
           grep LETSENCRYPT_DOMAIN docker-compose.yml | egrep 'LETSENCRYPT_DOMAIN=$'
           grep NETBIRD_TOKEN_SOURCE docker-compose.yml | grep $CI_NETBIRD_AUTH_AUDIENCE
           grep AuthUserIDClaim management.json | grep $CI_NETBIRD_AUTH_USER_ID_CLAIM
-          grep -A 1 ProviderConfig management.json | grep $CI_NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID
+          grep -A 1 ProviderConfig management.json | grep $CI_NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE
 
       - name: run docker compose up
         working-directory: infrastructure_files
