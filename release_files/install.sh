@@ -173,14 +173,15 @@ install_netbird() {
                 PACKAGE_MANAGER="apt"
                 echo "The installation will be performed using apt package manager"
             fi
-            if [ -x "$(command -v yum)" ]; then
-                PACKAGE_MANAGER="yum"
-                echo "The installation will be performed using yum package manager"
-            fi
+            
             if [ -x "$(command -v dnf)" ]; then
                 PACKAGE_MANAGER="dnf"
                 echo "The installation will be performed using dnf package manager"
+            elif [ -x "$(command -v yum)" ]; then
+                PACKAGE_MANAGER="yum"
+                echo "The installation will be performed using yum package manager"
             fi
+
             if [ -x "$(command -v pacman)" ]; then
                 PACKAGE_MANAGER="pacman"
                 echo "The installation will be performed using pacman package manager"
