@@ -184,7 +184,7 @@ var (
 
 			jwtValidator, err := jwtclaims.NewJWTValidator(
 				config.HttpConfig.AuthIssuer,
-				config.HttpConfig.AuthAudience,
+				config.GetAuthAudiences(),
 				config.HttpConfig.AuthKeysLocation,
 			)
 			if err != nil {
