@@ -1,0 +1,58 @@
+name: Test installation Darwin
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    paths:
+      - "release_files/install.sh"
+
+jobs:
+  install-cli-only:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Rename brew package
+        if: ${{ matrix.check_bin_install }}
+        run: mv /opt/homebrew/bin/brew /opt/homebrew/bin/brew.bak
+
+      - name: Run install script
+        run: |
+          sh ./release_files/install.sh
+        env:
+          SKIP_UI_APP: true
+
+      - name: Run tests
+        run: |
+          if ! command -v netbird &> /dev/null; then
+            echo "Error: netbird is not installed"
+            exit 1
+          fi
+  install-all:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Rename brew package
+        if: ${{ matrix.check_bin_install }}
+        run: mv /opt/homebrew/bin/brew /opt/homebrew/bin/brew.bak
+
+      - name: Run install script
+        run: |
+          sh ./release_files/install.sh
+
+      - name: Run tests
+        run: |
+          if ! command -v netbird &> /dev/null; then
+              echo "Error: netbird is not installed"
+              exit 1
+          fi
+
+          if [[ $(mdfind "kMDItemContentType == 'com.apple.application-bundle' && kMDItemFSName == '*NetBird UI.app'") ]]; then
+            echo "Error: NetBird UI is not installed"
+            exit 1
+          fi

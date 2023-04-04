@@ -121,6 +121,32 @@ if [[ ! -z "${NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID}" ]]; then
     export NETBIRD_AUTH_DEVICE_AUTH_PROVIDER="hosted"
 fi
 
+# Check if letsencrypt was disabled
+if [[ "$NETBIRD_DISABLE_LETSENCRYPT" == "true" ]]
+then
+  export NETBIRD_DASHBOARD_ENDPOINT="https://$NETBIRD_DOMAIN:443"
+  export NETBIRD_SIGNAL_ENDPOINT="https://$NETBIRD_DOMAIN:$NETBIRD_SIGNAL_PORT"
+
+  echo "Letsencrypt was disabled, the Https-endpoints cannot be used anymore"
+  echo " and a reverse-proxy with Https needs to be placed in front of netbird!"
+  echo "The following forwards have to be setup:"
+  echo "- $NETBIRD_DASHBOARD_ENDPOINT -http-> dashboard:80"
+  echo "- $NETBIRD_MGMT_API_ENDPOINT/api -http-> management:$NETBIRD_MGMT_API_PORT"
+  echo "- $NETBIRD_MGMT_API_ENDPOINT/management.ManagementService/ -grpc-> management:$NETBIRD_MGMT_API_PORT"
+  echo "- $NETBIRD_SIGNAL_ENDPOINT/signalexchange.SignalExchange/ -grpc-> signal:80"
+  echo "You most likely also have to change NETBIRD_MGMT_API_ENDPOINT in base.setup.env and port-mappings in docker-compose.yml.tmpl and rerun this script."
+  echo " The target of the forwards depends on your setup. Beware of the gRPC protocol instead of http for management and signal!"
+  echo "You are also free to remove any occurences of the Letsencrypt-volume $LETSENCRYPT_VOLUMENAME"
+  echo ""
+
+  export NETBIRD_SIGNAL_PROTOCOL="https"
+  unset NETBIRD_LETSENCRYPT_DOMAIN
+  unset NETBIRD_MGMT_API_CERT_FILE
+  unset NETBIRD_MGMT_API_CERT_KEY_FILE
+else
+  export NETBIRD_LETSENCRYPT_DOMAIN="$NETBIRD_DOMAIN"
+fi
+
 env | grep NETBIRD
 
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
