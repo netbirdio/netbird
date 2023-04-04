@@ -51,7 +51,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 	if config.HttpConfig != nil && config.HttpConfig.AuthIssuer != "" && config.HttpConfig.AuthAudience != "" && validateURL(config.HttpConfig.AuthKeysLocation) {
 		jwtValidator, err = jwtclaims.NewJWTValidator(
 			config.HttpConfig.AuthIssuer,
-			config.HttpConfig.AuthAudience,
+			config.GetAuthAudiences(),
 			config.HttpConfig.AuthKeysLocation)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)

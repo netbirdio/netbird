@@ -39,6 +39,16 @@ type Config struct {
 	DeviceAuthorizationFlow *DeviceAuthorizationFlow
 }
 
+// GetAuthAudiences returns the audience from the http config and device authorization flow config
+func (c Config) GetAuthAudiences() []string {
+	audiences := []string{c.HttpConfig.AuthAudience}
+
+	if c.DeviceAuthorizationFlow != nil && c.DeviceAuthorizationFlow.ProviderConfig.Audience != "" {
+		audiences = append(audiences, c.DeviceAuthorizationFlow.ProviderConfig.Audience)
+	}
+
+	return audiences
+}
 // TURNConfig is a config of the TURNCredentialsManager
 type TURNConfig struct {
 	TimeBasedCredentials bool
