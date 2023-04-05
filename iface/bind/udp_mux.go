@@ -15,6 +15,10 @@ import (
 	"github.com/pion/transport/v2"
 )
 
+/*
+ Most of this code was copied from https://github.com/pion/ice and modified to fulfill NetBird's requirements
+*/
+
 const receiveMTU = 8192
 
 // UDPMuxDefault is an implementation of the interface
@@ -37,8 +41,6 @@ type UDPMuxDefault struct {
 
 	// for UDP connection listen at unspecified address
 	localAddrsForUnspecified []net.Addr
-
-	used bool
 }
 
 const maxAddrSize = 512
@@ -374,9 +376,7 @@ func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) erro
 	m.addressMapMu.Lock()
 	var destinationConnList []*udpMuxedConn
 	if storedConns, ok := m.addressMap[addr.String()]; ok {
-		for _, conn := range storedConns {
-			destinationConnList = append(destinationConnList, conn)
-		}
+		destinationConnList = append(destinationConnList, storedConns...)
 	}
 	m.addressMapMu.Unlock()
 

@@ -1,5 +1,9 @@
 package bind
 
+/*
+ Most of this code was copied from https://github.com/pion/ice and modified to fulfill NetBird's requirements.
+*/
+
 import (
 	"fmt"
 	log "github.com/sirupsen/logrus"
@@ -70,7 +74,7 @@ type udpConn struct {
 	logger logging.LeveledLogger
 }
 
-// GetListenAddresses returns the listen addr of this UDPMux
+// GetListenAddresses returns the listen addr of this UDP
 func (m *UniversalUDPMuxDefault) GetListenAddresses() []net.Addr {
 	return []net.Addr{m.LocalAddr()}
 }

@@ -1,5 +1,9 @@
 package bind
 
+/*
+ Most of this code was copied from https://github.com/pion/ice and modified to fulfill NetBird's requirements
+*/
+
 import (
 	"encoding/binary"
 	"io"
@@ -139,20 +143,6 @@ func (c *udpMuxedConn) addAddress(addr string) {
 
 	// map it on mux
 	c.params.Mux.registerConnForAddress(c, addr)
-}
-
-func (c *udpMuxedConn) removeAddress(addr string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	newAddresses := make([]string, 0, len(c.addresses))
-	for _, a := range c.addresses {
-		if a != addr {
-			newAddresses = append(newAddresses, a)
-		}
-	}
-
-	c.addresses = newAddresses
 }
 
 func (c *udpMuxedConn) containsAddress(addr string) bool {

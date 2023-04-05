@@ -54,8 +54,7 @@ func (b *ICEBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
 
-	port := int(uport)
-	ipv4Conn, port, err := listenNet("udp4", port)
+	ipv4Conn, _, err := listenNet("udp4", int(uport))
 	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return nil, 0, err
 	}
@@ -168,6 +167,7 @@ func (b *ICEBind) SetMark(mark uint32) error {
 	return nil
 }
 
+// Send bytes to the remote endpoint (peer)
 func (b *ICEBind) Send(buff []byte, endpoint conn.Endpoint) error {
 
 	nend, ok := endpoint.(conn.StdNetEndpoint)
