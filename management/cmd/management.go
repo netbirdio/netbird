@@ -417,6 +417,10 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 			log.Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
 				u.Host, config.DeviceAuthorizationFlow.ProviderConfig.Domain)
 			config.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
+
+			if config.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
+				config.DeviceAuthorizationFlow.ProviderConfig.Scope = server.DefaultDeviceAuthFlowScope
+			}
 		}
 	}
 

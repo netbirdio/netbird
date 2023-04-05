@@ -35,15 +35,6 @@ type DeviceAuthInfo struct {
 	Interval                int    `json:"interval"`
 }
 
-// TokenInfo holds information of issued access token
-type TokenInfo struct {
-	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
-	IDToken      string `json:"id_token"`
-	TokenType    string `json:"token_type"`
-	ExpiresIn    int    `json:"expires_in"`
-}
-
 // HostedGrantType grant type for device flow on Hosted
 const (
 	HostedGrantType    = "urn:ietf:params:oauth:grant-type:device_code"
@@ -52,16 +43,7 @@ const (
 
 // Hosted client
 type Hosted struct {
-	// Hosted API Audience for validation
-	Audience string
-	// Hosted Native application client id
-	ClientID string
-	// Hosted Native application request scope
-	Scope string
-	// TokenEndpoint to request access token
-	TokenEndpoint string
-	// DeviceAuthEndpoint to request device authorization code
-	DeviceAuthEndpoint string
+	providerConfig ProviderConfig
 
 	HTTPClient HTTPClient
 }
@@ -70,7 +52,7 @@ type Hosted struct {
 type RequestDeviceCodePayload struct {
 	Audience string `json:"audience"`
 	ClientID string `json:"client_id"`
-	Scope 	 string `json:"scope"`
+	Scope    string `json:"scope"`
 }
 
 // TokenRequestPayload used for requesting the auth0 token
@@ -93,8 +75,26 @@ type Claims struct {
 	Audience interface{} `json:"aud"`
 }
 
+// TokenInfo holds information of issued access token
+type TokenInfo struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	IDToken      string `json:"id_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
+	UseIDToken   bool   `json:"-"`
+}
+
+// GetTokenToUse returns either the access or id token based on UseIDToken field
+func (t TokenInfo) GetTokenToUse() string {
+	if t.UseIDToken {
+		return t.IDToken
+	}
+	return t.AccessToken
+}
+
 // NewHostedDeviceFlow returns an Hosted OAuth client
-func NewHostedDeviceFlow(audience string, clientID string, tokenEndpoint string, deviceAuthEndpoint string) *Hosted {
+func NewHostedDeviceFlow(config ProviderConfig) *Hosted {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -104,27 +104,23 @@ func NewHostedDeviceFlow(audience string, clientID string, tokenEndpoint string,
 	}
 
 	return &Hosted{
-		Audience:           audience,
-		ClientID:           clientID,
-		Scope:              "openid",
-		TokenEndpoint:      tokenEndpoint,
-		HTTPClient:         httpClient,
-		DeviceAuthEndpoint: deviceAuthEndpoint,
+		providerConfig: config,
+		HTTPClient:     httpClient,
 	}
 }
 
 // GetClientID returns the provider client id
 func (h *Hosted) GetClientID(ctx context.Context) string {
-	return h.ClientID
+	return h.providerConfig.ClientID
 }
 
 // RequestDeviceCode requests a device code login flow information from Hosted
 func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) {
 	form := url.Values{}
-	form.Add("client_id", h.ClientID)
-	form.Add("audience", h.Audience)
-	form.Add("scope", h.Scope)
-	req, err := http.NewRequest("POST", h.DeviceAuthEndpoint,
+	form.Add("client_id", h.providerConfig.ClientID)
+	form.Add("audience", h.providerConfig.Audience)
+	form.Add("scope", h.providerConfig.Scope)
+	req, err := http.NewRequest("POST", h.providerConfig.DeviceAuthEndpoint,
 		strings.NewReader(form.Encode()))
 	if err != nil {
 		return DeviceAuthInfo{}, fmt.Errorf("creating request failed with error: %v", err)
@@ -157,10 +153,10 @@ func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) 
 
 func (h *Hosted) requestToken(info DeviceAuthInfo) (TokenRequestResponse, error) {
 	form := url.Values{}
-	form.Add("client_id", h.ClientID)
+	form.Add("client_id", h.providerConfig.ClientID)
 	form.Add("grant_type", HostedGrantType)
 	form.Add("device_code", info.DeviceCode)
-	req, err := http.NewRequest("POST", h.TokenEndpoint, strings.NewReader(form.Encode()))
+	req, err := http.NewRequest("POST", h.providerConfig.TokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return TokenRequestResponse{}, fmt.Errorf("failed to create request access token: %v", err)
 	}
@@ -225,18 +221,20 @@ func (h *Hosted) WaitToken(ctx context.Context, info DeviceAuthInfo) (TokenInfo,
 				return TokenInfo{}, fmt.Errorf(tokenResponse.ErrorDescription)
 			}
 
-			err = isValidAccessToken(tokenResponse.AccessToken, h.Audience)
-			if err != nil {
-				return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
-			}
-
 			tokenInfo := TokenInfo{
 				AccessToken:  tokenResponse.AccessToken,
 				TokenType:    tokenResponse.TokenType,
 				RefreshToken: tokenResponse.RefreshToken,
 				IDToken:      tokenResponse.IDToken,
 				ExpiresIn:    tokenResponse.ExpiresIn,
+				UseIDToken:   h.providerConfig.UseIDToken,
 			}
+
+			err = isValidAccessToken(tokenInfo.GetTokenToUse(), h.providerConfig.Audience)
+			if err != nil {
+				return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
+			}
+
 			return tokenInfo, err
 		}
 	}

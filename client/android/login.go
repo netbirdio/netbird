@@ -166,7 +166,7 @@ func (a *Auth) login(urlOpener URLOpener) error {
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
-		jwtToken = tokenInfo.AccessToken
+		jwtToken = tokenInfo.GetTokenToUse()
 	}
 
 	err = a.withBackOff(a.ctx, func() error {
@@ -199,12 +199,7 @@ func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*internal.TokenInfo,
 		}
 	}
 
-	hostedClient := internal.NewHostedDeviceFlow(
-		providerConfig.ProviderConfig.Audience,
-		providerConfig.ProviderConfig.ClientID,
-		providerConfig.ProviderConfig.TokenEndpoint,
-		providerConfig.ProviderConfig.DeviceAuthEndpoint,
-	)
+	hostedClient := internal.NewHostedDeviceFlow(providerConfig.ProviderConfig)
 
 	flowInfo, err := hostedClient.RequestDeviceCode(context.TODO())
 	if err != nil {
