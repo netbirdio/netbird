@@ -3,6 +3,7 @@ package iface
 import (
 	"fmt"
 	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/pion/transport/v2"
 	"net"
 
 	log "github.com/sirupsen/logrus"
