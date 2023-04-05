@@ -178,6 +178,9 @@ type FirewallRule struct {
 
 	// Port of the traffic
 	Port string
+
+	// id for internal purposes
+	id string
 }
 
 // parseFromRegoResult parses the Rego result to a FirewallRule.
@@ -218,39 +221,35 @@ func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
 	f.Action = action
 	f.Port = port
 
+	// NOTE: update this id each time when new field added
+	f.id = peerID + peerIP + direction + action + port
+
 	return nil
 }
 
-// getRegoQuery returns a initialized Rego object with default rule.
-func (a *Account) getRegoQuery() (rego.PreparedEvalQuery, error) {
-	queries := []func(*rego.Rego){
-		rego.Query("data.netbird.all"),
-		rego.Module("netbird", defaultPolicyModule),
-	}
-	for i, p := range a.Policies {
-		if !p.Enabled {
-			continue
-		}
-		queries = append(queries, rego.Module(fmt.Sprintf("netbird-%d", i), p.Query))
-	}
-	return rego.New(queries...).PrepareForEval(context.TODO())
-}
-
-// getPeersByPolicy returns all peers that given peer has access to.
-func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
+// queryPeersAndFwRulesByRego returns a list associated Peers and firewall rules list for this peer.
+func (a *Account) queryPeersAndFwRulesByRego(
+	peerID string,
+	queryNumber int,
+	query string,
+) ([]*Peer, []*FirewallRule) {
 	input := map[string]interface{}{
 		"peer_id": peerID,
 		"peers":   a.Peers,
 		"groups":  a.Groups,
 	}
 
-	query, err := a.getRegoQuery()
+	stmt, err := rego.New(
+		rego.Query("data.netbird.all"),
+		rego.Module("netbird", defaultPolicyModule),
+		rego.Module(fmt.Sprintf("netbird-%d", queryNumber), query),
+	).PrepareForEval(context.TODO())
 	if err != nil {
 		log.WithError(err).Error("get Rego query")
 		return nil, nil
 	}
 
-	evalResult, err := query.Eval(
+	evalResult, err := stmt.Eval(
 		context.TODO(),
 		rego.EvalInput(input),
 	)
@@ -316,6 +315,33 @@ func (a *Account) getPeersByPolicy(peerID string) ([]*Peer, []*FirewallRule) {
 		peers = append(peers, a.Peers[id])
 	}
 	return peers, rules
+}
+
+// getPeersByPolicy returns all peers that given peer has access to.
+func (a *Account) getPeersByPolicy(peerID string) (peers []*Peer, rules []*FirewallRule) {
+	peersSeen := make(map[string]struct{})
+	ruleSeen := make(map[string]struct{})
+	for i, policy := range a.Policies {
+		if !policy.Enabled {
+			continue
+		}
+		p, r := a.queryPeersAndFwRulesByRego(peerID, i, policy.Query)
+		for _, peer := range p {
+			if _, ok := peersSeen[peer.ID]; ok {
+				continue
+			}
+			peers = append(peers, peer)
+			peersSeen[peer.ID] = struct{}{}
+		}
+		for _, rule := range r {
+			if _, ok := ruleSeen[rule.id]; ok {
+				continue
+			}
+			rules = append(rules, rule)
+			ruleSeen[rule.id] = struct{}{}
+		}
+	}
+	return
 }
 
 // GetPolicy from the store

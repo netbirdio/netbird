@@ -321,7 +321,7 @@ func (h *RoutesHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(w, "")
+	util.WriteJSONObject(w, emptyObject{})
 }
 
 // GetRoute handles a route Get request identified by ID

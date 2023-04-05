@@ -6,11 +6,10 @@ import (
 	"strings"
 	"time"
 
-	pb "github.com/golang/protobuf/proto" //nolint
+	pb "github.com/golang/protobuf/proto" // nolint
 
 	"github.com/netbirdio/netbird/management/server/telemetry"
 
-	"github.com/netbirdio/netbird/management/server/http/middleware"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 
 	"github.com/golang/protobuf/ptypes/timestamp"
@@ -33,7 +32,7 @@ type GRPCServer struct {
 	peersUpdateManager     *PeersUpdateManager
 	config                 *Config
 	turnCredentialsManager TURNCredentialsManager
-	jwtMiddleware          *middleware.JWTMiddleware
+	jwtValidator           *jwtclaims.JWTValidator
 	jwtClaimsExtractor     *jwtclaims.ClaimsExtractor
 	appMetrics             telemetry.AppMetrics
 }
@@ -47,12 +46,12 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		return nil, err
 	}
 
-	var jwtMiddleware *middleware.JWTMiddleware
+	var jwtValidator *jwtclaims.JWTValidator
 
 	if config.HttpConfig != nil && config.HttpConfig.AuthIssuer != "" && config.HttpConfig.AuthAudience != "" && validateURL(config.HttpConfig.AuthKeysLocation) {
-		jwtMiddleware, err = middleware.NewJwtMiddleware(
+		jwtValidator, err = jwtclaims.NewJWTValidator(
 			config.HttpConfig.AuthIssuer,
-			config.HttpConfig.AuthAudience,
+			config.GetAuthAudiences(),
 			config.HttpConfig.AuthKeysLocation)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)
@@ -88,7 +87,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		accountManager:         accountManager,
 		config:                 config,
 		turnCredentialsManager: turnCredentialsManager,
-		jwtMiddleware:          jwtMiddleware,
+		jwtValidator:           jwtValidator,
 		jwtClaimsExtractor:     jwtClaimsExtractor,
 		appMetrics:             appMetrics,
 	}, nil
@@ -189,11 +188,11 @@ func (s *GRPCServer) cancelPeerRoutines(peer *Peer) {
 }
 
 func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
-	if s.jwtMiddleware == nil {
-		return "", status.Error(codes.Internal, "no jwt middleware set")
+	if s.jwtValidator == nil {
+		return "", status.Error(codes.Internal, "no jwt validator set")
 	}
 
-	token, err := s.jwtMiddleware.ValidateAndParse(jwtToken)
+	token, err := s.jwtValidator.ValidateAndParse(jwtToken)
 	if err != nil {
 		return "", status.Errorf(codes.InvalidArgument, "invalid jwt token, err: %v", err)
 	}
@@ -511,6 +510,8 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 			Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
 			DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
 			TokenEndpoint:      s.config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint,
+			Scope:              s.config.DeviceAuthorizationFlow.ProviderConfig.Scope,
+			UseIDToken:         s.config.DeviceAuthorizationFlow.ProviderConfig.UseIDToken,
 		},
 	}
 

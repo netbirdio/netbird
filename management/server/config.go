@@ -24,6 +24,11 @@ const (
 	NONE  Provider = "none"
 )
 
+const (
+	// DefaultDeviceAuthFlowScope defines the bare minimum scope to request in the device authorization flow
+	DefaultDeviceAuthFlowScope string = "openid"
+)
+
 // Config of the Management service
 type Config struct {
 	Stuns      []*Host
@@ -37,6 +42,17 @@ type Config struct {
 	IdpManagerConfig *idp.Config
 
 	DeviceAuthorizationFlow *DeviceAuthorizationFlow
+}
+
+// GetAuthAudiences returns the audience from the http config and device authorization flow config
+func (c Config) GetAuthAudiences() []string {
+	audiences := []string{c.HttpConfig.AuthAudience}
+
+	if c.DeviceAuthorizationFlow != nil && c.DeviceAuthorizationFlow.ProviderConfig.Audience != "" {
+		audiences = append(audiences, c.DeviceAuthorizationFlow.ProviderConfig.Audience)
+	}
+
+	return audiences
 }
 
 // TURNConfig is a config of the TURNCredentialsManager
@@ -98,6 +114,10 @@ type ProviderConfig struct {
 	TokenEndpoint string
 	// DeviceAuthEndpoint is the endpoint of an IDP manager where clients can obtain device authorization code
 	DeviceAuthEndpoint string
+	// Scopes provides the scopes to be included in the token request
+	Scope string
+	// UseIDToken indicates if the id token should be used for authentication
+	UseIDToken bool
 }
 
 // validateURL validates input http url

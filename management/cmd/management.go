@@ -19,25 +19,28 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/miekg/dns"
-	"github.com/netbirdio/netbird/management/server/activity/sqlite"
-	httpapi "github.com/netbirdio/netbird/management/server/http"
-	"github.com/netbirdio/netbird/management/server/metrics"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+
+	"github.com/netbirdio/netbird/management/server/activity/sqlite"
+	httpapi "github.com/netbirdio/netbird/management/server/http"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
+	"github.com/netbirdio/netbird/management/server/metrics"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/util"
 
-	"github.com/netbirdio/netbird/encryption"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/netbirdio/netbird/encryption"
+	mgmtProto "github.com/netbirdio/netbird/management/proto"
 )
 
 // ManagementLegacyPort is the port that was used before by the Management gRPC server.
@@ -179,13 +182,22 @@ var (
 				tlsEnabled = true
 			}
 
+			jwtValidator, err := jwtclaims.NewJWTValidator(
+				config.HttpConfig.AuthIssuer,
+				config.GetAuthAudiences(),
+				config.HttpConfig.AuthKeysLocation,
+			)
+			if err != nil {
+				return fmt.Errorf("failed creating JWT validator: %v", err)
+			}
+
 			httpAPIAuthCfg := httpapi.AuthCfg{
 				Issuer:       config.HttpConfig.AuthIssuer,
 				Audience:     config.HttpConfig.AuthAudience,
 				UserIDClaim:  config.HttpConfig.AuthUserIDClaim,
 				KeysLocation: config.HttpConfig.AuthKeysLocation,
 			}
-			httpAPIHandler, err := httpapi.APIHandler(accountManager, appMetrics, httpAPIAuthCfg)
+			httpAPIHandler, err := httpapi.APIHandler(accountManager, *jwtValidator, appMetrics, httpAPIAuthCfg)
 			if err != nil {
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
@@ -405,6 +417,10 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 			log.Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
 				u.Host, config.DeviceAuthorizationFlow.ProviderConfig.Domain)
 			config.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
+
+			if config.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
+				config.DeviceAuthorizationFlow.ProviderConfig.Scope = server.DefaultDeviceAuthFlowScope
+			}
 		}
 	}
 

@@ -112,7 +112,7 @@ func restore(file string) (*FileStore, error) {
 			store.UserID2AccountID[user.Id] = accountID
 			for _, pat := range user.PATs {
 				store.TokenID2UserID[pat.ID] = user.Id
-				store.HashedPAT2TokenID[pat.HashedToken[:]] = pat.ID
+				store.HashedPAT2TokenID[pat.HashedToken] = pat.ID
 			}
 		}
 
@@ -121,15 +121,25 @@ func restore(file string) (*FileStore, error) {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
 
-		// if no policies are defined, that means we need to migrate Rules to policies
-		if len(account.Policies) == 0 {
+		// TODO: policy query generated from the Go template and rule object.
+		//       We need to refactor this part to avoid using templating for policies queries building
+		//       and drop this migration part.
+		policies := make(map[string]int, len(account.Policies))
+		for i, policy := range account.Policies {
+			policies[policy.ID] = i
+		}
+		if account.Policies == nil {
 			account.Policies = make([]*Policy, 0)
-			for _, rule := range account.Rules {
-				policy, err := RuleToPolicy(rule)
-				if err != nil {
-					log.Errorf("unable to migrate rule to policy: %v", err)
-					continue
-				}
+		}
+		for _, rule := range account.Rules {
+			policy, err := RuleToPolicy(rule)
+			if err != nil {
+				log.Errorf("unable to migrate rule to policy: %v", err)
+				continue
+			}
+			if i, ok := policies[policy.ID]; ok {
+				account.Policies[i] = policy
+			} else {
 				account.Policies = append(account.Policies, policy)
 			}
 		}
@@ -268,7 +278,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.UserID2AccountID[user.Id] = accountCopy.Id
 		for _, pat := range user.PATs {
 			s.TokenID2UserID[pat.ID] = user.Id
-			s.HashedPAT2TokenID[pat.HashedToken[:]] = pat.ID
+			s.HashedPAT2TokenID[pat.HashedToken] = pat.ID
 		}
 	}
 

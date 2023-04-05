@@ -288,14 +288,19 @@ func (d *Status) ClientStop() {
 	d.notifier.clientStop()
 }
 
-// AddConnectionListener add a listener to the notifier
-func (d *Status) AddConnectionListener(listener Listener) {
-	d.notifier.addListener(listener)
+// ClientTeardown will notify all listeners about the service is under teardown
+func (d *Status) ClientTeardown() {
+	d.notifier.clientTearDown()
 }
 
-// RemoveConnectionListener remove a listener from the notifier
-func (d *Status) RemoveConnectionListener(listener Listener) {
-	d.notifier.removeListener(listener)
+// SetConnectionListener set a listener to the notifier
+func (d *Status) SetConnectionListener(listener Listener) {
+	d.notifier.setListener(listener)
+}
+
+// RemoveConnectionListener remove the listener from the notifier
+func (d *Status) RemoveConnectionListener() {
+	d.notifier.removeListener()
 }
 
 func (d *Status) onConnectionChanged() {

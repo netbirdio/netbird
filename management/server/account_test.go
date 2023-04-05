@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/sha256"
+	b64 "encoding/base64"
 	"fmt"
 	"net"
 	"reflect"
@@ -465,12 +466,13 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 
 	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
 	hashedToken := sha256.Sum256([]byte(token))
+	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
 	account.Users["someUser"] = &User{
 		Id: "someUser",
 		PATs: map[string]*PersonalAccessToken{
-			"pat1": {
+			"tokenId": {
 				ID:          "tokenId",
-				HashedToken: string(hashedToken[:]),
+				HashedToken: encodedHashedToken,
 			},
 		},
 	}
@@ -483,13 +485,52 @@ func TestAccountManager_GetAccountFromPAT(t *testing.T) {
 		Store: store,
 	}
 
-	account, user, err := am.GetAccountFromPAT(token)
+	account, user, pat, err := am.GetAccountFromPAT(token)
 	if err != nil {
 		t.Fatalf("Error when getting Account from PAT: %s", err)
 	}
 
 	assert.Equal(t, "account_id", account.Id)
 	assert.Equal(t, "someUser", user.Id)
+	assert.Equal(t, account.Users["someUser"].PATs["tokenId"], pat)
+}
+
+func TestDefaultAccountManager_MarkPATUsed(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId("account_id", "testuser", "")
+
+	token := "nbp_9999EUDNdkeusjentDLSJEn1902u84390W6W"
+	hashedToken := sha256.Sum256([]byte(token))
+	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
+	account.Users["someUser"] = &User{
+		Id: "someUser",
+		PATs: map[string]*PersonalAccessToken{
+			"tokenId": {
+				ID:          "tokenId",
+				HashedToken: encodedHashedToken,
+				LastUsed:    time.Time{},
+			},
+		},
+	}
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store: store,
+	}
+
+	err = am.MarkPATUsed("tokenId")
+	if err != nil {
+		t.Fatalf("Error when marking PAT used: %s", err)
+	}
+
+	account, err = am.Store.GetAccount("account_id")
+	if err != nil {
+		t.Fatalf("Error when getting account: %s", err)
+	}
+	assert.True(t, !account.Users["someUser"].PATs["tokenId"].LastUsed.IsZero())
 }
 
 func TestAccountManager_PrivateAccount(t *testing.T) {
@@ -1245,7 +1286,7 @@ func TestAccount_Copy(t *testing.T) {
 				PATs: map[string]*PersonalAccessToken{
 					"pat1": {
 						ID:             "pat1",
-						Description:    "First PAT",
+						Name:           "First PAT",
 						HashedToken:    "SoMeHaShEdToKeN",
 						ExpirationDate: time.Now().AddDate(0, 0, 7),
 						CreatedBy:      "user1",

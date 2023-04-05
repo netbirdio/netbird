@@ -164,6 +164,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		state.Set(StatusConnected)
 
 		<-engineCtx.Done()
+		statusRecorder.ClientTeardown()
 
 		backOff.Reset()
 

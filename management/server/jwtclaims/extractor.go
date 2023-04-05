@@ -7,14 +7,19 @@ import (
 )
 
 const (
-	TokenUserProperty    = "user"
-	AccountIDSuffix      = "wt_account_id"
-	DomainIDSuffix       = "wt_account_domain"
+	// TokenUserProperty key for the user property in the request context
+	TokenUserProperty = "user"
+	// AccountIDSuffix suffix for the account id claim
+	AccountIDSuffix = "wt_account_id"
+	// DomainIDSuffix suffix for the domain id claim
+	DomainIDSuffix = "wt_account_domain"
+	// DomainCategorySuffix suffix for the domain category claim
 	DomainCategorySuffix = "wt_account_domain_category"
-	UserIDClaim          = "sub"
+	// UserIDClaim claim for the user id
+	UserIDClaim = "sub"
 )
 
-// Extract function type
+// ExtractClaims Extract function type
 type ExtractClaims func(r *http.Request) AuthorizationClaims
 
 // ClaimsExtractor struct that holds the extract function

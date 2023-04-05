@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/sha256"
+	b64 "encoding/base64"
 	"fmt"
 	"hash/crc32"
 	"math/rand"
@@ -54,7 +55,8 @@ type AccountManager interface {
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
-	GetAccountFromPAT(pat string) (*Account, *User, error)
+	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
+	MarkPATUsed(tokenID string) error
 	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
@@ -66,8 +68,10 @@ type AccountManager interface {
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error)
-	AddPATToUser(accountID string, userID string, pat *PersonalAccessToken) error
-	DeletePAT(accountID string, userID string, tokenID string) error
+	CreatePAT(accountID string, executingUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
+	DeletePAT(accountID string, executingUserID string, targetUserID string, tokenID string) error
+	GetPAT(accountID string, executingUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
+	GetAllPATs(accountID string, executingUserID string, targetUserID string) ([]*PersonalAccessToken, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
@@ -1119,45 +1123,85 @@ func (am *DefaultAccountManager) redeemInvite(account *Account, userID string) e
 	return nil
 }
 
+// MarkPATUsed marks a personal access token as used
+func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
+	unlock := am.Store.AcquireGlobalLock()
+
+	user, err := am.Store.GetUserByTokenID(tokenID)
+	if err != nil {
+		return err
+	}
+
+	account, err := am.Store.GetAccountByUser(user.Id)
+	if err != nil {
+		return err
+	}
+
+	unlock()
+	unlock = am.Store.AcquireAccountLock(account.Id)
+	defer unlock()
+
+	account, err = am.Store.GetAccountByUser(user.Id)
+	if err != nil {
+		return err
+	}
+
+	pat, ok := account.Users[user.Id].PATs[tokenID]
+	if !ok {
+		return fmt.Errorf("token not found")
+	}
+
+	pat.LastUsed = time.Now()
+
+	return am.Store.SaveAccount(account)
+}
+
 // GetAccountFromPAT returns Account and User associated with a personal access token
-func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *User, error) {
+func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *User, *PersonalAccessToken, error) {
 	if len(token) != PATLength {
-		return nil, nil, fmt.Errorf("token has wrong length")
+		return nil, nil, nil, fmt.Errorf("token has wrong length")
 	}
 
 	prefix := token[:len(PATPrefix)]
 	if prefix != PATPrefix {
-		return nil, nil, fmt.Errorf("token has wrong prefix")
+		return nil, nil, nil, fmt.Errorf("token has wrong prefix")
 	}
 	secret := token[len(PATPrefix) : len(PATPrefix)+PATSecretLength]
 	encodedChecksum := token[len(PATPrefix)+PATSecretLength : len(PATPrefix)+PATSecretLength+PATChecksumLength]
 
 	verificationChecksum, err := base62.Decode(encodedChecksum)
 	if err != nil {
-		return nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
+		return nil, nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
 	}
 
 	secretChecksum := crc32.ChecksumIEEE([]byte(secret))
 	if secretChecksum != verificationChecksum {
-		return nil, nil, fmt.Errorf("token checksum does not match")
+		return nil, nil, nil, fmt.Errorf("token checksum does not match")
 	}
 
 	hashedToken := sha256.Sum256([]byte(token))
-	tokenID, err := am.Store.GetTokenIDByHashedToken(string(hashedToken[:]))
+	encodedHashedToken := b64.StdEncoding.EncodeToString(hashedToken[:])
+	tokenID, err := am.Store.GetTokenIDByHashedToken(encodedHashedToken)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	user, err := am.Store.GetUserByTokenID(tokenID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	account, err := am.Store.GetAccountByUser(user.Id)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return account, user, nil
+
+	pat := user.PATs[tokenID]
+	if pat == nil {
+		return nil, nil, nil, fmt.Errorf("personal access token not found")
+	}
+
+	return account, user, pat, nil
 }
 
 // GetAccountFromToken returns an account associated with this token

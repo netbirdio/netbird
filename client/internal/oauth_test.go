@@ -3,14 +3,15 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/golang-jwt/jwt"
+	"github.com/stretchr/testify/require"
 )
 
 type mockHTTPClient struct {
@@ -113,12 +114,15 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				Audience:           expectedAudience,
-				ClientID:           expectedClientID,
-				Scope:              expectedScope,
-				TokenEndpoint:      "test.hosted.com/token",
-				DeviceAuthEndpoint: "test.hosted.com/device/auth",
-				HTTPClient:         &httpClient,
+				providerConfig: ProviderConfig{
+					Audience:           expectedAudience,
+					ClientID:           expectedClientID,
+					Scope:              expectedScope,
+					TokenEndpoint:      "test.hosted.com/token",
+					DeviceAuthEndpoint: "test.hosted.com/device/auth",
+					UseIDToken:         false,
+				},
+				HTTPClient: &httpClient,
 			}
 
 			authInfo, err := hosted.RequestDeviceCode(context.TODO())
@@ -275,12 +279,15 @@ func TestHosted_WaitToken(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				Audience:           testCase.inputAudience,
-				ClientID:           clientID,
-				TokenEndpoint:      "test.hosted.com/token",
-				DeviceAuthEndpoint: "test.hosted.com/device/auth",
-				HTTPClient:         &httpClient,
-			}
+				providerConfig: ProviderConfig{
+					Audience:           testCase.inputAudience,
+					ClientID:           clientID,
+					TokenEndpoint:      "test.hosted.com/token",
+					DeviceAuthEndpoint: "test.hosted.com/device/auth",
+					Scope:              "openid",
+					UseIDToken:         false,
+				},
+				HTTPClient: &httpClient}
 
 			ctx, cancel := context.WithTimeout(context.TODO(), testCase.inputTimeout)
 			defer cancel()

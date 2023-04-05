@@ -83,6 +83,10 @@ const (
 	AccountPeerLoginExpirationDisabled
 	// AccountPeerLoginExpirationDurationUpdated indicates that a user updated peer login expiration duration for the account
 	AccountPeerLoginExpirationDurationUpdated
+	// PersonalAccessTokenCreated indicates that a user created a personal access token
+	PersonalAccessTokenCreated
+	// PersonalAccessTokenDeleted indicates that a user deleted a personal access token
+	PersonalAccessTokenDeleted
 )
 
 const (
@@ -168,6 +172,10 @@ const (
 	AccountPeerLoginExpirationDisabledMessage string = "Peer login expiration disabled for the account"
 	// AccountPeerLoginExpirationDurationUpdatedMessage is a human-readable text message of the AccountPeerLoginExpirationDurationUpdated activity
 	AccountPeerLoginExpirationDurationUpdatedMessage string = "Peer login expiration duration updated"
+	// PersonalAccessTokenCreatedMessage is a human-readable text message of the PersonalAccessTokenCreated activity
+	PersonalAccessTokenCreatedMessage string = "Personal access token created"
+	// PersonalAccessTokenDeletedMessage is a human-readable text message of the PersonalAccessTokenDeleted activity
+	PersonalAccessTokenDeletedMessage string = "Personal access token deleted"
 )
 
 // Activity that triggered an Event
@@ -258,6 +266,10 @@ func (a Activity) Message() string {
 		return AccountPeerLoginExpirationDisabledMessage
 	case AccountPeerLoginExpirationDurationUpdated:
 		return AccountPeerLoginExpirationDurationUpdatedMessage
+	case PersonalAccessTokenCreated:
+		return PersonalAccessTokenCreatedMessage
+	case PersonalAccessTokenDeleted:
+		return PersonalAccessTokenDeletedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -348,6 +360,10 @@ func (a Activity) StringCode() string {
 		return "account.setting.peer.login.expiration.enable"
 	case AccountPeerLoginExpirationDisabled:
 		return "account.setting.peer.login.expiration.disable"
+	case PersonalAccessTokenCreated:
+		return "personal.access.token.create"
+	case PersonalAccessTokenDeleted:
+		return "personal.access.token.delete"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
