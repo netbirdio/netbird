@@ -223,12 +223,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			}
 		}
 
-		hostedClient := internal.NewHostedDeviceFlow(
-			providerConfig.ProviderConfig.Audience,
-			providerConfig.ProviderConfig.ClientID,
-			providerConfig.ProviderConfig.TokenEndpoint,
-			providerConfig.ProviderConfig.DeviceAuthEndpoint,
-		)
+		hostedClient := internal.NewHostedDeviceFlow(providerConfig.ProviderConfig)
 
 		if s.oauthAuthFlow.client != nil && s.oauthAuthFlow.client.GetClientID(ctx) == hostedClient.GetClientID(context.TODO()) {
 			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
@@ -344,7 +339,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	s.oauthAuthFlow.expiresAt = time.Now()
 	s.mutex.Unlock()
 
-	if loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.AccessToken); err != nil {
+	if loginStatus, err := s.loginAttempt(ctx, "", tokenInfo.GetTokenToUse()); err != nil {
 		state.Set(loginStatus)
 		return nil, err
 	}

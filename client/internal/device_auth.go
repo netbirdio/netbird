@@ -34,6 +34,10 @@ type ProviderConfig struct {
 	TokenEndpoint string
 	// DeviceAuthEndpoint is the endpoint of an IDP manager where clients can obtain device authorization code
 	DeviceAuthEndpoint string
+	// Scopes provides the scopes to be included in the token request
+	Scope string
+	// UseIDToken indicates if the id token should be used for authentication
+	UseIDToken bool
 }
 
 // GetDeviceAuthorizationFlowInfo initialize a DeviceAuthorizationFlow instance and return with it
@@ -91,6 +95,8 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 			Domain:             protoDeviceAuthorizationFlow.GetProviderConfig().Domain,
 			TokenEndpoint:      protoDeviceAuthorizationFlow.GetProviderConfig().GetTokenEndpoint(),
 			DeviceAuthEndpoint: protoDeviceAuthorizationFlow.GetProviderConfig().GetDeviceAuthEndpoint(),
+			Scope:              protoDeviceAuthorizationFlow.GetProviderConfig().GetScope(),
+			UseIDToken:         protoDeviceAuthorizationFlow.GetProviderConfig().GetUseIDToken(),
 		},
 	}
 
@@ -115,6 +121,9 @@ func isProviderConfigValid(config ProviderConfig) error {
 	}
 	if config.DeviceAuthEndpoint == "" {
 		return fmt.Errorf(errorMSGFormat, "Device Auth Endpoint")
+	}
+	if config.Scope == "" {
+		return fmt.Errorf(errorMSGFormat, "Device Auth Scopes")
 	}
 	return nil
 }

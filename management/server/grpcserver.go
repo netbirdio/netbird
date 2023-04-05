@@ -510,6 +510,8 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 			Audience:           s.config.DeviceAuthorizationFlow.ProviderConfig.Audience,
 			DeviceAuthEndpoint: s.config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint,
 			TokenEndpoint:      s.config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint,
+			Scope:              s.config.DeviceAuthorizationFlow.ProviderConfig.Scope,
+			UseIDToken:         s.config.DeviceAuthorizationFlow.ProviderConfig.UseIDToken,
 		},
 	}
 

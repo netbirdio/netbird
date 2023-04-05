@@ -24,6 +24,10 @@ const (
 	NONE  Provider = "none"
 )
 
+const (
+	DefaultDeviceAuthFlowScope string = "openid"
+)
+
 // Config of the Management service
 type Config struct {
 	Stuns      []*Host
@@ -49,6 +53,7 @@ func (c Config) GetAuthAudiences() []string {
 
 	return audiences
 }
+
 // TURNConfig is a config of the TURNCredentialsManager
 type TURNConfig struct {
 	TimeBasedCredentials bool
@@ -108,6 +113,10 @@ type ProviderConfig struct {
 	TokenEndpoint string
 	// DeviceAuthEndpoint is the endpoint of an IDP manager where clients can obtain device authorization code
 	DeviceAuthEndpoint string
+	// Scopes provides the scopes to be included in the token request
+	Scope string
+	// UseIDToken indicates if the id token should be used for authentication
+	UseIDToken bool
 }
 
 // validateURL validates input http url
