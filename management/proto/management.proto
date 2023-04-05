@@ -246,6 +246,10 @@ message ProviderConfig {
   string DeviceAuthEndpoint = 5;
   // TokenEndpoint is an endpoint to request auth token.
   string TokenEndpoint = 6;
+  // Scopes provides the scopes to be included in the token request
+  string Scope = 7;
+  // UseIDToken indicates if the id token should be used for authentication
+  bool UseIDToken = 8;
 }
 
 // Route represents a route.Route object

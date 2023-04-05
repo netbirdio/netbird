@@ -135,7 +135,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
-		jwtToken = tokenInfo.AccessToken
+		jwtToken = tokenInfo.GetTokenToUse()
 	}
 
 	err = WithBackOff(func() error {
@@ -172,12 +172,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 		}
 	}
 
-	hostedClient := internal.NewHostedDeviceFlow(
-		providerConfig.ProviderConfig.Audience,
-		providerConfig.ProviderConfig.ClientID,
-		providerConfig.ProviderConfig.TokenEndpoint,
-		providerConfig.ProviderConfig.DeviceAuthEndpoint,
-	)
+	hostedClient := internal.NewHostedDeviceFlow(providerConfig.ProviderConfig)
 
 	flowInfo, err := hostedClient.RequestDeviceCode(context.TODO())
 	if err != nil {
