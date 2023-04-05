@@ -25,6 +25,7 @@ const (
 )
 
 const (
+	// DefaultDeviceAuthFlowScope defines the bare minimum scope to request in the device authorization flow
 	DefaultDeviceAuthFlowScope string = "openid"
 )
 

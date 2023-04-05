@@ -135,7 +135,7 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 		if err != nil {
 			return fmt.Errorf("interactive sso login failed: %v", err)
 		}
-		jwtToken = tokenInfo.AccessToken
+		jwtToken = tokenInfo.GetTokenToUse()
 	}
 
 	err = WithBackOff(func() error {
