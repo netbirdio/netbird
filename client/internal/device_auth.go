@@ -100,6 +100,11 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 		},
 	}
 
+	// keep compatibility with older management versions
+	if deviceAuthorizationFlow.ProviderConfig.Scope == "" {
+		deviceAuthorizationFlow.ProviderConfig.Scope = "openid"
+	}
+
 	err = isProviderConfigValid(deviceAuthorizationFlow.ProviderConfig)
 	if err != nil {
 		return DeviceAuthorizationFlow{}, err
