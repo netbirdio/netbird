@@ -8,14 +8,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/ice/v2"
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/iface"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/version"
-	"github.com/pion/ice/v2"
-	log "github.com/sirupsen/logrus"
 )
 
 // ConnConfig is a peer Connection configuration
@@ -96,7 +97,7 @@ type Conn struct {
 	meta         meta
 
 	adapter       iface.TunAdapter
-	iFaceDiscover stdnet.IFaceDiscover
+	iFaceDiscover stdnet.ExternalIFaceDiscover
 }
 
 // meta holds meta information about a connection
@@ -122,7 +123,7 @@ func (conn *Conn) UpdateConf(conf ConnConfig) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
