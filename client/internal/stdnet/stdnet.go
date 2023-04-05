@@ -49,7 +49,7 @@ func (n *Net) filterInterfaces(interfaces []*transport.Interface) []*transport.I
 // The interfaces are discovered by an external iFaceDiscover function or by a default discoverer if the external one
 // wasn't specified.
 func (n *Net) UpdateInterfaces(iFaceDiscover IFaceDiscover) error {
-	discoveredInterfaces := []*transport.Interface{}
+	discoveredInterfaces := []*transport.Interface{} //nolint
 	var err error
 	if iFaceDiscover != nil {
 		interfacesString := ""

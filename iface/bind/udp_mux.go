@@ -359,6 +359,7 @@ func (m *UDPMuxDefault) createMuxedConn(key string) *udpMuxedConn {
 	return c
 }
 
+// HandleSTUNMessage handles STUN packets and forwards them to underlying pion/ice library
 func (m *UDPMuxDefault) HandleSTUNMessage(msg *stun.Message, addr net.Addr) error {
 
 	remoteAddr, ok := addr.(*net.UDPAddr)

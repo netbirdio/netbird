@@ -13,6 +13,7 @@ import (
 	"syscall"
 )
 
+// ICEBind is the userspace implementation of WireGuard's conn.Bind interface using ice.UDPMux of the pion/ice library
 type ICEBind struct {
 	// below fields, initialized on open
 	sharedConn net.PacketConn
@@ -33,6 +34,7 @@ func NewICEBind(transportNet transport.Net) *ICEBind {
 	}
 }
 
+// GetICEMux returns the ICE UDPMux that was created and used by ICEBind
 func (b *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -43,6 +45,7 @@ func (b *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 	return b.udpMux, nil
 }
 
+// Open creates a WireGuard socket and an instance of UDPMux that is used to glue up ICE and WireGuard for hole punching
 func (b *ICEBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -134,6 +137,7 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn) conn.ReceiveFunc {
 	}
 }
 
+// Close closes the WireGuard socket and UDPMux
 func (b *ICEBind) Close() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()

@@ -118,9 +118,6 @@ type Engine struct {
 	routeManager routemanager.Manager
 
 	dnsServer dns.Server
-
-	// userspaceBind indicates whether a
-	userspaceBind bool
 }
 
 // Peer is an instance of the Connection Peer

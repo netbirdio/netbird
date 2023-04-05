@@ -23,6 +23,7 @@ func NewDirectNoProxy(config Config, remoteWgPort int) *DirectNoProxy {
 	return &DirectNoProxy{config: config, RemoteWgListenPort: remoteWgPort}
 }
 
+// Close removes peer from the WireGuard interface
 func (p *DirectNoProxy) Close() error {
 	err := p.config.WgInterface.RemovePeer(p.config.RemoteKey)
 	if err != nil {
@@ -50,6 +51,7 @@ func (p *DirectNoProxy) Start(remoteConn net.Conn) error {
 	return nil
 }
 
+// Type returns the type of this proxy
 func (p *DirectNoProxy) Type() Type {
 	return TypeDirectNoProxy
 }

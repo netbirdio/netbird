@@ -70,6 +70,7 @@ type udpConn struct {
 	logger logging.LeveledLogger
 }
 
+// GetListenAddresses returns the listen addr of this UDPMux
 func (m *UniversalUDPMuxDefault) GetListenAddresses() []net.Addr {
 	return []net.Addr{m.LocalAddr()}
 }
