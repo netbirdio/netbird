@@ -33,6 +33,7 @@ const (
 	loading
 	live
 	inuse
+	envDisableWireGuardKernel = "NB_WG_KERNEL_DISABLED"
 )
 
 type module struct {
@@ -83,7 +84,12 @@ func tunModuleIsLoaded() bool {
 
 // WireGuardModuleIsLoaded check if we can load WireGuard mod (linux only)
 func WireGuardModuleIsLoaded() bool {
-	return false
+
+	if os.Getenv(envDisableWireGuardKernel) == "true" {
+		log.Infof("WireGuard kernel module disabled because the %s env is set to true", envDisableWireGuardKernel)
+		return false
+	}
+
 	if canCreateFakeWireGuardInterface() {
 		return true
 	}
