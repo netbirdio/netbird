@@ -3,14 +3,16 @@ package dns
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"net"
 	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/client/internal/stdnet"
+
 	"github.com/miekg/dns"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 )
@@ -200,7 +202,7 @@ func TestUpdateDNSServer(t *testing.T) {
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			newNet, err := stdnet.NewNet(nil, nil)
+			newNet, err := stdnet.NewNet(nil)
 			if err != nil {
 				t.Fatal(err)
 			}
