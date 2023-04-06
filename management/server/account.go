@@ -50,14 +50,16 @@ type AccountManager interface {
 		autoGroups []string, usageLimit int, userID string) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey, userID string) (*SetupKey, error)
 	CreateUser(accountID, userID string, key *UserInfo) (*UserInfo, error)
+	DeleteUser(accountID, executingUserID string, targetUserID string) error
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID, userID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
+	GetAccountByUserID(userID string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	MarkPATUsed(tokenID string) error
-	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
+	IsUserAdmin(userID string) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
@@ -171,12 +173,13 @@ type Account struct {
 }
 
 type UserInfo struct {
-	ID         string   `json:"id"`
-	Email      string   `json:"email"`
-	Name       string   `json:"name"`
-	Role       string   `json:"role"`
-	AutoGroups []string `json:"auto_groups"`
-	Status     string   `json:"-"`
+	ID            string   `json:"id"`
+	Email         string   `json:"email"`
+	Name          string   `json:"name"`
+	Role          string   `json:"role"`
+	AutoGroups    []string `json:"auto_groups"`
+	Status        string   `json:"-"`
+	IsServiceUser bool     `json:"is_service_user"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -981,10 +984,10 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 
 	if reload {
 		// reload cache once avoiding loops
-		data, err = am.refreshCache(accountID)
-		if err != nil {
-			return nil, err
-		}
+		// data, err = am.refreshCache(accountID)
+		// if err != nil {
+		// 	return nil, err
+		// }
 	}
 
 	return data, err

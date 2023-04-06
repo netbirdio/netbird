@@ -111,6 +111,7 @@ func (apiHandler *apiHandler) addUsersEndpoint() {
 	userHandler := NewUsersHandler(apiHandler.AccountManager, apiHandler.AuthCfg)
 	apiHandler.Router.HandleFunc("/users", userHandler.GetAllUsers).Methods("GET", "OPTIONS")
 	apiHandler.Router.HandleFunc("/users/{id}", userHandler.UpdateUser).Methods("PUT", "OPTIONS")
+	apiHandler.Router.HandleFunc("/users/{id}", userHandler.DeleteUser).Methods("DELETE", "OPTIONS")
 	apiHandler.Router.HandleFunc("/users", userHandler.CreateUser).Methods("POST", "OPTIONS")
 }
 
