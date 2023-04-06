@@ -26,7 +26,7 @@ type TunAdapter interface {
 
 // IFaceDiscover export internal IFaceDiscover for mobile
 type IFaceDiscover interface {
-	stdnet.IFaceDiscover
+	stdnet.ExternalIFaceDiscover
 }
 
 func init() {

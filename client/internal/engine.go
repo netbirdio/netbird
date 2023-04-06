@@ -50,7 +50,7 @@ type EngineConfig struct {
 	// TunAdapter is option. It is necessary for mobile version.
 	TunAdapter iface.TunAdapter
 
-	IFaceDiscover stdnet.IFaceDiscover
+	IFaceDiscover stdnet.ExternalIFaceDiscover
 
 	// WgAddr is a Wireguard local address (Netbird Network IP)
 	WgAddr string

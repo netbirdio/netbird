@@ -7,5 +7,5 @@ import (
 )
 
 func (conn *Conn) newStdNet() (*stdnet.Net, error) {
-	return stdnet.NewNet(nil, conn.config.InterfaceBlackList)
+	return stdnet.NewNet(conn.config.InterfaceBlackList)
 }
