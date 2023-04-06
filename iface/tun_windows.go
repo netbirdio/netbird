@@ -4,14 +4,13 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/pion/transport/v2"
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
-	"net"
-
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/windows/driver"
+	"net"
 )
 
 type tunDevice struct {
@@ -36,13 +35,17 @@ func (c *tunDevice) Create() error {
 	return c.assignAddr()
 }
 
-// createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
+// createWithUserspace Creates a new WireGuard interface, using wireguard-go userspace implementation
 func (c *tunDevice) createWithUserspace() (NetInterface, error) {
+	dll := windows.NewLazyDLL("wintun.dll")
+	err := dll.Load()
+	if err != nil {
+		return nil, err
+	}
 	tunIface, err := tun.CreateTUN(c.name, c.mtu)
 	if err != nil {
 		return nil, err
 	}
-
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDevice := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	err = tunDevice.Up()
