@@ -22,11 +22,33 @@ type PolicyUpdateOperationType int
 // PolicyTrafficActionType action type for the firewall
 type PolicyTrafficActionType string
 
+// PolicyRuleProtocolType type of traffic
+type PolicyRuleProtocolType string
+
+// PolicyRuleDirection direction of traffic
+type PolicyRuleDirection string
+
 const (
 	// PolicyTrafficActionAccept indicates that the traffic is accepted
 	PolicyTrafficActionAccept = PolicyTrafficActionType("accept")
 	// PolicyTrafficActionDrop indicates that the traffic is dropped
 	PolicyTrafficActionDrop = PolicyTrafficActionType("drop")
+)
+
+const (
+	// PolicyRuleProtocolTCP type of traffic
+	PolicyRuleProtocolTCP = PolicyRuleProtocolType("tcp")
+	// PolicyRuleProtocolUDP type of traffic
+	PolicyRuleProtocolUDP = PolicyRuleProtocolType("udp")
+	// PolicyRuleProtocolICMP type of traffic
+	PolicyRuleProtocolICMP = PolicyRuleProtocolType("icmp")
+)
+
+const (
+	// PolicyRuleFlowDirect allows trafic from source to destination
+	PolicyRuleFlowDirect = PolicyRuleDirection("direct")
+	// PolicyRuleFlowBidirect allows traffic to both directions
+	PolicyRuleFlowBidirect = PolicyRuleDirection("bidirect")
 )
 
 // PolicyUpdateOperation operation object with type and values to be applied
@@ -66,6 +88,15 @@ type PolicyRule struct {
 
 	// Sources policy source groups
 	Sources []string
+
+	// Flow of the traffic: "bidirect" or "direct"
+	Flow PolicyRuleDirection
+
+	// Protocol type of the traffic
+	Protocol PolicyRuleProtocolType
+
+	// Ports or it ranges list
+	Ports []string
 }
 
 // Copy returns a copy of a policy rule
@@ -78,6 +109,9 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		Action:       pm.Action,
 		Destinations: pm.Destinations[:],
 		Sources:      pm.Sources[:],
+		Flow:         pm.Flow,
+		Protocol:     pm.Protocol,
+		Ports:        pm.Ports,
 	}
 }
 

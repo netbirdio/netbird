@@ -174,10 +174,12 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 				Sources:      groupMinimumsToStrings(account, r.Sources),
 				Name:         r.Name,
 			}
+
 			pr.Enabled = r.Enabled
 			if r.Description != nil {
 				pr.Description = *r.Description
 			}
+
 			switch r.Action {
 			case api.PolicyRuleActionAccept:
 				pr.Action = server.PolicyTrafficActionAccept
@@ -187,6 +189,25 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 				util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
 				return
 			}
+
+			if r.Protocol != nil && *r.Protocol != "" {
+				switch *r.Protocol {
+				case api.PolicyRuleProtocolTcp:
+					pr.Protocol = server.PolicyRuleProtocolTCP
+				case api.PolicyRuleProtocolUdp:
+					pr.Protocol = server.PolicyRuleProtocolUDP
+				case api.PolicyRuleProtocolIcmp:
+					pr.Protocol = server.PolicyRuleProtocolICMP
+				default:
+					util.WriteError(status.Errorf(status.InvalidArgument, "unknown protocol type: %v", *r.Protocol), w)
+				}
+			}
+
+			if r.Ports != nil && len(*r.Ports) != 0 {
+				ports := *r.Ports
+				pr.Ports = ports[:]
+			}
+
 			policy.Rules = append(policy.Rules, &pr)
 		}
 	}
@@ -277,6 +298,14 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 			Name:        r.Name,
 			Enabled:     r.Enabled,
 			Description: &r.Description,
+		}
+		if r.Protocol != "" {
+			proto := api.PolicyRuleProtocol(r.Protocol)
+			rule.Protocol = &proto
+		}
+		if len(r.Ports) != 0 {
+			portsCopy := r.Ports[:]
+			rule.Ports = &portsCopy
 		}
 		for _, gid := range r.Sources {
 			_, ok := cache[gid]

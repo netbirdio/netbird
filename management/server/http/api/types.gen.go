@@ -103,6 +103,13 @@ const (
 	PolicyRuleActionDrop   PolicyRuleAction = "drop"
 )
 
+// Defines values for PolicyRuleProtocol.
+const (
+	PolicyRuleProtocolIcmp PolicyRuleProtocol = "icmp"
+	PolicyRuleProtocolTcp  PolicyRuleProtocol = "tcp"
+	PolicyRuleProtocolUdp  PolicyRuleProtocol = "udp"
+)
+
 // Defines values for RoutePatchOperationOp.
 const (
 	RoutePatchOperationOpAdd     RoutePatchOperationOp = "add"
@@ -458,17 +465,20 @@ type PolicyMinimum struct {
 
 // PolicyRule defines model for PolicyRule.
 type PolicyRule struct {
-	// Action policy accept or drops packets
+	// Action Rule accept or drops packets
 	Action PolicyRuleAction `json:"action"`
 
 	// Description Rule friendly description
 	Description *string `json:"description,omitempty"`
 
-	// Destinations policy destination groups
+	// Destinations Rule destination groups
 	Destinations []GroupMinimum `json:"destinations"`
 
-	// Enabled Rules status
+	// Enabled Rule status
 	Enabled bool `json:"enabled"`
+
+	// Flow Rule flow, "bidirect" or "direct"
+	Flow *string `json:"flow,omitempty"`
 
 	// Id Rule ID
 	Id *string `json:"id,omitempty"`
@@ -476,12 +486,21 @@ type PolicyRule struct {
 	// Name Rule name identifier
 	Name string `json:"name"`
 
-	// Sources policy source groups
+	// Ports Rule affected ports or it ranges list
+	Ports *[]string `json:"ports,omitempty"`
+
+	// Protocol Rule type of the traffic
+	Protocol *PolicyRuleProtocol `json:"protocol,omitempty"`
+
+	// Sources Rule source groups
 	Sources []GroupMinimum `json:"sources"`
 }
 
-// PolicyRuleAction policy accept or drops packets
+// PolicyRuleAction Rule accept or drops packets
 type PolicyRuleAction string
+
+// PolicyRuleProtocol Rule type of the traffic
+type PolicyRuleProtocol string
 
 // Route defines model for Route.
 type Route struct {

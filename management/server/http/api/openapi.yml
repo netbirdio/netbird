@@ -463,28 +463,40 @@ components:
           description: Rule friendly description
           type: string
         enabled:
-          description: Rules status
+          description: Rule status
           type: boolean
         sources:
-          description: policy source groups
+          description: Rule source groups
           type: array
           items:
             $ref: '#/components/schemas/GroupMinimum'
         destinations:
-          description: policy destination groups
+          description: Rule destination groups
           type: array
           items:
             $ref: '#/components/schemas/GroupMinimum'
         action:
-          description: policy accept or drops packets
+          description: Rule accept or drops packets
           type: string
           enum: ["accept","drop"]
+        flow:
+          description: Rule flow, "bidirect" or "direct"
+          type: string
+        protocol:
+          description: Rule type of the traffic
+          type: string
+          enum: ["tcp", "udp", "icmp"]
+        ports:
+          description: Rule affected ports or it ranges list
+          type: array
+          items:
+            type: string
       required:
         - name
+        - enabled
         - sources
         - destinations
         - action
-        - enabled
     PolicyMinimum:
       type: object
       properties:
