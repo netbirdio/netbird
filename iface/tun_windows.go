@@ -24,7 +24,7 @@ func newTunDevice(name string, address WGAddress, mtu int, transportNet transpor
 
 func (c *tunDevice) Create() error {
 	var err error
-	c.netInterface, err = c.createAdapter()
+	c.netInterface, err = c.createWithUserspace()
 	if err != nil {
 		return err
 	}
