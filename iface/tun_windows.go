@@ -37,11 +37,11 @@ func (c *tunDevice) Create() error {
 
 // createWithUserspace Creates a new WireGuard interface, using wireguard-go userspace implementation
 func (c *tunDevice) createWithUserspace() (NetInterface, error) {
-	dll := windows.NewLazyDLL("wintun.dll")
-	err := dll.Load()
-	if err != nil {
-		return nil, err
-	}
+	/*	dll := windows.NewLazyDLL("wintun.dll")
+		err := dll.Load()
+		if err != nil {
+			return nil, err
+		}*/
 	tunIface, err := tun.CreateTUN(c.name, c.mtu)
 	if err != nil {
 		return nil, err
