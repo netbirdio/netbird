@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/pion/transport/v2"
+	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/ipc"
+	"golang.zx2c4.com/wireguard/tun"
 	"net"
 
 	log "github.com/sirupsen/logrus"
@@ -16,10 +19,11 @@ type tunDevice struct {
 	address      WGAddress
 	netInterface NetInterface
 	iceBind      *bind.ICEBind
+	mtu          int
 }
 
 func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) *tunDevice {
-	return &tunDevice{name: name, address: address, iceBind: bind.NewICEBind(transportNet)}
+	return &tunDevice{name: name, address: address, iceBind: bind.NewICEBind(transportNet), mtu: mtu}
 }
 
 func (c *tunDevice) Create() error {
@@ -30,6 +34,40 @@ func (c *tunDevice) Create() error {
 	}
 
 	return c.assignAddr()
+}
+
+// createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
+func (c *tunDevice) createWithUserspace() (NetInterface, error) {
+	tunIface, err := tun.CreateTUN(c.name, c.mtu)
+	if err != nil {
+		return nil, err
+	}
+
+	// We need to create a wireguard-go device and listen to configuration requests
+	tunDevice := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	err = tunDevice.Up()
+	if err != nil {
+		return tunIface, err
+	}
+
+	uapi, err := c.getUAPI(c.name)
+	if err != nil {
+		return tunIface, err
+	}
+
+	go func() {
+		for {
+			uapiConn, uapiErr := uapi.Accept()
+			if uapiErr != nil {
+				log.Traceln("uapi Accept failed with error: ", uapiErr)
+				continue
+			}
+			go tunDevice.IpcHandle(uapiConn)
+		}
+	}()
+
+	log.Debugln("UAPI listener started")
+	return tunIface, nil
 }
 
 func (c *tunDevice) UpdateAddr(address WGAddress) error {
@@ -93,4 +131,9 @@ func (c *tunDevice) assignAddr() error {
 	}
 
 	return nil
+}
+
+// getUAPI returns a Listener
+func (c *tunDevice) getUAPI(iface string) (net.Listener, error) {
+	return ipc.UAPIListen(iface)
 }
