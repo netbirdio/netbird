@@ -10,6 +10,7 @@ import (
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/windows/driver"
+	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 	"net"
 )
 
@@ -38,9 +39,7 @@ func (c *tunDevice) Create() error {
 // createWithUserspace Creates a new WireGuard interface, using wireguard-go userspace implementation
 func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 
-	dll := newLazyDLL("wintun.dll", func(d *lazyDLL) {
-
-	})
+	dll := newLazyDLL("wintun.dll", func(d *lazyDLL) {})
 
 	err := dll.Load()
 	if err != nil {
@@ -131,15 +130,10 @@ func (c *tunDevice) createAdapter() (NetInterface, error) {
 
 // assignAddr Adds IP address to the tunnel interface and network route based on the range provided
 func (c *tunDevice) assignAddr() error {
-	luid := c.netInterface.(*driver.Adapter).LUID()
-
+	tunDev := c.netInterface.(*tun.NativeTun)
+	luid := winipcfg.LUID(tunDev.LUID())
 	log.Debugf("adding address %s to interface: %s", c.address.IP, c.name)
-	err := luid.SetIPAddresses([]net.IPNet{{c.address.IP, c.address.Network.Mask}})
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return luid.SetIPAddresses([]net.IPNet{{c.address.IP, c.address.Network.Mask}})
 }
 
 // getUAPI returns a Listener
