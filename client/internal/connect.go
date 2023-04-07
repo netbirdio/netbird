@@ -161,6 +161,8 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)
 		state.Set(StatusConnected)
 
+		statusRecorder.ClientStart()
+
 		<-engineCtx.Done()
 		statusRecorder.ClientTeardown()
 
