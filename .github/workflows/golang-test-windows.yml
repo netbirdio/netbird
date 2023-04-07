@@ -15,7 +15,7 @@ jobs:
 
       - uses: actions/upload-artifact@v2
         with:
-          name: syso
+          name: dll
           path: client/*.dll
 
   test:
@@ -42,7 +42,7 @@ jobs:
 
       - uses: actions/download-artifact@v2
         with:
-          name: syso
+          name: dll
           path: C:\Windows\System32\
 
       - name: Test
