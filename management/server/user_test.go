@@ -1,7 +1,6 @@
 package server
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -261,7 +260,7 @@ func validateStruct(s interface{}) (err error) {
 		isSet := field.IsValid() && !field.IsZero()
 
 		if !isSet {
-			err = errors.New(fmt.Sprintf("%v%s in not set; ", err, fieldName))
+			err = fmt.Errorf("%v%s in not set; ", err, fieldName)
 		}
 
 	}
