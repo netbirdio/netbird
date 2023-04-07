@@ -12,8 +12,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v2
-      - run: bash -x wireguard_nt.sh
-        working-directory: client
 
       - uses: actions/upload-artifact@v2
         with:
@@ -46,11 +44,6 @@ jobs:
         with:
           name: syso
           path: iface\
-
-      - uses: actions/download-artifact@v2
-        with:
-          name: syso
-          path: .
 
       - name: Test
         run: go test -timeout 5m -p 1 ./...
