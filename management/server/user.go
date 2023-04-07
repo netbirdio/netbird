@@ -171,9 +171,8 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, role UserRo
 func (am *DefaultAccountManager) CreateUser(accountID, userID string, user *UserInfo) (*UserInfo, error) {
 	if user.IsServiceUser {
 		return am.createServiceUser(accountID, StrRoleToUserRole(user.Role), user.Name, user.AutoGroups)
-	} else {
-		return am.inviteNewUser(accountID, userID, user)
 	}
+	return am.inviteNewUser(accountID, userID, user)
 }
 
 // inviteNewUser Invites a USer to a given account and creates reference in datastore
@@ -242,6 +241,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 
 }
 
+// DeleteUser deletes a user from the given account.
 func (am *DefaultAccountManager) DeleteUser(accountID, targetUserID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
