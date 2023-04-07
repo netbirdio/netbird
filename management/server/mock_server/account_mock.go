@@ -15,7 +15,7 @@ import (
 
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc func(userId, domain string) (*server.Account, error)
-	GetAccountByUserIDFunc       func(userId string) (*server.Account, error)
+	GetAccountByUserIDFunc       func(userID string) (*server.Account, error)
 	CreateSetupKeyFunc           func(accountId string, keyName string, keyType server.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string) (*server.SetupKey, error)
 	GetSetupKeyFunc                 func(accountID, userID, keyID string) (*server.SetupKey, error)
@@ -114,9 +114,9 @@ func (am *MockAccountManager) GetOrCreateAccountByUser(
 }
 
 // GetAccountByUserID mock implementation of GetAccountByUserID from server.AccountManager interface
-func (am *MockAccountManager) GetAccountByUserID(userId string) (*server.Account, error) {
+func (am *MockAccountManager) GetAccountByUserID(userID string) (*server.Account, error) {
 	if am.GetAccountByUserIDFunc != nil {
-		return am.GetAccountByUserIDFunc(userId)
+		return am.GetAccountByUserIDFunc(userID)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByUserID is not implemented")
 }
