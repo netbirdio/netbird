@@ -116,6 +116,10 @@ func (n *notifier) calculateState(managementConn, signalConn bool) int {
 		return stateDisconnected
 	}
 
+	if n.lastNotification == stateDisconnecting {
+		return stateDisconnecting
+	}
+
 	return stateConnecting
 }
 
