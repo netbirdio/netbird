@@ -984,10 +984,10 @@ func (am *DefaultAccountManager) lookupCache(accountUsers map[string]struct{}, a
 
 	if reload {
 		// reload cache once avoiding loops
-		// data, err = am.refreshCache(accountID)
-		// if err != nil {
-		// 	return nil, err
-		// }
+		data, err = am.refreshCache(accountID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return data, err

@@ -595,7 +595,9 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	if !isNil(am.idpManager) {
 		users := make(map[string]struct{}, len(account.Users))
 		for _, user := range account.Users {
-			users[user.Id] = struct{}{}
+			if !user.IsServiceUser {
+				users[user.Id] = struct{}{}
+			}
 		}
 		queriedUsers, err = am.lookupCache(users, accountID)
 		if err != nil {
