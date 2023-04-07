@@ -1,6 +1,9 @@
 //go:build windows
 
-/* SPDX-License-Identifier: MIT
+/*
+ * Partially copied from https://github.com/WireGuard/wireguard-windows/blob/dcc0eb72a04ba2c0c83d29bd621a7f66acce0a23/driver/dll_fromrsrc_windows.go
+ * With the following license:
+ * SPDX-License-Identifier: MIT
  *
  * Copyright (C) 2017-2021 WireGuard LLC. All Rights Reserved.
  */
