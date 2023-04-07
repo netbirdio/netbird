@@ -51,6 +51,6 @@ jobs:
       - run: | 
           $Acl = Get-Acl -Path 'C:\windows\system32'
           Set-Acl -AclObject $Acl -Path ${{ github.workspace }}
-      - run: ${{ env.downloadPath }}\PsExec64.exe -accepteula -s  powershell.exe -command "dir ${{ github.workspace }}"
+      - run: ${{ env.downloadPath }}\PsExec64.exe -accepteula -s  powershell.exe -command "ipconfig"
       - name: Test
         run: ${{ env.downloadPath }}\PsExec64.exe -accepteula -s  powershell.exe -command "go test -timeout 5m -p 1 ${{ github.workspace }}\..."
