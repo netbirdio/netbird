@@ -59,6 +59,8 @@ func (n *notifier) updateServerStates(mgmState bool, signalState bool) {
 		newConnState = false
 	}
 
+	n.currentServerState = newConnState
+
 	log.Debugf("new: %t, old: %t", newConnState, currConnState)
 	calculatedState := n.calculateState(newConnState, currConnState)
 
