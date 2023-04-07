@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
+	"sync"
+	"time"
+
 	"github.com/cenkalti/backoff/v4"
-	"github.com/netbirdio/netbird/encryption"
-	"github.com/netbirdio/netbird/signal/proto"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
@@ -17,9 +19,9 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"io"
-	"sync"
-	"time"
+
+	"github.com/netbirdio/netbird/encryption"
+	"github.com/netbirdio/netbird/signal/proto"
 )
 
 // ConnStateNotifier is a wrapper interface of the status recorder
@@ -158,7 +160,9 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
 			// reset times and next try will start with a long delay
 			backOff.Reset()
-			c.notifyDisconnected()
+			if s, ok := status.FromError(err); ok && s.Code() != codes.Canceled {
+				c.notifyDisconnected()
+			}
 			log.Warnf("disconnected from the Signal service but will retry silently. Reason: %v", err)
 			return err
 		}
