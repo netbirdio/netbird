@@ -59,9 +59,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		return err
 	}
 
-	statusRecorder.MarkManagementDisconnected()
-
-	statusRecorder.ClientStart()
+	statusRecorder.ClientStop()
 	defer statusRecorder.ClientStop()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle

@@ -2,6 +2,8 @@ package peer
 
 import (
 	"sync"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -45,24 +47,27 @@ func (n *notifier) updateServerStates(mgmState bool, signalState bool) {
 	n.serverStateLock.Lock()
 	defer n.serverStateLock.Unlock()
 
-	var newState bool
+	currConnState := n.currentServerState
+
+	var newConnState bool
 	if mgmState && signalState {
-		newState = true
+		newConnState = true
+	} else if mgmState || signalState {
+		newConnState = true
+		currConnState = false
 	} else {
-		newState = false
+		newConnState = false
 	}
 
-	if !n.isServerStateChanged(newState) {
+	log.Debugf("new: %t, old: %t", newConnState, currConnState)
+	calculatedState := n.calculateState(newConnState, currConnState)
+
+	if !n.isServerStateChanged(calculatedState) {
 		return
 	}
 
-	n.currentServerState = newState
+	n.lastNotification = calculatedState
 
-	if n.lastNotification == stateDisconnecting {
-		return
-	}
-
-	n.lastNotification = n.calculateState(newState, n.currentClientState)
 	n.notify(n.lastNotification)
 }
 
@@ -90,8 +95,8 @@ func (n *notifier) clientTearDown() {
 	n.notify(n.lastNotification)
 }
 
-func (n *notifier) isServerStateChanged(newState bool) bool {
-	return n.currentServerState != newState
+func (n *notifier) isServerStateChanged(newState int) bool {
+	return n.lastNotification != newState
 }
 
 func (n *notifier) notify(state int) {
@@ -118,12 +123,17 @@ func (n *notifier) notifyListener(l Listener, state int) {
 	}()
 }
 
-func (n *notifier) calculateState(serverState bool, clientState bool) int {
-	if serverState && clientState {
+func (n *notifier) calculateState(newState bool, previousState bool) int {
+
+	if newState && previousState {
 		return stateConnected
 	}
 
-	if !clientState {
+	if !newState && previousState {
+		return stateDisconnecting
+	}
+
+	if !newState && !previousState {
 		return stateDisconnected
 	}
 
