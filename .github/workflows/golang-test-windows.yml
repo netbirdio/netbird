@@ -47,5 +47,10 @@ jobs:
           name: syso
           path: iface\
 
+      - uses: actions/download-artifact@v2
+        with:
+          name: syso
+          path: .
+
       - name: Test
         run: go test -timeout 5m -p 1 ./...
