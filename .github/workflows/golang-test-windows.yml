@@ -18,7 +18,7 @@ jobs:
       - uses: actions/upload-artifact@v2
         with:
           name: syso
-          path: client/*.syso
+          path: client/*.dll
 
   test:
     needs: pre

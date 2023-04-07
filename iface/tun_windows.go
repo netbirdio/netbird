@@ -60,7 +60,7 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 
 	uapi, err := c.getUAPI(c.name)
 	if err != nil {
-		return tunIface, err
+		return nil, err
 	}
 
 	go func() {
