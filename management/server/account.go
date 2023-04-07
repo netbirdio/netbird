@@ -50,7 +50,7 @@ type AccountManager interface {
 		autoGroups []string, usageLimit int, userID string) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey, userID string) (*SetupKey, error)
 	CreateUser(accountID, userID string, key *UserInfo) (*UserInfo, error)
-	DeleteUser(accountID, executingUserID string, targetUserID string) error
+	DeleteUser(accountID, targetUserID string) error
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID, userID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)

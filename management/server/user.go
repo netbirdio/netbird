@@ -170,10 +170,8 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, role UserRo
 // CreateUser creates a new user under the given account. Effectively this is a user invite.
 func (am *DefaultAccountManager) CreateUser(accountID, userID string, user *UserInfo) (*UserInfo, error) {
 	if user.IsServiceUser {
-		log.Debugf("Creting service user")
 		return am.createServiceUser(accountID, StrRoleToUserRole(user.Role), user.Name, user.AutoGroups)
 	} else {
-		log.Debugf("Inviting regular user")
 		return am.inviteNewUser(accountID, userID, user)
 	}
 }
@@ -244,7 +242,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 
 }
 
-func (am *DefaultAccountManager) DeleteUser(accountID, userID, targetUserID string) error {
+func (am *DefaultAccountManager) DeleteUser(accountID, targetUserID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -275,8 +273,6 @@ func (am *DefaultAccountManager) DeleteUser(accountID, userID, targetUserID stri
 	// if err != nil {
 	// 	return err
 	// }
-
-	// am.storeEvent(userID, targetUserID, accountID, activity.UserDeleted, nil)
 
 	return nil
 }

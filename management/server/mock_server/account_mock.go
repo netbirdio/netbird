@@ -61,7 +61,7 @@ type MockAccountManager struct {
 	SaveSetupKeyFunc                func(accountID string, key *server.SetupKey, userID string) (*server.SetupKey, error)
 	ListSetupKeysFunc               func(accountID, userID string) ([]*server.SetupKey, error)
 	SaveUserFunc                    func(accountID, userID string, user *server.User) (*server.UserInfo, error)
-	DeleteUserFunc                  func(accountID string, executingUserID string, targetUserID string) error
+	DeleteUserFunc                  func(accountID string, targetUserID string) error
 	CreatePATFunc                   func(accountID string, executingUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
 	DeletePATFunc                   func(accountID string, executingUserID string, targetUserId string, tokenID string) error
 	GetPATFunc                      func(accountID string, executingUserID string, targetUserId string, tokenID string) (*server.PersonalAccessToken, error)
@@ -502,9 +502,9 @@ func (am *MockAccountManager) SaveUser(accountID, userID string, user *server.Us
 }
 
 // DeleteUser mocks DeleteUser of the AccountManager interface
-func (am *MockAccountManager) DeleteUser(accountID string, executingUserID string, targetUserID string) error {
+func (am *MockAccountManager) DeleteUser(accountID string, targetUserID string) error {
 	if am.DeleteUserFunc != nil {
-		return am.DeleteUserFunc(accountID, executingUserID, targetUserID)
+		return am.DeleteUserFunc(accountID, targetUserID)
 	}
 	return status.Errorf(codes.Unimplemented, "method DeleteUser is not implemented")
 }
