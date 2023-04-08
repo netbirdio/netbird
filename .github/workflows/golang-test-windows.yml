@@ -38,18 +38,17 @@ jobs:
 
       - run: mv ${{ env.downloadPath }}/wintun/bin/amd64/wintun.dll 'C:\Windows\System32\'
 
-      - name: Download PaExec
+      - name: Install invoke-CommandAs
         run: |
-          choco install wget --no-progress 
-          wget -q https://www.poweradmin.com/paexec/paexec.exe -P C:\Windows\System32
+          $WebClient = New-Object Net.WebClient
+          $WebClient.DownloadString("https://raw.githubusercontent.com/mkellerman/Invoke-CommandAs/master/Invoke-CommandAs/Private/Invoke-ScheduledTask.ps1") | Set-Content -Path ".\Invoke-ScheduledTask.ps1"
+          $WebClient.DownloadString("https://raw.githubusercontent.com/mkellerman/Invoke-CommandAs/master/Invoke-CommandAs/Public/Invoke-CommandAs.ps1") | Set-Content -Path ".\Invoke-CommandAs.ps1"
+          Import-Module ".\Invoke-ScheduledTask.ps1"
+          Import-Module ".\Invoke-CommandAs.ps1"
 
       - name: Generate Iface Test bin
-        run: go test -c -o iface-testing.bin.exe ./iface/
+        run: go test -c -o ${{ github.workspace }}/iface-testing.bin.exe ./iface/
+
       - name: Test
         if: ${{ always() }}
-        run: |
-          mv iface-testing.bin.exe 'C:\Windows\temp\'
-          paexec -lo $pwd\output.txt -s 'C:\Windows\temp\iface-testing.bin.exe'
-      - name: print log
-        if: ${{ always() }}
-        run: Get-Content $pwd\output.txt
+        run: Invoke-CommandAs -ScriptBlock { ${{ github.workspace }}/iface-testing.bin.exe } -AsSystem
