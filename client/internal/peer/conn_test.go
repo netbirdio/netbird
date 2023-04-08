@@ -203,12 +203,13 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 	}
 	privateHostCandidate := &mockICECandidate{
 		AddressFunc: func() string {
-			return "10.0.0.1"
+			return "10.0.0.1:44576"
 		},
 		TypeFunc: func() ice.CandidateType {
 			return ice.CandidateTypeHost
 		},
 	}
+
 	srflxCandidate := &mockICECandidate{
 		AddressFunc: func() string {
 			return "1.1.1.1"
