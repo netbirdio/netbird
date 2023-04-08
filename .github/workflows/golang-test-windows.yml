@@ -38,13 +38,18 @@ jobs:
 
       - run: mv ${{ env.downloadPath }}/wintun/bin/amd64/wintun.dll 'C:\Windows\System32\'
 
-      - name: Install sysinternals
-        run: choco install -y --no-progress sysinternals
-      - name: accept eula
-        run: PsExec64 -accepteula -s ipconfig
+      - name: Download PaExec
+        run: |
+          choco install wget --no-progress 
+          wget -q https://www.poweradmin.com/paexec/paexec.exe -P C:\Windows\System32
+
       - name: Generate Iface Test bin
         run: go test -c -o iface-testing.bin.exe ./iface/
       - name: Test
+        if: ${{ always() }}
         run: |
           mv iface-testing.bin.exe 'C:\Windows\temp\'
-          PsExec64 -s 'C:\Windows\temp\iface-testing.bin.exe'
+          paexec -lo $pwd\output.txt -s 'C:\Windows\temp\iface-testing.bin.exe'
+      - name: print log
+        if: ${{ always() }}
+        run: Get-Content $pwd\output.txt
