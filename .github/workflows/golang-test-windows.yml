@@ -40,6 +40,9 @@ jobs:
 
       - name: Install sysinternals
         run: choco install -y --no-progress sysinternals
-      - run: PsExec64 -accepteula -s  powershell.exe -command "ipconfig"
+      - name: Generate Iface Test bin
+        run: go test -c -o iface-testing.bin ./iface/
+      - name: accept eula
+        run: PsExec64 -accepteula -s ipconfig
       - name: Test
-        run: PsExec64 -accepteula -s  powershell.exe -command "go test -timeout 5m -p 1 ${{ github.workspace }}\iface\..."
+        run: PsExec64 -s .\iface-testing.bin
