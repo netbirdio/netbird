@@ -47,9 +47,7 @@ jobs:
 
       - name: Generate Iface Test bin
         run: go mod tidy
-      - name: Build helper
-        run:
-
+#      - name: Build helper
 #        run: go test -c -o ${{ github.workspace }}/iface-testing.bin.exe ./iface/
 
       - name: Test
