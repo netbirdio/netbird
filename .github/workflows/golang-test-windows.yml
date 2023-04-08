@@ -19,54 +19,29 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-#      - name: Install Go
-#        if: always()
-#        uses: actions/setup-go@v4
-#        with:
-#          go-version: 1.19.x
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.19.x
 
-#      - name: Download wintun
-#        uses: carlosperate/download-file-action@v2
-#        id: download-wintun
-#        with:
-#          file-url: https://www.wintun.net/builds/wintun-0.14.1.zip
-#          file-name: wintun.zip
-#          location: ${{ env.downloadPath }}
-#          sha256: '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51'
-#
-#      - name: Decompressing wintun files
-#        run: tar -zvxf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
-#
-#      - run: mv ${{ env.downloadPath }}/wintun/bin/amd64/wintun.dll 'C:\Windows\System32\'
+      - name: Download wintun
+        uses: carlosperate/download-file-action@v2
+        id: download-wintun
+        with:
+          file-url: https://www.wintun.net/builds/wintun-0.14.1.zip
+          file-name: wintun.zip
+          location: ${{ env.downloadPath }}
+          sha256: '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51'
 
-      - name: Install invoke-CommandAs
-        run: |
-          $WebClient = New-Object Net.WebClient
-          $WebClient.DownloadString("https://raw.githubusercontent.com/mkellerman/Invoke-CommandAs/master/Invoke-CommandAs/Private/Invoke-ScheduledTask.ps1") | Set-Content -Path ".\Invoke-ScheduledTask.ps1"
-          $WebClient.DownloadString("https://raw.githubusercontent.com/mkellerman/Invoke-CommandAs/master/Invoke-CommandAs/Public/Invoke-CommandAs.ps1") | Set-Content -Path ".\Invoke-CommandAs.ps1"
+      - name: Decompressing wintun files
+        run: tar -zvxf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
 
-#      - name: Generate Iface Test bin
-#        run: go mod tidy
-#      - name: Build helper
-#        run: go test -c -o ${{ github.workspace }}/iface-testing.bin.exe ./iface/
-# "C:\hostedtoolcache\windows\go\1.19.7\x64\bin\go.exe"
-      - name: custom config
-        if: ${{ always() }}
-        run: |
-          $ConfigPath = "$PSHOME\powershell.config.json"
-          $list = New-Object System.Collections.ArrayList
-          $list = "BestPractices","UpdateServices"
-          $ConfigJSON = ConvertTo-Json -InputObject @{
-            "Microsoft.PowerShell:ExecutionPolicy" = "RemoteSigned"
-             "WindowsPowerShellCompatibilityModuleDenyList" = $list
-          }
-          $ConfigJSON | Out-File -Force $ConfigPath
+      - run: mv ${{ env.downloadPath }}/wintun/bin/amd64/wintun.dll 'C:\Windows\System32\'
 
-      - name: Test
-        if: ${{ always() }}
-        run: |
-          Import-Module PSScheduledJob -UseWindowsPowerShell
-          Import-Module ".\Invoke-ScheduledTask.ps1"
-          Import-Module ".\Invoke-CommandAs.ps1"
-          Invoke-CommandAs -ScriptBlock { whoami } -AsSystem
-#          Invoke-CommandAs -ScriptBlock { ${{ github.workspace }}/iface-testing.bin.exe } -AsSystem
+      - run: choco install -y sysinternals
+      - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOMODCACHE=C:\Users\runneradmin\go\pkg\mod
+      - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOCACHE=C:\Users\runneradmin\AppData\Local\go-build
+
+      - name: test
+        continue-on-error: true
+        run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe test -v ./iface/...
