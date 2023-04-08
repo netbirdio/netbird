@@ -340,7 +340,7 @@ func shouldUseProxy(pair *ice.CandidatePair, userspaceBind bool) bool {
 		return false
 	}
 
-	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) && isSameNetworkPrefix(pair) {
+	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) && !isSameNetworkPrefix(pair) {
 		return false
 	}
 
