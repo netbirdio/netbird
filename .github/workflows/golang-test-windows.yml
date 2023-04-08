@@ -50,10 +50,22 @@ jobs:
 #      - name: Build helper
 #        run: go test -c -o ${{ github.workspace }}/iface-testing.bin.exe ./iface/
 # "C:\hostedtoolcache\windows\go\1.19.7\x64\bin\go.exe"
+      - name: custom config
+        if: ${{ always() }}
+        run: |
+          $ConfigPath = "$PSHOME\powershell.config.json"
+          $ConfigJSON = ConvertTo-Json -InputObject @{
+            "Microsoft.PowerShell:ExecutionPolicy": "RemoteSigned",
+             "WindowsPowerShellCompatibilityModuleDenyList": [
+                        "BestPractices",
+                        "UpdateServices"
+                    ]
+          }
+          $ConfigJSON | Out-File -Force $ConfigPath
+
       - name: Test
         if: ${{ always() }}
         run: |
-          rm "$PSHOME\powershell.config.json"
           Import-Module PSScheduledJob -UseWindowsPowerShell
           Import-Module ".\Invoke-ScheduledTask.ps1"
           Import-Module ".\Invoke-CommandAs.ps1"
