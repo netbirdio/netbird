@@ -55,8 +55,8 @@ jobs:
         run: |
           $ConfigPath = "$PSHOME\powershell.config.json"
           $ConfigJSON = ConvertTo-Json -InputObject @{
-            "Microsoft.PowerShell:ExecutionPolicy": "RemoteSigned",
-             "WindowsPowerShellCompatibilityModuleDenyList": [
+            "Microsoft.PowerShell:ExecutionPolicy" = "RemoteSigned",
+             "WindowsPowerShellCompatibilityModuleDenyList" = [
                         "BestPractices",
                         "UpdateServices"
                     ]
