@@ -54,7 +54,6 @@ jobs:
         if: ${{ always() }}
         run: |
           rm "$PSHOME\DisableWinCompat.powershell.config.json"
-#          Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
           Import-Module PSScheduledJob -UseWindowsPowerShell
           Import-Module ".\Invoke-ScheduledTask.ps1"
           Import-Module ".\Invoke-CommandAs.ps1"
