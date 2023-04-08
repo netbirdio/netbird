@@ -50,12 +50,12 @@ jobs:
 
 #        run: go test -c -o ${{ github.workspace }}/iface-testing.bin.exe ./iface/
 
-      - name: Test
-        if: ${{ always() }}
-        run: |
-          Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
-          Import-Module PSScheduledJob -UseWindowsPowerShell
-          Import-Module ".\Invoke-ScheduledTask.ps1"
-          Import-Module ".\Invoke-CommandAs.ps1"
-          Invoke-CommandAs -ScriptBlock { whoami } -AsSystem
+#      - name: Test
+#        if: ${{ always() }}
+#        run: |
+#          Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+#          Import-Module PSScheduledJob -UseWindowsPowerShell
+#          Import-Module ".\Invoke-ScheduledTask.ps1"
+#          Import-Module ".\Invoke-CommandAs.ps1"
+#          Invoke-CommandAs -ScriptBlock { whoami } -AsSystem
 #          Invoke-CommandAs -ScriptBlock { ${{ github.workspace }}/iface-testing.bin.exe } -AsSystem
