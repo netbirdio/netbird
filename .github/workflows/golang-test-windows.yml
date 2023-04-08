@@ -53,7 +53,7 @@ jobs:
       - name: Test
         if: ${{ always() }}
         run: |
-          dir "$PSHOME"
+          Get-Content "$PSHOME\powershell.config.json"
 #          Import-Module PSScheduledJob -UseWindowsPowerShell
 #          Import-Module ".\Invoke-ScheduledTask.ps1"
 #          Import-Module ".\Invoke-CommandAs.ps1"
