@@ -49,11 +49,12 @@ jobs:
         run: go mod tidy
 #      - name: Build helper
 #        run: go test -c -o ${{ github.workspace }}/iface-testing.bin.exe ./iface/
-
+# "C:\hostedtoolcache\windows\go\1.19.7\x64\bin\go.exe"
       - name: Test
         if: ${{ always() }}
         run: |
-          Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
+          rm "$PSHOME\DisableWinCompat.powershell.config.json"
+#          Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process -Force
           Import-Module PSScheduledJob -UseWindowsPowerShell
           Import-Module ".\Invoke-ScheduledTask.ps1"
           Import-Module ".\Invoke-CommandAs.ps1"
