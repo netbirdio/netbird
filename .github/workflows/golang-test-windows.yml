@@ -43,8 +43,8 @@ jobs:
       - name: accept eula
         run: PsExec64 -accepteula -s ipconfig
       - name: Generate Iface Test bin
-        run: go test -c -o iface-testing.bin ./iface/
+        run: go test -c -o iface-testing.bin.exe ./iface/
       - name: Test
         run: |
-          mv iface-testing.bin 'C:\Windows\temp\'
+          mv iface-testing.bin.exe 'C:\Windows\temp\'
           PsExec64 -s 'C:\Windows\temp\iface-testing.bin.exe'
