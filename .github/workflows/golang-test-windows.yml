@@ -21,6 +21,7 @@ jobs:
 
       - name: Install Go
         uses: actions/setup-go@v4
+        id: go
         with:
           go-version: 1.19.x
 
