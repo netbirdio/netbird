@@ -43,12 +43,13 @@ jobs:
           $WebClient = New-Object Net.WebClient
           $WebClient.DownloadString("https://raw.githubusercontent.com/mkellerman/Invoke-CommandAs/master/Invoke-CommandAs/Private/Invoke-ScheduledTask.ps1") | Set-Content -Path ".\Invoke-ScheduledTask.ps1"
           $WebClient.DownloadString("https://raw.githubusercontent.com/mkellerman/Invoke-CommandAs/master/Invoke-CommandAs/Public/Invoke-CommandAs.ps1") | Set-Content -Path ".\Invoke-CommandAs.ps1"
-          Import-Module ".\Invoke-ScheduledTask.ps1"
-          Import-Module ".\Invoke-CommandAs.ps1"
 
       - name: Generate Iface Test bin
         run: go test -c -o ${{ github.workspace }}/iface-testing.bin.exe ./iface/
 
       - name: Test
         if: ${{ always() }}
-        run: Invoke-CommandAs -ScriptBlock { ${{ github.workspace }}/iface-testing.bin.exe } -AsSystem
+        run: |
+          Import-Module ".\Invoke-ScheduledTask.ps1"
+          Import-Module ".\Invoke-CommandAs.ps1"
+          Invoke-CommandAs -ScriptBlock { ${{ github.workspace }}/iface-testing.bin.exe } -AsSystem
