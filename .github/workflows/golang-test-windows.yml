@@ -57,7 +57,7 @@ jobs:
           $list = New-Object System.Collections.ArrayList
           $list = "BestPractices","UpdateServices"
           $ConfigJSON = ConvertTo-Json -InputObject @{
-            "Microsoft.PowerShell:ExecutionPolicy" = "RemoteSigned",
+            "Microsoft.PowerShell:ExecutionPolicy" = "RemoteSigned"
              "WindowsPowerShellCompatibilityModuleDenyList" = $list
           }
           $ConfigJSON | Out-File -Force $ConfigPath
