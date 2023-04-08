@@ -340,11 +340,31 @@ func shouldUseProxy(pair *ice.CandidatePair, userspaceBind bool) bool {
 		return false
 	}
 
-	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) {
+	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) && isSameNetworkPrefix(pair) {
 		return false
 	}
 
 	return true
+}
+
+func isSameNetworkPrefix(pair *ice.CandidatePair) bool {
+
+	localIPStr, _, err := net.SplitHostPort(pair.Local.Address())
+	if err != nil {
+		return false
+	}
+	remoteIPStr, _, err := net.SplitHostPort(pair.Remote.Address())
+	if err != nil {
+		return false
+	}
+	localIP := net.ParseIP(localIPStr)
+	remoteIP := net.ParseIP(remoteIPStr)
+	if localIP == nil || remoteIP == nil {
+		return false
+	}
+	// only consider /16 networks
+	mask := net.IPMask{255, 255, 0, 0}
+	return localIP.Mask(mask).Equal(remoteIP.Mask(mask))
 }
 
 func isRelayCandidate(candidate ice.Candidate) bool {
