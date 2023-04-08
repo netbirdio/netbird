@@ -38,19 +38,8 @@ jobs:
 
       - run: mv ${{ env.downloadPath }}/wintun/bin/amd64/wintun.dll 'C:\Windows\System32\'
 
-      - name: Download PSTools
-        uses: carlosperate/download-file-action@v2
-        id: download-pstools
-        with:
-          file-url: https://download.sysinternals.com/files/PSTools.zip
-          file-name: PSTools.zip
-          location: ${{ env.downloadPath }}
-
-      - name: Decompressing PSTools files
-        run: tar -zvxf "${{ steps.download-pstools.outputs.file-path }}" -C ${{ env.downloadPath }}
-      - run: | 
-          $Acl = Get-Acl -Path 'C:\windows\system32'
-          Set-Acl -AclObject $Acl -Path ${{ github.workspace }}
-      - run: ${{ env.downloadPath }}\PsExec64.exe -accepteula -s  powershell.exe -command "ipconfig"
+      - name: Install sysinternals
+        run: choco install -y --no-progress sysinternals
+      - run: PsExec64 -accepteula -s  powershell.exe -command "ipconfig"
       - name: Test
-        run: ${{ env.downloadPath }}\PsExec64.exe -accepteula -s  powershell.exe -command "go test -timeout 5m -p 1 ${{ github.workspace }}\..."
+        run: PsExec64 -accepteula -s  powershell.exe -command "go test -timeout 5m -p 1 ${{ github.workspace }}\iface\..."
