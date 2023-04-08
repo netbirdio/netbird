@@ -40,9 +40,11 @@ jobs:
 
       - name: Install sysinternals
         run: choco install -y --no-progress sysinternals
-      - name: Generate Iface Test bin
-        run: go test -c -o iface-testing.bin ./iface/
       - name: accept eula
         run: PsExec64 -accepteula -s ipconfig
+      - name: Generate Iface Test bin
+        run: go test -c -o iface-testing.bin ./iface/
       - name: Test
-        run: PsExec64 -s .\iface-testing.bin
+        run: |
+          mv iface-testing.bin 'C:\Windows\temp\'
+          PsExec64 -s 'C:\Windows\temp\iface-testing.bin.exe'
