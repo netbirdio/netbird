@@ -47,7 +47,12 @@ func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(w, accountPolicies)
+	policies := []*api.Policy{}
+	for _, policy := range accountPolicies {
+		policies = append(policies, toPolicyResponse(account, policy))
+	}
+
+	util.WriteJSONObject(w, policies)
 }
 
 // UpdatePolicy handles update to a policy identified by a given ID
