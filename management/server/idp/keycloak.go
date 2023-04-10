@@ -13,8 +13,9 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 const (
