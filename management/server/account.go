@@ -1231,9 +1231,11 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		return nil, nil, status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
-	err = am.redeemInvite(account, claims.UserId)
-	if err != nil {
-		return nil, nil, err
+	if !user.IsServiceUser {
+		err = am.redeemInvite(account, claims.UserId)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 
 	return account, user, nil
