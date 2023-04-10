@@ -249,7 +249,7 @@ func mapPeers(peers []*proto.PeerState) peersStateOutput {
 			IP:               pbPeerState.GetIP(),
 			PubKey:           pbPeerState.GetPubKey(),
 			Status:           pbPeerState.GetConnStatus(),
-			LastStatusUpdate: timeLocal.UTC(),
+			LastStatusUpdate: timeLocal,
 			ConnType:         connType,
 			Direct:           pbPeerState.GetDirect(),
 			IceCandidateType: iceCandidateType{

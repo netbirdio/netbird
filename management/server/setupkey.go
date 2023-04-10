@@ -148,7 +148,7 @@ func (key *SetupKey) IsRevoked() bool {
 
 // IsExpired if key was expired
 func (key *SetupKey) IsExpired() bool {
-	return time.Now().UTC().After(key.ExpiresAt)
+	return time.Now().After(key.ExpiresAt)
 }
 
 // IsOverUsed if the key was used too many times. SetupKey.UsageLimit == 0 indicates the unlimited usage.

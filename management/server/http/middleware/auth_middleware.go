@@ -117,7 +117,7 @@ func (m *AuthMiddleware) CheckPATFromRequest(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return fmt.Errorf("invalid Token: %w", err)
 	}
-	if time.Now().UTC().After(pat.ExpirationDate) {
+	if time.Now().After(pat.ExpirationDate) {
 		return fmt.Errorf("token expired")
 	}
 

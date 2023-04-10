@@ -46,7 +46,7 @@ func NewTimeBasedAuthSecretsManager(updateManager *PeersUpdateManager, config *T
 func (m *TimeBasedAuthSecretsManager) GenerateCredentials() TURNCredentials {
 	mac := hmac.New(sha1.New, []byte(m.config.Secret))
 
-	timeAuth := time.Now().UTC().Add(m.config.CredentialsTTL.Duration).Unix()
+	timeAuth := time.Now().Add(m.config.CredentialsTTL.Duration).Unix()
 
 	username := fmt.Sprint(timeAuth)
 

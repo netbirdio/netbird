@@ -144,7 +144,7 @@ func (p *Peer) LoginExpired(expiresIn time.Duration) (bool, time.Duration) {
 		return false, 0
 	}
 	expiresAt := p.LastLogin.Add(expiresIn)
-	now := time.Now().UTC()
+	now := time.Now()
 	timeLeft := expiresAt.Sub(now)
 	return timeLeft <= 0, timeLeft
 }
