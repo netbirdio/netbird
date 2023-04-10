@@ -117,9 +117,9 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 				pr.ID = *r.Id
 			}
 			switch r.Action {
-			case api.PolicyRuleActionAccept:
+			case api.PolicyRuleUpdateActionAccept:
 				pr.Action = server.PolicyTrafficActionAccept
-			case api.PolicyRuleActionDrop:
+			case api.PolicyRuleUpdateActionDrop:
 				pr.Action = server.PolicyTrafficActionDrop
 			default:
 				util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
@@ -154,6 +154,7 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 	var req api.PostApiPoliciesJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
+		log.Errorf("failed to decode request body: %v", err)
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
@@ -186,9 +187,9 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 			}
 
 			switch r.Action {
-			case api.PolicyRuleActionAccept:
+			case api.PolicyRuleUpdateActionAccept:
 				pr.Action = server.PolicyTrafficActionAccept
-			case api.PolicyRuleActionDrop:
+			case api.PolicyRuleUpdateActionDrop:
 				pr.Action = server.PolicyTrafficActionDrop
 			default:
 				util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
@@ -197,11 +198,13 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 
 			if r.Protocol != nil && *r.Protocol != "" {
 				switch *r.Protocol {
-				case api.PolicyRuleProtocolTcp:
+				case api.PolicyRuleUpdateProtocolAll:
+					// if we set empty for client it means all
+				case api.PolicyRuleUpdateProtocolTcp:
 					pr.Protocol = server.PolicyRuleProtocolTCP
-				case api.PolicyRuleProtocolUdp:
+				case api.PolicyRuleUpdateProtocolUdp:
 					pr.Protocol = server.PolicyRuleProtocolUDP
-				case api.PolicyRuleProtocolIcmp:
+				case api.PolicyRuleUpdateProtocolIcmp:
 					pr.Protocol = server.PolicyRuleProtocolICMP
 				default:
 					util.WriteError(status.Errorf(status.InvalidArgument, "unknown protocol type: %v", *r.Protocol), w)
@@ -287,11 +290,14 @@ func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Policy {
 	cache := make(map[string]api.GroupMinimum)
 	ap := &api.Policy{
-		Id:          policy.ID,
 		Name:        policy.Name,
 		Description: policy.Description,
 		Enabled:     policy.Enabled,
 		Query:       policy.Query,
+	}
+	if policy.ID != "" {
+		id := policy.ID
+		ap.Id = &id
 	}
 	if len(policy.Rules) == 0 {
 		return ap
@@ -348,13 +354,13 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 	return ap
 }
 
-func groupMinimumsToStrings(account *server.Account, gm []api.GroupMinimum) []string {
+func groupMinimumsToStrings(account *server.Account, gm []string) []string {
 	result := make([]string, 0, len(gm))
-	for _, gm := range gm {
-		if _, ok := account.Groups[gm.Id]; ok {
+	for _, g := range gm {
+		if _, ok := account.Groups[g]; ok {
 			continue
 		}
-		result = append(result, gm.Id)
+		result = append(result, g)
 	}
 	return result
 }
