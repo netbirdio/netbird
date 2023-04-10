@@ -16,6 +16,7 @@ type tunDevice struct {
 	name         string
 	address      WGAddress
 	netInterface NetInterface
+	uapi         net.Listener
 	iceBind      *bind.ICEBind
 	mtu          int
 }
@@ -42,7 +43,7 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 		return nil, err
 	}
 	// We need to create a wireguard-go device and listen to configuration requests
-	tunDevice := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	tunDevice := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
 	err = tunDevice.Up()
 	if err != nil {
 		return tunIface, err
@@ -52,12 +53,13 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.uapi = uapi
 
 	go func() {
 		for {
 			uapiConn, uapiErr := uapi.Accept()
 			if uapiErr != nil {
-				log.Traceln("uapi Accept failed with error: ", uapiErr)
+				log.Traceln("uapi accept failed with error: ", uapiErr)
 				continue
 			}
 			go tunDevice.IpcHandle(uapiConn)
@@ -82,11 +84,20 @@ func (c *tunDevice) DeviceName() string {
 }
 
 func (c *tunDevice) Close() error {
+	var err1, err2 error
 	if c.netInterface == nil {
-		return nil
+		err1 = c.netInterface.Close()
 	}
 
-	return c.netInterface.Close()
+	if c.uapi != nil {
+		err2 = c.uapi.Close()
+	}
+
+	if err1 != nil {
+		return err1
+	}
+
+	return err2
 }
 
 func (c *tunDevice) getInterfaceGUIDString() (string, error) {
