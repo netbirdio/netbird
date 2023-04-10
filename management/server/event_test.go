@@ -1,17 +1,19 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/activity"
 )
 
 func generateAndStoreEvents(t *testing.T, manager *DefaultAccountManager, typ activity.Activity, initiatorID, targetID,
 	accountID string, count int) {
 	for i := 0; i < count; i++ {
 		_, err := manager.eventStore.Save(&activity.Event{
-			Timestamp:   time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Activity:    typ,
 			InitiatorID: initiatorID,
 			TargetID:    targetID,

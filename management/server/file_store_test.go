@@ -95,7 +95,7 @@ func TestSaveAccount(t *testing.T) {
 		IP:       net.IP{127, 0, 0, 1},
 		Meta:     PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
+		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 
 	// SaveAccount should trigger persist
@@ -131,7 +131,7 @@ func TestStore(t *testing.T) {
 		IP:       net.IP{127, 0, 0, 1},
 		Meta:     PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: true, LastSeen: time.Now()},
+		Status:   &PeerStatus{Connected: true, LastSeen: time.Now().UTC()},
 	}
 	account.Groups["all"] = &Group{
 		ID:    "all",
@@ -514,7 +514,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 	}
 
 	// save status of non-existing peer
-	newStatus := PeerStatus{Connected: true, LastSeen: time.Now()}
+	newStatus := PeerStatus{Connected: true, LastSeen: time.Now().UTC()}
 	err = store.SavePeerStatus(account.Id, "non-existing-peer", newStatus)
 	assert.Error(t, err)
 
@@ -526,7 +526,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 		IP:       net.IP{127, 0, 0, 1},
 		Meta:     PeerSystemMeta{},
 		Name:     "peer name",
-		Status:   &PeerStatus{Connected: false, LastSeen: time.Now()},
+		Status:   &PeerStatus{Connected: false, LastSeen: time.Now().UTC()},
 	}
 
 	err = store.SaveAccount(account)

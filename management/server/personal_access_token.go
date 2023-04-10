@@ -48,7 +48,7 @@ func CreateNewPAT(name string, expirationInDays int, createdBy string) (*Persona
 	if err != nil {
 		return nil, err
 	}
-	currentTime := time.Now().UTC()
+	currentTime := time.Now()
 	return &PersonalAccessTokenGenerated{
 		PersonalAccessToken: PersonalAccessToken{
 			ID:             xid.New().String(),
