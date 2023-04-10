@@ -145,19 +145,19 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
-			s, ok := gstatus.FromError(err)
-			if ok && s.Code() == codes.PermissionDenied {
+			s, _ := gstatus.FromError(err)
+			switch s.Code() {
+			case codes.PermissionDenied:
 				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
-			}
-			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
-			// reset times and next try will start with a long delay
-			backOff.Reset()
-			if s.Code() != codes.Canceled {
+			case codes.Canceled:
+				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+				return nil
+			default:
+				backOff.Reset() // reset backoff counter after successful connection
 				c.notifyDisconnected()
+				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+				return err
 			}
-
-			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-			return err
 		}
 
 		return nil

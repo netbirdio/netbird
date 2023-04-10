@@ -157,12 +157,14 @@ func (c *GrpcClient) Receive(msgHandler func(msg *proto.Message) error) error {
 		// start receiving messages from the Signal stream (from other peers through signal)
 		err = c.receive(stream, msgHandler)
 		if err != nil {
+			if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
+				log.Debugf("signal connection context has been canceled, this usually indicates shutdown")
+				return nil
+			}
 			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
 			// reset times and next try will start with a long delay
 			backOff.Reset()
-			if s, ok := status.FromError(err); ok && s.Code() != codes.Canceled {
-				c.notifyDisconnected()
-			}
+			c.notifyDisconnected()
 			log.Warnf("disconnected from the Signal service but will retry silently. Reason: %v", err)
 			return err
 		}
