@@ -3,13 +3,15 @@ package idp
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/assert"
@@ -251,7 +253,7 @@ func TestAuth0_Authenticate(t *testing.T) {
 		name:             "Get Cached token",
 		inputExpireToken: time.Now().Add(30 * time.Second),
 		helper:           JsonParser{},
-		//expectedFuncExitErrDiff: fmt.Errorf("unable to get token, statusCode 400"),
+		// expectedFuncExitErrDiff: fmt.Errorf("unable to get token, statusCode 400"),
 		expectedCode:  200,
 		expectedToken: "",
 	}

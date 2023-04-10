@@ -1,15 +1,17 @@
 package server
 
 import (
-	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 	"hash/fnv"
 	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 const (
@@ -130,7 +132,7 @@ func (key *SetupKey) HiddenCopy(length int) *SetupKey {
 func (key *SetupKey) IncrementUsage() *SetupKey {
 	c := key.Copy()
 	c.UsedTimes = c.UsedTimes + 1
-	c.LastUsed = time.Now()
+	c.LastUsed = time.Now().UTC()
 	return c
 }
 
@@ -171,9 +173,9 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 		Key:        key,
 		Name:       name,
 		Type:       t,
-		CreatedAt:  time.Now(),
-		ExpiresAt:  time.Now().Add(validFor),
-		UpdatedAt:  time.Now(),
+		CreatedAt:  time.Now().UTC(),
+		ExpiresAt:  time.Now().UTC().Add(validFor),
+		UpdatedAt:  time.Now().UTC(),
 		Revoked:    false,
 		UsedTimes:  0,
 		AutoGroups: autoGroups,
@@ -274,7 +276,7 @@ func (am *DefaultAccountManager) SaveSetupKey(accountID string, keyToSave *Setup
 	newKey.Name = keyToSave.Name
 	newKey.AutoGroups = keyToSave.AutoGroups
 	newKey.Revoked = keyToSave.Revoked
-	newKey.UpdatedAt = time.Now()
+	newKey.UpdatedAt = time.Now().UTC()
 
 	account.SetupKeys[newKey.Key] = newKey
 

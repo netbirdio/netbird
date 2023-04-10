@@ -2,12 +2,14 @@ package server
 
 import (
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/stretchr/testify/assert"
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/activity"
 )
 
 func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
@@ -54,7 +56,7 @@ func TestDefaultAccountManager_SaveSetupKey(t *testing.T) {
 	}
 
 	assertKey(t, newKey, newKeyName, revoked, "reusable", 0, key.CreatedAt, key.ExpiresAt,
-		key.Id, time.Now(), autoGroups)
+		key.Id, time.Now().UTC(), autoGroups)
 
 	// check the corresponding events that should have been generated
 	ev := getEvent(t, account.Id, manager, activity.SetupKeyRevoked)
@@ -108,10 +110,10 @@ func TestDefaultAccountManager_CreateSetupKey(t *testing.T) {
 		expectedCreatedAt time.Time
 		expectedUpdatedAt time.Time
 		expectedExpiresAt time.Time
-		expectedFailure   bool //indicates whether key creation should fail
+		expectedFailure   bool // indicates whether key creation should fail
 	}
 
-	now := time.Now()
+	now := time.Now().UTC()
 	expiresIn := time.Hour
 	testCase1 := testCase{
 		name:              "Should Create Setup Key successfully",
@@ -169,9 +171,9 @@ func TestGenerateDefaultSetupKey(t *testing.T) {
 	expectedRevoke := false
 	expectedType := "reusable"
 	expectedUsedTimes := 0
-	expectedCreatedAt := time.Now()
-	expectedUpdatedAt := time.Now()
-	expectedExpiresAt := time.Now().Add(24 * 30 * time.Hour)
+	expectedCreatedAt := time.Now().UTC()
+	expectedUpdatedAt := time.Now().UTC()
+	expectedExpiresAt := time.Now().UTC().Add(24 * 30 * time.Hour)
 	var expectedAutoGroups []string
 
 	key := GenerateDefaultSetupKey()
@@ -186,9 +188,9 @@ func TestGenerateSetupKey(t *testing.T) {
 	expectedRevoke := false
 	expectedType := "one-off"
 	expectedUsedTimes := 0
-	expectedCreatedAt := time.Now()
-	expectedExpiresAt := time.Now().Add(time.Hour)
-	expectedUpdatedAt := time.Now()
+	expectedCreatedAt := time.Now().UTC()
+	expectedExpiresAt := time.Now().UTC().Add(time.Hour)
+	expectedUpdatedAt := time.Now().UTC()
 	var expectedAutoGroups []string
 
 	key := GenerateSetupKey(expectedName, SetupKeyOneOff, time.Hour, []string{}, SetupKeyUnlimitedUsage)

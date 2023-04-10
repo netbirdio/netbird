@@ -1,15 +1,17 @@
 package server
 
 import (
-	"github.com/c-robinson/iplib"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/netbirdio/netbird/route"
-	"github.com/rs/xid"
 	"math/rand"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/c-robinson/iplib"
+	"github.com/rs/xid"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/route"
 )
 
 const (

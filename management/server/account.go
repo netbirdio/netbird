@@ -1151,7 +1151,7 @@ func (am *DefaultAccountManager) MarkPATUsed(tokenID string) error {
 		return fmt.Errorf("token not found")
 	}
 
-	pat.LastUsed = time.Now()
+	pat.LastUsed = time.Now().UTC()
 
 	return am.Store.SaveAccount(account)
 }
