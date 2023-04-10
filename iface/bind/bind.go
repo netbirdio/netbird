@@ -125,9 +125,6 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn) conn.ReceiveFunc {
 
 		err = b.udpMux.HandleSTUNMessage(msg, endpoint)
 		if err != nil {
-			return 0, nil, err
-		}
-		if err != nil {
 			log.Warnf("failed to handle packet")
 		}
 
