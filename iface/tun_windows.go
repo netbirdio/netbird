@@ -85,7 +85,7 @@ func (c *tunDevice) DeviceName() string {
 
 func (c *tunDevice) Close() error {
 	var err1, err2 error
-	if c.netInterface == nil {
+	if c.netInterface != nil {
 		err1 = c.netInterface.Close()
 	}
 
