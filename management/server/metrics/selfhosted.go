@@ -67,7 +67,7 @@ type Worker struct {
 
 // NewWorker returns a metrics worker
 func NewWorker(ctx context.Context, id string, dataSource DataSource, connManager ConnManager) *Worker {
-	currentTime := time.Now().UTC()
+	currentTime := time.Now()
 	return &Worker{
 		ctx:         ctx,
 		id:          id,
@@ -90,7 +90,7 @@ func (w *Worker) Run() {
 			if err != nil {
 				log.Error(err)
 			}
-			w.lastRun = time.Now().UTC()
+			w.lastRun = time.Now()
 		}
 	}
 }
@@ -149,7 +149,7 @@ func (w *Worker) generatePayload(apiKey string) pushPayload {
 		DistinctID: w.id,
 		Event:      PayloadEvent,
 		Properties: properties,
-		Timestamp:  time.Now().UTC(),
+		Timestamp:  time.Now(),
 	}
 }
 
@@ -172,7 +172,7 @@ func (w *Worker) generateProperties() properties {
 		peerActiveVersions []string
 		osUIClients        map[string]int
 	)
-	start := time.Now().UTC()
+	start := time.Now()
 	metricsProperties := make(properties)
 	osPeers = make(map[string]int)
 	osUIClients = make(map[string]int)

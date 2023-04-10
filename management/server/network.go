@@ -50,7 +50,7 @@ func NewNetwork() *Network {
 	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), NetSize)
 	sub, _ := n.Subnet(SubnetSize)
 
-	s := rand.NewSource(time.Now().UTC().Unix())
+	s := rand.NewSource(time.Now().Unix())
 	r := rand.New(s)
 	intn := r.Intn(len(sub))
 
@@ -101,7 +101,7 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	}
 
 	// pick a random IP
-	s := rand.NewSource(time.Now().UTC().Unix())
+	s := rand.NewSource(time.Now().Unix())
 	r := rand.New(s)
 	intn := r.Intn(len(ips))
 

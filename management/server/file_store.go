@@ -227,7 +227,7 @@ func (s *FileStore) persist(file string) error {
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
 func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 	log.Debugf("acquiring global lock")
-	start := time.Now().UTC()
+	start := time.Now()
 	s.globalAccountLock.Lock()
 
 	unlock = func() {
@@ -241,7 +241,7 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 // AcquireAccountLock acquires account lock and returns a function that releases the lock
 func (s *FileStore) AcquireAccountLock(accountID string) (unlock func()) {
 	log.Debugf("acquiring lock for account %s", accountID)
-	start := time.Now().UTC()
+	start := time.Now()
 	value, _ := s.accountLocks.LoadOrStore(accountID, &sync.Mutex{})
 	mtx := value.(*sync.Mutex)
 	mtx.Lock()

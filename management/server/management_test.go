@@ -371,7 +371,7 @@ var _ = Describe("Management service", func() {
 				for i := 0; i < additionalPeers; i++ {
 					key, _ := wgtypes.GenerateKey()
 					loginPeerWithValidSetupKey(serverPubKey, key, client)
-					rand.Seed(time.Now().UTC().UnixNano())
+					rand.Seed(time.Now().UnixNano())
 					n := rand.Intn(200)
 					time.Sleep(time.Duration(n) * time.Millisecond)
 				}
