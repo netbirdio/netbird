@@ -36,6 +36,8 @@ const (
 )
 
 const (
+	// PolicyRuleProtocolALL type of traffic
+	PolicyRuleProtocolALL = PolicyRuleProtocolType("all")
 	// PolicyRuleProtocolTCP type of traffic
 	PolicyRuleProtocolTCP = PolicyRuleProtocolType("tcp")
 	// PolicyRuleProtocolUDP type of traffic
@@ -63,7 +65,7 @@ var defaultPolicyModule string
 //go:embed rego/default_policy.rego
 var defaultPolicyText string
 
-// defaultPolicyTemplate is a template for the default policy
+// defaultPolicyTemplate is a template to migrate ACL rules to policies
 var defaultPolicyTemplate = template.Must(template.New("policy").Parse(defaultPolicyText))
 
 // PolicyRule is the metadata of the policy
@@ -89,8 +91,8 @@ type PolicyRule struct {
 	// Sources policy source groups
 	Sources []string
 
-	// Flow of the traffic: "bidirect" or "direct"
-	Flow PolicyRuleDirection
+	// Bidirect allows connection in both directions
+	Bidirect bool
 
 	// Protocol type of the traffic
 	Protocol PolicyRuleProtocolType
@@ -109,7 +111,7 @@ func (pm *PolicyRule) Copy() *PolicyRule {
 		Action:       pm.Action,
 		Destinations: pm.Destinations[:],
 		Sources:      pm.Sources[:],
-		Flow:         pm.Flow,
+		Bidirect:     pm.Bidirect,
 		Protocol:     pm.Protocol,
 		Ports:        pm.Ports,
 	}
@@ -171,10 +173,16 @@ func (p *Policy) EventMeta() map[string]any {
 
 // UpdateQueryFromRules marshals policy rules to Rego string and set it to Query
 func (p *Policy) UpdateQueryFromRules() error {
+	type templateRule struct {
+		Group    string
+		Protocol string
+		Ports    string
+		Action   string
+	}
 	type templateVars struct {
-		All         []string
-		Source      []string
-		Destination []string
+		All          []string
+		Sources      []templateRule
+		Destinations []templateRule
 	}
 	queries := []string{}
 	for _, r := range p.Rules {
@@ -184,10 +192,27 @@ func (p *Policy) UpdateQueryFromRules() error {
 
 		buff := new(bytes.Buffer)
 		input := templateVars{
-			All:         append(r.Destinations[:], r.Sources...),
-			Source:      r.Sources,
-			Destination: r.Destinations,
+			All: append(r.Destinations[:], r.Sources...),
 		}
+
+		for _, g := range r.Sources {
+			input.Sources = append(input.Sources, templateRule{
+				Group:    g,
+				Protocol: string(r.Protocol),
+				Ports:    strings.Join(r.Ports, ","),
+				Action:   string(r.Action),
+			})
+		}
+
+		for _, g := range r.Destinations {
+			input.Sources = append(input.Destinations, templateRule{
+				Group:    g,
+				Protocol: string(r.Protocol),
+				Ports:    strings.Join(r.Ports, ","),
+				Action:   string(r.Action),
+			})
+		}
+
 		if err := defaultPolicyTemplate.Execute(buff, input); err != nil {
 			return status.Errorf(status.BadRequest, "failed to update policy query: %v", err)
 		}

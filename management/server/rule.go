@@ -71,9 +71,11 @@ func (r *Rule) ToPolicyRule() *PolicyRule {
 		Name:         r.Name,
 		Enabled:      !r.Disabled,
 		Description:  r.Description,
-		Action:       PolicyTrafficActionAccept,
 		Destinations: r.Destination,
 		Sources:      r.Source,
+		Bidirect:     true,
+		Protocol:     PolicyRuleProtocolALL,
+		Action:       PolicyTrafficActionAccept,
 	}
 }
 

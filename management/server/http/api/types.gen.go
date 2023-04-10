@@ -494,113 +494,113 @@ type PolicyMinimum struct {
 
 // PolicyRule defines model for PolicyRule.
 type PolicyRule struct {
-	// Action Rule accept or drops packets
+	// Action Policy rule accept or drops packets
 	Action PolicyRuleAction `json:"action"`
 
-	// Description Rule friendly description
+	// Bidirect Policy rule allows connection in both directions
+	Bidirect bool `json:"bidirect"`
+
+	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
 
 	// Destinations Policy rule destination groups
 	Destinations []GroupMinimum `json:"destinations"`
 
-	// Enabled Rule status
+	// Enabled Policy rule status
 	Enabled bool `json:"enabled"`
 
-	// Flow Rule flow, "bidirect" or "direct"
-	Flow *string `json:"flow,omitempty"`
-
-	// Id Rule ID
+	// Id Policy rule ID
 	Id *string `json:"id,omitempty"`
 
-	// Name Rule name identifier
+	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Ports Rule affected ports or it ranges list
+	// Ports Policy rule affected ports or it ranges list
 	Ports *[]string `json:"ports,omitempty"`
 
-	// Protocol Rule type of the traffic
-	Protocol *PolicyRuleProtocol `json:"protocol,omitempty"`
+	// Protocol Policy rule type of the traffic
+	Protocol PolicyRuleProtocol `json:"protocol"`
 
 	// Sources Policy rule source groups
 	Sources []GroupMinimum `json:"sources"`
 }
 
-// PolicyRuleAction Rule accept or drops packets
+// PolicyRuleAction Policy rule accept or drops packets
 type PolicyRuleAction string
 
-// PolicyRuleProtocol Rule type of the traffic
+// PolicyRuleProtocol Policy rule type of the traffic
 type PolicyRuleProtocol string
 
 // PolicyRuleMinimum defines model for PolicyRuleMinimum.
 type PolicyRuleMinimum struct {
-	// Action Rule accept or drops packets
+	// Action Policy rule accept or drops packets
 	Action PolicyRuleMinimumAction `json:"action"`
 
-	// Description Rule friendly description
+	// Bidirect Policy rule allows connection in both directions
+	Bidirect bool `json:"bidirect"`
+
+	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
 
-	// Enabled Rule status
+	// Enabled Policy rule status
 	Enabled bool `json:"enabled"`
 
-	// Flow Rule flow, "bidirect" or "direct"
-	Flow *string `json:"flow,omitempty"`
-
-	// Id Rule ID
+	// Id Policy rule ID
 	Id *string `json:"id,omitempty"`
 
-	// Name Rule name identifier
+	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Ports Rule affected ports or it ranges list
+	// Ports Policy rule affected ports or it ranges list
 	Ports *[]string `json:"ports,omitempty"`
 
-	// Protocol Rule type of the traffic
-	Protocol *PolicyRuleMinimumProtocol `json:"protocol,omitempty"`
+	// Protocol Policy rule type of the traffic
+	Protocol PolicyRuleMinimumProtocol `json:"protocol"`
 }
 
-// PolicyRuleMinimumAction Rule accept or drops packets
+// PolicyRuleMinimumAction Policy rule accept or drops packets
 type PolicyRuleMinimumAction string
 
-// PolicyRuleMinimumProtocol Rule type of the traffic
+// PolicyRuleMinimumProtocol Policy rule type of the traffic
 type PolicyRuleMinimumProtocol string
 
 // PolicyRuleUpdate defines model for PolicyRuleUpdate.
 type PolicyRuleUpdate struct {
-	// Action Rule accept or drops packets
+	// Action Policy rule accept or drops packets
 	Action PolicyRuleUpdateAction `json:"action"`
 
-	// Description Rule friendly description
+	// Bidirect Policy rule allows connection in both directions
+	Bidirect bool `json:"bidirect"`
+
+	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
 
 	// Destinations Policy rule destination groups
 	Destinations []string `json:"destinations"`
 
-	// Enabled Rule status
+	// Enabled Policy rule status
 	Enabled bool `json:"enabled"`
 
-	// Flow Rule flow, "bidirect" or "direct"
-	Flow *string `json:"flow,omitempty"`
-
-	// Id Rule ID
+	// Id Policy rule ID
 	Id *string `json:"id,omitempty"`
 
-	// Name Rule name identifier
+	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Ports Rule affected ports or it ranges list
+	// Ports Policy rule affected ports or it ranges list
 	Ports *[]string `json:"ports,omitempty"`
 
-	// Protocol Rule type of the traffic
-	Protocol *PolicyRuleUpdateProtocol `json:"protocol,omitempty"`
+	// Protocol Policy rule type of the traffic
+	Protocol PolicyRuleUpdateProtocol `json:"protocol"`
 
 	// Sources Policy rule source groups
 	Sources []string `json:"sources"`
 }
 
-// PolicyRuleUpdateAction Rule accept or drops packets
+// PolicyRuleUpdateAction Policy rule accept or drops packets
 type PolicyRuleUpdateAction string
 
-// PolicyRuleUpdateProtocol Rule type of the traffic
+// PolicyRuleUpdateProtocol Policy rule type of the traffic
 type PolicyRuleUpdateProtocol string
 
 // PolicyUpdate defines model for PolicyUpdate.
