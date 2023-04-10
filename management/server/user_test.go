@@ -282,7 +282,7 @@ func TestUser_CreateServiceUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	user, err := am.createServiceUser(mockAccountID, mockRole, mockServiceUserName, []string{"group1", "group2"})
+	user, err := am.createServiceUser(mockAccountID, mockUserID, mockRole, mockServiceUserName, []string{"group1", "group2"})
 	if err != nil {
 		t.Fatalf("Error when creating service user: %s", err)
 	}
@@ -314,7 +314,7 @@ func TestUser_CreateUser_ServiceUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	user, err := am.CreateUser(mockAccountID, "", &UserInfo{
+	user, err := am.CreateUser(mockAccountID, mockUserID, &UserInfo{
 		Name:          mockServiceUserName,
 		Role:          mockRole,
 		IsServiceUser: true,
@@ -352,7 +352,7 @@ func TestUser_CreateUser_RegularUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	_, err = am.CreateUser(mockAccountID, "", &UserInfo{
+	_, err = am.CreateUser(mockAccountID, mockUserID, &UserInfo{
 		Name:          mockServiceUserName,
 		Role:          mockRole,
 		IsServiceUser: false,
@@ -381,7 +381,7 @@ func TestUser_DeleteUser_ServiceUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	err = am.DeleteUser(mockAccountID, mockServiceUserID)
+	err = am.DeleteUser(mockAccountID, mockUserID, mockServiceUserID)
 	if err != nil {
 		t.Fatalf("Error when deleting user: %s", err)
 	}
@@ -404,7 +404,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	err = am.DeleteUser(mockAccountID, mockUserID)
+	err = am.DeleteUser(mockAccountID, mockUserID, mockUserID)
 
 	assert.Errorf(t, err, "Regular users can not be deleted (yet)")
 }

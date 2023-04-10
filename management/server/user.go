@@ -137,13 +137,21 @@ func NewAdminUser(id string) *User {
 }
 
 // createServiceUser creates a new service user under the given account.
-func (am *DefaultAccountManager) createServiceUser(accountID string, role UserRole, serviceUserName string, autoGroups []string) (*UserInfo, error) {
+func (am *DefaultAccountManager) createServiceUser(accountID string, executingUserID string, role UserRole, serviceUserName string, autoGroups []string) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
+	}
+
+	executingUser := account.Users[executingUserID]
+	if executingUser == nil {
+		return nil, status.Errorf(status.NotFound, "user not found")
+	}
+	if executingUser.Role != UserRoleAdmin {
+		return nil, status.Errorf(status.PermissionDenied, "only admins can create service users")
 	}
 
 	newUserID := uuid.New().String()
@@ -155,6 +163,9 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, role UserRo
 	if err != nil {
 		return nil, err
 	}
+
+	meta := map[string]any{"name": newUser.ServiceUserName}
+	am.storeEvent(executingUserID, newUser.Id, accountID, activity.ServiceUserCreated, meta)
 
 	return &UserInfo{
 		ID:            newUser.Id,
@@ -170,7 +181,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, role UserRo
 // CreateUser creates a new user under the given account. Effectively this is a user invite.
 func (am *DefaultAccountManager) CreateUser(accountID, userID string, user *UserInfo) (*UserInfo, error) {
 	if user.IsServiceUser {
-		return am.createServiceUser(accountID, StrRoleToUserRole(user.Role), user.Name, user.AutoGroups)
+		return am.createServiceUser(accountID, userID, StrRoleToUserRole(user.Role), user.Name, user.AutoGroups)
 	}
 	return am.inviteNewUser(accountID, userID, user)
 }
@@ -242,7 +253,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 }
 
 // DeleteUser deletes a user from the given account.
-func (am *DefaultAccountManager) DeleteUser(accountID, targetUserID string) error {
+func (am *DefaultAccountManager) DeleteUser(accountID, executingUserID string, targetUserID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -256,9 +267,20 @@ func (am *DefaultAccountManager) DeleteUser(accountID, targetUserID string) erro
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
+	executingUser := account.Users[executingUserID]
+	if executingUser == nil {
+		return status.Errorf(status.NotFound, "user not found")
+	}
+	if executingUser.Role != UserRoleAdmin {
+		return status.Errorf(status.PermissionDenied, "only admins can delete service users")
+	}
+
 	if !targetUser.IsServiceUser {
 		return status.Errorf(status.PermissionDenied, "regular users can not be deleted")
 	}
+
+	meta := map[string]any{"name": targetUser.ServiceUserName}
+	am.storeEvent(executingUserID, targetUserID, accountID, activity.ServiceUserDeleted, meta)
 
 	delete(account.Users, targetUserID)
 
@@ -321,7 +343,7 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, executingUserID str
 		return nil, status.Errorf(status.Internal, "failed to save account: %v", err)
 	}
 
-	meta := map[string]any{"name": pat.Name}
+	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
 	am.storeEvent(executingUserID, targetUserID, accountID, activity.PersonalAccessTokenCreated, meta)
 
 	return pat, nil
@@ -365,7 +387,7 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, executingUserID str
 		return status.Errorf(status.Internal, "Failed to delete hashed token index: %s", err)
 	}
 
-	meta := map[string]any{"name": pat.Name}
+	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
 	am.storeEvent(executingUserID, targetUserID, accountID, activity.PersonalAccessTokenDeleted, meta)
 
 	delete(targetUser.PATs, tokenID)
@@ -490,7 +512,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 			group := account.GetGroup(g)
 			if group != nil {
 				am.storeEvent(userID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
-					map[string]any{"group": group.Name, "group_id": group.ID})
+					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
 			} else {
 				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 			}
@@ -501,7 +523,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 			group := account.GetGroup(g)
 			if group != nil {
 				am.storeEvent(userID, oldUser.Id, accountID, activity.GroupAddedToUser,
-					map[string]any{"group": group.Name, "group_id": group.ID})
+					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
 			} else {
 				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 			}

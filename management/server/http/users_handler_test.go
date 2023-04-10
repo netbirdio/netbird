@@ -70,7 +70,7 @@ func initUsersTestData() *UsersHandler {
 				}
 				return key, nil
 			},
-			DeleteUserFunc: func(accountID string, targetUserID string) error {
+			DeleteUserFunc: func(accountID string, executingUserID string, targetUserID string) error {
 				if targetUserID == notFoundUserID {
 					return status.Errorf(status.NotFound, "user with ID %s does not exists", targetUserID)
 				}
