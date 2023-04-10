@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/cenkalti/backoff/v4"
+
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
@@ -144,15 +145,19 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			s, _ := gstatus.FromError(err)
+			switch s.Code() {
+			case codes.PermissionDenied:
 				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+			case codes.Canceled:
+				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+				return nil
+			default:
+				backOff.Reset() // reset backoff counter after successful connection
+				c.notifyDisconnected()
+				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+				return err
 			}
-			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
-			// reset times and next try will start with a long delay
-			backOff.Reset()
-			c.notifyDisconnected()
-			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-			return err
 		}
 
 		return nil

@@ -59,9 +59,6 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		return err
 	}
 
-	statusRecorder.MarkManagementDisconnected()
-
-	statusRecorder.ClientStart()
 	defer statusRecorder.ClientStop()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
@@ -162,6 +159,8 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)
 		state.Set(StatusConnected)
+
+		statusRecorder.ClientStart()
 
 		<-engineCtx.Done()
 		statusRecorder.ClientTeardown()

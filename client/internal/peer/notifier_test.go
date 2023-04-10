@@ -47,25 +47,24 @@ func Test_notifier_serverState(t *testing.T) {
 
 	type scenario struct {
 		name        string
-		expected    bool
+		expected    int
 		mgmState    bool
 		signalState bool
 	}
 	scenarios := []scenario{
-		{"connected", true, true, true},
-		{"mgm down", false, false, true},
-		{"signal down", false, true, false},
-		{"disconnected", false, false, false},
+		{"connected", stateConnected, true, true},
+		{"mgm down", stateConnecting, false, true},
+		{"signal down", stateConnecting, true, false},
+		{"disconnected", stateDisconnected, false, false},
 	}
 
 	for _, tt := range scenarios {
 		t.Run(tt.name, func(t *testing.T) {
 			n := newNotifier()
 			n.updateServerStates(tt.mgmState, tt.signalState)
-			if n.currentServerState != tt.expected {
-				t.Errorf("invalid serverstate: %t, expected: %t", n.currentServerState, tt.expected)
+			if n.lastNotification != tt.expected {
+				t.Errorf("invalid serverstate: %d, expected: %d", n.lastNotification, tt.expected)
 			}
-
 		})
 	}
 }
