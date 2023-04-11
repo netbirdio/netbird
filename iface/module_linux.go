@@ -86,7 +86,7 @@ func tunModuleIsLoaded() bool {
 func WireGuardModuleIsLoaded() bool {
 
 	if os.Getenv(envDisableWireGuardKernel) == "true" {
-		log.Infof("WireGuard kernel module disabled because the %s env is set to true", envDisableWireGuardKernel)
+		log.Debugf("WireGuard kernel module disabled because the %s env is set to true", envDisableWireGuardKernel)
 		return false
 	}
 
