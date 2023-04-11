@@ -295,6 +295,8 @@ func (a *Account) GetPeerNetworkMap(peerID, dnsDomain string) *NetworkMap {
 		}
 		peersToConnect = append(peersToConnect, p)
 	}
+	log.Tracef("sync for peer with pubKey %s have %d to connect and %d expired peers from %d aclPeers",
+		a.Peers[peerID].Key, len(peersToConnect), len(expiredPeers), len(aclPeers))
 	// Please mind, that the returned route.Route objects will contain Peer.Key instead of Peer.ID.
 	routesUpdate := a.getRoutesToSync(peerID, peersToConnect)
 
