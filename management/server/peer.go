@@ -576,7 +576,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, nil, err
 	}
 
-	networkMap := account.GetPeerNetworkMap(peer.ID, am.dnsDomain)
+	networkMap := account.GetPeerNetworkMap(newPeer.ID, am.dnsDomain)
 	return newPeer, networkMap, nil
 }
 
