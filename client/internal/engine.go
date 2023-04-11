@@ -18,7 +18,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
@@ -809,14 +808,6 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	stunTurn = append(stunTurn, e.STUNs...)
 	stunTurn = append(stunTurn, e.TURNs...)
 
-	proxyConfig := proxy.Config{
-		RemoteKey:    pubKey,
-		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.config.WgPort),
-		WgInterface:  e.wgInterface,
-		AllowedIps:   allowedIPs,
-		PreSharedKey: e.config.PreSharedKey,
-	}
-
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
@@ -828,13 +819,12 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		Timeout:              timeout,
 		UDPMux:               e.udpMux,
 		UDPMuxSrflx:          e.udpMuxSrflx,
-		ProxyConfig:          proxyConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
-		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
+		AllowedIPs:           allowedIPs,
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.config.TunAdapter, e.config.IFaceDiscover)
+	peerConn, err := peer.NewConn(config, e.wgInterface, e.statusRecorder, e.config.TunAdapter, e.config.IFaceDiscover)
 	if err != nil {
 		return nil, err
 	}

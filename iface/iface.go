@@ -1,18 +1,20 @@
 package iface
 
 import (
-	"github.com/netbirdio/netbird/iface/bind"
 	"net"
 	"sync"
 	"time"
 
+	"github.com/netbirdio/netbird/iface/bind"
+
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
 const (
 	DefaultMTU    = 1280
 	DefaultWgPort = 51820
+
+	defaultWgKeepAlive = 25 * time.Second
 )
 
 // WGIface represents a interface instance
@@ -76,12 +78,12 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
 // Endpoint is optional
-func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, endpoint *net.UDPAddr) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	log.Debugf("updating interface %s peer %s: endpoint %s ", w.tun.DeviceName(), peerKey, endpoint)
-	return w.configurer.updatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
+	return w.configurer.updatePeer(peerKey, allowedIps, endpoint)
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface

@@ -37,8 +37,6 @@ type ConnConfig struct {
 
 	Timeout time.Duration
 
-	ProxyConfig proxy.Config
-
 	UDPMux      ice.UDPMux
 	UDPMuxSrflx ice.UniversalUDPMux
 
@@ -46,8 +44,7 @@ type ConnConfig struct {
 
 	NATExternalIPs []string
 
-	// UsesBind indicates whether the WireGuard interface is userspace and uses bind.ICEBind
-	UserspaceBind bool
+	AllowedIPs string
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -96,6 +93,7 @@ type Conn struct {
 	remoteModeCh chan ModeMessage
 	meta         meta
 
+	wgIface       *iface.WGIface
 	adapter       iface.TunAdapter
 	iFaceDiscover stdnet.ExternalIFaceDiscover
 }
@@ -123,7 +121,7 @@ func (conn *Conn) UpdateConf(conf ConnConfig) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
+func NewConn(config ConnConfig, wgIface *iface.WGIface, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -135,6 +133,7 @@ func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter
 		remoteModeCh:   make(chan ModeMessage, 1),
 		adapter:        adapter,
 		iFaceDiscover:  iFaceDiscover,
+		wgIface:        wgIface,
 	}, nil
 }
 
@@ -198,7 +197,7 @@ func (conn *Conn) Open() error {
 
 	peerState := State{PubKey: conn.config.Key}
 
-	peerState.IP = strings.Split(conn.config.ProxyConfig.AllowedIps, "/")[0]
+	peerState.IP = strings.Split(conn.config.AllowedIPs, "/")[0]
 	peerState.ConnStatusUpdate = time.Now()
 	peerState.ConnStatus = conn.status
 
@@ -430,7 +429,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 }
 
 func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
-	useProxy := shouldUseProxy(pair, conn.config.UserspaceBind)
+	useProxy := shouldUseProxy(pair, conn.wgIface.IsUserspaceBind())
 	localDirectMode := !useProxy
 	remoteDirectMode := localDirectMode
 
@@ -440,12 +439,13 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 		remoteDirectMode = conn.receiveRemoteDirectMode()
 	}
 
-	if conn.config.UserspaceBind && localDirectMode {
+	if conn.wgIface.IsUserspaceBind() && localDirectMode {
 		return proxy.NewNoProxy(conn.config.ProxyConfig)
 	}
 
 	if localDirectMode && remoteDirectMode {
-		return proxy.NewDirectNoProxy(conn.config.ProxyConfig, remoteWgPort)
+		//wgInterface *iface.WGIface, remoteKey string, allowedIps string, preSharedKey *wgtypes.Key, remoteWgPort int)
+		return proxy.NewDirectNoProxy(conn.wgIface, conn.config.Key, conn.config.AllowedIPs, remoteWgPort)
 	}
 
 	log.Debugf("falling back to local proxy mode with peer %s", conn.config.Key)

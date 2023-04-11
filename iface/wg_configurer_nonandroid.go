@@ -5,7 +5,6 @@ package iface
 import (
 	"fmt"
 	"net"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl"
@@ -13,12 +12,14 @@ import (
 )
 
 type wGConfigurer struct {
-	deviceName string
+	deviceName   string
+	preSharedKey *wgtypes.Key
 }
 
-func newWGConfigurer(deviceName string) wGConfigurer {
+func newWGConfigurer(deviceName string, preSharedKey *wgtypes.Key) wGConfigurer {
 	return wGConfigurer{
-		deviceName: deviceName,
+		deviceName:   deviceName,
+		preSharedKey: preSharedKey,
 	}
 }
 
@@ -43,7 +44,7 @@ func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
 	return nil
 }
 
-func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, endpoint *net.UDPAddr) error {
 	//parse allowed ips
 	_, ipNet, err := net.ParseCIDR(allowedIps)
 	if err != nil {
@@ -54,12 +55,13 @@ func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive t
 	if err != nil {
 		return err
 	}
+	keepalive := defaultWgKeepAlive
 	peer := wgtypes.PeerConfig{
 		PublicKey:                   peerKeyParsed,
 		ReplaceAllowedIPs:           true,
 		AllowedIPs:                  []net.IPNet{*ipNet},
-		PersistentKeepaliveInterval: &keepAlive,
-		PresharedKey:                preSharedKey,
+		PersistentKeepaliveInterval: &keepalive,
+		PresharedKey:                c.preSharedKey,
 		Endpoint:                    endpoint,
 	}
 

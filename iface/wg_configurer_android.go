@@ -3,7 +3,6 @@ package iface
 import (
 	"errors"
 	"net"
-	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -15,12 +14,14 @@ var (
 )
 
 type wGConfigurer struct {
-	tunDevice *tunDevice
+	tunDevice    *tunDevice
+	preSharedKey *wgtypes.Key
 }
 
-func newWGConfigurer(tunDevice *tunDevice) wGConfigurer {
+func newWGConfigurer(tunDevice *tunDevice, preSharedKey *wgtypes.Key) wGConfigurer {
 	return wGConfigurer{
-		tunDevice: tunDevice,
+		tunDevice:    tunDevice,
+		preSharedKey: preSharedKey,
 	}
 }
 
@@ -41,7 +42,7 @@ func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
 	return c.tunDevice.Device().IpcSet(toWgUserspaceString(config))
 }
 
-func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
+func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, endpoint *net.UDPAddr) error {
 	//parse allowed ips
 	_, ipNet, err := net.ParseCIDR(allowedIps)
 	if err != nil {
@@ -52,12 +53,13 @@ func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive t
 	if err != nil {
 		return err
 	}
+	keepalive := defaultWgKeepAlive
 	peer := wgtypes.PeerConfig{
 		PublicKey:                   peerKeyParsed,
 		ReplaceAllowedIPs:           true,
 		AllowedIPs:                  []net.IPNet{*ipNet},
 		PersistentKeepaliveInterval: &keepAlive,
-		PresharedKey:                preSharedKey,
+		PresharedKey:                c.preSharedKey,
 		Endpoint:                    endpoint,
 	}
 
