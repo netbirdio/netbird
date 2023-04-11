@@ -209,7 +209,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
 		// TODO: use firewall rules
-		aclPeers, _ := account.getPeersByPolicy(peer.ID)
+		aclPeers := account.getPeersByACL(peer.ID)
 		for _, p := range aclPeers {
 			peersMap[p.ID] = p
 		}
@@ -816,7 +816,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	}
 
 	for _, p := range userPeers {
-		aclPeers, _ := account.getPeersByPolicy(p.ID)
+		aclPeers := account.getPeersByACL(p.ID)
 		for _, aclPeer := range aclPeers {
 			if aclPeer.ID == peerID {
 				return peer, nil
@@ -831,6 +831,98 @@ func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) *Peer {
 	peer.UpdateMeta(meta)
 	account.UpdatePeer(peer)
 	return peer
+}
+
+// GetPeerRules returns a list of source or destination rules of a given peer.
+func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rule) {
+	// Rules are group based so there is no direct access to peers.
+	// First, find all groups that the given peer belongs to
+	peerGroups := make(map[string]struct{})
+
+	for s, group := range a.Groups {
+		for _, peer := range group.Peers {
+			if peerID == peer {
+				peerGroups[s] = struct{}{}
+				break
+			}
+		}
+	}
+
+	// Second, find all rules that have discovered source and destination groups
+	srcRulesMap := make(map[string]*Rule)
+	dstRulesMap := make(map[string]*Rule)
+	for _, rule := range a.Rules {
+		for _, g := range rule.Source {
+			if _, ok := peerGroups[g]; ok && srcRulesMap[rule.ID] == nil {
+				srcRules = append(srcRules, rule)
+				srcRulesMap[rule.ID] = rule
+			}
+		}
+		for _, g := range rule.Destination {
+			if _, ok := peerGroups[g]; ok && dstRulesMap[rule.ID] == nil {
+				dstRules = append(dstRules, rule)
+				dstRulesMap[rule.ID] = rule
+			}
+		}
+	}
+
+	return srcRules, dstRules
+}
+
+// getPeersByACL returns all peers that given peer has access to.
+func (a *Account) getPeersByACL(peerID string) []*Peer {
+	var peers []*Peer
+	srcRules, dstRules := a.GetPeerRules(peerID)
+
+	groups := map[string]*Group{}
+	for _, r := range srcRules {
+		if r.Disabled {
+			continue
+		}
+		if r.Flow == TrafficFlowBidirect {
+			for _, gid := range r.Destination {
+				if group, ok := a.Groups[gid]; ok {
+					groups[gid] = group
+				}
+			}
+		}
+	}
+
+	for _, r := range dstRules {
+		if r.Disabled {
+			continue
+		}
+		if r.Flow == TrafficFlowBidirect {
+			for _, gid := range r.Source {
+				if group, ok := a.Groups[gid]; ok {
+					groups[gid] = group
+				}
+			}
+		}
+	}
+
+	peersSet := make(map[string]struct{})
+	for _, g := range groups {
+		for _, pid := range g.Peers {
+			peer, ok := a.Peers[pid]
+			if !ok {
+				log.Warnf(
+					"peer %s found in group %s but doesn't belong to account %s",
+					pid,
+					g.ID,
+					a.Id,
+				)
+				continue
+			}
+			// exclude original peer
+			if _, ok := peersSet[peer.ID]; peer.ID != peerID && !ok {
+				peersSet[peer.ID] = struct{}{}
+				peers = append(peers, peer.Copy())
+			}
+		}
+	}
+
+	return peers
 }
 
 // updateAccountPeers updates all peers that belong to an account.
