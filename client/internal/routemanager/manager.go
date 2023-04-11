@@ -61,7 +61,6 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		m.mux.Lock()
 		defer m.mux.Unlock()
 
-		log.Debugf("UpdateRoutes: %v", newRoutes)
 		newClientRoutesIDMap := make(map[string][]*route.Route)
 		newServerRoutesMap := make(map[string]*route.Route)
 		ownNetworkIDs := make(map[string]bool)
@@ -92,8 +91,6 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 				newClientRoutesIDMap[networkID] = append(newClientRoutesIDMap[networkID], newRoute)
 			}
 		}
-
-		log.Debugf("updateClientNetworks: %d, %d", updateSerial, len(newClientRoutesIDMap))
 
 		m.updateClientNetworks(updateSerial, newClientRoutesIDMap)
 
