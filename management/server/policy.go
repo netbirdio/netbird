@@ -180,6 +180,7 @@ func (p *Policy) UpdateQueryFromRules() error {
 		Action   string
 	}
 	type templateVars struct {
+		Bidirect     bool
 		All          []string
 		Sources      []templateRule
 		Destinations []templateRule
@@ -192,7 +193,8 @@ func (p *Policy) UpdateQueryFromRules() error {
 
 		buff := new(bytes.Buffer)
 		input := templateVars{
-			All: append(r.Destinations[:], r.Sources...),
+			Bidirect: r.Bidirect,
+			All:      append(r.Destinations[:], r.Sources...),
 		}
 
 		for _, g := range r.Sources {
@@ -205,7 +207,7 @@ func (p *Policy) UpdateQueryFromRules() error {
 		}
 
 		for _, g := range r.Destinations {
-			input.Sources = append(input.Destinations, templateRule{
+			input.Destinations = append(input.Destinations, templateRule{
 				Group:    g,
 				Protocol: string(r.Protocol),
 				Ports:    strings.Join(r.Ports, ","),
