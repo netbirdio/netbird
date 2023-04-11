@@ -115,6 +115,6 @@ func (t *tunDevice) Close() (err error) {
 	return
 }
 
-func (c *tunDevice) routesToString() string {
+func (t *tunDevice) routesToString() string {
 	return strings.Join(c.routes, ";")
 }
