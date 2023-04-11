@@ -2,6 +2,7 @@ package iface
 
 import (
 	"net"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
@@ -14,6 +15,7 @@ import (
 type tunDevice struct {
 	address    WGAddress
 	mtu        int
+	routes     []string
 	tunAdapter TunAdapter
 
 	fd     int
@@ -22,17 +24,19 @@ type tunDevice struct {
 	uapi   net.Listener
 }
 
-func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter) *tunDevice {
+func newTunDevice(address WGAddress, mtu int, routes []string, tunAdapter TunAdapter) *tunDevice {
 	return &tunDevice{
 		address:    address,
 		mtu:        mtu,
+		routes:     routes,
 		tunAdapter: tunAdapter,
 	}
 }
 
 func (t *tunDevice) Create() error {
 	var err error
-	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu)
+	routesString := t.routesToString()
+	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return err
@@ -109,4 +113,8 @@ func (t *tunDevice) Close() (err error) {
 	}
 
 	return
+}
+
+func (c *tunDevice) routesToString() string {
+	return strings.Join(c.routes, ";")
 }

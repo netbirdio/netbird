@@ -1,14 +1,17 @@
+//go:build !android
+
 package routemanager
 
 import (
 	"context"
 	"fmt"
-	"github.com/coreos/go-iptables/iptables"
-	log "github.com/sirupsen/logrus"
 	"net/netip"
 	"os/exec"
 	"strings"
 	"sync"
+
+	"github.com/coreos/go-iptables/iptables"
+	log "github.com/sirupsen/logrus"
 )
 
 func isIptablesSupported() bool {

@@ -105,6 +105,9 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		}
 		statusRecorder.MarkManagementConnected()
 
+		// todo: read it only on mobile platform
+		routes := readMap(mgmClient)
+
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
@@ -144,13 +147,19 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig, tunAdapter, iFaceDiscover)
+		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
 		}
 
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, statusRecorder)
+		md := MobileDependency{
+			tunAdapter,
+			iFaceDiscover,
+			routes,
+		}
+
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, md, statusRecorder)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
@@ -193,14 +202,26 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 	return nil
 }
 
+func readMap(mgmClient *mgm.GrpcClient) []string {
+	routes, err := mgmClient.GetNetworkMap()
+	if err != nil {
+		log.Errorf("error: %s", err)
+		return nil
+	}
+
+	routesList := make([]string, len(routes))
+	for i, r := range routes {
+		routesList[i] = r.GetNetwork()
+	}
+	return routesList
+}
+
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
 
 	engineConf := &EngineConfig{
 		WgIfaceName:          config.WgIface,
 		WgAddr:               peerConfig.Address,
-		TunAdapter:           tunAdapter,
-		IFaceDiscover:        iFaceDiscover,
 		IFaceBlackList:       config.IFaceBlackList,
 		DisableIPv6Discovery: config.DisableIPv6Discovery,
 		WgPrivateKey:         key,

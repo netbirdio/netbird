@@ -72,7 +72,7 @@ func TestEngine_SSH(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	}, peer.NewRecorder("https://mgm"))
+	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
 
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -206,8 +206,8 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	}, peer.NewRecorder("https://mgm"))
-	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU, nil)
+	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU, nil, nil)
 	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), engine.wgInterface, engine.statusRecorder)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -390,7 +390,7 @@ func TestEngine_Sync(t *testing.T) {
 		WgAddr:       "100.64.0.1/24",
 		WgPrivateKey: key,
 		WgPort:       33100,
-	}, peer.NewRecorder("https://mgm"))
+	}, MobileDependency{}, peer.NewRecorder("https://mgm"))
 
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
@@ -548,8 +548,8 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
-			}, peer.NewRecorder("https://mgm"))
-			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, nil)
+			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, nil, nil)
 			assert.NoError(t, err, "shouldn't return error")
 			input := struct {
 				inputSerial uint64
@@ -713,8 +713,8 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				WgAddr:       wgAddr,
 				WgPrivateKey: key,
 				WgPort:       33100,
-			}, peer.NewRecorder("https://mgm"))
-			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, nil)
+			}, MobileDependency{}, peer.NewRecorder("https://mgm"))
+			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, nil, nil)
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{
@@ -978,7 +978,7 @@ func createEngine(ctx context.Context, cancel context.CancelFunc, setupKey strin
 		WgPort:       wgPort,
 	}
 
-	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf, peer.NewRecorder("https://mgm")), nil
+	return NewEngine(ctx, cancel, signalClient, mgmtClient, conf, MobileDependency{}, peer.NewRecorder("https://mgm")), nil
 }
 
 func startSignal() (*grpc.Server, string, error) {
