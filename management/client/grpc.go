@@ -172,7 +172,8 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 	return nil
 }
 
-func (c *GrpcClient) GetNetworkMap() ([]*proto.Route, error) {
+// GetRoutes return with the routes
+func (c *GrpcClient) GetRoutes() ([]*proto.Route, error) {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		log.Debugf("failed getting Management Service public key: %s", err)

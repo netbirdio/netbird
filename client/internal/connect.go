@@ -203,7 +203,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 }
 
 func readMap(mgmClient *mgm.GrpcClient) []string {
-	routes, err := mgmClient.GetNetworkMap()
+	routes, err := mgmClient.GetRoutes()
 	if err != nil {
 		log.Errorf("error: %s", err)
 		return nil
