@@ -2,10 +2,12 @@ package sqlite
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/management/server/activity"
 )
 
 func TestNewSQLiteStore(t *testing.T) {
@@ -15,13 +17,13 @@ func TestNewSQLiteStore(t *testing.T) {
 		t.Fatal(err)
 		return
 	}
-        defer store.Close() //nolint
+	defer store.Close() //nolint
 
 	accountID := "account_1"
 
 	for i := 0; i < 10; i++ {
 		_, err = store.Save(&activity.Event{
-			Timestamp:   time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Activity:    activity.PeerAddedByUser,
 			InitiatorID: "user_" + fmt.Sprint(i),
 			TargetID:    "peer_" + fmt.Sprint(i),

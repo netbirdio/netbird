@@ -59,9 +59,6 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		return err
 	}
 
-	statusRecorder.MarkManagementDisconnected()
-
-	statusRecorder.ClientStart()
 	defer statusRecorder.ClientStop()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
@@ -82,12 +79,12 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		log.Debugf("conecting to the Management service %s", config.ManagementURL.Host)
 		mgmClient, err := mgm.NewClient(engineCtx, config.ManagementURL.Host, myPrivateKey, mgmTlsEnabled)
-		mgmNotifier := statusRecorderToMgmConnStateNotifier(statusRecorder)
-		mgmClient.SetConnStateListener(mgmNotifier)
-
 		if err != nil {
 			return wrapErr(gstatus.Errorf(codes.FailedPrecondition, "failed connecting to Management Service : %s", err))
 		}
+		mgmNotifier := statusRecorderToMgmConnStateNotifier(statusRecorder)
+		mgmClient.SetConnStateListener(mgmNotifier)
+
 		log.Debugf("connected to the Management service %s", config.ManagementURL.Host)
 		defer func() {
 			err = mgmClient.Close()
@@ -162,6 +159,8 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)
 		state.Set(StatusConnected)
+
+		statusRecorder.ClientStart()
 
 		<-engineCtx.Done()
 		statusRecorder.ClientTeardown()

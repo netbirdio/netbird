@@ -21,7 +21,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 		{
 			name:              "Peer Login Expiration Disabled. Peer Login Should Not Expire",
 			expirationEnabled: false,
-			lastLogin:         time.Now().Add(-25 * time.Hour),
+			lastLogin:         time.Now().UTC().Add(-25 * time.Hour),
 			accountSettings: &Settings{
 				PeerLoginExpirationEnabled: true,
 				PeerLoginExpiration:        time.Hour,
@@ -31,7 +31,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 		{
 			name:              "Peer Login Should Expire",
 			expirationEnabled: true,
-			lastLogin:         time.Now().Add(-25 * time.Hour),
+			lastLogin:         time.Now().UTC().Add(-25 * time.Hour),
 			accountSettings: &Settings{
 				PeerLoginExpirationEnabled: true,
 				PeerLoginExpiration:        time.Hour,
@@ -41,7 +41,7 @@ func TestPeer_LoginExpired(t *testing.T) {
 		{
 			name:              "Peer Login Should Not Expire",
 			expirationEnabled: true,
-			lastLogin:         time.Now(),
+			lastLogin:         time.Now().UTC(),
 			accountSettings: &Settings{
 				PeerLoginExpirationEnabled: true,
 				PeerLoginExpiration:        time.Hour,

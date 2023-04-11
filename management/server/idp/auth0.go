@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
 
 	"github.com/golang-jwt/jwt"
 	log "github.com/sirupsen/logrus"

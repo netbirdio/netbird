@@ -54,7 +54,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	ID := uint64(1)
 	events := make([]*activity.Event, 0)
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.PeerAddedByUser,
 		ID:          ID,
 		InitiatorID: userID,
@@ -64,7 +64,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.UserJoined,
 		ID:          ID,
 		InitiatorID: userID,
@@ -74,7 +74,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.GroupCreated,
 		ID:          ID,
 		InitiatorID: userID,
@@ -84,7 +84,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.SetupKeyUpdated,
 		ID:          ID,
 		InitiatorID: userID,
@@ -94,7 +94,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.SetupKeyUpdated,
 		ID:          ID,
 		InitiatorID: userID,
@@ -104,7 +104,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.SetupKeyRevoked,
 		ID:          ID,
 		InitiatorID: userID,
@@ -114,7 +114,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.SetupKeyOverused,
 		ID:          ID,
 		InitiatorID: userID,
@@ -124,7 +124,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.SetupKeyCreated,
 		ID:          ID,
 		InitiatorID: userID,
@@ -134,7 +134,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.RuleAdded,
 		ID:          ID,
 		InitiatorID: userID,
@@ -144,7 +144,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.RuleRemoved,
 		ID:          ID,
 		InitiatorID: userID,
@@ -154,7 +154,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.RuleUpdated,
 		ID:          ID,
 		InitiatorID: userID,
@@ -164,7 +164,7 @@ func generateEvents(accountID, userID string) []*activity.Event {
 	})
 	ID++
 	events = append(events, &activity.Event{
-		Timestamp:   time.Now(),
+		Timestamp:   time.Now().UTC(),
 		Activity:    activity.PeerAddedWithSetupKey,
 		ID:          ID,
 		InitiatorID: userID,
