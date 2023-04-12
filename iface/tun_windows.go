@@ -6,7 +6,6 @@ import (
 	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 	"net"
@@ -16,7 +15,6 @@ type tunDevice struct {
 	name         string
 	address      WGAddress
 	netInterface NetInterface
-	uapi         net.Listener
 	iceBind      *bind.ICEBind
 	mtu          int
 }
@@ -48,25 +46,6 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	if err != nil {
 		return tunIface, err
 	}
-
-	uapi, err := c.getUAPI(c.name)
-	if err != nil {
-		return nil, err
-	}
-	c.uapi = uapi
-
-	go func() {
-		for {
-			uapiConn, uapiErr := uapi.Accept()
-			if uapiErr != nil {
-				log.Traceln("uapi accept failed with error: ", uapiErr)
-				continue
-			}
-			go tunDevice.IpcHandle(uapiConn)
-		}
-	}()
-
-	log.Debugln("UAPI listener started")
 	return tunIface, nil
 }
 
@@ -84,20 +63,10 @@ func (c *tunDevice) DeviceName() string {
 }
 
 func (c *tunDevice) Close() error {
-	var err1, err2 error
 	if c.netInterface != nil {
-		err1 = c.netInterface.Close()
+		return c.netInterface.Close()
 	}
-
-	if c.uapi != nil {
-		err2 = c.uapi.Close()
-	}
-
-	if err1 != nil {
-		return err1
-	}
-
-	return err2
+	return nil
 }
 
 func (c *tunDevice) getInterfaceGUIDString() (string, error) {
@@ -119,9 +88,4 @@ func (c *tunDevice) assignAddr() error {
 	luid := winipcfg.LUID(tunDev.LUID())
 	log.Debugf("adding address %s to interface: %s", c.address.IP, c.name)
 	return luid.SetIPAddresses([]net.IPNet{{c.address.IP, c.address.Network.Mask}})
-}
-
-// getUAPI returns a Listener
-func (c *tunDevice) getUAPI(iface string) (net.Listener, error) {
-	return ipc.UAPIListen(iface)
 }

@@ -5,12 +5,10 @@ package iface
 import (
 	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/pion/transport/v2"
-	"net"
 	"os"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -78,32 +76,6 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 		return tunIface, err
 	}
 
-	// todo: after this line in case of error close the tunSock
-	uapi, err := c.getUAPI(c.name)
-	if err != nil {
-		return tunIface, err
-	}
-
-	go func() {
-		for {
-			uapiConn, uapiErr := uapi.Accept()
-			if uapiErr != nil {
-				log.Traceln("uapi Accept failed with error: ", uapiErr)
-				continue
-			}
-			go tunDevice.IpcHandle(uapiConn)
-		}
-	}()
-
 	log.Debugln("UAPI listener started")
 	return tunIface, nil
-}
-
-// getUAPI returns a Listener
-func (c *tunDevice) getUAPI(iface string) (net.Listener, error) {
-	tunSock, err := ipc.UAPIOpen(iface)
-	if err != nil {
-		return nil, err
-	}
-	return ipc.UAPIListen(iface, tunSock)
 }
