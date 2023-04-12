@@ -25,7 +25,13 @@ type tunDevice struct {
 }
 
 func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) *tunDevice {
-	return &tunDevice{name: name, address: address, iceBind: bind.NewICEBind(transportNet), mtu: mtu}
+	return &tunDevice{
+		name:    name,
+		address: address,
+		mtu:     mtu,
+		iceBind: bind.NewICEBind(transportNet),
+		close:   make(chan struct{}),
+	}
 }
 
 func (c *tunDevice) Create() error {
@@ -49,12 +55,14 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
 	err = tunDev.Up()
 	if err != nil {
-		return nil, c.Close()
+		_ = tunIface.Close()
+		return nil, err
 	}
 
 	c.uapi, err = c.getUAPI(c.name)
 	if err != nil {
-		return tunIface, c.Close()
+		_ = tunIface.Close()
+		return nil, err
 	}
 
 	go func() {

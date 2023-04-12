@@ -95,12 +95,14 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
 	err = tunDev.Up()
 	if err != nil {
-		return nil, c.Close()
+		_ = tunIface.Close()
+		return nil, err
 	}
 
 	c.uapi, err = c.getUAPI(c.name)
 	if err != nil {
-		return tunIface, c.Close()
+		_ = tunIface.Close()
+		return nil, err
 	}
 
 	go func() {
