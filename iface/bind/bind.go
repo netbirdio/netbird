@@ -16,8 +16,8 @@ import (
 // ICEBind is the userspace implementation of WireGuard's conn.Bind interface using ice.UDPMux of the pion/ice library
 type ICEBind struct {
 	// below fields, initialized on open
-	sharedConn net.PacketConn
-	udpMux     *UniversalUDPMuxDefault
+	ipv4   net.PacketConn
+	udpMux *UniversalUDPMuxDefault
 
 	// below are fields initialized on creation
 	transportNet transport.Net
@@ -50,51 +50,51 @@ func (b *ICEBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	if b.sharedConn != nil {
+	if b.ipv4 != nil {
 		return nil, 0, conn.ErrBindAlreadyOpen
 	}
 
-	ipv4Conn, _, err := listenNet("udp4", int(uport))
+	var err error
+	b.ipv4, _, err = listenNet("udp4", int(uport))
 	if err != nil && !errors.Is(err, syscall.EAFNOSUPPORT) {
 		return nil, 0, err
 	}
-	b.sharedConn = ipv4Conn
-	b.udpMux = NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: b.sharedConn, Net: b.transportNet})
 
-	portAddr1, err := netip.ParseAddrPort(ipv4Conn.LocalAddr().String())
+	b.udpMux = NewUniversalUDPMuxDefault(UniversalUDPMuxParams{UDPConn: b.ipv4, Net: b.transportNet})
+
+	portAddr, err := netip.ParseAddrPort(b.ipv4.LocalAddr().String())
 	if err != nil {
 		return nil, 0, err
 	}
 
-	log.Infof("opened ICEBind on %s", ipv4Conn.LocalAddr().String())
+	log.Infof("opened ICEBind on %s", b.ipv4.LocalAddr().String())
 
 	return []conn.ReceiveFunc{
-			b.makeReceiveIPv4(b.sharedConn),
+			b.makeReceiveIPv4(b.ipv4),
 		},
-		portAddr1.Port(), nil
+		portAddr.Port(), nil
 }
 
 func listenNet(network string, port int) (*net.UDPConn, int, error) {
-	conn, err := net.ListenUDP(network, &net.UDPAddr{Port: port})
+	c, err := net.ListenUDP(network, &net.UDPAddr{Port: port})
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// Retrieve port.
-	laddr := conn.LocalAddr()
-	uaddr, err := net.ResolveUDPAddr(
-		laddr.Network(),
-		laddr.String(),
+	lAddr := c.LocalAddr()
+	uAddr, err := net.ResolveUDPAddr(
+		lAddr.Network(),
+		lAddr.String(),
 	)
 	if err != nil {
 		return nil, 0, err
 	}
-	return conn, uaddr.Port, nil
+	return c, uAddr.Port, nil
 }
 
 func parseSTUNMessage(raw []byte) (*stun.Message, error) {
 	msg := &stun.Message{
-		Raw: append([]byte{}, raw...),
+		Raw: raw,
 	}
 	if err := msg.Decode(); err != nil {
 		return nil, err
@@ -139,9 +139,9 @@ func (b *ICEBind) Close() error {
 	defer b.mu.Unlock()
 
 	var err1, err2 error
-	if b.sharedConn != nil {
-		c := b.sharedConn
-		b.sharedConn = nil
+	if b.ipv4 != nil {
+		c := b.ipv4
+		b.ipv4 = nil
 		err1 = c.Close()
 	}
 
@@ -172,7 +172,7 @@ func (b *ICEBind) Send(buff []byte, endpoint conn.Endpoint) error {
 		return conn.ErrWrongEndpointType
 	}
 	addrPort := netip.AddrPort(nend)
-	_, err := b.sharedConn.WriteTo(buff, &net.UDPAddr{
+	_, err := b.ipv4.WriteTo(buff, &net.UDPAddr{
 		IP:   addrPort.Addr().AsSlice(),
 		Port: int(addrPort.Port()),
 		Zone: addrPort.Addr().Zone(),
