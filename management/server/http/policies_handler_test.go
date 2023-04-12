@@ -67,7 +67,9 @@ func initPoliciesTestData(policies ...*server.Policy) *Policies {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
-					Rules:  map[string]*server.Rule{"id-existed": {ID: "id-existed"}},
+					Policies: []*server.Policy{
+						{ID: "id-existed"},
+					},
 					Groups: map[string]*server.Group{
 						"F": {ID: "F"},
 						"G": {ID: "G"},
@@ -180,6 +182,7 @@ func TestPoliciesWritePolicy(t *testing.T) {
                     "Rules":[
                         {
                             "Name":"Default POSTed Policy",
+                            "Description": "Description",
                             "Protocol": "tcp",
                             "Action": "accept",
                             "Bidirect":true
@@ -193,6 +196,7 @@ func TestPoliciesWritePolicy(t *testing.T) {
 				Rules: []api.PolicyRule{
 					{
 						Id:          str("id-was-set"),
+						Name:        "Default POSTed Policy",
 						Description: str("Description"),
 						Protocol:    "tcp",
 						Action:      "accept",
@@ -204,7 +208,7 @@ func TestPoliciesWritePolicy(t *testing.T) {
 		{
 			name:        "WritePolicy POST Invalid Name",
 			requestType: http.MethodPost,
-			requestPath: "/api/poolicies",
+			requestPath: "/api/policies",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{"Name":""}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
@@ -216,10 +220,13 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			requestPath: "/api/policies/id-existed",
 			requestBody: bytes.NewBuffer(
 				[]byte(`{
+                    "ID": "id-existed",
                     "Name":"Default POSTed Policy",
                     "Rules":[
                         {
+                            "ID": "id-existed",
                             "Name":"Default POSTed Policy",
+                            "Description": "Description",
                             "Protocol": "tcp",
                             "Action": "accept",
                             "Bidirect":true
@@ -228,15 +235,16 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedPolicy: &api.Policy{
-				Id:   str("id-was-set"),
+				Id:   str("id-existed"),
 				Name: "Default POSTed Policy",
 				Rules: []api.PolicyRule{
 					{
-						Id:       str("id-was-set"),
-						Name:     "Default POSTed Policy",
-						Protocol: "tcp",
-						Action:   "accept",
-						Bidirect: true,
+						Id:          str("id-existed"),
+						Name:        "Default POSTed Policy",
+						Description: str("Description"),
+						Protocol:    "tcp",
+						Action:      "accept",
+						Bidirect:    true,
 					},
 				},
 			},
@@ -246,7 +254,7 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			requestType: http.MethodPut,
 			requestPath: "/api/policies/id-existed",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":""}`)),
+				[]byte(`{"ID":"id-existed","Name":"","Rules":[{"ID":"id-existed"}]}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 	}
@@ -291,17 +299,13 @@ func TestPoliciesWritePolicy(t *testing.T) {
 				return
 			}
 
-			fmt.Println(string(content))
-			got := &api.Policy{}
-			if err = json.Unmarshal(content, &got); err != nil {
-				t.Fatalf("Sent content is not in correct json format; %v", err)
+			expected, err := json.Marshal(tc.expectedPolicy)
+			if err != nil {
+				t.Fatalf("marshal expected policy: %v", err)
+				return
 			}
-			tc.expectedPolicy.Id = got.Id
-			tc.expectedPolicy.Rules[0].Id = got.Rules[0].Id
-			tc.expectedPolicy.Description = ""
-			tc.expectedPolicy.Rules[0].Description = nil
 
-			assert.Equal(t, got, tc.expectedPolicy)
+			assert.Equal(t, strings.Trim(string(content), " \n"), string(expected))
 		})
 	}
 }

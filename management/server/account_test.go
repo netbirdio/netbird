@@ -922,6 +922,7 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 				Enabled:      true,
 				Sources:      []string{"group-id"},
 				Destinations: []string{"group-id"},
+				Bidirect:     true,
 				Action:       PolicyTrafficActionAccept,
 			},
 		},

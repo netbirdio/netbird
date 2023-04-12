@@ -230,6 +230,7 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 			Enabled:      true,
 			Sources:      []string{group1.ID},
 			Destinations: []string{group2.ID},
+			Bidirect:     true,
 			Action:       PolicyTrafficActionAccept,
 		},
 	}

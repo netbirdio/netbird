@@ -423,6 +423,9 @@ func (am *DefaultAccountManager) GetNetworkMap(peerID string) (*NetworkMap, erro
 	if err != nil {
 		return nil, err
 	}
+	if len(account.Policies) > 0 {
+		fmt.Printf("account: policies: %+v\n", account.Policies[0].Rules[0])
+	}
 
 	peer := account.GetPeer(peerID)
 	if peer == nil {
