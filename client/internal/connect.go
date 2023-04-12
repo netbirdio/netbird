@@ -105,9 +105,6 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		}
 		statusRecorder.MarkManagementConnected()
 
-		// todo: read it only on mobile platform
-		routes := readMap(mgmClient)
-
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
@@ -153,10 +150,10 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 			return wrapErr(err)
 		}
 
-		md := MobileDependency{
-			tunAdapter,
-			iFaceDiscover,
-			routes,
+		md, err := newMobileDependency(tunAdapter, iFaceDiscover, mgmClient)
+		if err != nil {
+			log.Error(err)
+			return wrapErr(err)
 		}
 
 		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, md, statusRecorder)
@@ -200,20 +197,6 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		return err
 	}
 	return nil
-}
-
-func readMap(mgmClient *mgm.GrpcClient) []string {
-	routes, err := mgmClient.GetRoutes()
-	if err != nil {
-		log.Errorf("error: %s", err)
-		return nil
-	}
-
-	routesList := make([]string, len(routes))
-	for i, r := range routes {
-		routesList[i] = r.GetNetwork()
-	}
-	return routesList
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig

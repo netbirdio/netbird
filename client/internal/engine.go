@@ -20,7 +20,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
@@ -42,13 +41,6 @@ const (
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
-
-type MobileDependency struct {
-	// TunAdapter is option. It is necessary for mobile version.
-	TunAdapter    iface.TunAdapter
-	IFaceDiscover stdnet.IFaceDiscover
-	Routes        []string
-}
 
 // EngineConfig is a config for the Engine
 type EngineConfig struct {
