@@ -7,6 +7,7 @@ import (
 	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 
@@ -19,6 +20,8 @@ type tunDevice struct {
 	netInterface NetInterface
 	iceBind      *bind.ICEBind
 	mtu          int
+	uapi         net.Listener
+	close        chan struct{}
 }
 
 func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) *tunDevice {
@@ -35,19 +38,46 @@ func (c *tunDevice) Create() error {
 	return c.assignAddr()
 }
 
-// createWithUserspace Creates a new WireGuard interface, using wireguard-go userspace implementation
+// createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
 func (c *tunDevice) createWithUserspace() (NetInterface, error) {
-
 	tunIface, err := tun.CreateTUN(c.name, c.mtu)
 	if err != nil {
 		return nil, err
 	}
+
 	// We need to create a wireguard-go device and listen to configuration requests
-	tunDevice := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
-	err = tunDevice.Up()
+	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
+	err = tunDev.Up()
 	if err != nil {
-		return tunIface, err
+		return nil, c.Close()
 	}
+
+	c.uapi, err = c.getUAPI(c.name)
+	if err != nil {
+		return tunIface, c.Close()
+	}
+
+	go func() {
+		for {
+			select {
+			case <-c.close:
+				log.Debugf("exit uapi.Accept()")
+				return
+			default:
+			}
+			uapiConn, uapiErr := c.uapi.Accept()
+			if uapiErr != nil {
+				log.Traceln("uapi Accept failed with error: ", uapiErr)
+				continue
+			}
+			go func() {
+				tunDev.IpcHandle(uapiConn)
+				log.Debugf("exit tunDevice.IpcHandle")
+			}()
+		}
+	}()
+
+	log.Debugln("UAPI listener started")
 	return tunIface, nil
 }
 
@@ -90,4 +120,9 @@ func (c *tunDevice) assignAddr() error {
 	luid := winipcfg.LUID(tunDev.LUID())
 	log.Debugf("adding address %s to interface: %s", c.address.IP, c.name)
 	return luid.SetIPAddresses([]net.IPNet{{c.address.IP, c.address.Network.Mask}})
+}
+
+// getUAPI returns a Listener
+func (c *tunDevice) getUAPI(iface string) (net.Listener, error) {
+	return ipc.UAPIListen(iface)
 }
