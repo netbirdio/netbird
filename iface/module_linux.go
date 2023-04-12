@@ -7,9 +7,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"github.com/vishvananda/netlink"
-	"golang.org/x/sys/unix"
 	"io"
 	"io/fs"
 	"math"
@@ -17,6 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 // Holds logic to check existence of kernel modules used by wireguard interfaces

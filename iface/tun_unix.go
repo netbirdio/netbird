@@ -3,9 +3,11 @@
 package iface
 
 import (
-	"github.com/netbirdio/netbird/iface/bind"
-	"github.com/pion/transport/v2"
 	"os"
+
+	"github.com/pion/transport/v2"
+
+	"github.com/netbirdio/netbird/iface/bind"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"

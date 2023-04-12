@@ -2,13 +2,15 @@ package iface
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/iface/bind"
+	"net"
+
 	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
-	"net"
+
+	"github.com/netbirdio/netbird/iface/bind"
 )
 
 type tunDevice struct {

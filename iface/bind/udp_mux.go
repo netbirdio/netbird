@@ -2,14 +2,15 @@ package bind
 
 import (
 	"fmt"
-	"github.com/pion/ice/v2"
-	"github.com/pion/stun"
-	"github.com/pion/transport/v2/stdnet"
-	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
 	"strings"
 	"sync"
+
+	"github.com/pion/ice/v2"
+	"github.com/pion/stun"
+	"github.com/pion/transport/v2/stdnet"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/pion/logging"
 	"github.com/pion/transport/v2"

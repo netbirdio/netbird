@@ -6,9 +6,10 @@ package bind
 
 import (
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/pion/logging"
 	"github.com/pion/stun"

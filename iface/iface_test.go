@@ -2,14 +2,15 @@ package iface
 
 import (
 	"fmt"
+	"net"
+	"testing"
+	"time"
+
 	"github.com/pion/transport/v2/stdnet"
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"golang.zx2c4.com/wireguard/wgctrl"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
-	"net"
-	"testing"
-	"time"
 )
 
 // keep darwin compability

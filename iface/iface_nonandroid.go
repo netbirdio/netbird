@@ -3,8 +3,9 @@
 package iface
 
 import (
-	"github.com/pion/transport/v2"
 	"sync"
+
+	"github.com/pion/transport/v2"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance

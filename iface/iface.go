@@ -1,10 +1,11 @@
 package iface
 
 import (
-	"github.com/netbirdio/netbird/iface/bind"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/iface/bind"
 
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"

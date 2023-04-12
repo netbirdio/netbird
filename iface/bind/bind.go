@@ -3,14 +3,15 @@ package bind
 import (
 	"errors"
 	"fmt"
-	"github.com/pion/stun"
-	"github.com/pion/transport/v2"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
 	"net"
 	"net/netip"
 	"sync"
 	"syscall"
+
+	"github.com/pion/stun"
+	"github.com/pion/transport/v2"
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/conn"
 )
 
 // ICEBind is the userspace implementation of WireGuard's conn.Bind interface using ice.UDPMux of the pion/ice library
