@@ -95,10 +95,25 @@ func (c *tunDevice) DeviceName() string {
 }
 
 func (c *tunDevice) Close() error {
-	if c.netInterface != nil {
-		return c.netInterface.Close()
+	select {
+	case c.close <- struct{}{}:
+	default:
 	}
-	return nil
+
+	var err1, err2 error
+	if c.netInterface != nil {
+		err1 = c.netInterface.Close()
+	}
+
+	if c.uapi != nil {
+		err2 = c.uapi.Close()
+	}
+
+	if err1 != nil {
+		return err1
+	}
+
+	return err2
 }
 
 func (c *tunDevice) getInterfaceGUIDString() (string, error) {
