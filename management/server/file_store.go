@@ -286,9 +286,7 @@ func (s *FileStore) SaveAccount(account *Account) error {
 		s.PrivateDomain2AccountID[accountCopy.Domain] = accountCopy.Id
 	}
 
-	if accountCopy.Rules == nil {
-		accountCopy.Rules = make(map[string]*Rule)
-	}
+	accountCopy.Rules = make(map[string]*Rule)
 	for _, policy := range accountCopy.Policies {
 		for _, rule := range policy.Rules {
 			accountCopy.Rules[rule.ID] = rule.ToRule()

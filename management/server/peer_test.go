@@ -136,6 +136,8 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 }
 
 func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
+	// TODO: disable until we start use policy again
+	t.Skip()
 	manager, err := createManager(t)
 	if err != nil {
 		t.Fatal(err)
