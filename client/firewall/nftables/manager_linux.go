@@ -60,6 +60,9 @@ func (m *Manager) AddFiltering(
 	action fw.Action,
 	comment string,
 ) (fw.Rule, error) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	// get filter chain
 	table, chain, err := m.chain(
 		ip,
@@ -311,6 +314,9 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 
 // Reset firewall to the default state
 func (m *Manager) Reset() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	chains, err := m.conn.ListChains()
 	if err != nil {
 		return fmt.Errorf("list of chains: %w", err)
