@@ -23,7 +23,6 @@ type tunDevice struct {
 	netInterface NetInterface
 	iceBind      *bind.ICEBind
 	uapi         net.Listener
-	tunDevice    *device.Device
 	close        chan struct{}
 }
 
@@ -67,8 +66,11 @@ func (c *tunDevice) Close() error {
 	}
 
 	sockPath := "/var/run/wireguard/" + c.name + ".sock"
-	if _, err3 = os.Stat(sockPath); err3 == nil {
-		err3 = os.Remove(sockPath)
+	if _, statErr := os.Stat(sockPath); statErr == nil {
+		statErr = os.Remove(sockPath)
+		if statErr != nil {
+			err3 = statErr
+		}
 	}
 
 	if err1 != nil {
@@ -90,8 +92,8 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	}
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	tunDevice := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
-	err = tunDevice.Up()
+	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	err = tunDev.Up()
 	if err != nil {
 		return nil, c.Close()
 	}
@@ -115,7 +117,7 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 				continue
 			}
 			go func() {
-				tunDevice.IpcHandle(uapiConn)
+				tunDev.IpcHandle(uapiConn)
 				log.Debugf("exit tunDevice.IpcHandle")
 			}()
 		}
