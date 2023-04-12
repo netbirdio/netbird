@@ -232,7 +232,7 @@ func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
 	f.Action = action
 
 	// NOTE: update this id each time when new field added
-	f.id = peerID + peerIP + direction + action + port
+	f.id = peerID + peerIP + direction + f.Protocol + f.Port + action
 
 	return nil
 }
