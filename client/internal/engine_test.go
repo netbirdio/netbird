@@ -3,6 +3,8 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/iface/bind"
+	"github.com/pion/transport/v2/stdnet"
 	"net"
 	"net/netip"
 	"os"
@@ -207,11 +209,23 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 		WgPrivateKey: key,
 		WgPort:       33100,
 	}, peer.NewRecorder("https://mgm"))
-	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU, nil)
+	newNet, err := stdnet.NewNet()
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.wgInterface, err = iface.NewWGIFace("utun102", "100.64.0.1/24", iface.DefaultMTU, nil, newNet)
+	if err != nil {
+		t.Fatal(err)
+	}
 	engine.routeManager = routemanager.NewManager(ctx, key.PublicKey().String(), engine.wgInterface, engine.statusRecorder)
 	engine.dnsServer = &dns.MockServer{
 		UpdateDNSServerFunc: func(serial uint64, update nbdns.Config) error { return nil },
 	}
+	conn, err := net.ListenUDP("udp4", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.udpMux = bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: conn})
 
 	type testCase struct {
 		name       string
@@ -549,7 +563,11 @@ func TestEngine_UpdateNetworkMapWithRoutes(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 			}, peer.NewRecorder("https://mgm"))
-			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, nil)
+			newNet, err := stdnet.NewNet()
+			if err != nil {
+				t.Fatal(err)
+			}
+			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, nil, newNet)
 			assert.NoError(t, err, "shouldn't return error")
 			input := struct {
 				inputSerial uint64
@@ -714,7 +732,11 @@ func TestEngine_UpdateNetworkMapWithDNSUpdate(t *testing.T) {
 				WgPrivateKey: key,
 				WgPort:       33100,
 			}, peer.NewRecorder("https://mgm"))
-			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, nil)
+			newNet, err := stdnet.NewNet()
+			if err != nil {
+				t.Fatal(err)
+			}
+			engine.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, nil, newNet)
 			assert.NoError(t, err, "shouldn't return error")
 
 			mockRouteManager := &routemanager.MockManager{

@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
 jobs:
   test:
     strategy:
@@ -66,7 +70,7 @@ jobs:
         run: go mod tidy
 
       - name: Generate Iface Test bin
-        run: go test -c -o iface-testing.bin ./iface/...
+        run: go test -c -o iface-testing.bin ./iface/
 
       - name: Generate RouteManager Test bin
         run: go test -c -o routemanager-testing.bin ./client/internal/routemanager/...

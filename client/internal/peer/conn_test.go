@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/client/internal/stdnet"
+
 	"github.com/magiconair/properties/assert"
 	"github.com/pion/ice/v2"
 	"golang.org/x/sync/errgroup"
@@ -28,7 +30,7 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 	ignore := []string{iface.WgInterfaceDefault, "tun0", "zt", "ZeroTier", "utun", "wg", "ts",
 		"Tailscale", "tailscale"}
 
-	filter := interfaceFilter(ignore)
+	filter := stdnet.InterfaceFilter(ignore)
 
 	for _, s := range ignore {
 		assert.Equal(t, filter(s), false)
@@ -208,6 +210,7 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 			return ice.CandidateTypeHost
 		},
 	}
+
 	srflxCandidate := &mockICECandidate{
 		AddressFunc: func() string {
 			return "1.1.1.1"
@@ -320,11 +323,47 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 			},
 			expected: false,
 		},
+		{
+			name: "Don't Use Proxy When Both Candidates are in private network and one is peer reflexive",
+			candatePair: &ice.CandidatePair{
+				Local: &mockICECandidate{AddressFunc: func() string {
+					return "10.16.102.168"
+				},
+					TypeFunc: func() ice.CandidateType {
+						return ice.CandidateTypeHost
+					}},
+				Remote: &mockICECandidate{AddressFunc: func() string {
+					return "10.16.101.96"
+				},
+					TypeFunc: func() ice.CandidateType {
+						return ice.CandidateTypePeerReflexive
+					}},
+			},
+			expected: false,
+		},
+		{
+			name: "Should Use Proxy When Both Candidates are in private network and both are peer reflexive",
+			candatePair: &ice.CandidatePair{
+				Local: &mockICECandidate{AddressFunc: func() string {
+					return "10.16.102.168"
+				},
+					TypeFunc: func() ice.CandidateType {
+						return ice.CandidateTypePeerReflexive
+					}},
+				Remote: &mockICECandidate{AddressFunc: func() string {
+					return "10.16.101.96"
+				},
+					TypeFunc: func() ice.CandidateType {
+						return ice.CandidateTypePeerReflexive
+					}},
+			},
+			expected: true,
+		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := shouldUseProxy(testCase.candatePair)
+			result := shouldUseProxy(testCase.candatePair, false)
 			if result != testCase.expected {
 				t.Errorf("got a different result. Expected %t Got %t", testCase.expected, result)
 			}
@@ -365,7 +404,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: true,
-			expected:               proxy.TypeWireguard,
+			expected:               proxy.TypeWireGuard,
 		},
 		{
 			name: "Should Result In Using Wireguard Proxy When Remote Eval Is Use Proxy",
@@ -375,7 +414,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: false,
-			expected:               proxy.TypeWireguard,
+			expected:               proxy.TypeWireGuard,
 		},
 		{
 			name: "Should Result In Using Wireguard Proxy When Remote Direct Mode Support Is False And Local Eval Is Use Proxy",
@@ -385,7 +424,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: false,
 			inputRemoteModeMessage: false,
-			expected:               proxy.TypeWireguard,
+			expected:               proxy.TypeWireGuard,
 		},
 		{
 			name: "Should Result In Using Direct When Remote Direct Mode Support Is False And Local Eval Is No Use Proxy",
@@ -395,7 +434,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: false,
 			inputRemoteModeMessage: false,
-			expected:               proxy.TypeNoProxy,
+			expected:               proxy.TypeDirectNoProxy,
 		},
 		{
 			name: "Should Result In Using Direct When Local And Remote Eval Is No Proxy",
@@ -405,7 +444,7 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: true,
-			expected:               proxy.TypeNoProxy,
+			expected:               proxy.TypeDirectNoProxy,
 		},
 	}
 	for _, testCase := range testCases {
