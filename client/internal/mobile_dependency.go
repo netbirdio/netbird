@@ -5,6 +5,7 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
+// MobileDependency collect all dependencies for mobile platform
 type MobileDependency struct {
 	TunAdapter    iface.TunAdapter
 	IFaceDiscover stdnet.IFaceDiscover
