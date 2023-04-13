@@ -1086,6 +1086,7 @@ func (e *Engine) applyFirewallRules(rules []*mgmProto.FirewallRule) {
 			delete(e.firewallRules, ruleID)
 		}
 	}
+	e.firewallRules = newRules
 }
 
 func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule {
