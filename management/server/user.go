@@ -126,7 +126,7 @@ func NewUser(id string, role UserRole, isServiceUser bool, serviceUserName strin
 	}
 }
 
-// NewRegularUser creates a new user with role UserRoleAdmin
+// NewRegularUser creates a new user with role UserRoleUser
 func NewRegularUser(id string) *User {
 	return NewUser(id, UserRoleUser, false, "", []string{})
 }
@@ -288,13 +288,6 @@ func (am *DefaultAccountManager) DeleteUser(accountID, executingUserID string, t
 	if err != nil {
 		return err
 	}
-
-	// refresh only needs to happen if we support delete of regular users
-
-	// _, err = am.refreshCache(account.Id)
-	// if err != nil {
-	// 	return err
-	// }
 
 	return nil
 }
