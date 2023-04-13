@@ -1,10 +1,11 @@
 package peer
 
 import (
-	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 
 	"github.com/magiconair/properties/assert"
 	"github.com/pion/ice/v2"
@@ -203,7 +204,7 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 	}
 	privateHostCandidate := &mockICECandidate{
 		AddressFunc: func() string {
-			return "10.0.0.1:44576"
+			return "10.0.0.1"
 		},
 		TypeFunc: func() ice.CandidateType {
 			return ice.CandidateTypeHost
@@ -321,6 +322,42 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 				Remote: privateHostCandidate,
 			},
 			expected: false,
+		},
+		{
+			name: "Don't Use Proxy When Both Candidates are in private network and one is peer reflexive",
+			candatePair: &ice.CandidatePair{
+				Local: &mockICECandidate{AddressFunc: func() string {
+					return "10.16.102.168"
+				},
+					TypeFunc: func() ice.CandidateType {
+						return ice.CandidateTypeHost
+					}},
+				Remote: &mockICECandidate{AddressFunc: func() string {
+					return "10.16.101.96"
+				},
+					TypeFunc: func() ice.CandidateType {
+						return ice.CandidateTypePeerReflexive
+					}},
+			},
+			expected: false,
+		},
+		{
+			name: "Should Use Proxy When Both Candidates are in private network and both are peer reflexive",
+			candatePair: &ice.CandidatePair{
+				Local: &mockICECandidate{AddressFunc: func() string {
+					return "10.16.102.168"
+				},
+					TypeFunc: func() ice.CandidateType {
+						return ice.CandidateTypePeerReflexive
+					}},
+				Remote: &mockICECandidate{AddressFunc: func() string {
+					return "10.16.101.96"
+				},
+					TypeFunc: func() ice.CandidateType {
+						return ice.CandidateTypePeerReflexive
+					}},
+			},
+			expected: true,
 		},
 	}
 

@@ -329,18 +329,28 @@ func (conn *Conn) Open() error {
 func shouldUseProxy(pair *ice.CandidatePair, userspaceBind bool) bool {
 
 	if !isRelayCandidate(pair.Local) && userspaceBind {
+		log.Debugf("shouldn't use proxy because using Bind and the connection is not relayed")
 		return false
 	}
 
 	if !isHardNATCandidate(pair.Local) && isHostCandidateWithPublicIP(pair.Remote) {
+		log.Debugf("shouldn't use proxy because the local peer is not behind a hard NAT and the remote one has a public IP")
 		return false
 	}
 
 	if !isHardNATCandidate(pair.Remote) && isHostCandidateWithPublicIP(pair.Local) {
+		log.Debugf("shouldn't use proxy because the remote peer is not behind a hard NAT and the local one has a public IP")
 		return false
 	}
 
 	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) && isSameNetworkPrefix(pair) {
+		log.Debugf("shouldn't use proxy because peers are in the same private /16 network")
+		return false
+	}
+
+	if (isPeerReflexiveCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) ||
+		isHostCandidateWithPrivateIP(pair.Local) && isPeerReflexiveCandidateWithPrivateIP(pair.Remote)) && isSameNetworkPrefix(pair) {
+		log.Debugf("shouldn't use proxy because peers are in the same private /16 network and one peer is peer reflexive")
 		return false
 	}
 
@@ -349,16 +359,8 @@ func shouldUseProxy(pair *ice.CandidatePair, userspaceBind bool) bool {
 
 func isSameNetworkPrefix(pair *ice.CandidatePair) bool {
 
-	localIPStr, _, err := net.SplitHostPort(pair.Local.Address())
-	if err != nil {
-		return false
-	}
-	remoteIPStr, _, err := net.SplitHostPort(pair.Remote.Address())
-	if err != nil {
-		return false
-	}
-	localIP := net.ParseIP(localIPStr)
-	remoteIP := net.ParseIP(remoteIPStr)
+	localIP := net.ParseIP(pair.Local.Address())
+	remoteIP := net.ParseIP(pair.Remote.Address())
 	if localIP == nil || remoteIP == nil {
 		return false
 	}
@@ -383,9 +385,13 @@ func isHostCandidateWithPrivateIP(candidate ice.Candidate) bool {
 	return candidate.Type() == ice.CandidateTypeHost && !isPublicIP(candidate.Address())
 }
 
+func isPeerReflexiveCandidateWithPrivateIP(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypePeerReflexive && !isPublicIP(candidate.Address())
+}
+
 func isPublicIP(address string) bool {
 	ip := net.ParseIP(address)
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
+	if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
 		return false
 	}
 	return true
