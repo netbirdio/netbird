@@ -6,7 +6,7 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 )
 
-func newMobileDependency(tunAdapter iface.TunAdapter, ifaceDiscover stdnet.IFaceDiscover, mgmClient *mgm.GrpcClient) (MobileDependency, error) {
+func newMobileDependency(tunAdapter iface.TunAdapter, ifaceDiscover stdnet.ExternalIFaceDiscover, mgmClient *mgm.GrpcClient) (MobileDependency, error) {
 	md := MobileDependency{
 		TunAdapter:    tunAdapter,
 		IFaceDiscover: ifaceDiscover,
