@@ -91,8 +91,8 @@ type PolicyRule struct {
 	// Sources policy source groups
 	Sources []string
 
-	// Bidirect allows connection in both directions
-	Bidirect bool
+	// Bidirectional define if the rule is applicable in both directions, sources, and destinations
+	Bidirectional bool
 
 	// Protocol type of the traffic
 	Protocol PolicyRuleProtocolType
@@ -104,16 +104,16 @@ type PolicyRule struct {
 // Copy returns a copy of a policy rule
 func (pm *PolicyRule) Copy() *PolicyRule {
 	return &PolicyRule{
-		ID:           pm.ID,
-		Name:         pm.Name,
-		Description:  pm.Description,
-		Enabled:      pm.Enabled,
-		Action:       pm.Action,
-		Destinations: pm.Destinations[:],
-		Sources:      pm.Sources[:],
-		Bidirect:     pm.Bidirect,
-		Protocol:     pm.Protocol,
-		Ports:        pm.Ports,
+		ID:            pm.ID,
+		Name:          pm.Name,
+		Description:   pm.Description,
+		Enabled:       pm.Enabled,
+		Action:        pm.Action,
+		Destinations:  pm.Destinations[:],
+		Sources:       pm.Sources[:],
+		Bidirectional: pm.Bidirectional,
+		Protocol:      pm.Protocol,
+		Ports:         pm.Ports[:],
 	}
 }
 
@@ -180,10 +180,10 @@ func (p *Policy) UpdateQueryFromRules() error {
 		Action   string
 	}
 	type templateVars struct {
-		Bidirect     bool
-		All          []string
-		Sources      []templateRule
-		Destinations []templateRule
+		Bidirectional bool
+		All           []string
+		Sources       []templateRule
+		Destinations  []templateRule
 	}
 	queries := []string{}
 	for _, r := range p.Rules {
@@ -193,8 +193,8 @@ func (p *Policy) UpdateQueryFromRules() error {
 
 		buff := new(bytes.Buffer)
 		input := templateVars{
-			Bidirect: r.Bidirect,
-			All:      append(r.Destinations[:], r.Sources...),
+			Bidirectional: r.Bidirectional,
+			All:           append(r.Destinations[:], r.Sources...),
 		}
 
 		for _, g := range r.Sources {

@@ -469,8 +469,8 @@ components:
           description: Policy rule accept or drops packets
           type: string
           enum: ["accept","drop"]
-        bidirect:
-          description: Policy rule allows connection in both directions
+        bidirectional:
+          description: Define if the rule is applicable in both directions, sources, and destinations.
           type: boolean
         protocol:
           description: Policy rule type of the traffic
@@ -484,7 +484,7 @@ components:
       required:
         - name
         - enabled
-        - bidirect
+        - bidirectional
         - protocol
         - action
     PolicyRuleUpdate:

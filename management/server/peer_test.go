@@ -227,11 +227,11 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	policy.Enabled = true
 	policy.Rules = []*PolicyRule{
 		{
-			Enabled:      true,
-			Sources:      []string{group1.ID},
-			Destinations: []string{group2.ID},
-			Bidirect:     true,
-			Action:       PolicyTrafficActionAccept,
+			Enabled:       true,
+			Sources:       []string{group1.ID},
+			Destinations:  []string{group2.ID},
+			Bidirectional: true,
+			Action:        PolicyTrafficActionAccept,
 		},
 	}
 	if err := policy.UpdateQueryFromRules(); err != nil {

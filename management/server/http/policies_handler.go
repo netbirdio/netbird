@@ -83,86 +83,7 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PutApiPoliciesIdJSONRequestBody
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "policy name shouldn't be empty"), w)
-		return
-	}
-
-	policy := server.Policy{
-		ID:          policyID,
-		Name:        req.Name,
-		Enabled:     req.Enabled,
-		Description: req.Description,
-		Query:       req.Query,
-	}
-	if req.Rules != nil {
-		for _, r := range req.Rules {
-			pr := server.PolicyRule{
-				Name:         r.Name,
-				Destinations: groupMinimumsToStrings(account, r.Destinations),
-				Sources:      groupMinimumsToStrings(account, r.Sources),
-				Bidirect:     r.Bidirect,
-			}
-
-			pr.Enabled = r.Enabled
-			if r.Description != nil {
-				pr.Description = *r.Description
-			}
-
-			if r.Id != nil {
-				pr.ID = *r.Id
-			}
-
-			switch r.Action {
-			case api.PolicyRuleUpdateActionAccept:
-				pr.Action = server.PolicyTrafficActionAccept
-			case api.PolicyRuleUpdateActionDrop:
-				pr.Action = server.PolicyTrafficActionDrop
-			default:
-				util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
-				return
-			}
-
-			switch r.Protocol {
-			case api.PolicyRuleUpdateProtocolAll:
-				pr.Protocol = server.PolicyRuleProtocolALL
-			case api.PolicyRuleUpdateProtocolTcp:
-				pr.Protocol = server.PolicyRuleProtocolTCP
-			case api.PolicyRuleUpdateProtocolUdp:
-				pr.Protocol = server.PolicyRuleProtocolUDP
-			case api.PolicyRuleUpdateProtocolIcmp:
-				pr.Protocol = server.PolicyRuleProtocolICMP
-			default:
-				util.WriteError(status.Errorf(status.InvalidArgument, "unknown protocol type: %v", r.Protocol), w)
-			}
-
-			if r.Ports != nil && len(*r.Ports) != 0 {
-				ports := *r.Ports
-				pr.Ports = ports[:]
-			}
-
-			policy.Rules = append(policy.Rules, &pr)
-		}
-	}
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		log.Errorf("failed to update policy query: %v", err)
-		util.WriteError(err, w)
-		return
-	}
-
-	if err = h.accountManager.SavePolicy(account.Id, user.Id, &policy); err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	util.WriteJSONObject(w, toPolicyResponse(account, &policy))
+	h.savePolicy(w, r, account, user, policyID)
 }
 
 // CreatePolicy handles policy creation request
@@ -174,10 +95,19 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PostApiPoliciesJSONRequestBody
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		log.Errorf("failed to decode request body: %v", err)
+	h.savePolicy(w, r, account, user, "")
+}
+
+// savePolicy handles policy creation and update
+func (h *Policies) savePolicy(
+	w http.ResponseWriter,
+	r *http.Request,
+	account *server.Account,
+	user *server.User,
+	policyID string,
+) {
+	var req api.PutApiPoliciesIdJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
@@ -187,71 +117,79 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy := &server.Policy{
-		ID:          xid.New().String(),
+	if len(req.Rules) == 0 {
+		util.WriteError(status.Errorf(status.InvalidArgument, "policy rules shouldn't be empty"), w)
+		return
+	}
+
+	if policyID == "" {
+		policyID = xid.New().String()
+	}
+
+	policy := server.Policy{
+		ID:          policyID,
 		Name:        req.Name,
 		Enabled:     req.Enabled,
 		Description: req.Description,
 		Query:       req.Query,
 	}
-
-	if req.Rules != nil {
-		for _, r := range req.Rules {
-			pr := server.PolicyRule{
-				ID:           xid.New().String(),
-				Name:         r.Name,
-				Destinations: groupMinimumsToStrings(account, r.Destinations),
-				Sources:      groupMinimumsToStrings(account, r.Sources),
-				Bidirect:     r.Bidirect,
-			}
-
-			pr.Enabled = r.Enabled
-			if r.Description != nil {
-				pr.Description = *r.Description
-			}
-
-			switch r.Action {
-			case api.PolicyRuleUpdateActionAccept:
-				pr.Action = server.PolicyTrafficActionAccept
-			case api.PolicyRuleUpdateActionDrop:
-				pr.Action = server.PolicyTrafficActionDrop
-			default:
-				util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
-				return
-			}
-
-			switch r.Protocol {
-			case api.PolicyRuleUpdateProtocolAll:
-				pr.Protocol = server.PolicyRuleProtocolALL
-			case api.PolicyRuleUpdateProtocolTcp:
-				pr.Protocol = server.PolicyRuleProtocolTCP
-			case api.PolicyRuleUpdateProtocolUdp:
-				pr.Protocol = server.PolicyRuleProtocolUDP
-			case api.PolicyRuleUpdateProtocolIcmp:
-				pr.Protocol = server.PolicyRuleProtocolICMP
-			default:
-				util.WriteError(status.Errorf(status.InvalidArgument, "unknown protocol type: %v", r.Protocol), w)
-			}
-
-			if r.Ports != nil && len(*r.Ports) != 0 {
-				ports := *r.Ports
-				pr.Ports = ports[:]
-			}
-
-			policy.Rules = append(policy.Rules, &pr)
+	for _, r := range req.Rules {
+		pr := server.PolicyRule{
+			ID:            policyID, //TODO: when policy can contain multiple rules, need refactor
+			Name:          r.Name,
+			Destinations:  groupMinimumsToStrings(account, r.Destinations),
+			Sources:       groupMinimumsToStrings(account, r.Sources),
+			Bidirectional: r.Bidirectional,
 		}
+
+		pr.Enabled = r.Enabled
+		if r.Description != nil {
+			pr.Description = *r.Description
+		}
+
+		switch r.Action {
+		case api.PolicyRuleUpdateActionAccept:
+			pr.Action = server.PolicyTrafficActionAccept
+		case api.PolicyRuleUpdateActionDrop:
+			pr.Action = server.PolicyTrafficActionDrop
+		default:
+			util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
+			return
+		}
+
+		switch r.Protocol {
+		case api.PolicyRuleUpdateProtocolAll:
+			pr.Protocol = server.PolicyRuleProtocolALL
+		case api.PolicyRuleUpdateProtocolTcp:
+			pr.Protocol = server.PolicyRuleProtocolTCP
+		case api.PolicyRuleUpdateProtocolUdp:
+			pr.Protocol = server.PolicyRuleProtocolUDP
+		case api.PolicyRuleUpdateProtocolIcmp:
+			pr.Protocol = server.PolicyRuleProtocolICMP
+		default:
+			util.WriteError(status.Errorf(status.InvalidArgument, "unknown protocol type: %v", r.Protocol), w)
+		}
+
+		if r.Ports != nil && len(*r.Ports) != 0 {
+			ports := *r.Ports
+			pr.Ports = ports[:]
+		}
+
+		policy.Rules = append(policy.Rules, &pr)
 	}
+
 	if err := policy.UpdateQueryFromRules(); err != nil {
+		log.Errorf("failed to update policy query: %v", err)
 		util.WriteError(err, w)
 		return
 	}
 
-	if err = h.accountManager.SavePolicy(account.Id, user.Id, policy); err != nil {
+	if err := h.accountManager.SavePolicy(account.Id, user.Id, &policy); err != nil {
 		util.WriteError(err, w)
 		return
 	}
 
-	util.WriteJSONObject(w, toPolicyResponse(account, policy))
+	util.WriteJSONObject(w, toPolicyResponse(account, &policy))
 }
 
 // DeletePolicy handles policy deletion request
@@ -327,13 +265,13 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 
 	for _, r := range policy.Rules {
 		rule := api.PolicyRule{
-			Id:          &r.ID,
-			Name:        r.Name,
-			Enabled:     r.Enabled,
-			Description: &r.Description,
-			Bidirect:    r.Bidirect,
-			Protocol:    api.PolicyRuleProtocol(r.Protocol),
-			Action:      api.PolicyRuleAction(r.Action),
+			Id:            &r.ID,
+			Name:          r.Name,
+			Enabled:       r.Enabled,
+			Description:   &r.Description,
+			Bidirectional: r.Bidirectional,
+			Protocol:      api.PolicyRuleProtocol(r.Protocol),
+			Action:        api.PolicyRuleAction(r.Action),
 		}
 		if len(r.Ports) != 0 {
 			portsCopy := r.Ports[:]

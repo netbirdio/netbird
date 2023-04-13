@@ -497,8 +497,8 @@ type PolicyRule struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleAction `json:"action"`
 
-	// Bidirect Policy rule allows connection in both directions
-	Bidirect bool `json:"bidirect"`
+	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
+	Bidirectional bool `json:"bidirectional"`
 
 	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
@@ -536,8 +536,8 @@ type PolicyRuleMinimum struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleMinimumAction `json:"action"`
 
-	// Bidirect Policy rule allows connection in both directions
-	Bidirect bool `json:"bidirect"`
+	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
+	Bidirectional bool `json:"bidirectional"`
 
 	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
@@ -569,8 +569,8 @@ type PolicyRuleUpdate struct {
 	// Action Policy rule accept or drops packets
 	Action PolicyRuleUpdateAction `json:"action"`
 
-	// Bidirect Policy rule allows connection in both directions
-	Bidirect bool `json:"bidirect"`
+	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
+	Bidirectional bool `json:"bidirectional"`
 
 	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`

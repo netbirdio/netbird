@@ -195,12 +195,12 @@ func TestPoliciesWritePolicy(t *testing.T) {
 				Name: "Default POSTed Policy",
 				Rules: []api.PolicyRule{
 					{
-						Id:          str("id-was-set"),
-						Name:        "Default POSTed Policy",
-						Description: str("Description"),
-						Protocol:    "tcp",
-						Action:      "accept",
-						Bidirect:    true,
+						Id:            str("id-was-set"),
+						Name:          "Default POSTed Policy",
+						Description:   str("Description"),
+						Protocol:      "tcp",
+						Action:        "accept",
+						Bidirectional: true,
 					},
 				},
 			},
@@ -239,12 +239,12 @@ func TestPoliciesWritePolicy(t *testing.T) {
 				Name: "Default POSTed Policy",
 				Rules: []api.PolicyRule{
 					{
-						Id:          str("id-existed"),
-						Name:        "Default POSTed Policy",
-						Description: str("Description"),
-						Protocol:    "tcp",
-						Action:      "accept",
-						Bidirect:    true,
+						Id:            str("id-existed"),
+						Name:          "Default POSTed Policy",
+						Description:   str("Description"),
+						Protocol:      "tcp",
+						Action:        "accept",
+						Bidirectional: true,
 					},
 				},
 			},
@@ -264,9 +264,9 @@ func TestPoliciesWritePolicy(t *testing.T) {
 		Name: "Default POSTed Rule",
 		Rules: []*server.PolicyRule{
 			{
-				ID:       "id-existed",
-				Name:     "Default POSTed Rule",
-				Bidirect: true,
+				ID:            "id-existed",
+				Name:          "Default POSTed Rule",
+				Bidirectional: true,
 			},
 		},
 	})

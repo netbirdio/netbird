@@ -67,15 +67,15 @@ func (r *Rule) ToPolicyRule() *PolicyRule {
 		return nil
 	}
 	return &PolicyRule{
-		ID:           r.ID,
-		Name:         r.Name,
-		Enabled:      !r.Disabled,
-		Description:  r.Description,
-		Destinations: r.Destination,
-		Sources:      r.Source,
-		Bidirect:     true,
-		Protocol:     PolicyRuleProtocolALL,
-		Action:       PolicyTrafficActionAccept,
+		ID:            r.ID,
+		Name:          r.Name,
+		Enabled:       !r.Disabled,
+		Description:   r.Description,
+		Destinations:  r.Destination,
+		Sources:       r.Source,
+		Bidirectional: true,
+		Protocol:      PolicyRuleProtocolALL,
+		Action:        PolicyTrafficActionAccept,
 	}
 }
 
