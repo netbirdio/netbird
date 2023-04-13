@@ -4,9 +4,12 @@ import (
 	"net"
 	"strings"
 
+	"github.com/pion/transport/v2"
+
+	"github.com/netbirdio/netbird/iface/bind"
+
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
-	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
@@ -18,18 +21,20 @@ type tunDevice struct {
 	routes     []string
 	tunAdapter TunAdapter
 
-	fd     int
-	name   string
-	device *device.Device
-	uapi   net.Listener
+	fd      int
+	name    string
+	device  *device.Device
+	uapi    net.Listener
+	iceBind *bind.ICEBind
 }
 
-func newTunDevice(address WGAddress, mtu int, routes []string, tunAdapter TunAdapter) *tunDevice {
+func newTunDevice(address WGAddress, mtu int, routes []string, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
 		address:    address,
 		mtu:        mtu,
 		routes:     routes,
 		tunAdapter: tunAdapter,
+		iceBind:    bind.NewICEBind(transportNet),
 	}
 }
 
@@ -50,7 +55,7 @@ func (t *tunDevice) Create() error {
 	t.name = name
 
 	log.Debugf("attaching to interface %v", name)
-	t.device = device.NewDevice(tunDevice, conn.NewStdNetBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	t.device = device.NewDevice(tunDevice, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
 	log.Debugf("create uapi")

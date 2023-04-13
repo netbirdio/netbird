@@ -3,9 +3,9 @@
 package internal
 
 import (
-	"github.com/pion/transport/v2/stdnet"
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 )
 
 func (e *Engine) newStdNet() (*stdnet.Net, error) {
-	return stdnet.NewNet()
+	return stdnet.NewNet(e.config.IFaceBlackList)
 }

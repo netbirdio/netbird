@@ -6,47 +6,45 @@ on:
       - main
   pull_request:
 
+env:
+  downloadPath: '${{ github.workspace }}\temp'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
+
 jobs:
-  pre:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-      - run: bash -x wireguard_nt.sh
-        working-directory: client
-
-      - uses: actions/upload-artifact@v2
-        with:
-          name: syso
-          path: client/*.syso
-          retention-days: 1
-
   test:
-    needs: pre
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
+        id: go
         with:
           go-version: 1.19.x
 
-      - uses: actions/cache@v2
+      - name: Download wintun
+        uses: carlosperate/download-file-action@v2
+        id: download-wintun
         with:
-          path: |
-            %LocalAppData%\go-build
-            ~\go\pkg\mod
-            ~\AppData\Local\go-build
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          file-url: https://www.wintun.net/builds/wintun-0.14.1.zip
+          file-name: wintun.zip
+          location: ${{ env.downloadPath }}
+          sha256: '07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51'
 
-      - uses: actions/download-artifact@v2
-        with:
-          name: syso
-          path: iface\
+      - name: Decompressing wintun files
+        run: tar -zvxf "${{ steps.download-wintun.outputs.file-path }}" -C ${{ env.downloadPath }}
 
-      - name: Test
-        run: go test -tags=load_wgnt_from_rsrc -timeout 5m -p 1 ./...
+      - run: mv ${{ env.downloadPath }}/wintun/bin/amd64/wintun.dll 'C:\Windows\System32\'
+
+      - run: choco install -y sysinternals
+      - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOMODCACHE=C:\Users\runneradmin\go\pkg\mod
+      - run: PsExec64 -s -w ${{ github.workspace }} C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe env -w GOCACHE=C:\Users\runneradmin\AppData\Local\go-build
+
+      - name: test
+        run: PsExec64 -s -w ${{ github.workspace }} cmd.exe /c "C:\hostedtoolcache\windows\go\${{ steps.go.outputs.go-version }}\x64\bin\go.exe test -timeout 5m -p 1 ./... > test-out.txt 2>&1"
+      - name: test output
+        if: ${{ always() }}
+        run: Get-Content test-out.txt

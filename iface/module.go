@@ -3,7 +3,7 @@
 
 package iface
 
-// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
-func WireguardModuleIsLoaded() bool {
+// WireGuardModuleIsLoaded check if we can load WireGuard mod (linux only)
+func WireGuardModuleIsLoaded() bool {
 	return false
 }

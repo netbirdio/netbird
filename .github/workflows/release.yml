@@ -9,8 +9,12 @@ on:
   pull_request:
 
 env:
-  SIGN_PIPE_VER: "v0.0.5"
+  SIGN_PIPE_VER: "v0.0.6"
   GORELEASER_VER: "v1.14.1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
 
 jobs:
   release:
@@ -21,10 +25,6 @@ jobs:
         uses: actions/checkout@v2
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
-
-      - name: Generate syso with DLL
-        run: bash -x wireguard_nt.sh
-        working-directory: client
       -
         name: Set up Go
         uses: actions/setup-go@v2
@@ -59,6 +59,17 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
       - name: Install OS build dependencies
         run: sudo apt update && sudo apt install -y -q gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
+
+      - name: Install rsrc
+        run: go install github.com/akavel/rsrc@v0.10.2
+      - name: Generate windows rsrc amd64
+        run: rsrc -arch amd64 -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_amd64.syso
+      - name: Generate windows rsrc arm64
+        run: rsrc -arch arm64 -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_arm64.syso
+      - name: Generate windows rsrc arm
+        run: rsrc -arch arm -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_arm.syso
+      - name: Generate windows rsrc 386
+        run: rsrc -arch 386 -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_386.syso
       -
         name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v2
