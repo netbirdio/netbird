@@ -1,17 +1,14 @@
 package iface
 
 import (
-	"net"
+	"golang.org/x/sys/unix"
 
 	"github.com/pion/transport/v2"
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun"
 
 	"github.com/netbirdio/netbird/iface/bind"
-
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/sys/unix"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/ipc"
-	"golang.zx2c4.com/wireguard/tun"
 )
 
 type tunDevice struct {
@@ -22,7 +19,6 @@ type tunDevice struct {
 	fd      int
 	name    string
 	device  *device.Device
-	uapi    net.Listener
 	iceBind *bind.ICEBind
 }
 
@@ -54,32 +50,8 @@ func (t *tunDevice) Create() error {
 	t.device = device.NewDevice(tunDevice, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
-	log.Debugf("create uapi")
-	tunSock, err := ipc.UAPIOpen(name)
-	if err != nil {
-		return err
-	}
-
-	t.uapi, err = ipc.UAPIListen(name, tunSock)
-	if err != nil {
-		tunSock.Close()
-		unix.Close(t.fd)
-		return err
-	}
-
-	go func() {
-		for {
-			uapiConn, err := t.uapi.Accept()
-			if err != nil {
-				return
-			}
-			go t.device.IpcHandle(uapiConn)
-		}
-	}()
-
 	err = t.device.Up()
 	if err != nil {
-		tunSock.Close()
 		t.device.Close()
 		return err
 	}
@@ -105,10 +77,6 @@ func (t *tunDevice) UpdateAddr(addr WGAddress) error {
 }
 
 func (t *tunDevice) Close() (err error) {
-	if t.uapi != nil {
-		err = t.uapi.Close()
-	}
-
 	if t.device != nil {
 		t.device.Close()
 	}
