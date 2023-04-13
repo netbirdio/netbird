@@ -1,5 +1,8 @@
 name: golangci-lint
 on: [pull_request]
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
+  cancel-in-progress: true
 jobs:
   golangci:
     name: lint

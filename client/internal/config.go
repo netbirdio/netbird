@@ -27,7 +27,7 @@ const (
 )
 
 var defaultInterfaceBlacklist = []string{iface.WgInterfaceDefault, "wt", "utun", "tun0", "zt", "ZeroTier", "wg", "ts",
-	"Tailscale", "tailscale", "docker", "veth", "br-"}
+	"Tailscale", "tailscale", "docker", "veth", "br-", "lo"}
 
 // ConfigInput carries configuration changes to the client
 type ConfigInput struct {

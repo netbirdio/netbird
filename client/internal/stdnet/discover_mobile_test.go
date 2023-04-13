@@ -35,7 +35,9 @@ func Test_parseInterfacesString(t *testing.T) {
 			d.multicast,
 			d.addr)
 	}
-	nets := parseInterfacesString(exampleString)
+
+	d := mobileIFaceDiscover{}
+	nets := d.parseInterfacesString(exampleString)
 	if len(nets) == 0 {
 		t.Fatalf("failed to parse interfaces")
 	}

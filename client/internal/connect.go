@@ -23,7 +23,7 @@ import (
 )
 
 // RunClient with main logic.
-func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) error {
+func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
@@ -108,7 +108,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
-			KernelInterface: iface.WireguardModuleIsLoaded(),
+			KernelInterface: iface.WireGuardModuleIsLoaded(),
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
 
@@ -194,7 +194,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) (*EngineConfig, error) {
+func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*EngineConfig, error) {
 
 	engineConf := &EngineConfig{
 		WgIfaceName:          config.WgIface,

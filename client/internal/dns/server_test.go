@@ -9,7 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/client/internal/stdnet"
+
 	"github.com/miekg/dns"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 )
@@ -199,7 +202,11 @@ func TestUpdateDNSServer(t *testing.T) {
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU, nil)
+			newNet, err := stdnet.NewNet(nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU, nil, newNet)
 			if err != nil {
 				t.Fatal(err)
 			}
