@@ -222,6 +222,7 @@ func (m *Manager) chain(
 	if err != nil {
 		return nil, nil, err
 	}
+
 	m.filterChainIPv6 = chain
 	return m.tableIPv6, m.filterChainIPv6, nil
 }
