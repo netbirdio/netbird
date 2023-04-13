@@ -147,7 +147,7 @@ func (conn *Conn) reCreateAgent() error {
 	var err error
 	transportNet, err := conn.newStdNet()
 	if err != nil {
-		log.Warnf("failed to create pion's stdnet: %s", err)
+		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,

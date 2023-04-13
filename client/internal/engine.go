@@ -179,7 +179,7 @@ func (e *Engine) Start() error {
 	var err error
 	transportNet, err := e.newStdNet()
 	if err != nil {
-		log.Warnf("failed to create pion's stdnet: %s", err)
+		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.config.TunAdapter, transportNet)
 	if err != nil {
