@@ -80,7 +80,7 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
 			}
-			config.HttpConfig.KeyRotationEnabled = UseKeyCacheHeaders
+			config.HttpConfig.KeyRotationEnabled = useKeyCacheHeaders
 
 			tlsEnabled := false
 			if mgmtLetsencryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
