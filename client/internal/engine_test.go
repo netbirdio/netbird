@@ -6,7 +6,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -945,17 +944,6 @@ func TestEngine_firewallManager(t *testing.T) {
 	// TODO: enable when other platform will be added
 	if runtime.GOOS != "linux" {
 		t.Skipf("firewall manager not supported in the: %s", runtime.GOOS)
-		return
-	} else {
-		_, err := exec.LookPath("iptables")
-		if err != nil {
-			t.Skipf("iptables not found: %v", err)
-			return
-		}
-	}
-
-	if _, err := exec.LookPath("iptables"); err != nil {
-		t.Skipf("iptables not found: %v", err)
 		return
 	}
 

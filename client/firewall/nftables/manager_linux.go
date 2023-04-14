@@ -209,7 +209,7 @@ func (m *Manager) chain(
 		return m.tableIPv4, m.filterChainIPv4, nil
 	}
 	if m.filterChainIPv6 != nil {
-		return m.tableIPv4, m.filterChainIPv6, nil
+		return m.tableIPv6, m.filterChainIPv6, nil
 	}
 
 	chain, err := m.createChainIfNotExists(
