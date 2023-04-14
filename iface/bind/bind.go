@@ -75,7 +75,7 @@ func (b *ICEBind) Open(uport uint16) ([]conn.ReceiveFunc, uint16, error) {
 		portAddr.Port(), nil
 }
 
-func listenNet(network string, port int) (*net.UDPConn, int, error) {
+func listenNet(network string, port int) (net.PacketConn, int, error) {
 	c, err := net.ListenUDP(network, &net.UDPAddr{Port: port})
 	if err != nil {
 		return nil, 0, err
