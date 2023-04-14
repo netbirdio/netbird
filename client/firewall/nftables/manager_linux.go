@@ -39,6 +39,7 @@ type Manager struct {
 	wgIfaceName string
 }
 
+// Create nftables firewall manager
 func Create(wgIfaceName string) (*Manager, error) {
 	m := &Manager{
 		conn:        &nftables.Conn{},
