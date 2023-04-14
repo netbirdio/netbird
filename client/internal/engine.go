@@ -1068,13 +1068,28 @@ func (e *Engine) applyFirewallRules(rules []*mgmProto.FirewallRule) {
 		return
 	}
 
-	newRules := make(map[string]firewall.Rule)
+	var (
+		applyFailed bool
+		newRules    = make(map[string]firewall.Rule)
+	)
 	for _, r := range rules {
 		rule := e.protoRuleToFirewallRule(r)
 		if rule == nil {
-			continue
+			log.Errorf("failed to apply firewall rule: %+v", r)
+			applyFailed = true
+			break
 		}
 		newRules[rule.GetRuleID()] = rule
+	}
+	if applyFailed {
+		log.Error("failed to apply firewall rules, rollback ACL to previous state")
+		for _, rule := range newRules {
+			if err := e.firewallManager.DeleteRule(rule); err != nil {
+				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
+				continue
+			}
+		}
+		return
 	}
 
 	for ruleID := range e.firewallRules {
