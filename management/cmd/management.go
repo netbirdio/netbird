@@ -80,6 +80,7 @@ var (
 			if err != nil {
 				return fmt.Errorf("failed reading provided config file: %s: %v", mgmtConfig, err)
 			}
+			config.HttpConfig.KeyRotationEnabled = UseKeyCacheHeaders
 
 			tlsEnabled := false
 			if mgmtLetsencryptDomain != "" || (config.HttpConfig.CertFile != "" && config.HttpConfig.CertKey != "") {
@@ -186,6 +187,7 @@ var (
 				config.HttpConfig.AuthIssuer,
 				config.GetAuthAudiences(),
 				config.HttpConfig.AuthKeysLocation,
+				config.HttpConfig.KeyRotationEnabled,
 			)
 			if err != nil {
 				return fmt.Errorf("failed creating JWT validator: %v", err)
