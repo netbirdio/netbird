@@ -49,7 +49,12 @@ func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
 
 	policies := []*api.Policy{}
 	for _, policy := range accountPolicies {
-		policies = append(policies, toPolicyResponse(account, policy))
+		resp := toPolicyResponse(account, policy)
+		if len(resp.Rules) == 0 {
+			util.WriteError(status.Errorf(status.Internal, "no rules in the policy"), w)
+			return
+		}
+		policies = append(policies, resp)
 	}
 
 	util.WriteJSONObject(w, policies)
@@ -189,7 +194,13 @@ func (h *Policies) savePolicy(
 		return
 	}
 
-	util.WriteJSONObject(w, toPolicyResponse(account, &policy))
+	resp := toPolicyResponse(account, &policy)
+	if len(resp.Rules) == 0 {
+		util.WriteError(status.Errorf(status.Internal, "no rules in the policy"), w)
+		return
+	}
+
+	util.WriteJSONObject(w, resp)
 }
 
 // DeletePolicy handles policy deletion request
@@ -241,7 +252,13 @@ func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		util.WriteJSONObject(w, toPolicyResponse(account, policy))
+		resp := toPolicyResponse(account, policy)
+		if len(resp.Rules) == 0 {
+			util.WriteError(status.Errorf(status.Internal, "no rules in the policy"), w)
+			return
+		}
+
+		util.WriteJSONObject(w, resp)
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "method not found"), w)
 	}
@@ -250,19 +267,12 @@ func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Policy {
 	cache := make(map[string]api.GroupMinimum)
 	ap := &api.Policy{
+		Id:          &policy.ID,
 		Name:        policy.Name,
 		Description: policy.Description,
 		Enabled:     policy.Enabled,
 		Query:       policy.Query,
 	}
-	if policy.ID != "" {
-		id := policy.ID
-		ap.Id = &id
-	}
-	if len(policy.Rules) == 0 {
-		return ap
-	}
-
 	for _, r := range policy.Rules {
 		rule := api.PolicyRule{
 			Id:            &r.ID,

@@ -119,6 +119,9 @@ func TestPoliciesGetPolicy(t *testing.T) {
 	policy := &server.Policy{
 		ID:   "idofthepolicy",
 		Name: "Rule",
+		Rules: []*server.PolicyRule{
+			{ID: "idoftherule", Name: "Rule"},
+		},
 	}
 
 	p := initPoliciesTestData(policy)
@@ -185,7 +188,7 @@ func TestPoliciesWritePolicy(t *testing.T) {
                             "Description": "Description",
                             "Protocol": "tcp",
                             "Action": "accept",
-                            "Bidirect":true
+                            "Bidirectional":true
                         }
                 ]}`)),
 			expectedStatus: http.StatusOK,
@@ -229,7 +232,7 @@ func TestPoliciesWritePolicy(t *testing.T) {
                             "Description": "Description",
                             "Protocol": "tcp",
                             "Action": "accept",
-                            "Bidirect":true
+                            "Bidirectional":true
                         }
                 ]}`)),
 			expectedStatus: http.StatusOK,
@@ -287,6 +290,7 @@ func TestPoliciesWritePolicy(t *testing.T) {
 			content, err := io.ReadAll(res.Body)
 			if err != nil {
 				t.Fatalf("I don't know what I expected; %v", err)
+				return
 			}
 
 			if status := recorder.Code; status != tc.expectedStatus {
@@ -305,7 +309,7 @@ func TestPoliciesWritePolicy(t *testing.T) {
 				return
 			}
 
-			assert.Equal(t, strings.Trim(string(content), " \n"), string(expected))
+			assert.Equal(t, strings.Trim(string(content), " \n"), string(expected), "content mismatch")
 		})
 	}
 }
