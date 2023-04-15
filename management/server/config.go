@@ -80,8 +80,8 @@ type HttpServerConfig struct {
 	AuthKeysLocation string
 	// OIDCConfigEndpoint is the endpoint of an IDP manager to get OIDC configuration
 	OIDCConfigEndpoint string
-	// KeyRotationEnabled identifies the signing key is currently being rotated or not
-	KeyRotationEnabled bool
+	// IdpSignKeyRefreshEnabled identifies the signing key is currently being rotated or not
+	IdpSignKeyRefreshEnabled bool
 }
 
 // Host represents a Wiretrustee host (e.g. STUN, TURN, Signal)

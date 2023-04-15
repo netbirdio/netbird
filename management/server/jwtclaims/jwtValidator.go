@@ -68,7 +68,7 @@ type JWTValidator struct {
 }
 
 // NewJWTValidator constructor
-func NewJWTValidator(issuer string, audienceList []string, keysLocation string, keyRotationEnabled bool) (*JWTValidator, error) {
+func NewJWTValidator(issuer string, audienceList []string, keysLocation string, idpSignkeyRefreshEnabled bool) (*JWTValidator, error) {
 	keys, err := getPemKeys(keysLocation)
 	if err != nil {
 		return nil, err
@@ -94,13 +94,12 @@ func NewJWTValidator(issuer string, audienceList []string, keysLocation string, 
 			}
 
 			// If keys are rotated, verify the keys prior to token validation
-			if keyRotationEnabled {
+			if idpSignkeyRefreshEnabled {
 				// If the keys are invalid, retrieve new ones
 				if !keys.stillValid() {
-
 					keys, err = getPemKeys(keysLocation)
 					if err != nil {
-						log.Errorf("cannot get JSONWebKey: %v", err)
+						log.Debugf("cannot get JSONWebKey: %v", err)
 						return nil, err
 					}
 				}

@@ -53,7 +53,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 			config.HttpConfig.AuthIssuer,
 			config.GetAuthAudiences(),
 			config.HttpConfig.AuthKeysLocation,
-			config.HttpConfig.KeyRotationEnabled,
+			config.HttpConfig.IdpSignKeyRefreshEnabled,
 		)
 		if err != nil {
 			return nil, status.Errorf(codes.Internal, "unable to create new jwt middleware, err: %v", err)
