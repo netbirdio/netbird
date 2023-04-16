@@ -171,15 +171,18 @@ func (s *ICEBind) receiveIPv4(buffs [][]byte, sizes []int, eps []wgConn.Endpoint
 	}
 	for i := 0; i < numMsgs; i++ {
 		msg := &(*msgs)[i]
-		sizes[i] = msg.N
+
+		// todo: handle err
+		ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
+		if ok {
+			sizes[i] = 0
+		} else {
+			sizes[i] = msg.N
+		}
 
 		addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
 		ep := asEndpoint(addrPort)
 		getSrcFromControl(msg.OOB, ep)
-
-		// todo: handle err
-		_ = s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
-
 		eps[i] = ep
 	}
 	return numMsgs, nil
@@ -325,23 +328,25 @@ func (s *ICEBind) send6(conn *ipv6.PacketConn, ep wgConn.Endpoint, buffs [][]byt
 	return err
 }
 
-func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) error {
-	for i, buffer := range buffers {
+func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) (bool, error) {
+	for _, buffer := range buffers {
 		if !stun.IsMessage(buffer) {
 			continue
 		}
 
 		msg, err := parseSTUNMessage(buffer[:n])
 		if err != nil {
-			return err
+			buffer = []byte{}
+			return true, err
 		}
-		err = s.udpMux.HandleSTUNMessage(msg, addr)
-		if err != nil {
+		muxErr := s.udpMux.HandleSTUNMessage(msg, addr)
+		if muxErr != nil {
 			log.Warnf("failed to handle packet")
 		}
-		buffers[i] = []byte{}
+		buffer = []byte{}
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 // endpointPool contains a re-usable set of mapping from netip.AddrPort to Endpoint.
