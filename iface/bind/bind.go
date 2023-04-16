@@ -10,7 +10,9 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/pion/stun"
 	"github.com/pion/transport/v2"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 	wgConn "golang.zx2c4.com/wireguard/conn"
@@ -170,9 +172,14 @@ func (s *ICEBind) receiveIPv4(buffs [][]byte, sizes []int, eps []wgConn.Endpoint
 	for i := 0; i < numMsgs; i++ {
 		msg := &(*msgs)[i]
 		sizes[i] = msg.N
+
 		addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
 		ep := asEndpoint(addrPort)
 		getSrcFromControl(msg.OOB, ep)
+
+		// todo: handle err
+		_ = s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
+
 		eps[i] = ep
 	}
 	return numMsgs, nil
@@ -318,6 +325,25 @@ func (s *ICEBind) send6(conn *ipv6.PacketConn, ep wgConn.Endpoint, buffs [][]byt
 	return err
 }
 
+func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) error {
+	for i, buffer := range buffers {
+		if !stun.IsMessage(buffer) {
+			continue
+		}
+
+		msg, err := parseSTUNMessage(buffer[:n])
+		if err != nil {
+			return err
+		}
+		err = s.udpMux.HandleSTUNMessage(msg, addr)
+		if err != nil {
+			log.Warnf("failed to handle packet")
+		}
+		buffers[i] = []byte{}
+	}
+	return nil
+}
+
 // endpointPool contains a re-usable set of mapping from netip.AddrPort to Endpoint.
 // This exists to reduce allocations: Putting a netip.AddrPort in an Endpoint allocates,
 // but Endpoints are immutable, so we can re-use them.
@@ -337,4 +363,15 @@ func asEndpoint(ap netip.AddrPort) *wgConn.StdNetEndpoint {
 		m[ap] = e
 	}
 	return e
+}
+
+func parseSTUNMessage(raw []byte) (*stun.Message, error) {
+	msg := &stun.Message{
+		Raw: raw,
+	}
+	if err := msg.Decode(); err != nil {
+		return nil, err
+	}
+
+	return msg, nil
 }
