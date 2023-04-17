@@ -419,44 +419,85 @@ components:
           required:
             - sources
             - destinations
-    PolicyRule:
+    PolicyRuleMinimum:
       type: object
       properties:
         id:
-          description: Rule ID
+          description: Policy rule ID
           type: string
         name:
-          description: Rule name identifier
+          description: Policy rule name identifier
           type: string
         description:
-          description: Rule friendly description
+          description: Policy rule friendly description
           type: string
         enabled:
-          description: Rules status
+          description: Policy rule status
           type: boolean
-        sources:
-          description: policy source groups
-          type: array
-          items:
-            $ref: '#/components/schemas/GroupMinimum'
-        destinations:
-          description: policy destination groups
-          type: array
-          items:
-            $ref: '#/components/schemas/GroupMinimum'
         action:
-          description: policy accept or drops packets
+          description: Policy rule accept or drops packets
           type: string
           enum: ["accept","drop"]
+        bidirectional:
+          description: Define if the rule is applicable in both directions, sources, and destinations.
+          type: boolean
+        protocol:
+          description: Policy rule type of the traffic
+          type: string
+          enum: ["all", "tcp", "udp", "icmp"]
+        ports:
+          description: Policy rule affected ports or it ranges list
+          type: array
+          items:
+            type: string
       required:
         - name
-        - sources
-        - destinations
-        - action
         - enabled
+        - bidirectional
+        - protocol
+        - action
+    PolicyRuleUpdate:
+      allOf:
+        - $ref: '#/components/schemas/PolicyRuleMinimum'
+        - type: object
+          properties:
+            sources:
+              description: Policy rule source groups
+              type: array
+              items:
+                type: string
+            destinations:
+              description: Policy rule destination groups
+              type: array
+              items:
+                type: string
+          required:
+            - sources
+            - destinations
+    PolicyRule:
+      allOf:
+        - $ref: '#/components/schemas/PolicyRuleMinimum'
+        - type: object
+          properties:
+            sources:
+              description: Policy rule source groups
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupMinimum'
+            destinations:
+              description: Policy rule destination groups
+              type: array
+              items:
+                $ref: '#/components/schemas/GroupMinimum'
+          required:
+            - sources
+            - destinations
     PolicyMinimum:
       type: object
       properties:
+        id:
+          description: Policy ID
+          type: string
         name:
           description: Policy name identifier
           type: string
@@ -469,27 +510,35 @@ components:
         query:
           description: Policy Rego query
           type: string
-        rules:
-          description: Policy rule object for policy UI editor
-          type: array
-          items:
-            $ref: '#/components/schemas/PolicyRule'
       required:
         - name
         - description
         - enabled
         - query
-        - rules
+    PolicyUpdate:
+      allOf:
+        - $ref: '#/components/schemas/PolicyMinimum'
+        - type: object
+          properties:
+            rules:
+              description: Policy rule object for policy UI editor
+              type: array
+              items:
+                $ref: '#/components/schemas/PolicyRuleUpdate'
+          required:
+            - rules
     Policy:
       allOf:
         - $ref: '#/components/schemas/PolicyMinimum'
         - type: object
           properties:
-            id:
-              description: Policy ID
-              type: string
+            rules:
+              description: Policy rule object for policy UI editor
+              type: array
+              items:
+                $ref: '#/components/schemas/PolicyRule'
           required:
-            - id
+            - rules
     RouteRequest:
       type: object
       properties:
@@ -1603,7 +1652,7 @@ paths:
           'application/json':
             schema:
               allOf:
-                - $ref: '#/components/schemas/PolicyMinimum'
+                - $ref: '#/components/schemas/PolicyUpdate'
       responses:
         '200':
           description: A Policy Object
@@ -1659,7 +1708,7 @@ paths:
           'application/json':
             schema:
               allOf:
-                - $ref: '#/components/schemas/PolicyMinimum'
+                - $ref: '#/components/schemas/PolicyUpdate'
       responses:
         '200':
           description: A Policy object
