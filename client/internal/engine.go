@@ -1070,19 +1070,40 @@ func (e *Engine) applyFirewallRules(rules []*mgmProto.FirewallRule) {
 		return
 	}
 
-	for ruleID, rule := range e.firewallRules {
-		if err := e.firewallManager.DeleteRule(rule); err != nil {
-			log.Errorf("failed to delete firewall rule: %v", err)
-			continue
+	var (
+		applyFailed bool
+		newRules    = make(map[string]firewall.Rule)
+	)
+	for _, r := range rules {
+		rule := e.protoRuleToFirewallRule(r)
+		if rule == nil {
+			log.Errorf("failed to apply firewall rule: %+v", r)
+			applyFailed = true
+			break
 		}
-		delete(e.firewallRules, ruleID)
+		newRules[rule.GetRuleID()] = rule
+	}
+	if applyFailed {
+		log.Error("failed to apply firewall rules, rollback ACL to previous state")
+		for _, rule := range newRules {
+			if err := e.firewallManager.DeleteRule(rule); err != nil {
+				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
+				continue
+			}
+		}
+		return
 	}
 
-	for _, r := range rules {
-		if rule := e.protoRuleToFirewallRule(r); rule == nil {
-			log.Errorf("failed to apply firewall rule: %v", r)
+	for ruleID := range e.firewallRules {
+		if rule, ok := newRules[ruleID]; !ok {
+			if err := e.firewallManager.DeleteRule(rule); err != nil {
+				log.Errorf("failed to delete firewall rule: %v", err)
+				continue
+			}
+			delete(e.firewallRules, ruleID)
 		}
 	}
+	e.firewallRules = newRules
 }
 
 func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule {
@@ -1094,12 +1115,13 @@ func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule
 
 	var port *firewall.Port
 	if r.Port != "" {
-		split := strings.Split(r.Port, "/")
-		// port can be empty, so ignore conversion error
-		value, _ := strconv.Atoi(split[0])
-		port = &firewall.Port{}
-		if value != 0 {
-			port.Values = []int{value}
+		value, err := strconv.Atoi(r.Port)
+		if err != nil {
+			log.Debug("invalid port, skipping firewall rule")
+			return nil
+		}
+		port = &firewall.Port{
+			Values: []int{value},
 		}
 	}
 
@@ -1111,6 +1133,9 @@ func (e *Engine) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule
 		protocol = firewall.ProtocolUDP
 	case "icmp":
 		protocol = firewall.ProtocolICMP
+	default:
+		log.Errorf("invalid protocol, skipping firewall rule: %q", r.Protocol)
+		return nil
 	}
 
 	var direction firewall.Direction
