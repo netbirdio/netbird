@@ -48,6 +48,8 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 		t.Fatalf("Error when adding PAT to user: %s", err)
 	}
 
+	assert.Equal(t, pat.CreatedBy, mockUserID)
+
 	fileStore := am.Store.(*FileStore)
 	tokenID := fileStore.HashedPAT2TokenID[pat.HashedToken]
 
@@ -67,7 +69,10 @@ func TestUser_CreatePAT_ForSameUser(t *testing.T) {
 func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 	store := newStore(t)
 	account := newAccountWithId(mockAccountID, mockUserID, "")
-
+	account.Users[mockTargetUserId] = &User{
+		Id:            mockTargetUserId,
+		IsServiceUser: false,
+	}
 	err := store.SaveAccount(account)
 	if err != nil {
 		t.Fatalf("Error when saving account: %s", err)
@@ -80,6 +85,28 @@ func TestUser_CreatePAT_ForDifferentUser(t *testing.T) {
 
 	_, err = am.CreatePAT(mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
 	assert.Errorf(t, err, "Creating PAT for different user should thorw error")
+}
+
+func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
+	store := newStore(t)
+	account := newAccountWithId(mockAccountID, mockUserID, "")
+	account.Users[mockTargetUserId] = &User{
+		Id:            mockTargetUserId,
+		IsServiceUser: true,
+	}
+	err := store.SaveAccount(account)
+	if err != nil {
+		t.Fatalf("Error when saving account: %s", err)
+	}
+
+	am := DefaultAccountManager{
+		Store:      store,
+		eventStore: &activity.InMemoryEventStore{},
+	}
+
+	pat, err := am.CreatePAT(mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
+
+	assert.Equal(t, pat.CreatedBy, mockUserID)
 }
 
 func TestUser_CreatePAT_WithWrongExpiration(t *testing.T) {
