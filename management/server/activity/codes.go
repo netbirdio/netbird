@@ -87,6 +87,10 @@ const (
 	PersonalAccessTokenCreated
 	// PersonalAccessTokenDeleted indicates that a user deleted a personal access token
 	PersonalAccessTokenDeleted
+	// ServiceUserCreated indicates that a user created a service user
+	ServiceUserCreated
+	// ServiceUserDeleted indicates that a user deleted a service user
+	ServiceUserDeleted
 )
 
 const (
@@ -176,6 +180,10 @@ const (
 	PersonalAccessTokenCreatedMessage string = "Personal access token created"
 	// PersonalAccessTokenDeletedMessage is a human-readable text message of the PersonalAccessTokenDeleted activity
 	PersonalAccessTokenDeletedMessage string = "Personal access token deleted"
+	// ServiceUserCreatedMessage is a human-readable text message of the ServiceUserCreated activity
+	ServiceUserCreatedMessage string = "Service user created"
+	// ServiceUserDeletedMessage is a human-readable text message of the ServiceUserDeleted activity
+	ServiceUserDeletedMessage string = "Service user deleted"
 )
 
 // Activity that triggered an Event
@@ -270,6 +278,10 @@ func (a Activity) Message() string {
 		return PersonalAccessTokenCreatedMessage
 	case PersonalAccessTokenDeleted:
 		return PersonalAccessTokenDeletedMessage
+	case ServiceUserCreated:
+		return ServiceUserCreatedMessage
+	case ServiceUserDeleted:
+		return ServiceUserDeletedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -364,6 +376,10 @@ func (a Activity) StringCode() string {
 		return "personal.access.token.create"
 	case PersonalAccessTokenDeleted:
 		return "personal.access.token.delete"
+	case ServiceUserCreated:
+		return "service.user.create"
+	case ServiceUserDeleted:
+		return "service.user.delete"
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}

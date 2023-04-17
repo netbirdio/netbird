@@ -2,9 +2,11 @@ package server
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/activity"
-	log "github.com/sirupsen/logrus"
 	"time"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/activity"
 )
 
 // GetEvents returns a list of activity events of an account
@@ -39,7 +41,7 @@ func (am *DefaultAccountManager) storeEvent(initiatorID, targetID, accountID str
 
 	go func() {
 		_, err := am.eventStore.Save(&activity.Event{
-			Timestamp:   time.Now(),
+			Timestamp:   time.Now().UTC(),
 			Activity:    activityID,
 			InitiatorID: initiatorID,
 			TargetID:    targetID,
@@ -47,7 +49,7 @@ func (am *DefaultAccountManager) storeEvent(initiatorID, targetID, accountID str
 			Meta:        meta,
 		})
 		if err != nil {
-			//todo add metric
+			// todo add metric
 			log.Errorf("received an error while storing an activity event, error: %s", err)
 		}
 	}()

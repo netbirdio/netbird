@@ -77,6 +77,10 @@ components:
           description: Is true if authenticated user is the same as this user
           type: boolean
           readOnly: true
+        is_service_user:
+          description: Is true if this user is a service user
+          type: boolean
+          readOnly: true
       required:
         - id
         - email
@@ -115,10 +119,13 @@ components:
           type: array
           items:
             type: string
+        is_service_user:
+          description: Is true if this user is a service user
+          type: boolean
       required:
         - role
         - auto_groups
-        - email
+        - is_service_user
     PeerMinimum:
       type: object
       properties:
@@ -825,6 +832,12 @@ paths:
       tags: [ Users ]
       security:
         - BearerAuth: [ ]
+      parameters:
+        - in: query
+          name: service_user
+          schema:
+            type: boolean
+          description: Filters users and returns either normal users or service users
       responses:
         '200':
           description: A JSON array of Users
@@ -895,6 +908,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/User'
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+    delete:
+      summary: Delete a User
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: The User ID
+      responses:
+        '200':
+          description: Delete status code
+          content: { }
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
