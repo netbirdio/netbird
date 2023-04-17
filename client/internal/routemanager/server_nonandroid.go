@@ -44,7 +44,6 @@ func (m *serverRouter) updateRoutes(routesMap map[string]*route.Route) error {
 		update, found := routesMap[routeID]
 		if !found || !update.IsEqual(m.routes[routeID]) {
 			serverRoutesToRemove = append(serverRoutesToRemove, routeID)
-			continue
 		}
 	}
 
