@@ -22,11 +22,35 @@ type PolicyUpdateOperationType int
 // PolicyTrafficActionType action type for the firewall
 type PolicyTrafficActionType string
 
+// PolicyRuleProtocolType type of traffic
+type PolicyRuleProtocolType string
+
+// PolicyRuleDirection direction of traffic
+type PolicyRuleDirection string
+
 const (
 	// PolicyTrafficActionAccept indicates that the traffic is accepted
 	PolicyTrafficActionAccept = PolicyTrafficActionType("accept")
 	// PolicyTrafficActionDrop indicates that the traffic is dropped
 	PolicyTrafficActionDrop = PolicyTrafficActionType("drop")
+)
+
+const (
+	// PolicyRuleProtocolALL type of traffic
+	PolicyRuleProtocolALL = PolicyRuleProtocolType("all")
+	// PolicyRuleProtocolTCP type of traffic
+	PolicyRuleProtocolTCP = PolicyRuleProtocolType("tcp")
+	// PolicyRuleProtocolUDP type of traffic
+	PolicyRuleProtocolUDP = PolicyRuleProtocolType("udp")
+	// PolicyRuleProtocolICMP type of traffic
+	PolicyRuleProtocolICMP = PolicyRuleProtocolType("icmp")
+)
+
+const (
+	// PolicyRuleFlowDirect allows trafic from source to destination
+	PolicyRuleFlowDirect = PolicyRuleDirection("direct")
+	// PolicyRuleFlowBidirect allows traffic to both directions
+	PolicyRuleFlowBidirect = PolicyRuleDirection("bidirect")
 )
 
 // PolicyUpdateOperation operation object with type and values to be applied
@@ -41,7 +65,7 @@ var defaultPolicyModule string
 //go:embed rego/default_policy.rego
 var defaultPolicyText string
 
-// defaultPolicyTemplate is a template for the default policy
+// defaultPolicyTemplate is a template to migrate ACL rules to policies
 var defaultPolicyTemplate = template.Must(template.New("policy").Parse(defaultPolicyText))
 
 // PolicyRule is the metadata of the policy
@@ -66,18 +90,30 @@ type PolicyRule struct {
 
 	// Sources policy source groups
 	Sources []string
+
+	// Bidirectional define if the rule is applicable in both directions, sources, and destinations
+	Bidirectional bool
+
+	// Protocol type of the traffic
+	Protocol PolicyRuleProtocolType
+
+	// Ports or it ranges list
+	Ports []string
 }
 
 // Copy returns a copy of a policy rule
 func (pm *PolicyRule) Copy() *PolicyRule {
 	return &PolicyRule{
-		ID:           pm.ID,
-		Name:         pm.Name,
-		Description:  pm.Description,
-		Enabled:      pm.Enabled,
-		Action:       pm.Action,
-		Destinations: pm.Destinations[:],
-		Sources:      pm.Sources[:],
+		ID:            pm.ID,
+		Name:          pm.Name,
+		Description:   pm.Description,
+		Enabled:       pm.Enabled,
+		Action:        pm.Action,
+		Destinations:  pm.Destinations[:],
+		Sources:       pm.Sources[:],
+		Bidirectional: pm.Bidirectional,
+		Protocol:      pm.Protocol,
+		Ports:         pm.Ports[:],
 	}
 }
 
@@ -137,10 +173,17 @@ func (p *Policy) EventMeta() map[string]any {
 
 // UpdateQueryFromRules marshals policy rules to Rego string and set it to Query
 func (p *Policy) UpdateQueryFromRules() error {
+	type templateRule struct {
+		Group    string
+		Protocol string
+		Ports    string
+		Action   string
+	}
 	type templateVars struct {
-		All         []string
-		Source      []string
-		Destination []string
+		Bidirectional bool
+		All           []string
+		Sources       []templateRule
+		Destinations  []templateRule
 	}
 	queries := []string{}
 	for _, r := range p.Rules {
@@ -150,10 +193,28 @@ func (p *Policy) UpdateQueryFromRules() error {
 
 		buff := new(bytes.Buffer)
 		input := templateVars{
-			All:         append(r.Destinations[:], r.Sources...),
-			Source:      r.Sources,
-			Destination: r.Destinations,
+			Bidirectional: r.Bidirectional,
+			All:           append(r.Destinations[:], r.Sources...),
 		}
+
+		for _, g := range r.Sources {
+			input.Sources = append(input.Sources, templateRule{
+				Group:    g,
+				Protocol: string(r.Protocol),
+				Ports:    strings.Join(r.Ports, ","),
+				Action:   string(r.Action),
+			})
+		}
+
+		for _, g := range r.Destinations {
+			input.Destinations = append(input.Destinations, templateRule{
+				Group:    g,
+				Protocol: string(r.Protocol),
+				Ports:    strings.Join(r.Ports, ","),
+				Action:   string(r.Action),
+			})
+		}
+
 		if err := defaultPolicyTemplate.Execute(buff, input); err != nil {
 			return status.Errorf(status.BadRequest, "failed to update policy query: %v", err)
 		}

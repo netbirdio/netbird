@@ -5,23 +5,24 @@ import future.keywords.in
 import future.keywords.contains
 
 # get_rule builds a netbird rule object from given parameters
-get_rule(peer_id, direction, action, port) := rule if {
+get_rule(peer_id, direction, protocol, port, action) := rule if {
     peer := input.peers[_]
     peer.ID == peer_id
     rule := {
         "ID": peer.ID,
         "IP": peer.IP,
         "Direction": direction,
-        "Action": action,
+        "Protocol": protocol,
         "Port": port,
+        "Action": action,
     }
 }
 
 # netbird_rules_from_group returns a list of netbird rules for a given group_id
-rules_from_group(group_id, direction, action, port) := rules if {
+rules_from_group(group_id, direction, protocol, port, action) := rules if {
 	group := input.groups[_]
 	group.ID == group_id
-	rules := [get_rule(peer, direction, action, port) | peer := group.Peers[_]]
+	rules := [get_rule(peer, direction, protocol, port, action) | peer := group.Peers[_]]
 }
 
 # is_peer_in_any_group checks that input peer present at least in one group

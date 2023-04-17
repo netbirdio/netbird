@@ -919,10 +919,11 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
-				Enabled:      true,
-				Sources:      []string{"group-id"},
-				Destinations: []string{"group-id"},
-				Action:       PolicyTrafficActionAccept,
+				Enabled:       true,
+				Sources:       []string{"group-id"},
+				Destinations:  []string{"group-id"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
 			},
 		},
 	}
