@@ -20,7 +20,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
@@ -47,10 +46,6 @@ var ErrResetConnection = fmt.Errorf("reset connection")
 type EngineConfig struct {
 	WgPort      int
 	WgIfaceName string
-	// TunAdapter is option. It is necessary for mobile version.
-	TunAdapter iface.TunAdapter
-
-	IFaceDiscover stdnet.ExternalIFaceDiscover
 
 	// WgAddr is a Wireguard local address (Netbird Network IP)
 	WgAddr string
@@ -90,7 +85,9 @@ type Engine struct {
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
 
-	config *EngineConfig
+	config    *EngineConfig
+	mobileDep MobileDependency
+
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*ice.URL
 	// TURNs is a list of STUN servers used by ICE
@@ -130,7 +127,7 @@ type Peer struct {
 func NewEngine(
 	ctx context.Context, cancel context.CancelFunc,
 	signalClient signal.Client, mgmClient mgm.Client,
-	config *EngineConfig, statusRecorder *peer.Status,
+	config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status,
 ) *Engine {
 	return &Engine{
 		ctx:            ctx,
@@ -140,6 +137,7 @@ func NewEngine(
 		peerConns:      make(map[string]*peer.Conn),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
+		mobileDep:      mobileDep,
 		STUNs:          []*ice.URL{},
 		TURNs:          []*ice.URL{},
 		networkSerial:  0,
@@ -181,7 +179,7 @@ func (e *Engine) Start() error {
 	if err != nil {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
-	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.config.TunAdapter, transportNet)
+	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.Routes, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err
@@ -834,7 +832,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.config.TunAdapter, e.config.IFaceDiscover)
+	peerConn, err := peer.NewConn(config, e.statusRecorder, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
 	if err != nil {
 		return nil, err
 	}

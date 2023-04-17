@@ -1,16 +1,19 @@
+//go:build !android
+
 package routemanager
 
 import (
 	"context"
 	"fmt"
-	"github.com/google/nftables/binaryutil"
-	"github.com/google/nftables/expr"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"net/netip"
 	"sync"
+
+	"github.com/google/nftables"
+	"github.com/google/nftables/binaryutil"
+	"github.com/google/nftables/expr"
+	log "github.com/sirupsen/logrus"
 )
-import "github.com/google/nftables"
 
 const (
 	nftablesTable                  = "netbird-rt"

@@ -9,7 +9,7 @@ import (
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
-func NewWGIFace(iFaceName string, address string, mtu int, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
+func NewWGIFace(iFaceName string, address string, mtu int, routes []string, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
 	wgIFace := &WGIface{
 		mu: sync.Mutex{},
 	}

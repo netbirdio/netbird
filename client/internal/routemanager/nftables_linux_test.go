@@ -1,12 +1,15 @@
+//go:build !android
+
 package routemanager
 
 import (
 	"context"
+	"testing"
+
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {

@@ -78,6 +78,9 @@ func (m *mobileIFaceDiscover) parseInterfacesString(interfaces string) []*transp
 		addrs := strings.Trim(fields[1], " \n")
 		foundAddress := false
 		for _, addr := range strings.Split(addrs, " ") {
+			if strings.Contains(addr, "%") {
+				continue
+			}
 			ip, ipNet, err := net.ParseCIDR(addr)
 			if err != nil {
 				log.Warnf("%s", err)

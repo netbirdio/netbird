@@ -1,10 +1,13 @@
+//go:build !android
+
 package routemanager
 
 import (
 	"context"
+	"testing"
+
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
