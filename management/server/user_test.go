@@ -105,6 +105,9 @@ func TestUser_CreatePAT_ForServiceUser(t *testing.T) {
 	}
 
 	pat, err := am.CreatePAT(mockAccountID, mockUserID, mockTargetUserId, mockTokenName, mockExpiresIn)
+	if err != nil {
+		t.Fatalf("Error when adding PAT to user: %s", err)
+	}
 
 	assert.Equal(t, pat.CreatedBy, mockUserID)
 }
