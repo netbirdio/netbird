@@ -2,6 +2,7 @@ package iface
 
 import (
 	"net"
+	"strings"
 
 	"github.com/pion/transport/v2"
 
@@ -17,6 +18,7 @@ import (
 type tunDevice struct {
 	address    WGAddress
 	mtu        int
+	routes     []string
 	tunAdapter TunAdapter
 
 	fd      int
@@ -26,10 +28,11 @@ type tunDevice struct {
 	iceBind *bind.ICEBind
 }
 
-func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
+func newTunDevice(address WGAddress, mtu int, routes []string, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
 		address:    address,
 		mtu:        mtu,
+		routes:     routes,
 		tunAdapter: tunAdapter,
 		iceBind:    bind.NewICEBind(transportNet),
 	}
@@ -37,7 +40,8 @@ func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNe
 
 func (t *tunDevice) Create() error {
 	var err error
-	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu)
+	routesString := t.routesToString()
+	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return err
@@ -114,4 +118,8 @@ func (t *tunDevice) Close() (err error) {
 	}
 
 	return
+}
+
+func (t *tunDevice) routesToString() string {
+	return strings.Join(t.routes, ";")
 }
