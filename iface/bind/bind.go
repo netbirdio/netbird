@@ -39,10 +39,11 @@ type ICEBind struct {
 	// NetBird related variables
 	transportNet transport.Net
 	udpMux       *UniversalUDPMuxDefault
+	worker       *worker
 }
 
 func NewICEBind(transportNet transport.Net) *ICEBind {
-	return &ICEBind{
+	b := &ICEBind{
 		batchSize: wgConn.DefaultBatchSize,
 
 		udpAddrPool: sync.Pool{
@@ -76,6 +77,8 @@ func NewICEBind(transportNet transport.Net) *ICEBind {
 		},
 		transportNet: transportNet,
 	}
+	b.worker = newWorker(b.handlePkgs)
+	return b
 }
 
 type StdNetEndpoint struct {
@@ -209,22 +212,8 @@ func (s *ICEBind) receiveIPv4(buffs [][]byte, sizes []int, eps []wgConn.Endpoint
 	if err != nil {
 		return 0, err
 	}
-	for i := 0; i < numMsgs; i++ {
-		msg := &(*msgs)[i]
 
-		// todo: handle err
-		ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
-		if ok {
-			sizes[i] = 0
-		} else {
-			sizes[i] = msg.N
-		}
-
-		addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
-		ep := asEndpoint(addrPort)
-		getSrcFromControl(msg.OOB, ep)
-		eps[i] = ep
-	}
+	s.worker.doWork((*msgs)[:numMsgs], sizes, eps)
 	return numMsgs, nil
 }
 
@@ -387,6 +376,20 @@ func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) 
 		return true, nil
 	}
 	return false, nil
+}
+
+func (s *ICEBind) handlePkgs(msg *ipv4.Message) (int, *StdNetEndpoint) {
+	// todo: handle err
+	size := 0
+	ok, _ := s.filterOutStunMessages(msg.Buffers, msg.N, msg.Addr)
+	if !ok {
+		size = msg.N
+	}
+
+	addrPort := msg.Addr.(*net.UDPAddr).AddrPort()
+	ep := asEndpoint(addrPort)
+	getSrcFromControl(msg.OOB, ep)
+	return size, ep
 }
 
 // endpointPool contains a re-usable set of mapping from netip.AddrPort to Endpoint.
