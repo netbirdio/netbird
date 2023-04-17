@@ -5,7 +5,7 @@
  * Copyright (C) 2017-2023 WireGuard LLC. All Rights Reserved.
  */
 
-package conn
+package bind
 
 import (
 	"runtime"
@@ -26,7 +26,7 @@ func init() {
 	}
 }
 
-func (s *StdNetBind) SetMark(mark uint32) error {
+func (s *ICEBind) SetMark(mark uint32) error {
 	var operr error
 	if fwmarkIoctl == 0 {
 		return nil
