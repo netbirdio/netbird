@@ -172,6 +172,49 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 	return nil
 }
 
+// GetRoutes return with the routes
+func (c *GrpcClient) GetRoutes() ([]*proto.Route, error) {
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		log.Debugf("failed getting Management Service public key: %s", err)
+		return nil, err
+	}
+
+	ctx, cancelStream := context.WithCancel(c.ctx)
+	defer cancelStream()
+	stream, err := c.connectToStream(ctx, *serverPubKey)
+	if err != nil {
+		log.Debugf("failed to open Management Service stream: %s", err)
+		return nil, err
+	}
+	defer func() {
+		_ = stream.CloseSend()
+	}()
+
+	update, err := stream.Recv()
+	if err == io.EOF {
+		log.Debugf("Management stream has been closed by server: %s", err)
+		return nil, err
+	}
+	if err != nil {
+		log.Debugf("disconnected from Management Service sync stream: %v", err)
+		return nil, err
+	}
+
+	decryptedResp := &proto.SyncResponse{}
+	err = encryption.DecryptMessage(*serverPubKey, c.key, update.Body, decryptedResp)
+	if err != nil {
+		log.Errorf("failed decrypting update message from Management Service: %s", err)
+		return nil, err
+	}
+
+	if decryptedResp.GetNetworkMap() == nil {
+		return nil, fmt.Errorf("invalid msg, required network map")
+	}
+
+	return decryptedResp.GetNetworkMap().GetRoutes(), nil
+}
+
 func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key) (proto.ManagementService_SyncClient, error) {
 	req := &proto.SyncRequest{}
 
