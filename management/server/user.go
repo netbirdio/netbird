@@ -324,7 +324,7 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, executingUserID str
 		return nil, status.Errorf(status.PermissionDenied, "no permission to create PAT for this user")
 	}
 
-	pat, err := CreateNewPAT(tokenName, expiresIn, targetUser.Id)
+	pat, err := CreateNewPAT(tokenName, expiresIn, executingUser.Id)
 	if err != nil {
 		return nil, status.Errorf(status.Internal, "failed to create PAT: %v", err)
 	}
