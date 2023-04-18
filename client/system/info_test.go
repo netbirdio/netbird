@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/netbirdio/netbird/client/system"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
 )
@@ -27,7 +26,7 @@ func Test_UIVersion(t *testing.T) {
 }
 
 func Test_CustomHostname(t *testing.T) {
-	ctx := context.WithValue(context.Background(), system.DeviceNameCtxKey, "custom-host")
+	ctx := context.WithValue(context.Background(), DeviceNameCtxKey, "custom-host")
 	want := "custom-host"
 
 	got := GetInfo(ctx)
