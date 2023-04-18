@@ -2,7 +2,6 @@ package bind
 
 import (
 	"runtime"
-	"sync"
 
 	"golang.org/x/net/ipv4"
 	wgConn "golang.zx2c4.com/wireguard/conn"
@@ -12,7 +11,6 @@ import (
 type worker struct {
 	jobOffer    chan int
 	numOfWorker int
-	wg          sync.WaitGroup
 
 	jobFn func(msg *ipv4.Message) (int, *StdNetEndpoint)
 
@@ -37,11 +35,9 @@ func (w *worker) doWork(messages []ipv4.Message, sizes []int, eps []wgConn.Endpo
 	w.sizes = sizes
 	w.eps = eps
 
-	w.wg.Add(w.numOfWorker)
 	for i := 0; i < len(messages); i++ {
 		w.jobOffer <- i
 	}
-	w.wg.Wait()
 }
 
 func (w *worker) populateWorkers() {
@@ -55,7 +51,6 @@ func (w *worker) loop() {
 		select {
 		case msgPos := <-w.jobOffer:
 			w.sizes[msgPos], w.eps[msgPos] = w.jobFn(&w.messages[msgPos])
-			w.wg.Done()
 		}
 	}
 }
