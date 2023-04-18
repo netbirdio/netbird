@@ -388,30 +388,107 @@ func (a *Account) queryPeersAndFwRulesByRego(
 	return peers, rules
 }
 
-// getPeersByPolicy returns all peers that given peer has access to.
+// getPeersByPolicy returns all peers that given peer has access to
 func (a *Account) getPeersByPolicy(peerID string) (peers []*Peer, rules []*FirewallRule) {
-	peersSeen := make(map[string]struct{})
-	ruleSeen := make(map[string]struct{})
-	for i, policy := range a.Policies {
+	exists := make(map[string]struct{})
+	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue
 		}
-		p, r := a.queryPeersAndFwRulesByRego(peerID, i, policy.Query)
-		for _, peer := range p {
-			if _, ok := peersSeen[peer.ID]; ok {
+
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
 				continue
 			}
-			peers = append(peers, peer)
-			peersSeen[peer.ID] = struct{}{}
-		}
-		for _, rule := range r {
-			if _, ok := ruleSeen[rule.id]; ok {
-				continue
+
+			srcExists := false
+			srcPeers := make([]*Peer, 0, len(rule.Sources))
+			for _, g := range rule.Sources {
+				group, ok := a.Groups[g]
+				if !ok {
+					continue
+				}
+
+				for _, p := range group.Peers {
+					peer := a.Peers[p]
+					if peer.ID == peerID {
+						srcExists = true
+						continue
+					}
+
+					srcPeers = append(srcPeers, peer)
+				}
 			}
-			rules = append(rules, rule)
-			ruleSeen[rule.id] = struct{}{}
+
+			dstExists := false
+			dstPeers := make([]*Peer, 0, len(rule.Destinations))
+			for _, g := range rule.Destinations {
+				group, ok := a.Groups[g]
+				if !ok {
+					continue
+				}
+
+				for _, p := range group.Peers {
+					peer := a.Peers[p]
+					if peer.ID == peerID {
+						dstExists = true
+						continue
+					}
+
+					dstPeers = append(dstPeers, peer)
+				}
+			}
+
+			if rule.Bidirectional {
+				if dstExists {
+					for _, peer := range srcPeers {
+						if _, ok := exists[peer.ID]; !ok {
+							peers = append(peers, peer)
+						}
+
+						for _, port := range rule.Ports {
+							rules = append(rules, &FirewallRule{
+								PeerID:    peer.ID,
+								PeerIP:    peer.IP.String(),
+								Direction: "dst",
+								Action:    string(rule.Action),
+								Protocol:  string(rule.Protocol),
+								Port:      port,
+							})
+							rules = append(rules, &FirewallRule{
+								PeerID:    peer.ID,
+								PeerIP:    peer.IP.String(),
+								Direction: "src",
+								Action:    string(rule.Action),
+								Protocol:  string(rule.Protocol),
+								Port:      port,
+							})
+						}
+					}
+				}
+			}
+
+			if srcExists {
+				for _, peer := range dstPeers {
+					if _, ok := exists[peer.ID]; !ok {
+						peers = append(peers, peer)
+					}
+
+					for _, port := range rule.Ports {
+						rules = append(rules, &FirewallRule{
+							PeerID:    peer.ID,
+							PeerIP:    peer.IP.String(),
+							Direction: "dst",
+							Action:    string(rule.Action),
+							Protocol:  string(rule.Protocol),
+							Port:      port,
+						})
+					}
+				}
+			}
 		}
 	}
+
 	return
 }
 

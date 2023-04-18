@@ -208,8 +208,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		// TODO: use firewall rules
-		aclPeers := account.getPeersByACL(peer.ID)
+		aclPeers, _ := account.getPeersByPolicy(peer.ID)
 		for _, p := range aclPeers {
 			peersMap[p.ID] = p
 		}
@@ -816,7 +815,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	}
 
 	for _, p := range userPeers {
-		aclPeers := account.getPeersByACL(p.ID)
+		aclPeers, _ := account.getPeersByPolicy(p.ID)
 		for _, aclPeer := range aclPeers {
 			if aclPeer.ID == peerID {
 				return peer, nil
@@ -833,8 +832,8 @@ func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) *Peer {
 	return peer
 }
 
-// GetPeerRules returns a list of source or destination rules of a given peer.
-func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rule) {
+// GetPeerRulesOutdated returns a list of source or destination rules of a given peer.
+func (a *Account) GetPeerRulesOutdated(peerID string) (srcRules []*Rule, dstRules []*Rule) {
 	// Rules are group based so there is no direct access to peers.
 	// First, find all groups that the given peer belongs to
 	peerGroups := make(map[string]struct{})
@@ -872,7 +871,7 @@ func (a *Account) GetPeerRules(peerID string) (srcRules []*Rule, dstRules []*Rul
 // getPeersByACL returns all peers that given peer has access to.
 func (a *Account) getPeersByACL(peerID string) []*Peer {
 	var peers []*Peer
-	srcRules, dstRules := a.GetPeerRules(peerID)
+	srcRules, dstRules := a.GetPeerRulesOutdated(peerID)
 
 	groups := map[string]*Group{}
 	for _, r := range srcRules {
