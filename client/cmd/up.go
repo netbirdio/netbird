@@ -15,6 +15,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/util"
 )
 
@@ -54,6 +55,10 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	}
 
 	ctx := internal.CtxInitState(cmd.Context())
+
+	if hostName != "" {
+		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
+	}
 
 	if foregroundMode {
 		return runInForegroundMode(ctx, cmd)
