@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt"
@@ -74,6 +75,7 @@ func NewJWTValidator(issuer string, audienceList []string, keysLocation string, 
 		return nil, err
 	}
 
+	var lock sync.Mutex
 	options := Options{
 		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
 			// Verify 'aud' claim
@@ -97,6 +99,8 @@ func NewJWTValidator(issuer string, audienceList []string, keysLocation string, 
 			if idpSignkeyRefreshEnabled {
 				// If the keys are invalid, retrieve new ones
 				if !keys.stillValid() {
+					lock.Lock()
+					defer lock.Unlock()
 					keys, err = getPemKeys(keysLocation)
 					if err != nil {
 						log.Debugf("cannot get JSONWebKey: %v", err)
