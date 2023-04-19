@@ -132,7 +132,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cfif97at2r9s73au3q00100.65.14.88srcallaccept",
 			},
 			{
 				PeerID:    "cfif97at2r9s73au3q00",
@@ -141,28 +140,7 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cfif97at2r9s73au3q00100.65.14.88dstallaccept",
 			},
-
-			{
-				PeerID:    "cfif97at2r9s73au3q0g",
-				PeerIP:    "100.65.80.39",
-				Direction: "dst",
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-				id:        "cfif97at2r9s73au3q0g100.65.80.39dstallaccept",
-			},
-			{
-				PeerID:    "cfif97at2r9s73au3q0g",
-				PeerIP:    "100.65.80.39",
-				Direction: "src",
-				Action:    "accept",
-				Protocol:  "all",
-				Port:      "",
-				id:        "cfif97at2r9s73au3q0g100.65.80.39srcallaccept",
-			},
-
 			{
 				PeerID:    "cfif97at2r9s73au3q10",
 				PeerIP:    "100.65.254.139",
@@ -170,7 +148,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cfif97at2r9s73au3q10100.65.254.139dstallaccept",
 			},
 			{
 				PeerID:    "cfif97at2r9s73au3q10",
@@ -179,7 +156,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cfif97at2r9s73au3q10100.65.254.139srcallaccept",
 			},
 
 			{
@@ -189,7 +165,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cfif97at2r9s73au3q20100.65.62.5dstallaccept",
 			},
 			{
 				PeerID:    "cfif97at2r9s73au3q20",
@@ -198,7 +173,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cfif97at2r9s73au3q20100.65.62.5srcallaccept",
 			},
 
 			{
@@ -208,7 +182,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cfj4tiqt2r9s73dmeun0100.65.32.206dstallaccept",
 			},
 			{
 				PeerID:    "cfj4tiqt2r9s73dmeun0",
@@ -217,7 +190,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cfj4tiqt2r9s73dmeun0100.65.32.206srcallaccept",
 			},
 
 			{
@@ -227,7 +199,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cg7h032t2r9s73cg5fk0100.65.250.202dstallaccept",
 			},
 			{
 				PeerID:    "cg7h032t2r9s73cg5fk0",
@@ -236,7 +207,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cg7h032t2r9s73cg5fk0100.65.250.202srcallaccept",
 			},
 
 			{
@@ -246,7 +216,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cgcnkj2t2r9s73cg5vv0100.65.13.186dstallaccept",
 			},
 			{
 				PeerID:    "cgcnkj2t2r9s73cg5vv0",
@@ -255,7 +224,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cgcnkj2t2r9s73cg5vv0100.65.13.186srcallaccept",
 			},
 
 			{
@@ -265,7 +233,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cgcol4qt2r9s73cg601g100.65.29.55dstallaccept",
 			},
 			{
 				PeerID:    "cgcol4qt2r9s73cg601g",
@@ -274,12 +241,14 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
-				id:        "cgcol4qt2r9s73cg601g100.65.29.55srcallaccept",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
+		slices.SortFunc(epectedFirewallRules, func(a, b *FirewallRule) bool {
+			return a.PeerID+a.Direction < b.PeerID+b.Direction
+		})
 		slices.SortFunc(firewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID < b.PeerID
+			return a.PeerID+a.Direction < b.PeerID+b.Direction
 		})
 		for i := range firewallRules {
 			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])

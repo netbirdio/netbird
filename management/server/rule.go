@@ -84,15 +84,11 @@ func RuleToPolicy(rule *Rule) (*Policy, error) {
 	if rule == nil {
 		return nil, fmt.Errorf("rule is empty")
 	}
-	policy := &Policy{
+	return &Policy{
 		ID:          rule.ID,
 		Name:        rule.Name,
 		Description: rule.Description,
 		Enabled:     !rule.Disabled,
 		Rules:       []*PolicyRule{rule.ToPolicyRule()},
-	}
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		return nil, err
-	}
-	return policy, nil
+	}, nil
 }

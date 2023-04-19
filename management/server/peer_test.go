@@ -234,10 +234,6 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 			Action:        PolicyTrafficActionAccept,
 		},
 	}
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		t.Errorf("expecting policy to be updated, got failure %v", err)
-		return
-	}
 	err = manager.SavePolicy(account.Id, userID, &policy)
 	if err != nil {
 		t.Errorf("expecting rule to be added, got failure %v", err)

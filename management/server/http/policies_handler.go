@@ -6,7 +6,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -136,7 +135,6 @@ func (h *Policies) savePolicy(
 		Name:        req.Name,
 		Enabled:     req.Enabled,
 		Description: req.Description,
-		Query:       req.Query,
 	}
 	for _, r := range req.Rules {
 		pr := server.PolicyRule{
@@ -181,12 +179,6 @@ func (h *Policies) savePolicy(
 		}
 
 		policy.Rules = append(policy.Rules, &pr)
-	}
-
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		log.Errorf("failed to update policy query: %v", err)
-		util.WriteError(err, w)
-		return
 	}
 
 	if err := h.accountManager.SavePolicy(account.Id, user.Id, &policy); err != nil {
@@ -271,7 +263,6 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 		Name:        policy.Name,
 		Description: policy.Description,
 		Enabled:     policy.Enabled,
-		Query:       policy.Query,
 	}
 	for _, r := range policy.Rules {
 		rule := api.PolicyRule{
