@@ -97,15 +97,20 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 }
 
 // Start runs the listener in a go routine
-func (s *DefaultServer) Start() {
+func (s *DefaultServer) Start() error {
 	if s.customAddress != nil {
 		s.runtimeIP = s.customAddress.Addr().String()
 		s.runtimePort = int(s.customAddress.Port())
+		err := s.checkUDPListenerAddr(s.runtimeIP, s.runtimePort)
+		if err != nil {
+			log.Error(err)
+			return err
+		}
 	} else {
 		ip, port, err := s.getFirstListenerAvailable()
 		if err != nil {
 			log.Error(err)
-			return
+			return err
 		}
 		s.runtimeIP = ip
 		s.runtimePort = port
@@ -122,8 +127,29 @@ func (s *DefaultServer) Start() {
 		err := s.server.ListenAndServe()
 		if err != nil {
 			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.runtimePort, err)
+
+			// attempt to restore host resolvconf
+			err = s.hostManager.restoreHostDNS()
+			if err != nil {
+				log.Error(err)
+			}
 		}
 	}()
+
+	return nil
+}
+
+func (s *DefaultServer) checkUDPListenerAddr(ip string, port int) error {
+	addr := fmt.Sprintf("%s:%d", ip, port)
+	udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addr))
+
+	probeListener, err := net.ListenUDP("udp", udpAddr)
+	defer probeListener.Close()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *DefaultServer) getFirstListenerAvailable() (string, int, error) {
@@ -134,17 +160,11 @@ func (s *DefaultServer) getFirstListenerAvailable() (string, int, error) {
 	ports := []int{defaultPort, customPort}
 	for _, port := range ports {
 		for _, ip := range ips {
-			addrString := fmt.Sprintf("%s:%d", ip, port)
-			udpAddr := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(addrString))
-			probeListener, err := net.ListenUDP("udp", udpAddr)
+			err := s.checkUDPListenerAddr(ip, port)
 			if err == nil {
-				err = probeListener.Close()
-				if err != nil {
-					log.Errorf("got an error closing the probe listener, error: %s", err)
-				}
 				return ip, port, nil
 			}
-			log.Warnf("binding dns on %s is not available, error: %s", addrString, err)
+			log.Warnf("binding dns on %s:%d is not available, error: %s", ip, port, err)
 		}
 	}
 	return "", 0, fmt.Errorf("unable to find an unused ip and port combination. IPs tested: %v and ports %v", ips, ports)
@@ -236,7 +256,10 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 			log.Error(err)
 		}
 	} else if !s.listenerIsRunning {
-		s.Start()
+		err := s.Start()
+		if err != nil {
+			return fmt.Errorf("unable to start dns listener, error: %v", err)
+		}
 	}
 
 	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
