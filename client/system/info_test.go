@@ -24,3 +24,12 @@ func Test_UIVersion(t *testing.T) {
 	got := GetInfo(ctx)
 	assert.Equal(t, want, got.UIVersion)
 }
+
+func Test_CustomHostname(t *testing.T) {
+	// nolint
+	ctx := context.WithValue(context.Background(), DeviceNameCtxKey, "custom-host")
+	want := "custom-host"
+
+	got := GetInfo(ctx)
+	assert.Equal(t, want, got.Hostname)
+}
