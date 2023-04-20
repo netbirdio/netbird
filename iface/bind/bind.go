@@ -22,7 +22,7 @@ var (
 	_ wgConn.Bind = (*ICEBind)(nil)
 )
 
-// ICEBind implements Bind for all platforms except Windows.
+// ICEBind is the userspace implementation of WireGuard's conn.Bind interface using ice.UDPMux of the pion/ice library
 type ICEBind struct {
 	mu           sync.Mutex // protects following fields
 	ipv4         *net.UDPConn
@@ -41,6 +41,8 @@ type ICEBind struct {
 	udpMux       *UniversalUDPMuxDefault
 }
 
+// NewICEBind create a new instance of ICEBind with a given transportNet function.
+// The transportNet can be nil.
 func NewICEBind(transportNet transport.Net) *ICEBind {
 	return &ICEBind{
 		batchSize: wgConn.DefaultBatchSize,
@@ -146,6 +148,7 @@ func listenNet(network string, port int) (*net.UDPConn, int, error) {
 	return conn.(*net.UDPConn), uaddr.Port, nil
 }
 
+// Open creates a WireGuard socket and an instance of UDPMux that is used to glue up ICE and WireGuard for hole punching
 func (s *ICEBind) Open(uport uint16) ([]wgConn.ReceiveFunc, uint16, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -253,11 +256,12 @@ func (s *ICEBind) BatchSize() int {
 	return s.batchSize
 }
 
+// Close closes the WireGuard socket and UDPMux
 func (s *ICEBind) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	var err1, err2 error
+	var err1, err2, err3 error
 	if s.ipv4 != nil {
 		err1 = s.ipv4.Close()
 		s.ipv4 = nil
@@ -266,12 +270,21 @@ func (s *ICEBind) Close() error {
 		err2 = s.ipv6.Close()
 		s.ipv6 = nil
 	}
+
+	if s.udpMux != nil {
+		m := s.udpMux
+		s.udpMux = nil
+		err3 = m.Close()
+	}
 	s.blackhole4 = false
 	s.blackhole6 = false
 	if err1 != nil {
 		return err1
 	}
-	return err2
+	if err2 != nil {
+		return err1
+	}
+	return err3
 }
 
 func (s *ICEBind) Send(buffs [][]byte, endpoint wgConn.Endpoint) error {
