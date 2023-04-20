@@ -57,6 +57,7 @@ func upFunc(cmd *cobra.Command, args []string) error {
 	ctx := internal.CtxInitState(cmd.Context())
 
 	if hostName != "" {
+		// nolint
 		ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 	}
 

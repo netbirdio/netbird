@@ -34,6 +34,7 @@ var loginCmd = &cobra.Command{
 		ctx := internal.CtxInitState(context.Background())
 
 		if hostName != "" {
+			// nolint
 			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
 		}
 
