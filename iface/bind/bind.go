@@ -369,14 +369,14 @@ func (s *ICEBind) send6(conn *ipv6.PacketConn, ep wgConn.Endpoint, buffs [][]byt
 }
 
 func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) (bool, error) {
-	for _, buffer := range buffers {
-		if !stun.IsMessage(buffer) {
+	for i := range buffers {
+		if !stun.IsMessage(buffers[i]) {
 			continue
 		}
 
-		msg, err := parseSTUNMessage(buffer[:n])
+		msg, err := parseSTUNMessage(buffers[i][:n])
 		if err != nil {
-			buffer = []byte{}
+			buffers[i] = []byte{}
 			return true, err
 		}
 		go func() {
@@ -386,7 +386,7 @@ func (s *ICEBind) filterOutStunMessages(buffers [][]byte, n int, addr net.Addr) 
 			}
 		}()
 
-		buffer = []byte{}
+		buffers[i] = []byte{}
 		return true, nil
 	}
 	return false, nil
