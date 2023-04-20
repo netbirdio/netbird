@@ -317,9 +317,8 @@ func (s *ICEBind) Send(buffs [][]byte, endpoint wgConn.Endpoint) error {
 	}
 	if is6 {
 		return s.send6(s.ipv6PC, endpoint, buffs)
-	} else {
-		return s.send4(s.ipv4PC, endpoint, buffs)
 	}
+	return s.send4(s.ipv4PC, endpoint, buffs)
 }
 
 // GetICEMux returns the ICE UDPMux that was created and used by ICEBind
