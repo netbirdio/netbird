@@ -78,6 +78,7 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 	defer d.mux.Unlock()
 	d.offlinePeers = make([]State, len(replacement))
 	copy(d.offlinePeers, replacement)
+	d.notifyPeerListChanged()
 }
 
 // AddPeer adds peer to Daemon status map
@@ -308,7 +309,7 @@ func (d *Status) onConnectionChanged() {
 }
 
 func (d *Status) notifyPeerListChanged() {
-	d.notifier.peerListChanged(len(d.peers))
+	d.notifier.peerListChanged(len(d.peers) + len(d.offlinePeers))
 }
 
 func (d *Status) notifyAddressChanged() {
