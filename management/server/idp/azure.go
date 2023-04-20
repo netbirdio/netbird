@@ -1,6 +1,7 @@
 package idp
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -54,6 +55,13 @@ type AzureCredentials struct {
 
 // azureProfile represents an azure user profile.
 type azureProfile map[string]interface{}
+
+// passwordProfile represent authentication method for,
+// newly created user profile.
+type passwordProfile struct {
+	ForceChangePasswordNextSignIn bool   `json:"forceChangePasswordNextSignIn"`
+	Password                      string `json:"password"`
+}
 
 // NewAzureManager creates a new instance of the AzureManager.
 func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) (*AzureManager, error) {
@@ -195,10 +203,32 @@ func (ac *AzureCredentials) Authenticate() (JWTToken, error) {
 }
 
 func (am *AzureManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
-	return &UserData{}, nil
+	payload, err := buildAzureCreateUserRequestPayload(email, name, accountID, am.ClientID)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := am.post("users", payload)
+	if err != nil {
+		return nil, err
+	}
+
+	var profile azureProfile
+	err = am.helper.Unmarshal(body, &profile)
+	if err != nil {
+		return nil, err
+	}
+
+	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
+	profile[wtAccountIDField] = accountID
+
+	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	profile[wtPendingInviteField] = true
+
+	return profile.userData(am.ClientID), nil
 }
 
-func (am *AzureManager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
+func (am *AzureManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
 	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
 	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
 	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
@@ -206,7 +236,7 @@ func (am *AzureManager) GetUserDataByID(userId string, appMetadata AppMetadata) 
 	q := url.Values{}
 	q.Add("$select", selectFields)
 
-	body, err := am.get("users/"+userId, q)
+	body, err := am.get("users/"+userID, q)
 	if err != nil {
 		return nil, err
 	}
@@ -253,14 +283,14 @@ func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
 	return users, nil
 }
 
-func (am *AzureManager) GetAccount(accountId string) ([]*UserData, error) {
+func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
 	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
 	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
 	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
 
 	q := url.Values{}
 	q.Add("$select", selectFields)
-	q.Add("$filter", fmt.Sprintf("%s eq '%s'", wtAccountIDField, accountId))
+	q.Add("$filter", fmt.Sprintf("%s eq '%s'", wtAccountIDField, accountID))
 
 	body, err := am.get("users", q)
 	if err != nil {
@@ -325,7 +355,7 @@ func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
 	return indexedUsers, nil
 }
 
-func (am *AzureManager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
+func (am *AzureManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	return nil
 }
 
@@ -355,6 +385,46 @@ func (am *AzureManager) get(resource string, q url.Values) ([]byte, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return nil, fmt.Errorf("unable to get %s, statusCode %d", reqURL, resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+// post perform Post requests.
+func (am *AzureManager) post(resource string, body string) ([]byte, error) {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := fmt.Sprintf("%s/%s", am.GraphAPIEndpoint, resource)
+	req, err := http.NewRequest(http.MethodPost, reqURL, strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	resp, err := am.httpClient.Do(req)
+	if err != nil {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
 		if am.appMetrics != nil {
 			am.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
@@ -403,4 +473,29 @@ func (ap azureProfile) userData(clientID string) *UserData {
 			WTPendingInvite: &pendingInvite,
 		},
 	}
+}
+
+func buildAzureCreateUserRequestPayload(email, name, accountID, clientID string) (string, error) {
+	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, clientID)
+	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, clientID)
+
+	req := &azureProfile{
+		"accountEnabled":    true,
+		"displayName":       name,
+		"mailNickName":      strings.Join(strings.Split(name, " "), ""),
+		"userPrincipalName": email,
+		"passwordProfile": passwordProfile{
+			ForceChangePasswordNextSignIn: true,
+			Password:                      GeneratePassword(8, 1, 1, 1),
+		},
+		wtAccountIDField:     accountID,
+		wtPendingInviteField: true,
+	}
+
+	str, err := json.Marshal(req)
+	if err != nil {
+		return "", err
+	}
+
+	return string(str), nil
 }
