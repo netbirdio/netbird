@@ -24,19 +24,11 @@ func GetInfo(ctx context.Context) *Info {
 	}
 
 	gio := &Info{Kernel: kernel, Core: osVersion(), Platform: "unknown", OS: "android", OSVersion: osVersion(), GoOS: runtime.GOOS, CPUs: runtime.NumCPU()}
-	gio.Hostname = extractDeviceName(ctx)
+	gio.Hostname = extractDeviceName(ctx, "android")
 	gio.WiretrusteeVersion = version.NetbirdVersion()
 	gio.UIVersion = extractUserAgent(ctx)
 
 	return gio
-}
-
-func extractDeviceName(ctx context.Context) string {
-	v, ok := ctx.Value(DeviceNameCtxKey).(string)
-	if !ok {
-		return "android"
-	}
-	return v
 }
 
 func uname() []string {
