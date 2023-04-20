@@ -54,7 +54,7 @@ type AzureCredentials struct {
 }
 
 // azureProfile represents an azure user profile.
-type azureProfile map[string]interface{}
+type azureProfile map[string]any
 
 // passwordProfile represent authentication method for,
 // newly created user profile.
@@ -356,6 +356,50 @@ func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 func (am *AzureManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+
+	data, err := am.helper.Marshal(map[string]any{
+		wtAccountIDField:     appMetadata.WTAccountID,
+		wtPendingInviteField: appMetadata.WTPendingInvite,
+	})
+	if err != nil {
+		return err
+	}
+	payload := strings.NewReader(string(data))
+
+	reqURL := fmt.Sprintf("%s/users/%s", am.GraphAPIEndpoint, userID)
+	req, err := http.NewRequest(http.MethodPatch, reqURL, payload)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	log.Debugf("updating idp metadata for user %s", userID)
+
+	resp, err := am.httpClient.Do(req)
+	if err != nil {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+	defer resp.Body.Close()
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
+	}
+
+	if resp.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("unable to update the appMetadata, statusCode %d", resp.StatusCode)
+	}
+
 	return nil
 }
 
