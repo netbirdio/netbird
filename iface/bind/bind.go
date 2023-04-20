@@ -111,14 +111,17 @@ func (e *StdNetEndpoint) ClearSrc() {
 	e.src.Addr = netip.Addr{}
 }
 
+// DstIP return destination IP
 func (e *StdNetEndpoint) DstIP() netip.Addr {
 	return e.AddrPort.Addr()
 }
 
+// SrcIP return source IP
 func (e *StdNetEndpoint) SrcIP() netip.Addr {
 	return e.src.Addr
 }
 
+// SrcIfidx return with the interface index
 func (e *StdNetEndpoint) SrcIfidx() int32 {
 	return e.src.ifidx
 }
@@ -261,6 +264,7 @@ func (s *ICEBind) receiveIPv6(buffs [][]byte, sizes []int, eps []wgConn.Endpoint
 	return numMsgs, nil
 }
 
+// BatchSize return the size of batch
 func (s *ICEBind) BatchSize() int {
 	return s.batchSize
 }
