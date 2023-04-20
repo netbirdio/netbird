@@ -8,19 +8,17 @@
 
 package bind
 
-import wgConn "golang.zx2c4.com/wireguard/conn"
-
 // TODO: macOS, FreeBSD and other BSDs likely do support this feature set, but
 // use alternatively named flags and need ports and require testing.
 
 // getSrcFromControl parses the control for PKTINFO and if found updates ep with
 // the source information found.
-func getSrcFromControl(control []byte, ep *wgConn.StdNetEndpoint) {
+func getSrcFromControl(control []byte, ep *StdNetEndpoint) {
 }
 
 // setSrcControl parses the control for PKTINFO and if found updates ep with
 // the source information found.
-func setSrcControl(control *[]byte, ep *wgConn.StdNetEndpoint) {
+func setSrcControl(control *[]byte, ep *StdNetEndpoint) {
 }
 
 // srcControlSize returns the recommended buffer size for pooling sticky control
