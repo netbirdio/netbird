@@ -20,7 +20,7 @@ func getSrcFromControl(control []byte, ep *StdNetEndpoint) {
 	var (
 		hdr  unix.Cmsghdr
 		data []byte
-		rem  []byte = control
+		rem  = control
 		err  error
 	)
 
