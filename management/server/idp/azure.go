@@ -14,15 +14,23 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// AzureManager azure AD manager client instance.
+const (
+	// azure extension properties template
+	wtAccountIDTpl     = "extension_%s_wt_account_id"
+	wtPendingInviteTpl = "extension_%s_wt_pending_invite"
+)
+
+// AzureManager azure manager client instance.
 type AzureManager struct {
-	httpClient  ManagerHTTPClient
-	credentials ManagerCredentials
-	helper      ManagerHelper
-	appMetrics  telemetry.AppMetrics
+	ClientID         string
+	GraphAPIEndpoint string
+	httpClient       ManagerHTTPClient
+	credentials      ManagerCredentials
+	helper           ManagerHelper
+	appMetrics       telemetry.AppMetrics
 }
 
-// AzureClientConfig azure AD manager client configurations.
+// AzureClientConfig azure manager client configurations.
 type AzureClientConfig struct {
 	ClientID         string
 	ClientSecret     string
@@ -31,7 +39,7 @@ type AzureClientConfig struct {
 	GrantType        string
 }
 
-// AzureCredentials azure AD authentication information.
+// AzureCredentials azure authentication information.
 type AzureCredentials struct {
 	clientConfig AzureClientConfig
 	helper       ManagerHelper
@@ -40,6 +48,9 @@ type AzureCredentials struct {
 	mux          sync.Mutex
 	appMetrics   telemetry.AppMetrics
 }
+
+// azureProfile represents an azure user profile.
+type azureProfile map[string]interface{}
 
 // NewAzureManager creates a new instance of the AzureManager.
 func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) (*AzureManager, error) {
@@ -69,10 +80,12 @@ func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) 
 	}
 
 	return &AzureManager{
-		httpClient:  httpClient,
-		credentials: credentials,
-		helper:      helper,
-		appMetrics:  appMetrics,
+		ClientID:         config.ClientID,
+		GraphAPIEndpoint: config.GraphAPIEndpoint,
+		httpClient:       httpClient,
+		credentials:      credentials,
+		helper:           helper,
+		appMetrics:       appMetrics,
 	}, nil
 }
 
@@ -189,8 +202,43 @@ func (am *AzureManager) GetUserDataByID(userId string, appMetadata AppMetadata) 
 func (am *AzureManager) GetAccount(accountId string) ([]*UserData, error) {
 	return make([]*UserData, 0), nil
 }
+
 func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
-	return map[string][]*UserData{}, nil
+	q := url.Values{}
+	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	q.Add("$select", "id,displayName,mail,userPrincipalName"+wtAccountIDField+wtPendingInviteField)
+
+	body, err := am.get("users", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	var profiles struct{ Value []azureProfile }
+	err = am.helper.Unmarshal(body, &profiles)
+	if err != nil {
+		return nil, err
+	}
+
+	indexedUsers := make(map[string][]*UserData)
+	for _, profile := range profiles.Value {
+		userData := profile.userData(am.ClientID)
+
+		accountID := userData.AppMetadata.WTAccountID
+		if accountID != "" {
+			if _, ok := indexedUsers[accountID]; !ok {
+				indexedUsers[accountID] = make([]*UserData, 0)
+			}
+			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
+		}
+
+	}
+
+	return indexedUsers, nil
 }
 
 func (am *AzureManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
@@ -199,4 +247,80 @@ func (am *AzureManager) CreateUser(email string, name string, accountID string) 
 
 func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
 	return make([]*UserData, 0), nil
+}
+
+// get perform Get requests.
+func (am *AzureManager) get(resource string, q url.Values) ([]byte, error) {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := fmt.Sprintf("%s/%s?%s", am.GraphAPIEndpoint, resource, q.Encode())
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := am.httpClient.Do(req)
+	if err != nil {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return nil, fmt.Errorf("unable to get %s, statusCode %d", reqURL, resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+// userData construct user data from keycloak profile.
+func (ap azureProfile) userData(clientID string) *UserData {
+	id, ok := ap["id"].(string)
+	if ok {
+		id = ""
+	}
+
+	email, ok := ap["userPrincipalName"].(string)
+	if !ok {
+		email = ""
+	}
+
+	name, ok := ap["displayName"].(string)
+	if !ok {
+		name = ""
+	}
+
+	accountIDField := fmt.Sprintf(wtAccountIDTpl, clientID)
+	accountID, ok := ap[accountIDField].(string)
+	if !ok {
+		accountID = ""
+	}
+
+	pendingInviteField := fmt.Sprintf(wtPendingInviteTpl, clientID)
+	pendingInvite, ok := ap[pendingInviteField].(bool)
+	if !ok {
+		pendingInvite = false
+	}
+
+	return &UserData{
+		Email: email,
+		Name:  name,
+		ID:    id,
+		AppMetadata: AppMetadata{
+			WTAccountID:     accountID,
+			WTPendingInvite: &pendingInvite,
+		},
+	}
 }
