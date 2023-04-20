@@ -166,14 +166,17 @@ func Test_listenConfig(t *testing.T) {
 
 		if runtime.GOOS == "linux" {
 			var i int
-			sc.Control(func(fd uintptr) {
+			err = sc.Control(func(fd uintptr) {
 				i, err = unix.GetsockoptInt(int(fd), unix.IPPROTO_IP, unix.IP_PKTINFO)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if i != 1 {
+					t.Error("IP_PKTINFO not set!")
+				}
 			})
 			if err != nil {
 				t.Fatal(err)
-			}
-			if i != 1 {
-				t.Error("IP_PKTINFO not set!")
 			}
 		} else {
 			t.Logf("listenConfig() does not set IPV6_RECVPKTINFO on %s", runtime.GOOS)
@@ -191,14 +194,17 @@ func Test_listenConfig(t *testing.T) {
 
 		if runtime.GOOS == "linux" {
 			var i int
-			sc.Control(func(fd uintptr) {
+			err = sc.Control(func(fd uintptr) {
 				i, err = unix.GetsockoptInt(int(fd), unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if i != 1 {
+					t.Error("IPV6_PKTINFO not set!")
+				}
 			})
 			if err != nil {
 				t.Fatal(err)
-			}
-			if i != 1 {
-				t.Error("IPV6_PKTINFO not set!")
 			}
 		} else {
 			t.Logf("listenConfig() does not set IPV6_RECVPKTINFO on %s", runtime.GOOS)
