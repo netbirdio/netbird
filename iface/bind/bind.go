@@ -80,6 +80,10 @@ func NewICEBind(transportNet transport.Net) *ICEBind {
 	}
 }
 
+// StdNetEndpoint maintains the source/destination caching for a peer.
+//
+//	dst: the remote address of a peer ("endpoint" in uapi terminology)
+//	src: the local address from which datagrams originate going to the peer
 type StdNetEndpoint struct {
 	// AddrPort is the endpoint destination.
 	netip.AddrPort
@@ -95,11 +99,13 @@ var (
 	_ wgConn.Endpoint = &StdNetEndpoint{}
 )
 
+// ParseEndpoint creates a new endpoint from a string.
 func (*ICEBind) ParseEndpoint(s string) (wgConn.Endpoint, error) {
 	e, err := netip.ParseAddrPort(s)
 	return asEndpoint(e), err
 }
 
+// ClearSrc clears the source address
 func (e *StdNetEndpoint) ClearSrc() {
 	e.src.ifidx = 0
 	e.src.Addr = netip.Addr{}
@@ -117,15 +123,18 @@ func (e *StdNetEndpoint) SrcIfidx() int32 {
 	return e.src.ifidx
 }
 
+// DstToBytes used for mac2 cookie calculations
 func (e *StdNetEndpoint) DstToBytes() []byte {
 	b, _ := e.AddrPort.MarshalBinary()
 	return b
 }
 
+// DstToString returns the destination address (ip:port)
 func (e *StdNetEndpoint) DstToString() string {
 	return e.AddrPort.String()
 }
 
+// SrcToString returns the local source address (ip:port)
 func (e *StdNetEndpoint) SrcToString() string {
 	return e.src.Addr.String()
 }
@@ -287,6 +296,7 @@ func (s *ICEBind) Close() error {
 	return err3
 }
 
+// Send bytes to the remote endpoint (peer)
 func (s *ICEBind) Send(buffs [][]byte, endpoint wgConn.Endpoint) error {
 	s.mu.Lock()
 	blackhole := s.blackhole4
