@@ -288,61 +288,6 @@ func TestRoutesHandlers(t *testing.T) {
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
-		{
-			name:           "PATCH Description OK",
-			requestType:    http.MethodPatch,
-			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"description\",\"value\":[\"NewDesc\"]}]"),
-			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedRoute: &api.Route{
-				Id:          existingRouteID,
-				Description: "NewDesc",
-				NetworkId:   "awesomeNet",
-				Network:     baseExistingRoute.Network.String(),
-				NetworkType: route.IPv4NetworkString,
-				Masquerade:  baseExistingRoute.Masquerade,
-				Enabled:     baseExistingRoute.Enabled,
-				Metric:      baseExistingRoute.Metric,
-				Groups:      baseExistingRoute.Groups,
-			},
-		},
-		{
-			name:           "PATCH Peer OK",
-			requestType:    http.MethodPatch,
-			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("[{\"op\":\"replace\",\"path\":\"peer\",\"value\":[\"%s\"]}]", existingPeerID)),
-			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedRoute: &api.Route{
-				Id:          existingRouteID,
-				Description: "NewDesc",
-				NetworkId:   "awesomeNet",
-				Network:     baseExistingRoute.Network.String(),
-				NetworkType: route.IPv4NetworkString,
-				Peer:        existingPeerID,
-				Masquerade:  baseExistingRoute.Masquerade,
-				Enabled:     baseExistingRoute.Enabled,
-				Metric:      baseExistingRoute.Metric,
-				Groups:      baseExistingRoute.Groups,
-			},
-		},
-		{
-			name:           "PATCH Not Found Peer",
-			requestType:    http.MethodPatch,
-			requestPath:    "/api/routes/" + existingRouteID,
-			requestBody:    bytes.NewBufferString(fmt.Sprintf("[{\"op\":\"replace\",\"path\":\"peer\",\"value\":[\"%s\"]}]", notFoundPeerID)),
-			expectedStatus: http.StatusUnprocessableEntity,
-			expectedBody:   false,
-		},
-		{
-			name:           "PATCH Not Found Route",
-			requestType:    http.MethodPatch,
-			requestPath:    "/api/routes/" + notFoundRouteID,
-			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"network\",\"value\":[\"192.168.0.0/34\"]}]"),
-			expectedStatus: http.StatusNotFound,
-			expectedBody:   false,
-		},
 	}
 
 	p := initRoutesTestData()
@@ -353,11 +298,10 @@ func TestRoutesHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/routes/{id}", p.GetRoute).Methods("GET")
-			router.HandleFunc("/api/routes/{id}", p.DeleteRoute).Methods("DELETE")
+			router.HandleFunc("/api/routes/{routeId}", p.GetRoute).Methods("GET")
+			router.HandleFunc("/api/routes/{routeId}", p.DeleteRoute).Methods("DELETE")
 			router.HandleFunc("/api/routes", p.CreateRoute).Methods("POST")
-			router.HandleFunc("/api/routes/{id}", p.UpdateRoute).Methods("PUT")
-			router.HandleFunc("/api/routes/{id}", p.PatchRoute).Methods("PATCH")
+			router.HandleFunc("/api/routes/{routeId}", p.UpdateRoute).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

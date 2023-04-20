@@ -133,7 +133,7 @@ func TestRulesGetRule(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/rules/{id}", p.GetRule).Methods("GET")
+			router.HandleFunc("/api/rules/{ruleId}", p.GetRule).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -235,7 +235,7 @@ func TestRulesWriteRule(t *testing.T) {
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/rules", p.CreateRule).Methods("POST")
-			router.HandleFunc("/api/rules/{id}", p.UpdateRule).Methods("PUT")
+			router.HandleFunc("/api/rules/{ruleId}", p.UpdateRule).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

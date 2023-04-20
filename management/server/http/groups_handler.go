@@ -62,7 +62,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	groupID, ok := vars["id"]
+	groupID, ok := vars["groupId"]
 	if !ok {
 		util.WriteError(status.Errorf(status.InvalidArgument, "group ID field is missing"), w)
 		return
@@ -88,7 +88,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PutApiGroupsIdJSONRequestBody
+	var req api.PutApiGroupsGroupIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -119,110 +119,6 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	util.WriteJSONObject(w, toGroupResponse(account, &group))
-}
-
-// PatchGroup handles patch updates to a group identified by a given ID
-func (h *GroupsHandler) PatchGroup(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	vars := mux.Vars(r)
-	groupID := vars["id"]
-	if len(groupID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid group ID"), w)
-		return
-	}
-
-	_, ok := account.Groups[groupID]
-	if !ok {
-		util.WriteError(status.Errorf(status.NotFound, "couldn't find group ID %s", groupID), w)
-		return
-	}
-
-	allGroup, err := account.GetGroupAll()
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	if allGroup.ID == groupID {
-		util.WriteError(status.Errorf(status.InvalidArgument, "updating group ALL is not allowed"), w)
-		return
-	}
-
-	var req api.PatchApiGroupsIdJSONRequestBody
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if len(req) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "no patch instruction received"), w)
-		return
-	}
-
-	var operations []server.GroupUpdateOperation
-
-	for _, patch := range req {
-		switch patch.Path {
-		case api.GroupPatchOperationPathName:
-			if patch.Op != api.GroupPatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"name field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-
-			if len(patch.Value) == 0 || patch.Value[0] == "" {
-				util.WriteError(status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
-				return
-			}
-
-			operations = append(operations, server.GroupUpdateOperation{
-				Type:   server.UpdateGroupName,
-				Values: patch.Value,
-			})
-		case api.GroupPatchOperationPathPeers:
-			switch patch.Op {
-			case api.GroupPatchOperationOpReplace:
-				peerKeys := peerIPsToKeys(account, &patch.Value)
-				operations = append(operations, server.GroupUpdateOperation{
-					Type:   server.UpdateGroupPeers,
-					Values: peerKeys,
-				})
-			case api.GroupPatchOperationOpRemove:
-				peerKeys := peerIPsToKeys(account, &patch.Value)
-				operations = append(operations, server.GroupUpdateOperation{
-					Type:   server.RemovePeersFromGroup,
-					Values: peerKeys,
-				})
-			case api.GroupPatchOperationOpAdd:
-				operations = append(operations, server.GroupUpdateOperation{
-					Type:   server.InsertPeersToGroup,
-					Values: patch.Value,
-				})
-			default:
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"invalid operation, \"%v\", for PeersHandler field", patch.Op), w)
-				return
-			}
-		default:
-			util.WriteError(status.Errorf(status.InvalidArgument, "invalid patch path"), w)
-			return
-		}
-	}
-
-	group, err := h.accountManager.UpdateGroup(account.Id, groupID, operations)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	util.WriteJSONObject(w, toGroupResponse(account, group))
 }
 
 // CreateGroup handles group creation request
@@ -277,7 +173,7 @@ func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	aID := account.Id
 
-	groupID := mux.Vars(r)["id"]
+	groupID := mux.Vars(r)["groupId"]
 	if len(groupID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid group ID"), w)
 		return
@@ -314,7 +210,7 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		groupID := mux.Vars(r)["id"]
+		groupID := mux.Vars(r)["groupId"]
 		if len(groupID) == 0 {
 			util.WriteError(status.Errorf(status.InvalidArgument, "invalid group ID"), w)
 			return

@@ -9,6 +9,7 @@ import (
 
 const (
 	BearerAuthScopes = "BearerAuth.Scopes"
+	TokenAuthScopes  = "TokenAuth.Scopes"
 )
 
 // Defines values for EventActivityCode.
@@ -54,72 +55,15 @@ const (
 	EventActivityCodeUserRoleUpdate                           EventActivityCode = "user.role.update"
 )
 
-// Defines values for GroupPatchOperationOp.
-const (
-	GroupPatchOperationOpAdd     GroupPatchOperationOp = "add"
-	GroupPatchOperationOpRemove  GroupPatchOperationOp = "remove"
-	GroupPatchOperationOpReplace GroupPatchOperationOp = "replace"
-)
-
-// Defines values for GroupPatchOperationPath.
-const (
-	GroupPatchOperationPathName  GroupPatchOperationPath = "name"
-	GroupPatchOperationPathPeers GroupPatchOperationPath = "peers"
-)
-
 // Defines values for NameserverNsType.
 const (
 	NameserverNsTypeUdp NameserverNsType = "udp"
-)
-
-// Defines values for NameserverGroupPatchOperationOp.
-const (
-	NameserverGroupPatchOperationOpAdd     NameserverGroupPatchOperationOp = "add"
-	NameserverGroupPatchOperationOpRemove  NameserverGroupPatchOperationOp = "remove"
-	NameserverGroupPatchOperationOpReplace NameserverGroupPatchOperationOp = "replace"
-)
-
-// Defines values for NameserverGroupPatchOperationPath.
-const (
-	NameserverGroupPatchOperationPathDescription NameserverGroupPatchOperationPath = "description"
-	NameserverGroupPatchOperationPathDomains     NameserverGroupPatchOperationPath = "domains"
-	NameserverGroupPatchOperationPathEnabled     NameserverGroupPatchOperationPath = "enabled"
-	NameserverGroupPatchOperationPathGroups      NameserverGroupPatchOperationPath = "groups"
-	NameserverGroupPatchOperationPathName        NameserverGroupPatchOperationPath = "name"
-	NameserverGroupPatchOperationPathNameservers NameserverGroupPatchOperationPath = "nameservers"
-	NameserverGroupPatchOperationPathPrimary     NameserverGroupPatchOperationPath = "primary"
-)
-
-// Defines values for PatchMinimumOp.
-const (
-	PatchMinimumOpAdd     PatchMinimumOp = "add"
-	PatchMinimumOpRemove  PatchMinimumOp = "remove"
-	PatchMinimumOpReplace PatchMinimumOp = "replace"
 )
 
 // Defines values for PolicyRuleAction.
 const (
 	PolicyRuleActionAccept PolicyRuleAction = "accept"
 	PolicyRuleActionDrop   PolicyRuleAction = "drop"
-)
-
-// Defines values for RoutePatchOperationOp.
-const (
-	RoutePatchOperationOpAdd     RoutePatchOperationOp = "add"
-	RoutePatchOperationOpRemove  RoutePatchOperationOp = "remove"
-	RoutePatchOperationOpReplace RoutePatchOperationOp = "replace"
-)
-
-// Defines values for RoutePatchOperationPath.
-const (
-	RoutePatchOperationPathDescription RoutePatchOperationPath = "description"
-	RoutePatchOperationPathEnabled     RoutePatchOperationPath = "enabled"
-	RoutePatchOperationPathGroups      RoutePatchOperationPath = "groups"
-	RoutePatchOperationPathMasquerade  RoutePatchOperationPath = "masquerade"
-	RoutePatchOperationPathMetric      RoutePatchOperationPath = "metric"
-	RoutePatchOperationPathNetwork     RoutePatchOperationPath = "network"
-	RoutePatchOperationPathNetworkId   RoutePatchOperationPath = "network_id"
-	RoutePatchOperationPathPeer        RoutePatchOperationPath = "peer"
 )
 
 // Defines values for UserStatus.
@@ -205,24 +149,6 @@ type GroupMinimum struct {
 	PeersCount int `json:"peers_count"`
 }
 
-// GroupPatchOperation defines model for GroupPatchOperation.
-type GroupPatchOperation struct {
-	// Op Patch operation type
-	Op GroupPatchOperationOp `json:"op"`
-
-	// Path Group field to update in form /<field>
-	Path GroupPatchOperationPath `json:"path"`
-
-	// Value Values to be applied
-	Value []string `json:"value"`
-}
-
-// GroupPatchOperationOp Patch operation type
-type GroupPatchOperationOp string
-
-// GroupPatchOperationPath Group field to update in form /<field>
-type GroupPatchOperationPath string
-
 // Nameserver defines model for Nameserver.
 type Nameserver struct {
 	// Ip Nameserver IP
@@ -265,24 +191,6 @@ type NameserverGroup struct {
 	Primary bool `json:"primary"`
 }
 
-// NameserverGroupPatchOperation defines model for NameserverGroupPatchOperation.
-type NameserverGroupPatchOperation struct {
-	// Op Patch operation type
-	Op NameserverGroupPatchOperationOp `json:"op"`
-
-	// Path Nameserver group field to update in form /<field>
-	Path NameserverGroupPatchOperationPath `json:"path"`
-
-	// Value Values to be applied
-	Value []string `json:"value"`
-}
-
-// NameserverGroupPatchOperationOp Patch operation type
-type NameserverGroupPatchOperationOp string
-
-// NameserverGroupPatchOperationPath Nameserver group field to update in form /<field>
-type NameserverGroupPatchOperationPath string
-
 // NameserverGroupRequest defines model for NameserverGroupRequest.
 type NameserverGroupRequest struct {
 	// Description Nameserver group  description
@@ -306,18 +214,6 @@ type NameserverGroupRequest struct {
 	// Primary Nameserver group primary status
 	Primary bool `json:"primary"`
 }
-
-// PatchMinimum defines model for PatchMinimum.
-type PatchMinimum struct {
-	// Op Patch operation type
-	Op PatchMinimumOp `json:"op"`
-
-	// Value Values to be applied
-	Value []string `json:"value"`
-}
-
-// PatchMinimumOp Patch operation type
-type PatchMinimumOp string
 
 // Peer defines model for Peer.
 type Peer struct {
@@ -516,24 +412,6 @@ type Route struct {
 	Peer string `json:"peer"`
 }
 
-// RoutePatchOperation defines model for RoutePatchOperation.
-type RoutePatchOperation struct {
-	// Op Patch operation type
-	Op RoutePatchOperationOp `json:"op"`
-
-	// Path Route field to update in form /<field>
-	Path RoutePatchOperationPath `json:"path"`
-
-	// Value Values to be applied
-	Value []string `json:"value"`
-}
-
-// RoutePatchOperationOp Patch operation type
-type RoutePatchOperationOp string
-
-// RoutePatchOperationPath Route field to update in form /<field>
-type RoutePatchOperationPath string
-
 // RouteRequest defines model for RouteRequest.
 type RouteRequest struct {
 	// Description Route description
@@ -720,13 +598,10 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
-// PutApiAccountsIdJSONBody defines parameters for PutApiAccountsId.
-type PutApiAccountsIdJSONBody struct {
+// PutApiAccountsAccountIdJSONBody defines parameters for PutApiAccountsAccountId.
+type PutApiAccountsAccountIdJSONBody struct {
 	Settings AccountSettings `json:"settings"`
 }
-
-// PatchApiDnsNameserversIdJSONBody defines parameters for PatchApiDnsNameserversId.
-type PatchApiDnsNameserversIdJSONBody = []NameserverGroupPatchOperation
 
 // PostApiGroupsJSONBody defines parameters for PostApiGroups.
 type PostApiGroupsJSONBody struct {
@@ -734,17 +609,14 @@ type PostApiGroupsJSONBody struct {
 	Peers *[]string `json:"peers,omitempty"`
 }
 
-// PatchApiGroupsIdJSONBody defines parameters for PatchApiGroupsId.
-type PatchApiGroupsIdJSONBody = []GroupPatchOperation
-
-// PutApiGroupsIdJSONBody defines parameters for PutApiGroupsId.
-type PutApiGroupsIdJSONBody struct {
+// PutApiGroupsGroupIdJSONBody defines parameters for PutApiGroupsGroupId.
+type PutApiGroupsGroupIdJSONBody struct {
 	Name  *string   `json:"Name,omitempty"`
 	Peers *[]string `json:"Peers,omitempty"`
 }
 
-// PutApiPeersIdJSONBody defines parameters for PutApiPeersId.
-type PutApiPeersIdJSONBody struct {
+// PutApiPeersPeerIdJSONBody defines parameters for PutApiPeersPeerId.
+type PutApiPeersPeerIdJSONBody struct {
 	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
 	Name                   string `json:"name"`
 	SshEnabled             bool   `json:"ssh_enabled"`
@@ -753,11 +625,8 @@ type PutApiPeersIdJSONBody struct {
 // PostApiPoliciesJSONBody defines parameters for PostApiPolicies.
 type PostApiPoliciesJSONBody = PolicyMinimum
 
-// PutApiPoliciesIdJSONBody defines parameters for PutApiPoliciesId.
-type PutApiPoliciesIdJSONBody = PolicyMinimum
-
-// PatchApiRoutesIdJSONBody defines parameters for PatchApiRoutesId.
-type PatchApiRoutesIdJSONBody = []RoutePatchOperation
+// PutApiPoliciesPolicyIdJSONBody defines parameters for PutApiPoliciesPolicyId.
+type PutApiPoliciesPolicyIdJSONBody = PolicyMinimum
 
 // PostApiRulesJSONBody defines parameters for PostApiRules.
 type PostApiRulesJSONBody struct {
@@ -776,8 +645,8 @@ type PostApiRulesJSONBody struct {
 	Sources *[]string `json:"sources,omitempty"`
 }
 
-// PutApiRulesIdJSONBody defines parameters for PutApiRulesId.
-type PutApiRulesIdJSONBody struct {
+// PutApiRulesRuleIdJSONBody defines parameters for PutApiRulesRuleId.
+type PutApiRulesRuleIdJSONBody struct {
 	// Description Rule friendly description
 	Description  string    `json:"description"`
 	Destinations *[]string `json:"destinations,omitempty"`
@@ -795,21 +664,18 @@ type PutApiRulesIdJSONBody struct {
 
 // GetApiUsersParams defines parameters for GetApiUsers.
 type GetApiUsersParams struct {
-	// ServiceUser Filters users and returns either normal users or service users
+	// ServiceUser Filters users and returns either regular users or service users
 	ServiceUser *bool `form:"service_user,omitempty" json:"service_user,omitempty"`
 }
 
-// PutApiAccountsIdJSONRequestBody defines body for PutApiAccountsId for application/json ContentType.
-type PutApiAccountsIdJSONRequestBody PutApiAccountsIdJSONBody
+// PutApiAccountsAccountIdJSONRequestBody defines body for PutApiAccountsAccountId for application/json ContentType.
+type PutApiAccountsAccountIdJSONRequestBody PutApiAccountsAccountIdJSONBody
 
 // PostApiDnsNameserversJSONRequestBody defines body for PostApiDnsNameservers for application/json ContentType.
 type PostApiDnsNameserversJSONRequestBody = NameserverGroupRequest
 
-// PatchApiDnsNameserversIdJSONRequestBody defines body for PatchApiDnsNameserversId for application/json ContentType.
-type PatchApiDnsNameserversIdJSONRequestBody = PatchApiDnsNameserversIdJSONBody
-
-// PutApiDnsNameserversIdJSONRequestBody defines body for PutApiDnsNameserversId for application/json ContentType.
-type PutApiDnsNameserversIdJSONRequestBody = NameserverGroupRequest
+// PutApiDnsNameserversNsgroupIdJSONRequestBody defines body for PutApiDnsNameserversNsgroupId for application/json ContentType.
+type PutApiDnsNameserversNsgroupIdJSONRequestBody = NameserverGroupRequest
 
 // PutApiDnsSettingsJSONRequestBody defines body for PutApiDnsSettings for application/json ContentType.
 type PutApiDnsSettingsJSONRequestBody = DNSSettings
@@ -817,47 +683,41 @@ type PutApiDnsSettingsJSONRequestBody = DNSSettings
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
 type PostApiGroupsJSONRequestBody PostApiGroupsJSONBody
 
-// PatchApiGroupsIdJSONRequestBody defines body for PatchApiGroupsId for application/json ContentType.
-type PatchApiGroupsIdJSONRequestBody = PatchApiGroupsIdJSONBody
+// PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
+type PutApiGroupsGroupIdJSONRequestBody PutApiGroupsGroupIdJSONBody
 
-// PutApiGroupsIdJSONRequestBody defines body for PutApiGroupsId for application/json ContentType.
-type PutApiGroupsIdJSONRequestBody PutApiGroupsIdJSONBody
-
-// PutApiPeersIdJSONRequestBody defines body for PutApiPeersId for application/json ContentType.
-type PutApiPeersIdJSONRequestBody PutApiPeersIdJSONBody
+// PutApiPeersPeerIdJSONRequestBody defines body for PutApiPeersPeerId for application/json ContentType.
+type PutApiPeersPeerIdJSONRequestBody PutApiPeersPeerIdJSONBody
 
 // PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
 type PostApiPoliciesJSONRequestBody = PostApiPoliciesJSONBody
 
-// PutApiPoliciesIdJSONRequestBody defines body for PutApiPoliciesId for application/json ContentType.
-type PutApiPoliciesIdJSONRequestBody = PutApiPoliciesIdJSONBody
+// PutApiPoliciesPolicyIdJSONRequestBody defines body for PutApiPoliciesPolicyId for application/json ContentType.
+type PutApiPoliciesPolicyIdJSONRequestBody = PutApiPoliciesPolicyIdJSONBody
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest
 
-// PatchApiRoutesIdJSONRequestBody defines body for PatchApiRoutesId for application/json ContentType.
-type PatchApiRoutesIdJSONRequestBody = PatchApiRoutesIdJSONBody
-
-// PutApiRoutesIdJSONRequestBody defines body for PutApiRoutesId for application/json ContentType.
-type PutApiRoutesIdJSONRequestBody = RouteRequest
+// PutApiRoutesRouteIdJSONRequestBody defines body for PutApiRoutesRouteId for application/json ContentType.
+type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
 
 // PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
 type PostApiRulesJSONRequestBody PostApiRulesJSONBody
 
-// PutApiRulesIdJSONRequestBody defines body for PutApiRulesId for application/json ContentType.
-type PutApiRulesIdJSONRequestBody PutApiRulesIdJSONBody
+// PutApiRulesRuleIdJSONRequestBody defines body for PutApiRulesRuleId for application/json ContentType.
+type PutApiRulesRuleIdJSONRequestBody PutApiRulesRuleIdJSONBody
 
 // PostApiSetupKeysJSONRequestBody defines body for PostApiSetupKeys for application/json ContentType.
 type PostApiSetupKeysJSONRequestBody = SetupKeyRequest
 
-// PutApiSetupKeysIdJSONRequestBody defines body for PutApiSetupKeysId for application/json ContentType.
-type PutApiSetupKeysIdJSONRequestBody = SetupKeyRequest
+// PutApiSetupKeysKeyIdJSONRequestBody defines body for PutApiSetupKeysKeyId for application/json ContentType.
+type PutApiSetupKeysKeyIdJSONRequestBody = SetupKeyRequest
 
 // PostApiUsersJSONRequestBody defines body for PostApiUsers for application/json ContentType.
 type PostApiUsersJSONRequestBody = UserCreateRequest
 
-// PutApiUsersIdJSONRequestBody defines body for PutApiUsersId for application/json ContentType.
-type PutApiUsersIdJSONRequestBody = UserRequest
+// PutApiUsersUserIdJSONRequestBody defines body for PutApiUsersUserId for application/json ContentType.
+type PutApiUsersUserIdJSONRequestBody = UserRequest
 
 // PostApiUsersUserIdTokensJSONRequestBody defines body for PostApiUsersUserIdTokens for application/json ContentType.
 type PostApiUsersUserIdTokensJSONRequestBody = PersonalAccessTokenRequest

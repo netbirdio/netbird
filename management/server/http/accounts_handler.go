@@ -59,13 +59,13 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	}
 
 	vars := mux.Vars(r)
-	accountID := vars["id"]
+	accountID := vars["accountId"]
 	if len(accountID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid accountID ID"), w)
 		return
 	}
 
-	var req api.PutApiAccountsIdJSONBody
+	var req api.PutApiAccountsAccountIdJSONBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
