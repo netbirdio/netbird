@@ -18,6 +18,8 @@ const (
 	// azure extension properties template
 	wtAccountIDTpl     = "extension_%s_wt_account_id"
 	wtPendingInviteTpl = "extension_%s_wt_pending_invite"
+
+	profileFields = "id,displayName,mail,userPrincipalName"
 )
 
 // AzureManager azure manager client instance.
@@ -35,6 +37,7 @@ type AzureClientConfig struct {
 	ClientID         string
 	ClientSecret     string
 	GraphAPIEndpoint string
+	ObjectID         string
 	TokenEndpoint    string
 	GrantType        string
 }
@@ -191,12 +194,63 @@ func (ac *AzureCredentials) Authenticate() (JWTToken, error) {
 	return ac.jwtToken, nil
 }
 
-func (am *AzureManager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
-	return nil
+func (am *AzureManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+	return &UserData{}, nil
 }
 
 func (am *AzureManager) GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error) {
-	return &UserData{}, nil
+	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
+
+	q := url.Values{}
+	q.Add("$select", selectFields)
+
+	body, err := am.get("users/"+userId, q)
+	if err != nil {
+		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	var profile azureProfile
+	err = am.helper.Unmarshal(body, &profile)
+	if err != nil {
+		return nil, err
+	}
+
+	return profile.userData(am.ClientID), nil
+}
+
+func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
+	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
+
+	q := url.Values{}
+	q.Add("$select", selectFields)
+
+	body, err := am.get("users/"+email, q)
+	if err != nil {
+		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	var profile azureProfile
+	err = am.helper.Unmarshal(body, &profile)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]*UserData, 0)
+	users = append(users, profile.userData(am.ClientID))
+
+	return users, nil
 }
 
 func (am *AzureManager) GetAccount(accountId string) ([]*UserData, error) {
@@ -204,12 +258,14 @@ func (am *AzureManager) GetAccount(accountId string) ([]*UserData, error) {
 }
 
 func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
-	q := url.Values{}
 	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
 	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
-	q.Add("$select", "id,displayName,mail,userPrincipalName"+wtAccountIDField+wtPendingInviteField)
+	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
 
-	body, err := am.get("users", nil)
+	q := url.Values{}
+	q.Add("$select", selectFields)
+
+	body, err := am.get("users", q)
 	if err != nil {
 		return nil, err
 	}
@@ -241,12 +297,8 @@ func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
 	return indexedUsers, nil
 }
 
-func (am *AzureManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
-	return &UserData{}, nil
-}
-
-func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
-	return make([]*UserData, 0), nil
+func (am *AzureManager) UpdateUserAppMetadata(userId string, appMetadata AppMetadata) error {
+	return nil
 }
 
 // get perform Get requests.
