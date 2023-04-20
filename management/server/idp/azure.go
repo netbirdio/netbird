@@ -254,7 +254,35 @@ func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 func (am *AzureManager) GetAccount(accountId string) ([]*UserData, error) {
-	return make([]*UserData, 0), nil
+	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
+
+	q := url.Values{}
+	q.Add("$select", selectFields)
+	q.Add("$filter", fmt.Sprintf("%s eq '%s'", wtAccountIDField, accountId))
+
+	body, err := am.get("users", q)
+	if err != nil {
+		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	var profiles struct{ Value []azureProfile }
+	err = am.helper.Unmarshal(body, &profiles)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]*UserData, 0)
+	for _, profile := range profiles.Value {
+		users = append(users, profile.userData(am.ClientID))
+	}
+
+	return users, nil
 }
 
 func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
