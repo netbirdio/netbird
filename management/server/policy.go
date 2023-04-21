@@ -244,7 +244,7 @@ func (a *Account) getPeersByPolicy(peerID string) (peers []*Peer, rules []*Firew
 				continue
 			}
 
-			sourcePeers, peerInSources := getPeers(rule.Destinations)
+			sourcePeers, peerInSources := getPeers(rule.Sources)
 			destinationPeers, peerInDestinations := getPeers(rule.Destinations)
 
 			if rule.Bidirectional {
