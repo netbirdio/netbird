@@ -220,6 +220,7 @@ func (ac *AzureCredentials) Authenticate() (JWTToken, error) {
 	return ac.jwtToken, nil
 }
 
+// CreateUser creates a new user in azure AD Idp.
 func (am *AzureManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
 	payload, err := buildAzureCreateUserRequestPayload(email, name, accountID, am.ClientID)
 	if err != nil {
@@ -246,6 +247,7 @@ func (am *AzureManager) CreateUser(email string, name string, accountID string) 
 	return profile.userData(am.ClientID), nil
 }
 
+// GetUserDataByID requests user data from keycloak via ID.
 func (am *AzureManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
 	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
 	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
@@ -272,6 +274,8 @@ func (am *AzureManager) GetUserDataByID(userID string, appMetadata AppMetadata) 
 	return profile.userData(am.ClientID), nil
 }
 
+// GetUserByEmail searches users with a given email.
+// If no users have been found, this function returns an empty list.
 func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
 	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
 	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
@@ -301,6 +305,7 @@ func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
 	return users, nil
 }
 
+// GetAccount returns all the users for a given profile.
 func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
 	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
 	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
@@ -333,6 +338,8 @@ func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
 	return users, nil
 }
 
+// GetAllAccounts gets all registered accounts with corresponding user data.
+// It returns a list of users indexed by accountID.
 func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
 	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
 	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
@@ -373,6 +380,7 @@ func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
 	return indexedUsers, nil
 }
 
+// UpdateUserAppMetadata updates user app metadata based on userID.
 func (am *AzureManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {
