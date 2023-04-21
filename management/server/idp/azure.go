@@ -237,18 +237,18 @@ func (am *AzureManager) CreateUser(email string, name string, accountID string) 
 		return nil, err
 	}
 
-	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
+	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
 	profile[wtAccountIDField] = accountID
 
-	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
 	profile[wtPendingInviteField] = true
 
 	return profile.userData(am.ClientID), nil
 }
 
 func (am *AzureManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
-	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
 	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
 
 	q := url.Values{}
@@ -273,8 +273,8 @@ func (am *AzureManager) GetUserDataByID(userID string, appMetadata AppMetadata) 
 }
 
 func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
-	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
-	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
 	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
 
 	q := url.Values{}
@@ -302,8 +302,8 @@ func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
-	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
-	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
 	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
 
 	q := url.Values{}
@@ -334,8 +334,8 @@ func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
 }
 
 func (am *AzureManager) GetAllAccounts() (map[string][]*UserData, error) {
-	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
-	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
 	selectFields := strings.Join([]string{profileFields, wtAccountIDField, wtPendingInviteField}, ",")
 
 	q := url.Values{}
@@ -379,8 +379,8 @@ func (am *AzureManager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 		return err
 	}
 
-	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
-	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
 
 	data, err := am.helper.Marshal(map[string]any{
 		wtAccountIDField:     appMetadata.WTAccountID,
@@ -469,8 +469,8 @@ func (am *AzureManager) createUserExtension(name string) (*azureExtension, error
 
 // configureAppMetadata sets up app metadata extensions if they do not exists.
 func (am *AzureManager) configureAppMetadata() error {
-	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
-	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+	wtAccountIDField := extensionName(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := extensionName(wtPendingInviteTpl, am.ClientID)
 
 	extensions, err := am.getUserExtensions()
 	if err != nil {
@@ -566,7 +566,7 @@ func (am *AzureManager) post(resource string, body string) ([]byte, error) {
 			am.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
 
-		return nil, fmt.Errorf("unable to get %s, statusCode %d", reqURL, resp.StatusCode)
+		return nil, fmt.Errorf("unable to post %s, statusCode %d", reqURL, resp.StatusCode)
 	}
 
 	return io.ReadAll(resp.Body)
@@ -613,8 +613,8 @@ func (ap azureProfile) userData(clientID string) *UserData {
 }
 
 func buildAzureCreateUserRequestPayload(email, name, accountID, clientID string) (string, error) {
-	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, clientID)
-	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, clientID)
+	wtAccountIDField := extensionName(wtAccountIDTpl, clientID)
+	wtPendingInviteField := extensionName(wtPendingInviteTpl, clientID)
 
 	req := &azureProfile{
 		"accountEnabled":    true,
@@ -635,6 +635,11 @@ func buildAzureCreateUserRequestPayload(email, name, accountID, clientID string)
 	}
 
 	return string(str), nil
+}
+
+func extensionName(extensionTpl, clientID string) string {
+	clientID = strings.ReplaceAll(clientID, "-", "")
+	return fmt.Sprintf(extensionTpl, clientID)
 }
 
 // hasExtension checks whether a given extension by name,
