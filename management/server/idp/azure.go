@@ -20,12 +20,14 @@ const (
 	wtAccountIDTpl     = "extension_%s_wt_account_id"
 	wtPendingInviteTpl = "extension_%s_wt_pending_invite"
 
-	profileFields = "id,displayName,mail,userPrincipalName"
+	profileFields   = "id,displayName,mail,userPrincipalName"
+	extensionFields = "id,name,targetObjects"
 )
 
 // AzureManager azure manager client instance.
 type AzureManager struct {
 	ClientID         string
+	ObjectID         string
 	GraphAPIEndpoint string
 	httpClient       ManagerHTTPClient
 	credentials      ManagerCredentials
@@ -63,6 +65,14 @@ type passwordProfile struct {
 	Password                      string `json:"password"`
 }
 
+// azureExtension represent custom attribute,
+// that can be added to user objects in Azure Active Directory (AD).
+type azureExtension struct {
+	Name          string   `json:"name"`
+	DataType      string   `json:"dataType"`
+	TargetObjects []string `json:"targetObjects"`
+}
+
 // NewAzureManager creates a new instance of the AzureManager.
 func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) (*AzureManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
@@ -90,14 +100,17 @@ func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) 
 		appMetrics:   appMetrics,
 	}
 
-	return &AzureManager{
+	manager := &AzureManager{
+		ObjectID:         config.ObjectID,
 		ClientID:         config.ClientID,
 		GraphAPIEndpoint: config.GraphAPIEndpoint,
 		httpClient:       httpClient,
 		credentials:      credentials,
 		helper:           helper,
 		appMetrics:       appMetrics,
-	}, nil
+	}
+
+	return manager, nil
 }
 
 // jwtStillValid returns true if the token still valid and have enough time to be used and get a response from azure.
@@ -403,6 +416,52 @@ func (am *AzureManager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	return nil
 }
 
+func (am *AzureManager) getUserExtensions() ([]azureExtension, error) {
+	q := url.Values{}
+	q.Add("$select", extensionFields)
+
+	resource := fmt.Sprintf("applications/%s/extensionProperties", am.ObjectID)
+	body, err := am.get(resource, q)
+	if err != nil {
+		return nil, err
+	}
+
+	var extensions struct{ Value []azureExtension }
+	err = am.helper.Unmarshal(body, &extensions)
+	if err != nil {
+		return nil, err
+	}
+
+	return extensions.Value, nil
+}
+
+func (am *AzureManager) createUserExtension(name string) (*azureExtension, error) {
+	extension := azureExtension{
+		Name:          name,
+		DataType:      "string",
+		TargetObjects: []string{"User"},
+	}
+
+	payload, err := am.helper.Marshal(extension)
+	if err != nil {
+		return nil, err
+	}
+
+	resource := fmt.Sprintf("applications/%s/extensionProperties", am.ObjectID)
+	body, err := am.post(resource, string(payload))
+	if err != nil {
+		return nil, err
+	}
+
+	var userExtension azureExtension
+	err = am.helper.Unmarshal(body, &userExtension)
+	if err != nil {
+		return nil, err
+	}
+
+	return &userExtension, nil
+}
+
 // get perform Get requests.
 func (am *AzureManager) get(resource string, q url.Values) ([]byte, error) {
 	jwtToken, err := am.credentials.Authenticate()
@@ -542,4 +601,15 @@ func buildAzureCreateUserRequestPayload(email, name, accountID, clientID string)
 	}
 
 	return string(str), nil
+}
+
+// hasExtension checks whether a given extension by name,
+// exists in an list of extensions.
+func hasExtension(extensions []azureExtension, name string) bool {
+	for _, ext := range extensions {
+		if ext.Name == name {
+			return true
+		}
+	}
+	return false
 }
