@@ -110,6 +110,11 @@ func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) 
 		appMetrics:       appMetrics,
 	}
 
+	err := manager.configureAppMetadata()
+	if err != nil {
+		return nil, err
+	}
+
 	return manager, nil
 }
 
@@ -460,6 +465,35 @@ func (am *AzureManager) createUserExtension(name string) (*azureExtension, error
 	}
 
 	return &userExtension, nil
+}
+
+// configureAppMetadata sets up app metadata extensions if they do not exists.
+func (am *AzureManager) configureAppMetadata() error {
+	wtAccountIDField := fmt.Sprintf(wtAccountIDTpl, am.ClientID)
+	wtPendingInviteField := fmt.Sprintf(wtPendingInviteTpl, am.ClientID)
+
+	extensions, err := am.getUserExtensions()
+	if err != nil {
+		return err
+	}
+
+	// If the wt_account_id extension does not already exist, create it.
+	if !hasExtension(extensions, wtAccountIDField) {
+		_, err = am.createUserExtension(wtAccountID)
+		if err != nil {
+			return err
+		}
+	}
+
+	// If the wt_pending_invite extension does not already exist, create it.
+	if !hasExtension(extensions, wtPendingInviteField) {
+		_, err = am.createUserExtension(wtPendingInvite)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // get perform Get requests.
