@@ -109,14 +109,14 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 	t.Run("check that all peers get map", func(t *testing.T) {
 		for _, p := range account.Peers {
-			peers, firewallRules := account.getPeersByPolicy(p.ID)
+			peers, firewallRules := account.getPeerConnectionResources(p.ID)
 			assert.GreaterOrEqual(t, len(peers), 2, "mininum number peers should present")
 			assert.GreaterOrEqual(t, len(firewallRules), 2, "mininum number of firewall rules should present")
 		}
 	})
 
 	t.Run("check first peer map details", func(t *testing.T) {
-		peers, firewallRules := account.getPeersByPolicy("cfif97at2r9s73au3q0g")
+		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q0g")
 		assert.Len(t, peers, 7)
 		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q00"])
 		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q10"])
@@ -333,7 +333,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	account.Policies = append(account.Policies, rule1, rule2)
 
 	t.Run("check first peer map", func(t *testing.T) {
-		peers, firewallRules := account.getPeersByPolicy("cfif97at2r9s73au3q0g")
+		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q0g")
 		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q10"])
 
 		epectedFirewallRules := []*FirewallRule{
@@ -367,7 +367,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	})
 
 	t.Run("check second peer map", func(t *testing.T) {
-		peers, firewallRules := account.getPeersByPolicy("cfif97at2r9s73au3q10")
+		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q10")
 		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q0g"])
 
 		epectedFirewallRules := []*FirewallRule{
@@ -403,7 +403,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	account.Policies[1].Rules[0].Bidirectional = false
 
 	t.Run("check first peer map directional only", func(t *testing.T) {
-		peers, firewallRules := account.getPeersByPolicy("cfif97at2r9s73au3q0g")
+		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q0g")
 		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q10"])
 
 		epectedFirewallRules := []*FirewallRule{
@@ -429,7 +429,7 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	})
 
 	t.Run("check second peer map directional only", func(t *testing.T) {
-		peers, firewallRules := account.getPeersByPolicy("cfif97at2r9s73au3q10")
+		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q10")
 		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q0g"])
 
 		epectedFirewallRules := []*FirewallRule{

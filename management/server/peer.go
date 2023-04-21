@@ -208,7 +208,7 @@ func (am *DefaultAccountManager) GetPeers(accountID, userID string) ([]*Peer, er
 
 	// fetch all the peers that have access to the user's peers
 	for _, peer := range peers {
-		aclPeers, _ := account.getPeersByPolicy(peer.ID)
+		aclPeers, _ := account.getPeerConnectionResources(peer.ID)
 		for _, p := range aclPeers {
 			peersMap[p.ID] = p
 		}
@@ -815,7 +815,7 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	}
 
 	for _, p := range userPeers {
-		aclPeers, _ := account.getPeersByPolicy(p.ID)
+		aclPeers, _ := account.getPeerConnectionResources(p.ID)
 		for _, aclPeer := range aclPeers {
 			if aclPeer.ID == peerID {
 				return peer, nil

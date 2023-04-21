@@ -172,67 +172,11 @@ type FirewallRule struct {
 	Port string
 }
 
-// getPeersByPolicy returns all peers that given peer has access to
-func (a *Account) getPeersByPolicy(peerID string) (peers []*Peer, rules []*FirewallRule) {
-	rulesExists := make(map[string]struct{})
-	peersExists := make(map[string]struct{})
-
-	generateFirewallRules := func(rule *PolicyRule, groupPeers []*Peer, direction string) {
-		for _, peer := range groupPeers {
-			if _, ok := peersExists[peer.ID]; !ok {
-				peers = append(peers, peer)
-				peersExists[peer.ID] = struct{}{}
-			}
-
-			fwRule := FirewallRule{
-				PeerID:    peer.ID,
-				PeerIP:    peer.IP.String(),
-				Direction: direction,
-				Action:    string(rule.Action),
-				Protocol:  string(rule.Protocol),
-			}
-
-			ruleID := peer.ID + peer.IP.String() + direction
-			ruleID += string(rule.Protocol) + string(rule.Action) + strings.Join(rule.Ports, ",")
-			if _, ok := rulesExists[ruleID]; ok {
-				continue
-			}
-			rulesExists[ruleID] = struct{}{}
-
-			if len(rule.Ports) == 0 {
-				rules = append(rules, &fwRule)
-				continue
-			}
-
-			for _, port := range rule.Ports {
-				addRule := fwRule
-				addRule.Port = port
-				rules = append(rules, &addRule)
-			}
-		}
-	}
-
-	getPeers := func(groups []string) ([]*Peer, bool) {
-		peerInGroups := false
-		filteredPeers := make([]*Peer, 0, len(groups))
-		for _, g := range groups {
-			group, ok := a.Groups[g]
-			if !ok {
-				continue
-			}
-
-			for _, p := range group.Peers {
-				peer := a.Peers[p]
-				if peer.ID == peerID {
-					peerInGroups = true
-					continue
-				}
-
-				filteredPeers = append(filteredPeers, peer)
-			}
-		}
-		return filteredPeers, peerInGroups
-	}
+// getPeerConnectionResources for a given peer
+//
+// This function returns the list of peers and firewall rules that are applicable to a given peer.
+func (a *Account) getPeerConnectionResources(peerID string) ([]*Peer, []*FirewallRule) {
+	generateResources, getAccumulatedResources := a.connResourcesGenerator()
 
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
@@ -244,29 +188,77 @@ func (a *Account) getPeersByPolicy(peerID string) (peers []*Peer, rules []*Firew
 				continue
 			}
 
-			sourcePeers, peerInSources := getPeers(rule.Sources)
-			destinationPeers, peerInDestinations := getPeers(rule.Destinations)
+			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID)
+			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID)
 
 			if rule.Bidirectional {
 				if peerInSources {
-					generateFirewallRules(rule, destinationPeers, "src")
+					generateResources(rule, destinationPeers, "src")
 				}
 				if peerInDestinations {
-					generateFirewallRules(rule, sourcePeers, "dst")
+					generateResources(rule, sourcePeers, "dst")
 				}
 			}
 
 			if peerInSources {
-				generateFirewallRules(rule, destinationPeers, "dst")
+				generateResources(rule, destinationPeers, "dst")
 			}
 
 			if peerInDestinations {
-				generateFirewallRules(rule, sourcePeers, "src")
+				generateResources(rule, sourcePeers, "src")
 			}
 		}
 	}
 
-	return
+	return getAccumulatedResources()
+}
+
+// connResourcesGenerator returns generator and accumulator function which returns the result of generator calls
+//
+// The generator function is used to generate the list of peers and firewall rules that are applicable to a given peer.
+// It safe to call the generator function multiple times for same peer and different rules no duplicates will be
+// generated. The accumulator function returns the result of all the generator calls.
+func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, string), func() ([]*Peer, []*FirewallRule)) {
+	rulesExists := make(map[string]struct{})
+	peersExists := make(map[string]struct{})
+	rules := make([]*FirewallRule, 0)
+	peers := make([]*Peer, 0)
+	return func(rule *PolicyRule, groupPeers []*Peer, direction string) {
+			for _, peer := range groupPeers {
+				if _, ok := peersExists[peer.ID]; !ok {
+					peers = append(peers, peer)
+					peersExists[peer.ID] = struct{}{}
+				}
+
+				fwRule := FirewallRule{
+					PeerID:    peer.ID,
+					PeerIP:    peer.IP.String(),
+					Direction: direction,
+					Action:    string(rule.Action),
+					Protocol:  string(rule.Protocol),
+				}
+
+				ruleID := peer.ID + peer.IP.String() + direction
+				ruleID += string(rule.Protocol) + string(rule.Action) + strings.Join(rule.Ports, ",")
+				if _, ok := rulesExists[ruleID]; ok {
+					continue
+				}
+				rulesExists[ruleID] = struct{}{}
+
+				if len(rule.Ports) == 0 {
+					rules = append(rules, &fwRule)
+					continue
+				}
+
+				for _, port := range rule.Ports {
+					addRule := fwRule
+					addRule.Port = port
+					rules = append(rules, &addRule)
+				}
+			}
+		}, func() ([]*Peer, []*FirewallRule) {
+			return peers, rules
+		}
 }
 
 // GetPolicy from the store
@@ -414,4 +406,29 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 		}
 	}
 	return result
+}
+
+// getAllPeersFromGroups for given peer ID and list of groups
+//
+// Returns list of peers and boolean indicating if peer is in any of the groups
+func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]*Peer, bool) {
+	peerInGroups := false
+	filteredPeers := make([]*Peer, 0, len(groups))
+	for _, g := range groups {
+		group, ok := account.Groups[g]
+		if !ok {
+			continue
+		}
+
+		for _, p := range group.Peers {
+			peer := account.Peers[p]
+			if peer.ID == peerID {
+				peerInGroups = true
+				continue
+			}
+
+			filteredPeers = append(filteredPeers, peer)
+		}
+	}
+	return filteredPeers, peerInGroups
 }
