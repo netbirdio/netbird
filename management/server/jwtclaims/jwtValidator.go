@@ -101,11 +101,14 @@ func NewJWTValidator(issuer string, audienceList []string, keysLocation string, 
 				if !keys.stillValid() {
 					lock.Lock()
 					defer lock.Unlock()
-					keys, err = getPemKeys(keysLocation)
+
+					refreshedKeys, err := getPemKeys(keysLocation)
 					if err != nil {
-						log.Debugf("cannot get JSONWebKey: %v", err)
-						return nil, err
+						log.Debugf("cannot get JSONWebKey: %v, falling back to old keys", err)
+						refreshedKeys = keys
 					}
+
+					keys = refreshedKeys
 				}
 			}
 
