@@ -76,30 +76,39 @@ func (m *Manager) AddFiltering(
 	}
 
 	expressions := []expr.Any{
-		&expr.Payload{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIfaceName),
+		},
+	}
+
+	if proto != "all" {
+		expressions = append(expressions, &expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
 			Offset:       uint32(9),
 			Len:          uint32(1),
-		},
-	}
+		})
 
-	var protoData []byte
-	switch proto {
-	case fw.ProtocolTCP:
-		protoData = []byte{unix.IPPROTO_TCP}
-	case fw.ProtocolUDP:
-		protoData = []byte{unix.IPPROTO_UDP}
-	case fw.ProtocolICMP:
-		protoData = []byte{unix.IPPROTO_ICMP}
-	default:
-		return nil, fmt.Errorf("unsupported protocol: %s", proto)
+		var protoData []byte
+		switch proto {
+		case fw.ProtocolTCP:
+			protoData = []byte{unix.IPPROTO_TCP}
+		case fw.ProtocolUDP:
+			protoData = []byte{unix.IPPROTO_UDP}
+		case fw.ProtocolICMP:
+			protoData = []byte{unix.IPPROTO_ICMP}
+		default:
+			return nil, fmt.Errorf("unsupported protocol: %s", proto)
+		}
+		expressions = append(expressions, &expr.Cmp{
+			Register: 1,
+			Op:       expr.CmpOpEq,
+			Data:     protoData,
+		})
 	}
-	expressions = append(expressions, &expr.Cmp{
-		Register: 1,
-		Op:       expr.CmpOpEq,
-		Data:     protoData,
-	})
 
 	// source address position
 	var adrLen, adrOffset uint32
@@ -293,8 +302,14 @@ func (m *Manager) createChainIfNotExists(
 		}
 	}
 
+	polDrop := nftables.ChainPolicyDrop
 	chain := nftables.Chain{
-		Name: FilterChainName, Table: table, Hooknum: hooknum, Priority: priority, Type: chainType,
+		Name:     FilterChainName,
+		Table:    table,
+		Hooknum:  hooknum,
+		Priority: priority,
+		Type:     chainType,
+		Policy:   &polDrop,
 	}
 	return m.conn.AddChain(&chain), nil
 
@@ -346,4 +361,10 @@ func encodePort(port fw.Port) []byte {
 	bs := make([]byte, 2)
 	binary.BigEndian.PutUint16(bs, uint16(port.Values[0]))
 	return bs
+}
+
+func ifname(n string) []byte {
+	b := make([]byte, 16)
+	copy(b, []byte(n+"\x00"))
+	return b
 }

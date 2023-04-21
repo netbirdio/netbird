@@ -187,7 +187,7 @@ func (m *Manager) filterRuleSpecs(
 	case fw.DirectionDst:
 		specs = append(specs, "-d", ip.String())
 	}
-	if protocol != "" {
+	if protocol != "all" {
 		specs = append(specs, "-p", protocol)
 	}
 	if port != "" {

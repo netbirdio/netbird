@@ -12,6 +12,9 @@ const (
 
 	// ProtocolICMP is the ICMP protocol
 	ProtocolICMP Protocol = "icmp"
+
+	// ProtocolALL cover all supported protocols
+	ProtocolALL Protocol = "all"
 )
 
 // Port of the address for firewall rule
