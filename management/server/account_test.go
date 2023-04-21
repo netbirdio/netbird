@@ -927,10 +927,6 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			},
 		},
 	}
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		t.Errorf("update policy query from rules: %v", err)
-		return
-	}
 
 	wg := sync.WaitGroup{}
 	t.Run("save group update", func(t *testing.T) {

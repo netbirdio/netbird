@@ -285,10 +285,7 @@ func TestRestorePolicies_Migration(t *testing.T) {
 	require.Equal(t, policy.Description,
 		"This is a default rule that allows connections between all the resources",
 		"failed to restore a FileStore file - missing Account Policies Description")
-	expectedPolicy := policy.Copy()
-	err = expectedPolicy.UpdateQueryFromRules()
 	require.NoError(t, err, "failed to upldate query")
-	require.Equal(t, policy.Query, expectedPolicy.Query, "failed to restore a FileStore file - missing Account Policies Query")
 	require.Len(t, policy.Rules, 1, "failed to restore a FileStore file - missing Account Policy Rules")
 	require.Equal(t, policy.Rules[0].Action, PolicyTrafficActionAccept, "failed to restore a FileStore file - missing Account Policies Action")
 	require.Equal(t, policy.Rules[0].Destinations,

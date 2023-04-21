@@ -1,19 +1,12 @@
 package server
 
 import (
-	"bytes"
-	"context"
 	_ "embed"
-	"fmt"
-	"html/template"
 	"strings"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-
-	"github.com/open-policy-agent/opa/rego"
-	log "github.com/sirupsen/logrus"
 )
 
 // PolicyUpdateOperationType operation type
@@ -58,15 +51,6 @@ type PolicyUpdateOperation struct {
 	Type   PolicyUpdateOperationType
 	Values []string
 }
-
-//go:embed rego/default_policy_module.rego
-var defaultPolicyModule string
-
-//go:embed rego/default_policy.rego
-var defaultPolicyText string
-
-// defaultPolicyTemplate is a template to migrate ACL rules to policies
-var defaultPolicyTemplate = template.Must(template.New("policy").Parse(defaultPolicyText))
 
 // PolicyRule is the metadata of the policy
 type PolicyRule struct {
@@ -144,9 +128,6 @@ type Policy struct {
 	// Enabled status of the policy
 	Enabled bool
 
-	// Query of Rego the policy
-	Query string
-
 	// Rules of the policy
 	Rules []*PolicyRule
 }
@@ -158,7 +139,6 @@ func (p *Policy) Copy() *Policy {
 		Name:        p.Name,
 		Description: p.Description,
 		Enabled:     p.Enabled,
-		Query:       p.Query,
 	}
 	for _, r := range p.Rules {
 		c.Rules = append(c.Rules, r.Copy())
@@ -169,59 +149,6 @@ func (p *Policy) Copy() *Policy {
 // EventMeta returns activity event meta related to this policy
 func (p *Policy) EventMeta() map[string]any {
 	return map[string]any{"name": p.Name}
-}
-
-// UpdateQueryFromRules marshals policy rules to Rego string and set it to Query
-func (p *Policy) UpdateQueryFromRules() error {
-	type templateRule struct {
-		Group    string
-		Protocol string
-		Ports    string
-		Action   string
-	}
-	type templateVars struct {
-		Bidirectional bool
-		All           []string
-		Sources       []templateRule
-		Destinations  []templateRule
-	}
-	queries := []string{}
-	for _, r := range p.Rules {
-		if !r.Enabled {
-			continue
-		}
-
-		buff := new(bytes.Buffer)
-		input := templateVars{
-			Bidirectional: r.Bidirectional,
-			All:           append(r.Destinations[:], r.Sources...),
-		}
-
-		for _, g := range r.Sources {
-			input.Sources = append(input.Sources, templateRule{
-				Group:    g,
-				Protocol: string(r.Protocol),
-				Ports:    strings.Join(r.Ports, ","),
-				Action:   string(r.Action),
-			})
-		}
-
-		for _, g := range r.Destinations {
-			input.Destinations = append(input.Destinations, templateRule{
-				Group:    g,
-				Protocol: string(r.Protocol),
-				Ports:    strings.Join(r.Ports, ","),
-				Action:   string(r.Action),
-			})
-		}
-
-		if err := defaultPolicyTemplate.Execute(buff, input); err != nil {
-			return status.Errorf(status.BadRequest, "failed to update policy query: %v", err)
-		}
-		queries = append(queries, buff.String())
-	}
-	p.Query = strings.Join(queries, "\n")
-	return nil
 }
 
 // FirewallRule is a rule of the firewall.
@@ -243,176 +170,95 @@ type FirewallRule struct {
 
 	// Port of the traffic
 	Port string
-
-	// id for internal purposes
-	id string
 }
 
-// parseFromRegoResult parses the Rego result to a FirewallRule.
-func (f *FirewallRule) parseFromRegoResult(value interface{}) error {
-	object, ok := value.(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("invalid Rego query eval result")
-	}
+// getPeerConnectionResources for a given peer
+//
+// This function returns the list of peers and firewall rules that are applicable to a given peer.
+func (a *Account) getPeerConnectionResources(peerID string) ([]*Peer, []*FirewallRule) {
+	generateResources, getAccumulatedResources := a.connResourcesGenerator()
 
-	peerID, ok := object["ID"].(string)
-	if !ok {
-		return fmt.Errorf("invalid Rego query eval result peer ID type")
-	}
-
-	peerIP, ok := object["IP"].(string)
-	if !ok {
-		return fmt.Errorf("invalid Rego query eval result peer IP type")
-	}
-
-	direction, ok := object["Direction"].(string)
-	if !ok {
-		return fmt.Errorf("invalid Rego query eval result peer direction type")
-	}
-
-	action, ok := object["Action"].(string)
-	if !ok {
-		return fmt.Errorf("invalid Rego query eval result peer action type")
-	}
-
-	if v, ok := object["Protocol"]; ok {
-		if protocol, ok := v.(string); ok {
-			f.Protocol = protocol
-		}
-	}
-
-	if v, ok := object["Port"]; ok {
-		if port, ok := v.(string); ok {
-			f.Port = port
-		}
-	}
-
-	f.PeerID = peerID
-	f.PeerIP = peerIP
-	f.Direction = direction
-	f.Action = action
-
-	// NOTE: update this id each time when new field added
-	f.id = peerID + peerIP + direction + f.Protocol + f.Port + action
-
-	return nil
-}
-
-// queryPeersAndFwRulesByRego returns a list associated Peers and firewall rules list for this peer.
-func (a *Account) queryPeersAndFwRulesByRego(
-	peerID string,
-	queryNumber int,
-	query string,
-) ([]*Peer, []*FirewallRule) {
-	input := map[string]interface{}{
-		"peer_id": peerID,
-		"peers":   a.Peers,
-		"groups":  a.Groups,
-	}
-
-	stmt, err := rego.New(
-		rego.Query("data.netbird.all"),
-		rego.Module("netbird", defaultPolicyModule),
-		rego.Module(fmt.Sprintf("netbird-%d", queryNumber), query),
-	).PrepareForEval(context.TODO())
-	if err != nil {
-		log.WithError(err).Error("get Rego query")
-		return nil, nil
-	}
-
-	evalResult, err := stmt.Eval(
-		context.TODO(),
-		rego.EvalInput(input),
-	)
-	if err != nil {
-		log.WithError(err).Error("eval Rego query")
-		return nil, nil
-	}
-
-	if len(evalResult) == 0 || len(evalResult[0].Expressions) == 0 {
-		log.Trace("empty Rego query eval result")
-		return nil, nil
-	}
-	expressions, ok := evalResult[0].Expressions[0].Value.([]interface{})
-	if !ok {
-		return nil, nil
-	}
-
-	dst := make(map[string]struct{})
-	src := make(map[string]struct{})
-	peers := make([]*Peer, 0, len(expressions))
-	rules := make([]*FirewallRule, 0, len(expressions))
-	for _, v := range expressions {
-		rule := &FirewallRule{}
-		if err := rule.parseFromRegoResult(v); err != nil {
-			log.WithError(err).Error("parse Rego query eval result")
-			continue
-		}
-		rules = append(rules, rule)
-		switch rule.Direction {
-		case "dst":
-			if _, ok := dst[rule.PeerID]; ok {
-				continue
-			}
-			dst[rule.PeerID] = struct{}{}
-		case "src":
-			if _, ok := src[rule.PeerID]; ok {
-				continue
-			}
-			src[rule.PeerID] = struct{}{}
-		default:
-			log.WithField("direction", rule.Direction).Error("invalid direction")
-			continue
-		}
-	}
-
-	added := make(map[string]struct{})
-	if _, ok := src[peerID]; ok {
-		for id := range dst {
-			if _, ok := added[id]; !ok && id != peerID {
-				added[id] = struct{}{}
-			}
-		}
-	}
-	if _, ok := dst[peerID]; ok {
-		for id := range src {
-			if _, ok := added[id]; !ok && id != peerID {
-				added[id] = struct{}{}
-			}
-		}
-	}
-
-	for id := range added {
-		peers = append(peers, a.Peers[id])
-	}
-	return peers, rules
-}
-
-// getPeersByPolicy returns all peers that given peer has access to.
-func (a *Account) getPeersByPolicy(peerID string) (peers []*Peer, rules []*FirewallRule) {
-	peersSeen := make(map[string]struct{})
-	ruleSeen := make(map[string]struct{})
-	for i, policy := range a.Policies {
+	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue
 		}
-		p, r := a.queryPeersAndFwRulesByRego(peerID, i, policy.Query)
-		for _, peer := range p {
-			if _, ok := peersSeen[peer.ID]; ok {
+
+		for _, rule := range policy.Rules {
+			if !rule.Enabled {
 				continue
 			}
-			peers = append(peers, peer)
-			peersSeen[peer.ID] = struct{}{}
-		}
-		for _, rule := range r {
-			if _, ok := ruleSeen[rule.id]; ok {
-				continue
+
+			sourcePeers, peerInSources := getAllPeersFromGroups(a, rule.Sources, peerID)
+			destinationPeers, peerInDestinations := getAllPeersFromGroups(a, rule.Destinations, peerID)
+
+			if rule.Bidirectional {
+				if peerInSources {
+					generateResources(rule, destinationPeers, "src")
+				}
+				if peerInDestinations {
+					generateResources(rule, sourcePeers, "dst")
+				}
 			}
-			rules = append(rules, rule)
-			ruleSeen[rule.id] = struct{}{}
+
+			if peerInSources {
+				generateResources(rule, destinationPeers, "dst")
+			}
+
+			if peerInDestinations {
+				generateResources(rule, sourcePeers, "src")
+			}
 		}
 	}
-	return
+
+	return getAccumulatedResources()
+}
+
+// connResourcesGenerator returns generator and accumulator function which returns the result of generator calls
+//
+// The generator function is used to generate the list of peers and firewall rules that are applicable to a given peer.
+// It safe to call the generator function multiple times for same peer and different rules no duplicates will be
+// generated. The accumulator function returns the result of all the generator calls.
+func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, string), func() ([]*Peer, []*FirewallRule)) {
+	rulesExists := make(map[string]struct{})
+	peersExists := make(map[string]struct{})
+	rules := make([]*FirewallRule, 0)
+	peers := make([]*Peer, 0)
+	return func(rule *PolicyRule, groupPeers []*Peer, direction string) {
+			for _, peer := range groupPeers {
+				if _, ok := peersExists[peer.ID]; !ok {
+					peers = append(peers, peer)
+					peersExists[peer.ID] = struct{}{}
+				}
+
+				fwRule := FirewallRule{
+					PeerID:    peer.ID,
+					PeerIP:    peer.IP.String(),
+					Direction: direction,
+					Action:    string(rule.Action),
+					Protocol:  string(rule.Protocol),
+				}
+
+				ruleID := peer.ID + peer.IP.String() + direction
+				ruleID += string(rule.Protocol) + string(rule.Action) + strings.Join(rule.Ports, ",")
+				if _, ok := rulesExists[ruleID]; ok {
+					continue
+				}
+				rulesExists[ruleID] = struct{}{}
+
+				if len(rule.Ports) == 0 {
+					rules = append(rules, &fwRule)
+					continue
+				}
+
+				for _, port := range rule.Ports {
+					addRule := fwRule
+					addRule.Port = port
+					rules = append(rules, &addRule)
+				}
+			}
+		}, func() ([]*Peer, []*FirewallRule) {
+			return peers, rules
+		}
 }
 
 // GetPolicy from the store
@@ -560,4 +406,29 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 		}
 	}
 	return result
+}
+
+// getAllPeersFromGroups for given peer ID and list of groups
+//
+// Returns list of peers and boolean indicating if peer is in any of the groups
+func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]*Peer, bool) {
+	peerInGroups := false
+	filteredPeers := make([]*Peer, 0, len(groups))
+	for _, g := range groups {
+		group, ok := account.Groups[g]
+		if !ok {
+			continue
+		}
+
+		for _, p := range group.Peers {
+			peer := account.Peers[p]
+			if peer.ID == peerID {
+				peerInGroups = true
+				continue
+			}
+
+			filteredPeers = append(filteredPeers, peer)
+		}
+	}
+	return filteredPeers, peerInGroups
 }
