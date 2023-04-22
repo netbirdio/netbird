@@ -24,7 +24,7 @@ func (rc receiverCreator) CreateIPv4ReceiverFn(msgPool *sync.Pool, pc *ipv4.Pack
 type ICEBind struct {
 	*wgConn.StdNetBind
 
-	muUdpMux sync.Mutex
+	muUDPMux sync.Mutex
 
 	transportNet transport.Net
 	udpMux       *UniversalUDPMuxDefault
@@ -42,9 +42,10 @@ func NewICEBind(transportNet transport.Net) *ICEBind {
 	return ib
 }
 
+// GetICEMux returns the ICE UDPMux that was created and used by ICEBind
 func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
-	s.muUdpMux.Lock()
-	defer s.muUdpMux.Unlock()
+	s.muUDPMux.Lock()
+	defer s.muUDPMux.Unlock()
 	if s.udpMux == nil {
 		return nil, fmt.Errorf("ICEBind has not been initialized yet")
 	}
@@ -53,8 +54,8 @@ func (s *ICEBind) GetICEMux() (*UniversalUDPMuxDefault, error) {
 }
 
 func (s *ICEBind) createIPv4ReceiverFn(ipv4MsgsPool *sync.Pool, pc *ipv4.PacketConn, conn *net.UDPConn) wgConn.ReceiveFunc {
-	s.muUdpMux.Lock()
-	defer s.muUdpMux.Unlock()
+	s.muUDPMux.Lock()
+	defer s.muUDPMux.Unlock()
 
 	s.udpMux = NewUniversalUDPMuxDefault(
 		UniversalUDPMuxParams{
