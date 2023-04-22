@@ -15,12 +15,12 @@ import (
 
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc func(userId, domain string) (*server.Account, error)
-	GetAccountByUserFunc         func(userId string) (*server.Account, error)
+	GetAccountByUserIDFunc       func(userID string) (*server.Account, error)
 	CreateSetupKeyFunc           func(accountId string, keyName string, keyType server.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string) (*server.SetupKey, error)
 	GetSetupKeyFunc                 func(accountID, userID, keyID string) (*server.SetupKey, error)
 	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
-	IsUserAdminFunc                 func(claims jwtclaims.AuthorizationClaims) (bool, error)
+	IsUserAdminFunc                 func(userID string) (bool, error)
 	AccountExistsFunc               func(accountId string) (*bool, error)
 	GetPeerByKeyFunc                func(peerKey string) (*server.Peer, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
@@ -61,6 +61,7 @@ type MockAccountManager struct {
 	SaveSetupKeyFunc                func(accountID string, key *server.SetupKey, userID string) (*server.SetupKey, error)
 	ListSetupKeysFunc               func(accountID, userID string) ([]*server.SetupKey, error)
 	SaveUserFunc                    func(accountID, userID string, user *server.User) (*server.UserInfo, error)
+	DeleteUserFunc                  func(accountID string, executingUserID string, targetUserID string) error
 	CreatePATFunc                   func(accountID string, executingUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
 	DeletePATFunc                   func(accountID string, executingUserID string, targetUserId string, tokenID string) error
 	GetPATFunc                      func(accountID string, executingUserID string, targetUserId string, tokenID string) (*server.PersonalAccessToken, error)
@@ -112,12 +113,12 @@ func (am *MockAccountManager) GetOrCreateAccountByUser(
 	)
 }
 
-// GetAccountByUser mock implementation of GetAccountByUser from server.AccountManager interface
-func (am *MockAccountManager) GetAccountByUser(userId string) (*server.Account, error) {
-	if am.GetAccountByUserFunc != nil {
-		return am.GetAccountByUserFunc(userId)
+// GetAccountByUserID mock implementation of GetAccountByUserID from server.AccountManager interface
+func (am *MockAccountManager) GetAccountByUserID(userID string) (*server.Account, error) {
+	if am.GetAccountByUserIDFunc != nil {
+		return am.GetAccountByUserIDFunc(userID)
 	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByUser is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByUserID is not implemented")
 }
 
 // CreateSetupKey mock implementation of CreateSetupKey from server.AccountManager interface
@@ -394,9 +395,9 @@ func (am *MockAccountManager) UpdatePeerMeta(peerID string, meta server.PeerSyst
 }
 
 // IsUserAdmin mock implementation of IsUserAdmin from server.AccountManager interface
-func (am *MockAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
+func (am *MockAccountManager) IsUserAdmin(userID string) (bool, error) {
 	if am.IsUserAdminFunc != nil {
-		return am.IsUserAdminFunc(claims)
+		return am.IsUserAdminFunc(userID)
 	}
 	return false, status.Errorf(codes.Unimplemented, "method IsUserAdmin is not implemented")
 }
@@ -498,6 +499,14 @@ func (am *MockAccountManager) SaveUser(accountID, userID string, user *server.Us
 		return am.SaveUserFunc(accountID, userID, user)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SaveUser is not implemented")
+}
+
+// DeleteUser mocks DeleteUser of the AccountManager interface
+func (am *MockAccountManager) DeleteUser(accountID string, executingUserID string, targetUserID string) error {
+	if am.DeleteUserFunc != nil {
+		return am.DeleteUserFunc(accountID, executingUserID, targetUserID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteUser is not implemented")
 }
 
 // GetNameServerGroup mocks GetNameServerGroup of the AccountManager interface
