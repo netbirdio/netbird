@@ -68,7 +68,7 @@ func (m *Manager) AddFiltering(
 	table, chain, err := m.chain(
 		ip,
 		FilterChainName,
-		nftables.ChainHookOutput,
+		nftables.ChainHookInput,
 		nftables.ChainPriorityFilter,
 		nftables.ChainTypeFilter)
 	if err != nil {
@@ -158,12 +158,19 @@ func (m *Manager) AddFiltering(
 		)
 	}
 
+	if action == fw.ActionAccept {
+		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictAccept})
+	} else {
+		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictDrop})
+	}
+
 	id := uuid.New().String()
 	userData := []byte(strings.Join([]string{id, comment}, " "))
 
-	_ = m.conn.AddRule(&nftables.Rule{
+	_ = m.conn.InsertRule(&nftables.Rule{
 		Table:    table,
 		Chain:    chain,
+		Position: 0,
 		Exprs:    expressions,
 		UserData: userData,
 	})
@@ -302,17 +309,38 @@ func (m *Manager) createChainIfNotExists(
 		}
 	}
 
-	polDrop := nftables.ChainPolicyDrop
-	chain := nftables.Chain{
+	polAccept := nftables.ChainPolicyAccept
+	chain := &nftables.Chain{
 		Name:     FilterChainName,
 		Table:    table,
 		Hooknum:  hooknum,
 		Priority: priority,
 		Type:     chainType,
-		Policy:   &polDrop,
+		Policy:   &polAccept,
 	}
-	return m.conn.AddChain(&chain), nil
 
+	chain = m.conn.AddChain(chain)
+
+	expressions := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIfaceName),
+		},
+		&expr.Verdict{Kind: expr.VerdictDrop},
+	}
+	_ = m.conn.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: expressions,
+	})
+
+	if err := m.conn.Flush(); err != nil {
+		return nil, err
+	}
+
+	return chain, nil
 }
 
 // DeleteRule from the firewall by rule definition
