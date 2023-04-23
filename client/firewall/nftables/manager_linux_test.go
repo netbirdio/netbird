@@ -37,11 +37,18 @@ func TestNftablesManager(t *testing.T) {
 
 	rules, err := testClient.GetRules(manager.tableIPv4, manager.filterChainIPv4)
 	require.NoError(t, err, "failed to get rules")
-	require.Len(t, rules, 1, "expected 1 rule")
+	// 1 regular rule and other "drop all rule" for the interface
+	require.Len(t, rules, 2, "expected 1 rule")
 
 	ipToAdd, _ := netip.AddrFromSlice(ip)
 	add := ipToAdd.Unmap()
 	expectedExprs := []expr.Any{
+		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname("lo"),
+		},
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseNetworkHeader,
@@ -75,6 +82,7 @@ func TestNftablesManager(t *testing.T) {
 			Register: 1,
 			Data:     []byte{0, 53},
 		},
+		&expr.Verdict{Kind: expr.VerdictDrop},
 	}
 	require.ElementsMatch(t, rules[0].Exprs, expectedExprs, "expected the same expressions")
 
@@ -83,7 +91,7 @@ func TestNftablesManager(t *testing.T) {
 
 	rules, err = testClient.GetRules(manager.tableIPv4, manager.filterChainIPv4)
 	require.NoError(t, err, "failed to get rules")
-	require.Len(t, rules, 0, "expected 0 rules after deleteion")
+	require.Len(t, rules, 1, "expected 1 rules after deleteion")
 
 	err = manager.Reset()
 	require.NoError(t, err, "failed to reset")
