@@ -597,13 +597,13 @@ func (ap azureProfile) userData(clientID string) *UserData {
 		name = ""
 	}
 
-	accountIDField := fmt.Sprintf(wtAccountIDTpl, clientID)
+	accountIDField := extensionName(wtAccountIDTpl, clientID)
 	accountID, ok := ap[accountIDField].(string)
 	if !ok {
 		accountID = ""
 	}
 
-	pendingInviteField := fmt.Sprintf(wtPendingInviteTpl, clientID)
+	pendingInviteField := extensionName(wtPendingInviteTpl, clientID)
 	pendingInvite, ok := ap[pendingInviteField].(bool)
 	if !ok {
 		pendingInvite = false
