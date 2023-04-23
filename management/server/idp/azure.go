@@ -583,7 +583,7 @@ func (am *AzureManager) post(resource string, body string) ([]byte, error) {
 // userData construct user data from keycloak profile.
 func (ap azureProfile) userData(clientID string) *UserData {
 	id, ok := ap["id"].(string)
-	if ok {
+	if !ok {
 		id = ""
 	}
 
