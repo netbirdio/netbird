@@ -1094,8 +1094,8 @@ func (e *Engine) applyFirewallRules(rules []*mgmProto.FirewallRule) {
 		return
 	}
 
-	for ruleID := range e.firewallRules {
-		if rule, ok := newRules[ruleID]; !ok {
+	for ruleID, rule := range e.firewallRules {
+		if _, ok := newRules[ruleID]; !ok {
 			if err := e.firewallManager.DeleteRule(rule); err != nil {
 				log.Errorf("failed to delete firewall rule: %v", err)
 				continue

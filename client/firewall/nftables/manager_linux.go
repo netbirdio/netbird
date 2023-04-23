@@ -185,7 +185,7 @@ func (m *Manager) AddFiltering(
 	}
 
 	// Add the rule to the chain
-	rule := &Rule{id: uuid.New().String()}
+	rule := &Rule{id: id}
 	for _, r := range list {
 		if bytes.Equal(r.UserData, userData) {
 			rule.Rule = r
