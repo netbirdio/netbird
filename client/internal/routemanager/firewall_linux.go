@@ -1,12 +1,15 @@
+//go:build !android
+
 package routemanager
 
 import (
 	"context"
 	"fmt"
+
 	"github.com/coreos/go-iptables/iptables"
+	"github.com/google/nftables"
 	log "github.com/sirupsen/logrus"
 )
-import "github.com/google/nftables"
 
 const (
 	ipv6Forwarding     = "netbird-rt-ipv6-forwarding"

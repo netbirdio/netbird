@@ -3,6 +3,7 @@ package routemanager
 import (
 	"fmt"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/pion/transport/v2/stdnet"
 	"github.com/stretchr/testify/require"
 	"net"
 	"net/netip"
@@ -32,7 +33,11 @@ func TestAddRemoveRoutes(t *testing.T) {
 
 	for n, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", iface.DefaultMTU, nil)
+			newNet, err := stdnet.NewNet()
+			if err != nil {
+				t.Fatal(err)
+			}
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun53%d", n), "100.65.75.2/24", iface.DefaultMTU, nil, nil, newNet)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 

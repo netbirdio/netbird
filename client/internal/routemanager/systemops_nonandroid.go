@@ -1,11 +1,14 @@
+//go:build !android
+
 package routemanager
 
 import (
 	"fmt"
-	"github.com/libp2p/go-netroute"
-	log "github.com/sirupsen/logrus"
 	"net"
 	"net/netip"
+
+	"github.com/libp2p/go-netroute"
+	log "github.com/sirupsen/logrus"
 )
 
 var errRouteNotFound = fmt.Errorf("route not found")

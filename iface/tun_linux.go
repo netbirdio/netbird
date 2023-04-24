@@ -11,7 +11,7 @@ import (
 )
 
 func (c *tunDevice) Create() error {
-	if WireguardModuleIsLoaded() {
+	if WireGuardModuleIsLoaded() {
 		log.Info("using kernel WireGuard")
 		return c.createWithKernel()
 	}
@@ -30,7 +30,7 @@ func (c *tunDevice) Create() error {
 
 }
 
-// createWithKernel Creates a new Wireguard interface using kernel Wireguard module.
+// createWithKernel Creates a new WireGuard interface using kernel WireGuard module.
 // Works for Linux and offers much better network performance
 func (c *tunDevice) createWithKernel() error {
 

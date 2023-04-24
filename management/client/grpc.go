@@ -20,6 +20,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/cenkalti/backoff/v4"
+
 	"github.com/netbirdio/netbird/client/system"
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
@@ -144,15 +145,19 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 		// blocking until error
 		err = c.receiveEvents(stream, *serverPubKey, msgHandler)
 		if err != nil {
-			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.PermissionDenied {
+			s, _ := gstatus.FromError(err)
+			switch s.Code() {
+			case codes.PermissionDenied:
 				return backoff.Permanent(err) // unrecoverable error, propagate to the upper layer
+			case codes.Canceled:
+				log.Debugf("management connection context has been canceled, this usually indicates shutdown")
+				return nil
+			default:
+				backOff.Reset() // reset backoff counter after successful connection
+				c.notifyDisconnected()
+				log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
+				return err
 			}
-			// we need this reset because after a successful connection and a consequent error, backoff lib doesn't
-			// reset times and next try will start with a long delay
-			backOff.Reset()
-			c.notifyDisconnected()
-			log.Warnf("disconnected from the Management service but will retry silently. Reason: %v", err)
-			return err
 		}
 
 		return nil
@@ -165,6 +170,49 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 	}
 
 	return nil
+}
+
+// GetRoutes return with the routes
+func (c *GrpcClient) GetRoutes() ([]*proto.Route, error) {
+	serverPubKey, err := c.GetServerPublicKey()
+	if err != nil {
+		log.Debugf("failed getting Management Service public key: %s", err)
+		return nil, err
+	}
+
+	ctx, cancelStream := context.WithCancel(c.ctx)
+	defer cancelStream()
+	stream, err := c.connectToStream(ctx, *serverPubKey)
+	if err != nil {
+		log.Debugf("failed to open Management Service stream: %s", err)
+		return nil, err
+	}
+	defer func() {
+		_ = stream.CloseSend()
+	}()
+
+	update, err := stream.Recv()
+	if err == io.EOF {
+		log.Debugf("Management stream has been closed by server: %s", err)
+		return nil, err
+	}
+	if err != nil {
+		log.Debugf("disconnected from Management Service sync stream: %v", err)
+		return nil, err
+	}
+
+	decryptedResp := &proto.SyncResponse{}
+	err = encryption.DecryptMessage(*serverPubKey, c.key, update.Body, decryptedResp)
+	if err != nil {
+		log.Errorf("failed decrypting update message from Management Service: %s", err)
+		return nil, err
+	}
+
+	if decryptedResp.GetNetworkMap() == nil {
+		return nil, fmt.Errorf("invalid msg, required network map")
+	}
+
+	return decryptedResp.GetNetworkMap().GetRoutes(), nil
 }
 
 func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key) (proto.ManagementService_SyncClient, error) {

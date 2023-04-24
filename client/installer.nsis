@@ -193,6 +193,7 @@ ExecWait `taskkill /im ${UI_APP_EXE}.exe`
 Sleep 3000
 Delete "$INSTDIR\${UI_APP_EXE}"
 Delete "$INSTDIR\${MAIN_APP_EXE}"
+Delete "$INSTDIR\wintun.dll"
 RmDir /r "$INSTDIR"
 
 SetShellVarContext current

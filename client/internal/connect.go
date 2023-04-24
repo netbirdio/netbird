@@ -23,7 +23,7 @@ import (
 )
 
 // RunClient with main logic.
-func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) error {
+func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
@@ -59,9 +59,6 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		return err
 	}
 
-	statusRecorder.MarkManagementDisconnected()
-
-	statusRecorder.ClientStart()
 	defer statusRecorder.ClientStop()
 	operation := func() error {
 		// if context cancelled we not start new backoff cycle
@@ -111,7 +108,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		localPeerState := peer.LocalPeerState{
 			IP:              loginResp.GetPeerConfig().GetAddress(),
 			PubKey:          myPrivateKey.PublicKey().String(),
-			KernelInterface: iface.WireguardModuleIsLoaded(),
+			KernelInterface: iface.WireGuardModuleIsLoaded(),
 			FQDN:            loginResp.GetPeerConfig().GetFqdn(),
 		}
 
@@ -147,13 +144,19 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		peerConfig := loginResp.GetPeerConfig()
 
-		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig, tunAdapter, iFaceDiscover)
+		engineConfig, err := createEngineConfig(myPrivateKey, config, peerConfig)
 		if err != nil {
 			log.Error(err)
 			return wrapErr(err)
 		}
 
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, statusRecorder)
+		md, err := newMobileDependency(tunAdapter, iFaceDiscover, mgmClient)
+		if err != nil {
+			log.Error(err)
+			return wrapErr(err)
+		}
+
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, md, statusRecorder)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)
@@ -162,6 +165,8 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 
 		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)
 		state.Set(StatusConnected)
+
+		statusRecorder.ClientStart()
 
 		<-engineCtx.Done()
 		statusRecorder.ClientTeardown()
@@ -195,13 +200,10 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 }
 
 // createEngineConfig converts configuration received from Management Service to EngineConfig
-func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) (*EngineConfig, error) {
-
+func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
 	engineConf := &EngineConfig{
 		WgIfaceName:          config.WgIface,
 		WgAddr:               peerConfig.Address,
-		TunAdapter:           tunAdapter,
-		IFaceDiscover:        iFaceDiscover,
 		IFaceBlackList:       config.IFaceBlackList,
 		DisableIPv6Discovery: config.DisableIPv6Discovery,
 		WgPrivateKey:         key,

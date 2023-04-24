@@ -15,6 +15,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal"
 	"github.com/netbirdio/netbird/client/proto"
+	"github.com/netbirdio/netbird/client/system"
 )
 
 var loginCmd = &cobra.Command{
@@ -31,6 +32,11 @@ var loginCmd = &cobra.Command{
 		}
 
 		ctx := internal.CtxInitState(context.Background())
+
+		if hostName != "" {
+			// nolint
+			ctx = context.WithValue(ctx, system.DeviceNameCtxKey, hostName)
+		}
 
 		// workaround to run without service
 		if logFile == "console" {

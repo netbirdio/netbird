@@ -7,9 +7,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"github.com/vishvananda/netlink"
-	"golang.org/x/sys/unix"
 	"io"
 	"io/fs"
 	"math"
@@ -17,6 +14,10 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/vishvananda/netlink"
+	"golang.org/x/sys/unix"
 )
 
 // Holds logic to check existence of kernel modules used by wireguard interfaces
@@ -33,6 +34,7 @@ const (
 	loading
 	live
 	inuse
+	envDisableWireGuardKernel = "NB_WG_KERNEL_DISABLED"
 )
 
 type module struct {
@@ -81,9 +83,15 @@ func tunModuleIsLoaded() bool {
 	return tunLoaded
 }
 
-// WireguardModuleIsLoaded check if we can load wireguard mod (linux only)
-func WireguardModuleIsLoaded() bool {
-	if canCreateFakeWireguardInterface() {
+// WireGuardModuleIsLoaded check if we can load WireGuard mod (linux only)
+func WireGuardModuleIsLoaded() bool {
+
+	if os.Getenv(envDisableWireGuardKernel) == "true" {
+		log.Debugf("WireGuard kernel module disabled because the %s env is set to true", envDisableWireGuardKernel)
+		return false
+	}
+
+	if canCreateFakeWireGuardInterface() {
 		return true
 	}
 
@@ -96,7 +104,7 @@ func WireguardModuleIsLoaded() bool {
 	return loaded
 }
 
-func canCreateFakeWireguardInterface() bool {
+func canCreateFakeWireGuardInterface() bool {
 	link := newWGLink("mustnotexist")
 
 	// We willingly try to create a device with an invalid

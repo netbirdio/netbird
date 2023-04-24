@@ -10,7 +10,6 @@ import (
 
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl"
 
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -46,6 +45,9 @@ type ConnConfig struct {
 	LocalWgPort int
 
 	NATExternalIPs []string
+
+	// UsesBind indicates whether the WireGuard interface is userspace and uses bind.ICEBind
+	UserspaceBind bool
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -95,7 +97,7 @@ type Conn struct {
 	meta         meta
 
 	adapter       iface.TunAdapter
-	iFaceDiscover stdnet.IFaceDiscover
+	iFaceDiscover stdnet.ExternalIFaceDiscover
 }
 
 // meta holds meta information about a connection
@@ -121,7 +123,7 @@ func (conn *Conn) UpdateConf(conf ConnConfig) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -136,32 +138,6 @@ func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter
 	}, nil
 }
 
-// interfaceFilter is a function passed to ICE Agent to filter out not allowed interfaces
-// to avoid building tunnel over them
-func interfaceFilter(blackList []string) func(string) bool {
-
-	return func(iFace string) bool {
-		for _, s := range blackList {
-			if strings.HasPrefix(iFace, s) {
-				log.Debugf("ignoring interface %s - it is not allowed", iFace)
-				return false
-			}
-		}
-		// look for unlisted WireGuard interfaces
-		wg, err := wgctrl.New()
-		if err != nil {
-			log.Debugf("trying to create a wgctrl client failed with: %v", err)
-			return true
-		}
-		defer func() {
-			_ = wg.Close()
-		}()
-
-		_, err = wg.Device(iFace)
-		return err != nil
-	}
-}
-
 func (conn *Conn) reCreateAgent() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
@@ -171,7 +147,7 @@ func (conn *Conn) reCreateAgent() error {
 	var err error
 	transportNet, err := conn.newStdNet()
 	if err != nil {
-		log.Warnf("failed to create pion's stdnet: %s", err)
+		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode: ice.MulticastDNSModeDisabled,
@@ -179,7 +155,7 @@ func (conn *Conn) reCreateAgent() error {
 		Urls:             conn.config.StunTurn,
 		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
 		FailedTimeout:    &failedTimeout,
-		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
+		InterfaceFilter:  stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
 		UDPMux:           conn.config.UDPMux,
 		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
 		NAT1To1IPs:       conn.config.NATExternalIPs,
@@ -319,7 +295,7 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
-	if conn.proxy.Type() == proxy.TypeNoProxy {
+	if conn.proxy.Type() == proxy.TypeDirectNoProxy {
 		host, _, _ := net.SplitHostPort(remoteConn.LocalAddr().String())
 		rhost, _, _ := net.SplitHostPort(remoteConn.RemoteAddr().String())
 		// direct Wireguard connection
@@ -341,27 +317,60 @@ func (conn *Conn) Open() error {
 
 // useProxy determines whether a direct connection (without a go proxy) is possible
 //
-// There are 2 cases:
+// There are 3 cases:
 //
 // * When neither candidate is from hard nat and one of the peers has a public IP
 //
 // * both peers are in the same private network
 //
+// * Local peer uses userspace interface with bind.ICEBind and is not relayed
+//
 // Please note, that this check happens when peers were already able to ping each other using ICE layer.
-func shouldUseProxy(pair *ice.CandidatePair) bool {
+func shouldUseProxy(pair *ice.CandidatePair, userspaceBind bool) bool {
+
+	if !isRelayCandidate(pair.Local) && userspaceBind {
+		log.Debugf("shouldn't use proxy because using Bind and the connection is not relayed")
+		return false
+	}
+
 	if !isHardNATCandidate(pair.Local) && isHostCandidateWithPublicIP(pair.Remote) {
+		log.Debugf("shouldn't use proxy because the local peer is not behind a hard NAT and the remote one has a public IP")
 		return false
 	}
 
 	if !isHardNATCandidate(pair.Remote) && isHostCandidateWithPublicIP(pair.Local) {
+		log.Debugf("shouldn't use proxy because the remote peer is not behind a hard NAT and the local one has a public IP")
 		return false
 	}
 
-	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) {
+	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) && isSameNetworkPrefix(pair) {
+		log.Debugf("shouldn't use proxy because peers are in the same private /16 network")
+		return false
+	}
+
+	if (isPeerReflexiveCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) ||
+		isHostCandidateWithPrivateIP(pair.Local) && isPeerReflexiveCandidateWithPrivateIP(pair.Remote)) && isSameNetworkPrefix(pair) {
+		log.Debugf("shouldn't use proxy because peers are in the same private /16 network and one peer is peer reflexive")
 		return false
 	}
 
 	return true
+}
+
+func isSameNetworkPrefix(pair *ice.CandidatePair) bool {
+
+	localIP := net.ParseIP(pair.Local.Address())
+	remoteIP := net.ParseIP(pair.Remote.Address())
+	if localIP == nil || remoteIP == nil {
+		return false
+	}
+	// only consider /16 networks
+	mask := net.IPMask{255, 255, 0, 0}
+	return localIP.Mask(mask).Equal(remoteIP.Mask(mask))
+}
+
+func isRelayCandidate(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypeRelay
 }
 
 func isHardNATCandidate(candidate ice.Candidate) bool {
@@ -376,9 +385,13 @@ func isHostCandidateWithPrivateIP(candidate ice.Candidate) bool {
 	return candidate.Type() == ice.CandidateTypeHost && !isPublicIP(candidate.Address())
 }
 
+func isPeerReflexiveCandidateWithPrivateIP(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypePeerReflexive && !isPublicIP(candidate.Address())
+}
+
 func isPublicIP(address string) bool {
 	ip := net.ParseIP(address)
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
+	if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
 		return false
 	}
 	return true
@@ -412,7 +425,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
 	}
-	peerState.Direct = p.Type() == proxy.TypeNoProxy
+	peerState.Direct = p.Type() == proxy.TypeDirectNoProxy || p.Type() == proxy.TypeNoProxy
 
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -423,8 +436,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 }
 
 func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
-
-	useProxy := shouldUseProxy(pair)
+	useProxy := shouldUseProxy(pair, conn.config.UserspaceBind)
 	localDirectMode := !useProxy
 	remoteDirectMode := localDirectMode
 
@@ -434,13 +446,16 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 		remoteDirectMode = conn.receiveRemoteDirectMode()
 	}
 
+	if conn.config.UserspaceBind && localDirectMode {
+		return proxy.NewNoProxy(conn.config.ProxyConfig)
+	}
+
 	if localDirectMode && remoteDirectMode {
-		log.Debugf("using WireGuard direct mode with peer %s", conn.config.Key)
-		return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
+		return proxy.NewDirectNoProxy(conn.config.ProxyConfig, remoteWgPort)
 	}
 
 	log.Debugf("falling back to local proxy mode with peer %s", conn.config.Key)
-	return proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
 }
 
 func (conn *Conn) sendLocalDirectMode(localMode bool) {
