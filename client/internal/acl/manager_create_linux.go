@@ -8,8 +8,8 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/nftables"
 )
 
-// Create creates a firewall controller instance for the Linux
-func Create(wgIfaceName string) (controller *DefaultManager, err error) {
+// Create creates a firewall manager instance for the Linux
+func Create(wgIfaceName string) (manager *DefaultManager, err error) {
 	var fm firewall.Manager
 	if fm, err = iptables.Create(wgIfaceName); err != nil {
 		log.Debugf("failed to create iptables manager: %s", err)

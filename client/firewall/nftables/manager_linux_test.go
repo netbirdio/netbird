@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/netip"
 	"testing"
+	"time"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -17,9 +18,13 @@ func TestNftablesManager(t *testing.T) {
 	// just check on the local interface
 	manager, err := Create("lo")
 	require.NoError(t, err)
+	time.Sleep(time.Second)
 
-	err = manager.Reset()
-	require.NoError(t, err, "failed to reset")
+	defer func() {
+		err = manager.Reset()
+		require.NoError(t, err, "failed to reset")
+		time.Sleep(time.Second)
+	}()
 
 	ip := net.ParseIP("100.96.0.1")
 

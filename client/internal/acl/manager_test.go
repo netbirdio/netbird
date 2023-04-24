@@ -39,6 +39,7 @@ func TestDefaultManager(t *testing.T) {
 		t.Errorf("create ACL manager: %v", err)
 		return
 	}
+	defer acl.Stop()
 
 	t.Run("apply firewall rules", func(t *testing.T) {
 		acl.ApplyFiltering(fwRules)

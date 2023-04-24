@@ -3,6 +3,7 @@ package acl
 import (
 	"net"
 	"strconv"
+	"sync"
 
 	"github.com/netbirdio/netbird/client/firewall"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
@@ -19,10 +20,14 @@ type Manager interface {
 type DefaultManager struct {
 	manager firewall.Manager
 	rules   map[string]firewall.Rule
+	mutex   sync.Mutex
 }
 
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
 func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
 	if d.manager == nil {
 		log.Debug("firewall manager is not supported, skipping firewall rules")
 		return
@@ -65,8 +70,11 @@ func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule) {
 }
 
 // Stop ACL controller and clear firewall state
-func (a *DefaultManager) Stop() {
-	if err := a.manager.Reset(); err != nil {
+func (d *DefaultManager) Stop() {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	if err := d.manager.Reset(); err != nil {
 		log.WithError(err).Error("reset firewall state")
 	}
 }

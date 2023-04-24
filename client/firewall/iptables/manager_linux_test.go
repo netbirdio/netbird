@@ -3,6 +3,7 @@ package iptables
 import (
 	"net"
 	"testing"
+	"time"
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,14 @@ func TestIptablesManager(t *testing.T) {
 	// just check on the local interface
 	manager, err := Create("lo")
 	require.NoError(t, err)
-	defer manager.Reset()
+	time.Sleep(time.Second)
+
+	defer func() {
+		if err := manager.Reset(); err != nil {
+			t.Errorf("clear the manager state: %v", err)
+		}
+		time.Sleep(time.Second)
+	}()
 
 	var rule1 fw.Rule
 	t.Run("add first rule", func(t *testing.T) {

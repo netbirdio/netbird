@@ -4,12 +4,11 @@ package acl
 
 import (
 	"fmt"
-	"runtime"
 
-	"github.com/netbirdio/netbird/client/firewall"
+	"runtime"
 )
 
-// Create creates a firewall controller instance
-func Create(wgIfaceName string) (controller *Controller, err error) {
+// Create creates a firewall manager instance
+func Create(wgIfaceName string) (manager *DefaultManager, err error) {
 	return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
 }

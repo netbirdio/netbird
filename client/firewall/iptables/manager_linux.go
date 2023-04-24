@@ -19,8 +19,7 @@ const (
 )
 
 // jumpNetbirdDefaultRule always added by manager to the input chain for all trafic from the Netbird interface
-var jumpNetbirdDefaultRule = []string{
-	"-j", ChainFilterName, "-m", "comment", "--comment", "Netbird traffic chain jump"}
+var jumpNetbirdDefaultRule = []string{"-j", ChainFilterName}
 
 // pingSupportDefaultRule always added by the manager to the Netbird ACL chain
 var pingSupportDefaultRule = []string{
@@ -169,8 +168,12 @@ func (m *Manager) reset(client *iptables.IPTables, table, chain string) error {
 	}
 
 	specs := append([]string{"-i", m.wgIfaceName}, jumpNetbirdDefaultRule...)
-	if err := client.Delete("filter", "INPUT", specs...); err != nil {
-		return fmt.Errorf("failed to delete default rule: %w", err)
+	if ok, err := client.Exists("filter", "INPUT", specs...); err != nil {
+		return err
+	} else if ok {
+		if err := client.Delete("filter", "INPUT", specs...); err != nil {
+			log.WithError(err).Errorf("failed to delete default rule: %v", err)
+		}
 	}
 
 	return client.ClearAndDeleteChain(table, chain)
