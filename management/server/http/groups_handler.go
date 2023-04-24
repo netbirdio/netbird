@@ -231,29 +231,6 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func peerIPsToKeys(account *server.Account, peerIPs *[]string) []string {
-	var mappedPeerKeys []string
-	if peerIPs == nil {
-		return mappedPeerKeys
-	}
-
-	peersChecked := make(map[string]struct{})
-
-	for _, requestPeersIP := range *peerIPs {
-		_, ok := peersChecked[requestPeersIP]
-		if ok {
-			continue
-		}
-		peersChecked[requestPeersIP] = struct{}{}
-		for _, accountPeer := range account.Peers {
-			if accountPeer.IP.String() == requestPeersIP {
-				mappedPeerKeys = append(mappedPeerKeys, accountPeer.Key)
-			}
-		}
-	}
-	return mappedPeerKeys
-}
-
 func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 	cache := make(map[string]api.PeerMinimum)
 	gr := api.Group{
