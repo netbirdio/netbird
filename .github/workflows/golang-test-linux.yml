@@ -70,16 +70,16 @@ jobs:
         run: go mod tidy
 
       - name: Generate Iface Test bin
-        run: go test -c -o iface-testing.bin ./iface/
+        run: CGO_ENABLED=0 go test -c -o iface-testing.bin ./iface/
 
       - name: Generate RouteManager Test bin
-        run: go test -c -o routemanager-testing.bin ./client/internal/routemanager/...
+        run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin ./client/internal/routemanager/...
 
       - name: Generate Engine Test bin
-        run: go test -c -o engine-testing.bin ./client/internal
+        run: CGO_ENABLED=0 go test -c -o engine-testing.bin ./client/internal
 
       - name: Generate Peer Test bin
-        run: go test -c -o peer-testing.bin ./client/internal/peer/...
+        run: CGO_ENABLED=0 go test -c -o peer-testing.bin ./client/internal/peer/...
 
       - run: chmod +x *testing.bin
 
