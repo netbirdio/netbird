@@ -1,6 +1,6 @@
 //go:build !linux
 
-package internal
+package acl
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"github.com/netbirdio/netbird/client/firewall"
 )
 
-func buildFirewallManager(wgIfaceName string) (fw firewall.Manager, err error) {
+// Create creates a firewall controller instance
+func Create(wgIfaceName string) (controller *Controller, err error) {
 	return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
 }

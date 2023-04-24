@@ -46,6 +46,10 @@ func Create(wgIfaceName string) (*Manager, error) {
 		wgIfaceName: wgIfaceName,
 	}
 
+	if err := m.Reset(); err != nil {
+		return nil, err
+	}
+
 	return m, nil
 }
 

@@ -17,6 +17,7 @@ func TestIptablesManager(t *testing.T) {
 	// just check on the local interface
 	manager, err := Create("lo")
 	require.NoError(t, err)
+	defer manager.Reset()
 
 	var rule1 fw.Rule
 	t.Run("add first rule", func(t *testing.T) {

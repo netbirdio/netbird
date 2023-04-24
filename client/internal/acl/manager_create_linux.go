@@ -1,4 +1,4 @@
-package internal
+package acl
 
 import (
 	log "github.com/sirupsen/logrus"
@@ -8,8 +8,9 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/nftables"
 )
 
-// buildFirewallManager creates a firewall manager instance for the Linux
-func buildFirewallManager(wgIfaceName string) (fm firewall.Manager, err error) {
+// Create creates a firewall controller instance for the Linux
+func Create(wgIfaceName string) (controller *DefaultManager, err error) {
+	var fm firewall.Manager
 	if fm, err = iptables.Create(wgIfaceName); err != nil {
 		log.Debugf("failed to create iptables manager: %s", err)
 		// fallback to nftables
@@ -18,5 +19,9 @@ func buildFirewallManager(wgIfaceName string) (fm firewall.Manager, err error) {
 			return nil, err
 		}
 	}
-	return fm, nil
+
+	return &DefaultManager{
+		manager: fm,
+		rules:   make(map[string]firewall.Rule),
+	}, nil
 }
