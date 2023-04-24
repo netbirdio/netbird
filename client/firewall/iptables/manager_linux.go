@@ -54,7 +54,7 @@ func Create(wgIfaceName string) (*Manager, error) {
 
 	ipv6Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 	if err != nil {
-		log.Errorf("ip6tables is not installed in the system or not supported")
+		log.Errorf("ip6tables is not installed in the system or not supported: %v", err)
 	} else {
 		m.ipv6Client = ipv6Client
 	}
