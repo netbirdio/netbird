@@ -11,6 +11,18 @@ import (
 	"github.com/netbirdio/netbird/version"
 )
 
+var _ = initTZ()
+
+func initTZ() bool {
+	loc, err := time.LoadLocation("UTC")
+	if err != nil {
+		panic(err)
+	}
+
+	time.Local = loc
+	return true
+}
+
 var resp = &proto.StatusResponse{
 	Status: "Connected",
 	FullStatus: &proto.FullStatus{
