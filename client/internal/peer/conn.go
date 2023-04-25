@@ -11,7 +11,6 @@ import (
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/iface"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -37,7 +36,7 @@ type ConnConfig struct {
 
 	Timeout time.Duration
 
-	ProxyConfig proxy.Config
+	WgConfig WgConfig
 
 	UDPMux      ice.UDPMux
 	UDPMuxSrflx ice.UniversalUDPMux
@@ -92,7 +91,8 @@ type Conn struct {
 
 	statusRecorder *Status
 
-	proxy        proxy.Proxy
+	proxy        proxy
+	wgPeerMgr    *wgPeerManager
 	remoteModeCh chan ModeMessage
 	meta         meta
 
@@ -111,14 +111,14 @@ type ModeMessage struct {
 	Direct bool
 }
 
-// GetConf returns the connection config
-func (conn *Conn) GetConf() ConnConfig {
-	return conn.config
+// WgConfig returns the WireGuard config
+func (conn *Conn) WgConfig() WgConfig {
+	return conn.config.WgConfig
 }
 
-// UpdateConf updates the connection config
-func (conn *Conn) UpdateConf(conf ConnConfig) {
-	conn.config = conf
+// UpdateStunTurn update the turn and stun addresses
+func (conn *Conn) UpdateStunTurn(turnStun []*ice.URL) {
+	conn.config.StunTurn = turnStun
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
@@ -198,7 +198,7 @@ func (conn *Conn) Open() error {
 
 	peerState := State{PubKey: conn.config.Key}
 
-	peerState.IP = strings.Split(conn.config.ProxyConfig.AllowedIps, "/")[0]
+	peerState.IP = strings.Split(conn.config.WgConfig.AllowedIps, "/")[0]
 	peerState.ConnStatusUpdate = time.Now()
 	peerState.ConnStatus = conn.status
 
@@ -290,19 +290,12 @@ func (conn *Conn) Open() error {
 		remoteWgPort = remoteOfferAnswer.WgListenPort
 	}
 	// the ice connection has been established successfully so we are ready to start the proxy
-	err = conn.startProxy(remoteConn, remoteWgPort)
+	err = conn.configureConnection(remoteConn, remoteWgPort)
 	if err != nil {
 		return err
 	}
 
-	if conn.proxy.Type() == proxy.TypeDirectNoProxy {
-		host, _, _ := net.SplitHostPort(remoteConn.LocalAddr().String())
-		rhost, _, _ := net.SplitHostPort(remoteConn.RemoteAddr().String())
-		// direct Wireguard connection
-		log.Infof("directly connected to peer %s [laddr <-> raddr] [%s:%d <-> %s:%d]", conn.config.Key, host, conn.config.LocalWgPort, rhost, remoteWgPort)
-	} else {
-		log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", conn.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
-	}
+	log.Infof("connected to peer %s with proxy %v, [laddr <-> raddr] [%s <-> %s]", conn.config.Key, conn.proxy != nil, laddr, conn.wgPeerMgr.remoteAddr.String())
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
@@ -315,7 +308,7 @@ func (conn *Conn) Open() error {
 	}
 }
 
-// useProxy determines whether a direct connection (without a go proxy) is possible
+// isPreferredDirectMode determines whether a direct connection (without a go proxy) is not possible
 //
 // There are 3 cases:
 //
@@ -326,35 +319,33 @@ func (conn *Conn) Open() error {
 // * Local peer uses userspace interface with bind.ICEBind and is not relayed
 //
 // Please note, that this check happens when peers were already able to ping each other using ICE layer.
-func shouldUseProxy(pair *ice.CandidatePair, userspaceBind bool) bool {
-
+func isPreferredDirectMode(pair *ice.CandidatePair, userspaceBind bool) bool {
 	if !isRelayCandidate(pair.Local) && userspaceBind {
 		log.Debugf("shouldn't use proxy because using Bind and the connection is not relayed")
-		return false
+		return true
 	}
 
 	if !isHardNATCandidate(pair.Local) && isHostCandidateWithPublicIP(pair.Remote) {
 		log.Debugf("shouldn't use proxy because the local peer is not behind a hard NAT and the remote one has a public IP")
-		return false
+		return true
 	}
 
 	if !isHardNATCandidate(pair.Remote) && isHostCandidateWithPublicIP(pair.Local) {
 		log.Debugf("shouldn't use proxy because the remote peer is not behind a hard NAT and the local one has a public IP")
-		return false
+		return true
 	}
 
 	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) && isSameNetworkPrefix(pair) {
 		log.Debugf("shouldn't use proxy because peers are in the same private /16 network")
-		return false
+		return true
 	}
 
 	if (isPeerReflexiveCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) ||
 		isHostCandidateWithPrivateIP(pair.Local) && isPeerReflexiveCandidateWithPrivateIP(pair.Remote)) && isSameNetworkPrefix(pair) {
 		log.Debugf("shouldn't use proxy because peers are in the same private /16 network and one peer is peer reflexive")
-		return false
+		return true
 	}
-
-	return true
+	return false
 }
 
 func isSameNetworkPrefix(pair *ice.CandidatePair) bool {
@@ -397,27 +388,38 @@ func isPublicIP(address string) bool {
 	return true
 }
 
-// startProxy starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
+// configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
+func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	var pair *ice.CandidatePair
 	pair, err := conn.agent.GetSelectedCandidatePair()
 	if err != nil {
 		return err
 	}
 
-	peerState := State{PubKey: conn.config.Key}
-	p := conn.getProxyWithMessageExchange(pair, remoteWgPort)
-	conn.proxy = p
-	err = p.Start(remoteConn)
+	localDirectMode, remoteDirectMode := conn.getNetworkConditions(pair)
+
+	wgPeerMgr := newWgPeerManager(conn.config.WgConfig)
+	err = wgPeerMgr.configureWgPeer(localDirectMode, remoteDirectMode, conn.config.UserspaceBind, remoteConn, remoteWgPort)
 	if err != nil {
 		return err
+	}
+	conn.wgPeerMgr = wgPeerMgr
+
+	if conn.isProxyNeeded(localDirectMode, remoteDirectMode) {
+		p := NewWireGuardProxy(conn.config.WgConfig.WgListenAddr, conn.config.WgConfig.RemoteKey)
+		err = p.Start(remoteConn)
+		if err != nil {
+			return err
+		}
+		conn.proxy = p
 	}
 
 	conn.status = StatusConnected
 
+	// update Peer's state
+	peerState := State{PubKey: conn.config.Key}
 	peerState.ConnStatus = conn.status
 	peerState.ConnStatusUpdate = time.Now()
 	peerState.LocalIceCandidateType = pair.Local.Type().String()
@@ -425,7 +427,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
 	}
-	peerState.Direct = p.Type() == proxy.TypeDirectNoProxy || p.Type() == proxy.TypeNoProxy
+	peerState.Direct = conn.proxy == nil
 
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -435,27 +437,29 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	return nil
 }
 
-func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
-	useProxy := shouldUseProxy(pair, conn.config.UserspaceBind)
-	localDirectMode := !useProxy
-	remoteDirectMode := localDirectMode
+func (conn *Conn) getNetworkConditions(pair *ice.CandidatePair) (bool, bool) {
+	var localDirectMode, remoteDirectMode bool
+	localDirectMode = isPreferredDirectMode(pair, conn.config.UserspaceBind)
 
 	if conn.meta.protoSupport.DirectCheck {
 		go conn.sendLocalDirectMode(localDirectMode)
 		// will block until message received or timeout
 		remoteDirectMode = conn.receiveRemoteDirectMode()
+	} else {
+		remoteDirectMode = localDirectMode
 	}
+	return localDirectMode, remoteDirectMode
+}
 
+func (conn *Conn) isProxyNeeded(localDirectMode, remoteDirectMode bool) bool {
 	if conn.config.UserspaceBind && localDirectMode {
-		return proxy.NewNoProxy(conn.config.ProxyConfig)
+		return false
 	}
 
 	if localDirectMode && remoteDirectMode {
-		return proxy.NewDirectNoProxy(conn.config.ProxyConfig, remoteWgPort)
+		return false
 	}
-
-	log.Debugf("falling back to local proxy mode with peer %s", conn.config.Key)
-	return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
+	return true
 }
 
 func (conn *Conn) sendLocalDirectMode(localMode bool) {
@@ -500,20 +504,26 @@ func (conn *Conn) cleanup() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	var err1, err2, err3 error
 	if conn.agent != nil {
-		err := conn.agent.Close()
-		if err != nil {
-			return err
+		err1 = conn.agent.Close()
+		if err1 == nil {
+			conn.agent = nil
 		}
-		conn.agent = nil
+	}
+
+	if conn.wgPeerMgr != nil {
+		err2 = conn.wgPeerMgr.close()
+		if err2 == nil {
+			conn.wgPeerMgr = nil
+		}
 	}
 
 	if conn.proxy != nil {
-		err := conn.proxy.Close()
-		if err != nil {
-			return err
+		err3 = conn.proxy.Close()
+		if err3 == nil {
+			conn.proxy = nil
 		}
-		conn.proxy = nil
 	}
 
 	if conn.notifyDisconnected != nil {
@@ -535,8 +545,13 @@ func (conn *Conn) cleanup() error {
 	}
 
 	log.Debugf("cleaned up connection to peer %s", conn.config.Key)
-
-	return nil
+	if err1 != nil {
+		return err1
+	}
+	if err2 != nil {
+		return err2
+	}
+	return err3
 }
 
 // SetSignalOffer sets a handler function to be triggered by Conn when a new connection offer has to be signalled to the remote peer

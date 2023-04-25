@@ -11,7 +11,6 @@ import (
 	"github.com/pion/ice/v2"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/iface"
 	sproto "github.com/netbirdio/netbird/signal/proto"
 )
@@ -22,7 +21,7 @@ var connConf = ConnConfig{
 	StunTurn:           []*ice.URL{},
 	InterfaceBlackList: nil,
 	Timeout:            time.Second,
-	ProxyConfig:        proxy.Config{},
+	WgConfig:           WgConfig{},
 	LocalWgPort:        51820,
 }
 
@@ -244,87 +243,87 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 		expected    bool
 	}{
 		{
-			name: "Use Proxy When Local Candidate Is Relay",
+			name: "Use proxy When Local Candidate Is Relay",
 			candatePair: &ice.CandidatePair{
 				Local:  relayCandidate,
 				Remote: privateHostCandidate,
 			},
-			expected: true,
+			expected: false,
 		},
 		{
-			name: "Use Proxy When Remote Candidate Is Relay",
+			name: "Use proxy When Remote Candidate Is Relay",
 			candatePair: &ice.CandidatePair{
 				Local:  privateHostCandidate,
 				Remote: relayCandidate,
 			},
-			expected: true,
+			expected: false,
 		},
 		{
-			name: "Use Proxy When Local Candidate Is Peer Reflexive",
+			name: "Use proxy When Local Candidate Is Peer Reflexive",
 			candatePair: &ice.CandidatePair{
 				Local:  prflxCandidate,
 				Remote: privateHostCandidate,
 			},
-			expected: true,
+			expected: false,
 		},
 		{
-			name: "Use Proxy When Remote Candidate Is Peer Reflexive",
+			name: "Use proxy When Remote Candidate Is Peer Reflexive",
 			candatePair: &ice.CandidatePair{
 				Local:  privateHostCandidate,
 				Remote: prflxCandidate,
 			},
-			expected: true,
+			expected: false,
 		},
 		{
-			name: "Don't Use Proxy When Local Candidate Is Public And Remote Is Private",
+			name: "Don't Use proxy When Local Candidate Is Public And Remote Is Private",
 			candatePair: &ice.CandidatePair{
 				Local:  publicHostCandidate,
 				Remote: privateHostCandidate,
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name: "Don't Use Proxy When Remote Candidate Is Public And Local Is Private",
+			name: "Don't Use proxy When Remote Candidate Is Public And Local Is Private",
 			candatePair: &ice.CandidatePair{
 				Local:  privateHostCandidate,
 				Remote: publicHostCandidate,
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name: "Don't Use Proxy When Local Candidate is Public And Remote Is Server Reflexive",
+			name: "Don't Use proxy When Local Candidate is Public And Remote Is Server Reflexive",
 			candatePair: &ice.CandidatePair{
 				Local:  publicHostCandidate,
 				Remote: srflxCandidate,
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name: "Don't Use Proxy When Remote Candidate is Public And Local Is Server Reflexive",
+			name: "Don't Use proxy When Remote Candidate is Public And Local Is Server Reflexive",
 			candatePair: &ice.CandidatePair{
 				Local:  srflxCandidate,
 				Remote: publicHostCandidate,
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name: "Don't Use Proxy When Both Candidates Are Public",
+			name: "Don't Use proxy When Both Candidates Are Public",
 			candatePair: &ice.CandidatePair{
 				Local:  publicHostCandidate,
 				Remote: publicHostCandidate,
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name: "Don't Use Proxy When Both Candidates Are Private",
+			name: "Don't Use proxy When Both Candidates Are Private",
 			candatePair: &ice.CandidatePair{
 				Local:  privateHostCandidate,
 				Remote: privateHostCandidate,
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name: "Don't Use Proxy When Both Candidates are in private network and one is peer reflexive",
+			name: "Don't Use proxy When Both Candidates are in private network and one is peer reflexive",
 			candatePair: &ice.CandidatePair{
 				Local: &mockICECandidate{AddressFunc: func() string {
 					return "10.16.102.168"
@@ -339,10 +338,10 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 						return ice.CandidateTypePeerReflexive
 					}},
 			},
-			expected: false,
+			expected: true,
 		},
 		{
-			name: "Should Use Proxy When Both Candidates are in private network and both are peer reflexive",
+			name: "Should Use proxy When Both Candidates are in private network and both are peer reflexive",
 			candatePair: &ice.CandidatePair{
 				Local: &mockICECandidate{AddressFunc: func() string {
 					return "10.16.102.168"
@@ -357,13 +356,13 @@ func TestConn_ShouldUseProxy(t *testing.T) {
 						return ice.CandidateTypePeerReflexive
 					}},
 			},
-			expected: true,
+			expected: false,
 		},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			result := shouldUseProxy(testCase.candatePair, false)
+			result := isPreferredDirectMode(testCase.candatePair, false)
 			if result != testCase.expected {
 				t.Errorf("got a different result. Expected %t Got %t", testCase.expected, result)
 			}
@@ -394,57 +393,57 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 		candatePair            *ice.CandidatePair
 		inputDirectModeSupport bool
 		inputRemoteModeMessage bool
-		expected               proxy.Type
+		expected               bool
 	}{
 		{
-			name: "Should Result In Using Wireguard Proxy When Local Eval Is Use Proxy",
+			name: "Should Result In Using Wireguard proxy When Local Eval Is Use proxy",
 			candatePair: &ice.CandidatePair{
 				Local:  relayCandidate,
 				Remote: publicHostCandidate,
 			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: true,
-			expected:               proxy.TypeWireGuard,
+			expected:               true,
 		},
 		{
-			name: "Should Result In Using Wireguard Proxy When Remote Eval Is Use Proxy",
+			name: "Should Result In Using Wireguard proxy When Remote Eval Is Use proxy",
 			candatePair: &ice.CandidatePair{
 				Local:  publicHostCandidate,
 				Remote: publicHostCandidate,
 			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: false,
-			expected:               proxy.TypeWireGuard,
+			expected:               true,
 		},
 		{
-			name: "Should Result In Using Wireguard Proxy When Remote Direct Mode Support Is False And Local Eval Is Use Proxy",
+			name: "Should Result In Using Wireguard proxy When Remote Direct Mode Support Is False And Local Eval Is Use proxy",
 			candatePair: &ice.CandidatePair{
 				Local:  relayCandidate,
 				Remote: publicHostCandidate,
 			},
 			inputDirectModeSupport: false,
 			inputRemoteModeMessage: false,
-			expected:               proxy.TypeWireGuard,
+			expected:               true,
 		},
 		{
-			name: "Should Result In Using Direct When Remote Direct Mode Support Is False And Local Eval Is No Use Proxy",
+			name: "Should Result In Using Direct When Remote Direct Mode Support Is False And Local Eval Is No Use proxy",
 			candatePair: &ice.CandidatePair{
 				Local:  publicHostCandidate,
 				Remote: publicHostCandidate,
 			},
 			inputDirectModeSupport: false,
 			inputRemoteModeMessage: false,
-			expected:               proxy.TypeDirectNoProxy,
+			expected:               false,
 		},
 		{
-			name: "Should Result In Using Direct When Local And Remote Eval Is No Proxy",
+			name: "Should Result In Using Direct When Local And Remote Eval Is No proxy",
 			candatePair: &ice.CandidatePair{
 				Local:  publicHostCandidate,
 				Remote: publicHostCandidate,
 			},
 			inputDirectModeSupport: true,
 			inputRemoteModeMessage: true,
-			expected:               proxy.TypeDirectNoProxy,
+			expected:               false,
 		},
 	}
 	for _, testCase := range testCases {
@@ -464,15 +463,15 @@ func TestGetProxyWithMessageExchange(t *testing.T) {
 					Direct: testCase.inputRemoteModeMessage,
 				})
 			})
-
-			resultProxy := conn.getProxyWithMessageExchange(testCase.candatePair, 1000)
+			conn.config.UserspaceBind = false
+			resultProxy := conn.isProxyNeeded(testCase.inputDirectModeSupport, testCase.inputRemoteModeMessage)
 
 			err = g.Wait()
 			if err != nil {
 				t.Error(err)
 			}
-			if resultProxy.Type() != testCase.expected {
-				t.Errorf("result didn't match expected value: Expected: %s, Got: %s", testCase.expected, resultProxy.Type())
+			if resultProxy != testCase.expected {
+				t.Errorf("result didn't match expected value: Expected: %v, Got: %v", testCase.expected, resultProxy)
 			}
 		})
 	}
