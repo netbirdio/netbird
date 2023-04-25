@@ -75,6 +75,10 @@ type udpConn struct {
 	logger logging.LeveledLogger
 }
 
+func (m *UniversalUDPMuxDefault) GetSharedConn() net.PacketConn {
+	return m.params.UDPConn
+}
+
 // GetListenAddresses returns the listen addr of this UDP
 func (m *UniversalUDPMuxDefault) GetListenAddresses() []net.Addr {
 	return []net.Addr{m.LocalAddr()}
