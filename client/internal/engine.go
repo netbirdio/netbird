@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -21,6 +22,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
+	"github.com/netbirdio/netbird/client/stunlistener"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	mgm "github.com/netbirdio/netbird/management/client"
@@ -101,8 +103,8 @@ type Engine struct {
 
 	udpMux          ice.UDPMux
 	udpMuxSrflx     ice.UniversalUDPMux
-	udpMuxConn      *net.UDPConn
-	udpMuxConnSrflx *net.UDPConn
+	udpMuxConn      io.Closer
+	udpMuxConnSrflx io.Closer
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -210,29 +212,17 @@ func (e *Engine) Start() error {
 		e.udpMuxSrflx = udpMux
 		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
 	} else {
-		networkName := "udp"
-		if e.config.DisableIPv6Discovery {
-			networkName = "udp4"
-		}
-		e.udpMuxConn, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxPort})
+		mux, closer, err := stunlistener.NewUDPMuxWithStunListener(e.ctx, transportNet, e.config.WgPort)
 		if err != nil {
-			log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
-			e.close()
 			return err
 		}
-		udpMuxParams := ice.UDPMuxParams{
-			UDPConn: e.udpMuxConn,
-			Net:     transportNet,
-		}
-		e.udpMux = ice.NewUDPMuxDefault(udpMuxParams)
 
-		e.udpMuxConnSrflx, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
-		if err != nil {
-			log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
-			e.close()
-			return err
-		}
-		e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx, Net: transportNet})
+		e.udpMuxConn = closer
+
+		e.udpMux = mux.UDPMuxDefault
+
+		e.udpMuxConnSrflx = closer
+		e.udpMuxSrflx = mux
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
@@ -393,9 +383,6 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	if err != nil {
 		return err
 	}
-
-	// indicates message support in gRPC
-	msg.Body.FeaturesSupported = []uint32{signal.DirectCheck}
 
 	err = s.Send(msg)
 	if err != nil {

@@ -436,26 +436,11 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 }
 
 func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
-	useProxy := shouldUseProxy(pair, conn.config.UserspaceBind)
-	localDirectMode := !useProxy
-	remoteDirectMode := localDirectMode
-
-	if conn.meta.protoSupport.DirectCheck {
-		go conn.sendLocalDirectMode(localDirectMode)
-		// will block until message received or timeout
-		remoteDirectMode = conn.receiveRemoteDirectMode()
+	if isRelayCandidate(pair.Local) {
+		return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
 	}
 
-	if conn.config.UserspaceBind && localDirectMode {
-		return proxy.NewNoProxy(conn.config.ProxyConfig)
-	}
-
-	if localDirectMode && remoteDirectMode {
-		return proxy.NewDirectNoProxy(conn.config.ProxyConfig, remoteWgPort)
-	}
-
-	log.Debugf("falling back to local proxy mode with peer %s", conn.config.Key)
-	return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
+	return proxy.NewNoProxy(conn.config.ProxyConfig)
 }
 
 func (conn *Conn) sendLocalDirectMode(localMode bool) {
