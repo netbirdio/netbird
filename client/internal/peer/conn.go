@@ -459,25 +459,30 @@ func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgP
 	// We decided to ignore the proxy decision when using Bind. Instead, we always punch remote WireGuard port to open a
 	// hole in the firewall for that remote port to avoid cases when old clients assumes direct mode.
 	mux := conn.config.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
-	err := punchRemote(pair, remoteWgPort, mux)
-	if err != nil {
-		log.Warnf("failed to punch remote WireGuard port")
-	}
+	go func() {
+		err := punchRemote(pair, remoteWgPort, mux)
+		if err != nil {
+			log.Warnf("failed to punch remote WireGuard port: %s", err)
+		}
+	}()
 
 	return proxy.NewNoProxy(conn.config.ProxyConfig)
 
 }
 
 func punchRemote(pair *ice.CandidatePair, remoteWgPort int, muxDefault *bind.UniversalUDPMuxDefault) error {
-	addr, err := net.ResolveUDPAddr("udp", pair.Remote.Address())
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", pair.Remote.Address(), remoteWgPort))
 	if err != nil {
 		return err
 	}
-	addr.Port = remoteWgPort
 
-	_, err = muxDefault.GetSharedConn().WriteTo([]byte{1}, addr)
-	if err != nil {
-		return err
+	for i := 0; i < 10; i++ {
+		_, err = muxDefault.GetSharedConn().WriteTo([]byte{1}, addr)
+		if err != nil {
+			return err
+		}
+		log.Debugf("puch msg has been sent: %d, %s, %v", i, addr.String(), muxDefault.GetSharedConn().LocalAddr())
+		time.Sleep(time.Second)
 	}
 	return err
 }

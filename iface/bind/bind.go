@@ -109,10 +109,15 @@ func (b *ICEBind) makeReceiveIPv4(c net.PacketConn) conn.ReceiveFunc {
 		if err != nil {
 			return 0, nil, err
 		}
+
 		e, err := netip.ParseAddrPort(endpoint.String())
 		if err != nil {
 			return 0, nil, err
 		}
+		if e.Port() == 51820 {
+			log.Debugf("received msg from 51820: %v, %d", e.String(), n)
+		}
+
 		if !stun.IsMessage(buff) {
 			// WireGuard traffic
 			return n, (conn.StdNetEndpoint)(netip.AddrPortFrom(e.Addr(), e.Port())), nil
