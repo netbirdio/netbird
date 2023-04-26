@@ -134,6 +134,7 @@ func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
 			_, a, err := s.ReadFrom(buf)
 			if err != nil {
 				log.Errorf("listenerToMux got an error while reading listener packet")
+
 				continue
 			}
 			msg := &stun.Message{
@@ -144,6 +145,8 @@ func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
 				log.Errorf("listenerToMux got an error while parsing stun message: %s", err)
 				continue
 			}
+
+			log.Debugf("reading TR ID: %d from %s", msg.TransactionID, a.String())
 
 			err = mux.HandleSTUNMessage(msg, a)
 			if err != nil {
@@ -254,7 +257,6 @@ func (s *StunListener) read(receiver receiver) {
 		case <-s.ctx.Done():
 			return
 		case s.packetDemux <- rcvdPacket{n, addr, buf[:], err}:
-		default:
 		}
 	}
 }
@@ -300,6 +302,14 @@ func (s *StunListener) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 
 // WriteTo builds a UDP packet and writes it using the specific IP version writter
 func (s *StunListener) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
+	msg := &stun.Message{
+		Raw: buf,
+	}
+	err = msg.Decode()
+	if err == nil {
+		log.Debugf("writing TR ID: %d - %s", msg.TransactionID, rAddr.String())
+	}
+
 	rUDPAddr, ok := rAddr.(*net.UDPAddr)
 	if !ok {
 		return -1, fmt.Errorf("invalid address type")
