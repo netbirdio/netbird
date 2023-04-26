@@ -144,4 +144,4 @@ replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-2023
 
 replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20221012095658-dc8eda872c0c
 
-replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20230424085311-6a5852937b83
+replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20230426151838-5c7986a94d53
