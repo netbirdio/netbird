@@ -364,26 +364,6 @@ func (conn *Conn) getProxy(pair *ice.CandidatePair, remoteWgPort int) proxy.Prox
 	return proxy.NewNoProxy(conn.config.ProxyConfig)
 }
 
-func (conn *Conn) sendLocalDirectMode(localMode bool) {
-	// todo what happens when we couldn't deliver this message?
-	// we could retry, etc but there is no guarantee
-
-	err := conn.sendSignalMessage(&sProto.Message{
-		Key:       conn.config.LocalKey,
-		RemoteKey: conn.config.Key,
-		Body: &sProto.Body{
-			Type: sProto.Body_MODE,
-			Mode: &sProto.Mode{
-				Direct: &localMode,
-			},
-			NetBirdVersion: version.NetbirdVersion(),
-		},
-	})
-	if err != nil {
-		log.Errorf("failed to send local proxy mode to remote peer %s, error: %s", conn.config.Key, err)
-	}
-}
-
 // cleanup closes all open resources and sets status to StatusDisconnected
 func (conn *Conn) cleanup() error {
 	log.Debugf("trying to cleanup %s", conn.config.Key)
