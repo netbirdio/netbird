@@ -88,22 +88,6 @@ func NewStunListener(ctx context.Context, port int) (*StunListener, error) {
 		log.Errorf("socket.Socket for ipv6 failed with: %s", err)
 	}
 
-	ipv4Instructions, ipv6Instructions, err := getBPFInstructions(uint32(port))
-	if err != nil {
-		return nil, fmt.Errorf("getBPFInstructions failed with: %s", err)
-	}
-
-	err = socket4.SetBPF(ipv4Instructions)
-	if err != nil {
-		return nil, fmt.Errorf("socket4.SetBPF failed with: %s", err)
-	}
-	if socket6 != nil {
-		err = socket6.SetBPF(ipv6Instructions)
-		if err != nil {
-			return nil, fmt.Errorf("socket6.SetBPF failed with: %s", err)
-		}
-	}
-
 	s := &StunListener{
 		ctx:         ctx,
 		conn4:       socket4,
@@ -111,6 +95,25 @@ func NewStunListener(ctx context.Context, port int) (*StunListener, error) {
 		port:        port,
 		router:      router,
 		packetDemux: make(chan rcvdPacket),
+	}
+
+	ipv4Instructions, ipv6Instructions, err := getBPFInstructions(uint32(port))
+	if err != nil {
+		s.Close()
+		return nil, fmt.Errorf("getBPFInstructions failed with: %s", err)
+	}
+
+	err = socket4.SetBPF(ipv4Instructions)
+	if err != nil {
+		s.Close()
+		return nil, fmt.Errorf("socket4.SetBPF failed with: %s", err)
+	}
+	if socket6 != nil {
+		err = socket6.SetBPF(ipv6Instructions)
+		if err != nil {
+			s.Close()
+			return nil, fmt.Errorf("socket6.SetBPF failed with: %s", err)
+		}
 	}
 
 	go s.read(s.conn4.Recvfrom)
@@ -134,7 +137,6 @@ func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
 			_, a, err := s.ReadFrom(buf)
 			if err != nil {
 				log.Errorf("listenerToMux got an error while reading listener packet")
-
 				continue
 			}
 			msg := &stun.Message{
@@ -145,8 +147,6 @@ func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
 				log.Errorf("listenerToMux got an error while parsing stun message: %s", err)
 				continue
 			}
-
-			//log.Debugf("reading TR ID: %d from %s", msg.TransactionID, a.String())
 
 			err = mux.HandleSTUNMessage(msg, a)
 			if err != nil {
@@ -250,8 +250,8 @@ func (s *StunListener) Close() error {
 
 // read start a read loop for a specific receiver and sends the packet to the packetDemux channel
 func (s *StunListener) read(receiver receiver) {
-	buf := make([]byte, 1500)
 	for {
+		buf := make([]byte, 1500)
 		n, addr, err := receiver(s.ctx, buf, 0)
 		select {
 		case <-s.ctx.Done():
@@ -302,14 +302,6 @@ func (s *StunListener) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 
 // WriteTo builds a UDP packet and writes it using the specific IP version writter
 func (s *StunListener) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
-	//msg := &stun.Message{
-	//	Raw: buf,
-	//}
-	//err = msg.Decode()
-	//if err == nil {
-	//	log.Debugf("writing TR ID: %d - %s", msg.TransactionID, rAddr.String())
-	//}
-
 	rUDPAddr, ok := rAddr.(*net.UDPAddr)
 	if !ok {
 		return -1, fmt.Errorf("invalid address type")
