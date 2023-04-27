@@ -677,6 +677,9 @@ type User struct {
 	// IsCurrent Is true if authenticated user is the same as this user
 	IsCurrent *bool `json:"is_current,omitempty"`
 
+	// IsServiceUser Is true if this user is a service user
+	IsServiceUser *bool `json:"is_service_user,omitempty"`
+
 	// Name User's name from idp provider
 	Name string `json:"name"`
 
@@ -696,7 +699,10 @@ type UserCreateRequest struct {
 	AutoGroups []string `json:"auto_groups"`
 
 	// Email User's Email to send invite to
-	Email string `json:"email"`
+	Email *string `json:"email,omitempty"`
+
+	// IsServiceUser Is true if this user is a service user
+	IsServiceUser bool `json:"is_service_user"`
 
 	// Name User's full name
 	Name *string `json:"name,omitempty"`
@@ -785,6 +791,12 @@ type PutApiRulesIdJSONBody struct {
 	// Name Rule name identifier
 	Name    string    `json:"name"`
 	Sources *[]string `json:"sources,omitempty"`
+}
+
+// GetApiUsersParams defines parameters for GetApiUsers.
+type GetApiUsersParams struct {
+	// ServiceUser Filters users and returns either normal users or service users
+	ServiceUser *bool `form:"service_user,omitempty" json:"service_user,omitempty"`
 }
 
 // PutApiAccountsIdJSONRequestBody defines body for PutApiAccountsId for application/json ContentType.
