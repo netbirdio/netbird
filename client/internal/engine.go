@@ -905,18 +905,6 @@ func (e *Engine) receiveSignalEvents() {
 				}
 				conn.OnRemoteCandidate(candidate)
 			case sProto.Body_MODE:
-				protoMode := msg.GetBody().GetMode()
-				if protoMode == nil {
-					return fmt.Errorf("received an empty mode message")
-				}
-
-				err := conn.OnModeMessage(peer.ModeMessage{
-					Direct: protoMode.GetDirect(),
-				})
-				if err != nil {
-					log.Errorf("failed processing a mode message -> %s", err)
-					return err
-				}
 			}
 
 			return nil

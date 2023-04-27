@@ -2,7 +2,6 @@ package peer
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -315,86 +314,8 @@ func (conn *Conn) Open() error {
 	}
 }
 
-// useProxy determines whether a direct connection (without a go proxy) is possible
-//
-// There are 3 cases:
-//
-// * When neither candidate is from hard nat and one of the peers has a public IP
-//
-// * both peers are in the same private network
-//
-// * Local peer uses userspace interface with bind.ICEBind and is not relayed
-//
-// Please note, that this check happens when peers were already able to ping each other using ICE layer.
-func shouldUseProxy(pair *ice.CandidatePair, userspaceBind bool) bool {
-
-	if !isRelayCandidate(pair.Local) && userspaceBind {
-		log.Debugf("shouldn't use proxy because using Bind and the connection is not relayed")
-		return false
-	}
-
-	if !isHardNATCandidate(pair.Local) && isHostCandidateWithPublicIP(pair.Remote) {
-		log.Debugf("shouldn't use proxy because the local peer is not behind a hard NAT and the remote one has a public IP")
-		return false
-	}
-
-	if !isHardNATCandidate(pair.Remote) && isHostCandidateWithPublicIP(pair.Local) {
-		log.Debugf("shouldn't use proxy because the remote peer is not behind a hard NAT and the local one has a public IP")
-		return false
-	}
-
-	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) && isSameNetworkPrefix(pair) {
-		log.Debugf("shouldn't use proxy because peers are in the same private /16 network")
-		return false
-	}
-
-	if (isPeerReflexiveCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) ||
-		isHostCandidateWithPrivateIP(pair.Local) && isPeerReflexiveCandidateWithPrivateIP(pair.Remote)) && isSameNetworkPrefix(pair) {
-		log.Debugf("shouldn't use proxy because peers are in the same private /16 network and one peer is peer reflexive")
-		return false
-	}
-
-	return true
-}
-
-func isSameNetworkPrefix(pair *ice.CandidatePair) bool {
-
-	localIP := net.ParseIP(pair.Local.Address())
-	remoteIP := net.ParseIP(pair.Remote.Address())
-	if localIP == nil || remoteIP == nil {
-		return false
-	}
-	// only consider /16 networks
-	mask := net.IPMask{255, 255, 0, 0}
-	return localIP.Mask(mask).Equal(remoteIP.Mask(mask))
-}
-
 func isRelayCandidate(candidate ice.Candidate) bool {
 	return candidate.Type() == ice.CandidateTypeRelay
-}
-
-func isHardNATCandidate(candidate ice.Candidate) bool {
-	return candidate.Type() == ice.CandidateTypeRelay || candidate.Type() == ice.CandidateTypePeerReflexive
-}
-
-func isHostCandidateWithPublicIP(candidate ice.Candidate) bool {
-	return candidate.Type() == ice.CandidateTypeHost && isPublicIP(candidate.Address())
-}
-
-func isHostCandidateWithPrivateIP(candidate ice.Candidate) bool {
-	return candidate.Type() == ice.CandidateTypeHost && !isPublicIP(candidate.Address())
-}
-
-func isPeerReflexiveCandidateWithPrivateIP(candidate ice.Candidate) bool {
-	return candidate.Type() == ice.CandidateTypePeerReflexive && !isPublicIP(candidate.Address())
-}
-
-func isPublicIP(address string) bool {
-	ip := net.ParseIP(address)
-	if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
-		return false
-	}
-	return true
 }
 
 // startProxy starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
@@ -409,7 +330,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	}
 
 	peerState := State{PubKey: conn.config.Key}
-	p := conn.getProxyWithMessageExchange(pair, remoteWgPort)
+	p := conn.getProxy(pair, remoteWgPort)
 	conn.proxy = p
 	err = p.Start(remoteConn)
 	if err != nil {
@@ -435,7 +356,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	return nil
 }
 
-func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
+func (conn *Conn) getProxy(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
 	if isRelayCandidate(pair.Local) {
 		return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
 	}
@@ -460,22 +381,6 @@ func (conn *Conn) sendLocalDirectMode(localMode bool) {
 	})
 	if err != nil {
 		log.Errorf("failed to send local proxy mode to remote peer %s, error: %s", conn.config.Key, err)
-	}
-}
-
-func (conn *Conn) receiveRemoteDirectMode() bool {
-	timeout := time.Second
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case receivedMSG := <-conn.remoteModeCh:
-		return receivedMSG.Direct
-	case <-timer.C:
-		// we didn't receive a message from remote so we assume that it supports the direct mode to keep the old behaviour
-		log.Debugf("timeout after %s while waiting for remote direct mode message from remote peer %s",
-			timeout, conn.config.Key)
-		return true
 	}
 }
 
@@ -697,16 +602,6 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) {
 
 func (conn *Conn) GetKey() string {
 	return conn.config.Key
-}
-
-// OnModeMessage unmarshall the payload message and send it to the mode message channel
-func (conn *Conn) OnModeMessage(message ModeMessage) error {
-	select {
-	case conn.remoteModeCh <- message:
-		return nil
-	default:
-		return fmt.Errorf("unable to process mode message: channel busy")
-	}
 }
 
 // RegisterProtoSupportMeta register supported proto message in the connection metadata
