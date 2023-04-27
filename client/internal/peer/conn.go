@@ -2,6 +2,7 @@ package peer
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -13,6 +14,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/bind"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/version"
@@ -356,12 +358,37 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	return nil
 }
 
+// todo rename this method and the proxy package to something more appropriate
 func (conn *Conn) getProxy(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
 	if isRelayCandidate(pair.Local) {
 		return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
 	}
 
+	// To support old version's with direct mode we attempt to punch an additional role with the remote wireguard port
+	err := conn.punchRemoteWGPort(pair, remoteWgPort)
+	if err != nil {
+		log.Warnf("failed to punch remote WireGuard port, err %s", err)
+	}
+
 	return proxy.NewNoProxy(conn.config.ProxyConfig)
+}
+
+func (conn *Conn) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) error {
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", pair.Remote.Address(), remoteWgPort))
+	if err != nil {
+		return err
+	}
+	addr.Port = remoteWgPort
+
+	mux, ok := conn.config.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
+	if !ok {
+		return fmt.Errorf("invalid udp mux conversion")
+	}
+	_, err = mux.GetSharedConn().WriteTo([]byte{1}, addr)
+	if err != nil {
+		return err
+	}
+	return err
 }
 
 // cleanup closes all open resources and sets status to StatusDisconnected
