@@ -330,6 +330,14 @@ func (m *UDPMuxDefault) Close() error {
 }
 
 func (m *UDPMuxDefault) writeTo(buf []byte, rAddr net.Addr) (n int, err error) {
+	msg := &stun.Message{
+		Raw: buf,
+	}
+	err = msg.Decode()
+	if err == nil {
+		log.Debugf("writing TR ID: %d - %s", msg.TransactionID, rAddr.String())
+	}
+
 	return m.params.UDPConn.WriteTo(buf, rAddr)
 }
 

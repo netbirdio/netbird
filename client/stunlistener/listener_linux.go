@@ -146,7 +146,7 @@ func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
 				continue
 			}
 
-			log.Debugf("reading TR ID: %d from %s", msg.TransactionID, a.String())
+			//log.Debugf("reading TR ID: %d from %s", msg.TransactionID, a.String())
 
 			err = mux.HandleSTUNMessage(msg, a)
 			if err != nil {
@@ -302,13 +302,13 @@ func (s *StunListener) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 
 // WriteTo builds a UDP packet and writes it using the specific IP version writter
 func (s *StunListener) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
-	msg := &stun.Message{
-		Raw: buf,
-	}
-	err = msg.Decode()
-	if err == nil {
-		log.Debugf("writing TR ID: %d - %s", msg.TransactionID, rAddr.String())
-	}
+	//msg := &stun.Message{
+	//	Raw: buf,
+	//}
+	//err = msg.Decode()
+	//if err == nil {
+	//	log.Debugf("writing TR ID: %d - %s", msg.TransactionID, rAddr.String())
+	//}
 
 	rUDPAddr, ok := rAddr.(*net.UDPAddr)
 	if !ok {
