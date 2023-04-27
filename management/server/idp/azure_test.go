@@ -228,3 +228,102 @@ func TestAzureUpdateUserAppMetadata(t *testing.T) {
 		})
 	}
 }
+
+func TestAzureProfile(t *testing.T) {
+	type azureProfileTest struct {
+		name             string
+		clientID         string
+		invite           bool
+		inputProfile     azureProfile
+		expectedUserData UserData
+	}
+
+	azureProfileTestCase1 := azureProfileTest{
+		name:     "Good Request",
+		clientID: "25d0b095-0484-40d2-9fd3-03f8f4abbb3c",
+		invite:   false,
+		inputProfile: azureProfile{
+			"id":                "test1",
+			"displayName":       "John Doe",
+			"userPrincipalName": "test1@test.com",
+			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_account_id":     "1",
+			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_pending_invite": false,
+		},
+		expectedUserData: UserData{
+			Email: "test1@test.com",
+			Name:  "John Doe",
+			ID:    "test1",
+			AppMetadata: AppMetadata{
+				WTAccountID: "1",
+			},
+		},
+	}
+
+	azureProfileTestCase2 := azureProfileTest{
+		name:     "Missing User ID",
+		clientID: "25d0b095-0484-40d2-9fd3-03f8f4abbb3c",
+		invite:   true,
+		inputProfile: azureProfile{
+			"displayName":       "John Doe",
+			"userPrincipalName": "test2@test.com",
+			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_account_id":     "1",
+			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_pending_invite": true,
+		},
+		expectedUserData: UserData{
+			Email: "test2@test.com",
+			Name:  "John Doe",
+			AppMetadata: AppMetadata{
+				WTAccountID: "1",
+			},
+		},
+	}
+
+	azureProfileTestCase3 := azureProfileTest{
+		name:     "Missing User Name",
+		clientID: "25d0b095-0484-40d2-9fd3-03f8f4abbb3c",
+		invite:   false,
+		inputProfile: azureProfile{
+			"id":                "test3",
+			"userPrincipalName": "test3@test.com",
+			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_account_id":     "1",
+			"extension_25d0b095048440d29fd303f8f4abbb3c_wt_pending_invite": false,
+		},
+		expectedUserData: UserData{
+			ID:    "test3",
+			Email: "test3@test.com",
+			AppMetadata: AppMetadata{
+				WTAccountID: "1",
+			},
+		},
+	}
+
+	azureProfileTestCase4 := azureProfileTest{
+		name:     "Missing Extension Fields",
+		clientID: "25d0b095-0484-40d2-9fd3-03f8f4abbb3c",
+		invite:   false,
+		inputProfile: azureProfile{
+			"id":                "test4",
+			"displayName":       "John Doe",
+			"userPrincipalName": "test4@test.com",
+		},
+		expectedUserData: UserData{
+			ID:          "test4",
+			Name:        "John Doe",
+			Email:       "test4@test.com",
+			AppMetadata: AppMetadata{},
+		},
+	}
+
+	for _, testCase := range []azureProfileTest{azureProfileTestCase1, azureProfileTestCase2, azureProfileTestCase3, azureProfileTestCase4} {
+		t.Run(testCase.name, func(t *testing.T) {
+			testCase.expectedUserData.AppMetadata.WTPendingInvite = &testCase.invite
+			userData := testCase.inputProfile.userData(testCase.clientID)
+
+			assert.Equal(t, testCase.expectedUserData.ID, userData.ID, "User id should match")
+			assert.Equal(t, testCase.expectedUserData.Email, userData.Email, "User email should match")
+			assert.Equal(t, testCase.expectedUserData.Name, userData.Name, "User name should match")
+			assert.Equal(t, testCase.expectedUserData.AppMetadata.WTAccountID, userData.AppMetadata.WTAccountID, "Account id should match")
+			assert.Equal(t, testCase.expectedUserData.AppMetadata.WTPendingInvite, userData.AppMetadata.WTPendingInvite, "Pending invite should match")
+		})
+	}
+}
