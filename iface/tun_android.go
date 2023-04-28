@@ -52,7 +52,7 @@ func (t *tunDevice) Create() error {
 
 	log.Debugf("attaching to interface %v", name)
 	t.device = device.NewDevice(tunDevice, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
-	t.device.DisableSomeRoamingForBrokenMobileSemantics()
+	//t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
 	err = t.device.Up()
 	if err != nil {
