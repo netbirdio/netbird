@@ -215,8 +215,9 @@ func readICEAgentConfigProperties() (time.Duration, time.Duration) {
 		keepAliveEnvSec, err := strconv.Atoi(keepAliveEnv)
 		if err == nil {
 			iceKeepAlive = time.Duration(keepAliveEnvSec) * time.Second
+		} else {
+			log.Warnf("invalid value %s set for %s, using default %v", keepAliveEnv, envICEKeepAliveIntervalSec, iceKeepAlive)
 		}
-		log.Warnf("invalid value %s set for %s, using default %v", keepAliveEnv, envICEKeepAliveIntervalSec, iceKeepAlive)
 	}
 
 	disconnectedTimeoutEnv := os.Getenv(envICEDisconnectedTimeoutSec)
@@ -225,9 +226,9 @@ func readICEAgentConfigProperties() (time.Duration, time.Duration) {
 		disconnectedTimeoutSec, err := strconv.Atoi(disconnectedTimeoutEnv)
 		if err == nil {
 			iceDisconnectedTimeout = time.Duration(disconnectedTimeoutSec) * time.Second
+		} else {
+			log.Warnf("invalid value %s set for %s, using default %v", disconnectedTimeoutEnv, envICEDisconnectedTimeoutSec, iceDisconnectedTimeout)
 		}
-		log.Warnf("invalid value %s set for %s, using default %v", disconnectedTimeoutEnv, envICEDisconnectedTimeoutSec, iceDisconnectedTimeout)
-
 	}
 	return iceKeepAlive, iceDisconnectedTimeout
 }
