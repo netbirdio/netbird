@@ -28,7 +28,8 @@ func TestReadStun(t *testing.T) {
 	defer s.Close()
 
 	buf := make([]byte, 1500)
-	s.SetReadDeadline(time.Now().Add(3 * time.Second))
+	err = s.SetReadDeadline(time.Now().Add(3 * time.Second))
+	require.NoError(t, err, "unable to set deadline, error: %s", err)
 
 	errGrp := errgroup.Group{}
 	errGrp.Go(func() error {
@@ -38,6 +39,7 @@ func TestReadStun(t *testing.T) {
 	stunMSG, err := stun.Build(stun.NewType(stun.MethodBinding, stun.ClassRequest), stun.TransactionID,
 		stun.Fingerprint,
 	)
+	require.NoError(t, err, "unable to build stun msg, error: %s", err)
 
 	_, err = udpListener.WriteTo(stunMSG.Raw, net.UDPAddrFromAddrPort(netip.MustParseAddrPort(fmt.Sprintf("127.0.0.1:%d", testingPort))))
 	require.NoError(t, err, "received an error while writing the stun listener, error: %s", err)
@@ -66,7 +68,8 @@ func TestReadNONStun(t *testing.T) {
 	defer s.Close()
 
 	buf := make([]byte, 1500)
-	s.SetReadDeadline(time.Now().Add(3 * time.Second))
+	err = s.SetReadDeadline(time.Now().Add(3 * time.Second))
+	require.NoError(t, err, "unable to set deadline, error: %s", err)
 
 	errGrp := errgroup.Group{}
 	errGrp.Go(func() error {
@@ -98,7 +101,8 @@ func TestWrite(t *testing.T) {
 	defer s.Close()
 
 	buf := make([]byte, 1500)
-	udpListener.SetReadDeadline(time.Now().Add(3 * time.Second))
+	err = udpListener.SetReadDeadline(time.Now().Add(3 * time.Second))
+	require.NoError(t, err, "unable to set deadline, error: %s", err)
 
 	errGrp := errgroup.Group{}
 	var remoteAdr net.Addr
