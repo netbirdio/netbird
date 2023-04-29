@@ -10,7 +10,6 @@ package stunlistener
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -21,13 +20,12 @@ import (
 	"github.com/libp2p/go-netroute"
 	"github.com/mdlayher/socket"
 	"github.com/pion/stun"
-	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
-
-	"github.com/netbirdio/netbird/iface/bind"
 )
+
+type STUNMsgHandler func(msg *stun.Message, addr net.Addr) error
 
 // StunListener representation
 type StunListener struct {
@@ -54,65 +52,51 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 	FixLengths:       true,
 }
 
-// NewUDPMuxWithStunListener creates a new bind.UniversalUDPMuxDefault using the stun listener as UDP conn lister
-func NewUDPMuxWithStunListener(ctx context.Context, tn transport.Net, port int) (*bind.UniversalUDPMuxDefault, io.Closer, error) {
-	s, err := NewStunListener(ctx, port)
-	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", port, err)
-		return nil, nil, err
+// NewStunListener creates a new stun listener
+func NewStunListener(ctx context.Context, port int) *StunListener {
+	s := &StunListener{
+		ctx:         ctx,
+		port:        port,
+		packetDemux: make(chan rcvdPacket),
 	}
-
-	mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: s, Net: tn})
-
-	go listenerToMux(s, mux)
-
-	return mux, s, nil
+	return s
 }
 
-// NewStunListener creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines and returns a new stun listener
-func NewStunListener(ctx context.Context, port int) (*StunListener, error) {
+// Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
+func (s *StunListener) Listen(msgHandler STUNMsgHandler) error {
 	var err error
 
-	router, err := netroute.New()
+	s.router, err = netroute.New()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create router: %s", err)
+		return fmt.Errorf("failed to create router: %s", err)
 	}
 
-	socket4, err := socket.Socket(unix.AF_INET, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp4", nil)
+	s.conn4, err = socket.Socket(unix.AF_INET, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp4", nil)
 	if err != nil {
-		return nil, fmt.Errorf("socket.Socket for ipv4 failed with: %s", err)
+		return fmt.Errorf("socket.Socket for ipv4 failed with: %s", err)
 	}
 
-	socket6, err := socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
+	s.conn6, err = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if err != nil {
 		log.Errorf("socket.Socket for ipv6 failed with: %s", err)
 	}
 
-	s := &StunListener{
-		ctx:         ctx,
-		conn4:       socket4,
-		conn6:       socket6,
-		port:        port,
-		router:      router,
-		packetDemux: make(chan rcvdPacket),
+	ipv4Instructions, ipv6Instructions, err := getBPFInstructions(uint32(s.port))
+	if err != nil {
+		_ = s.Close()
+		return fmt.Errorf("getBPFInstructions failed with: %s", err)
 	}
 
-	ipv4Instructions, ipv6Instructions, err := getBPFInstructions(uint32(port))
+	err = s.conn4.SetBPF(ipv4Instructions)
 	if err != nil {
-		s.Close()
-		return nil, fmt.Errorf("getBPFInstructions failed with: %s", err)
+		_ = s.Close()
+		return fmt.Errorf("socket4.SetBPF failed with: %s", err)
 	}
-
-	err = socket4.SetBPF(ipv4Instructions)
-	if err != nil {
-		s.Close()
-		return nil, fmt.Errorf("socket4.SetBPF failed with: %s", err)
-	}
-	if socket6 != nil {
-		err = socket6.SetBPF(ipv6Instructions)
+	if s.conn6 != nil {
+		err = s.conn6.SetBPF(ipv6Instructions)
 		if err != nil {
-			s.Close()
-			return nil, fmt.Errorf("socket6.SetBPF failed with: %s", err)
+			_ = s.Close()
+			return fmt.Errorf("socket6.SetBPF failed with: %s", err)
 		}
 	}
 
@@ -123,11 +107,12 @@ func NewStunListener(ctx context.Context, port int) (*StunListener, error) {
 
 	go s.updateRouter()
 
-	return s, nil
+	go s.listenerToMux(msgHandler)
+	return nil
 }
 
 // listenerToMux reads a stun message packet and sends to the udp mux handler
-func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
+func (s *StunListener) listenerToMux(msgHandler STUNMsgHandler) {
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -148,7 +133,7 @@ func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
 				continue
 			}
 
-			err = mux.HandleSTUNMessage(msg, a)
+			err = msgHandler(msg, a)
 			if err != nil {
 				log.Errorf("listenerToMux got an error while handling stun message: %s", err)
 			}

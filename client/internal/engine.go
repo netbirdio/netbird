@@ -25,6 +25,7 @@ import (
 	"github.com/netbirdio/netbird/client/stunlistener"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
@@ -212,16 +213,17 @@ func (e *Engine) Start() error {
 		e.udpMuxSrflx = udpMux
 		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
 	} else {
-		mux, closer, err := stunlistener.NewUDPMuxWithStunListener(e.ctx, transportNet, e.config.WgPort)
+		stunListener := stunlistener.NewStunListener(e.ctx, e.config.WgPort)
+		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: stunListener, Net: transportNet})
+		err := stunListener.Listen(mux.HandleSTUNMessage)
 		if err != nil {
 			return err
 		}
 
-		e.udpMuxConn = closer
-
+		e.udpMuxConn = stunListener
 		e.udpMux = mux.UDPMuxDefault
 
-		e.udpMuxConnSrflx = closer
+		e.udpMuxConnSrflx = stunListener
 		e.udpMuxSrflx = mux
 	}
 
