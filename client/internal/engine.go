@@ -102,10 +102,8 @@ type Engine struct {
 
 	wgInterface *iface.WGIface
 
-	udpMux          ice.UDPMux
-	udpMuxSrflx     ice.UniversalUDPMux
-	udpMuxConn      io.Closer
-	udpMuxConnSrflx io.Closer
+	udpMux     *bind.UniversalUDPMuxDefault
+	udpMuxConn io.Closer
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -209,8 +207,7 @@ func (e *Engine) Start() error {
 			e.close()
 			return err
 		}
-		e.udpMux = udpMux.UDPMuxDefault
-		e.udpMuxSrflx = udpMux
+		e.udpMux = udpMux
 		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
 	} else {
 		stunListener, err := stunlistener.NewSTUNListener(e.ctx, e.config.WgPort)
@@ -223,8 +220,8 @@ func (e *Engine) Start() error {
 			return err
 		}
 
-		e.udpMuxConnSrflx = stunListener
-		e.udpMuxSrflx = mux
+		e.udpMuxConn = stunListener
+		e.udpMux = mux
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
@@ -813,8 +810,8 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		InterfaceBlackList:   e.config.IFaceBlackList,
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 		Timeout:              timeout,
-		UDPMux:               e.udpMux,
-		UDPMuxSrflx:          e.udpMuxSrflx,
+		UDPMux:               e.udpMux.UDPMuxDefault,
+		UDPMuxSrflx:          e.udpMux,
 		ProxyConfig:          proxyConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
@@ -994,12 +991,6 @@ func (e *Engine) close() {
 	if e.udpMuxConn != nil {
 		if err := e.udpMuxConn.Close(); err != nil {
 			log.Debugf("close udp mux connection: %v", err)
-		}
-	}
-
-	if e.udpMuxConnSrflx != nil {
-		if err := e.udpMuxConnSrflx.Close(); err != nil {
-			log.Debugf("close server reflexive udp mux connection: %v", err)
 		}
 	}
 
