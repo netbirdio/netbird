@@ -26,12 +26,10 @@ func TestReadStun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
 	s, err := NewSTUNListener(ctx, testingPort)
+	require.NoError(t, err, "received an error while creating stun listener, error: %s", err)
 	mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: s})
 	err = s.Listen(mux.HandleSTUNMessage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	require.NoError(t, err, "received an error while creating stun listener, error: %s", err)
+	require.NoError(t, err, "received an error while listening on STUN packets, error: %s", err)
 	defer s.Close()
 
 	buf := make([]byte, 1500)
@@ -72,6 +70,9 @@ func TestReadNONStun(t *testing.T) {
 	defer cancel()
 	s, err := NewSTUNListener(ctx, testingPort)
 	require.NoError(t, err, "received an error while creating stun listener, error: %s", err)
+	mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: s})
+	err = s.Listen(mux.HandleSTUNMessage)
+	require.NoError(t, err, "received an error while listening on STUN packets, error: %s", err)
 	defer s.Close()
 
 	buf := make([]byte, 1500)
@@ -105,6 +106,9 @@ func TestWrite(t *testing.T) {
 	defer cancel()
 	s, err := NewSTUNListener(ctx, testingPort)
 	require.NoError(t, err, "received an error while creating stun listener, error: %s", err)
+	mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: s})
+	err = s.Listen(mux.HandleSTUNMessage)
+	require.NoError(t, err, "received an error while listening on STUN packets, error: %s", err)
 	defer s.Close()
 
 	buf := make([]byte, 1500)
