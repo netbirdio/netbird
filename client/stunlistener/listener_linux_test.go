@@ -13,6 +13,8 @@ import (
 	"github.com/pion/stun"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/netbirdio/netbird/iface/bind"
 )
 
 func TestReadStun(t *testing.T) {
@@ -24,6 +26,11 @@ func TestReadStun(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
 	s, err := NewSTUNListener(ctx, testingPort)
+	mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: s})
+	err = s.Listen(mux.HandleSTUNMessage)
+	if err != nil {
+		t.Fatal(err)
+	}
 	require.NoError(t, err, "received an error while creating stun listener, error: %s", err)
 	defer s.Close()
 

@@ -118,7 +118,7 @@ func (s *RawSockListener) listenerToMux(msgHandler STUNMsgHandler) {
 		default:
 			_, a, err := s.ReadFrom(buf)
 			if err != nil {
-				log.Errorf("listenerToMux got an error while reading listener packet")
+				log.Errorf("listenerToMux got an error while reading packet %s", err)
 				continue
 			}
 			msg := &stun.Message{
@@ -223,7 +223,10 @@ func (s *RawSockListener) SetWriteDeadline(t time.Time) error {
 // Close closes the underlying ipv4 and ipv6 conn sockets
 func (s *RawSockListener) Close() error {
 	errGrp := errgroup.Group{}
-	errGrp.Go(s.conn4.Close)
+	if s.conn4 != nil {
+		errGrp.Go(s.conn4.Close)
+	}
+
 	if s.conn6 != nil {
 		errGrp.Go(s.conn6.Close)
 	}
