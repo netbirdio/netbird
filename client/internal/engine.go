@@ -213,15 +213,15 @@ func (e *Engine) Start() error {
 		e.udpMuxSrflx = udpMux
 		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
 	} else {
-		stunListener := stunlistener.NewStunListener(e.ctx, e.config.WgPort)
-		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: stunListener, Net: transportNet})
-		err := stunListener.Listen(mux.HandleSTUNMessage)
+		stunListener, err := stunlistener.NewSTUNListener(e.ctx, e.config.WgPort)
 		if err != nil {
 			return err
 		}
-
-		e.udpMuxConn = stunListener
-		e.udpMux = mux.UDPMuxDefault
+		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: stunListener, Net: transportNet})
+		err = stunListener.Listen(mux.HandleSTUNMessage)
+		if err != nil {
+			return err
+		}
 
 		e.udpMuxConnSrflx = stunListener
 		e.udpMuxSrflx = mux
