@@ -365,30 +365,29 @@ func (conn *Conn) getProxy(pair *ice.CandidatePair, remoteWgPort int) proxy.Prox
 	}
 
 	// To support old version's with direct mode we attempt to punch an additional role with the remote wireguard port
-	err := conn.punchRemoteWGPort(pair, remoteWgPort)
-	if err != nil {
-		log.Warnf("failed to punch remote WireGuard port, err %s", err)
-	}
+	go conn.punchRemoteWGPort(pair, remoteWgPort)
 
 	return proxy.NewNoProxy(conn.config.ProxyConfig)
 }
 
-func (conn *Conn) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) error {
+func (conn *Conn) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
+	// wait local endpoint configuration
+	time.Sleep(time.Second)
 	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", pair.Remote.Address(), remoteWgPort))
 	if err != nil {
-		return err
+		log.Warnf("got an error while resolving the udp address, err: %s", err)
+		return
 	}
-	addr.Port = remoteWgPort
 
 	mux, ok := conn.config.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
 	if !ok {
-		return fmt.Errorf("invalid udp mux conversion")
+		log.Warn("invalid udp mux conversion")
+		return
 	}
-	_, err = mux.GetSharedConn().WriteTo([]byte{1}, addr)
+	_, err = mux.GetSharedConn().WriteTo([]byte{0x6e, 0x62}, addr)
 	if err != nil {
-		return err
+		log.Warnf("got an error while sending the punch packet, err: %s", err)
 	}
-	return err
 }
 
 // cleanup closes all open resources and sets status to StatusDisconnected
