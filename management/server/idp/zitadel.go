@@ -61,6 +61,12 @@ type zitadelHumanType struct {
 
 type zitadelAttributes map[string][]map[string]any
 
+// zitadelMetadata holds additional user data.
+type zitadelMetadata struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 // zitadelProfile represents an zitadel user profile response.
 type zitadelProfile struct {
 	ID                 string            `json:"id"`
@@ -68,8 +74,7 @@ type zitadelProfile struct {
 	UserName           string            `json:"userName"`
 	PreferredLoginName string            `json:"preferredLoginName"`
 	Human              *zitadelHumanType `json:"human"`
-	// Metadata       map[string]any
-	//TODO: add user attributes here
+	Metadata           []zitadelMetadata
 }
 
 // NewZitadelManager creates a new instance of the ZitadelManager.
@@ -250,6 +255,12 @@ func (zm *ZitadelManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 	users := make([]*UserData, 0)
 	for _, profile := range profiles.Result {
+		metadata, err := zm.getUserMetadata(profile.ID)
+		if err != nil {
+			return nil, err
+		}
+		profile.Metadata = metadata
+
 		users = append(users, profile.userData())
 	}
 
@@ -267,13 +278,19 @@ func (zm *ZitadelManager) GetUserDataByID(userID string, appMetadata AppMetadata
 		zm.appMetrics.IDPMetrics().CountGetUserDataByID()
 	}
 
-	var result struct{ User zitadelProfile }
-	err = zm.helper.Unmarshal(body, &result)
+	var profile struct{ User zitadelProfile }
+	err = zm.helper.Unmarshal(body, &profile)
 	if err != nil {
 		return nil, err
 	}
 
-	return result.User.userData(), nil
+	metadata, err := zm.getUserMetadata(userID)
+	if err != nil {
+		return nil, err
+	}
+	profile.User.Metadata = metadata
+
+	return profile.User.userData(), nil
 }
 
 // GetAccount returns all the users for a given profile.
@@ -323,6 +340,23 @@ func (zm *ZitadelManager) UpdateUserAppMetadata(userID string, appMetadata AppMe
 	}
 
 	return nil
+}
+
+// getUserMetadata requests user metadata from zitadel via ID.
+func (zm *ZitadelManager) getUserMetadata(userID string) ([]zitadelMetadata, error) {
+	resource := fmt.Sprintf("users/%s/metadata/_search", userID)
+	body, err := zm.post(resource, "")
+	if err != nil {
+		return nil, err
+	}
+
+	var metadata struct{ Result []zitadelMetadata }
+	err = zm.helper.Unmarshal(body, &metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	return metadata.Result, nil
 }
 
 // post perform Post requests.
@@ -397,12 +431,43 @@ func (zm *ZitadelManager) get(resource string, q url.Values) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// value returns string represented by the base64 string value.
+func (zm zitadelMetadata) value() string {
+	value, err := base64.StdEncoding.DecodeString(zm.Value)
+	if err != nil {
+		return ""
+	}
+
+	return string(value)
+}
+
 // userData construct user data from zitadel profile.
 func (zp zitadelProfile) userData() *UserData {
+	var (
+		wtAccountIDValue     string
+		wtPendingInviteValue bool
+	)
+
+	for _, metadata := range zp.Metadata {
+		if metadata.Key == wtAccountID {
+			wtAccountIDValue = metadata.value()
+		}
+
+		if metadata.Key == wtPendingInvite {
+			value, err := strconv.ParseBool(metadata.value())
+			if err == nil {
+				wtPendingInviteValue = value
+			}
+		}
+	}
+
 	return &UserData{
-		Email:       zp.Human.Email.Email,
-		Name:        zp.Human.Profile.DisplayName,
-		ID:          zp.ID,
-		AppMetadata: AppMetadata{}, //TODO: fetch metadata from zp attributes
+		Email: zp.Human.Email.Email,
+		Name:  zp.Human.Profile.DisplayName,
+		ID:    zp.ID,
+		AppMetadata: AppMetadata{
+			WTAccountID:     wtAccountIDValue,
+			WTPendingInvite: &wtPendingInviteValue,
+		},
 	}
 }
