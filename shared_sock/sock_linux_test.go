@@ -23,7 +23,7 @@ func TestShouldReadSTUNOnReadFrom(t *testing.T) {
 	testingPort := 51821
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	rawSock, err := Listen(ctx, testingPort, NewSTUNFilter())
+	rawSock, err := ListenWithSTUNFilter(ctx, testingPort)
 	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 	err = rawSock.SetReadDeadline(time.Now().Add(3 * time.Second))
 	require.NoError(t, err, "unable to set deadline, error: %s", err)
@@ -77,7 +77,7 @@ func TestShouldNotReadNonSTUNPackets(t *testing.T) {
 	testingPort := 39439
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	rawSock, err := Listen(ctx, testingPort, NewSTUNFilter())
+	rawSock, err := ListenWithSTUNFilter(ctx, testingPort)
 	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 	defer rawSock.Close()
 
@@ -113,9 +113,9 @@ func TestWriteTo(t *testing.T) {
 	testingPort := 39440
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	s, err := Listen(ctx, testingPort, NewSTUNFilter())
+	rawSock, err := ListenWithSTUNFilter(ctx, testingPort)
 	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
-	defer s.Close()
+	defer rawSock.Close()
 
 	buf := make([]byte, 1500)
 	err = udpListener.SetReadDeadline(time.Now().Add(3 * time.Second))
@@ -132,7 +132,7 @@ func TestWriteTo(t *testing.T) {
 	})
 
 	msg := []byte("netbird")
-	_, err = s.WriteTo(msg, udpListener.LocalAddr())
+	_, err = rawSock.WriteTo(msg, udpListener.LocalAddr())
 	require.NoError(t, err, "received an error while writing the stun listener, error: %s", err)
 
 	err = errGrp.Wait()
