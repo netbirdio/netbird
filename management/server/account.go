@@ -55,11 +55,10 @@ type AccountManager interface {
 	SaveUser(accountID, userID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
-	GetAccountByUserID(userID string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	MarkPATUsed(tokenID string) error
-	IsUserAdmin(userID string) (bool, error)
+	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
