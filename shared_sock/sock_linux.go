@@ -49,11 +49,6 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 	FixLengths:       true,
 }
 
-// ListenWithSTUNFilter creates an IPv4 and IPv6 raw sockets applying STUNFilter
-func ListenWithSTUNFilter(ctx context.Context, port int) (net.PacketConn, error) {
-	return Listen(ctx, port, NewSTUNFilter())
-}
-
 // Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
 func Listen(ctx context.Context, port int, filter BPFFilter) (net.PacketConn, error) {
 	var err error

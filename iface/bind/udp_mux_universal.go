@@ -69,14 +69,15 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 	return m
 }
 
-// ReadFromConn reads from the m.params.UDPConn provided on the creation. It expects STUN packets only, however, will
-// just ignore other packets printing an error message.
-// Will block.
+// ReadFromConn reads from the m.params.UDPConn provided upon the creation. It expects STUN packets only, however, will
+// just ignore other packets printing an warning message.
+// It is a blocking method, consider running in a go routine.
 func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 	buf := make([]byte, 1500)
 	for {
 		select {
 		case <-ctx.Done():
+			log.Debugf("stopped reading from the UDPConn due to finished context")
 			return
 		default:
 			_, a, err := m.params.UDPConn.ReadFrom(buf)

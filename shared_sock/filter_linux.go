@@ -8,7 +8,7 @@ type STUNFilter struct {
 }
 
 // NewSTUNFilter creates an instance of a STUNFilter
-func NewSTUNFilter() *STUNFilter {
+func NewSTUNFilter() BPFFilter {
 	return &STUNFilter{}
 }
 
