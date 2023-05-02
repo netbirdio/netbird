@@ -1,4 +1,4 @@
-package shared_sock
+package sharedsock
 
 import "golang.org/x/net/bpf"
 

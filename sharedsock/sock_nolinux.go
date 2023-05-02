@@ -1,6 +1,6 @@
 //go:build !linux
 
-package shared_sock
+package sharedsock
 
 import (
 	"fmt"

@@ -4,7 +4,7 @@
 // Jason Donenfeld (https://git.zx2c4.com/wireguard-tools/tree/contrib/nat-hole-punching/nat-punch-client.c#n96)
 // and @stv0g in https://github.com/stv0g/cunicu/tree/ebpf-poc/ebpf_poc
 
-package shared_sock
+package sharedsock
 
 import (
 	"context"

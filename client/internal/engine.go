@@ -28,7 +28,7 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/shared_sock"
+	"github.com/netbirdio/netbird/sharedsock"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
@@ -210,7 +210,7 @@ func (e *Engine) Start() error {
 		e.udpMux = udpMux
 		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
 	} else {
-		rawSock, err := shared_sock.Listen(e.config.WgPort, shared_sock.NewSTUNFilter())
+		rawSock, err := sharedsock.Listen(e.config.WgPort, sharedsock.NewSTUNFilter())
 		if err != nil {
 			return err
 		}
