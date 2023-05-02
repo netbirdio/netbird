@@ -73,6 +73,7 @@ type zitadelProfile struct {
 	State              string            `json:"state"`
 	UserName           string            `json:"userName"`
 	PreferredLoginName string            `json:"preferredLoginName"`
+	LoginNames         []string          `json:"loginNames"`
 	Human              *zitadelHumanType `json:"human"`
 	Metadata           []zitadelMetadata
 }
@@ -301,7 +302,42 @@ func (zm *ZitadelManager) GetAccount(accountID string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (zm *ZitadelManager) GetAllAccounts() (map[string][]*UserData, error) {
-	return nil, nil
+	body, err := zm.post("users/_search", "")
+	if err != nil {
+		return nil, err
+	}
+
+	if zm.appMetrics != nil {
+		zm.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	var profiles struct{ Result []zitadelProfile }
+	err = zm.helper.Unmarshal(body, &profiles)
+	if err != nil {
+		return nil, err
+	}
+
+	indexedUsers := make(map[string][]*UserData)
+	for _, profile := range profiles.Result {
+		// fetch user metadata
+		metadata, err := zm.getUserMetadata(profile.ID)
+		if err != nil {
+			return nil, err
+		}
+		profile.Metadata = metadata
+
+		userData := profile.userData()
+		accountID := userData.AppMetadata.WTAccountID
+
+		if accountID != "" {
+			if _, ok := indexedUsers[accountID]; !ok {
+				indexedUsers[accountID] = make([]*UserData, 0)
+			}
+			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
+		}
+	}
+
+	return indexedUsers, nil
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
@@ -444,6 +480,8 @@ func (zm zitadelMetadata) value() string {
 // userData construct user data from zitadel profile.
 func (zp zitadelProfile) userData() *UserData {
 	var (
+		email                string
+		name                 string
 		wtAccountIDValue     string
 		wtPendingInviteValue bool
 	)
@@ -461,9 +499,21 @@ func (zp zitadelProfile) userData() *UserData {
 		}
 	}
 
+	// Obtain the email for the human account and the login name,
+	// for the machine account.
+	if zp.Human != nil {
+		email = zp.Human.Email.Email
+		name = zp.Human.Profile.DisplayName
+	} else {
+		if len(zp.LoginNames) > 0 {
+			email = zp.LoginNames[0]
+			name = zp.LoginNames[0]
+		}
+	}
+
 	return &UserData{
-		Email: zp.Human.Email.Email,
-		Name:  zp.Human.Profile.DisplayName,
+		Email: email,
+		Name:  name,
 		ID:    zp.ID,
 		AppMetadata: AppMetadata{
 			WTAccountID:     wtAccountIDValue,
