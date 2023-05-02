@@ -213,7 +213,42 @@ func (zm *ZitadelManager) CreateUser(email string, name string, accountID string
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
 func (zm *ZitadelManager) GetUserByEmail(email string) ([]*UserData, error) {
-	return nil, nil
+	searchByEmail := map[string]any{
+		"queries": []map[string]any{
+			{
+				"emailQuery": map[string]any{
+					"emailAddress": email,
+					"method":       "TEXT_QUERY_METHOD_EQUALS",
+				},
+			},
+		},
+	}
+	payload, err := zm.helper.Marshal(searchByEmail)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := zm.post("users/_search", string(payload))
+	if err != nil {
+		return nil, err
+	}
+
+	if zm.appMetrics != nil {
+		zm.appMetrics.IDPMetrics().CountGetUserByEmail()
+	}
+
+	var profiles struct{ Result []zitadelProfile }
+	err = zm.helper.Unmarshal(body, &profiles)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]*UserData, 0)
+	for _, profile := range profiles.Result {
+		users = append(users, profile.userData())
+	}
+
+	return users, nil
 }
 
 // GetUserDataByID requests user data from zitadel via ID.
@@ -250,6 +285,42 @@ func (zm *ZitadelManager) GetAllAccounts() (map[string][]*UserData, error) {
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (zm *ZitadelManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	return nil
+}
+
+// post perform Post requests.
+func (zm *ZitadelManager) post(resource string, body string) ([]byte, error) {
+	jwtToken, err := zm.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := fmt.Sprintf("%s/%s", zm.managementEndpoint, resource)
+	req, err := http.NewRequest(http.MethodPost, reqURL, strings.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := zm.httpClient.Do(req)
+	if err != nil {
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return nil, fmt.Errorf("unable to post %s, statusCode %d", reqURL, resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
 }
 
 // get perform Get requests.
