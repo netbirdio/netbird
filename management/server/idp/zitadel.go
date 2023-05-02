@@ -44,7 +44,38 @@ type ZitadelCredentials struct {
 
 // NewZitadelManager creates a new instance of the ZitadelManager.
 func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetrics) (*ZitadelManager, error) {
-	return &ZitadelManager{}, nil
+	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
+	httpTransport.MaxIdleConns = 5
+
+	httpClient := &http.Client{
+		Timeout:   10 * time.Second,
+		Transport: httpTransport,
+	}
+
+	helper := JsonParser{}
+
+	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.ManagementEndpoint == "" || config.TokenEndpoint == "" {
+		return nil, fmt.Errorf("zitadel idp configuration is not complete")
+	}
+
+	if config.GrantType != "client_credentials" {
+		return nil, fmt.Errorf("zitadel idp configuration failed. Grant Type should be client_credentials")
+	}
+
+	credentials := &ZitadelCredentials{
+		clientConfig: config,
+		httpClient:   httpClient,
+		helper:       helper,
+		appMetrics:   appMetrics,
+	}
+
+	return &ZitadelManager{
+		ManagementEndpoint: config.ManagementEndpoint,
+		httpClient:         httpClient,
+		credentials:        credentials,
+		helper:             helper,
+		appMetrics:         appMetrics,
+	}, nil
 }
 
 // jwtStillValid returns true if the token still valid and have enough time to be used and get a response from zitadel.
