@@ -12,7 +12,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
-type IsUserAdminFunc func(userID string) (bool, error)
+type IsUserAdminFunc func(claims jwtclaims.AuthorizationClaims) (bool, error)
 
 // AccessControl middleware to restrict to make POST/PUT/DELETE requests by admin only
 type AccessControl struct {
@@ -37,7 +37,7 @@ func (a *AccessControl) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		claims := a.claimsExtract.FromRequestContext(r)
 
-		ok, err := a.isUserAdmin(claims.UserId)
+		ok, err := a.isUserAdmin(claims)
 		if err != nil {
 			util.WriteError(status.Errorf(status.Unauthorized, "invalid JWT"), w)
 			return
