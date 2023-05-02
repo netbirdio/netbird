@@ -16,7 +16,7 @@ import (
 
 // ZitadelManager zitadel manager client instance.
 type ZitadelManager struct {
-	ManagementEndpoint string
+	managementEndpoint string
 	httpClient         ManagerHTTPClient
 	credentials        ManagerCredentials
 	helper             ManagerHelper
@@ -40,6 +40,31 @@ type ZitadelCredentials struct {
 	jwtToken     JWTToken
 	mux          sync.Mutex
 	appMetrics   telemetry.AppMetrics
+}
+
+// zitadelHumanType specifies profile details for user which
+type zitadelHumanType struct {
+	Profile struct {
+		FirstName         string `json:"firstName"`
+		LastName          string `json:"lastName"`
+		DisplayName       string `json:"displayName"`
+		PreferredLanguage string `json:"preferredLanguage"`
+	} `json:"profile"`
+
+	Email struct {
+		Email           string `json:"email"`
+		IsEmailVerified bool   `json:"isEmailVerified"`
+	} `json:"email"`
+}
+
+// zitadelProfile represents an zitadel user profile response.
+type zitadelProfile struct {
+	ID                 string            `json:"id"`
+	State              string            `json:"state"`
+	UserName           string            `json:"userName"`
+	PreferredLoginName string            `json:"preferredLoginName"`
+	Human              *zitadelHumanType `json:"human"`
+	//TODO: add user attributes here
 }
 
 // NewZitadelManager creates a new instance of the ZitadelManager.
@@ -70,7 +95,7 @@ func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetri
 	}
 
 	return &ZitadelManager{
-		ManagementEndpoint: config.ManagementEndpoint,
+		managementEndpoint: config.ManagementEndpoint,
 		httpClient:         httpClient,
 		credentials:        credentials,
 		helper:             helper,
@@ -191,9 +216,24 @@ func (zm *ZitadelManager) GetUserByEmail(email string) ([]*UserData, error) {
 	return nil, nil
 }
 
-// GetUserDataByID requests user data from keycloak via ID.
+// GetUserDataByID requests user data from zitadel via ID.
 func (zm *ZitadelManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	return nil, nil
+	body, err := zm.get("users/"+userID, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if zm.appMetrics != nil {
+		zm.appMetrics.IDPMetrics().CountGetUserDataByID()
+	}
+
+	var result struct{ User zitadelProfile }
+	err = zm.helper.Unmarshal(body, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	return result.User.userData(), nil
 }
 
 // GetAccount returns all the users for a given profile.
@@ -210,4 +250,50 @@ func (zm *ZitadelManager) GetAllAccounts() (map[string][]*UserData, error) {
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (zm *ZitadelManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	return nil
+}
+
+// get perform Get requests.
+func (zm *ZitadelManager) get(resource string, q url.Values) ([]byte, error) {
+	jwtToken, err := zm.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	reqURL := fmt.Sprintf("%s/%s?%s", zm.managementEndpoint, resource, q.Encode())
+	req, err := http.NewRequest(http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	resp, err := zm.httpClient.Do(req)
+	if err != nil {
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountRequestError()
+		}
+
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		if zm.appMetrics != nil {
+			zm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return nil, fmt.Errorf("unable to get %s, statusCode %d", reqURL, resp.StatusCode)
+	}
+
+	return io.ReadAll(resp.Body)
+}
+
+// userData construct user data from zitadel profile.
+func (zp zitadelProfile) userData() *UserData {
+	return &UserData{
+		Email:       zp.Human.Email.Email,
+		Name:        zp.Human.Profile.DisplayName,
+		ID:          zp.ID,
+		AppMetadata: AppMetadata{}, //TODO: fetch metadata from zp attributes
+	}
 }
