@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// ErrSharedSockStopped indicates that shared socket has been stopped
 var ErrSharedSockStopped = fmt.Errorf("shared socked stopped")
 
 // SharedSocket is a net.PacketConn that initiates two raw sockets (ipv4 and ipv6) and listens to UDP packets filtered
