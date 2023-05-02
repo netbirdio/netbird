@@ -23,10 +23,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// STUNSocket is a net.PacketConn that initiates two raw sockets (ipv4 and ipv6) and listens to UDP packets filtered
-// by BPF instructions that check and send only STUN packets to the listeners (ReadFrom).
-// Other packets will be forwarded to the process that own the port (e.g., WireGuard).
-type STUNSocket struct {
+// SharedSocket is a net.PacketConn that initiates two raw sockets (ipv4 and ipv6) and listens to UDP packets filtered
+// by BPF instructions (e.g., STUNFilter that checks and sends only STUN packets to the listeners (ReadFrom)).
+type SharedSocket struct {
 	ctx         context.Context
 	conn4       *socket.Conn
 	conn6       *socket.Conn
@@ -50,11 +49,16 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 	FixLengths:       true,
 }
 
+// ListenWithSTUNFilter creates an IPv4 and IPv6 raw sockets applying STUNFilter
+func ListenWithSTUNFilter(ctx context.Context, port int) (net.PacketConn, error) {
+	return Listen(ctx, port, NewSTUNFilter())
+}
+
 // Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
-func Listen(ctx context.Context, port int) (net.PacketConn, error) {
+func Listen(ctx context.Context, port int, filter BPFFilter) (net.PacketConn, error) {
 	var err error
 
-	rawSock := &STUNSocket{
+	rawSock := &SharedSocket{
 		ctx:         ctx,
 		port:        port,
 		packetDemux: make(chan rcvdPacket),
@@ -75,7 +79,7 @@ func Listen(ctx context.Context, port int) (net.PacketConn, error) {
 		log.Errorf("socket.Socket for ipv6 failed with: %rawSock", err)
 	}
 
-	ipv4Instructions, ipv6Instructions, err := getBPFInstructions(uint32(rawSock.port))
+	ipv4Instructions, ipv6Instructions, err := filter.GetInstructions(uint32(rawSock.port))
 	if err != nil {
 		_ = rawSock.Close()
 		return nil, fmt.Errorf("getBPFInstructions failed with: %rawSock", err)
@@ -106,7 +110,7 @@ func Listen(ctx context.Context, port int) (net.PacketConn, error) {
 
 // updateRouter updates the listener routing table client
 // this is needed to avoid outdated information across different client networks
-func (s *STUNSocket) updateRouter() {
+func (s *SharedSocket) updateRouter() {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -127,7 +131,7 @@ func (s *STUNSocket) updateRouter() {
 }
 
 // LocalAddr returns an IPv4 address using the supplied port
-func (s *STUNSocket) LocalAddr() net.Addr {
+func (s *SharedSocket) LocalAddr() net.Addr {
 	// todo check impact on ipv6 discovery
 	return &net.UDPAddr{
 		IP:   net.IPv4zero,
@@ -136,7 +140,7 @@ func (s *STUNSocket) LocalAddr() net.Addr {
 }
 
 // SetDeadline sets both the read and write deadlines associated with the ipv4 and ipv6 Conn sockets
-func (s *STUNSocket) SetDeadline(t time.Time) error {
+func (s *SharedSocket) SetDeadline(t time.Time) error {
 	err := s.conn4.SetDeadline(t)
 	if err != nil {
 		return fmt.Errorf("s.conn4.SetDeadline error: %s", err)
@@ -153,7 +157,7 @@ func (s *STUNSocket) SetDeadline(t time.Time) error {
 }
 
 // SetReadDeadline sets the read deadline associated with the ipv4 and ipv6 Conn sockets
-func (s *STUNSocket) SetReadDeadline(t time.Time) error {
+func (s *SharedSocket) SetReadDeadline(t time.Time) error {
 	err := s.conn4.SetReadDeadline(t)
 	if err != nil {
 		return fmt.Errorf("s.conn4.SetReadDeadline error: %s", err)
@@ -170,7 +174,7 @@ func (s *STUNSocket) SetReadDeadline(t time.Time) error {
 }
 
 // SetWriteDeadline sets the write deadline associated with the ipv4 and ipv6 Conn sockets
-func (s *STUNSocket) SetWriteDeadline(t time.Time) error {
+func (s *SharedSocket) SetWriteDeadline(t time.Time) error {
 	err := s.conn4.SetWriteDeadline(t)
 	if err != nil {
 		return fmt.Errorf("s.conn4.SetWriteDeadline error: %s", err)
@@ -187,7 +191,7 @@ func (s *STUNSocket) SetWriteDeadline(t time.Time) error {
 }
 
 // Close closes the underlying ipv4 and ipv6 conn sockets
-func (s *STUNSocket) Close() error {
+func (s *SharedSocket) Close() error {
 	errGrp := errgroup.Group{}
 	if s.conn4 != nil {
 		errGrp.Go(s.conn4.Close)
@@ -200,7 +204,7 @@ func (s *STUNSocket) Close() error {
 }
 
 // read start a read loop for a specific receiver and sends the packet to the packetDemux channel
-func (s *STUNSocket) read(receiver receiver) {
+func (s *SharedSocket) read(receiver receiver) {
 	for {
 		buf := make([]byte, 1500)
 		n, addr, err := receiver(s.ctx, buf, 0)
@@ -213,7 +217,7 @@ func (s *STUNSocket) read(receiver receiver) {
 }
 
 // ReadFrom reads packets received in the packetDemux channel
-func (s *STUNSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	pkt := <-s.packetDemux
 
 	if pkt.err != nil {
@@ -252,7 +256,7 @@ func (s *STUNSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 }
 
 // WriteTo builds a UDP packet and writes it using the specific IP version writter
-func (s *STUNSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
+func (s *SharedSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 	rUDPAddr, ok := rAddr.(*net.UDPAddr)
 	if !ok {
 		return -1, fmt.Errorf("invalid address type")
@@ -290,7 +294,7 @@ func (s *STUNSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 }
 
 // getWriterObjects returns the specific IP version objects that are used to build a packet and send it using the raw socket
-func (s *STUNSocket) getWriterObjects(src, dest net.IP) (sa unix.Sockaddr, conn *socket.Conn, layer gopacket.NetworkLayer) {
+func (s *SharedSocket) getWriterObjects(src, dest net.IP) (sa unix.Sockaddr, conn *socket.Conn, layer gopacket.NetworkLayer) {
 	if dest.To4() == nil {
 		sa = &unix.SockaddrInet6{}
 		copy(sa.(*unix.SockaddrInet6).Addr[:], dest.To16())

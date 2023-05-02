@@ -21,7 +21,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/raw_sock"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
@@ -29,6 +28,7 @@ import (
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/shared_sock"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
@@ -210,7 +210,7 @@ func (e *Engine) Start() error {
 		e.udpMux = udpMux
 		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
 	} else {
-		rawSock, err := raw_sock.Listen(e.ctx, e.config.WgPort)
+		rawSock, err := shared_sock.ListenWithSTUNFilter(e.ctx, e.config.WgPort)
 		if err != nil {
 			return err
 		}

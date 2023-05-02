@@ -1,19 +1,24 @@
-//go:build linux && !android
-
 package shared_sock
 
-import (
-	"golang.org/x/net/bpf"
-)
+import "golang.org/x/net/bpf"
 
-const magicCookie uint32 = 0x2112A442
+// STUNFilter implements BPFFilter by filtering on STUN packets.
+// Other packets (non STUN) will be forwarded to the process that own the port (e.g., WireGuard).
+type STUNFilter struct {
+}
 
-func getBPFInstructions(port uint32) ([]bpf.RawInstruction, []bpf.RawInstruction, error) {
-	raw4, err := rawInstructions(22, 32, port)
+// NewSTUNFilter creates an instance of a STUNFilter
+func NewSTUNFilter() *STUNFilter {
+	return &STUNFilter{}
+}
+
+// GetInstructions returns raw BPF instructions for ipv4 and ipv6 that filter out anything but STUN packets
+func (sf STUNFilter) GetInstructions(port uint32) (raw4 []bpf.RawInstruction, raw6 []bpf.RawInstruction, err error) {
+	raw4, err = rawInstructions(22, 32, port)
 	if err != nil {
 		return nil, nil, err
 	}
-	raw6, err := rawInstructions(2, 12, port)
+	raw6, err = rawInstructions(2, 12, port)
 	if err != nil {
 		return nil, nil, err
 	}

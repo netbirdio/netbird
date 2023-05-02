@@ -23,8 +23,8 @@ func TestShouldReadSTUNOnReadFrom(t *testing.T) {
 	testingPort := 51821
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	rawSock, err := Listen(ctx, testingPort)
-	require.NoError(t, err, "received an error while creating stun listener, error: %s", err)
+	rawSock, err := Listen(ctx, testingPort, NewSTUNFilter())
+	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 	err = rawSock.SetReadDeadline(time.Now().Add(3 * time.Second))
 	require.NoError(t, err, "unable to set deadline, error: %s", err)
 
@@ -77,7 +77,7 @@ func TestShouldNotReadNonSTUNPackets(t *testing.T) {
 	testingPort := 39439
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	rawSock, err := Listen(ctx, testingPort)
+	rawSock, err := Listen(ctx, testingPort, NewSTUNFilter())
 	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 	defer rawSock.Close()
 
@@ -113,7 +113,7 @@ func TestWriteTo(t *testing.T) {
 	testingPort := 39440
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	s, err := Listen(ctx, testingPort)
+	s, err := Listen(ctx, testingPort, NewSTUNFilter())
 	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 	defer s.Close()
 
