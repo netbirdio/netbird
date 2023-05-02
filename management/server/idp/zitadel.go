@@ -1,10 +1,12 @@
 package idp
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -57,6 +59,8 @@ type zitadelHumanType struct {
 	} `json:"email"`
 }
 
+type zitadelAttributes map[string][]map[string]any
+
 // zitadelProfile represents an zitadel user profile response.
 type zitadelProfile struct {
 	ID                 string            `json:"id"`
@@ -64,6 +68,7 @@ type zitadelProfile struct {
 	UserName           string            `json:"userName"`
 	PreferredLoginName string            `json:"preferredLoginName"`
 	Human              *zitadelHumanType `json:"human"`
+	// Metadata       map[string]any
 	//TODO: add user attributes here
 }
 
@@ -213,8 +218,8 @@ func (zm *ZitadelManager) CreateUser(email string, name string, accountID string
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
 func (zm *ZitadelManager) GetUserByEmail(email string) ([]*UserData, error) {
-	searchByEmail := map[string]any{
-		"queries": []map[string]any{
+	searchByEmail := zitadelAttributes{
+		"queries": {
 			{
 				"emailQuery": map[string]any{
 					"emailAddress": email,
@@ -283,7 +288,40 @@ func (zm *ZitadelManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
+// Metadata values are base64 encoded.
 func (zm *ZitadelManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
+	wtAccountIDValue := base64.StdEncoding.EncodeToString([]byte(appMetadata.WTAccountID))
+
+	pendingInviteBuf := strconv.AppendBool([]byte{}, *appMetadata.WTPendingInvite)
+	wtPendingInviteValue := base64.StdEncoding.EncodeToString(pendingInviteBuf)
+
+	metadata := zitadelAttributes{
+		"metadata": {
+			{
+				"key":   wtAccountID,
+				"value": wtAccountIDValue,
+			},
+			{
+				"key":   wtPendingInvite,
+				"value": wtPendingInviteValue,
+			},
+		},
+	}
+	payload, err := zm.helper.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+
+	resource := fmt.Sprintf("users/%s/metadata/_bulk", userID)
+	_, err = zm.post(resource, string(payload))
+	if err != nil {
+		return err
+	}
+
+	if zm.appMetrics != nil {
+		zm.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
+	}
+
 	return nil
 }
 
