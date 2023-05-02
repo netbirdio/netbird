@@ -9,6 +9,7 @@ import (
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
@@ -573,19 +574,14 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string)
 	return account, nil
 }
 
-// GetAccountByUserID returns an existing account for a given user id
-func (am *DefaultAccountManager) GetAccountByUserID(userID string) (*Account, error) {
-	return am.Store.GetAccountByUser(userID)
-}
-
 // IsUserAdmin looks up a user by his ID and returns true if he is an admin
-func (am *DefaultAccountManager) IsUserAdmin(userID string) (bool, error) {
-	account, err := am.GetAccountByUserID(userID)
+func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
+	account, _, err := am.GetAccountFromToken(claims)
 	if err != nil {
 		return false, fmt.Errorf("get account: %v", err)
 	}
 
-	user, ok := account.Users[userID]
+	user, ok := account.Users[claims.UserId]
 	if !ok {
 		return false, status.Errorf(status.NotFound, "user not found")
 	}

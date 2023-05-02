@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
 const (
@@ -453,7 +454,11 @@ func TestUser_IsUserAdmin_ForAdmin(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	ok, err := am.IsUserAdmin(mockUserID)
+	claims := jwtclaims.AuthorizationClaims{
+		UserId: mockUserID,
+	}
+
+	ok, err := am.IsUserAdmin(claims)
 	if err != nil {
 		t.Fatalf("Error when checking user role: %s", err)
 	}
@@ -479,7 +484,11 @@ func TestUser_IsUserAdmin_ForUser(t *testing.T) {
 		eventStore: &activity.InMemoryEventStore{},
 	}
 
-	ok, err := am.IsUserAdmin(mockUserID)
+	claims := jwtclaims.AuthorizationClaims{
+		UserId: mockUserID,
+	}
+
+	ok, err := am.IsUserAdmin(claims)
 	if err != nil {
 		t.Fatalf("Error when checking user role: %s", err)
 	}
