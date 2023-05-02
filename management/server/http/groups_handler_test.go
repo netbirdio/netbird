@@ -136,7 +136,7 @@ func TestGetGroup(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/groups/{id}", p.GetGroup).Methods("GET")
+			router.HandleFunc("/api/groups/{groupId}", p.GetGroup).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -230,53 +230,6 @@ func TestWriteGroup(t *testing.T) {
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
-		{
-			name:        "Write Group PATCH Name OK",
-			requestType: http.MethodPatch,
-			requestPath: "/api/groups/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"name","value":["Default POSTed Group"]}]`)),
-			expectedStatus: http.StatusOK,
-			expectedGroup: &api.Group{
-				Id:   "id-existed",
-				Name: "Default POSTed Group",
-			},
-		},
-		{
-			name:        "Write Group PATCH Invalid Name OP",
-			requestType: http.MethodPatch,
-			requestPath: "/api/groups/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"insert","path":"name","value":[""]}]`)),
-			expectedStatus: http.StatusUnprocessableEntity,
-			expectedBody:   false,
-		},
-		{
-			name:        "Write Group PATCH Invalid Name",
-			requestType: http.MethodPatch,
-			requestPath: "/api/groups/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"name","value":[]}]`)),
-			expectedStatus: http.StatusUnprocessableEntity,
-			expectedBody:   false,
-		},
-		{
-			name:        "Write Group PATCH PeersHandler OK",
-			requestType: http.MethodPatch,
-			requestPath: "/api/groups/id-existed",
-			requestBody: bytes.NewBuffer(
-				[]byte(`[{"op":"replace","path":"peers","value":["100.100.100.100","200.200.200.200"]}]`)),
-			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedGroup: &api.Group{
-				Id:         "id-existed",
-				PeersCount: 2,
-				Peers: []api.PeerMinimum{
-					{Id: "peer-A-ID"},
-					{Id: "peer-B-ID"},
-				},
-			},
-		},
 	}
 
 	adminUser := server.NewAdminUser("test_user")
@@ -289,8 +242,7 @@ func TestWriteGroup(t *testing.T) {
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/groups", p.CreateGroup).Methods("POST")
-			router.HandleFunc("/api/groups/{id}", p.UpdateGroup).Methods("PUT")
-			router.HandleFunc("/api/groups/{id}", p.PatchGroup).Methods("PATCH")
+			router.HandleFunc("/api/groups/{groupId}", p.UpdateGroup).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

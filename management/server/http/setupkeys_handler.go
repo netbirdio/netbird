@@ -84,7 +84,7 @@ func (h *SetupKeysHandler) GetSetupKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	keyID := vars["id"]
+	keyID := vars["keyId"]
 	if len(keyID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid key ID"), w)
 		return
@@ -109,13 +109,13 @@ func (h *SetupKeysHandler) UpdateSetupKey(w http.ResponseWriter, r *http.Request
 	}
 
 	vars := mux.Vars(r)
-	keyID := vars["id"]
+	keyID := vars["keyId"]
 	if len(keyID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid key ID"), w)
 		return
 	}
 
-	req := &api.PutApiSetupKeysIdJSONRequestBody{}
+	req := &api.PutApiSetupKeysKeyIdJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)

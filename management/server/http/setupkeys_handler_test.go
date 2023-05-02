@@ -174,8 +174,8 @@ func TestSetupKeysHandlers(t *testing.T) {
 			router := mux.NewRouter()
 			router.HandleFunc("/api/setup-keys", handler.GetAllSetupKeys).Methods("GET", "OPTIONS")
 			router.HandleFunc("/api/setup-keys", handler.CreateSetupKey).Methods("POST", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{id}", handler.GetSetupKey).Methods("GET", "OPTIONS")
-			router.HandleFunc("/api/setup-keys/{id}", handler.UpdateSetupKey).Methods("PUT", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", handler.GetSetupKey).Methods("GET", "OPTIONS")
+			router.HandleFunc("/api/setup-keys/{keyId}", handler.UpdateSetupKey).Methods("PUT", "OPTIONS")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

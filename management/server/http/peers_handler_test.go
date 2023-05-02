@@ -146,8 +146,8 @@ func TestGetPeers(t *testing.T) {
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/peers/", p.GetAllPeers).Methods("GET")
-			router.HandleFunc("/api/peers/{id}", p.HandlePeer).Methods("GET")
-			router.HandleFunc("/api/peers/{id}", p.HandlePeer).Methods("PUT")
+			router.HandleFunc("/api/peers/{peerId}", p.HandlePeer).Methods("GET")
+			router.HandleFunc("/api/peers/{peerId}", p.HandlePeer).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

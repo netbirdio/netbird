@@ -65,7 +65,7 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	ruleID := vars["id"]
+	ruleID := vars["ruleId"]
 	if len(ruleID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid rule ID"), w)
 		return
@@ -77,7 +77,7 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PutApiRulesIdJSONRequestBody
+	var req api.PutApiRulesRuleIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -210,7 +210,7 @@ func (h *RulesHandler) DeleteRule(w http.ResponseWriter, r *http.Request) {
 	}
 	aID := account.Id
 
-	rID := mux.Vars(r)["id"]
+	rID := mux.Vars(r)["ruleId"]
 	if len(rID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid rule ID"), w)
 		return
@@ -236,7 +236,7 @@ func (h *RulesHandler) GetRule(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		ruleID := mux.Vars(r)["id"]
+		ruleID := mux.Vars(r)["ruleId"]
 		if len(ruleID) == 0 {
 			util.WriteError(status.Errorf(status.InvalidArgument, "invalid rule ID"), w)
 			return

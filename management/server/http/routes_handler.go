@@ -103,7 +103,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	routeID := vars["id"]
+	routeID := vars["routeId"]
 	if len(routeID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
@@ -115,7 +115,7 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PutApiRoutesIdJSONRequestBody
+	var req api.PutApiRoutesRouteIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -159,147 +159,6 @@ func (h *RoutesHandler) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, &resp)
 }
 
-// PatchRoute handles patch updates to a route identified by a given ID
-func (h *RoutesHandler) PatchRoute(w http.ResponseWriter, r *http.Request) {
-	claims := h.claimsExtractor.FromRequestContext(r)
-	account, user, err := h.accountManager.GetAccountFromToken(claims)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	vars := mux.Vars(r)
-	routeID := vars["id"]
-	if len(routeID) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
-		return
-	}
-
-	_, err = h.accountManager.GetRoute(account.Id, routeID, user.Id)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	var req api.PatchApiRoutesIdJSONRequestBody
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if len(req) == 0 {
-		util.WriteError(status.Errorf(status.InvalidArgument, "no patch instruction received"), w)
-		return
-	}
-
-	var operations []server.RouteUpdateOperation
-
-	for _, patch := range req {
-		switch patch.Path {
-		case api.RoutePatchOperationPathNetwork:
-			if patch.Op != api.RoutePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"network field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			operations = append(operations, server.RouteUpdateOperation{
-				Type:   server.UpdateRouteNetwork,
-				Values: patch.Value,
-			})
-		case api.RoutePatchOperationPathDescription:
-			if patch.Op != api.RoutePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"description field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			operations = append(operations, server.RouteUpdateOperation{
-				Type:   server.UpdateRouteDescription,
-				Values: patch.Value,
-			})
-		case api.RoutePatchOperationPathNetworkId:
-			if patch.Op != api.RoutePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"network Identifier field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			operations = append(operations, server.RouteUpdateOperation{
-				Type:   server.UpdateRouteNetworkIdentifier,
-				Values: patch.Value,
-			})
-		case api.RoutePatchOperationPathPeer:
-			if patch.Op != api.RoutePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"peer field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			if len(patch.Value) > 1 {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"value field only accepts 1 value, got %d", len(patch.Value)), w)
-				return
-			}
-			operations = append(operations, server.RouteUpdateOperation{
-				Type:   server.UpdateRoutePeer,
-				Values: patch.Value,
-			})
-		case api.RoutePatchOperationPathMetric:
-			if patch.Op != api.RoutePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"metric field only accepts replace operation, got %s", patch.Op), w)
-
-				return
-			}
-			operations = append(operations, server.RouteUpdateOperation{
-				Type:   server.UpdateRouteMetric,
-				Values: patch.Value,
-			})
-		case api.RoutePatchOperationPathMasquerade:
-			if patch.Op != api.RoutePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"masquerade field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			operations = append(operations, server.RouteUpdateOperation{
-				Type:   server.UpdateRouteMasquerade,
-				Values: patch.Value,
-			})
-		case api.RoutePatchOperationPathEnabled:
-			if patch.Op != api.RoutePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"enabled field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			operations = append(operations, server.RouteUpdateOperation{
-				Type:   server.UpdateRouteEnabled,
-				Values: patch.Value,
-			})
-		case api.RoutePatchOperationPathGroups:
-			if patch.Op != api.RoutePatchOperationOpReplace {
-				util.WriteError(status.Errorf(status.InvalidArgument,
-					"groups field only accepts replace operation, got %s", patch.Op), w)
-				return
-			}
-			operations = append(operations, server.RouteUpdateOperation{
-				Type:   server.UpdateRouteGroups,
-				Values: patch.Value,
-			})
-		default:
-			util.WriteError(status.Errorf(status.InvalidArgument, "invalid patch path"), w)
-			return
-		}
-	}
-
-	root, err := h.accountManager.UpdateRoute(account.Id, routeID, operations)
-	if err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	resp := toRouteResponse(root)
-
-	util.WriteJSONObject(w, &resp)
-}
-
 // DeleteRoute handles route deletion request
 func (h *RoutesHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
@@ -309,7 +168,7 @@ func (h *RoutesHandler) DeleteRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	routeID := mux.Vars(r)["id"]
+	routeID := mux.Vars(r)["routeId"]
 	if len(routeID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
@@ -333,7 +192,7 @@ func (h *RoutesHandler) GetRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	routeID := mux.Vars(r)["id"]
+	routeID := mux.Vars(r)["routeId"]
 	if len(routeID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid route ID"), w)
 		return
