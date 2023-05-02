@@ -296,7 +296,12 @@ func (zm *ZitadelManager) GetUserDataByID(userID string, appMetadata AppMetadata
 
 // GetAccount returns all the users for a given profile.
 func (zm *ZitadelManager) GetAccount(accountID string) ([]*UserData, error) {
-	return nil, nil
+	accounts, err := zm.GetAllAccounts()
+	if err != nil {
+		return nil, err
+	}
+
+	return accounts[accountID], nil
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
