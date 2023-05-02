@@ -232,6 +232,10 @@ func (am *AzureManager) CreateUser(email string, name string, accountID string) 
 		return nil, err
 	}
 
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
 	var profile azureProfile
 	err = am.helper.Unmarshal(body, &profile)
 	if err != nil {
@@ -262,7 +266,7 @@ func (am *AzureManager) GetUserDataByID(userID string, appMetadata AppMetadata) 
 	}
 
 	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountGetAllAccounts()
+		am.appMetrics.IDPMetrics().CountGetUserDataByID()
 	}
 
 	var profile azureProfile
@@ -290,7 +294,7 @@ func (am *AzureManager) GetUserByEmail(email string) ([]*UserData, error) {
 	}
 
 	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountGetAllAccounts()
+		am.appMetrics.IDPMetrics().CountGetUserByEmail()
 	}
 
 	var profile azureProfile
@@ -321,7 +325,7 @@ func (am *AzureManager) GetAccount(accountID string) ([]*UserData, error) {
 	}
 
 	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountGetAllAccounts()
+		am.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
 	var profiles struct{ Value []azureProfile }
@@ -554,10 +558,6 @@ func (am *AzureManager) post(resource string, body string) ([]byte, error) {
 	}
 	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
 	req.Header.Add("content-type", "application/json")
-
-	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountCreateUser()
-	}
 
 	resp, err := am.httpClient.Do(req)
 	if err != nil {
