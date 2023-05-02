@@ -2,6 +2,7 @@ package idp
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,19 +45,24 @@ type ZitadelCredentials struct {
 	appMetrics   telemetry.AppMetrics
 }
 
-// zitadelHumanType specifies profile details for user which
-type zitadelHumanType struct {
-	Profile struct {
-		FirstName         string `json:"firstName"`
-		LastName          string `json:"lastName"`
-		DisplayName       string `json:"displayName"`
-		PreferredLanguage string `json:"preferredLanguage"`
-	} `json:"profile"`
+// zitadelEmail specifies details of a user email.
+type zitadelEmail struct {
+	Email           string `json:"email"`
+	IsEmailVerified bool   `json:"isEmailVerified"`
+}
 
-	Email struct {
-		Email           string `json:"email"`
-		IsEmailVerified bool   `json:"isEmailVerified"`
-	} `json:"email"`
+// zitadelUserInfo specifies user information.
+type zitadelUserInfo struct {
+	FirstName   string `json:"firstName"`
+	LastName    string `json:"lastName"`
+	DisplayName string `json:"displayName"`
+}
+
+// zitadelUser specifies profile details for user account.
+type zitadelUser struct {
+	UserName string          `json:"userName,omitempty"`
+	Profile  zitadelUserInfo `json:"profile"`
+	Email    zitadelEmail    `json:"email"`
 }
 
 type zitadelAttributes map[string][]map[string]any
@@ -69,12 +75,12 @@ type zitadelMetadata struct {
 
 // zitadelProfile represents an zitadel user profile response.
 type zitadelProfile struct {
-	ID                 string            `json:"id"`
-	State              string            `json:"state"`
-	UserName           string            `json:"userName"`
-	PreferredLoginName string            `json:"preferredLoginName"`
-	LoginNames         []string          `json:"loginNames"`
-	Human              *zitadelHumanType `json:"human"`
+	ID                 string       `json:"id"`
+	State              string       `json:"state"`
+	UserName           string       `json:"userName"`
+	PreferredLoginName string       `json:"preferredLoginName"`
+	LoginNames         []string     `json:"loginNames"`
+	Human              *zitadelUser `json:"human"`
 	Metadata           []zitadelMetadata
 }
 
@@ -218,7 +224,41 @@ func (zc *ZitadelCredentials) Authenticate() (JWTToken, error) {
 
 // CreateUser creates a new user in zitadel Idp and sends an invite.
 func (zm *ZitadelManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
-	return nil, nil
+	payload, err := buildZitadelCreateUserRequestPayload(email, name)
+	if err != nil {
+		return nil, err
+	}
+
+	body, err := zm.post("users/human/_import", payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if zm.appMetrics != nil {
+		zm.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	var result struct {
+		UserID string `json:"userId"`
+	}
+	err = zm.helper.Unmarshal(body, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	invite := true
+	appMetadata := AppMetadata{
+		WTAccountID:     accountID,
+		WTPendingInvite: &invite,
+	}
+
+	// Add metadata to new user
+	err = zm.UpdateUserAppMetadata(result.UserID, appMetadata)
+	if err != nil {
+		return nil, err
+	}
+
+	return zm.GetUserDataByID(result.UserID, appMetadata)
 }
 
 // GetUserByEmail searches users with a given email.
@@ -299,6 +339,10 @@ func (zm *ZitadelManager) GetAccount(accountID string) ([]*UserData, error) {
 	accounts, err := zm.GetAllAccounts()
 	if err != nil {
 		return nil, err
+	}
+
+	if zm.appMetrics != nil {
+		zm.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
 	return accounts[accountID], nil
@@ -525,4 +569,32 @@ func (zp zitadelProfile) userData() *UserData {
 			WTPendingInvite: &wtPendingInviteValue,
 		},
 	}
+}
+
+func buildZitadelCreateUserRequestPayload(email string, name string) (string, error) {
+	words := strings.Fields(name)
+	n := len(words)
+
+	firstName := strings.Join(words[:n-1], " ")
+	lastName := words[n-1]
+
+	req := &zitadelUser{
+		UserName: name,
+		Profile: zitadelUserInfo{
+			FirstName:   strings.TrimSpace(firstName),
+			LastName:    strings.TrimSpace(lastName),
+			DisplayName: name,
+		},
+		Email: zitadelEmail{
+			Email:           email,
+			IsEmailVerified: false,
+		},
+	}
+
+	str, err := json.Marshal(req)
+	if err != nil {
+		return "", err
+	}
+
+	return string(str), nil
 }
