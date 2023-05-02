@@ -21,8 +21,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/raw_sock"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
-	"github.com/netbirdio/netbird/client/stunlistener"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
@@ -210,17 +210,13 @@ func (e *Engine) Start() error {
 		e.udpMux = udpMux
 		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
 	} else {
-		stunListener, err := stunlistener.NewSTUNListener(e.ctx, e.config.WgPort)
+		rawSock, err := raw_sock.Listen(e.ctx, e.config.WgPort)
 		if err != nil {
 			return err
 		}
-		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: stunListener, Net: transportNet})
-		err = stunListener.Listen(mux.HandleSTUNMessage)
-		if err != nil {
-			return err
-		}
-
-		e.udpMuxConn = stunListener
+		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: rawSock, Net: transportNet})
+		go mux.ReadFromConn(e.ctx)
+		e.udpMuxConn = rawSock
 		e.udpMux = mux
 	}
 

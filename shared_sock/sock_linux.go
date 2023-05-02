@@ -1,11 +1,10 @@
 //go:build linux && !android
 
-// stunlistener is inspired by the implementations of
+// Inspired by
 // Jason Donenfeld (https://git.zx2c4.com/wireguard-tools/tree/contrib/nat-hole-punching/nat-punch-client.c#n96)
-// and @stv0g in https://github.com/stv0g/cunicu/tree/ebpf-poc/ebpf_poc it initiates two raw sockets that
-// listens to UDP packets filtered by BPF instructions that checks and sends only stun packets to the listeners.
+// and @stv0g in https://github.com/stv0g/cunicu/tree/ebpf-poc/ebpf_poc
 
-package stunlistener
+package shared_sock
 
 import (
 	"context"
@@ -19,14 +18,15 @@ import (
 	"github.com/google/gopacket/routing"
 	"github.com/libp2p/go-netroute"
 	"github.com/mdlayher/socket"
-	"github.com/pion/stun"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
 )
 
-// RawSockListener implements a STUNListener that combines raw socket and BPF to handle STUN packets
-type RawSockListener struct {
+// STUNSocket is a net.PacketConn that initiates two raw sockets (ipv4 and ipv6) and listens to UDP packets filtered
+// by BPF instructions that check and send only STUN packets to the listeners (ReadFrom).
+// Other packets will be forwarded to the process that own the port (e.g., WireGuard).
+type STUNSocket struct {
 	ctx         context.Context
 	conn4       *socket.Conn
 	conn6       *socket.Conn
@@ -50,97 +50,63 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 	FixLengths:       true,
 }
 
-// NewSTUNListener creates a new RawSockListener
-func NewSTUNListener(ctx context.Context, port int) (*RawSockListener, error) {
-	return &RawSockListener{
+// Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
+func Listen(ctx context.Context, port int) (net.PacketConn, error) {
+	var err error
+
+	rawSock := &STUNSocket{
 		ctx:         ctx,
 		port:        port,
 		packetDemux: make(chan rcvdPacket),
-	}, nil
-}
-
-// Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
-func (s *RawSockListener) Listen(msgHandler STUNMsgHandler) error {
-	var err error
-
-	s.router, err = netroute.New()
-	if err != nil {
-		return fmt.Errorf("failed to create router: %s", err)
 	}
 
-	s.conn4, err = socket.Socket(unix.AF_INET, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp4", nil)
+	rawSock.router, err = netroute.New()
 	if err != nil {
-		return fmt.Errorf("socket.Socket for ipv4 failed with: %s", err)
+		return nil, fmt.Errorf("failed to create router: %rawSock", err)
 	}
 
-	s.conn6, err = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
+	rawSock.conn4, err = socket.Socket(unix.AF_INET, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp4", nil)
 	if err != nil {
-		log.Errorf("socket.Socket for ipv6 failed with: %s", err)
+		return nil, fmt.Errorf("socket.Socket for ipv4 failed with: %rawSock", err)
 	}
 
-	ipv4Instructions, ipv6Instructions, err := getBPFInstructions(uint32(s.port))
+	rawSock.conn6, err = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if err != nil {
-		_ = s.Close()
-		return fmt.Errorf("getBPFInstructions failed with: %s", err)
+		log.Errorf("socket.Socket for ipv6 failed with: %rawSock", err)
 	}
 
-	err = s.conn4.SetBPF(ipv4Instructions)
+	ipv4Instructions, ipv6Instructions, err := getBPFInstructions(uint32(rawSock.port))
 	if err != nil {
-		_ = s.Close()
-		return fmt.Errorf("socket4.SetBPF failed with: %s", err)
+		_ = rawSock.Close()
+		return nil, fmt.Errorf("getBPFInstructions failed with: %rawSock", err)
 	}
-	if s.conn6 != nil {
-		err = s.conn6.SetBPF(ipv6Instructions)
+
+	err = rawSock.conn4.SetBPF(ipv4Instructions)
+	if err != nil {
+		_ = rawSock.Close()
+		return nil, fmt.Errorf("socket4.SetBPF failed with: %rawSock", err)
+	}
+	if rawSock.conn6 != nil {
+		err = rawSock.conn6.SetBPF(ipv6Instructions)
 		if err != nil {
-			_ = s.Close()
-			return fmt.Errorf("socket6.SetBPF failed with: %s", err)
+			_ = rawSock.Close()
+			return nil, fmt.Errorf("socket6.SetBPF failed with: %rawSock", err)
 		}
 	}
 
-	go s.read(s.conn4.Recvfrom)
-	if s.conn6 != nil {
-		go s.read(s.conn6.Recvfrom)
+	go rawSock.read(rawSock.conn4.Recvfrom)
+	if rawSock.conn6 != nil {
+		go rawSock.read(rawSock.conn6.Recvfrom)
 	}
 
-	go s.updateRouter()
+	go rawSock.updateRouter()
 
-	go s.listenerToMux(msgHandler)
-	return nil
-}
-
-// listenerToMux reads a stun message packet and sends to the udp mux handler
-func (s *RawSockListener) listenerToMux(msgHandler STUNMsgHandler) {
-	buf := make([]byte, 1500)
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		default:
-			_, a, err := s.ReadFrom(buf)
-			if err != nil {
-				log.Errorf("listenerToMux got an error while reading packet %s", err)
-				continue
-			}
-			msg := &stun.Message{
-				Raw: buf,
-			}
-			err = msg.Decode()
-			if err != nil {
-				log.Errorf("listenerToMux got an error while parsing stun message: %s", err)
-				continue
-			}
-
-			err = msgHandler(msg, a)
-			if err != nil {
-				log.Errorf("listenerToMux got an error while handling stun message: %s", err)
-			}
-		}
-	}
+	return rawSock, nil
 }
 
 // updateRouter updates the listener routing table client
 // this is needed to avoid outdated information across different client networks
-func (s *RawSockListener) updateRouter() {
+func (s *STUNSocket) updateRouter() {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -161,7 +127,7 @@ func (s *RawSockListener) updateRouter() {
 }
 
 // LocalAddr returns an IPv4 address using the supplied port
-func (s *RawSockListener) LocalAddr() net.Addr {
+func (s *STUNSocket) LocalAddr() net.Addr {
 	// todo check impact on ipv6 discovery
 	return &net.UDPAddr{
 		IP:   net.IPv4zero,
@@ -170,7 +136,7 @@ func (s *RawSockListener) LocalAddr() net.Addr {
 }
 
 // SetDeadline sets both the read and write deadlines associated with the ipv4 and ipv6 Conn sockets
-func (s *RawSockListener) SetDeadline(t time.Time) error {
+func (s *STUNSocket) SetDeadline(t time.Time) error {
 	err := s.conn4.SetDeadline(t)
 	if err != nil {
 		return fmt.Errorf("s.conn4.SetDeadline error: %s", err)
@@ -187,7 +153,7 @@ func (s *RawSockListener) SetDeadline(t time.Time) error {
 }
 
 // SetReadDeadline sets the read deadline associated with the ipv4 and ipv6 Conn sockets
-func (s *RawSockListener) SetReadDeadline(t time.Time) error {
+func (s *STUNSocket) SetReadDeadline(t time.Time) error {
 	err := s.conn4.SetReadDeadline(t)
 	if err != nil {
 		return fmt.Errorf("s.conn4.SetReadDeadline error: %s", err)
@@ -204,7 +170,7 @@ func (s *RawSockListener) SetReadDeadline(t time.Time) error {
 }
 
 // SetWriteDeadline sets the write deadline associated with the ipv4 and ipv6 Conn sockets
-func (s *RawSockListener) SetWriteDeadline(t time.Time) error {
+func (s *STUNSocket) SetWriteDeadline(t time.Time) error {
 	err := s.conn4.SetWriteDeadline(t)
 	if err != nil {
 		return fmt.Errorf("s.conn4.SetWriteDeadline error: %s", err)
@@ -221,7 +187,7 @@ func (s *RawSockListener) SetWriteDeadline(t time.Time) error {
 }
 
 // Close closes the underlying ipv4 and ipv6 conn sockets
-func (s *RawSockListener) Close() error {
+func (s *STUNSocket) Close() error {
 	errGrp := errgroup.Group{}
 	if s.conn4 != nil {
 		errGrp.Go(s.conn4.Close)
@@ -234,7 +200,7 @@ func (s *RawSockListener) Close() error {
 }
 
 // read start a read loop for a specific receiver and sends the packet to the packetDemux channel
-func (s *RawSockListener) read(receiver receiver) {
+func (s *STUNSocket) read(receiver receiver) {
 	for {
 		buf := make([]byte, 1500)
 		n, addr, err := receiver(s.ctx, buf, 0)
@@ -247,7 +213,7 @@ func (s *RawSockListener) read(receiver receiver) {
 }
 
 // ReadFrom reads packets received in the packetDemux channel
-func (s *RawSockListener) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+func (s *STUNSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	pkt := <-s.packetDemux
 
 	if pkt.err != nil {
@@ -286,7 +252,7 @@ func (s *RawSockListener) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 }
 
 // WriteTo builds a UDP packet and writes it using the specific IP version writter
-func (s *RawSockListener) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
+func (s *STUNSocket) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 	rUDPAddr, ok := rAddr.(*net.UDPAddr)
 	if !ok {
 		return -1, fmt.Errorf("invalid address type")
@@ -308,7 +274,7 @@ func (s *RawSockListener) WriteTo(buf []byte, rAddr net.Addr) (n int, err error)
 		return 0, fmt.Errorf("got an error while checking route, err: %s", err)
 	}
 
-	rSockAddr, conn, nwLayer := s.getWritterObjects(src, rUDPAddr.IP)
+	rSockAddr, conn, nwLayer := s.getWriterObjects(src, rUDPAddr.IP)
 
 	if err := udp.SetNetworkLayerForChecksum(nwLayer); err != nil {
 		return -1, fmt.Errorf("failed to set network layer for checksum: %w", err)
@@ -323,8 +289,8 @@ func (s *RawSockListener) WriteTo(buf []byte, rAddr net.Addr) (n int, err error)
 	return 0, conn.Sendto(context.TODO(), bufser, 0, rSockAddr)
 }
 
-// getWritterObjects returns the specific IP version objects that are used to build a packet and send it using the raw socket
-func (s *RawSockListener) getWritterObjects(src, dest net.IP) (sa unix.Sockaddr, conn *socket.Conn, layer gopacket.NetworkLayer) {
+// getWriterObjects returns the specific IP version objects that are used to build a packet and send it using the raw socket
+func (s *STUNSocket) getWriterObjects(src, dest net.IP) (sa unix.Sockaddr, conn *socket.Conn, layer gopacket.NetworkLayer) {
 	if dest.To4() == nil {
 		sa = &unix.SockaddrInet6{}
 		copy(sa.(*unix.SockaddrInet6).Addr[:], dest.To16())

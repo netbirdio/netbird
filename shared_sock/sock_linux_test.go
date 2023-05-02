@@ -1,4 +1,4 @@
-package stunlistener
+package shared_sock
 
 import (
 	"context"
@@ -12,72 +12,88 @@ import (
 	"time"
 
 	"github.com/pion/stun"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
-
-	"github.com/netbirdio/netbird/iface/bind"
 )
 
-func TestReadStun(t *testing.T) {
-	var rcvMSG *stun.Message
-	wg := sync.WaitGroup{}
-	stunHandler := func(msg *stun.Message, addr net.Addr) error {
-		rcvMSG = msg
-		wg.Done()
-		return nil
-	}
+func TestShouldReadSTUNOnReadFrom(t *testing.T) {
 
-	udpListener, err := net.ListenUDP("udp", &net.UDPAddr{Port: 12345, IP: net.ParseIP("127.0.0.1")})
-	require.NoError(t, err, "received an error while creating regular listener, error: %s", err)
-	defer udpListener.Close()
-
+	// create raw socket on a port
 	testingPort := 51821
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	s, err := NewSTUNListener(ctx, testingPort)
+	rawSock, err := Listen(ctx, testingPort)
 	require.NoError(t, err, "received an error while creating stun listener, error: %s", err)
+	err = rawSock.SetReadDeadline(time.Now().Add(3 * time.Second))
+	require.NoError(t, err, "unable to set deadline, error: %s", err)
 
+	wg := sync.WaitGroup{}
 	wg.Add(1)
-	err = s.Listen(stunHandler)
-	require.NoError(t, err, "received an error while listening on STUN packets, error: %s", err)
-	defer s.Close()
 
+	// when reading from the raw socket
+	buf := make([]byte, 1500)
+	rcvMSG := &stun.Message{
+		Raw: buf,
+	}
+	go func() {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			_, _, err := rawSock.ReadFrom(buf)
+			if err != nil {
+				log.Errorf("error while reading packet %s", err)
+				return
+			}
+
+			err = rcvMSG.Decode()
+			if err != nil {
+				log.Warnf("error while parsing STUN message. The packet doesn't seem to be a STUN packet: %s", err)
+				return
+			}
+			wg.Done()
+		}
+
+	}()
+
+	// and sending STUN packet to the shared port, the packet has to be handled
+	udpListener, err := net.ListenUDP("udp", &net.UDPAddr{Port: 12345, IP: net.ParseIP("127.0.0.1")})
+	require.NoError(t, err, "received an error while creating regular listener, error: %s", err)
+	defer udpListener.Close()
 	stunMSG, err := stun.Build(stun.NewType(stun.MethodBinding, stun.ClassRequest), stun.TransactionID,
 		stun.Fingerprint,
 	)
 	require.NoError(t, err, "unable to build stun msg, error: %s", err)
-
 	_, err = udpListener.WriteTo(stunMSG.Raw, net.UDPAddrFromAddrPort(netip.MustParseAddrPort(fmt.Sprintf("127.0.0.1:%d", testingPort))))
 	require.NoError(t, err, "received an error while writing the stun listener, error: %s", err)
+
+	// the packet has to be handled and be a STUN packet
 	wg.Wait()
 	require.EqualValues(t, stunMSG.TransactionID, rcvMSG.TransactionID, "transaction id values did't match")
 }
 
-func TestReadNONStun(t *testing.T) {
-	udpListener, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0, IP: net.ParseIP("127.0.0.1")})
-	require.NoError(t, err, "received an error while creating regular listener, error: %s", err)
-	defer udpListener.Close()
-
+func TestShouldNotReadNonSTUNPackets(t *testing.T) {
 	testingPort := 39439
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	s, err := NewSTUNListener(ctx, testingPort)
-	require.NoError(t, err, "received an error while creating stun listener, error: %s", err)
-	mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: s})
-	err = s.Listen(mux.HandleSTUNMessage)
-	require.NoError(t, err, "received an error while listening on STUN packets, error: %s", err)
-	defer s.Close()
+	rawSock, err := Listen(ctx, testingPort)
+	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
+	defer rawSock.Close()
 
 	buf := make([]byte, 1500)
-	err = s.SetReadDeadline(time.Now().Add(3 * time.Second))
+	err = rawSock.SetReadDeadline(time.Now().Add(time.Second))
 	require.NoError(t, err, "unable to set deadline, error: %s", err)
 
 	errGrp := errgroup.Group{}
 	errGrp.Go(func() error {
-		_, _, err := s.ReadFrom(buf)
+		_, _, err := rawSock.ReadFrom(buf)
 		return err
 	})
 	nonStun := []byte("netbird")
+	udpListener, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0, IP: net.ParseIP("127.0.0.1")})
+	require.NoError(t, err, "received an error while creating regular listener, error: %s", err)
+	defer udpListener.Close()
 	remote := net.UDPAddrFromAddrPort(netip.MustParseAddrPort(fmt.Sprintf("127.0.0.1:%d", testingPort)))
 	_, err = udpListener.WriteTo(nonStun, remote)
 	require.NoError(t, err, "received an error while writing the stun listener, error: %s", err)
@@ -89,7 +105,7 @@ func TestReadNONStun(t *testing.T) {
 	}
 }
 
-func TestWrite(t *testing.T) {
+func TestWriteTo(t *testing.T) {
 	udpListener, err := net.ListenUDP("udp4", &net.UDPAddr{Port: 0, IP: net.ParseIP("127.0.0.1")})
 	require.NoError(t, err, "received an error while creating regular listener, error: %s", err)
 	defer udpListener.Close()
@@ -97,11 +113,8 @@ func TestWrite(t *testing.T) {
 	testingPort := 39440
 	ctx, cancel := context.WithTimeout(context.TODO(), 10*time.Second)
 	defer cancel()
-	s, err := NewSTUNListener(ctx, testingPort)
-	require.NoError(t, err, "received an error while creating stun listener, error: %s", err)
-	mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: s})
-	err = s.Listen(mux.HandleSTUNMessage)
-	require.NoError(t, err, "received an error while listening on STUN packets, error: %s", err)
+	s, err := Listen(ctx, testingPort)
+	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 	defer s.Close()
 
 	buf := make([]byte, 1500)
