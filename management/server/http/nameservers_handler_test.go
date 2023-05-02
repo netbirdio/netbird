@@ -227,31 +227,6 @@ func TestNameserversHandlers(t *testing.T) {
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
-		{
-			name:           "PATCH OK",
-			requestType:    http.MethodPatch,
-			requestPath:    "/api/dns/nameservers/" + existingNSGroupID,
-			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"description\",\"value\":[\"NewDesc\"]}]"),
-			expectedStatus: http.StatusOK,
-			expectedBody:   true,
-			expectedNSGroup: &api.NameserverGroup{
-				Id:          existingNSGroupID,
-				Name:        baseExistingNSGroup.Name,
-				Description: "NewDesc",
-				Nameservers: toNameserverGroupResponse(baseExistingNSGroup).Nameservers,
-				Groups:      baseExistingNSGroup.Groups,
-				Enabled:     baseExistingNSGroup.Enabled,
-				Primary:     baseExistingNSGroup.Primary,
-			},
-		},
-		{
-			name:           "PATCH Invalid Nameserver Group OK",
-			requestType:    http.MethodPatch,
-			requestPath:    "/api/dns/nameservers/" + notFoundRouteID,
-			requestBody:    bytes.NewBufferString("[{\"op\":\"replace\",\"path\":\"description\",\"value\":[\"NewDesc\"]}]"),
-			expectedStatus: http.StatusNotFound,
-			expectedBody:   false,
-		},
 	}
 
 	p := initNameserversTestData()
@@ -262,11 +237,10 @@ func TestNameserversHandlers(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/dns/nameservers/{id}", p.GetNameserverGroup).Methods("GET")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.GetNameserverGroup).Methods("GET")
 			router.HandleFunc("/api/dns/nameservers", p.CreateNameserverGroup).Methods("POST")
-			router.HandleFunc("/api/dns/nameservers/{id}", p.DeleteNameserverGroup).Methods("DELETE")
-			router.HandleFunc("/api/dns/nameservers/{id}", p.UpdateNameserverGroup).Methods("PUT")
-			router.HandleFunc("/api/dns/nameservers/{id}", p.PatchNameserverGroup).Methods("PATCH")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.DeleteNameserverGroup).Methods("DELETE")
+			router.HandleFunc("/api/dns/nameservers/{nsgroupId}", p.UpdateNameserverGroup).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

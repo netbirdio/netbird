@@ -48,13 +48,13 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	userID := vars["id"]
+	userID := vars["userId"]
 	if len(userID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
-	req := &api.PutApiUsersIdJSONRequestBody{}
+	req := &api.PutApiUsersUserIdJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -94,7 +94,7 @@ func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	targetUserID := vars["id"]
+	targetUserID := vars["userId"]
 	if len(targetUserID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return

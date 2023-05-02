@@ -136,7 +136,7 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/accounts", handler.GetAllAccounts).Methods("GET")
-			router.HandleFunc("/api/accounts/{id}", handler.UpdateAccount).Methods("PUT")
+			router.HandleFunc("/api/accounts/{accountId}", handler.UpdateAccount).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()

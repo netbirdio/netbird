@@ -60,7 +60,7 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	policyID := vars["id"]
+	policyID := vars["policyId"]
 	if len(policyID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
 		return
@@ -78,7 +78,7 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PutApiPoliciesIdJSONRequestBody
+	var req api.PutApiPoliciesPolicyIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -214,7 +214,7 @@ func (h *Policies) DeletePolicy(w http.ResponseWriter, r *http.Request) {
 	aID := account.Id
 
 	vars := mux.Vars(r)
-	policyID := vars["id"]
+	policyID := vars["policyId"]
 	if len(policyID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
 		return
@@ -240,7 +240,7 @@ func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		vars := mux.Vars(r)
-		policyID := vars["id"]
+		policyID := vars["policyId"]
 		if len(policyID) == 0 {
 			util.WriteError(status.Errorf(status.InvalidArgument, "invalid policy ID"), w)
 			return
