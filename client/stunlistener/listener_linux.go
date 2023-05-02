@@ -10,7 +10,6 @@ package stunlistener
 import (
 	"context"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -21,16 +20,13 @@ import (
 	"github.com/libp2p/go-netroute"
 	"github.com/mdlayher/socket"
 	"github.com/pion/stun"
-	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sys/unix"
-
-	"github.com/netbirdio/netbird/iface/bind"
 )
 
-// StunListener representation
-type StunListener struct {
+// RawSockListener implements a STUNListener that combines raw socket and BPF to handle STUN packets
+type RawSockListener struct {
 	ctx         context.Context
 	conn4       *socket.Conn
 	conn6       *socket.Conn
@@ -54,65 +50,50 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 	FixLengths:       true,
 }
 
-// NewUDPMuxWithStunListener creates a new bind.UniversalUDPMuxDefault using the stun listener as UDP conn lister
-func NewUDPMuxWithStunListener(ctx context.Context, tn transport.Net, port int) (*bind.UniversalUDPMuxDefault, io.Closer, error) {
-	s, err := NewStunListener(ctx, port)
-	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", port, err)
-		return nil, nil, err
-	}
-
-	mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: s, Net: tn})
-
-	go listenerToMux(s, mux)
-
-	return mux, s, nil
+// NewSTUNListener creates a new RawSockListener
+func NewSTUNListener(ctx context.Context, port int) (*RawSockListener, error) {
+	return &RawSockListener{
+		ctx:         ctx,
+		port:        port,
+		packetDemux: make(chan rcvdPacket),
+	}, nil
 }
 
-// NewStunListener creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines and returns a new stun listener
-func NewStunListener(ctx context.Context, port int) (*StunListener, error) {
+// Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
+func (s *RawSockListener) Listen(msgHandler STUNMsgHandler) error {
 	var err error
 
-	router, err := netroute.New()
+	s.router, err = netroute.New()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create router: %s", err)
+		return fmt.Errorf("failed to create router: %s", err)
 	}
 
-	socket4, err := socket.Socket(unix.AF_INET, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp4", nil)
+	s.conn4, err = socket.Socket(unix.AF_INET, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp4", nil)
 	if err != nil {
-		return nil, fmt.Errorf("socket.Socket for ipv4 failed with: %s", err)
+		return fmt.Errorf("socket.Socket for ipv4 failed with: %s", err)
 	}
 
-	socket6, err := socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
+	s.conn6, err = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if err != nil {
 		log.Errorf("socket.Socket for ipv6 failed with: %s", err)
 	}
 
-	s := &StunListener{
-		ctx:         ctx,
-		conn4:       socket4,
-		conn6:       socket6,
-		port:        port,
-		router:      router,
-		packetDemux: make(chan rcvdPacket),
+	ipv4Instructions, ipv6Instructions, err := getBPFInstructions(uint32(s.port))
+	if err != nil {
+		_ = s.Close()
+		return fmt.Errorf("getBPFInstructions failed with: %s", err)
 	}
 
-	ipv4Instructions, ipv6Instructions, err := getBPFInstructions(uint32(port))
+	err = s.conn4.SetBPF(ipv4Instructions)
 	if err != nil {
-		s.Close()
-		return nil, fmt.Errorf("getBPFInstructions failed with: %s", err)
+		_ = s.Close()
+		return fmt.Errorf("socket4.SetBPF failed with: %s", err)
 	}
-
-	err = socket4.SetBPF(ipv4Instructions)
-	if err != nil {
-		s.Close()
-		return nil, fmt.Errorf("socket4.SetBPF failed with: %s", err)
-	}
-	if socket6 != nil {
-		err = socket6.SetBPF(ipv6Instructions)
+	if s.conn6 != nil {
+		err = s.conn6.SetBPF(ipv6Instructions)
 		if err != nil {
-			s.Close()
-			return nil, fmt.Errorf("socket6.SetBPF failed with: %s", err)
+			_ = s.Close()
+			return fmt.Errorf("socket6.SetBPF failed with: %s", err)
 		}
 	}
 
@@ -123,11 +104,12 @@ func NewStunListener(ctx context.Context, port int) (*StunListener, error) {
 
 	go s.updateRouter()
 
-	return s, nil
+	go s.listenerToMux(msgHandler)
+	return nil
 }
 
 // listenerToMux reads a stun message packet and sends to the udp mux handler
-func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
+func (s *RawSockListener) listenerToMux(msgHandler STUNMsgHandler) {
 	buf := make([]byte, 1500)
 	for {
 		select {
@@ -136,7 +118,7 @@ func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
 		default:
 			_, a, err := s.ReadFrom(buf)
 			if err != nil {
-				log.Errorf("listenerToMux got an error while reading listener packet")
+				log.Errorf("listenerToMux got an error while reading packet %s", err)
 				continue
 			}
 			msg := &stun.Message{
@@ -148,7 +130,7 @@ func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
 				continue
 			}
 
-			err = mux.HandleSTUNMessage(msg, a)
+			err = msgHandler(msg, a)
 			if err != nil {
 				log.Errorf("listenerToMux got an error while handling stun message: %s", err)
 			}
@@ -158,7 +140,7 @@ func listenerToMux(s *StunListener, mux *bind.UniversalUDPMuxDefault) {
 
 // updateRouter updates the listener routing table client
 // this is needed to avoid outdated information across different client networks
-func (s *StunListener) updateRouter() {
+func (s *RawSockListener) updateRouter() {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -179,7 +161,7 @@ func (s *StunListener) updateRouter() {
 }
 
 // LocalAddr returns an IPv4 address using the supplied port
-func (s *StunListener) LocalAddr() net.Addr {
+func (s *RawSockListener) LocalAddr() net.Addr {
 	// todo check impact on ipv6 discovery
 	return &net.UDPAddr{
 		IP:   net.IPv4zero,
@@ -188,7 +170,7 @@ func (s *StunListener) LocalAddr() net.Addr {
 }
 
 // SetDeadline sets both the read and write deadlines associated with the ipv4 and ipv6 Conn sockets
-func (s *StunListener) SetDeadline(t time.Time) error {
+func (s *RawSockListener) SetDeadline(t time.Time) error {
 	err := s.conn4.SetDeadline(t)
 	if err != nil {
 		return fmt.Errorf("s.conn4.SetDeadline error: %s", err)
@@ -205,7 +187,7 @@ func (s *StunListener) SetDeadline(t time.Time) error {
 }
 
 // SetReadDeadline sets the read deadline associated with the ipv4 and ipv6 Conn sockets
-func (s *StunListener) SetReadDeadline(t time.Time) error {
+func (s *RawSockListener) SetReadDeadline(t time.Time) error {
 	err := s.conn4.SetReadDeadline(t)
 	if err != nil {
 		return fmt.Errorf("s.conn4.SetReadDeadline error: %s", err)
@@ -222,7 +204,7 @@ func (s *StunListener) SetReadDeadline(t time.Time) error {
 }
 
 // SetWriteDeadline sets the write deadline associated with the ipv4 and ipv6 Conn sockets
-func (s *StunListener) SetWriteDeadline(t time.Time) error {
+func (s *RawSockListener) SetWriteDeadline(t time.Time) error {
 	err := s.conn4.SetWriteDeadline(t)
 	if err != nil {
 		return fmt.Errorf("s.conn4.SetWriteDeadline error: %s", err)
@@ -239,9 +221,12 @@ func (s *StunListener) SetWriteDeadline(t time.Time) error {
 }
 
 // Close closes the underlying ipv4 and ipv6 conn sockets
-func (s *StunListener) Close() error {
+func (s *RawSockListener) Close() error {
 	errGrp := errgroup.Group{}
-	errGrp.Go(s.conn4.Close)
+	if s.conn4 != nil {
+		errGrp.Go(s.conn4.Close)
+	}
+
 	if s.conn6 != nil {
 		errGrp.Go(s.conn6.Close)
 	}
@@ -249,7 +234,7 @@ func (s *StunListener) Close() error {
 }
 
 // read start a read loop for a specific receiver and sends the packet to the packetDemux channel
-func (s *StunListener) read(receiver receiver) {
+func (s *RawSockListener) read(receiver receiver) {
 	for {
 		buf := make([]byte, 1500)
 		n, addr, err := receiver(s.ctx, buf, 0)
@@ -262,7 +247,7 @@ func (s *StunListener) read(receiver receiver) {
 }
 
 // ReadFrom reads packets received in the packetDemux channel
-func (s *StunListener) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
+func (s *RawSockListener) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 	pkt := <-s.packetDemux
 
 	if pkt.err != nil {
@@ -301,7 +286,7 @@ func (s *StunListener) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
 }
 
 // WriteTo builds a UDP packet and writes it using the specific IP version writter
-func (s *StunListener) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
+func (s *RawSockListener) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 	rUDPAddr, ok := rAddr.(*net.UDPAddr)
 	if !ok {
 		return -1, fmt.Errorf("invalid address type")
@@ -339,7 +324,7 @@ func (s *StunListener) WriteTo(buf []byte, rAddr net.Addr) (n int, err error) {
 }
 
 // getWritterObjects returns the specific IP version objects that are used to build a packet and send it using the raw socket
-func (s *StunListener) getWritterObjects(src, dest net.IP) (sa unix.Sockaddr, conn *socket.Conn, layer gopacket.NetworkLayer) {
+func (s *RawSockListener) getWritterObjects(src, dest net.IP) (sa unix.Sockaddr, conn *socket.Conn, layer gopacket.NetworkLayer) {
 	if dest.To4() == nil {
 		sa = &unix.SockaddrInet6{}
 		copy(sa.(*unix.SockaddrInet6).Addr[:], dest.To16())
