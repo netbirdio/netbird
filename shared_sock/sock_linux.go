@@ -23,6 +23,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+var ErrSharedSockStopped = fmt.Errorf("shared socked stopped")
+
 // SharedSocket is a net.PacketConn that initiates two raw sockets (ipv4 and ipv6) and listens to UDP packets filtered
 // by BPF instructions (e.g., STUNFilter that checks and sends only STUN packets to the listeners (ReadFrom)).
 type SharedSocket struct {
@@ -33,6 +35,7 @@ type SharedSocket struct {
 	routerMux   sync.RWMutex
 	router      routing.Router
 	packetDemux chan rcvdPacket
+	cancel      context.CancelFunc
 }
 
 type rcvdPacket struct {
@@ -50,11 +53,12 @@ var writeSerializerOptions = gopacket.SerializeOptions{
 }
 
 // Listen creates an IPv4 and IPv6 raw sockets, starts a reader and routing table routines
-func Listen(ctx context.Context, port int, filter BPFFilter) (net.PacketConn, error) {
+func Listen(port int, filter BPFFilter) (net.PacketConn, error) {
 	var err error
-
+	ctx, cancel := context.WithCancel(context.Background())
 	rawSock := &SharedSocket{
 		ctx:         ctx,
+		cancel:      cancel,
 		port:        port,
 		packetDemux: make(chan rcvdPacket),
 	}
@@ -187,6 +191,7 @@ func (s *SharedSocket) SetWriteDeadline(t time.Time) error {
 
 // Close closes the underlying ipv4 and ipv6 conn sockets
 func (s *SharedSocket) Close() error {
+	s.cancel()
 	errGrp := errgroup.Group{}
 	if s.conn4 != nil {
 		errGrp.Go(s.conn4.Close)
@@ -213,7 +218,12 @@ func (s *SharedSocket) read(receiver receiver) {
 
 // ReadFrom reads packets received in the packetDemux channel
 func (s *SharedSocket) ReadFrom(b []byte) (n int, addr net.Addr, err error) {
-	pkt := <-s.packetDemux
+	var pkt rcvdPacket
+	select {
+	case <-s.ctx.Done():
+		return -1, nil, ErrSharedSockStopped
+	case pkt = <-s.packetDemux:
+	}
 
 	if pkt.err != nil {
 		return -1, nil, pkt.err
