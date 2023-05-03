@@ -23,9 +23,9 @@ type Manager interface {
 type Config struct {
 	ManagerType               string
 	Auth0ClientCredentials    Auth0ClientConfig
+	AzureClientCredentials    AzureClientConfig
 	KeycloakClientCredentials KeycloakClientConfig
 	ZitadelClientCredentials  ZitadelClientConfig
-	AzureClientCredentials    AzureClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
