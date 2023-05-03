@@ -6,10 +6,13 @@ import (
 	"net"
 	"os"
 
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
+	"github.com/pion/transport/v2"
 	"golang.zx2c4.com/wireguard/ipc"
+
+	"github.com/netbirdio/netbird/iface/bind"
+
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -18,13 +21,18 @@ type tunDevice struct {
 	address      WGAddress
 	mtu          int
 	netInterface NetInterface
+	iceBind      *bind.ICEBind
+	uapi         net.Listener
+	close        chan struct{}
 }
 
-func newTunDevice(name string, address WGAddress, mtu int) *tunDevice {
+func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
 		name:    name,
 		address: address,
 		mtu:     mtu,
+		iceBind: bind.NewICEBind(transportNet),
+		close:   make(chan struct{}),
 	}
 }
 
@@ -42,23 +50,38 @@ func (c *tunDevice) DeviceName() string {
 }
 
 func (c *tunDevice) Close() error {
-	if c.netInterface == nil {
-		return nil
+
+	select {
+	case c.close <- struct{}{}:
+	default:
 	}
-	err := c.netInterface.Close()
-	if err != nil {
-		return err
+
+	var err1, err2, err3 error
+	if c.netInterface != nil {
+		err1 = c.netInterface.Close()
+	}
+
+	if c.uapi != nil {
+		err2 = c.uapi.Close()
 	}
 
 	sockPath := "/var/run/wireguard/" + c.name + ".sock"
 	if _, statErr := os.Stat(sockPath); statErr == nil {
 		statErr = os.Remove(sockPath)
 		if statErr != nil {
-			return statErr
+			err3 = statErr
 		}
 	}
 
-	return nil
+	if err1 != nil {
+		return err1
+	}
+
+	if err2 != nil {
+		return err2
+	}
+
+	return err3
 }
 
 // createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
@@ -69,26 +92,36 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	}
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	tunDevice := device.NewDevice(tunIface, conn.NewDefaultBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
-	err = tunDevice.Up()
+	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
+	err = tunDev.Up()
 	if err != nil {
-		return tunIface, err
+		_ = tunIface.Close()
+		return nil, err
 	}
 
-	// todo: after this line in case of error close the tunSock
-	uapi, err := c.getUAPI(c.name)
+	c.uapi, err = c.getUAPI(c.name)
 	if err != nil {
-		return tunIface, err
+		_ = tunIface.Close()
+		return nil, err
 	}
 
 	go func() {
 		for {
-			uapiConn, uapiErr := uapi.Accept()
+			select {
+			case <-c.close:
+				log.Debugf("exit uapi.Accept()")
+				return
+			default:
+			}
+			uapiConn, uapiErr := c.uapi.Accept()
 			if uapiErr != nil {
 				log.Traceln("uapi Accept failed with error: ", uapiErr)
 				continue
 			}
-			go tunDevice.IpcHandle(uapiConn)
+			go func() {
+				tunDev.IpcHandle(uapiConn)
+				log.Debugf("exit tunDevice.IpcHandle")
+			}()
 		}
 	}()
 

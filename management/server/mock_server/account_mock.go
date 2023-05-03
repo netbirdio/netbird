@@ -15,7 +15,6 @@ import (
 
 type MockAccountManager struct {
 	GetOrCreateAccountByUserFunc func(userId, domain string) (*server.Account, error)
-	GetAccountByUserFunc         func(userId string) (*server.Account, error)
 	CreateSetupKeyFunc           func(accountId string, keyName string, keyType server.SetupKeyType,
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string) (*server.SetupKey, error)
 	GetSetupKeyFunc                 func(accountID, userID, keyID string) (*server.SetupKey, error)
@@ -61,6 +60,7 @@ type MockAccountManager struct {
 	SaveSetupKeyFunc                func(accountID string, key *server.SetupKey, userID string) (*server.SetupKey, error)
 	ListSetupKeysFunc               func(accountID, userID string) ([]*server.SetupKey, error)
 	SaveUserFunc                    func(accountID, userID string, user *server.User) (*server.UserInfo, error)
+	DeleteUserFunc                  func(accountID string, executingUserID string, targetUserID string) error
 	CreatePATFunc                   func(accountID string, executingUserID string, targetUserId string, tokenName string, expiresIn int) (*server.PersonalAccessTokenGenerated, error)
 	DeletePATFunc                   func(accountID string, executingUserID string, targetUserId string, tokenID string) error
 	GetPATFunc                      func(accountID string, executingUserID string, targetUserId string, tokenID string) (*server.PersonalAccessToken, error)
@@ -110,14 +110,6 @@ func (am *MockAccountManager) GetOrCreateAccountByUser(
 		codes.Unimplemented,
 		"method GetOrCreateAccountByUser is not implemented",
 	)
-}
-
-// GetAccountByUser mock implementation of GetAccountByUser from server.AccountManager interface
-func (am *MockAccountManager) GetAccountByUser(userId string) (*server.Account, error) {
-	if am.GetAccountByUserFunc != nil {
-		return am.GetAccountByUserFunc(userId)
-	}
-	return nil, status.Errorf(codes.Unimplemented, "method GetAccountByUser is not implemented")
 }
 
 // CreateSetupKey mock implementation of CreateSetupKey from server.AccountManager interface
@@ -498,6 +490,14 @@ func (am *MockAccountManager) SaveUser(accountID, userID string, user *server.Us
 		return am.SaveUserFunc(accountID, userID, user)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method SaveUser is not implemented")
+}
+
+// DeleteUser mocks DeleteUser of the AccountManager interface
+func (am *MockAccountManager) DeleteUser(accountID string, executingUserID string, targetUserID string) error {
+	if am.DeleteUserFunc != nil {
+		return am.DeleteUserFunc(accountID, executingUserID, targetUserID)
+	}
+	return status.Errorf(codes.Unimplemented, "method DeleteUser is not implemented")
 }
 
 // GetNameServerGroup mocks GetNameServerGroup of the AccountManager interface

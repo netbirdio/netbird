@@ -1,38 +1,43 @@
 package iface
 
 import (
-	"net"
+	"strings"
 
+	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
-	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
+
+	"github.com/netbirdio/netbird/iface/bind"
 )
 
 type tunDevice struct {
 	address    WGAddress
 	mtu        int
+	routes     []string
 	tunAdapter TunAdapter
 
-	fd     int
-	name   string
-	device *device.Device
-	uapi   net.Listener
+	fd      int
+	name    string
+	device  *device.Device
+	iceBind *bind.ICEBind
 }
 
-func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter) *tunDevice {
+func newTunDevice(address WGAddress, mtu int, routes []string, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
 		address:    address,
 		mtu:        mtu,
+		routes:     routes,
 		tunAdapter: tunAdapter,
+		iceBind:    bind.NewICEBind(transportNet),
 	}
 }
 
 func (t *tunDevice) Create() error {
 	var err error
-	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu)
+	routesString := t.routesToString()
+	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return err
@@ -46,35 +51,13 @@ func (t *tunDevice) Create() error {
 	t.name = name
 
 	log.Debugf("attaching to interface %v", name)
-	t.device = device.NewDevice(tunDevice, conn.NewStdNetBind(), device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
-	t.device.DisableSomeRoamingForBrokenMobileSemantics()
-
-	log.Debugf("create uapi")
-	tunSock, err := ipc.UAPIOpen(name)
-	if err != nil {
-		return err
-	}
-
-	t.uapi, err = ipc.UAPIListen(name, tunSock)
-	if err != nil {
-		tunSock.Close()
-		unix.Close(t.fd)
-		return err
-	}
-
-	go func() {
-		for {
-			uapiConn, err := t.uapi.Accept()
-			if err != nil {
-				return
-			}
-			go t.device.IpcHandle(uapiConn)
-		}
-	}()
+	t.device = device.NewDevice(tunDevice, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
+	// this helps with support for the older NetBird clients that had a hardcoded direct mode
+	//t.device.DisableSomeRoamingForBrokenMobileSemantics()
 
 	err = t.device.Up()
 	if err != nil {
-		tunSock.Close()
 		t.device.Close()
 		return err
 	}
@@ -100,13 +83,13 @@ func (t *tunDevice) UpdateAddr(addr WGAddress) error {
 }
 
 func (t *tunDevice) Close() (err error) {
-	if t.uapi != nil {
-		err = t.uapi.Close()
-	}
-
 	if t.device != nil {
 		t.device.Close()
 	}
 
 	return
+}
+
+func (t *tunDevice) routesToString() string {
+	return strings.Join(t.routes, ";")
 }

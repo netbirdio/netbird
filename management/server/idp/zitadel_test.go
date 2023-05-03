@@ -387,7 +387,7 @@ func TestZitadelUpdateUserAppMetadata(t *testing.T) {
 	}
 }
 
-func TestAzureProfile(t *testing.T) {
+func TestZitadelProfile(t *testing.T) {
 	type azureProfileTest struct {
 		name             string
 		invite           bool

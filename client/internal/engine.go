@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -20,13 +21,14 @@ import (
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
-	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/sharedsock"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
@@ -47,10 +49,6 @@ var ErrResetConnection = fmt.Errorf("reset connection")
 type EngineConfig struct {
 	WgPort      int
 	WgIfaceName string
-	// TunAdapter is option. It is necessary for mobile version.
-	TunAdapter iface.TunAdapter
-
-	IFaceDiscover stdnet.IFaceDiscover
 
 	// WgAddr is a Wireguard local address (Netbird Network IP)
 	WgAddr string
@@ -90,7 +88,9 @@ type Engine struct {
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
 
-	config *EngineConfig
+	config    *EngineConfig
+	mobileDep MobileDependency
+
 	// STUNs is a list of STUN servers used by ICE
 	STUNs []*ice.URL
 	// TURNs is a list of STUN servers used by ICE
@@ -102,10 +102,8 @@ type Engine struct {
 
 	wgInterface *iface.WGIface
 
-	udpMux          ice.UDPMux
-	udpMuxSrflx     ice.UniversalUDPMux
-	udpMuxConn      *net.UDPConn
-	udpMuxConnSrflx *net.UDPConn
+	udpMux     *bind.UniversalUDPMuxDefault
+	udpMuxConn io.Closer
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -130,7 +128,7 @@ type Peer struct {
 func NewEngine(
 	ctx context.Context, cancel context.CancelFunc,
 	signalClient signal.Client, mgmClient mgm.Client,
-	config *EngineConfig, statusRecorder *peer.Status,
+	config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status,
 ) *Engine {
 	return &Engine{
 		ctx:            ctx,
@@ -140,6 +138,7 @@ func NewEngine(
 		peerConns:      make(map[string]*peer.Conn),
 		syncMsgMux:     &sync.Mutex{},
 		config:         config,
+		mobileDep:      mobileDep,
 		STUNs:          []*ice.URL{},
 		TURNs:          []*ice.URL{},
 		networkSerial:  0,
@@ -166,66 +165,59 @@ func (e *Engine) Stop() error {
 	return nil
 }
 
-// Start creates a new Wireguard tunnel interface and listens to events from Signal and Management services
+// Start creates a new WireGuard tunnel interface and listens to events from Signal and Management services
 // Connections to remote peers are not established here.
 // However, they will be established once an event with a list of peers to connect to will be received from Management Service
 func (e *Engine) Start() error {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 
-	wgIfaceName := e.config.WgIfaceName
+	wgIFaceName := e.config.WgIfaceName
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
 	var err error
-
-	e.wgInterface, err = iface.NewWGIFace(wgIfaceName, wgAddr, iface.DefaultMTU, e.config.TunAdapter)
-	if err != nil {
-		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIfaceName, err.Error())
-		return err
-	}
-
-	networkName := "udp"
-	if e.config.DisableIPv6Discovery {
-		networkName = "udp4"
-	}
-
 	transportNet, err := e.newStdNet()
 	if err != nil {
-		log.Warnf("failed to create pion's stdnet: %s", err)
+		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
-
-	e.udpMuxConn, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxPort})
+	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.Routes, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
-		e.close()
+		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err
 	}
-	udpMuxParams := ice.UDPMuxParams{
-		UDPConn: e.udpMuxConn,
-		Net:     transportNet,
-	}
-	e.udpMux = ice.NewUDPMuxDefault(udpMuxParams)
-
-	e.udpMuxConnSrflx, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
-	if err != nil {
-		log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
-		e.close()
-		return err
-	}
-	e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx, Net: transportNet})
 
 	err = e.wgInterface.Create()
 	if err != nil {
-		log.Errorf("failed creating tunnel interface %s: [%s]", wgIfaceName, err.Error())
+		log.Errorf("failed creating tunnel interface %s: [%s]", wgIFaceName, err.Error())
 		e.close()
 		return err
 	}
 
 	err = e.wgInterface.Configure(myPrivateKey.String(), e.config.WgPort)
 	if err != nil {
-		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIfaceName, err.Error())
+		log.Errorf("failed configuring Wireguard interface [%s]: %s", wgIFaceName, err.Error())
 		e.close()
 		return err
+	}
+
+	if e.wgInterface.IsUserspaceBind() {
+		iceBind := e.wgInterface.GetBind()
+		udpMux, err := iceBind.GetICEMux()
+		if err != nil {
+			e.close()
+			return err
+		}
+		e.udpMux = udpMux
+		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
+	} else {
+		rawSock, err := sharedsock.Listen(e.config.WgPort, sharedsock.NewSTUNFilter())
+		if err != nil {
+			return err
+		}
+		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: rawSock, Net: transportNet})
+		go mux.ReadFromConn(e.ctx)
+		e.udpMuxConn = rawSock
+		e.udpMux = mux
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
@@ -387,9 +379,6 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 		return err
 	}
 
-	// indicates message support in gRPC
-	msg.Body.FeaturesSupported = []uint32{signal.DirectCheck}
-
 	err = s.Send(msg)
 	if err != nil {
 		return err
@@ -496,7 +485,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 	e.statusRecorder.UpdateLocalPeerState(peer.LocalPeerState{
 		IP:              e.config.WgAddr,
 		PubKey:          e.config.WgPrivateKey.PublicKey().String(),
-		KernelInterface: iface.WireguardModuleIsLoaded(),
+		KernelInterface: iface.WireGuardModuleIsLoaded(),
 		FQDN:            conf.GetFqdn(),
 	})
 
@@ -817,14 +806,15 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		InterfaceBlackList:   e.config.IFaceBlackList,
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 		Timeout:              timeout,
-		UDPMux:               e.udpMux,
-		UDPMuxSrflx:          e.udpMuxSrflx,
+		UDPMux:               e.udpMux.UDPMuxDefault,
+		UDPMuxSrflx:          e.udpMux,
 		ProxyConfig:          proxyConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
+		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.config.TunAdapter, e.config.IFaceDiscover)
+	peerConn, err := peer.NewConn(config, e.statusRecorder, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
 	if err != nil {
 		return nil, err
 	}
@@ -910,18 +900,6 @@ func (e *Engine) receiveSignalEvents() {
 				}
 				conn.OnRemoteCandidate(candidate)
 			case sProto.Body_MODE:
-				protoMode := msg.GetBody().GetMode()
-				if protoMode == nil {
-					return fmt.Errorf("received an empty mode message")
-				}
-
-				err := conn.OnModeMessage(peer.ModeMessage{
-					Direct: protoMode.GetDirect(),
-				})
-				if err != nil {
-					log.Errorf("failed processing a mode message -> %s", err)
-					return err
-				}
 			}
 
 			return nil
@@ -1006,21 +984,9 @@ func (e *Engine) close() {
 		}
 	}
 
-	if e.udpMuxSrflx != nil {
-		if err := e.udpMuxSrflx.Close(); err != nil {
-			log.Debugf("close server reflexive udp mux: %v", err)
-		}
-	}
-
 	if e.udpMuxConn != nil {
 		if err := e.udpMuxConn.Close(); err != nil {
 			log.Debugf("close udp mux connection: %v", err)
-		}
-	}
-
-	if e.udpMuxConnSrflx != nil {
-		if err := e.udpMuxConnSrflx.Close(); err != nil {
-			log.Debugf("close server reflexive udp mux connection: %v", err)
 		}
 	}
 

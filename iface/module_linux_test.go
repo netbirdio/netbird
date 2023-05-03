@@ -3,13 +3,14 @@ package iface
 import (
 	"bufio"
 	"bytes"
-	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func TestGetModuleDependencies(t *testing.T) {

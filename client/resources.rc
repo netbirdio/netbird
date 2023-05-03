@@ -6,4 +6,4 @@
 #define EXPAND(x) STRINGIZE(x)
 CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST manifest.xml
 7 ICON ui/netbird.ico
-wireguard.dll RCDATA wireguard.dll
+wintun.dll RCDATA wintun.dll

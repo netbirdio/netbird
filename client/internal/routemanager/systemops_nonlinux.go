@@ -4,10 +4,11 @@
 package routemanager
 
 import (
-	log "github.com/sirupsen/logrus"
 	"net/netip"
 	"os/exec"
 	"runtime"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func addToRouteTable(prefix netip.Prefix, addr string) error {
@@ -33,9 +34,4 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 func enableIPForwarding() error {
 	log.Infof("enable IP forwarding is not implemented on %s", runtime.GOOS)
 	return nil
-}
-
-func isNetForwardHistoryEnabled() bool {
-	log.Infof("check netforward history is not implemented on %s", runtime.GOOS)
-	return false
 }

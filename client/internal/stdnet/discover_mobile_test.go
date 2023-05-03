@@ -3,6 +3,8 @@ package stdnet
 import (
 	"fmt"
 	"testing"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func Test_parseInterfacesString(t *testing.T) {
@@ -20,6 +22,7 @@ func Test_parseInterfacesString(t *testing.T) {
 		{"wlan0", 30, 1500, true, true, false, false, true, "10.1.10.131/24"},
 		{"rmnet0", 30, 1500, true, true, false, false, true, "192.168.0.56/24"},
 		{"rmnet_data1", 30, 1500, true, true, false, false, true, "fec0::118c:faf7:8d97:3cb2/64"},
+		{"rmnet_data2", 30, 1500, true, true, false, false, true, "fec0::118c:faf7:8d97:3cb2%rmnet2/64"},
 	}
 
 	var exampleString string
@@ -35,11 +38,13 @@ func Test_parseInterfacesString(t *testing.T) {
 			d.multicast,
 			d.addr)
 	}
-	nets := parseInterfacesString(exampleString)
+	d := mobileIFaceDiscover{}
+	nets := d.parseInterfacesString(exampleString)
 	if len(nets) == 0 {
 		t.Fatalf("failed to parse interfaces")
 	}
 
+	log.Printf("%d", len(nets))
 	for i, net := range nets {
 		if net.MTU != testData[i].mtu {
 			t.Errorf("invalid mtu: %d, expected: %d", net.MTU, testData[0].mtu)
@@ -58,7 +63,7 @@ func Test_parseInterfacesString(t *testing.T) {
 		if len(addr) == 0 {
 			t.Errorf("invalid address parsing")
 		}
-
+		log.Printf("%v", addr)
 		if addr[0].String() != testData[i].addr {
 			t.Errorf("invalid address: %s, expected: %s", addr[0].String(), testData[i].addr)
 		}

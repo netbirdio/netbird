@@ -3,8 +3,10 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/http/api"
 	"github.com/netbirdio/netbird/management/server/http/util"
@@ -46,13 +48,13 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	vars := mux.Vars(r)
-	userID := vars["id"]
+	userID := vars["userId"]
 	if len(userID) == 0 {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
-	req := &api.PutApiUsersIdJSONRequestBody{}
+	req := &api.PutApiUsersUserIdJSONRequestBody{}
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
@@ -75,6 +77,36 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	util.WriteJSONObject(w, toUserResponse(newUser, claims.UserId))
+}
+
+// DeleteUser is a DELETE request to delete a user (only works for service users right now)
+func (h *UsersHandler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	claims := h.claimsExtractor.FromRequestContext(r)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	vars := mux.Vars(r)
+	targetUserID := vars["userId"]
+	if len(targetUserID) == 0 {
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
+		return
+	}
+
+	err = h.accountManager.DeleteUser(account.Id, user.Id, targetUserID)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	util.WriteJSONObject(w, emptyObject{})
 }
 
 // CreateUser creates a User in the system with a status "invited" (effectively this is a user invite).
@@ -103,11 +135,17 @@ func (h *UsersHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	email := ""
+	if req.Email != nil {
+		email = *req.Email
+	}
+
 	newUser, err := h.accountManager.CreateUser(account.Id, user.Id, &server.UserInfo{
-		Email:      req.Email,
-		Name:       *req.Name,
-		Role:       req.Role,
-		AutoGroups: req.AutoGroups,
+		Email:         email,
+		Name:          *req.Name,
+		Role:          req.Role,
+		AutoGroups:    req.AutoGroups,
+		IsServiceUser: req.IsServiceUser,
 	})
 	if err != nil {
 		util.WriteError(err, w)
@@ -137,9 +175,27 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	serviceUser := r.URL.Query().Get("service_user")
+
+	log.Debugf("UserCount: %v", len(data))
+
 	users := make([]*api.User, 0)
 	for _, r := range data {
-		users = append(users, toUserResponse(r, claims.UserId))
+		if serviceUser == "" {
+			users = append(users, toUserResponse(r, claims.UserId))
+			continue
+		}
+		includeServiceUser, err := strconv.ParseBool(serviceUser)
+		log.Debugf("Should include service user: %v", includeServiceUser)
+		if err != nil {
+			util.WriteError(status.Errorf(status.InvalidArgument, "invalid service_user query parameter"), w)
+			return
+		}
+		log.Debugf("User %v is service user: %v", r.Name, r.IsServiceUser)
+		if includeServiceUser == r.IsServiceUser {
+			log.Debugf("Found service user: %v", r.Name)
+			users = append(users, toUserResponse(r, claims.UserId))
+		}
 	}
 
 	util.WriteJSONObject(w, users)
@@ -163,12 +219,13 @@ func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 
 	isCurrent := user.ID == currenUserID
 	return &api.User{
-		Id:         user.ID,
-		Name:       user.Name,
-		Email:      user.Email,
-		Role:       user.Role,
-		AutoGroups: autoGroups,
-		Status:     userStatus,
-		IsCurrent:  &isCurrent,
+		Id:            user.ID,
+		Name:          user.Name,
+		Email:         user.Email,
+		Role:          user.Role,
+		AutoGroups:    autoGroups,
+		Status:        userStatus,
+		IsCurrent:     &isCurrent,
+		IsServiceUser: &user.IsServiceUser,
 	}
 }

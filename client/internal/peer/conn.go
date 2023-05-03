@@ -4,20 +4,30 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl"
 
 	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/bind"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/version"
+)
+
+const (
+	envICEKeepAliveIntervalSec   = "NB_ICE_KEEP_ALIVE_INTERVAL_SEC"
+	envICEDisconnectedTimeoutSec = "NB_ICE_DISCONNECTED_TIMEOUT_SEC"
+
+	iceKeepAliveDefault           = 4 * time.Second
+	iceDisconnectedTimeoutDefault = 6 * time.Second
 )
 
 // ConnConfig is a peer Connection configuration
@@ -46,6 +56,9 @@ type ConnConfig struct {
 	LocalWgPort int
 
 	NATExternalIPs []string
+
+	// UsesBind indicates whether the WireGuard interface is userspace and uses bind.ICEBind
+	UserspaceBind bool
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -95,7 +108,7 @@ type Conn struct {
 	meta         meta
 
 	adapter       iface.TunAdapter
-	iFaceDiscover stdnet.IFaceDiscover
+	iFaceDiscover stdnet.ExternalIFaceDiscover
 }
 
 // meta holds meta information about a connection
@@ -121,7 +134,7 @@ func (conn *Conn) UpdateConf(conf ConnConfig) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.IFaceDiscover) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -136,32 +149,6 @@ func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter
 	}, nil
 }
 
-// interfaceFilter is a function passed to ICE Agent to filter out not allowed interfaces
-// to avoid building tunnel over them
-func interfaceFilter(blackList []string) func(string) bool {
-
-	return func(iFace string) bool {
-		for _, s := range blackList {
-			if strings.HasPrefix(iFace, s) {
-				log.Debugf("ignoring interface %s - it is not allowed", iFace)
-				return false
-			}
-		}
-		// look for unlisted WireGuard interfaces
-		wg, err := wgctrl.New()
-		if err != nil {
-			log.Debugf("trying to create a wgctrl client failed with: %v", err)
-			return true
-		}
-		defer func() {
-			_ = wg.Close()
-		}()
-
-		_, err = wg.Device(iFace)
-		return err != nil
-	}
-}
-
 func (conn *Conn) reCreateAgent() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
@@ -171,19 +158,24 @@ func (conn *Conn) reCreateAgent() error {
 	var err error
 	transportNet, err := conn.newStdNet()
 	if err != nil {
-		log.Warnf("failed to create pion's stdnet: %s", err)
+		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
+
+	iceKeepAlive, iceDisconnectedTimeout := readICEAgentConfigProperties()
+
 	agentConfig := &ice.AgentConfig{
-		MulticastDNSMode: ice.MulticastDNSModeDisabled,
-		NetworkTypes:     []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
-		Urls:             conn.config.StunTurn,
-		CandidateTypes:   []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
-		FailedTimeout:    &failedTimeout,
-		InterfaceFilter:  interfaceFilter(conn.config.InterfaceBlackList),
-		UDPMux:           conn.config.UDPMux,
-		UDPMuxSrflx:      conn.config.UDPMuxSrflx,
-		NAT1To1IPs:       conn.config.NATExternalIPs,
-		Net:              transportNet,
+		MulticastDNSMode:    ice.MulticastDNSModeDisabled,
+		NetworkTypes:        []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
+		Urls:                conn.config.StunTurn,
+		CandidateTypes:      []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
+		FailedTimeout:       &failedTimeout,
+		InterfaceFilter:     stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
+		UDPMux:              conn.config.UDPMux,
+		UDPMuxSrflx:         conn.config.UDPMuxSrflx,
+		NAT1To1IPs:          conn.config.NATExternalIPs,
+		Net:                 transportNet,
+		DisconnectedTimeout: &iceDisconnectedTimeout,
+		KeepaliveInterval:   &iceKeepAlive,
 	}
 
 	if conn.config.DisableIPv6Discovery {
@@ -212,6 +204,34 @@ func (conn *Conn) reCreateAgent() error {
 	}
 
 	return nil
+}
+
+func readICEAgentConfigProperties() (time.Duration, time.Duration) {
+	iceKeepAlive := iceKeepAliveDefault
+	iceDisconnectedTimeout := iceDisconnectedTimeoutDefault
+
+	keepAliveEnv := os.Getenv(envICEKeepAliveIntervalSec)
+	if keepAliveEnv != "" {
+		log.Debugf("setting ICE keep alive interval to %s seconds", keepAliveEnv)
+		keepAliveEnvSec, err := strconv.Atoi(keepAliveEnv)
+		if err == nil {
+			iceKeepAlive = time.Duration(keepAliveEnvSec) * time.Second
+		} else {
+			log.Warnf("invalid value %s set for %s, using default %v", keepAliveEnv, envICEKeepAliveIntervalSec, iceKeepAlive)
+		}
+	}
+
+	disconnectedTimeoutEnv := os.Getenv(envICEDisconnectedTimeoutSec)
+	if disconnectedTimeoutEnv != "" {
+		log.Debugf("setting ICE disconnected timeout to %s seconds", disconnectedTimeoutEnv)
+		disconnectedTimeoutSec, err := strconv.Atoi(disconnectedTimeoutEnv)
+		if err == nil {
+			iceDisconnectedTimeout = time.Duration(disconnectedTimeoutSec) * time.Second
+		} else {
+			log.Warnf("invalid value %s set for %s, using default %v", disconnectedTimeoutEnv, envICEDisconnectedTimeoutSec, iceDisconnectedTimeout)
+		}
+	}
+	return iceKeepAlive, iceDisconnectedTimeout
 }
 
 // Open opens connection to the remote peer starting ICE candidate gathering process.
@@ -319,7 +339,7 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
-	if conn.proxy.Type() == proxy.TypeNoProxy {
+	if conn.proxy.Type() == proxy.TypeDirectNoProxy {
 		host, _, _ := net.SplitHostPort(remoteConn.LocalAddr().String())
 		rhost, _, _ := net.SplitHostPort(remoteConn.RemoteAddr().String())
 		// direct Wireguard connection
@@ -339,49 +359,8 @@ func (conn *Conn) Open() error {
 	}
 }
 
-// useProxy determines whether a direct connection (without a go proxy) is possible
-//
-// There are 2 cases:
-//
-// * When neither candidate is from hard nat and one of the peers has a public IP
-//
-// * both peers are in the same private network
-//
-// Please note, that this check happens when peers were already able to ping each other using ICE layer.
-func shouldUseProxy(pair *ice.CandidatePair) bool {
-	if !isHardNATCandidate(pair.Local) && isHostCandidateWithPublicIP(pair.Remote) {
-		return false
-	}
-
-	if !isHardNATCandidate(pair.Remote) && isHostCandidateWithPublicIP(pair.Local) {
-		return false
-	}
-
-	if isHostCandidateWithPrivateIP(pair.Local) && isHostCandidateWithPrivateIP(pair.Remote) {
-		return false
-	}
-
-	return true
-}
-
-func isHardNATCandidate(candidate ice.Candidate) bool {
-	return candidate.Type() == ice.CandidateTypeRelay || candidate.Type() == ice.CandidateTypePeerReflexive
-}
-
-func isHostCandidateWithPublicIP(candidate ice.Candidate) bool {
-	return candidate.Type() == ice.CandidateTypeHost && isPublicIP(candidate.Address())
-}
-
-func isHostCandidateWithPrivateIP(candidate ice.Candidate) bool {
-	return candidate.Type() == ice.CandidateTypeHost && !isPublicIP(candidate.Address())
-}
-
-func isPublicIP(address string) bool {
-	ip := net.ParseIP(address)
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() {
-		return false
-	}
-	return true
+func isRelayCandidate(candidate ice.Candidate) bool {
+	return candidate.Type() == ice.CandidateTypeRelay
 }
 
 // startProxy starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
@@ -396,7 +375,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	}
 
 	peerState := State{PubKey: conn.config.Key}
-	p := conn.getProxyWithMessageExchange(pair, remoteWgPort)
+	p := conn.getProxy(pair, remoteWgPort)
 	conn.proxy = p
 	err = p.Start(remoteConn)
 	if err != nil {
@@ -412,7 +391,7 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
 	}
-	peerState.Direct = p.Type() == proxy.TypeNoProxy
+	peerState.Direct = p.Type() == proxy.TypeDirectNoProxy || p.Type() == proxy.TypeNoProxy
 
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
@@ -422,60 +401,35 @@ func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
 	return nil
 }
 
-func (conn *Conn) getProxyWithMessageExchange(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
-
-	useProxy := shouldUseProxy(pair)
-	localDirectMode := !useProxy
-	remoteDirectMode := localDirectMode
-
-	if conn.meta.protoSupport.DirectCheck {
-		go conn.sendLocalDirectMode(localDirectMode)
-		// will block until message received or timeout
-		remoteDirectMode = conn.receiveRemoteDirectMode()
+// todo rename this method and the proxy package to something more appropriate
+func (conn *Conn) getProxy(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
+	if isRelayCandidate(pair.Local) {
+		return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
 	}
 
-	if localDirectMode && remoteDirectMode {
-		log.Debugf("using WireGuard direct mode with peer %s", conn.config.Key)
-		return proxy.NewNoProxy(conn.config.ProxyConfig, remoteWgPort)
-	}
+	// To support old version's with direct mode we attempt to punch an additional role with the remote wireguard port
+	go conn.punchRemoteWGPort(pair, remoteWgPort)
 
-	log.Debugf("falling back to local proxy mode with peer %s", conn.config.Key)
-	return proxy.NewWireguardProxy(conn.config.ProxyConfig)
+	return proxy.NewNoProxy(conn.config.ProxyConfig)
 }
 
-func (conn *Conn) sendLocalDirectMode(localMode bool) {
-	// todo what happens when we couldn't deliver this message?
-	// we could retry, etc but there is no guarantee
-
-	err := conn.sendSignalMessage(&sProto.Message{
-		Key:       conn.config.LocalKey,
-		RemoteKey: conn.config.Key,
-		Body: &sProto.Body{
-			Type: sProto.Body_MODE,
-			Mode: &sProto.Mode{
-				Direct: &localMode,
-			},
-			NetBirdVersion: version.NetbirdVersion(),
-		},
-	})
+func (conn *Conn) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
+	// wait local endpoint configuration
+	time.Sleep(time.Second)
+	addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", pair.Remote.Address(), remoteWgPort))
 	if err != nil {
-		log.Errorf("failed to send local proxy mode to remote peer %s, error: %s", conn.config.Key, err)
+		log.Warnf("got an error while resolving the udp address, err: %s", err)
+		return
 	}
-}
 
-func (conn *Conn) receiveRemoteDirectMode() bool {
-	timeout := time.Second
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case receivedMSG := <-conn.remoteModeCh:
-		return receivedMSG.Direct
-	case <-timer.C:
-		// we didn't receive a message from remote so we assume that it supports the direct mode to keep the old behaviour
-		log.Debugf("timeout after %s while waiting for remote direct mode message from remote peer %s",
-			timeout, conn.config.Key)
-		return true
+	mux, ok := conn.config.UDPMuxSrflx.(*bind.UniversalUDPMuxDefault)
+	if !ok {
+		log.Warn("invalid udp mux conversion")
+		return
+	}
+	_, err = mux.GetSharedConn().WriteTo([]byte{0x6e, 0x62}, addr)
+	if err != nil {
+		log.Warnf("got an error while sending the punch packet, err: %s", err)
 	}
 }
 
@@ -697,16 +651,6 @@ func (conn *Conn) OnRemoteCandidate(candidate ice.Candidate) {
 
 func (conn *Conn) GetKey() string {
 	return conn.config.Key
-}
-
-// OnModeMessage unmarshall the payload message and send it to the mode message channel
-func (conn *Conn) OnModeMessage(message ModeMessage) error {
-	select {
-	case conn.remoteModeCh <- message:
-		return nil
-	default:
-		return fmt.Errorf("unable to process mode message: channel busy")
-	}
 }
 
 // RegisterProtoSupportMeta register supported proto message in the connection metadata
