@@ -5,6 +5,7 @@ package bind
 */
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
@@ -68,11 +69,49 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 	return m
 }
 
+// ReadFromConn reads from the m.params.UDPConn provided upon the creation. It expects STUN packets only, however, will
+// just ignore other packets printing an warning message.
+// It is a blocking method, consider running in a go routine.
+func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
+	buf := make([]byte, 1500)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debugf("stopped reading from the UDPConn due to finished context")
+			return
+		default:
+			_, a, err := m.params.UDPConn.ReadFrom(buf)
+			if err != nil {
+				log.Errorf("error while reading packet %s", err)
+				continue
+			}
+			msg := &stun.Message{
+				Raw: buf,
+			}
+			err = msg.Decode()
+			if err != nil {
+				log.Warnf("error while parsing STUN message. The packet doesn't seem to be a STUN packet: %s", err)
+				continue
+			}
+
+			err = m.HandleSTUNMessage(msg, a)
+			if err != nil {
+				log.Errorf("error while handling STUn message: %s", err)
+			}
+		}
+	}
+}
+
 // udpConn is a wrapper around UDPMux conn that overrides ReadFrom and handles STUN/TURN packets
 type udpConn struct {
 	net.PacketConn
 	mux    *UniversalUDPMuxDefault
 	logger logging.LeveledLogger
+}
+
+// GetSharedConn returns the shared udp conn
+func (m *UniversalUDPMuxDefault) GetSharedConn() net.PacketConn {
+	return m.params.UDPConn
 }
 
 // GetListenAddresses returns the listen addr of this UDP

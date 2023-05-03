@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/netip"
@@ -23,9 +24,11 @@ import (
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/bind"
 	mgm "github.com/netbirdio/netbird/management/client"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/sharedsock"
 	signal "github.com/netbirdio/netbird/signal/client"
 	sProto "github.com/netbirdio/netbird/signal/proto"
 	"github.com/netbirdio/netbird/util"
@@ -99,10 +102,8 @@ type Engine struct {
 
 	wgInterface *iface.WGIface
 
-	udpMux          ice.UDPMux
-	udpMuxSrflx     ice.UniversalUDPMux
-	udpMuxConn      *net.UDPConn
-	udpMuxConnSrflx *net.UDPConn
+	udpMux     *bind.UniversalUDPMuxDefault
+	udpMuxConn io.Closer
 
 	// networkSerial is the latest CurrentSerial (state ID) of the network sent by the Management service
 	networkSerial uint64
@@ -206,33 +207,17 @@ func (e *Engine) Start() error {
 			e.close()
 			return err
 		}
-		e.udpMux = udpMux.UDPMuxDefault
-		e.udpMuxSrflx = udpMux
+		e.udpMux = udpMux
 		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
 	} else {
-		networkName := "udp"
-		if e.config.DisableIPv6Discovery {
-			networkName = "udp4"
-		}
-		e.udpMuxConn, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxPort})
+		rawSock, err := sharedsock.Listen(e.config.WgPort, sharedsock.NewSTUNFilter())
 		if err != nil {
-			log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxPort, err.Error())
-			e.close()
 			return err
 		}
-		udpMuxParams := ice.UDPMuxParams{
-			UDPConn: e.udpMuxConn,
-			Net:     transportNet,
-		}
-		e.udpMux = ice.NewUDPMuxDefault(udpMuxParams)
-
-		e.udpMuxConnSrflx, err = net.ListenUDP(networkName, &net.UDPAddr{Port: e.config.UDPMuxSrflxPort})
-		if err != nil {
-			log.Errorf("failed listening on UDP port %d: [%s]", e.config.UDPMuxSrflxPort, err.Error())
-			e.close()
-			return err
-		}
-		e.udpMuxSrflx = ice.NewUniversalUDPMuxDefault(ice.UniversalUDPMuxParams{UDPConn: e.udpMuxConnSrflx, Net: transportNet})
+		mux := bind.NewUniversalUDPMuxDefault(bind.UniversalUDPMuxParams{UDPConn: rawSock, Net: transportNet})
+		go mux.ReadFromConn(e.ctx)
+		e.udpMuxConn = rawSock
+		e.udpMux = mux
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
@@ -393,9 +378,6 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	if err != nil {
 		return err
 	}
-
-	// indicates message support in gRPC
-	msg.Body.FeaturesSupported = []uint32{signal.DirectCheck}
 
 	err = s.Send(msg)
 	if err != nil {
@@ -824,8 +806,8 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		InterfaceBlackList:   e.config.IFaceBlackList,
 		DisableIPv6Discovery: e.config.DisableIPv6Discovery,
 		Timeout:              timeout,
-		UDPMux:               e.udpMux,
-		UDPMuxSrflx:          e.udpMuxSrflx,
+		UDPMux:               e.udpMux.UDPMuxDefault,
+		UDPMuxSrflx:          e.udpMux,
 		ProxyConfig:          proxyConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
@@ -918,18 +900,6 @@ func (e *Engine) receiveSignalEvents() {
 				}
 				conn.OnRemoteCandidate(candidate)
 			case sProto.Body_MODE:
-				protoMode := msg.GetBody().GetMode()
-				if protoMode == nil {
-					return fmt.Errorf("received an empty mode message")
-				}
-
-				err := conn.OnModeMessage(peer.ModeMessage{
-					Direct: protoMode.GetDirect(),
-				})
-				if err != nil {
-					log.Errorf("failed processing a mode message -> %s", err)
-					return err
-				}
 			}
 
 			return nil
@@ -1017,12 +987,6 @@ func (e *Engine) close() {
 	if e.udpMuxConn != nil {
 		if err := e.udpMuxConn.Close(); err != nil {
 			log.Debugf("close udp mux connection: %v", err)
-		}
-	}
-
-	if e.udpMuxConnSrflx != nil {
-		if err := e.udpMuxConnSrflx.Close(); err != nil {
-			log.Debugf("close server reflexive udp mux connection: %v", err)
 		}
 	}
 
