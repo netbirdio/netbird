@@ -392,9 +392,12 @@ func (zm *ZitadelManager) GetAllAccounts() (map[string][]*UserData, error) {
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 // Metadata values are base64 encoded.
 func (zm *ZitadelManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	wtAccountIDValue := base64.StdEncoding.EncodeToString([]byte(appMetadata.WTAccountID))
-
+	if appMetadata.WTPendingInvite == nil {
+		appMetadata.WTPendingInvite = new(bool)
+	}
 	pendingInviteBuf := strconv.AppendBool([]byte{}, *appMetadata.WTPendingInvite)
+
+	wtAccountIDValue := base64.StdEncoding.EncodeToString([]byte(appMetadata.WTAccountID))
 	wtPendingInviteValue := base64.StdEncoding.EncodeToString(pendingInviteBuf)
 
 	metadata := zitadelAttributes{
@@ -572,11 +575,13 @@ func (zp zitadelProfile) userData() *UserData {
 }
 
 func buildZitadelCreateUserRequestPayload(email string, name string) (string, error) {
-	words := strings.Fields(name)
-	n := len(words)
+	var firstName, lastName string
 
-	firstName := strings.Join(words[:n-1], " ")
-	lastName := words[n-1]
+	words := strings.Fields(name)
+	if n := len(words); n > 0 {
+		firstName = strings.Join(words[:n-1], " ")
+		lastName = words[n-1]
+	}
 
 	req := &zitadelUser{
 		UserName: name,
