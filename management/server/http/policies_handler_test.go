@@ -132,7 +132,7 @@ func TestPoliciesGetPolicy(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/policies/{id}", p.GetPolicy).Methods("GET")
+			router.HandleFunc("/api/policies/{policyId}", p.GetPolicy).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -281,7 +281,7 @@ func TestPoliciesWritePolicy(t *testing.T) {
 
 			router := mux.NewRouter()
 			router.HandleFunc("/api/policies", p.CreatePolicy).Methods("POST")
-			router.HandleFunc("/api/policies/{id}", p.UpdatePolicy).Methods("PUT")
+			router.HandleFunc("/api/policies/{policyId}", p.UpdatePolicy).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
