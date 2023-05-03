@@ -72,6 +72,9 @@ jobs:
       - name: Generate Iface Test bin
         run: CGO_ENABLED=0 go test -c -o iface-testing.bin ./iface/
 
+      - name: Generate Shared Sock Test bin
+        run: CGO_ENABLED=0 go test -c -o sharedsock-testing.bin ./sharedsock
+
       - name: Generate RouteManager Test bin
         run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin ./client/internal/routemanager/...
 
@@ -83,8 +86,12 @@ jobs:
 
       - run: chmod +x *testing.bin
 
+      - name: Run Shared Sock tests in docker
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/sharedsock --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/sharedsock-testing.bin -test.timeout 5m -test.parallel 1
+
       - name: Run Iface tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/iface --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/iface-testing.bin -test.timeout 5m -test.parallel 1
+
 
       - name: Run RouteManager tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/routemanager-testing.bin  -test.timeout 5m -test.parallel 1
