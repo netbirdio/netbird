@@ -212,7 +212,7 @@ func (s *SharedSocket) read(receiver receiver) {
 		select {
 		case <-s.ctx.Done():
 			return
-		case s.packetDemux <- rcvdPacket{n, addr, buf[:], err}:
+		case s.packetDemux <- rcvdPacket{n, addr, buf[:n], err}:
 		}
 	}
 }
