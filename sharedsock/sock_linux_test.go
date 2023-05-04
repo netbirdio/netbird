@@ -21,7 +21,7 @@ func TestShouldReadSTUNOnReadFrom(t *testing.T) {
 
 	// create raw socket on a port
 	testingPort := 51821
-	rawSock, err := Listen(testingPort, NewSTUNFilter())
+	rawSock, err := Listen(testingPort, NewIncomingSTUNFilter())
 	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 	err = rawSock.SetReadDeadline(time.Now().Add(3 * time.Second))
 	require.NoError(t, err, "unable to set deadline, error: %s", err)
@@ -76,7 +76,7 @@ func TestShouldReadSTUNOnReadFrom(t *testing.T) {
 
 func TestShouldNotReadNonSTUNPackets(t *testing.T) {
 	testingPort := 39439
-	rawSock, err := Listen(testingPort, NewSTUNFilter())
+	rawSock, err := Listen(testingPort, NewIncomingSTUNFilter())
 	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 	defer rawSock.Close()
 
@@ -110,7 +110,7 @@ func TestWriteTo(t *testing.T) {
 	defer udpListener.Close()
 
 	testingPort := 39440
-	rawSock, err := Listen(testingPort, NewSTUNFilter())
+	rawSock, err := Listen(testingPort, NewIncomingSTUNFilter())
 	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 	defer rawSock.Close()
 
@@ -144,7 +144,7 @@ func TestWriteTo(t *testing.T) {
 }
 
 func TestSharedSocket_Close(t *testing.T) {
-	rawSock, err := Listen(39440, NewSTUNFilter())
+	rawSock, err := Listen(39440, NewIncomingSTUNFilter())
 	require.NoError(t, err, "received an error while creating STUN listener, error: %s", err)
 
 	errGrp := errgroup.Group{}

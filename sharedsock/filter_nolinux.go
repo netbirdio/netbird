@@ -2,7 +2,7 @@
 
 package sharedsock
 
-// NewSTUNFilter is a noop method just because we do not support BPF filters on other platforms than Linux
-func NewSTUNFilter() BPFFilter {
+// NewIncomingSTUNFilter is a noop method just because we do not support BPF filters on other platforms than Linux
+func NewIncomingSTUNFilter() BPFFilter {
 	return nil
 }
