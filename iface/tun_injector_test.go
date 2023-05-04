@@ -10,15 +10,15 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-type testInjector struct {
-	skipReadPacket bool
+type testFilter struct {
+	dropInputPacket bool
 }
 
-func (ti testInjector) SkipReadPacket(packet gopacket.Packet) bool {
-	return ti.skipReadPacket
+func (t testFilter) DropInput(packet gopacket.Packet) bool {
+	return t.dropInputPacket
 }
 
-func (ti testInjector) SkipWritePacket(packet gopacket.Packet) bool {
+func (t testFilter) DropOutput(packet gopacket.Packet) bool {
 	return false
 }
 
@@ -45,19 +45,19 @@ func TestTunInjection_Read(t *testing.T) {
 	// Create TunInjection instances with different configurations
 	tests := []struct {
 		name       string
-		injectors  []Injector
+		injectors  []PacketFilter
 		shouldRead bool
 	}{
 		{"No injectors", nil, true},
-		{"SkipReadPacket: false", []Injector{testInjector{skipReadPacket: false}}, true},
-		{"SkipReadPacket: true", []Injector{testInjector{skipReadPacket: true}}, false},
+		{"DropReadPacket: false", []PacketFilter{testFilter{dropInputPacket: false}}, true},
+		{"DropReadPacket: true", []PacketFilter{testFilter{dropInputPacket: true}}, false},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			ti := &TunInjection{
-				Device:    iface,
-				injectors: test.injectors,
+				Device:  iface,
+				filters: test.injectors,
 			}
 
 			// Send a UDP packet

@@ -85,14 +85,18 @@ func (c *tunDevice) Close() error {
 }
 
 // createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
-func (c *tunDevice) createWithUserspace() (NetInterface, error) {
+func (c *tunDevice) createWithUserspace(injectors []PacketFilter) (NetInterface, error) {
 	tunIface, err := tun.CreateTUN(c.name, c.mtu)
 	if err != nil {
 		return nil, err
 	}
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
+	tunDev := device.NewDevice(
+		newTunInjection(tunIface),
+		c.iceBind,
+		device.NewLogger(device.LogLevelSilent, "[netbird] "),
+	)
 	err = tunDev.Up()
 	if err != nil {
 		_ = tunIface.Close()

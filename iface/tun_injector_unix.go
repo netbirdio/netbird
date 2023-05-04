@@ -6,19 +6,27 @@ import (
 	"golang.zx2c4.com/wireguard/tun"
 )
 
-// Injector interface to override Read or Write of packages
-type Injector interface {
-	// SkipReadPacket to skip reading of packets
-	SkipReadPacket(packet gopacket.Packet) bool
+// PacketFilter interface for firewall abilities
+type PacketFilter interface {
+	// DropInput traffic filter
+	DropInput(packet gopacket.Packet) bool
 
-	// SkipWritePacket to skip writing of packets
-	SkipWritePacket(packet gopacket.Packet) bool
+	// DropOutput traffice filter
+	DropOutput(packet gopacket.Packet) bool
 }
 
 // TunInjection to override Read or Write of packages
 type TunInjection struct {
 	tun.Device
-	injectors []Injector
+	filters []PacketFilter
+}
+
+// newTunInjection constructor function
+func newTunInjection(device tun.Device, filters []PacketFilter) *TunInjection {
+	return &TunInjection{
+		Device:  device,
+		filters: filters,
+	}
 }
 
 // Read one or more packets from the Device (without any additional headers)
@@ -27,7 +35,8 @@ func (t *TunInjection) Read(bufs [][]byte, sizes []int, offset int) (n int, err 
 	if n, err = t.Device.Read(bufs, sizes, offset); err != nil {
 		return 0, err
 	}
-	if len(t.injectors) == 0 {
+	println(">>>>", bufs[0])
+	if len(t.filters) == 0 {
 		return
 	}
 
@@ -37,16 +46,16 @@ func (t *TunInjection) Read(bufs [][]byte, sizes []int, offset int) (n int, err 
 		packet := gopacket.NewPacket(packetData, layers.LayerTypeIPv4, gopacket.Default)
 
 		// Check if the packet should be skipped
-		shouldSkip := false
-		for _, injector := range t.injectors {
-			if injector.SkipReadPacket(packet) {
-				shouldSkip = true
+		shouldDropped := false
+		for _, injector := range t.filters {
+			if injector.DropInput(packet) {
+				shouldDropped = true
 				break
 			}
 		}
 
 		// If the packet should be skipped, remove it from the result
-		if shouldSkip {
+		if shouldDropped {
 			bufs = append(bufs[:i], bufs[i+1:]...)
 			sizes = append(sizes[:i], sizes[i+1:]...)
 			n--
@@ -59,7 +68,8 @@ func (t *TunInjection) Read(bufs [][]byte, sizes []int, offset int) (n int, err 
 
 // Write wraps write method for TunInjection
 func (t *TunInjection) Write(bufs [][]byte, offset int) (int, error) {
-	if len(t.injectors) == 0 {
+	if len(t.filters) == 0 {
+		println("<<<<", bufs[0])
 		return t.Device.Write(bufs, offset)
 	}
 
@@ -68,16 +78,16 @@ func (t *TunInjection) Write(bufs [][]byte, offset int) (int, error) {
 	for _, buf := range bufs {
 		packet := gopacket.NewPacket(buf[offset:], layers.LayerTypeIPv4, gopacket.Default)
 
-		shouldSkip := false
-		for _, injector := range t.injectors {
-			if injector.SkipWritePacket(packet) {
-				shouldSkip = true
+		shouldDropped := false
+		for _, injector := range t.filters {
+			if injector.DropOutput(packet) {
+				shouldDropped = true
 				break
 			}
 		}
 
 		// If the packet should not be skipped, add it to the filtered bufs
-		if !shouldSkip {
+		if !shouldDropped {
 			filteredBufs = append(filteredBufs, buf)
 		}
 	}
