@@ -27,7 +27,8 @@ import (
 var ErrSharedSockStopped = fmt.Errorf("shared socked stopped")
 
 // SharedSocket is a net.PacketConn that initiates two raw sockets (ipv4 and ipv6) and listens to UDP packets filtered
-// by BPF instructions (e.g., STUNFilter that checks and sends only STUN packets to the listeners (ReadFrom)).
+// by BPF instructions (e.g., IncomingSTUNFilter that checks and sends only STUN packets to the listeners (ReadFrom)).
+// It is meant to be used when sharing a port with some other process.
 type SharedSocket struct {
 	ctx         context.Context
 	conn4       *socket.Conn

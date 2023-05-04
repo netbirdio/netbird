@@ -210,7 +210,7 @@ func (e *Engine) Start() error {
 		e.udpMux = udpMux
 		log.Infof("using userspace bind mode %s", udpMux.LocalAddr().String())
 	} else {
-		rawSock, err := sharedsock.Listen(e.config.WgPort, sharedsock.NewSTUNFilter())
+		rawSock, err := sharedsock.Listen(e.config.WgPort, sharedsock.NewIncomingSTUNFilter())
 		if err != nil {
 			return err
 		}
