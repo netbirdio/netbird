@@ -96,8 +96,20 @@ func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetri
 
 	helper := JsonParser{}
 
-	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.ManagementEndpoint == "" || config.TokenEndpoint == "" {
-		return nil, fmt.Errorf("zitadel idp configuration is not complete")
+	if config.ClientID == "" {
+		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, clientID is missing")
+	}
+
+	if config.ClientSecret == "" {
+		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, ClientSecret is missing")
+	}
+
+	if config.TokenEndpoint == "" {
+		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, TokenEndpoint is missing")
+	}
+
+	if config.ManagementEndpoint == "" {
+		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, ManagementEndpoint is missing")
 	}
 
 	if config.GrantType != "client_credentials" {
