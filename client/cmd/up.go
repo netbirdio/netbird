@@ -172,7 +172,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if loginResp.NeedsSSOLogin {
 
-		openURL(cmd, loginResp.VerificationURIComplete)
+		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
 
 		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 		if err != nil {

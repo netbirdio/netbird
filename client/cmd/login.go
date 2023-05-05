@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/skratchdot/open-golang/open"
@@ -106,7 +107,7 @@ var loginCmd = &cobra.Command{
 		}
 
 		if loginResp.NeedsSSOLogin {
-			openURL(cmd, loginResp.VerificationURIComplete)
+			openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
 
 			_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 			if err != nil {
@@ -185,7 +186,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 		return nil, fmt.Errorf("getting a request device code failed: %v", err)
 	}
 
-	openURL(cmd, flowInfo.VerificationURIComplete)
+	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode)
 
 	waitTimeout := time.Duration(flowInfo.ExpiresIn)
 	waitCTX, c := context.WithTimeout(context.TODO(), waitTimeout*time.Second)
@@ -199,11 +200,16 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 	return &tokenInfo, nil
 }
 
-func openURL(cmd *cobra.Command, verificationURIComplete string) {
+func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
+	var codeMsg string
+	if !strings.Contains(verificationURIComplete, userCode) {
+		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
+	}
+
 	err := open.Run(verificationURIComplete)
 	cmd.Printf("Please do the SSO login in your browser. \n" +
 		"If your browser didn't open automatically, use this URL to log in:\n\n" +
-		" " + verificationURIComplete + " \n\n")
+		" " + verificationURIComplete + " " + codeMsg + " \n\n")
 	if err != nil {
 		cmd.Printf("Alternatively, you may want to use a setup key, see:\n\n https://www.netbird.io/docs/overview/setup-keys\n")
 	}

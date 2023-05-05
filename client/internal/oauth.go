@@ -148,6 +148,11 @@ func (h *Hosted) RequestDeviceCode(ctx context.Context) (DeviceAuthInfo, error) 
 		return DeviceAuthInfo{}, fmt.Errorf("unmarshaling response failed with error: %v", err)
 	}
 
+	// Fallback to the verification_uri if the IdP doesn't support verification_uri_complete
+	if deviceCode.VerificationURIComplete == "" {
+		deviceCode.VerificationURIComplete = deviceCode.VerificationURI
+	}
+
 	return deviceCode, err
 }
 
