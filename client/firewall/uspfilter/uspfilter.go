@@ -1,7 +1,6 @@
 package uspfilter
 
 import (
-	"bytes"
 	"fmt"
 	"net"
 	"sync"
@@ -168,11 +167,11 @@ func (u *Manager) dropFilter(packet gopacket.Packet, rules []Rule, isInputPacket
 				}
 			case *layers.IPv6:
 				if isInputPacket {
-					if !bytes.Equal(ip.SrcIP, rule.ip) {
+					if !ip.SrcIP.Equal(rule.ip) {
 						continue
 					}
 				} else {
-					if !bytes.Equal(ip.DstIP, rule.ip) {
+					if !ip.DstIP.Equal(rule.ip) {
 						continue
 					}
 				}
