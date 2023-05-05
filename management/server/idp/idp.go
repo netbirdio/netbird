@@ -23,8 +23,9 @@ type Manager interface {
 type Config struct {
 	ManagerType               string
 	Auth0ClientCredentials    Auth0ClientConfig
-	KeycloakClientCredentials KeycloakClientConfig
 	AzureClientCredentials    AzureClientConfig
+	KeycloakClientCredentials KeycloakClientConfig
+	ZitadelClientCredentials  ZitadelClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
@@ -78,6 +79,8 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		return NewAzureManager(config.AzureClientCredentials, appMetrics)
 	case "keycloak":
 		return NewKeycloakManager(config.KeycloakClientCredentials, appMetrics)
+	case "zitadel":
+		return NewZitadelManager(config.ZitadelClientCredentials, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
