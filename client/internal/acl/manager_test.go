@@ -4,6 +4,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/golang/mock/gomock"
+	mocks "github.com/netbirdio/netbird/client/internal/acl/mocks"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
@@ -33,8 +35,15 @@ func TestDefaultManager(t *testing.T) {
 		},
 	}
 
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	iface := mocks.NewMockIFaceMapper(ctrl)
+	iface.EXPECT().IsUserspaceBind().Return(false)
+	iface.EXPECT().Name().Return("lo")
+
 	// we receive one rule from the management so for testing purposes ignore it
-	acl, err := Create("lo")
+	acl, err := Create(iface)
 	if err != nil {
 		t.Errorf("create ACL manager: %v", err)
 		return

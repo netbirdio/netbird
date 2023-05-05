@@ -14,6 +14,11 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
+// IFaceMapper defines subset methods of interface required for manager
+type IFaceMapper interface {
+	SetFiltering(iface.PacketFilter) error
+}
+
 // Manager userspace firewall manager
 type Manager struct {
 	inputRules  []Rule
@@ -24,7 +29,7 @@ type Manager struct {
 }
 
 // New userspace firewall manager constructor
-func Create(iface *iface.WGIface) (*Manager, error) {
+func Create(iface IFaceMapper) (*Manager, error) {
 	m := &Manager{
 		rulesIndex: make(map[string]int),
 	}

@@ -7,11 +7,10 @@ import (
 	"github.com/netbirdio/netbird/client/firewall/iptables"
 	"github.com/netbirdio/netbird/client/firewall/nftables"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
-	"github.com/netbirdio/netbird/iface"
 )
 
 // Create creates a firewall manager instance for the Linux
-func Create(iface *iface.WGIface) (manager *DefaultManager, err error) {
+func Create(iface iFaceMapper) (manager *DefaultManager, err error) {
 	var fm firewall.Manager
 	if iface.IsUserspaceBind() {
 		// use userspace packet filtering firewall

@@ -61,16 +61,20 @@ func (t *TunWrapper) Write(bufs [][]byte, offset int) (int, error) {
 	}
 
 	filteredBufs := make([][]byte, 0, len(bufs))
+	dropped := 0
 	for _, buf := range bufs {
 		// TODO: handle IPv6 packets
 		packet := gopacket.NewPacket(buf[offset:], layers.LayerTypeIPv4, gopacket.Default)
 
 		if !t.filter.DropOutput(packet) {
 			filteredBufs = append(filteredBufs, buf)
+			dropped++
 		}
 	}
 
-	return t.device.Write(filteredBufs, offset)
+	n, err := t.device.Write(filteredBufs, offset)
+	n += dropped
+	return n, err
 }
 
 // File returns the file descriptor of the device.

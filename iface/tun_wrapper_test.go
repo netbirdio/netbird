@@ -2,86 +2,215 @@ package iface
 
 import (
 	"net"
-	"os"
 	"testing"
 
+	"github.com/golang/mock/gomock"
 	"github.com/google/gopacket"
-	"golang.org/x/sys/unix"
-	"golang.zx2c4.com/wireguard/tun"
+	"github.com/google/gopacket/layers"
+	mocks "github.com/netbirdio/netbird/iface/mocks"
 )
 
-type testFilter struct {
-	dropInputPacket bool
-}
+func TestTunWrapperRead(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
-func (t testFilter) DropInput(packet gopacket.Packet) bool {
-	return t.dropInputPacket
-}
+	tun := mocks.NewMockDevice(ctrl)
+	filter := mocks.NewMockPacketFilter(ctrl)
 
-func (t testFilter) DropOutput(packet gopacket.Packet) bool {
-	return false
-}
+	mockBufs := [][]byte{{}}
+	mockSizes := []int{0}
+	mockOffset := 0
 
-func TestTunWrapper_Read(t *testing.T) {
-	disableKernel := os.Getenv("NB_WG_KERNEL_DISABLED")
-	defer os.Setenv("NB_WG_KERNEL_DISABLED", disableKernel)
+	t.Run("read ICMP", func(t *testing.T) {
+		ipLayer := &layers.IPv4{
+			Version:  4,
+			TTL:      64,
+			Protocol: layers.IPProtocolICMPv4,
+			SrcIP:    net.IP{192, 168, 0, 1},
+			DstIP:    net.IP{100, 200, 0, 1},
+		}
 
-	os.Setenv("NB_WG_KERNEL_DISABLED", "true")
+		icmpLayer := &layers.ICMPv4{
+			TypeCode: layers.CreateICMPv4TypeCode(layers.ICMPv4TypeEchoRequest, 0),
+			Id:       1,
+			Seq:      1,
+		}
 
-	// Create a local UDP listener to send and receive packets
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pc.Close()
+		buffer := gopacket.NewSerializeBuffer()
+		err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{},
+			ipLayer,
+			icmpLayer,
+		)
+		if err != nil {
+			t.Errorf("serialize packet: %v", err)
+			return
+		}
 
-	// Create a tun device
-	iface, err := tun.CreateTUN("testtun%d", unix.IFF_TUN|unix.IFF_NO_PI)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer iface.Close()
+		tun.EXPECT().Read(mockBufs, mockSizes, mockOffset).
+			DoAndReturn(func(bufs [][]byte, sizes []int, offset int) (int, error) {
+				bufs[0] = buffer.Bytes()
+				sizes[0] = len(bufs[0])
+				return 1, nil
+			})
 
-	// Create TunInjection instances with different configurations
-	tests := []struct {
-		name       string
-		filter     PacketFilter
-		shouldRead bool
-	}{
-		{"No injectors", nil, true},
-		{"DropReadPacket: false", testFilter{dropInputPacket: false}, true},
-		{"DropReadPacket: true", testFilter{dropInputPacket: true}, false},
-	}
+		wrapped := newTunInjection(tun)
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			ti := newTunInjection(iface)
-			ti.filter = test.filter
+		bufs := [][]byte{{}}
+		sizes := []int{0}
+		offset := 0
 
-			// Send a UDP packet
-			_, err := pc.WriteTo([]byte("test"), pc.LocalAddr())
-			if err != nil {
-				t.Fatal(err)
-			}
+		n, err := wrapped.Read(bufs, sizes, offset)
+		if err != nil {
+			t.Errorf("unexpeted error: %v", err)
+			return
+		}
+		if n != 1 {
+			t.Errorf("expected n=1, got %d", n)
+			return
+		}
+	})
 
-			mtu, err := iface.MTU()
-			if err != nil {
-				t.Fatal(err)
-			}
+	t.Run("write TCP", func(t *testing.T) {
+		ipLayer := &layers.IPv4{
+			Version:  4,
+			TTL:      64,
+			Protocol: layers.IPProtocolICMPv4,
+			SrcIP:    net.IP{100, 200, 0, 9},
+			DstIP:    net.IP{100, 200, 0, 10},
+		}
 
-			// Read packets from the tun device
-			buf := make([]byte, mtu)
-			n, err := ti.Read([][]byte{buf}, []int{mtu}, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
+		// create TCP layer packet
+		tcpLayer := &layers.TCP{
+			SrcPort: layers.TCPPort(34423),
+			DstPort: layers.TCPPort(8080),
+		}
 
-			// Check if the expected number of packets was read
-			if test.shouldRead && n == 0 {
-				t.Errorf("Expected to read a packet, but got none")
-			} else if !test.shouldRead && n > 0 {
-				t.Errorf("Expected no packets to be read, but got %d", n)
-			}
-		})
-	}
+		buffer := gopacket.NewSerializeBuffer()
+		err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{},
+			ipLayer,
+			tcpLayer,
+		)
+		if err != nil {
+			t.Errorf("serialize packet: %v", err)
+			return
+		}
+
+		mockBufs[0] = buffer.Bytes()
+		tun.EXPECT().Write(mockBufs, 0).Return(1, nil)
+
+		wrapped := newTunInjection(tun)
+
+		bufs := [][]byte{buffer.Bytes()}
+
+		n, err := wrapped.Write(bufs, 0)
+		if err != nil {
+			t.Errorf("unexpeted error: %v", err)
+			return
+		}
+		if n != 1 {
+			t.Errorf("expected n=1, got %d", n)
+			return
+		}
+	})
+
+	t.Run("drop write UDP package", func(t *testing.T) {
+		ipLayer := &layers.IPv4{
+			Version:  4,
+			TTL:      64,
+			Protocol: layers.IPProtocolICMPv4,
+			SrcIP:    net.IP{100, 200, 0, 11},
+			DstIP:    net.IP{100, 200, 0, 20},
+		}
+
+		// create TCP layer packet
+		tcpLayer := &layers.UDP{
+			SrcPort: layers.UDPPort(27278),
+			DstPort: layers.UDPPort(53),
+		}
+
+		buffer := gopacket.NewSerializeBuffer()
+		err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{},
+			ipLayer,
+			tcpLayer,
+		)
+		if err != nil {
+			t.Errorf("serialize packet: %v", err)
+			return
+		}
+
+		mockBufs = [][]byte{}
+
+		tun.EXPECT().Write(mockBufs, 0).Return(0, nil)
+		filter.EXPECT().DropOutput(gomock.Any()).Return(true)
+
+		wrapped := newTunInjection(tun)
+		wrapped.filter = filter
+
+		bufs := [][]byte{buffer.Bytes()}
+
+		n, err := wrapped.Write(bufs, 0)
+		if err != nil {
+			t.Errorf("unexpeted error: %v", err)
+			return
+		}
+		if n != 0 {
+			t.Errorf("expected n=1, got %d", n)
+			return
+		}
+	})
+
+	t.Run("drop read UDP package", func(t *testing.T) {
+		ipLayer := &layers.IPv4{
+			Version:  4,
+			TTL:      64,
+			Protocol: layers.IPProtocolICMPv4,
+			SrcIP:    net.IP{100, 200, 0, 11},
+			DstIP:    net.IP{100, 200, 0, 20},
+		}
+
+		// create TCP layer packet
+		tcpLayer := &layers.UDP{
+			SrcPort: layers.UDPPort(19243),
+			DstPort: layers.UDPPort(1024),
+		}
+
+		buffer := gopacket.NewSerializeBuffer()
+		err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{},
+			ipLayer,
+			tcpLayer,
+		)
+		if err != nil {
+			t.Errorf("serialize packet: %v", err)
+			return
+		}
+
+		mockBufs := [][]byte{{}}
+		mockSizes := []int{0}
+		mockOffset := 0
+
+		tun.EXPECT().Read(mockBufs, mockSizes, mockOffset).
+			DoAndReturn(func(bufs [][]byte, sizes []int, offset int) (int, error) {
+				bufs[0] = buffer.Bytes()
+				sizes[0] = len(bufs[0])
+				return 1, nil
+			})
+		filter.EXPECT().DropInput(gomock.Any()).Return(true)
+
+		wrapped := newTunInjection(tun)
+		wrapped.filter = filter
+
+		bufs := [][]byte{{}}
+		sizes := []int{0}
+		offset := 0
+
+		n, err := wrapped.Read(bufs, sizes, offset)
+		if err != nil {
+			t.Errorf("unexpeted error: %v", err)
+			return
+		}
+		if n != 0 {
+			t.Errorf("expected n=0, got %d", n)
+			return
+		}
+	})
 }

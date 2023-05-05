@@ -12,7 +12,7 @@ import (
 )
 
 // Create creates a firewall manager instance
-func Create(iface *iface.WGIface) (manager *DefaultManager, err error) {
+func Create(iface IFaceMapper) (manager *DefaultManager, err error) {
 	if iface.IsUserspaceBind() {
 		// use userspace packet filtering firewall
 		fm, err := uspfilter.Create(iface)
