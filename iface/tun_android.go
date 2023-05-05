@@ -49,9 +49,10 @@ func (t *tunDevice) Create() error {
 		return err
 	}
 	t.name = name
+	t.wrapper = newTunInjection(tunDevice)
 
 	log.Debugf("attaching to interface %v", name)
-	t.device = device.NewDevice(tunDevice, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
+	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))
 	// without this property mobile devices can discover remote endpoints if the configured one was wrong.
 	// this helps with support for the older NetBird clients that had a hardcoded direct mode
 	//t.device.DisableSomeRoamingForBrokenMobileSemantics()
