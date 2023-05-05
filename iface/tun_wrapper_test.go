@@ -22,7 +22,7 @@ func (t testFilter) DropOutput(packet gopacket.Packet) bool {
 	return false
 }
 
-func TestTunInjection_Read(t *testing.T) {
+func TestTunWrapper_Read(t *testing.T) {
 	disableKernel := os.Getenv("NB_WG_KERNEL_DISABLED")
 	defer os.Setenv("NB_WG_KERNEL_DISABLED", disableKernel)
 
@@ -45,20 +45,18 @@ func TestTunInjection_Read(t *testing.T) {
 	// Create TunInjection instances with different configurations
 	tests := []struct {
 		name       string
-		injectors  []PacketFilter
+		filter     PacketFilter
 		shouldRead bool
 	}{
 		{"No injectors", nil, true},
-		{"DropReadPacket: false", []PacketFilter{testFilter{dropInputPacket: false}}, true},
-		{"DropReadPacket: true", []PacketFilter{testFilter{dropInputPacket: true}}, false},
+		{"DropReadPacket: false", testFilter{dropInputPacket: false}, true},
+		{"DropReadPacket: true", testFilter{dropInputPacket: true}, false},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			ti := &TunInjection{
-				Device:  iface,
-				filters: test.injectors,
-			}
+			ti := newTunInjection(iface)
+			ti.filter = test.filter
 
 			// Send a UDP packet
 			_, err := pc.WriteTo([]byte("test"), pc.LocalAddr())

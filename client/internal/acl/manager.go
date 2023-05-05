@@ -7,6 +7,7 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
+
 	log "github.com/sirupsen/logrus"
 )
 

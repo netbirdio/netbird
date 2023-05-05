@@ -23,6 +23,7 @@ type tunDevice struct {
 	netInterface NetInterface
 	iceBind      *bind.ICEBind
 	uapi         net.Listener
+	wrapper      *TunWrapper
 	close        chan struct{}
 }
 
@@ -85,15 +86,16 @@ func (c *tunDevice) Close() error {
 }
 
 // createWithUserspace Creates a new Wireguard interface, using wireguard-go userspace implementation
-func (c *tunDevice) createWithUserspace(injectors []PacketFilter) (NetInterface, error) {
+func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	tunIface, err := tun.CreateTUN(c.name, c.mtu)
 	if err != nil {
 		return nil, err
 	}
+	c.wrapper = newTunInjection(tunIface)
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDev := device.NewDevice(
-		newTunInjection(tunIface),
+		c.wrapper,
 		c.iceBind,
 		device.NewLogger(device.LogLevelSilent, "[netbird] "),
 	)

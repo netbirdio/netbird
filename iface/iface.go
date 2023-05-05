@@ -1,6 +1,7 @@
 package iface
 
 import (
+	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -117,4 +118,17 @@ func (w *WGIface) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.tun.Close()
+}
+
+// SetFilters sets packet filters for the userspace impelemntation
+func (w *WGIface) SetFiltering(filter PacketFilter) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.tun.wrapper == nil {
+		return fmt.Errorf("userspace packet filtering not handled on this device")
+	}
+
+	w.tun.wrapper.filter = filter
+	return nil
 }
