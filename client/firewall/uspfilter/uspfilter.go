@@ -27,7 +27,7 @@ type Manager struct {
 	mutex sync.RWMutex
 }
 
-// New userspace firewall manager constructor
+// Create userspace firewall manager constructor
 func Create(iface IFaceMapper) (*Manager, error) {
 	m := &Manager{
 		rulesIndex: make(map[string]int),

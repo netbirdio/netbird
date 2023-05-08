@@ -8,11 +8,10 @@ import (
 
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
-	"github.com/netbirdio/netbird/iface"
 )
 
 // Create creates a firewall manager instance
-func Create(iface IFaceMapper) (manager *DefaultManager, err error) {
+func Create(iface iFaceMapper) (manager *DefaultManager, err error) {
 	if iface.IsUserspaceBind() {
 		// use userspace packet filtering firewall
 		fm, err := uspfilter.Create(iface)
