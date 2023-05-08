@@ -54,6 +54,7 @@ configure_zitadel_instance() {
 
   # create zitadel spa application
   echo "creating $APPLICATION_NAME spa application in zitadel"
+  # shellcheck disable=SC2034
   APPLICATION_CLIENT_ID=$(curl -X POST  "$INSTANCE_URL/management/v1/projects/$PROJECT_ID/apps/oidc" \
     -H "Authorization: Bearer $ACCESS_TOKEN" \
     -H "Content-Type: application/json" \
