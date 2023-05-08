@@ -1,0 +1,62 @@
+{
+    "Stuns": [
+        {
+            "Proto": "udp",
+            "URI": "stun:$NETBIRD_DOMAIN:3478",
+            "Username": "",
+            "Password": null
+        }
+    ],
+    "TURNConfig": {
+        "Turns": [
+            {
+                "Proto": "udp",
+                "URI": "turn:$NETBIRD_DOMAIN:3478",
+                "Username": "$TURN_USER",
+                "Password": "$TURN_PASSWORD"
+            }
+        ],
+        "CredentialsTTL": "12h",
+        "Secret": "secret",
+        "TimeBasedCredentials": false
+    },
+    "Signal": {
+        "Proto": "$NETBIRD_SIGNAL_PROTOCOL",
+        "URI": "$NETBIRD_DOMAIN:$NETBIRD_SIGNAL_PORT",
+        "Username": "",
+        "Password": null
+    },
+    "Datadir": "",
+    "HttpConfig": {
+        "Address": "0.0.0.0:$NETBIRD_MGMT_API_PORT",
+        "AuthIssuer": "$NETBIRD_AUTH_AUTHORITY",
+        "AuthAudience": "$NETBIRD_AUTH_AUDIENCE",
+        "AuthKeysLocation": "$NETBIRD_AUTH_JWT_CERTS",
+        "AuthUserIDClaim": "$NETBIRD_AUTH_USER_ID_CLAIM",
+        "CertFile":"$NETBIRD_MGMT_API_CERT_FILE",
+        "CertKey":"$NETBIRD_MGMT_API_CERT_KEY_FILE",
+        "OIDCConfigEndpoint":"$NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT"
+    },
+    "IdpManagerConfig": {
+        "ManagerType": "zitadel",
+        "ZitadelClientCredentials": {
+            "ClientID": "$ZITADEL_CLIENT_ID",
+            "ClientSecret": "$ZITADEL_CLIENT_SECRET",
+            "GrantType": "client_credentials",
+            "TokenEndpoint": "$ZITADEL_INSTANCE_URL/oauth/v2/token",
+            "ManagementEndpoint": "$ZITADEL_INSTANCE_URL/management/v1"
+        }
+     },
+    "DeviceAuthorizationFlow": {
+        "Provider": "$NETBIRD_AUTH_DEVICE_AUTH_PROVIDER",
+        "ProviderConfig": {
+          "Audience": "$NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE",
+          "Domain": "$NETBIRD_AUTH0_DOMAIN",
+          "ClientID": "$NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID",
+          "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
+          "DeviceAuthEndpoint": "$NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT",
+          "Scope": "$NETBIRD_AUTH_DEVICE_AUTH_SCOPE",
+          "UseIDToken": $NETBIRD_AUTH_DEVICE_AUTH_USE_ID_TOKEN
+         }
+    }
+}

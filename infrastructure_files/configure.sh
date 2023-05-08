@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source zitadel.sh
+
 if ! which curl > /dev/null 2>&1
 then
     echo "This script uses curl fetch OpenID configuration from IDP."
@@ -147,6 +149,29 @@ fi
 
 env | grep NETBIRD
 
+
+MGMT_JSON_TEMPLATE="management.json.tmpl"
+
+# configure zitadel IdP
+if [[ "$NETBIRD_IDP_PROVIDER" == "zitadel" ]]
+then
+  
+  configure_zitadel_instance
+
+  if [ -n "$APPLICATION_CLIENT_ID" ]
+  then
+    export NETBIRD_AUTH_CLIENT_ID="$APPLICATION_CLIENT_ID"
+    export NETBIRD_AUTH_AUDIENCE="$APPLICATION_CLIENT_ID"
+    export NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID="$APPLICATION_CLIENT_ID"
+    export NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE="$APPLICATION_CLIENT_ID"
+    export ZITADEL_CLIENT_ID="$ZITADEL_CLIENT_ID"
+    export ZITADEL_CLIENT_SECRET="$ZITADEL_CLIENT_SECRET"
+    export ZITADEL_INSTANCE_URL="$INSTANCE_URL"
+  fi
+
+  MGMT_JSON_TEMPLATE="management.json.zitadel.tmpl"
+fi
+
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
-envsubst < management.json.tmpl > management.json
 envsubst < turnserver.conf.tmpl > turnserver.conf
+envsubst < $MGMT_JSON_TEMPLATE > management.json
