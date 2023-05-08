@@ -22,6 +22,7 @@ type tunDevice struct {
 	name    string
 	device  *device.Device
 	iceBind *bind.ICEBind
+	wrapper *TunWrapper
 }
 
 func newTunDevice(address WGAddress, mtu int, routes []string, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
