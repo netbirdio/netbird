@@ -84,7 +84,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 	case "auth0":
 		return NewAuth0Manager(config.Auth0ClientCredentials, appMetrics)
 	case "azure":
-		return NewAzureManager(config.AzureClientCredentials, appMetrics)
+		return NewAzureManager(config.OIDCConfig, config.AzureClientCredentials, appMetrics)
 	case "keycloak":
 		return NewKeycloakManager(config.OIDCConfig, config.KeycloakClientCredentials, appMetrics)
 	case "zitadel":

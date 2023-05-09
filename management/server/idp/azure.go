@@ -37,12 +37,13 @@ type AzureManager struct {
 
 // AzureClientConfig azure manager client configurations.
 type AzureClientConfig struct {
-	ClientID         string
-	ClientSecret     string
-	GraphAPIEndpoint string
-	ObjectID         string
-	TokenEndpoint    string
-	GrantType        string
+	ClientID     string
+	ClientSecret string
+	ObjectID     string
+
+	GraphAPIEndpoint string `json:"-"`
+	TokenEndpoint    string `json:"-"`
+	GrantType        string `json:"-"`
 }
 
 // AzureCredentials azure authentication information.
@@ -74,7 +75,8 @@ type azureExtension struct {
 }
 
 // NewAzureManager creates a new instance of the AzureManager.
-func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) (*AzureManager, error) {
+func NewAzureManager(oidcConfig OIDCConfig, config AzureClientConfig,
+	appMetrics telemetry.AppMetrics) (*AzureManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -84,13 +86,20 @@ func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) 
 	}
 
 	helper := JsonParser{}
+	config.TokenEndpoint = oidcConfig.TokenEndpoint
+	config.GraphAPIEndpoint = "https://graph.microsoft.com"
+	config.GrantType = "client_credentials"
 
-	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.GraphAPIEndpoint == "" || config.TokenEndpoint == "" {
-		return nil, fmt.Errorf("azure idp configuration is not complete")
+	if config.ClientID == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, clientID is missing")
 	}
 
-	if config.GrantType != "client_credentials" {
-		return nil, fmt.Errorf("azure idp configuration failed. Grant Type should be client_credentials")
+	if config.ClientSecret == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, ClientSecret is missing")
+	}
+
+	if config.ObjectID == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, ObjectID is missing")
 	}
 
 	credentials := &AzureCredentials{
