@@ -37,8 +37,8 @@ type KeycloakClientConfig struct {
 	ClientID      string
 	ClientSecret  string
 	AdminEndpoint string
-	TokenEndpoint string
-	GrantType     string
+	TokenEndpoint string `json:"-"`
+	GrantType     string `json:"-"`
 }
 
 // KeycloakCredentials keycloak authentication information.
@@ -82,7 +82,8 @@ type keycloakProfile struct {
 }
 
 // NewKeycloakManager creates a new instance of the KeycloakManager.
-func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMetrics) (*KeycloakManager, error) {
+func NewKeycloakManager(oidcConfig OIDCConfig, config KeycloakClientConfig,
+	appMetrics telemetry.AppMetrics) (*KeycloakManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -92,13 +93,19 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 	}
 
 	helper := JsonParser{}
+	config.TokenEndpoint = oidcConfig.TokenEndpoint
+	config.GrantType = "client_credentials"
 
-	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.AdminEndpoint == "" || config.TokenEndpoint == "" {
-		return nil, fmt.Errorf("keycloak idp configuration is not complete")
+	if config.ClientID == "" {
+		return nil, fmt.Errorf("keycloak IdP configuration is incomplete, clientID is missing")
 	}
 
-	if config.GrantType != "client_credentials" {
-		return nil, fmt.Errorf("keycloak idp configuration failed. Grant Type should be client_credentials")
+	if config.ClientSecret == "" {
+		return nil, fmt.Errorf("keycloak IdP configuration is incomplete, ClientSecret is missing")
+	}
+
+	if config.AdminEndpoint == "" {
+		return nil, fmt.Errorf("keycloak IdP configuration is incomplete, AdminEndpoint is missing")
 	}
 
 	credentials := &KeycloakCredentials{
