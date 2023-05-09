@@ -265,6 +265,7 @@ func TestUser_Copy(t *testing.T) {
 				LastUsed:       time.Now(),
 			},
 		},
+		Blocked: false,
 	}
 
 	err := validateStruct(user)
@@ -288,7 +289,7 @@ func validateStruct(s interface{}) (err error) {
 		field := structVal.Field(i)
 		fieldName := structType.Field(i).Name
 
-		isSet := field.IsValid() && !field.IsZero()
+		isSet := field.IsValid() && (!field.IsZero() || field.Type().String() == "bool")
 
 		if !isSet {
 			err = fmt.Errorf("%v%s in not set; ", err, fieldName)
