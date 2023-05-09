@@ -103,7 +103,7 @@ export NETBIRD_AUTH_SUPPORTED_SCOPES=$(jq -r '.scopes_supported | join(" ")' ope
 export NETBIRD_AUTH_TOKEN_ENDPOINT=$(jq -r '.token_endpoint' openid-configuration.json)
 export NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT=$(jq -r '.device_authorization_endpoint' openid-configuration.json)
 
-if [ $NETBIRD_USE_AUTH0 == "true" ]; then
+if [ "$NETBIRD_USE_AUTH0" == "true" ]; then
   export NETBIRD_AUTH_SUPPORTED_SCOPES="openid profile email offline_access api email_verified"
 else
   export NETBIRD_AUTH_SUPPORTED_SCOPES="openid profile email offline_access api"
