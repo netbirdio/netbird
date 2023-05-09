@@ -96,7 +96,6 @@ func NewZitadelManager(oidcConfig OIDCConfig, config ZitadelClientConfig,
 	}
 
 	helper := JsonParser{}
-
 	config.TokenEndpoint = oidcConfig.TokenEndpoint
 	config.ManagementEndpoint = fmt.Sprintf("%s/management/v1", oidcConfig.Issuer)
 	config.GrantType = "client_credentials"
