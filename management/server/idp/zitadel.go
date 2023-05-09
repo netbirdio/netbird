@@ -30,9 +30,9 @@ type ZitadelManager struct {
 type ZitadelClientConfig struct {
 	ClientID           string
 	ClientSecret       string
-	GrantType          string
-	TokenEndpoint      string
-	ManagementEndpoint string
+	GrantType          string `json:"-"`
+	TokenEndpoint      string `json:"-"`
+	ManagementEndpoint string `json:"-"`
 }
 
 // ZitadelCredentials zitadel authentication information.
@@ -85,7 +85,8 @@ type zitadelProfile struct {
 }
 
 // NewZitadelManager creates a new instance of the ZitadelManager.
-func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetrics) (*ZitadelManager, error) {
+func NewZitadelManager(oidcConfig OIDCConfig, config ZitadelClientConfig,
+	appMetrics telemetry.AppMetrics) (*ZitadelManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -96,24 +97,16 @@ func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetri
 
 	helper := JsonParser{}
 
+	config.TokenEndpoint = oidcConfig.TokenEndpoint
+	config.ManagementEndpoint = fmt.Sprintf("%s/management/v1", oidcConfig.Issuer)
+	config.GrantType = "client_credentials"
+
 	if config.ClientID == "" {
 		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, clientID is missing")
 	}
 
 	if config.ClientSecret == "" {
 		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, ClientSecret is missing")
-	}
-
-	if config.TokenEndpoint == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, TokenEndpoint is missing")
-	}
-
-	if config.ManagementEndpoint == "" {
-		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, ManagementEndpoint is missing")
-	}
-
-	if config.GrantType != "client_credentials" {
-		return nil, fmt.Errorf("zitadel idp configuration failed. Grant Type should be client_credentials")
 	}
 
 	credentials := &ZitadelCredentials{

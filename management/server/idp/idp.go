@@ -88,9 +88,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 	case "keycloak":
 		return NewKeycloakManager(config.KeycloakClientCredentials, appMetrics)
 	case "zitadel":
-		config.ZitadelClientCredentials.TokenEndpoint = config.OIDCConfig.TokenEndpoint
-		config.ZitadelClientCredentials.GrantType = "client_credentials"
-		return NewZitadelManager(config.ZitadelClientCredentials, appMetrics)
+		return NewZitadelManager(config.OIDCConfig, config.ZitadelClientCredentials, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
