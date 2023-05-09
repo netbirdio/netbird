@@ -605,6 +605,11 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
+	err = checkIfPeerOwnerIsBlocked(peer, account)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if peerLoginExpired(peer, account) {
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
@@ -644,6 +649,11 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
+	err = checkIfPeerOwnerIsBlocked(peer, account)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	updateRemotePeers := false
 	if peerLoginExpired(peer, account) {
 		err = checkAuth(login.UserID, peer)
@@ -674,6 +684,19 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		}
 	}
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
+}
+
+func checkIfPeerOwnerIsBlocked(peer *Peer, account *Account) error {
+	if peer.AddedWithSSOLogin() {
+		user, err := account.FindUser(peer.UserID)
+		if err != nil {
+			return status.Errorf(status.PermissionDenied, "user doesn't exist or was blocked")
+		}
+		if user.IsBlocked() {
+			return status.Errorf(status.PermissionDenied, "user doesn't exist or was blocked")
+		}
+	}
+	return nil
 }
 
 func checkAuth(loginUserID string, peer *Peer) error {
