@@ -36,6 +36,7 @@ download_release_binary() {
     echo "Installing $1 from $DOWNLOAD_URL"
     cd /tmp && curl -LO "$DOWNLOAD_URL" 
     
+    
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
         
@@ -43,8 +44,9 @@ download_release_binary() {
         unzip -q -o "$BINARY_NAME"
         mv "netbird_ui_${OS_TYPE}_${ARCH}" "$INSTALL_DIR"
     else
+        sudo mkdir -p "$INSTALL_DIR"
         tar -xzvf "$BINARY_NAME"
-        sudo mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR"
+        sudo mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
 }
 
