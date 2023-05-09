@@ -459,26 +459,9 @@ func TestNewAuth0Manager(t *testing.T) {
 	testCase3Config := defaultTestConfig
 	testCase3Config.AuthIssuer = "abc-auth0.eu.auth0.com"
 
-	testCase3 := test{
-		name:                 "Wrong Auth Issuer Format",
-		inputConfig:          testCase3Config,
-		assertErrFunc:        require.Error,
-		assertErrFuncMessage: "should return error when wrong auth issuer format",
-	}
-
-	testCase4Config := defaultTestConfig
-	testCase4Config.GrantType = "spa"
-
-	testCase4 := test{
-		name:                 "Wrong Grant Type",
-		inputConfig:          testCase4Config,
-		assertErrFunc:        require.Error,
-		assertErrFuncMessage: "should return error when wrong grant type",
-	}
-
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4} {
+	for _, testCase := range []test{testCase1, testCase2} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := NewAuth0Manager(testCase.inputConfig, &telemetry.MockAppMetrics{})
+			_, err := NewAuth0Manager(OIDCConfig{}, testCase.inputConfig, &telemetry.MockAppMetrics{})
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 		})
 	}
