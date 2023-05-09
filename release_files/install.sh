@@ -44,7 +44,7 @@ download_release_binary() {
         unzip -q -o "$BINARY_NAME"
         mv "netbird_ui_${OS_TYPE}_${ARCH}" "$INSTALL_DIR"
     else
-        mkdir -p "$INSTALL_DIR"
+        sudo mkdir -p "$INSTALL_DIR"
         tar -xzvf "$BINARY_NAME"
         sudo mv "${1%_"${BINARY_BASE_NAME}"}" "$INSTALL_DIR/"
     fi
