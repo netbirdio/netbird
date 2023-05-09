@@ -122,7 +122,7 @@ func NewAuth0Manager(oidcConfig OIDCConfig, config Auth0ClientConfig,
 	}
 
 	helper := JsonParser{}
-	config.AuthIssuer = strings.TrimRight(oidcConfig.TokenEndpoint, "/")
+	config.AuthIssuer = oidcConfig.TokenEndpoint
 	config.GrantType = "client_credentials"
 
 	if config.ClientID == "" {
