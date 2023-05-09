@@ -36,6 +36,7 @@ download_release_binary() {
     echo "Installing $1 from $DOWNLOAD_URL"
     cd /tmp && curl -LO "$DOWNLOAD_URL" 
     
+    mkdir -p "$INSTALL_DIR"
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
         INSTALL_DIR="/Applications/NetBird UI.app"
         
