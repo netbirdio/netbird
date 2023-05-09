@@ -58,7 +58,7 @@ type AccountManager interface {
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	MarkPATUsed(tokenID string) error
-	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
+	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)

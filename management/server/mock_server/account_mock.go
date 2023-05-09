@@ -19,7 +19,7 @@ type MockAccountManager struct {
 		expiresIn time.Duration, autoGroups []string, usageLimit int, userID string) (*server.SetupKey, error)
 	GetSetupKeyFunc                 func(accountID, userID, keyID string) (*server.SetupKey, error)
 	GetAccountByUserOrAccountIdFunc func(userId, accountId, domain string) (*server.Account, error)
-	IsUserAdminFunc                 func(claims jwtclaims.AuthorizationClaims) (bool, error)
+	GetUserFunc                     func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
 	AccountExistsFunc               func(accountId string) (*bool, error)
 	GetPeerByKeyFunc                func(peerKey string) (*server.Peer, error)
 	GetPeersFunc                    func(accountID, userID string) ([]*server.Peer, error)
@@ -385,12 +385,12 @@ func (am *MockAccountManager) UpdatePeerMeta(peerID string, meta server.PeerSyst
 	return status.Errorf(codes.Unimplemented, "method UpdatePeerMetaFunc is not implemented")
 }
 
-// IsUserAdmin mock implementation of IsUserAdmin from server.AccountManager interface
-func (am *MockAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
-	if am.IsUserAdminFunc != nil {
-		return am.IsUserAdminFunc(claims)
+// GetUser mock implementation of GetUser from server.AccountManager interface
+func (am *MockAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (*server.User, error) {
+	if am.GetUserFunc != nil {
+		return am.GetUserFunc(claims)
 	}
-	return false, status.Errorf(codes.Unimplemented, "method IsUserAdmin is not implemented")
+	return nil, status.Errorf(codes.Unimplemented, "method IsUserGetUserAdmin is not implemented")
 }
 
 // UpdatePeerSSHKey mocks UpdatePeerSSHKey function of the account manager

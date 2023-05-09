@@ -440,7 +440,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	assert.Errorf(t, err, "Regular users can not be deleted (yet)")
 }
 
-func TestUser_IsUserAdmin_ForAdmin(t *testing.T) {
+func TestDefaultAccountManager_GetUser(t *testing.T) {
 	store := newStore(t)
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
@@ -458,42 +458,31 @@ func TestUser_IsUserAdmin_ForAdmin(t *testing.T) {
 		UserId: mockUserID,
 	}
 
-	ok, err := am.IsUserAdmin(claims)
+	user, err := am.GetUser(claims)
 	if err != nil {
 		t.Fatalf("Error when checking user role: %s", err)
 	}
 
-	assert.True(t, ok)
+	assert.Equal(t, mockUserID, user.Id)
+	assert.True(t, user.IsAdmin())
+	assert.False(t, user.IsBlocked())
 }
 
-func TestUser_IsUserAdmin_ForUser(t *testing.T) {
-	store := newStore(t)
-	account := newAccountWithId(mockAccountID, mockUserID, "")
-	account.Users[mockUserID] = &User{
-		Id:   mockUserID,
-		Role: "user",
-	}
+func TestUser_IsBlocked(t *testing.T) {
+	user := NewAdminUser(mockUserID)
+	assert.False(t, user.IsBlocked())
 
-	err := store.SaveAccount(account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	user.Block()
+	assert.True(t, user.IsBlocked())
+}
 
-	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
-	}
+func TestUser_IsAdmin(t *testing.T) {
 
-	claims := jwtclaims.AuthorizationClaims{
-		UserId: mockUserID,
-	}
+	user := NewAdminUser(mockUserID)
+	assert.True(t, user.IsAdmin())
 
-	ok, err := am.IsUserAdmin(claims)
-	if err != nil {
-		t.Fatalf("Error when checking user role: %s", err)
-	}
-
-	assert.False(t, ok)
+	user = NewRegularUser(mockUserID)
+	assert.False(t, user.IsAdmin())
 }
 
 func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {

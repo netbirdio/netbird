@@ -51,9 +51,21 @@ type User struct {
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string
 	PATs       map[string]*PersonalAccessToken
+	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
+	Blocked bool
 }
 
-// IsAdmin returns true if user is an admin, false otherwise
+// IsBlocked returns true if the user is blocked, false otherwise
+func (u *User) IsBlocked() bool {
+	return u.Blocked
+}
+
+// Block marks user as blocked
+func (u *User) Block() {
+	u.Blocked = true
+}
+
+// IsAdmin returns true if the user is an admin, false otherwise
 func (u *User) IsAdmin() bool {
 	return u.Role == UserRoleAdmin
 }
@@ -113,6 +125,7 @@ func (u *User) Copy() *User {
 		IsServiceUser:   u.IsServiceUser,
 		ServiceUserName: u.ServiceUserName,
 		PATs:            pats,
+		Blocked:         u.Blocked,
 	}
 }
 
@@ -251,6 +264,22 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 
 	return newUser.toUserInfo(idpUser)
 
+}
+
+//	looks up a user by provi	ded claims.
+//
+// It will also create an account if didn't exist for this user before.
+func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (*User, error) {
+	account, _, err := am.GetAccountFromToken(claims)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account with token claims %v", err)
+	}
+
+	user, ok := account.Users[claims.UserId]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "user not found")
+	}
+	return user, nil
 }
 
 // DeleteUser deletes a user from the given account.
@@ -572,21 +601,6 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string)
 	}
 
 	return account, nil
-}
-
-// IsUserAdmin looks up a user by his ID and returns true if he is an admin
-func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
-	account, _, err := am.GetAccountFromToken(claims)
-	if err != nil {
-		return false, fmt.Errorf("get account: %v", err)
-	}
-
-	user, ok := account.Users[claims.UserId]
-	if !ok {
-		return false, status.Errorf(status.NotFound, "user not found")
-	}
-
-	return user.Role == UserRoleAdmin, nil
 }
 
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
