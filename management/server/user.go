@@ -268,7 +268,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 
 }
 
-// GetUser	looks up a user by provided authorization claims.
+// GetUser looks up a user by provided authorization claims.
 // It will also create an account if didn't exist for this user before.
 func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (*User, error) {
 	account, _, err := am.GetAccountFromToken(claims)
