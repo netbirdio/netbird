@@ -536,20 +536,39 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 
 	account.Users[newUser.Id] = newUser
 
+	if oldUser.Blocked != update.Blocked {
+		// expire peers that belong to the user who's getting blocked
+		if update.Blocked {
+			blockedPeers, err := account.FindUserPeers(update.Id)
+			if err != nil {
+				return nil, err
+			}
+			var peerIDs []string
+			for _, peer := range blockedPeers {
+				peerIDs = append(peerIDs, peer.ID)
+				peer.MarkLoginExpired(true)
+				account.UpdatePeer(peer)
+				err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
+				if err != nil {
+					log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
+					return nil, err
+				}
+			}
+			am.peersUpdateManager.CloseChannels(peerIDs)
+			err = am.updateAccountPeers(account)
+			if err != nil {
+				log.Errorf("failed updating account peers while expiring peers of a blocked user %s", accountID)
+				return nil, err
+			}
+		}
+	}
+
 	if err = am.Store.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
 	defer func() {
-
-		if oldUser.Blocked != update.Blocked {
-			if update.Blocked {
-				am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserBlocked, nil)
-			} else {
-				am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserUnblocked, nil)
-			}
-		}
-
+		// store activity logs
 		if oldUser.Role != newUser.Role {
 			am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
 		}
