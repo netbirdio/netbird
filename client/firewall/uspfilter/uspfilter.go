@@ -86,7 +86,7 @@ func (u *Manager) AddFiltering(
 		p = len(u.outputRules) - 1
 	} else {
 		u.inputRules = append(u.inputRules, r)
-		p = len(u.inputRules)
+		p = len(u.inputRules) - 1
 	}
 	u.rulesIndex[r.id] = p
 	u.mutex.RUnlock()
@@ -108,16 +108,18 @@ func (u *Manager) DeleteRule(rule fw.Rule) error {
 	if !ok {
 		return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
 	}
+	delete(u.rulesIndex, r.id)
 
 	var toUpdate []Rule
 	if r.direction == fw.DirectionDst {
-		u.inputRules = append(u.inputRules[:p], u.inputRules[p+1:]...)
-		toUpdate = u.inputRules
-	} else {
 		u.outputRules = append(u.outputRules[:p], u.outputRules[p+1:]...)
 		toUpdate = u.outputRules
+	} else {
+		u.inputRules = append(u.inputRules[:p], u.inputRules[p+1:]...)
+		toUpdate = u.inputRules
 	}
-	for i := p; i < len(toUpdate); i++ {
+
+	for i := 0; i < len(toUpdate); i++ {
 		u.rulesIndex[toUpdate[i].id] = i
 	}
 
