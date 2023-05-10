@@ -70,8 +70,8 @@ func (u *User) IsAdmin() bool {
 	return u.Role == UserRoleAdmin
 }
 
-// toUserInfo converts a User object to a UserInfo object.
-func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
+// ToUserInfo converts a User object to a UserInfo object.
+func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
@@ -264,12 +264,11 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 
 	am.storeEvent(userID, newUser.Id, accountID, activity.UserInvited, nil)
 
-	return newUser.toUserInfo(idpUser)
+	return newUser.ToUserInfo(idpUser)
 
 }
 
-//	looks up a user by provi	ded claims.
-//
+// GetUser	looks up a user by provided authorization claims.
 // It will also create an account if didn't exist for this user before.
 func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (*User, error) {
 	account, _, err := am.GetAccountFromToken(claims)
@@ -590,9 +589,9 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 		if userData == nil {
 			return nil, status.Errorf(status.NotFound, "user %s not found in the IdP", newUser.Id)
 		}
-		return newUser.toUserInfo(userData)
+		return newUser.ToUserInfo(userData)
 	}
-	return newUser.toUserInfo(nil)
+	return newUser.ToUserInfo(nil)
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
@@ -668,7 +667,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				// if user is not an admin then show only current user and do not show other users
 				continue
 			}
-			info, err := accountUser.toUserInfo(nil)
+			info, err := accountUser.ToUserInfo(nil)
 			if err != nil {
 				return nil, err
 			}
@@ -685,7 +684,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 
 		var info *UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
-			info, err = localUser.toUserInfo(queriedUser)
+			info, err = localUser.ToUserInfo(queriedUser)
 			if err != nil {
 				return nil, err
 			}

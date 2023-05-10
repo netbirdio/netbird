@@ -13,7 +13,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 )
 
-type IsUserAdminFunc func(claims jwtclaims.AuthorizationClaims) (bool, error)
+// GetUser function defines a function to fetch user from Account by jwtclaims.AuthorizationClaims
 type GetUser func(claims jwtclaims.AuthorizationClaims) (*server.User, error)
 
 // AccessControl middleware to restrict to make POST/PUT/DELETE requests by admin only
