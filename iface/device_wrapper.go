@@ -15,21 +15,21 @@ type PacketFilter interface {
 	DropOutput(packet gopacket.Packet) bool
 }
 
-// TunWrapper to override Read or Write of packets
-type TunWrapper struct {
+// DeviceWrapper to override Read or Write of packets
+type DeviceWrapper struct {
 	tun.Device
 	filter PacketFilter
 }
 
-// newTunInjection constructor function
-func newTunInjection(device tun.Device) *TunWrapper {
-	return &TunWrapper{
+// newDeviceWrapper constructor function
+func newDeviceWrapper(device tun.Device) *DeviceWrapper {
+	return &DeviceWrapper{
 		Device: device,
 	}
 }
 
 // Read wraps read method with filtering feature
-func (t *TunWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
+func (t *DeviceWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
 	if n, err = t.Device.Read(bufs, sizes, offset); err != nil {
 		return 0, err
 	}
@@ -53,7 +53,7 @@ func (t *TunWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err er
 }
 
 // Write wraps write method with filtering feature
-func (t *TunWrapper) Write(bufs [][]byte, offset int) (int, error) {
+func (t *DeviceWrapper) Write(bufs [][]byte, offset int) (int, error) {
 	if t.filter == nil {
 		return t.Device.Write(bufs, offset)
 	}

@@ -53,7 +53,7 @@ func TestTunWrapperRead(t *testing.T) {
 				return 1, nil
 			})
 
-		wrapped := newTunInjection(tun)
+		wrapped := newDeviceWrapper(tun)
 
 		bufs := [][]byte{{}}
 		sizes := []int{0}
@@ -98,7 +98,7 @@ func TestTunWrapperRead(t *testing.T) {
 		mockBufs[0] = buffer.Bytes()
 		tun.EXPECT().Write(mockBufs, 0).Return(1, nil)
 
-		wrapped := newTunInjection(tun)
+		wrapped := newDeviceWrapper(tun)
 
 		bufs := [][]byte{buffer.Bytes()}
 
@@ -143,7 +143,7 @@ func TestTunWrapperRead(t *testing.T) {
 		tun.EXPECT().Write(mockBufs, 0).Return(0, nil)
 		filter.EXPECT().DropOutput(gomock.Any()).Return(true)
 
-		wrapped := newTunInjection(tun)
+		wrapped := newDeviceWrapper(tun)
 		wrapped.filter = filter
 
 		bufs := [][]byte{buffer.Bytes()}
@@ -196,7 +196,7 @@ func TestTunWrapperRead(t *testing.T) {
 			})
 		filter.EXPECT().DropInput(gomock.Any()).Return(true)
 
-		wrapped := newTunInjection(tun)
+		wrapped := newDeviceWrapper(tun)
 		wrapped.filter = filter
 
 		bufs := [][]byte{{}}

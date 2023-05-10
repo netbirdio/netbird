@@ -76,17 +76,17 @@ func TestIptablesManager(t *testing.T) {
 		err = manager.Reset()
 		require.NoError(t, err, "failed to reset")
 
-		ok, err := ipv4Client.ChainExists("filter", ChainFilterName)
+		ok, err := ipv4Client.ChainExists("filter", ChainInputFilterName)
 		require.NoError(t, err, "failed check chain exists")
 
 		if ok {
-			require.NoErrorf(t, err, "chain '%v' still exists after Reset", ChainFilterName)
+			require.NoErrorf(t, err, "chain '%v' still exists after Reset", ChainInputFilterName)
 		}
 	})
 }
 
 func checkRuleSpecs(t *testing.T, ipv4Client *iptables.IPTables, mustExists bool, rulespec ...string) {
-	exists, err := ipv4Client.Exists("filter", ChainFilterName, rulespec...)
+	exists, err := ipv4Client.Exists("filter", ChainInputFilterName, rulespec...)
 	require.NoError(t, err, "failed to check rule")
 	require.Falsef(t, !exists && mustExists, "rule '%v' does not exist", rulespec)
 	require.Falsef(t, exists && !mustExists, "rule '%v' exist", rulespec)

@@ -186,12 +186,20 @@ func (u *Manager) dropFilter(packet gopacket.Packet, rules []Rule, isInputPacket
 				if rule.port != 0 {
 					switch protocol := layer.(type) {
 					case *layers.TCP:
-						if rule.port == uint16(protocol.DstPort) {
-							return rule.drop
+						if isInputPacket {
+							if rule.port == uint16(protocol.DstPort) {
+								return rule.drop
+							}
+						} else {
+							return false
 						}
 					case *layers.UDP:
-						if rule.port == uint16(protocol.DstPort) {
-							return rule.drop
+						if isInputPacket {
+							if rule.port == uint16(protocol.DstPort) {
+								return rule.drop
+							}
+						} else {
+							return false
 						}
 					case *layers.ICMPv4, *layers.ICMPv6:
 						return rule.drop
