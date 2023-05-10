@@ -520,6 +520,10 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 		return nil, status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
 
+	if initiatorUser.IsAdmin() && initiatorUserID == update.Id && update.Role != UserRoleAdmin {
+		return nil, status.Errorf(status.PermissionDenied, "admins can't change their role")
+	}
+
 	// only auto groups, revoked status, and name can be updated for now
 	newUser := oldUser.Copy()
 	newUser.AutoGroups = update.AutoGroups
