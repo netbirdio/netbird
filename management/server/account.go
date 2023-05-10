@@ -179,6 +179,7 @@ type UserInfo struct {
 	AutoGroups    []string `json:"auto_groups"`
 	Status        string   `json:"-"`
 	IsServiceUser bool     `json:"is_service_user"`
+	IsBlocked     bool     `json:"is_blocked"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes

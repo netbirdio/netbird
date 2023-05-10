@@ -86,6 +86,7 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			AutoGroups:    u.AutoGroups,
 			Status:        string(UserStatusActive),
 			IsServiceUser: u.IsServiceUser,
+			IsBlocked:     u.Blocked,
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -105,6 +106,7 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		AutoGroups:    autoGroups,
 		Status:        string(userStatus),
 		IsServiceUser: u.IsServiceUser,
+		IsBlocked:     u.Blocked,
 	}, nil
 }
 
@@ -225,7 +227,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 	}
 
 	if user != nil {
-		return nil, status.Errorf(status.UserAlreadyExists, "user has an existing account")
+		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
 	users, err := am.idpManager.GetUserByEmail(invite.Email)
@@ -234,7 +236,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 	}
 
 	if len(users) > 0 {
-		return nil, status.Errorf(status.UserAlreadyExists, "user has an existing account")
+		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
 	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID)
@@ -486,9 +488,9 @@ func (am *DefaultAccountManager) GetAllPATs(accountID string, executingUserID st
 	return pats, nil
 }
 
-// SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.
-// Only User.AutoGroups field is allowed to be updated for now.
-func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User) (*UserInfo, error) {
+// SaveUser saves updates to the given user. If the user doesn't exit it will throw status.NotFound error.
+// Only User.AutoGroups, User.Role, and User.Blocked fields are allowed to be updated for now.
+func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, update *User) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -501,22 +503,37 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 		return nil, err
 	}
 
-	for _, newGroupID := range update.AutoGroups {
-		if _, ok := account.Groups[newGroupID]; !ok {
-			return nil, status.Errorf(status.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
-				newGroupID, update.Id)
-		}
+	initiatorUser, err := account.FindUser(initiatorUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !initiatorUser.IsAdmin() || initiatorUser.IsBlocked() {
+		return nil, status.Errorf(status.PermissionDenied, "only admins are authorized to perform user %s update operation", update.Id)
 	}
 
 	oldUser := account.Users[update.Id]
 	if oldUser == nil {
-		return nil, status.Errorf(status.NotFound, "update not found")
+		return nil, status.Errorf(status.NotFound, "user to update doesn't exist")
+	}
+
+	if initiatorUser.IsAdmin() && initiatorUserID == update.Id && oldUser.Blocked != update.Blocked {
+		return nil, status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
 	}
 
 	// only auto groups, revoked status, and name can be updated for now
 	newUser := oldUser.Copy()
 	newUser.AutoGroups = update.AutoGroups
 	newUser.Role = update.Role
+	newUser.Blocked = update.Blocked
+
+	for _, newGroupID := range update.AutoGroups {
+		if _, ok := account.Groups[newGroupID]; !ok {
+			return nil, status.Errorf(status.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
+				newGroupID, update.Id)
+		}
+	}
+	newUser.AutoGroups = update.AutoGroups
 
 	account.Users[newUser.Id] = newUser
 
@@ -525,32 +542,44 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 	}
 
 	defer func() {
+
+		if oldUser.Blocked != update.Blocked {
+			if update.Blocked {
+				am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserBlocked, nil)
+			} else {
+				am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserUnblocked, nil)
+			}
+		}
+
 		if oldUser.Role != newUser.Role {
-			am.storeEvent(userID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
+			am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
 		}
 
-		removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
-		addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
-		for _, g := range removedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
-				am.storeEvent(userID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
-					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
-			} else {
-				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+		if update.AutoGroups != nil {
+			removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
+			addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
+			for _, g := range removedGroups {
+				group := account.GetGroup(g)
+				if group != nil {
+					am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
+						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+				} else {
+					log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+				}
+
 			}
 
-		}
-
-		for _, g := range addedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
-				am.storeEvent(userID, oldUser.Id, accountID, activity.GroupAddedToUser,
-					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
-			} else {
-				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+			for _, g := range addedGroups {
+				group := account.GetGroup(g)
+				if group != nil {
+					am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.GroupAddedToUser,
+						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+				} else {
+					log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+				}
 			}
 		}
+
 	}()
 
 	if !isNil(am.idpManager) && !newUser.IsServiceUser {

@@ -71,7 +71,9 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Id:         userID,
 		Role:       userRole,
 		AutoGroups: req.AutoGroups,
+		Blocked:    req.IsBlocked,
 	})
+
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -214,7 +216,11 @@ func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 	case "invited":
 		userStatus = api.UserStatusInvited
 	default:
-		userStatus = api.UserStatusDisabled
+		userStatus = api.UserStatusBlocked
+	}
+
+	if user.IsBlocked {
+		userStatus = api.UserStatusBlocked
 	}
 
 	isCurrent := user.ID == currenUserID
@@ -227,5 +233,6 @@ func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 		Status:        userStatus,
 		IsCurrent:     &isCurrent,
 		IsServiceUser: &user.IsServiceUser,
+		IsBlocked:     user.IsBlocked,
 	}
 }
