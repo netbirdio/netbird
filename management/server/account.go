@@ -902,7 +902,9 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Account) (*idp.UserData, error) {
 	users := make(map[string]struct{}, len(account.Users))
 	for _, user := range account.Users {
-		users[user.Id] = struct{}{}
+		if !user.IsServiceUser {
+			users[user.Id] = struct{}{}
+		}
 	}
 	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(users, account.Id)
