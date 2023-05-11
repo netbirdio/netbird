@@ -78,14 +78,18 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	config, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+	ic := internal.ConfigInput{
 		ManagementURL:    managementURL,
 		AdminURL:         adminURL,
 		ConfigPath:       configPath,
-		PreSharedKey:     &preSharedKey,
 		NATExternalIPs:   natExternalIPs,
 		CustomDNSAddress: customDNSAddressConverted,
-	})
+	}
+	if preSharedKey != "" {
+		ic.PreSharedKey = &preSharedKey
+	}
+
+	config, err := internal.UpdateOrCreateConfig(ic)
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
 	}
