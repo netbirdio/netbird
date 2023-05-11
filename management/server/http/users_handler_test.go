@@ -32,16 +32,19 @@ var usersTestAccount = &server.Account{
 			Id:            existingUserID,
 			Role:          "admin",
 			IsServiceUser: false,
+			AutoGroups:    []string{"group_1"},
 		},
 		regularUserID: {
 			Id:            regularUserID,
 			Role:          "user",
 			IsServiceUser: false,
+			AutoGroups:    []string{"group_1"},
 		},
 		serviceUserID: {
 			Id:            serviceUserID,
 			Role:          "user",
 			IsServiceUser: true,
+			AutoGroups:    []string{"group_1"},
 		},
 	},
 }
@@ -71,7 +74,7 @@ func initUsersTestData() *UsersHandler {
 				}
 				return key, nil
 			},
-			DeleteUserFunc: func(accountID string, executingUserID string, targetUserID string) error {
+			DeleteUserFunc: func(accountID string, initiatorUserID string, targetUserID string) error {
 				if targetUserID == notFoundUserID {
 					return status.Errorf(status.NotFound, "user with ID %s does not exists", targetUserID)
 				}
@@ -211,6 +214,18 @@ func TestUpdateUser(t *testing.T) {
 			expectedGroups:     []string{"group_2", "group_3"},
 			requestBody:        bytes.NewBufferString("{\"role\":\"admin\",\"auto_groups\":[\"group_3\", \"group_2\"],\"is_service_user\":false, \"is_blocked\": false}"),
 		},
+		{
+			name:               "Should_Fail_Because_AutoGroups_Is_Absent",
+			requestType:        http.MethodPut,
+			requestPath:        "/api/users/" + regularUserID,
+			expectedStatusCode: http.StatusBadRequest,
+			expectedUserID:     regularUserID,
+			expectedBlocked:    false,
+			expectedRole:       "admin",
+			expectedStatus:     "blocked",
+			expectedGroups:     []string{"group_2", "group_3"},
+			requestBody:        bytes.NewBufferString("{\"role\":\"admin\",\"is_service_user\":false, \"is_blocked\": false}"),
+		},
 	}
 
 	userHandler := initUsersTestData()
@@ -232,32 +247,34 @@ func TestUpdateUser(t *testing.T) {
 					status, http.StatusOK)
 			}
 
-			content, err := io.ReadAll(res.Body)
-			if err != nil {
-				t.Fatalf("I don't know what I expected; %v", err)
-			}
+			if tc.expectedStatusCode == 200 {
 
-			respBody := &api.User{}
-			err = json.Unmarshal(content, &respBody)
-			if err != nil {
-				t.Fatalf("response content is not in correct json format; %v", err)
-			}
-
-			assert.Contains(t, tc.expectedUserID, respBody.Id)
-			assert.Equal(t, tc.expectedUserID, respBody.Id)
-			assert.Equal(t, tc.expectedRole, respBody.Role)
-			assert.Equal(t, tc.expectedIsServiceUser, *respBody.IsServiceUser)
-			assert.Equal(t, tc.expectedBlocked, respBody.IsBlocked)
-			assert.Len(t, respBody.AutoGroups, len(tc.expectedGroups))
-
-			for _, expectedGroup := range tc.expectedGroups {
-				exists := false
-				for _, actualGroup := range respBody.AutoGroups {
-					if expectedGroup == actualGroup {
-						exists = true
-					}
+				content, err := io.ReadAll(res.Body)
+				if err != nil {
+					t.Fatalf("I don't know what I expected; %v", err)
 				}
-				assert.True(t, exists, fmt.Sprintf("group %s not found in the response", expectedGroup))
+
+				respBody := &api.User{}
+				err = json.Unmarshal(content, &respBody)
+				if err != nil {
+					t.Fatalf("response content is not in correct json format; %v", err)
+				}
+
+				assert.Equal(t, tc.expectedUserID, respBody.Id)
+				assert.Equal(t, tc.expectedRole, respBody.Role)
+				assert.Equal(t, tc.expectedIsServiceUser, *respBody.IsServiceUser)
+				assert.Equal(t, tc.expectedBlocked, respBody.IsBlocked)
+				assert.Len(t, respBody.AutoGroups, len(tc.expectedGroups))
+
+				for _, expectedGroup := range tc.expectedGroups {
+					exists := false
+					for _, actualGroup := range respBody.AutoGroups {
+						if expectedGroup == actualGroup {
+							exists = true
+						}
+					}
+					assert.True(t, exists, fmt.Sprintf("group %s not found in the response", expectedGroup))
+				}
 			}
 		})
 	}

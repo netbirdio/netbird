@@ -470,14 +470,6 @@ func TestDefaultAccountManager_GetUser(t *testing.T) {
 	assert.False(t, user.IsBlocked())
 }
 
-func TestUser_IsBlocked(t *testing.T) {
-	user := NewAdminUser(mockUserID)
-	assert.False(t, user.IsBlocked())
-
-	user.Block()
-	assert.True(t, user.IsBlocked())
-}
-
 func TestUser_IsAdmin(t *testing.T) {
 
 	user := NewAdminUser(mockUserID)
@@ -553,8 +545,6 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 
 	tt := []struct {
 		name           string
-		adminUserID    string
-		regularUserID  string
 		adminInitiator bool
 		update         *User
 		expectedErr    bool
@@ -563,8 +553,6 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 			name:           "Should_Fail_To_Update_Admin_Role",
 			expectedErr:    true,
 			adminInitiator: true,
-			adminUserID:    userID,
-			regularUserID:  regularUserID,
 			update: &User{
 				Id:      userID,
 				Role:    UserRoleUser,
@@ -573,9 +561,7 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		}, {
 			name:           "Should_Fail_When_Admin_Blocks_Themselves",
 			expectedErr:    true,
-			adminUserID:    userID,
 			adminInitiator: true,
-			regularUserID:  regularUserID,
 			update: &User{
 				Id:      userID,
 				Role:    UserRoleAdmin,
@@ -585,9 +571,7 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		{
 			name:           "Should_Fail_To_Update_Non_Existing_User",
 			expectedErr:    true,
-			adminUserID:    userID,
 			adminInitiator: true,
-			regularUserID:  regularUserID,
 			update: &User{
 				Id:      userID,
 				Role:    UserRoleAdmin,
@@ -597,9 +581,7 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		{
 			name:           "Should_Fail_To_Update_When_Initiator_Is_Not_An_Admin",
 			expectedErr:    true,
-			adminUserID:    userID,
 			adminInitiator: false,
-			regularUserID:  regularUserID,
 			update: &User{
 				Id:      userID,
 				Role:    UserRoleAdmin,
@@ -609,9 +591,7 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 		{
 			name:           "Should_Update_User",
 			expectedErr:    false,
-			adminUserID:    userID,
 			adminInitiator: true,
-			regularUserID:  regularUserID,
 			update: &User{
 				Id:      regularUserID,
 				Role:    UserRoleAdmin,
@@ -623,21 +603,21 @@ func TestDefaultAccountManager_SaveUser(t *testing.T) {
 	for _, tc := range tt {
 
 		// create an account and an admin user
-		account, err := manager.GetOrCreateAccountByUser(tc.adminUserID, "netbird.io")
+		account, err := manager.GetOrCreateAccountByUser(userID, "netbird.io")
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		// create a regular user
-		account.Users[tc.regularUserID] = NewRegularUser(tc.regularUserID)
+		account.Users[regularUserID] = NewRegularUser(regularUserID)
 		err = manager.Store.SaveAccount(account)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		initiatorID := tc.adminUserID
+		initiatorID := userID
 		if !tc.adminInitiator {
-			initiatorID = tc.regularUserID
+			initiatorID = regularUserID
 		}
 
 		updated, err := manager.SaveUser(account.Id, initiatorID, tc.update)

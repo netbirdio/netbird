@@ -61,6 +61,11 @@ func (h *UsersHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.AutoGroups == nil {
+		util.WriteErrorResponse("auto_groups field can't be absent", http.StatusBadRequest, w)
+		return
+	}
+
 	userRole := server.StrRoleToUserRole(req.Role)
 	if userRole == server.UserRoleUnknown {
 		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user role"), w)
