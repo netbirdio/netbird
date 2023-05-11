@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -265,6 +266,7 @@ func TestUser_Copy(t *testing.T) {
 				LastUsed:       time.Now(),
 			},
 		},
+		Blocked: false,
 	}
 
 	err := validateStruct(user)
@@ -288,7 +290,7 @@ func validateStruct(s interface{}) (err error) {
 		field := structVal.Field(i)
 		fieldName := structType.Field(i).Name
 
-		isSet := field.IsValid() && !field.IsZero()
+		isSet := field.IsValid() && (!field.IsZero() || field.Type().String() == "bool")
 
 		if !isSet {
 			err = fmt.Errorf("%v%s in not set; ", err, fieldName)
@@ -440,7 +442,7 @@ func TestUser_DeleteUser_regularUser(t *testing.T) {
 	assert.Errorf(t, err, "Regular users can not be deleted (yet)")
 }
 
-func TestUser_IsUserAdmin_ForAdmin(t *testing.T) {
+func TestDefaultAccountManager_GetUser(t *testing.T) {
 	store := newStore(t)
 	account := newAccountWithId(mockAccountID, mockUserID, "")
 
@@ -458,42 +460,23 @@ func TestUser_IsUserAdmin_ForAdmin(t *testing.T) {
 		UserId: mockUserID,
 	}
 
-	ok, err := am.IsUserAdmin(claims)
+	user, err := am.GetUser(claims)
 	if err != nil {
 		t.Fatalf("Error when checking user role: %s", err)
 	}
 
-	assert.True(t, ok)
+	assert.Equal(t, mockUserID, user.Id)
+	assert.True(t, user.IsAdmin())
+	assert.False(t, user.IsBlocked())
 }
 
-func TestUser_IsUserAdmin_ForUser(t *testing.T) {
-	store := newStore(t)
-	account := newAccountWithId(mockAccountID, mockUserID, "")
-	account.Users[mockUserID] = &User{
-		Id:   mockUserID,
-		Role: "user",
-	}
+func TestUser_IsAdmin(t *testing.T) {
 
-	err := store.SaveAccount(account)
-	if err != nil {
-		t.Fatalf("Error when saving account: %s", err)
-	}
+	user := NewAdminUser(mockUserID)
+	assert.True(t, user.IsAdmin())
 
-	am := DefaultAccountManager{
-		Store:      store,
-		eventStore: &activity.InMemoryEventStore{},
-	}
-
-	claims := jwtclaims.AuthorizationClaims{
-		UserId: mockUserID,
-	}
-
-	ok, err := am.IsUserAdmin(claims)
-	if err != nil {
-		t.Fatalf("Error when checking user role: %s", err)
-	}
-
-	assert.False(t, ok)
+	user = NewRegularUser(mockUserID)
+	assert.False(t, user.IsAdmin())
 }
 
 func TestUser_GetUsersFromAccount_ForAdmin(t *testing.T) {
@@ -549,4 +532,104 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 
 	assert.Equal(t, 1, len(users))
 	assert.Equal(t, mockServiceUserID, users[0].ID)
+}
+
+func TestDefaultAccountManager_SaveUser(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	regularUserID := "regularUser"
+
+	tt := []struct {
+		name           string
+		adminInitiator bool
+		update         *User
+		expectedErr    bool
+	}{
+		{
+			name:           "Should_Fail_To_Update_Admin_Role",
+			expectedErr:    true,
+			adminInitiator: true,
+			update: &User{
+				Id:      userID,
+				Role:    UserRoleUser,
+				Blocked: false,
+			},
+		}, {
+			name:           "Should_Fail_When_Admin_Blocks_Themselves",
+			expectedErr:    true,
+			adminInitiator: true,
+			update: &User{
+				Id:      userID,
+				Role:    UserRoleAdmin,
+				Blocked: true,
+			},
+		},
+		{
+			name:           "Should_Fail_To_Update_Non_Existing_User",
+			expectedErr:    true,
+			adminInitiator: true,
+			update: &User{
+				Id:      userID,
+				Role:    UserRoleAdmin,
+				Blocked: true,
+			},
+		},
+		{
+			name:           "Should_Fail_To_Update_When_Initiator_Is_Not_An_Admin",
+			expectedErr:    true,
+			adminInitiator: false,
+			update: &User{
+				Id:      userID,
+				Role:    UserRoleAdmin,
+				Blocked: true,
+			},
+		},
+		{
+			name:           "Should_Update_User",
+			expectedErr:    false,
+			adminInitiator: true,
+			update: &User{
+				Id:      regularUserID,
+				Role:    UserRoleAdmin,
+				Blocked: true,
+			},
+		},
+	}
+
+	for _, tc := range tt {
+
+		// create an account and an admin user
+		account, err := manager.GetOrCreateAccountByUser(userID, "netbird.io")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// create a regular user
+		account.Users[regularUserID] = NewRegularUser(regularUserID)
+		err = manager.Store.SaveAccount(account)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		initiatorID := userID
+		if !tc.adminInitiator {
+			initiatorID = regularUserID
+		}
+
+		updated, err := manager.SaveUser(account.Id, initiatorID, tc.update)
+		if tc.expectedErr {
+			require.Errorf(t, err, "expecting SaveUser to throw an error")
+		} else {
+			require.NoError(t, err, "expecting SaveUser not to throw an error")
+			assert.NotNil(t, updated)
+
+			assert.Equal(t, string(tc.update.Role), updated.Role)
+			assert.Equal(t, tc.update.IsBlocked(), updated.IsBlocked)
+		}
+	}
+
 }

@@ -49,16 +49,16 @@ type AccountManager interface {
 	CreateSetupKey(accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
 		autoGroups []string, usageLimit int, userID string) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey, userID string) (*SetupKey, error)
-	CreateUser(accountID, executingUserID string, key *UserInfo) (*UserInfo, error)
-	DeleteUser(accountID, executingUserID string, targetUserID string) error
+	CreateUser(accountID, initiatorUserID string, key *UserInfo) (*UserInfo, error)
+	DeleteUser(accountID, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
-	SaveUser(accountID, userID string, update *User) (*UserInfo, error)
+	SaveUser(accountID, initiatorUserID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	MarkPATUsed(tokenID string) error
-	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
+	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
@@ -69,10 +69,10 @@ type AccountManager interface {
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error)
-	CreatePAT(accountID string, executingUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
-	DeletePAT(accountID string, executingUserID string, targetUserID string, tokenID string) error
-	GetPAT(accountID string, executingUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
-	GetAllPATs(accountID string, executingUserID string, targetUserID string) ([]*PersonalAccessToken, error)
+	CreatePAT(accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
+	DeletePAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) error
+	GetPAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
+	GetAllPATs(accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
@@ -179,6 +179,7 @@ type UserInfo struct {
 	AutoGroups    []string `json:"auto_groups"`
 	Status        string   `json:"-"`
 	IsServiceUser bool     `json:"is_service_user"`
+	IsBlocked     bool     `json:"is_blocked"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes

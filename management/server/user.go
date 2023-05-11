@@ -51,15 +51,22 @@ type User struct {
 	// AutoGroups is a list of Group IDs to auto-assign to peers registered by this user
 	AutoGroups []string
 	PATs       map[string]*PersonalAccessToken
+	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
+	Blocked bool
 }
 
-// IsAdmin returns true if user is an admin, false otherwise
+// IsBlocked returns true if the user is blocked, false otherwise
+func (u *User) IsBlocked() bool {
+	return u.Blocked
+}
+
+// IsAdmin returns true if the user is an admin, false otherwise
 func (u *User) IsAdmin() bool {
 	return u.Role == UserRoleAdmin
 }
 
-// toUserInfo converts a User object to a UserInfo object.
-func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
+// ToUserInfo converts a User object to a UserInfo object.
+func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 	autoGroups := u.AutoGroups
 	if autoGroups == nil {
 		autoGroups = []string{}
@@ -74,6 +81,7 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			AutoGroups:    u.AutoGroups,
 			Status:        string(UserStatusActive),
 			IsServiceUser: u.IsServiceUser,
+			IsBlocked:     u.Blocked,
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -93,6 +101,7 @@ func (u *User) toUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		AutoGroups:    autoGroups,
 		Status:        string(userStatus),
 		IsServiceUser: u.IsServiceUser,
+		IsBlocked:     u.Blocked,
 	}, nil
 }
 
@@ -113,6 +122,7 @@ func (u *User) Copy() *User {
 		IsServiceUser:   u.IsServiceUser,
 		ServiceUserName: u.ServiceUserName,
 		PATs:            pats,
+		Blocked:         u.Blocked,
 	}
 }
 
@@ -138,7 +148,7 @@ func NewAdminUser(id string) *User {
 }
 
 // createServiceUser creates a new service user under the given account.
-func (am *DefaultAccountManager) createServiceUser(accountID string, executingUserID string, role UserRole, serviceUserName string, autoGroups []string) (*UserInfo, error) {
+func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUserID string, role UserRole, serviceUserName string, autoGroups []string) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -147,7 +157,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, executingUs
 		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
 	}
 
-	executingUser := account.Users[executingUserID]
+	executingUser := account.Users[initiatorUserID]
 	if executingUser == nil {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
@@ -166,7 +176,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, executingUs
 	}
 
 	meta := map[string]any{"name": newUser.ServiceUserName}
-	am.storeEvent(executingUserID, newUser.Id, accountID, activity.ServiceUserCreated, meta)
+	am.storeEvent(initiatorUserID, newUser.Id, accountID, activity.ServiceUserCreated, meta)
 
 	return &UserInfo{
 		ID:            newUser.Id,
@@ -212,7 +222,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 	}
 
 	if user != nil {
-		return nil, status.Errorf(status.UserAlreadyExists, "user has an existing account")
+		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
 	users, err := am.idpManager.GetUserByEmail(invite.Email)
@@ -221,7 +231,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 	}
 
 	if len(users) > 0 {
-		return nil, status.Errorf(status.UserAlreadyExists, "user has an existing account")
+		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
 	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID)
@@ -249,12 +259,27 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 
 	am.storeEvent(userID, newUser.Id, accountID, activity.UserInvited, nil)
 
-	return newUser.toUserInfo(idpUser)
+	return newUser.ToUserInfo(idpUser)
 
 }
 
+// GetUser looks up a user by provided authorization claims.
+// It will also create an account if didn't exist for this user before.
+func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (*User, error) {
+	account, _, err := am.GetAccountFromToken(claims)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account with token claims %v", err)
+	}
+
+	user, ok := account.Users[claims.UserId]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "user not found")
+	}
+	return user, nil
+}
+
 // DeleteUser deletes a user from the given account.
-func (am *DefaultAccountManager) DeleteUser(accountID, executingUserID string, targetUserID string) error {
+func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, targetUserID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -268,7 +293,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, executingUserID string, t
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[executingUserID]
+	executingUser := account.Users[initiatorUserID]
 	if executingUser == nil {
 		return status.Errorf(status.NotFound, "user not found")
 	}
@@ -281,7 +306,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, executingUserID string, t
 	}
 
 	meta := map[string]any{"name": targetUser.ServiceUserName}
-	am.storeEvent(executingUserID, targetUserID, accountID, activity.ServiceUserDeleted, meta)
+	am.storeEvent(initiatorUserID, targetUserID, accountID, activity.ServiceUserDeleted, meta)
 
 	delete(account.Users, targetUserID)
 
@@ -294,7 +319,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, executingUserID string, t
 }
 
 // CreatePAT creates a new PAT for the given user
-func (am *DefaultAccountManager) CreatePAT(accountID string, executingUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error) {
+func (am *DefaultAccountManager) CreatePAT(accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -316,12 +341,12 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, executingUserID str
 		return nil, status.Errorf(status.NotFound, "targetUser not found")
 	}
 
-	executingUser := account.Users[executingUserID]
+	executingUser := account.Users[initiatorUserID]
 	if targetUser == nil {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	if !(executingUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to create PAT for this user")
 	}
 
@@ -338,13 +363,13 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, executingUserID str
 	}
 
 	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
-	am.storeEvent(executingUserID, targetUserID, accountID, activity.PersonalAccessTokenCreated, meta)
+	am.storeEvent(initiatorUserID, targetUserID, accountID, activity.PersonalAccessTokenCreated, meta)
 
 	return pat, nil
 }
 
 // DeletePAT deletes a specific PAT from a user
-func (am *DefaultAccountManager) DeletePAT(accountID string, executingUserID string, targetUserID string, tokenID string) error {
+func (am *DefaultAccountManager) DeletePAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -358,12 +383,12 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, executingUserID str
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[executingUserID]
+	executingUser := account.Users[initiatorUserID]
 	if targetUser == nil {
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
-	if !(executingUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
 		return status.Errorf(status.PermissionDenied, "no permission to delete PAT for this user")
 	}
 
@@ -382,7 +407,7 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, executingUserID str
 	}
 
 	meta := map[string]any{"name": pat.Name, "is_service_user": targetUser.IsServiceUser, "user_name": targetUser.ServiceUserName}
-	am.storeEvent(executingUserID, targetUserID, accountID, activity.PersonalAccessTokenDeleted, meta)
+	am.storeEvent(initiatorUserID, targetUserID, accountID, activity.PersonalAccessTokenDeleted, meta)
 
 	delete(targetUser.PATs, tokenID)
 
@@ -394,7 +419,7 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, executingUserID str
 }
 
 // GetPAT returns a specific PAT from a user
-func (am *DefaultAccountManager) GetPAT(accountID string, executingUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error) {
+func (am *DefaultAccountManager) GetPAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -408,12 +433,12 @@ func (am *DefaultAccountManager) GetPAT(accountID string, executingUserID string
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[executingUserID]
+	executingUser := account.Users[initiatorUserID]
 	if targetUser == nil {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	if !(executingUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this userser")
 	}
 
@@ -426,7 +451,7 @@ func (am *DefaultAccountManager) GetPAT(accountID string, executingUserID string
 }
 
 // GetAllPATs returns all PATs for a user
-func (am *DefaultAccountManager) GetAllPATs(accountID string, executingUserID string, targetUserID string) ([]*PersonalAccessToken, error) {
+func (am *DefaultAccountManager) GetAllPATs(accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -440,12 +465,12 @@ func (am *DefaultAccountManager) GetAllPATs(accountID string, executingUserID st
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[executingUserID]
+	executingUser := account.Users[initiatorUserID]
 	if targetUser == nil {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	if !(executingUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
+	if !(initiatorUserID == targetUserID || (executingUser.IsAdmin() && targetUser.IsServiceUser)) {
 		return nil, status.Errorf(status.PermissionDenied, "no permission to get PAT for this user")
 	}
 
@@ -457,9 +482,9 @@ func (am *DefaultAccountManager) GetAllPATs(accountID string, executingUserID st
 	return pats, nil
 }
 
-// SaveUser saves updates a given user. If the user doesn't exit it will throw status.NotFound error.
-// Only User.AutoGroups field is allowed to be updated for now.
-func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User) (*UserInfo, error) {
+// SaveUser saves updates to the given user. If the user doesn't exit it will throw status.NotFound error.
+// Only User.AutoGroups, User.Role, and User.Blocked fields are allowed to be updated for now.
+func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, update *User) (*UserInfo, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -472,56 +497,102 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 		return nil, err
 	}
 
+	initiatorUser, err := account.FindUser(initiatorUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !initiatorUser.IsAdmin() || initiatorUser.IsBlocked() {
+		return nil, status.Errorf(status.PermissionDenied, "only admins are authorized to perform user update operations")
+	}
+
+	oldUser := account.Users[update.Id]
+	if oldUser == nil {
+		return nil, status.Errorf(status.NotFound, "user to update doesn't exist")
+	}
+
+	if initiatorUser.IsAdmin() && initiatorUserID == update.Id && oldUser.Blocked != update.Blocked {
+		return nil, status.Errorf(status.PermissionDenied, "admins can't block or unblock themselves")
+	}
+
+	if initiatorUser.IsAdmin() && initiatorUserID == update.Id && update.Role != UserRoleAdmin {
+		return nil, status.Errorf(status.PermissionDenied, "admins can't change their role")
+	}
+
+	// only auto groups, revoked status, and name can be updated for now
+	newUser := oldUser.Copy()
+	newUser.Role = update.Role
+	newUser.Blocked = update.Blocked
+
 	for _, newGroupID := range update.AutoGroups {
 		if _, ok := account.Groups[newGroupID]; !ok {
 			return nil, status.Errorf(status.InvalidArgument, "provided group ID %s in the user %s update doesn't exist",
 				newGroupID, update.Id)
 		}
 	}
-
-	oldUser := account.Users[update.Id]
-	if oldUser == nil {
-		return nil, status.Errorf(status.NotFound, "update not found")
-	}
-
-	// only auto groups, revoked status, and name can be updated for now
-	newUser := oldUser.Copy()
 	newUser.AutoGroups = update.AutoGroups
-	newUser.Role = update.Role
 
 	account.Users[newUser.Id] = newUser
+
+	if !oldUser.IsBlocked() && update.IsBlocked() {
+		// expire peers that belong to the user who's getting blocked
+		blockedPeers, err := account.FindUserPeers(update.Id)
+		if err != nil {
+			return nil, err
+		}
+		var peerIDs []string
+		for _, peer := range blockedPeers {
+			peerIDs = append(peerIDs, peer.ID)
+			peer.MarkLoginExpired(true)
+			account.UpdatePeer(peer)
+			err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
+			if err != nil {
+				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
+				return nil, err
+			}
+		}
+		am.peersUpdateManager.CloseChannels(peerIDs)
+		err = am.updateAccountPeers(account)
+		if err != nil {
+			log.Errorf("failed updating account peers while expiring peers of a blocked user %s", accountID)
+			return nil, err
+
+		}
+	}
 
 	if err = am.Store.SaveAccount(account); err != nil {
 		return nil, err
 	}
 
 	defer func() {
+		// store activity logs
 		if oldUser.Role != newUser.Role {
-			am.storeEvent(userID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
+			am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
 		}
 
-		removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
-		addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
-		for _, g := range removedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
-				am.storeEvent(userID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
-					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
-			} else {
-				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+		if update.AutoGroups != nil {
+			removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
+			addedGroups := difference(newUser.AutoGroups, oldUser.AutoGroups)
+			for _, g := range removedGroups {
+				group := account.GetGroup(g)
+				if group != nil {
+					am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.GroupRemovedFromUser,
+						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+				} else {
+					log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+				}
+
 			}
 
-		}
-
-		for _, g := range addedGroups {
-			group := account.GetGroup(g)
-			if group != nil {
-				am.storeEvent(userID, oldUser.Id, accountID, activity.GroupAddedToUser,
-					map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
-			} else {
-				log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
+			for _, g := range addedGroups {
+				group := account.GetGroup(g)
+				if group != nil {
+					am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.GroupAddedToUser,
+						map[string]any{"group": group.Name, "group_id": group.ID, "is_service_user": newUser.IsServiceUser, "user_name": newUser.ServiceUserName})
+				}
 			}
 		}
+
 	}()
 
 	if !isNil(am.idpManager) && !newUser.IsServiceUser {
@@ -532,9 +603,9 @@ func (am *DefaultAccountManager) SaveUser(accountID, userID string, update *User
 		if userData == nil {
 			return nil, status.Errorf(status.NotFound, "user %s not found in the IdP", newUser.Id)
 		}
-		return newUser.toUserInfo(userData)
+		return newUser.ToUserInfo(userData)
 	}
-	return newUser.toUserInfo(nil)
+	return newUser.ToUserInfo(nil)
 }
 
 // GetOrCreateAccountByUser returns an existing account for a given user id or creates a new one if doesn't exist
@@ -574,21 +645,6 @@ func (am *DefaultAccountManager) GetOrCreateAccountByUser(userID, domain string)
 	return account, nil
 }
 
-// IsUserAdmin looks up a user by his ID and returns true if he is an admin
-func (am *DefaultAccountManager) IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error) {
-	account, _, err := am.GetAccountFromToken(claims)
-	if err != nil {
-		return false, fmt.Errorf("get account: %v", err)
-	}
-
-	user, ok := account.Users[claims.UserId]
-	if !ok {
-		return false, status.Errorf(status.NotFound, "user not found")
-	}
-
-	return user.Role == UserRoleAdmin, nil
-}
-
 // GetUsersFromAccount performs a batched request for users from IDP by account ID apply filter on what data to return
 // based on provided user role.
 func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error) {
@@ -625,7 +681,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 				// if user is not an admin then show only current user and do not show other users
 				continue
 			}
-			info, err := accountUser.toUserInfo(nil)
+			info, err := accountUser.ToUserInfo(nil)
 			if err != nil {
 				return nil, err
 			}
@@ -642,7 +698,7 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 
 		var info *UserInfo
 		if queriedUser, contains := findUserInIDPUserdata(localUser.Id, queriedUsers); contains {
-			info, err = localUser.toUserInfo(queriedUser)
+			info, err = localUser.ToUserInfo(queriedUser)
 			if err != nil {
 				return nil, err
 			}
