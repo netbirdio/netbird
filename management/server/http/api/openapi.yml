@@ -65,7 +65,7 @@ components:
         status:
           description: User's status
           type: string
-          enum: [ "active","invited","disabled" ]
+          enum: [ "active","invited","blocked" ]
         auto_groups:
           description: Groups to auto-assign to peers registered by this user
           type: array
@@ -79,6 +79,9 @@ components:
           description: Is true if this user is a service user
           type: boolean
           readOnly: true
+        is_blocked:
+          description: Is true if this user is blocked. Blocked users can't use the system
+          type: boolean
       required:
         - id
         - email
@@ -86,6 +89,7 @@ components:
         - role
         - auto_groups
         - status
+        - is_blocked
     UserRequest:
       type: object
       properties:
@@ -97,9 +101,13 @@ components:
           type: array
           items:
             type: string
+        is_blocked:
+          description: If set to true then user is blocked and can't use the system
+          type: boolean
       required:
         - role
         - auto_groups
+        - is_blocked
     UserCreateRequest:
       type: object
       properties:
@@ -645,7 +653,7 @@ components:
           description: The string code of the activity that occurred during the event
           type: string
           enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add", "user.group.add", "user.group.delete",
-                  "user.role.update",
+                  "user.role.update", "user.block", "user.unblock",
                   "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
                   "setupkey.group.delete", "setupkey.group.add",
                   "rule.add", "rule.delete", "rule.update",
