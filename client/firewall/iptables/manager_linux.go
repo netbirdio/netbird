@@ -77,7 +77,8 @@ func Create(wgIfaceName string) (*Manager, error) {
 func (m *Manager) AddFiltering(
 	ip net.IP,
 	protocol fw.Protocol,
-	port *fw.Port,
+	sPort *fw.Port,
+	dPort *fw.Port,
 	direction fw.Direction,
 	action fw.Action,
 	comment string,
@@ -90,10 +91,13 @@ func (m *Manager) AddFiltering(
 		return nil, err
 	}
 
-	var portValue string
-	if port != nil && port.Values != nil {
+	var dPortVal, sPortVal string
+	if dPort != nil && dPort.Values != nil {
 		// TODO: we support only one port per rule in current implementation of ACLs
-		portValue = strconv.Itoa(port.Values[0])
+		dPortVal = strconv.Itoa(dPort.Values[0])
+	}
+	if sPort != nil && sPort.Values != nil {
+		sPortVal = strconv.Itoa(sPort.Values[0])
 	}
 
 	ruleID := uuid.New().String()
@@ -106,7 +110,8 @@ func (m *Manager) AddFiltering(
 		ChainInputFilterName,
 		ip,
 		string(protocol),
-		portValue,
+		sPortVal,
+		dPortVal,
 		direction,
 		action,
 		comment,
@@ -184,15 +189,6 @@ func (m *Manager) Reset() error {
 		}
 	}
 
-	if err := m.reset(m.ipv4Client, "filter"); err != nil {
-		return fmt.Errorf("clean ipv4 firewall ACL output chain: %w", err)
-	}
-	if m.ipv6Client != nil {
-		if err := m.reset(m.ipv6Client, "filter"); err != nil {
-			return fmt.Errorf("clean ipv6 firewall ACL output chain: %w", err)
-		}
-	}
-
 	return nil
 }
 
@@ -200,7 +196,7 @@ func (m *Manager) Reset() error {
 func (m *Manager) reset(client *iptables.IPTables, table string) error {
 	ok, err := client.ChainExists(table, ChainInputFilterName)
 	if err != nil {
-		return fmt.Errorf("failed to check if chain exists: %w", err)
+		return fmt.Errorf("failed to check if input chain exists: %w", err)
 	}
 	if ok {
 		specs := append([]string{"-i", m.wgIfaceName}, jumpNetbirdInputDefaultRule...)
@@ -213,9 +209,9 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 		}
 	}
 
-	ok, err = client.ChainExists(table, ChainInputFilterName)
+	ok, err = client.ChainExists(table, ChainOutputFilterName)
 	if err != nil {
-		return fmt.Errorf("failed to check if chain exists: %w", err)
+		return fmt.Errorf("failed to check if output chain exists: %w", err)
 	}
 	if ok {
 		specs := append([]string{"-o", m.wgIfaceName}, jumpNetbirdOutputDefaultRule...)
@@ -243,7 +239,7 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 
 // filterRuleSpecs returns the specs of a filtering rule
 func (m *Manager) filterRuleSpecs(
-	table string, chain string, ip net.IP, protocol string, port string,
+	table string, chain string, ip net.IP, protocol string, sPort, dPort string,
 	direction fw.Direction, action fw.Action, comment string,
 ) (specs []string) {
 	switch direction {
@@ -255,8 +251,11 @@ func (m *Manager) filterRuleSpecs(
 	if protocol != "all" {
 		specs = append(specs, "-p", protocol)
 	}
-	if port != "" {
-		specs = append(specs, "--dport", port)
+	if sPort != "" {
+		specs = append(specs, "--sport", sPort)
+	}
+	if dPort != "" {
+		specs = append(specs, "--dport", dPort)
 	}
 	specs = append(specs, "-j", m.actionToStr(action))
 	return append(specs, "-m", "comment", "--comment", comment)

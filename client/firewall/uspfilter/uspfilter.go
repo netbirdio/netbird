@@ -46,7 +46,8 @@ func Create(iface IFaceMapper) (*Manager, error) {
 func (u *Manager) AddFiltering(
 	ip net.IP,
 	proto fw.Protocol,
-	port *fw.Port,
+	sPort *fw.Port,
+	dPort *fw.Port,
 	direction fw.Direction,
 	action fw.Action,
 	comment string,
@@ -63,8 +64,8 @@ func (u *Manager) AddFiltering(
 		r.ipLayer = layers.LayerTypeIPv4
 		r.ip = ipNormalized
 	}
-	if port != nil && len(port.Values) == 1 {
-		r.port = uint16(port.Values[0])
+	if dPort != nil && len(dPort.Values) == 1 {
+		r.port = uint16(dPort.Values[0])
 	}
 
 	switch proto {

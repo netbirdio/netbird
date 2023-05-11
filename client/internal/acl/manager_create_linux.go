@@ -31,6 +31,6 @@ func Create(iface iFaceMapper) (manager *DefaultManager, err error) {
 
 	return &DefaultManager{
 		manager: fm,
-		rules:   make(map[string]firewall.Rule),
+		rules:   make(map[string][]firewall.Rule),
 	}, nil
 }

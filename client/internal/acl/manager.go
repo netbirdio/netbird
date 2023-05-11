@@ -28,7 +28,7 @@ type Manager interface {
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
 	manager firewall.Manager
-	rules   map[string]firewall.Rule
+	rules   map[string][]firewall.Rule
 	mutex   sync.Mutex
 }
 
@@ -44,33 +44,37 @@ func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule) {
 
 	var (
 		applyFailed bool
-		newRules    = make(map[string]firewall.Rule)
+		newRules    = make(map[string][]firewall.Rule)
 	)
 	for _, r := range rules {
-		rule := d.protoRuleToFirewallRule(r)
-		if rule == nil {
+		rules := d.protoRuleToFirewallRule(r)
+		if len(rules) == 0 {
 			log.Errorf("failed to apply firewall rule: %+v", r)
 			applyFailed = true
 			break
 		}
-		newRules[rule.GetRuleID()] = rule
+		newRules[rules[0].GetRuleID()] = rules
 	}
 	if applyFailed {
 		log.Error("failed to apply firewall rules, rollback ACL to previous state")
-		for _, rule := range newRules {
-			if err := d.manager.DeleteRule(rule); err != nil {
-				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
-				continue
+		for _, rules := range newRules {
+			for _, rule := range rules {
+				if err := d.manager.DeleteRule(rule); err != nil {
+					log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
+					continue
+				}
 			}
 		}
 		return
 	}
 
-	for ruleID, rule := range d.rules {
+	for ruleID, rules := range d.rules {
 		if _, ok := newRules[ruleID]; !ok {
-			if err := d.manager.DeleteRule(rule); err != nil {
-				log.Errorf("failed to delete firewall rule: %v", err)
-				continue
+			for _, rule := range rules {
+				if err := d.manager.DeleteRule(rule); err != nil {
+					log.Errorf("failed to delete firewall rule: %v", err)
+					continue
+				}
 			}
 			delete(d.rules, ruleID)
 		}
@@ -88,23 +92,11 @@ func (d *DefaultManager) Stop() {
 	}
 }
 
-func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule {
+func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) []firewall.Rule {
 	ip := net.ParseIP(r.PeerIP)
 	if ip == nil {
 		log.Error("invalid IP address, skipping firewall rule")
 		return nil
-	}
-
-	var port *firewall.Port
-	if r.Port != "" {
-		value, err := strconv.Atoi(r.Port)
-		if err != nil {
-			log.Debug("invalid port, skipping firewall rule")
-			return nil
-		}
-		port = &firewall.Port{
-			Values: []int{value},
-		}
 	}
 
 	var protocol firewall.Protocol
@@ -144,11 +136,42 @@ func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firew
 		return nil
 	}
 
-	rule, err := d.manager.AddFiltering(ip, protocol, port, direction, action, "")
+	var dPort, sPort *firewall.Port
+	if r.Port != "" {
+		value, err := strconv.Atoi(r.Port)
+		if err != nil {
+			log.Debug("invalid port, skipping firewall rule")
+			return nil
+		}
+		p := &firewall.Port{
+			Values: []int{value},
+		}
+
+		if direction == firewall.DirectionSrc {
+			dPort = p
+		} else {
+			sPort = p
+		}
+	}
+
+	var rules []firewall.Rule
+	rule, err := d.manager.AddFiltering(ip, protocol, sPort, dPort, direction, action, "")
 	if err != nil {
 		log.Errorf("failed to add firewall rule: %v", err)
 		return nil
 	}
-	d.rules[rule.GetRuleID()] = rule
-	return rule
+	ruleID := rule.GetRuleID()
+	rules = append(rules, rule)
+
+	if sPort != nil || dPort != nil {
+		rule, err = d.manager.AddFiltering(ip, protocol, dPort, sPort, direction, action, "")
+		if err != nil {
+			log.Errorf("failed to add firewall rule: %v", err)
+			return nil
+		}
+		rules = append(rules, rule)
+	}
+
+	d.rules[ruleID] = rules
+	return rules
 }

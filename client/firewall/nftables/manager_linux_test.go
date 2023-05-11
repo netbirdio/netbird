@@ -33,6 +33,7 @@ func TestNftablesManager(t *testing.T) {
 	rule, err := manager.AddFiltering(
 		ip,
 		fw.ProtocolTCP,
+		nil,
 		&fw.Port{Values: []int{53}},
 		fw.DirectionSrc,
 		fw.ActionDrop,
@@ -40,7 +41,7 @@ func TestNftablesManager(t *testing.T) {
 	)
 	require.NoError(t, err, "failed to add rule")
 
-	rules, err := testClient.GetRules(manager.tableIPv4, manager.filterChainIPv4)
+	rules, err := testClient.GetRules(manager.tableIPv4, manager.filterInputChainIPv4)
 	require.NoError(t, err, "failed to get rules")
 	// 1 regular rule and other "drop all rule" for the interface
 	require.Len(t, rules, 2, "expected 1 rule")
@@ -94,7 +95,7 @@ func TestNftablesManager(t *testing.T) {
 	err = manager.DeleteRule(rule)
 	require.NoError(t, err, "failed to delete rule")
 
-	rules, err = testClient.GetRules(manager.tableIPv4, manager.filterChainIPv4)
+	rules, err = testClient.GetRules(manager.tableIPv4, manager.filterInputChainIPv4)
 	require.NoError(t, err, "failed to get rules")
 	require.Len(t, rules, 1, "expected 1 rules after deleteion")
 

@@ -58,7 +58,7 @@ func TestManagerAddFiltering(t *testing.T) {
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	rule, err := m.AddFiltering(ip, proto, port, direction, action, comment)
+	rule, err := m.AddFiltering(ip, proto, nil, port, direction, action, comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -93,7 +93,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	rule, err := m.AddFiltering(ip, proto, port, direction, action, comment)
+	rule, err := m.AddFiltering(ip, proto, nil, port, direction, action, comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -106,7 +106,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	action = fw.ActionDrop
 	comment = "Test rule 2"
 
-	rule2, err := m.AddFiltering(ip, proto, port, direction, action, comment)
+	rule2, err := m.AddFiltering(ip, proto, nil, port, direction, action, comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
@@ -151,7 +151,7 @@ func TestManagerReset(t *testing.T) {
 	action := fw.ActionDrop
 	comment := "Test rule"
 
-	_, err = m.AddFiltering(ip, proto, port, direction, action, comment)
+	_, err = m.AddFiltering(ip, proto, nil, port, direction, action, comment)
 	if err != nil {
 		t.Errorf("failed to add filtering: %v", err)
 		return
