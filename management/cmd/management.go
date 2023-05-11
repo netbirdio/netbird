@@ -396,6 +396,12 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 		}
 		log.Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
 
+		log.Infof("configuring IdpManagerConfig.OIDCConfig.Issuer with a new value %s,", oidcConfig.Issuer)
+		config.IdpManagerConfig.OIDCConfig.Issuer = strings.TrimRight(oidcConfig.Issuer, "/")
+
+		log.Infof("configuring IdpManagerConfig.OIDCConfig.TokenEndpoint with a new value %s,", oidcConfig.TokenEndpoint)
+		config.IdpManagerConfig.OIDCConfig.TokenEndpoint = oidcConfig.TokenEndpoint
+
 		log.Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
 			oidcConfig.Issuer, config.HttpConfig.AuthIssuer)
 		config.HttpConfig.AuthIssuer = oidcConfig.Issuer
@@ -441,7 +447,7 @@ type OIDCConfigResponse struct {
 func fetchOIDCConfig(oidcEndpoint string) (OIDCConfigResponse, error) {
 	res, err := http.Get(oidcEndpoint)
 	if err != nil {
-		return OIDCConfigResponse{}, fmt.Errorf("failed fetching OIDC configuration fro mendpoint %s %v", oidcEndpoint, err)
+		return OIDCConfigResponse{}, fmt.Errorf("failed fetching OIDC configuration from endpoint %s %v", oidcEndpoint, err)
 	}
 
 	defer func() {

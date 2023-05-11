@@ -19,9 +19,17 @@ type Manager interface {
 	GetUserByEmail(email string) ([]*UserData, error)
 }
 
+// OIDCConfig specifies configuration for OpenID Connect provider
+// These configurations are automatically loaded from the OIDC endpoint
+type OIDCConfig struct {
+	Issuer        string
+	TokenEndpoint string
+}
+
 // Config an idp configuration struct to be loaded from management server's config file
 type Config struct {
 	ManagerType               string
+	OIDCConfig                OIDCConfig `json:"-"`
 	Auth0ClientCredentials    Auth0ClientConfig
 	AzureClientCredentials    AzureClientConfig
 	KeycloakClientCredentials KeycloakClientConfig
@@ -74,13 +82,13 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 	case "none", "":
 		return nil, nil
 	case "auth0":
-		return NewAuth0Manager(config.Auth0ClientCredentials, appMetrics)
+		return NewAuth0Manager(config.OIDCConfig, config.Auth0ClientCredentials, appMetrics)
 	case "azure":
-		return NewAzureManager(config.AzureClientCredentials, appMetrics)
+		return NewAzureManager(config.OIDCConfig, config.AzureClientCredentials, appMetrics)
 	case "keycloak":
-		return NewKeycloakManager(config.KeycloakClientCredentials, appMetrics)
+		return NewKeycloakManager(config.OIDCConfig, config.KeycloakClientCredentials, appMetrics)
 	case "zitadel":
-		return NewZitadelManager(config.ZitadelClientCredentials, appMetrics)
+		return NewZitadelManager(config.OIDCConfig, config.ZitadelClientCredentials, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
