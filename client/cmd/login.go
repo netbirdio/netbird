@@ -46,12 +46,16 @@ var loginCmd = &cobra.Command{
 				return err
 			}
 
-			config, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+			ic := internal.ConfigInput{
 				ManagementURL: managementURL,
 				AdminURL:      adminURL,
 				ConfigPath:    configPath,
-				PreSharedKey:  &preSharedKey,
-			})
+			}
+			if preSharedKey != "" {
+				ic.PreSharedKey = &preSharedKey
+			}
+
+			config, err := internal.UpdateOrCreateConfig(ic)
 			if err != nil {
 				return fmt.Errorf("get config file: %v", err)
 			}
