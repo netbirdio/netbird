@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -539,4 +540,116 @@ func TestUser_GetUsersFromAccount_ForUser(t *testing.T) {
 
 	assert.Equal(t, 1, len(users))
 	assert.Equal(t, mockServiceUserID, users[0].ID)
+}
+
+func TestDefaultAccountManager_SaveUser(t *testing.T) {
+	manager, err := createManager(t)
+	if err != nil {
+		t.Fatal(err)
+		return
+	}
+
+	regularUserID := "regularUser"
+
+	tt := []struct {
+		name           string
+		adminUserID    string
+		regularUserID  string
+		adminInitiator bool
+		update         *User
+		expectedErr    bool
+	}{
+		{
+			name:           "Should_Fail_To_Update_Admin_Role",
+			expectedErr:    true,
+			adminInitiator: true,
+			adminUserID:    userID,
+			regularUserID:  regularUserID,
+			update: &User{
+				Id:      userID,
+				Role:    UserRoleUser,
+				Blocked: false,
+			},
+		}, {
+			name:           "Should_Fail_When_Admin_Blocks_Themselves",
+			expectedErr:    true,
+			adminUserID:    userID,
+			adminInitiator: true,
+			regularUserID:  regularUserID,
+			update: &User{
+				Id:      userID,
+				Role:    UserRoleAdmin,
+				Blocked: true,
+			},
+		},
+		{
+			name:           "Should_Fail_To_Update_Non_Existing_User",
+			expectedErr:    true,
+			adminUserID:    userID,
+			adminInitiator: true,
+			regularUserID:  regularUserID,
+			update: &User{
+				Id:      userID,
+				Role:    UserRoleAdmin,
+				Blocked: true,
+			},
+		},
+		{
+			name:           "Should_Fail_To_Update_When_Initiator_Is_Not_An_Admin",
+			expectedErr:    true,
+			adminUserID:    userID,
+			adminInitiator: false,
+			regularUserID:  regularUserID,
+			update: &User{
+				Id:      userID,
+				Role:    UserRoleAdmin,
+				Blocked: true,
+			},
+		},
+		{
+			name:           "Should_Update_User",
+			expectedErr:    false,
+			adminUserID:    userID,
+			adminInitiator: true,
+			regularUserID:  regularUserID,
+			update: &User{
+				Id:      regularUserID,
+				Role:    UserRoleAdmin,
+				Blocked: true,
+			},
+		},
+	}
+
+	for _, tc := range tt {
+
+		// create an account and an admin user
+		account, err := manager.GetOrCreateAccountByUser(tc.adminUserID, "netbird.io")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// create a regular user
+		account.Users[tc.regularUserID] = NewRegularUser(tc.regularUserID)
+		err = manager.Store.SaveAccount(account)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		initiatorID := tc.adminUserID
+		if !tc.adminInitiator {
+			initiatorID = tc.regularUserID
+		}
+
+		updated, err := manager.SaveUser(account.Id, initiatorID, tc.update)
+		if tc.expectedErr {
+			require.Errorf(t, err, "expecting SaveUser to throw an error")
+		} else {
+			require.NoError(t, err, "expecting SaveUser not to throw an error")
+			assert.NotNil(t, updated)
+
+			assert.Equal(t, string(tc.update.Role), updated.Role)
+			assert.Equal(t, tc.update.IsBlocked(), updated.IsBlocked)
+		}
+	}
+
 }

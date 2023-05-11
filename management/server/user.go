@@ -508,7 +508,7 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 	}
 
 	if !initiatorUser.IsAdmin() || initiatorUser.IsBlocked() {
-		return nil, status.Errorf(status.PermissionDenied, "only admins are authorized to perform user %s update operation", update.Id)
+		return nil, status.Errorf(status.PermissionDenied, "only admins are authorized to perform user update operations")
 	}
 
 	oldUser := account.Users[update.Id]

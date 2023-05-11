@@ -226,63 +226,6 @@ func TestNewAccount(t *testing.T) {
 	verifyNewAccountHasDefaultFields(t, account, userId, domain, []string{userId})
 }
 
-func TestDefaultAccountManager_SaveUser(t *testing.T) {
-	manager, err := createManager(t)
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
-	tt := []struct {
-		name        string
-		update      *User
-		expectedErr bool
-	}{
-		{
-			name:        "Should_Fail_To_Update_Admin_Role",
-			expectedErr: true,
-			update: &User{
-				Id:      userID,
-				Role:    UserRoleUser,
-				Blocked: false,
-			},
-		}, {
-			name:        "Should_Fail_When_Admin_Blocks_Themselves",
-			expectedErr: true,
-			update: &User{
-				Id:      userID,
-				Role:    UserRoleAdmin,
-				Blocked: true,
-			},
-		},
-		{
-			name:        "Should_Fail_To_Update_Non_Existing_User",
-			expectedErr: true,
-			update: &User{
-				Id:      userID,
-				Role:    UserRoleAdmin,
-				Blocked: true,
-			},
-		},
-	}
-
-	for _, tc := range tt {
-		account, err := manager.GetOrCreateAccountByUser(userID, "")
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		updated, err := manager.SaveUser(account.Id, userID, tc.update)
-		if tc.expectedErr {
-			require.Errorf(t, err, "expecting SaveUser to throw an error")
-		} else {
-			require.NoError(t, err, "expecting SaveUser not to throw an error")
-			assert.NotNil(t, updated)
-		}
-	}
-
-}
-
 func TestAccountManager_GetOrCreateAccountByUser(t *testing.T) {
 	manager, err := createManager(t)
 	if err != nil {
