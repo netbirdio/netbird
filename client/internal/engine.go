@@ -19,7 +19,6 @@ import (
 
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -247,7 +246,7 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	for _, p := range peersUpdate {
 		peerPubKey := p.GetWgPubKey()
 		if peerConn, ok := e.peerConns[peerPubKey]; ok {
-			if peerConn.GetConf().ProxyConfig.AllowedIps != strings.Join(p.AllowedIps, ",") {
+			if peerConn.WgConfig().AllowedIps != strings.Join(p.AllowedIps, ",") {
 				modified = append(modified, p)
 				continue
 			}
@@ -758,9 +757,7 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 
 		// we might have received new STUN and TURN servers meanwhile, so update them
 		e.syncMsgMux.Lock()
-		conf := conn.GetConf()
-		conf.StunTurn = append(e.STUNs, e.TURNs...)
-		conn.UpdateConf(conf)
+		conn.UpdateStunTurn(append(e.STUNs, e.TURNs...))
 		e.syncMsgMux.Unlock()
 
 		err := conn.Open()
@@ -789,9 +786,9 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 	stunTurn = append(stunTurn, e.STUNs...)
 	stunTurn = append(stunTurn, e.TURNs...)
 
-	proxyConfig := proxy.Config{
+	wgConfig := peer.WgConfig{
 		RemoteKey:    pubKey,
-		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.config.WgPort),
+		WgListenPort: e.config.WgPort,
 		WgInterface:  e.wgInterface,
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
@@ -808,7 +805,7 @@ func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, er
 		Timeout:              timeout,
 		UDPMux:               e.udpMux.UDPMuxDefault,
 		UDPMuxSrflx:          e.udpMux,
-		ProxyConfig:          proxyConfig,
+		WgConfig:             wgConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
