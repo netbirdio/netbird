@@ -14,7 +14,8 @@ type Rule struct {
 	ipLayer    gopacket.LayerType
 	protoLayer gopacket.LayerType
 	direction  fw.Direction
-	port       uint16
+	sPort      uint16
+	dPort      uint16
 	drop       bool
 	comment    string
 }

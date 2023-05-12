@@ -8,7 +8,6 @@ import (
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
-	gopacket "github.com/google/gopacket"
 )
 
 // MockPacketFilter is a mock of PacketFilter interface.
@@ -35,7 +34,7 @@ func (m *MockPacketFilter) EXPECT() *MockPacketFilterMockRecorder {
 }
 
 // DropInput mocks base method.
-func (m *MockPacketFilter) DropInput(arg0 gopacket.Packet) bool {
+func (m *MockPacketFilter) DropInput(arg0 []byte) bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DropInput", arg0)
 	ret0, _ := ret[0].(bool)
@@ -49,7 +48,7 @@ func (mr *MockPacketFilterMockRecorder) DropInput(arg0 interface{}) *gomock.Call
 }
 
 // DropOutput mocks base method.
-func (m *MockPacketFilter) DropOutput(arg0 gopacket.Packet) bool {
+func (m *MockPacketFilter) DropOutput(arg0 []byte) bool {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DropOutput", arg0)
 	ret0, _ := ret[0].(bool)

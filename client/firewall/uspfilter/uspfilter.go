@@ -8,6 +8,7 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/iface"
@@ -24,6 +25,15 @@ type Manager struct {
 	outputRules []Rule
 	rulesIndex  map[string]int
 
+	ip4     layers.IPv4
+	ip6     layers.IPv6
+	tcp     layers.TCP
+	udp     layers.UDP
+	icmp4   layers.ICMPv4
+	icmp6   layers.ICMPv6
+	parser  *gopacket.DecodingLayerParser
+	decoded []gopacket.LayerType
+
 	mutex sync.RWMutex
 }
 
@@ -31,7 +41,14 @@ type Manager struct {
 func Create(iface IFaceMapper) (*Manager, error) {
 	m := &Manager{
 		rulesIndex: make(map[string]int),
+		decoded:    make([]gopacket.LayerType, 0, 20),
 	}
+
+	m.parser = gopacket.NewDecodingLayerParser(layers.LayerTypeIPv4,
+		&m.ip4,
+		&m.ip6,
+	)
+	m.parser.IgnoreUnsupported = true
 
 	if err := iface.SetFiltering(m); err != nil {
 		return nil, err
@@ -64,8 +81,13 @@ func (u *Manager) AddFiltering(
 		r.ipLayer = layers.LayerTypeIPv4
 		r.ip = ipNormalized
 	}
+
+	if sPort != nil && len(sPort.Values) == 1 {
+		r.sPort = uint16(sPort.Values[0])
+	}
+
 	if dPort != nil && len(dPort.Values) == 1 {
-		r.port = uint16(dPort.Values[0])
+		r.dPort = uint16(dPort.Values[0])
 	}
 
 	switch proto {
@@ -140,80 +162,103 @@ func (u *Manager) Reset() error {
 }
 
 // DropInput packet filter
-func (u *Manager) DropInput(packet gopacket.Packet) bool {
-	return u.dropFilter(packet, u.inputRules, false)
+func (u *Manager) DropInput(packetData []byte) bool {
+	return u.dropFilter(packetData, u.inputRules, false)
 }
 
 // DropOutput packet filter
-func (u *Manager) DropOutput(packet gopacket.Packet) bool {
-	return u.dropFilter(packet, u.outputRules, true)
+func (u *Manager) DropOutput(packetData []byte) bool {
+	return u.dropFilter(packetData, u.outputRules, true)
 }
 
 // dropFilter imlements same logic for booth direction of the traffic
-func (u *Manager) dropFilter(packet gopacket.Packet, rules []Rule, isInputPacket bool) bool {
+func (u *Manager) dropFilter(packetData []byte, rules []Rule, isInputPacket bool) bool {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
+	if err := u.parser.DecodeLayers(packetData, &u.decoded); err != nil {
+		return true
+	}
+
+	var ipDecoded gopacket.DecodingLayer
+	switch u.decoded[0] {
+	case layers.LayerTypeIPv4:
+		ipDecoded = &u.ip4
+	case layers.LayerTypeIPv6:
+		ipDecoded = &u.ip6
+	default:
+		log.Errorf("unknown layer: %v", u.decoded[0])
+		return true
+	}
+
+	matchedLayer := ipDecoded.NextLayerType().LayerTypes()[0]
+	switch matchedLayer {
+	case layers.LayerTypeTCP:
+		if err := u.tcp.DecodeFromBytes(ipDecoded.LayerPayload(), gopacket.NilDecodeFeedback); err != nil {
+			log.Errorf("error decoding tcp packet: %v", err)
+			return false
+		}
+	case layers.LayerTypeUDP:
+		if err := u.udp.DecodeFromBytes(ipDecoded.LayerPayload(), gopacket.NilDecodeFeedback); err != nil {
+			log.Errorf("error decoding udp packet: %v", err)
+			return false
+		}
+	case layers.LayerTypeICMPv4:
+		if err := u.icmp4.DecodeFromBytes(ipDecoded.LayerPayload(), gopacket.NilDecodeFeedback); err != nil {
+			log.Errorf("error decoding icmpv4 packet: %v", err)
+			return false
+		}
+	case layers.LayerTypeICMPv6:
+		if err := u.icmp6.DecodeFromBytes(ipDecoded.LayerPayload(), gopacket.NilDecodeFeedback); err != nil {
+			log.Errorf("error decoding icmpv6 packet: %v", err)
+			return false
+		}
+	}
+
 	// check if IP address match by IP
 	for _, rule := range rules {
-		if layer := packet.Layer(rule.ipLayer); layer != nil {
-			switch ip := layer.(type) {
-			case *layers.IPv4:
-				if isInputPacket {
-					if !ip.SrcIP.Equal(rule.ip) {
-						continue
-					}
-				} else {
-					if !ip.DstIP.Equal(rule.ip) {
-						continue
-					}
+		switch u.decoded[0] {
+		case layers.LayerTypeIPv4:
+			if isInputPacket {
+				if !u.ip4.SrcIP.Equal(rule.ip) {
+					continue
 				}
-			case *layers.IPv6:
-				if isInputPacket {
-					if !ip.SrcIP.Equal(rule.ip) {
-						continue
-					}
-				} else {
-					if !ip.DstIP.Equal(rule.ip) {
-						continue
-					}
+			} else {
+				if !u.ip4.DstIP.Equal(rule.ip) {
+					continue
+				}
+			}
+		case layers.LayerTypeIPv6:
+			if isInputPacket {
+				if !u.ip6.SrcIP.Equal(rule.ip) {
+					continue
+				}
+			} else {
+				if !u.ip6.DstIP.Equal(rule.ip) {
+					continue
 				}
 			}
 		}
 
-		if rule.protoLayer != 0 {
-			// Check if the packet is TCP type and the destination port is 53
-			if layer := packet.Layer(rule.protoLayer); layer != nil {
-				if rule.port != 0 {
-					switch protocol := layer.(type) {
-					case *layers.TCP:
-						if isInputPacket {
-							if rule.port == uint16(protocol.DstPort) {
-								return rule.drop
-							}
-						} else {
-							return false
-						}
-					case *layers.UDP:
-						if isInputPacket {
-							if rule.port == uint16(protocol.DstPort) {
-								return rule.drop
-							}
-						} else {
-							return false
-						}
-					case *layers.ICMPv4, *layers.ICMPv6:
-						return rule.drop
-					}
-					// port is defined and protocol matched but we don't know how to work
-					// with this type of the protocol, so the best option here is to log
-					// but to be more secure let's drop it
-					return true
-				}
-				return rule.drop
+		switch matchedLayer {
+		case layers.LayerTypeTCP:
+			if rule.dPort != 0 && rule.dPort != uint16(u.tcp.DstPort) {
+				continue
 			}
-		} else {
-			return false
+			if rule.sPort != 0 && rule.sPort != uint16(u.tcp.SrcPort) {
+				continue
+			}
+			return rule.drop
+		case layers.LayerTypeUDP:
+			if rule.dPort != 0 && rule.dPort != uint16(u.udp.DstPort) {
+				continue
+			}
+			if rule.sPort != 0 && rule.sPort != uint16(u.udp.SrcPort) {
+				continue
+			}
+			return rule.drop
+		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
+			return rule.drop
 		}
 	}
 

@@ -1,18 +1,16 @@
 package iface
 
 import (
-	"github.com/google/gopacket"
-	"github.com/google/gopacket/layers"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
 // PacketFilter interface for firewall abilities
 type PacketFilter interface {
 	// DropInput traffic filter
-	DropInput(packet gopacket.Packet) bool
+	DropInput(packetData []byte) bool
 
 	// DropOutput traffic filter
-	DropOutput(packet gopacket.Packet) bool
+	DropOutput(packetData []byte) bool
 }
 
 // DeviceWrapper to override Read or Write of packets
@@ -38,10 +36,7 @@ func (t *DeviceWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err
 	}
 
 	for i := 0; i < n; i++ {
-		packetData := bufs[i][offset : offset+sizes[i]]
-		packet := gopacket.NewPacket(packetData, layers.LayerTypeIPv4, gopacket.Default)
-
-		if t.filter.DropInput(packet) {
+		if t.filter.DropInput(bufs[i][offset : offset+sizes[i]]) {
 			bufs = append(bufs[:i], bufs[i+1:]...)
 			sizes = append(sizes[:i], sizes[i+1:]...)
 			n--
@@ -61,10 +56,7 @@ func (t *DeviceWrapper) Write(bufs [][]byte, offset int) (int, error) {
 	filteredBufs := make([][]byte, 0, len(bufs))
 	dropped := 0
 	for _, buf := range bufs {
-		// TODO: handle IPv6 packets
-		packet := gopacket.NewPacket(buf[offset:], layers.LayerTypeIPv4, gopacket.Default)
-
-		if !t.filter.DropOutput(packet) {
+		if !t.filter.DropOutput(buf[offset:]) {
 			filteredBufs = append(filteredBufs, buf)
 			dropped++
 		}
