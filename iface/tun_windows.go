@@ -21,7 +21,7 @@ type tunDevice struct {
 	iceBind      *bind.ICEBind
 	mtu          int
 	uapi         net.Listener
-	wrapper      *TunWrapper
+	wrapper      *DeviceWrapper
 	close        chan struct{}
 }
 
@@ -51,7 +51,7 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.wrapper = newTunInjection(tunIface)
+	c.wrapper = newDeviceWrapper(tunIface)
 
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))

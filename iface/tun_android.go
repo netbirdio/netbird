@@ -22,7 +22,7 @@ type tunDevice struct {
 	name    string
 	device  *device.Device
 	iceBind *bind.ICEBind
-	wrapper *TunWrapper
+	wrapper *DeviceWrapper
 }
 
 func newTunDevice(address WGAddress, mtu int, routes []string, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
@@ -50,7 +50,7 @@ func (t *tunDevice) Create() error {
 		return err
 	}
 	t.name = name
-	t.wrapper = newTunInjection(tunDevice)
+	t.wrapper = newDeviceWrapper(tunDevice)
 
 	log.Debugf("attaching to interface %v", name)
 	t.device = device.NewDevice(t.wrapper, t.iceBind, device.NewLogger(device.LogLevelSilent, "[wiretrustee] "))

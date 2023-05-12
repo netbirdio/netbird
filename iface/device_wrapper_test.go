@@ -10,7 +10,7 @@ import (
 	mocks "github.com/netbirdio/netbird/iface/mocks"
 )
 
-func TestTunWrapperRead(t *testing.T) {
+func TestDeviceWrapperRead(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
