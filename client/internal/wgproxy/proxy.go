@@ -2,8 +2,10 @@ package wgproxy
 
 import (
 	"fmt"
-	log "github.com/sirupsen/logrus"
 	"net"
+	"sync"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type WGProxy struct {
@@ -11,11 +13,11 @@ type WGProxy struct {
 	ebpf       *eBPF
 
 	conn              *net.UDPConn
-	lastUsedPort      int
+	lastUsedPort      uint16
 	localWGListenAddr *net.UDPAddr
 
-	// todo: it is not thread safe
-	conns map[int]net.Conn
+	turnConnStore map[uint16]net.Conn
+	turnConnMutex sync.Mutex
 }
 
 // NewWGProxy
@@ -34,7 +36,7 @@ func NewWGProxy(proxyPort int, wgPort int) (*WGProxy, error) {
 		localWGListenAddr: wgLAddr,
 		ebpf:              newEBPF(),
 		lastUsedPort:      0,
-		conns:             make(map[int]net.Conn),
+		turnConnStore:     make(map[uint16]net.Conn),
 	}, nil
 }
 
@@ -58,40 +60,37 @@ func (p *WGProxy) Listen() error {
 	return nil
 }
 
-func (p *WGProxy) TurnConn(conn net.Conn) (net.Addr, error) {
-	localWgDstPort := p.nextFreePort()
-
-	srcAddress := &net.UDPAddr{
+func (p *WGProxy) TurnConn(turnConn net.Conn) (net.Addr, error) {
+	wgEndpointPort := p.storeTurnConn(turnConn)
+	wgEndpoint := &net.UDPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: localWgDstPort,
+		Port: int(wgEndpointPort),
 	}
 
-	localConn, err := net.DialUDP("udp", srcAddress, p.localWGListenAddr)
+	localConn, err := net.DialUDP("udp", wgEndpoint, p.localWGListenAddr)
 	if err != nil {
+		p.removeTurnConn(wgEndpointPort)
 		return nil, err
 	}
 
-	p.conns[localWgDstPort] = conn
-
-	go p.proxyToLocal(localConn, conn)
-	log.Debugf("turn conn added to local proxy")
+	go p.proxyToLocal(wgEndpointPort, localConn, turnConn)
+	log.Debugf("turn conn added to wg proxy store: %s, port id: %d", turnConn.RemoteAddr(), wgEndpointPort)
 	return localConn.LocalAddr(), nil
 }
 
-// todo error handling
-func (p *WGProxy) proxyToLocal(localConn, remoteConn net.Conn) {
+func (p *WGProxy) proxyToLocal(id uint16, localConn, remoteConn net.Conn) {
 	for {
 		buf := make([]byte, 1500)
 		n, err := remoteConn.Read(buf)
 		if err != nil {
-			log.Errorf("failed to read from UDP: %s", err)
-			continue
+			log.Errorf("failed to read from turn conn (%d): %s", id, err)
+			p.removeTurnConn(id)
+			return
 		}
-		log.Tracef("received pkg from turn: %d", n)
 
 		_, err = localConn.Write(buf[:n])
 		if err != nil {
-			log.Debugf("failed to write out turn pkg to local conn: %v", err)
+			log.Errorf("failed to write out turn pkg to local conn: %v", err)
 		}
 	}
 }
@@ -102,28 +101,41 @@ func (p *WGProxy) proxyToRemote() {
 		buf := make([]byte, 1500)
 		n, addr, err := p.conn.ReadFromUDP(buf)
 		if err != nil {
-			log.Errorf("failed to read from UDP: %s", err)
+			log.Errorf("failed to read UDP pkg from WG: %s", err)
 			continue
 		}
 
-		conn, ok := p.conns[addr.Port]
+		conn, ok := p.turnConnStore[uint16(addr.Port)]
 		if !ok {
-			log.Errorf("local conn not found by port: %d", addr.Port)
+			log.Errorf("turn conn not found by port: %d", addr.Port)
 			continue
 		}
-
-		log.Tracef("forward local wg pgk to turn conn: %d", n)
 
 		_, err = conn.Write(buf[:n])
 		if err != nil {
-			log.Debugf("failed to forward local wg pkg to remote turn conn: %v", err)
+			log.Debugf("failed to forward local wg pkg (%d) to remote turn conn: %s", addr.Port, err)
 		}
 	}
 }
 
-// todo threadSafe
-// todo handle overflow
-func (p *WGProxy) nextFreePort() int {
-	p.lastUsedPort++
+func (p *WGProxy) storeTurnConn(turnConn net.Conn) uint16 {
+	p.turnConnMutex.Lock()
+	p.turnConnMutex.Unlock()
+
+	port := p.nextFreePort()
+	p.turnConnStore[port] = turnConn
+	return port
+}
+
+func (p *WGProxy) removeTurnConn(turnConnID uint16) {
+	log.Tracef("remove turn conn from store by port: %d", turnConnID)
+	p.turnConnMutex.Lock()
+	p.turnConnMutex.Unlock()
+	delete(p.turnConnStore, turnConnID)
+
+}
+
+func (p *WGProxy) nextFreePort() uint16 {
+	p.lastUsedPort = p.lastUsedPort + 1 | 1
 	return p.lastUsedPort
 }

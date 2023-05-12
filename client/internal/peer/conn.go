@@ -332,7 +332,7 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
-	log.Infof("connected to peer %s, remote address: %s", conn.config.Key, remoteAddr.String())
+	log.Infof("connected to peer %s, endpoint address: %s", conn.config.Key, remoteAddr.String())
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
