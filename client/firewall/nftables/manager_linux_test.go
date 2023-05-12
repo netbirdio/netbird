@@ -80,7 +80,7 @@ func TestNftablesManager(t *testing.T) {
 		&expr.Payload{
 			DestRegister: 1,
 			Base:         expr.PayloadBaseTransportHeader,
-			Offset:       0,
+			Offset:       2,
 			Len:          2,
 		},
 		&expr.Cmp{

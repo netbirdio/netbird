@@ -34,7 +34,7 @@ func TestIptablesManager(t *testing.T) {
 		rule1, err = manager.AddFiltering(ip, "tcp", nil, port, fw.DirectionDst, fw.ActionAccept, "accept HTTP traffic")
 		require.NoError(t, err, "failed to add rule")
 
-		checkRuleSpecs(t, ipv4Client, true, rule1.(*Rule).specs...)
+		checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, true, rule1.(*Rule).specs...)
 	})
 
 	var rule2 fw.Rule
@@ -44,10 +44,10 @@ func TestIptablesManager(t *testing.T) {
 			Values: []int{8043: 8046},
 		}
 		rule2, err = manager.AddFiltering(
-			ip, "tcp", nil, port, fw.DirectionDst, fw.ActionAccept, "accept HTTPS traffic from ports range")
+			ip, "tcp", port, nil, fw.DirectionSrc, fw.ActionAccept, "accept HTTPS traffic from ports range")
 		require.NoError(t, err, "failed to add rule")
 
-		checkRuleSpecs(t, ipv4Client, true, rule2.(*Rule).specs...)
+		checkRuleSpecs(t, ipv4Client, ChainInputFilterName, true, rule2.(*Rule).specs...)
 	})
 
 	t.Run("delete first rule", func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestIptablesManager(t *testing.T) {
 			require.NoError(t, err, "failed to delete rule")
 		}
 
-		checkRuleSpecs(t, ipv4Client, false, rule1.(*Rule).specs...)
+		checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, false, rule1.(*Rule).specs...)
 	})
 
 	t.Run("delete second rule", func(t *testing.T) {
@@ -63,7 +63,7 @@ func TestIptablesManager(t *testing.T) {
 			require.NoError(t, err, "failed to delete rule")
 		}
 
-		checkRuleSpecs(t, ipv4Client, false, rule2.(*Rule).specs...)
+		checkRuleSpecs(t, ipv4Client, ChainInputFilterName, false, rule2.(*Rule).specs...)
 	})
 
 	t.Run("reset check", func(t *testing.T) {
@@ -85,8 +85,8 @@ func TestIptablesManager(t *testing.T) {
 	})
 }
 
-func checkRuleSpecs(t *testing.T, ipv4Client *iptables.IPTables, mustExists bool, rulespec ...string) {
-	exists, err := ipv4Client.Exists("filter", ChainInputFilterName, rulespec...)
+func checkRuleSpecs(t *testing.T, ipv4Client *iptables.IPTables, chainName string, mustExists bool, rulespec ...string) {
+	exists, err := ipv4Client.Exists("filter", chainName, rulespec...)
 	require.NoError(t, err, "failed to check rule")
 	require.Falsef(t, !exists && mustExists, "rule '%v' does not exist", rulespec)
 	require.Falsef(t, exists && !mustExists, "rule '%v' exist", rulespec)

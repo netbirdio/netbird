@@ -27,9 +27,9 @@ type Manager interface {
 
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
-	manager firewall.Manager
-	rules   map[string][]firewall.Rule
-	mutex   sync.Mutex
+	manager    firewall.Manager
+	rulesPairs map[string][]firewall.Rule
+	mutex      sync.Mutex
 }
 
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
@@ -68,7 +68,7 @@ func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule) {
 		return
 	}
 
-	for ruleID, rules := range d.rules {
+	for ruleID, rules := range d.rulesPairs {
 		if _, ok := newRules[ruleID]; !ok {
 			for _, rule := range rules {
 				if err := d.manager.DeleteRule(rule); err != nil {
@@ -76,10 +76,10 @@ func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule) {
 					continue
 				}
 			}
-			delete(d.rules, ruleID)
+			delete(d.rulesPairs, ruleID)
 		}
 	}
-	d.rules = newRules
+	d.rulesPairs = newRules
 }
 
 // Stop ACL controller and clear firewall state
@@ -172,6 +172,6 @@ func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) []fir
 		rules = append(rules, rule)
 	}
 
-	d.rules[ruleID] = rules
+	d.rulesPairs[ruleID] = rules
 	return rules
 }
