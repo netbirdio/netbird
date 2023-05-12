@@ -13,6 +13,7 @@ import (
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -108,7 +109,7 @@ type Conn struct {
 
 	statusRecorder *Status
 
-	proxy        *WireGuardProxy
+	wgProxy      *wgproxy.WGProxy
 	remoteModeCh chan ModeMessage
 	meta         meta
 
@@ -144,7 +145,7 @@ func (conn *Conn) UpdateStunTurn(turnStun []*ice.URL) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status, wgProxy *wgproxy.WGProxy, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -154,6 +155,7 @@ func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
 		remoteModeCh:   make(chan ModeMessage, 1),
+		wgProxy:        wgProxy,
 		adapter:        adapter,
 		iFaceDiscover:  iFaceDiscover,
 	}, nil
@@ -330,7 +332,7 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
-	log.Infof("connected to peer %s, proxy: %v, remote address: %s", conn.config.Key, conn.proxy != nil, remoteAddr.String())
+	log.Infof("connected to peer %s, remote address: %s", conn.config.Key, remoteAddr.String())
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
@@ -358,14 +360,16 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 	}
 
 	var endpoint net.Addr
+	var direct bool
 	if isRelayCandidate(pair.Local) {
-		conn.proxy = NewWireGuardProxy(conn.config.WgConfig.WgListenPort, conn.config.WgConfig.RemoteKey, remoteConn)
-		endpoint, err = conn.proxy.Start()
+		log.Debugf("setup relay connection")
+		direct = false
+		endpoint, err = conn.wgProxy.TurnConn(remoteConn)
 		if err != nil {
-			conn.proxy = nil
 			return nil, err
 		}
 	} else {
+		direct = true
 		// To support old version's with direct mode we attempt to punch an additional role with the remote wireguard port
 		go conn.punchRemoteWGPort(pair, remoteWgPort)
 		endpoint = remoteConn.RemoteAddr()
@@ -373,9 +377,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 
 	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpoint, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
-		if conn.proxy != nil {
-			_ = conn.proxy.Close()
-		}
+		// todo remove from proxy
 		return nil, err
 	}
 
@@ -387,7 +389,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 		ConnStatusUpdate:       time.Now(),
 		LocalIceCandidateType:  pair.Local.Type().String(),
 		RemoteIceCandidateType: pair.Remote.Type().String(),
-		Direct:                 conn.proxy == nil,
+		Direct:                 direct,
 	}
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
@@ -437,13 +439,6 @@ func (conn *Conn) cleanup() error {
 
 	// todo: is it problem if we try to remove a peer what is never existed?
 	err2 = conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
-
-	if conn.proxy != nil {
-		err3 = conn.proxy.Close()
-		if err3 != nil {
-			conn.proxy = nil
-		}
-	}
 
 	if conn.notifyDisconnected != nil {
 		conn.notifyDisconnected()

@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"io"
 	"math/rand"
 	"net"
@@ -101,6 +102,7 @@ type Engine struct {
 	ctx context.Context
 
 	wgInterface *iface.WGIface
+	wgProxy     *wgproxy.WGProxy
 
 	udpMux     *bind.UniversalUDPMuxDefault
 	udpMuxConn io.Closer
@@ -180,6 +182,16 @@ func (e *Engine) Start() error {
 	transportNet, err := e.newStdNet()
 	if err != nil {
 		log.Errorf("failed to create pion's stdnet: %s", err)
+	}
+
+	e.wgProxy, err = wgproxy.NewWGProxy(8081, e.config.WgPort)
+	if err != nil {
+		return err
+	}
+
+	err = e.wgProxy.Listen()
+	if err != nil {
+		return err
 	}
 
 	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
@@ -846,7 +858,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
+	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxy, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
 	if err != nil {
 		return nil, err
 	}

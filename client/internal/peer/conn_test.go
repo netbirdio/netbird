@@ -10,7 +10,6 @@ import (
 	"github.com/magiconair/properties/assert"
 	"github.com/pion/ice/v2"
 
-	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/iface"
 )
 
@@ -20,7 +19,7 @@ var connConf = ConnConfig{
 	StunTurn:           []*ice.URL{},
 	InterfaceBlackList: nil,
 	Timeout:            time.Second,
-	ProxyConfig:        proxy.Config{},
+	ProxyConfig:        wgproxy.Config{},
 	LocalWgPort:        51820,
 }
 
