@@ -163,8 +163,29 @@ func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	//TODO implement me
-	panic("implement me")
+	var pendingInvite bool
+	if appMetadata.WTPendingInvite != nil {
+		pendingInvite = *appMetadata.WTPendingInvite
+	}
+
+	_, resp, err := om.client.User.UpdateUser(context.Background(), userID,
+		okta.User{
+			Profile: &okta.UserProfile{
+				wtAccountID:     appMetadata.WTAccountID,
+				wtPendingInvite: pendingInvite,
+			},
+		},
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unable to update user, statusCode %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 // updateUserProfileSchema updates the Okta user schema to include custom fields,
