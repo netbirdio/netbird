@@ -1,19 +1,17 @@
 package idp
 
 import (
+	"context"
 	"fmt"
-	"github.com/golang-jwt/jwt"
 	"github.com/netbirdio/netbird/management/server/telemetry"
-	log "github.com/sirupsen/logrus"
-	"io"
+	"github.com/okta/okta-sdk-golang/v2/okta"
 	"net/http"
-	"net/url"
-	"strings"
 	"sync"
 	"time"
 )
 
 type OktaManager struct {
+	client      *okta.Client
 	httpClient  ManagerHTTPClient
 	credentials ManagerCredentials
 	helper      ManagerHelper
@@ -22,9 +20,9 @@ type OktaManager struct {
 
 // OktaClientConfig okta manager client configurations.
 type OktaClientConfig struct {
-	ClientID      string
-	ClientSecret  string
+	ApiToken      string
 	Issuer        string
+	AppInstanceID string
 	TokenEndpoint string
 	GrantType     string
 }
@@ -55,12 +53,25 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 	config.TokenEndpoint = oidcConfig.TokenEndpoint
 	config.GrantType = "client_credentials"
 
-	if config.ClientID == "" {
-		return nil, fmt.Errorf("okta IdP configuration is incomplete, clientID is missing")
+	if config.ApiToken == "" {
+		return nil, fmt.Errorf("okta IdP configuration is incomplete, ApiToken is missing")
 	}
 
-	if config.ClientSecret == "" {
-		return nil, fmt.Errorf("okta IdP configuration is incomplete, ClientSecret is missing")
+	if config.AppInstanceID == "" {
+		return nil, fmt.Errorf("okta IdP configuration is incomplete, AppInstanceID is missing")
+	}
+
+	_, client, err := okta.NewClient(context.Background(),
+		okta.WithOrgUrl(config.Issuer),
+		okta.WithToken(config.ApiToken),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	err = updateUserProfileSchema(client, config.AppInstanceID)
+	if err != nil {
+		return nil, err
 	}
 
 	credentials := &OktaCredentials{
@@ -71,6 +82,7 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 	}
 
 	return &OktaManager{
+		client:      client,
 		httpClient:  httpClient,
 		credentials: credentials,
 		helper:      helper,
@@ -78,109 +90,8 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 	}, nil
 }
 
-// jwtStillValid returns true if the token still valid and have enough time to be used and get a response from keycloak.
-func (oc *OktaCredentials) jwtStillValid() bool {
-	return !oc.jwtToken.expiresInTime.IsZero() && time.Now().Add(5*time.Second).Before(oc.jwtToken.expiresInTime)
-}
-
-// requestJWTToken performs request to get jwt token.
-func (oc *OktaCredentials) requestJWTToken() (*http.Response, error) {
-	data := url.Values{}
-	data.Set("client_id", oc.clientConfig.ClientID)
-	data.Set("client_secret", oc.clientConfig.ClientSecret)
-	data.Set("grant_type", oc.clientConfig.GrantType)
-	data.Set("scope", "api")
-
-	payload := strings.NewReader(data.Encode())
-	tokenURL := oc.clientConfig.Issuer + "/oauth2/default/v1/token"
-	req, err := http.NewRequest(http.MethodPost, tokenURL, payload)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Add("content-type", "application/x-www-form-urlencoded")
-
-	log.Debug("requesting new jwt token for okta idp manager")
-
-	resp, err := oc.httpClient.Do(req)
-	if err != nil {
-		if oc.appMetrics != nil {
-			oc.appMetrics.IDPMetrics().CountRequestError()
-		}
-
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unable to get okta token, statusCode %d", resp.StatusCode)
-	}
-
-	return resp, nil
-}
-
-// parseRequestJWTResponse parses jwt raw response body and extracts token and expires in seconds
-func (oc *OktaCredentials) parseRequestJWTResponse(rawBody io.ReadCloser) (JWTToken, error) {
-	jwtToken := JWTToken{}
-	body, err := io.ReadAll(rawBody)
-	if err != nil {
-		return jwtToken, err
-	}
-
-	err = oc.helper.Unmarshal(body, &jwtToken)
-	if err != nil {
-		return jwtToken, err
-	}
-
-	if jwtToken.ExpiresIn == 0 && jwtToken.AccessToken == "" {
-		return jwtToken, fmt.Errorf("error while reading response body, expires_in: %d and access_token: %s",
-			jwtToken.ExpiresIn,
-			jwtToken.AccessToken,
-		)
-	}
-
-	data, err := jwt.DecodeSegment(strings.Split(jwtToken.AccessToken, ".")[1])
-	if err != nil {
-		return jwtToken, err
-	}
-
-	// Exp maps into exp from jwt token
-	var IssuedAt struct{ Exp int64 }
-	err = oc.helper.Unmarshal(data, &IssuedAt)
-	if err != nil {
-		return jwtToken, err
-	}
-	jwtToken.expiresInTime = time.Unix(IssuedAt.Exp, 0)
-
-	return jwtToken, nil
-}
-
 func (oc *OktaCredentials) Authenticate() (JWTToken, error) {
-	oc.mux.Lock()
-	defer oc.mux.Unlock()
-
-	if oc.appMetrics != nil {
-		oc.appMetrics.IDPMetrics().CountAuthenticate()
-	}
-
-	// reuse the token without requesting a new one if it is not expired,
-	// and if expiry time is sufficient time available to make a request.
-	if oc.jwtStillValid() {
-		return oc.jwtToken, nil
-	}
-
-	resp, err := oc.requestJWTToken()
-	if err != nil {
-		return oc.jwtToken, err
-	}
-	defer resp.Body.Close()
-
-	jwtToken, err := oc.parseRequestJWTResponse(resp.Body)
-	if err != nil {
-		return oc.jwtToken, err
-	}
-
-	oc.jwtToken = jwtToken
-
-	return oc.jwtToken, nil
+	return JWTToken{}, nil
 }
 
 func (om *OktaManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
@@ -211,4 +122,49 @@ func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
 func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	//TODO implement me
 	panic("implement me")
+}
+
+// updateUserProfileSchema updates the Okta user schema to include custom fields,
+// wt_account_id and wt_pending_invite.
+func updateUserProfileSchema(client *okta.Client, appInstanceID string) error {
+	required := true
+	_, resp, err := client.UserSchema.UpdateApplicationUserProfile(
+		context.Background(),
+		appInstanceID,
+		okta.UserSchema{
+			Definitions: &okta.UserSchemaDefinitions{
+				Custom: &okta.UserSchemaPublic{
+					Id:   "#custom",
+					Type: "object",
+					Properties: map[string]*okta.UserSchemaAttribute{
+						wtAccountID: {
+							MaxLength: 100,
+							MinLength: 1,
+							Required:  &required,
+							Scope:     "NONE",
+							Title:     "Wt Account Id",
+							Type:      "string",
+						},
+						wtPendingInvite: {
+							MaxLength: 100,
+							MinLength: 1,
+							Required:  new(bool),
+							Scope:     "NONE",
+							Title:     "Wt Account Id",
+							Type:      "string",
+						},
+					},
+					Required: []string{wtAccountID},
+				},
+			},
+		})
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unable to update user profile schema, statusCode %d", resp.StatusCode)
+	}
+
+	return nil
 }
