@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v2/okta/query"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -95,8 +97,49 @@ func (oc *OktaCredentials) Authenticate() (JWTToken, error) {
 }
 
 func (om *OktaManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	var (
+		sendEmail   = true
+		activate    = true
+		userProfile = okta.UserProfile{
+			"email":         email,
+			"login":         email,
+			wtAccountID:     accountID,
+			wtPendingInvite: true,
+		}
+	)
+
+	fields := strings.Fields(name)
+	if n := len(fields); n > 0 {
+		userProfile["firstName"] = strings.Join(fields[:n-1], " ")
+		userProfile["lastName"] = fields[n-1]
+	}
+
+	user, resp, err := om.client.User.CreateUser(context.Background(),
+		okta.CreateUserRequest{
+			Profile: &userProfile,
+		},
+		&query.Params{
+			Activate:  &activate,
+			SendEmail: &sendEmail,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if om.appMetrics != nil {
+		om.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return nil, fmt.Errorf("unable to create user, statusCode %d", resp.StatusCode)
+	}
+
+	return parseOktaUser(user)
 }
 
 func (om *OktaManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
@@ -128,9 +171,9 @@ func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetad
 // wt_account_id and wt_pending_invite.
 func updateUserProfileSchema(client *okta.Client, appInstanceID string) error {
 	required := true
-	_, resp, err := client.UserSchema.UpdateApplicationUserProfile(
+	_, resp, err := client.UserSchema.UpdateUserProfile(
 		context.Background(),
-		appInstanceID,
+		"default",
 		okta.UserSchema{
 			Definitions: &okta.UserSchemaDefinitions{
 				Custom: &okta.UserSchemaPublic{
@@ -146,15 +189,12 @@ func updateUserProfileSchema(client *okta.Client, appInstanceID string) error {
 							Type:      "string",
 						},
 						wtPendingInvite: {
-							MaxLength: 100,
-							MinLength: 1,
-							Required:  new(bool),
-							Scope:     "NONE",
-							Title:     "Wt Account Id",
-							Type:      "string",
+							Required: new(bool),
+							Scope:    "NONE",
+							Title:    "Wt Account Id",
+							Type:     "boolean",
 						},
 					},
-					Required: []string{wtAccountID},
 				},
 			},
 		})
@@ -167,4 +207,9 @@ func updateUserProfileSchema(client *okta.Client, appInstanceID string) error {
 	}
 
 	return nil
+}
+
+// parseOktaUserToUserData parse okta user
+func parseOktaUser(user *okta.User) (*UserData, error) {
+	return nil, nil
 }
