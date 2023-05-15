@@ -32,6 +32,10 @@ func newFileConfigurator() (hostManager, error) {
 	return &fileConfigurator{}, nil
 }
 
+func (f *fileConfigurator) supportCustomPort() bool {
+	return false
+}
+
 func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 	backupFileExist := false
 	_, err := os.Stat(fileDefaultResolvConfBackupLocation)
