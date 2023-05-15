@@ -13,6 +13,7 @@ import (
 	"time"
 )
 
+// OktaManager okta manager client instance.
 type OktaManager struct {
 	client      *okta.Client
 	httpClient  ManagerHTTPClient
@@ -88,10 +89,12 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 	}, nil
 }
 
+// Authenticate retrieves access token to use the okta user API.
 func (oc *OktaCredentials) Authenticate() (JWTToken, error) {
 	return JWTToken{}, nil
 }
 
+// CreateUser creates a new user in okta Idp and sends an invitation.
 func (om *OktaManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
 	var (
 		sendEmail   = true
@@ -137,6 +140,7 @@ func (om *OktaManager) CreateUser(email string, name string, accountID string) (
 	return parseOktaUser(user)
 }
 
+// GetUserDataByID requests user data from keycloak via ID.
 func (om *OktaManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
 	user, resp, err := om.client.User.GetUser(context.Background(), userID)
 	if err != nil {
@@ -157,6 +161,8 @@ func (om *OktaManager) GetUserDataByID(userID string, appMetadata AppMetadata) (
 	return parseOktaUser(user)
 }
 
+// GetUserByEmail searches users with a given email.
+// If no users have been found, this function returns an empty list.
 func (om *OktaManager) GetUserByEmail(email string) ([]*UserData, error) {
 	user, resp, err := om.client.User.GetUser(context.Background(), url.QueryEscape(email))
 	if err != nil {
@@ -184,6 +190,7 @@ func (om *OktaManager) GetUserByEmail(email string) ([]*UserData, error) {
 	return users, nil
 }
 
+// GetAccount returns all the users for a given profile.
 func (om *OktaManager) GetAccount(accountID string) ([]*UserData, error) {
 	search := fmt.Sprintf("profile.wt_account_id eq %q", accountID)
 	users, resp, err := om.client.User.ListUsers(context.Background(), &query.Params{Search: search})
@@ -215,6 +222,8 @@ func (om *OktaManager) GetAccount(accountID string) ([]*UserData, error) {
 	return list, nil
 }
 
+// GetAllAccounts gets all registered accounts with corresponding user data.
+// It returns a list of users indexed by accountID.
 func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
 	users, resp, err := om.client.User.ListUsers(context.Background(), nil)
 	if err != nil {
@@ -326,7 +335,7 @@ func updateUserProfileSchema(client *okta.Client) error {
 	return nil
 }
 
-// parseOktaUserToUserData parse okta user
+// parseOktaUserToUserData parse okta user to UserData.
 func parseOktaUser(user *okta.User) (*UserData, error) {
 	var oktaUser struct {
 		Email         string `json:"email"`
