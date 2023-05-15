@@ -276,5 +276,38 @@ func updateUserProfileSchema(client *okta.Client, appInstanceID string) error {
 
 // parseOktaUserToUserData parse okta user
 func parseOktaUser(user *okta.User) (*UserData, error) {
-	return nil, nil
+	var oktaUser struct {
+		Email         string `json:"email"`
+		FirstName     string `json:"firstName"`
+		LastName      string `json:"lastName"`
+		AccountID     string `json:"wt_account_id"`
+		PendingInvite bool   `json:"wt_pending_invite"`
+	}
+
+	if user == nil {
+		return nil, fmt.Errorf("invalid okta user")
+	}
+
+	if user.Profile != nil {
+		helper := JsonParser{}
+		buf, err := helper.Marshal(*user.Profile)
+		if err != nil {
+			return nil, err
+		}
+
+		err = helper.Unmarshal(buf, &oktaUser)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &UserData{
+		Email: oktaUser.Email,
+		Name:  strings.Join([]string{oktaUser.FirstName, oktaUser.LastName}, " "),
+		ID:    user.Id,
+		AppMetadata: AppMetadata{
+			WTAccountID:     oktaUser.AccountID,
+			WTPendingInvite: &oktaUser.PendingInvite,
+		},
+	}, nil
 }
