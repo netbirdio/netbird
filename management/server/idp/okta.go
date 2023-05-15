@@ -25,7 +25,6 @@ type OktaManager struct {
 type OktaClientConfig struct {
 	ApiToken      string
 	Issuer        string
-	AppInstanceID string
 	TokenEndpoint string
 	GrantType     string
 }
