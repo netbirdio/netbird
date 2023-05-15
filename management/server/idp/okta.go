@@ -63,6 +63,7 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 	_, client, err := okta.NewClient(context.Background(),
 		okta.WithOrgUrl(config.Issuer),
 		okta.WithToken(config.ApiToken),
+		okta.WithHttpClientPtr(httpClient),
 	)
 	if err != nil {
 		return nil, err
