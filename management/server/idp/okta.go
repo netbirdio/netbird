@@ -60,10 +60,6 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 		return nil, fmt.Errorf("okta IdP configuration is incomplete, ApiToken is missing")
 	}
 
-	if config.AppInstanceID == "" {
-		return nil, fmt.Errorf("okta IdP configuration is incomplete, AppInstanceID is missing")
-	}
-
 	_, client, err := okta.NewClient(context.Background(),
 		okta.WithOrgUrl(config.Issuer),
 		okta.WithToken(config.ApiToken),
@@ -72,7 +68,7 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 		return nil, err
 	}
 
-	err = updateUserProfileSchema(client, config.AppInstanceID)
+	err = updateUserProfileSchema(client)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +230,7 @@ func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetad
 
 // updateUserProfileSchema updates the Okta user schema to include custom fields,
 // wt_account_id and wt_pending_invite.
-func updateUserProfileSchema(client *okta.Client, appInstanceID string) error {
+func updateUserProfileSchema(client *okta.Client) error {
 	required := true
 	_, resp, err := client.UserSchema.UpdateUserProfile(
 		context.Background(),
