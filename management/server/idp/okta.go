@@ -185,8 +185,34 @@ func (om *OktaManager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 func (om *OktaManager) GetAccount(accountID string) ([]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	search := fmt.Sprintf("profile.wt_account_id eq %q", accountID)
+	users, resp, err := om.client.User.ListUsers(context.Background(), &query.Params{Search: search})
+	if err != nil {
+		return nil, err
+	}
+
+	if om.appMetrics != nil {
+		om.appMetrics.IDPMetrics().CountGetAccount()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get account, statusCode %d", resp.StatusCode)
+	}
+
+	list := make([]*UserData, 0)
+	for _, user := range users {
+		userData, err := parseOktaUser(user)
+		if err != nil {
+			return nil, err
+		}
+
+		list = append(list, userData)
+	}
+
+	return list, nil
 }
 
 func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
