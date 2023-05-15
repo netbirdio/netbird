@@ -7,6 +7,7 @@ import (
 	"github.com/okta/okta-sdk-golang/v2/okta"
 	"github.com/okta/okta-sdk-golang/v2/okta/query"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -135,7 +136,6 @@ func (om *OktaManager) CreateUser(email string, name string, accountID string) (
 		if om.appMetrics != nil {
 			om.appMetrics.IDPMetrics().CountRequestStatusError()
 		}
-
 		return nil, fmt.Errorf("unable to create user, statusCode %d", resp.StatusCode)
 	}
 
@@ -143,13 +143,50 @@ func (om *OktaManager) CreateUser(email string, name string, accountID string) (
 }
 
 func (om *OktaManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	user, resp, err := om.client.User.GetUser(context.Background(), userID)
+	if err != nil {
+		return nil, err
+	}
+
+	if om.appMetrics != nil {
+		om.appMetrics.IDPMetrics().CountGetUserDataByID()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get user %s, statusCode %d", userID, resp.StatusCode)
+	}
+
+	return parseOktaUser(user)
 }
 
 func (om *OktaManager) GetUserByEmail(email string) ([]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	user, resp, err := om.client.User.GetUser(context.Background(), url.QueryEscape(email))
+	if err != nil {
+		return nil, err
+	}
+
+	if om.appMetrics != nil {
+		om.appMetrics.IDPMetrics().CountGetUserByEmail()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get user %s, statusCode %d", email, resp.StatusCode)
+	}
+
+	userData, err := parseOktaUser(user)
+	if err != nil {
+		return nil, err
+	}
+	users := make([]*UserData, 0)
+	users = append(users, userData)
+
+	return users, nil
 }
 
 func (om *OktaManager) GetAccount(accountID string) ([]*UserData, error) {
@@ -181,7 +218,14 @@ func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetad
 		return err
 	}
 
+	if om.appMetrics != nil {
+		om.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
+	}
+
 	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
 		return fmt.Errorf("unable to update user, statusCode %d", resp.StatusCode)
 	}
 
