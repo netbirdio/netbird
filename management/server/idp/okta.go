@@ -216,8 +216,39 @@ func (om *OktaManager) GetAccount(accountID string) ([]*UserData, error) {
 }
 
 func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	users, resp, err := om.client.User.ListUsers(context.Background(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if om.appMetrics != nil {
+		om.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
+	}
+
+	indexedUsers := make(map[string][]*UserData)
+	for _, user := range users {
+		userData, err := parseOktaUser(user)
+		if err != nil {
+			return nil, err
+		}
+
+		accountID := userData.AppMetadata.WTAccountID
+		if accountID != "" {
+			if _, ok := indexedUsers[accountID]; !ok {
+				indexedUsers[accountID] = make([]*UserData, 0)
+			}
+			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
+		}
+	}
+
+	return indexedUsers, nil
 }
 
 func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
