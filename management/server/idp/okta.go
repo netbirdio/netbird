@@ -3,13 +3,14 @@ package idp
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/okta/okta-sdk-golang/v2/okta"
-	"github.com/okta/okta-sdk-golang/v2/okta/query"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/okta/okta-sdk-golang/v2/okta"
+	"github.com/okta/okta-sdk-golang/v2/okta/query"
 )
 
 // OktaManager okta manager client instance.
@@ -23,7 +24,7 @@ type OktaManager struct {
 
 // OktaClientConfig okta manager client configurations.
 type OktaClientConfig struct {
-	ApiToken      string
+	APIToken      string
 	Issuer        string
 	TokenEndpoint string
 	GrantType     string
@@ -53,13 +54,13 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 	config.TokenEndpoint = oidcConfig.TokenEndpoint
 	config.GrantType = "client_credentials"
 
-	if config.ApiToken == "" {
-		return nil, fmt.Errorf("okta IdP configuration is incomplete, ApiToken is missing")
+	if config.APIToken == "" {
+		return nil, fmt.Errorf("okta IdP configuration is incomplete, APIToken is missing")
 	}
 
 	_, client, err := okta.NewClient(context.Background(),
 		okta.WithOrgUrl(config.Issuer),
-		okta.WithToken(config.ApiToken),
+		okta.WithToken(config.APIToken),
 		okta.WithHttpClientPtr(httpClient),
 	)
 	if err != nil {
@@ -258,6 +259,7 @@ func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
 	return indexedUsers, nil
 }
 
+// UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	var pendingInvite bool
 	if appMetadata.WTPendingInvite != nil {
@@ -315,7 +317,7 @@ func updateUserProfileSchema(client *okta.Client) error {
 						wtPendingInvite: {
 							Required: new(bool),
 							Scope:    "NONE",
-							Title:    "Wt Account Id",
+							Title:    "Wt Pending Invite",
 							Type:     "boolean",
 						},
 					},
