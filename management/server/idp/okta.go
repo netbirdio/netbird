@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -35,8 +34,6 @@ type OktaCredentials struct {
 	clientConfig OktaClientConfig
 	helper       ManagerHelper
 	httpClient   ManagerHTTPClient
-	jwtToken     JWTToken
-	mux          sync.Mutex
 	appMetrics   telemetry.AppMetrics
 }
 
