@@ -49,7 +49,7 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 	}
 
 	helper := JsonParser{}
-	config.Issuer = oidcConfig.Issuer
+	config.Issuer = baseURL(oidcConfig.Issuer)
 	config.TokenEndpoint = oidcConfig.TokenEndpoint
 	config.GrantType = "client_credentials"
 
