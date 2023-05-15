@@ -19,8 +19,8 @@ func Create(iface iFaceMapper) (manager *DefaultManager, err error) {
 			return nil, err
 		}
 		return &DefaultManager{
-			manager: fm,
-			rules:   make(map[string]firewall.Rule),
+			manager:    fm,
+			rulesPairs: make(map[string][]firewall.Rule),
 		}, nil
 	}
 	return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
