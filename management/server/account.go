@@ -21,13 +21,13 @@ import (
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
-	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -1174,7 +1174,7 @@ func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *Use
 	secret := token[len(PATPrefix) : len(PATPrefix)+PATSecretLength]
 	encodedChecksum := token[len(PATPrefix)+PATSecretLength : len(PATPrefix)+PATSecretLength+PATChecksumLength]
 
-	verificationChecksum, err := util.DecodeBase62(encodedChecksum)
+	verificationChecksum, err := base62.Decode(encodedChecksum)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
 	}
