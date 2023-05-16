@@ -150,10 +150,10 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 			return wrapErr(err)
 		}
 
-		md, err := newMobileDependency(tunAdapter, iFaceDiscover, mgmClient)
-		if err != nil {
-			log.Error(err)
-			return wrapErr(err)
+		// in case of non Android os these variables will be nil
+		md := MobileDependency{
+			TunAdapter:    tunAdapter,
+			IFaceDiscover: iFaceDiscover,
 		}
 
 		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, md, statusRecorder)

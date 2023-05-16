@@ -24,14 +24,17 @@ type tunDevice struct {
 	iceBind *bind.ICEBind
 }
 
-func newTunDevice(address WGAddress, mtu int, routes []string, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
+func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
 		address:    address,
 		mtu:        mtu,
-		routes:     routes,
 		tunAdapter: tunAdapter,
 		iceBind:    bind.NewICEBind(transportNet),
 	}
+}
+
+func (t *tunDevice) SetRoutes(routes []string) {
+	t.routes = routes
 }
 
 func (t *tunDevice) Create() error {

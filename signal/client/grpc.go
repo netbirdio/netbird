@@ -350,7 +350,7 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 		} else if err != nil {
 			return err
 		}
-		log.Debugf("received a new message from Peer [fingerprint: %s]", msg.Key)
+		log.Tracef("received a new message from Peer [fingerprint: %s]", msg.Key)
 
 		decryptedMessage, err := c.decryptMessage(msg)
 		if err != nil {

@@ -9,7 +9,7 @@ import (
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
-func NewWGIFace(iFaceName string, address string, mtu int, routes []string, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
+func NewWGIFace(iFaceName string, address string, mtu int, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
 	wgIFace := &WGIface{
 		mu: sync.Mutex{},
 	}
@@ -24,4 +24,9 @@ func NewWGIFace(iFaceName string, address string, mtu int, routes []string, tunA
 	wgIFace.configurer = newWGConfigurer(iFaceName)
 	wgIFace.userspaceBind = !WireGuardModuleIsLoaded()
 	return wgIFace, nil
+}
+
+// SetInitialRoutes unused function on non Android
+func (w *WGIface) SetInitialRoutes(routes []string) {
+
 }
