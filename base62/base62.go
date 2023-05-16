@@ -1,4 +1,4 @@
-package util
+package base62
 
 import (
 	"fmt"
@@ -11,8 +11,8 @@ const (
 	base     = uint32(len(alphabet))
 )
 
-// EncodeBase62 encodes a uint32 value to a base62 string.
-func EncodeBase62(num uint32) string {
+// Encode encodes a uint32 value to a base62 string.
+func Encode(num uint32) string {
 	if num == 0 {
 		return string(alphabet[0])
 	}
@@ -32,8 +32,8 @@ func EncodeBase62(num uint32) string {
 	return reversed
 }
 
-// DecodeBase62 decodes a base62 string to a uint32 value.
-func DecodeBase62(encoded string) (uint32, error) {
+// Decode decodes a base62 string to a uint32 value.
+func Decode(encoded string) (uint32, error) {
 	var decoded uint32
 	strLen := len(encoded)
 

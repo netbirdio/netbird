@@ -1,4 +1,4 @@
-package util
+package base62
 
 import (
 	"testing"
@@ -17,8 +17,8 @@ func TestEncodeDecode(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		encoded := EncodeBase62(tt.num)
-		decoded, err := DecodeBase62(encoded)
+		encoded := Encode(tt.num)
+		decoded, err := Decode(encoded)
 
 		if err != nil {
 			t.Errorf("Decode error: %v", err)

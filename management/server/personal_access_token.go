@@ -10,7 +10,7 @@ import (
 	b "github.com/hashicorp/go-secure-stdlib/base62"
 	"github.com/rs/xid"
 
-	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/base62"
 )
 
 const (
@@ -72,7 +72,7 @@ func generateNewToken() (string, string, error) {
 	}
 
 	checksum := crc32.ChecksumIEEE([]byte(secret))
-	encodedChecksum := util.EncodeBase62(checksum)
+	encodedChecksum := base62.Encode(checksum)
 	paddedChecksum := fmt.Sprintf("%06s", encodedChecksum)
 	plainToken := PATPrefix + secret + paddedChecksum
 	hashedToken := sha256.Sum256([]byte(plainToken))

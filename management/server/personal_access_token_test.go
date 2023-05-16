@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/base62"
 )
 
 func TestPAT_GenerateToken_Hashing(t *testing.T) {
@@ -38,7 +38,7 @@ func TestPAT_GenerateToken_Checksum(t *testing.T) {
 	var i big.Int
 	i.SetString(secret, 62)
 	expectedChecksum := crc32.ChecksumIEEE([]byte(secret))
-	actualChecksum, err := util.DecodeBase62(tokenCheckSum)
+	actualChecksum, err := base62.Decode(tokenCheckSum)
 	if err != nil {
 		t.Fatal(err)
 	}
