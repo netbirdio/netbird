@@ -4,11 +4,13 @@ import (
 	"crypto/sha256"
 	b64 "encoding/base64"
 	"hash/crc32"
+	"math/big"
 	"strings"
 	"testing"
 
-	"codeberg.org/ac/base62"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 func TestPAT_GenerateToken_Hashing(t *testing.T) {
@@ -33,8 +35,10 @@ func TestPAT_GenerateToken_Checksum(t *testing.T) {
 	secret := tokenWithoutPrefix[:len(tokenWithoutPrefix)-6]
 	tokenCheckSum := tokenWithoutPrefix[len(tokenWithoutPrefix)-6:]
 
+	var i big.Int
+	i.SetString(secret, 62)
 	expectedChecksum := crc32.ChecksumIEEE([]byte(secret))
-	actualChecksum, err := base62.Decode(tokenCheckSum)
+	actualChecksum, err := util.DecodeBase62(tokenCheckSum)
 	if err != nil {
 		t.Fatal(err)
 	}
