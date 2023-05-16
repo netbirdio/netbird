@@ -100,6 +100,8 @@ func (u *Manager) AddFiltering(
 		if r.ipLayer == layers.LayerTypeIPv6 {
 			r.protoLayer = layers.LayerTypeICMPv6
 		}
+	case fw.ProtocolALL:
+		// just use default 0 value for r.protoLayer
 	}
 
 	u.mutex.RLock()
@@ -191,8 +193,8 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isInputPacket bool
 		return true
 	}
 
-	matchedLayer := ipDecoded.NextLayerType().LayerTypes()[0]
-	switch matchedLayer {
+	payloadLayer := ipDecoded.NextLayerType().LayerTypes()[0]
+	switch payloadLayer {
 	case layers.LayerTypeTCP:
 		if err := u.tcp.DecodeFromBytes(ipDecoded.LayerPayload(), gopacket.NilDecodeFeedback); err != nil {
 			log.Errorf("error decoding tcp packet: %v", err)
@@ -213,6 +215,9 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isInputPacket bool
 			log.Errorf("error decoding icmpv6 packet: %v", err)
 			return false
 		}
+	default:
+		log.Errorf("layer is not allow: %v", payloadLayer)
+		return true
 	}
 
 	// check if IP address match by IP
@@ -240,23 +245,27 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isInputPacket bool
 			}
 		}
 
-		switch matchedLayer {
+		if rule.protoLayer != 0 && payloadLayer != rule.protoLayer {
+			continue
+		}
+
+		switch payloadLayer {
+		case 0:
+			return false
 		case layers.LayerTypeTCP:
-			if rule.dPort != 0 && rule.dPort != uint16(u.tcp.DstPort) {
-				continue
+			if rule.sPort != 0 && rule.sPort == uint16(u.tcp.DstPort) {
+				return rule.drop
 			}
-			if rule.sPort != 0 && rule.sPort != uint16(u.tcp.SrcPort) {
-				continue
+			if rule.dPort != 0 && rule.dPort == uint16(u.tcp.SrcPort) {
+				return rule.drop
 			}
-			return rule.drop
 		case layers.LayerTypeUDP:
-			if rule.dPort != 0 && rule.dPort != uint16(u.udp.DstPort) {
-				continue
+			if rule.sPort != 0 && rule.sPort == uint16(u.udp.DstPort) {
+				return rule.drop
 			}
-			if rule.sPort != 0 && rule.sPort != uint16(u.udp.SrcPort) {
-				continue
+			if rule.dPort != 0 && rule.dPort != uint16(u.udp.SrcPort) {
+				return rule.drop
 			}
-			return rule.drop
 		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
 			return rule.drop
 		}

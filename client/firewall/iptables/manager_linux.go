@@ -107,7 +107,6 @@ func (m *Manager) AddFiltering(
 
 	specs := m.filterRuleSpecs(
 		"filter",
-		ChainInputFilterName,
 		ip,
 		string(protocol),
 		sPortVal,
@@ -120,7 +119,7 @@ func (m *Manager) AddFiltering(
 	if direction == fw.DirectionDst {
 		ok, err := client.Exists("filter", ChainOutputFilterName, specs...)
 		if err != nil {
-			return nil, fmt.Errorf("check is input rule already exists: %w", err)
+			return nil, fmt.Errorf("check is output rule already exists: %w", err)
 		}
 		if ok {
 			return nil, fmt.Errorf("input rule already exists")
@@ -239,7 +238,7 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 
 // filterRuleSpecs returns the specs of a filtering rule
 func (m *Manager) filterRuleSpecs(
-	table string, chain string, ip net.IP, protocol string, sPort, dPort string,
+	table string, ip net.IP, protocol string, sPort, dPort string,
 	direction fw.Direction, action fw.Action, comment string,
 ) (specs []string) {
 	switch direction {
@@ -289,24 +288,12 @@ func (m *Manager) client(ip net.IP) (*iptables.IPTables, error) {
 			return nil, fmt.Errorf("failed to create input chain: %w", err)
 		}
 
-		if err := client.NewChain("filter", ChainOutputFilterName); err != nil {
-			return nil, fmt.Errorf("failed to create output chain: %w", err)
-		}
-
 		if err := client.AppendUnique("filter", ChainInputFilterName, pingSupportDefaultRule...); err != nil {
 			return nil, fmt.Errorf("failed to create default input ping allow rule: %w", err)
 		}
 
-		if err := client.AppendUnique("filter", ChainOutputFilterName, pingSupportDefaultRule...); err != nil {
-			return nil, fmt.Errorf("failed to create default output ping allow rule: %w", err)
-		}
-
 		if err := client.AppendUnique("filter", ChainInputFilterName, dropAllDefaultRule...); err != nil {
 			return nil, fmt.Errorf("failed to create default drop all in netbird input chain: %w", err)
-		}
-
-		if err := client.AppendUnique("filter", ChainOutputFilterName, dropAllDefaultRule...); err != nil {
-			return nil, fmt.Errorf("failed to create default drop all in netbird output chain: %w", err)
 		}
 
 		specs := append([]string{"-i", m.wgIfaceName}, jumpNetbirdInputDefaultRule...)
@@ -314,12 +301,32 @@ func (m *Manager) client(ip net.IP) (*iptables.IPTables, error) {
 			return nil, fmt.Errorf("failed to create input chain jump rule: %w", err)
 		}
 
-		specs = append([]string{"-o", m.wgIfaceName}, jumpNetbirdOutputDefaultRule...)
+	}
+
+	ok, err = client.ChainExists("filter", ChainOutputFilterName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check if chain exists: %w", err)
+	}
+
+	if !ok {
+		if err := client.NewChain("filter", ChainOutputFilterName); err != nil {
+			return nil, fmt.Errorf("failed to create output chain: %w", err)
+		}
+
+		if err := client.AppendUnique("filter", ChainOutputFilterName, pingSupportDefaultRule...); err != nil {
+			return nil, fmt.Errorf("failed to create default output ping allow rule: %w", err)
+		}
+
+		if err := client.AppendUnique("filter", ChainOutputFilterName, dropAllDefaultRule...); err != nil {
+			return nil, fmt.Errorf("failed to create default drop all in netbird output chain: %w", err)
+		}
+
+		specs := append([]string{"-o", m.wgIfaceName}, jumpNetbirdOutputDefaultRule...)
 		if err := client.AppendUnique("filter", "OUTPUT", specs...); err != nil {
 			return nil, fmt.Errorf("failed to create output chain jump rule: %w", err)
 		}
-
 	}
+
 	return client, nil
 }
 
