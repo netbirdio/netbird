@@ -182,11 +182,18 @@ func (e *Engine) Start() error {
 	if err != nil {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
-	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.Routes, e.mobileDep.TunAdapter, transportNet)
+
+	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err
 	}
+
+	routes, err := e.ReadInitialRoutes()
+	if err != nil {
+		return err
+	}
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
 
 	err = e.wgInterface.Create()
 	if err != nil {
@@ -221,8 +228,6 @@ func (e *Engine) Start() error {
 		e.udpMuxConn = rawSock
 		e.udpMux = mux
 	}
-
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
 
 	if acl, err := acl.Create(e.wgInterface); err != nil {
 		log.Errorf("failed to create ACL manager, policy will not work: %s", err.Error())
@@ -1019,6 +1024,19 @@ func (e *Engine) close() {
 	if e.acl != nil {
 		e.acl.Stop()
 	}
+}
+
+func (e *Engine) ReadInitialRoutes() ([]*route.Route, error) {
+	if runtime.GOOS != "android" {
+		return nil, nil
+	}
+
+	routesResp, err := e.mgmClient.GetRoutes()
+	if err != nil {
+		return nil, err
+	}
+	return toRoutes(routesResp), nil
+
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

@@ -9,5 +9,4 @@ import (
 type MobileDependency struct {
 	TunAdapter    iface.TunAdapter
 	IFaceDiscover stdnet.ExternalIFaceDiscover
-	Routes        []string
 }
