@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"codeberg.org/ac/base62"
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	gocache "github.com/patrickmn/go-cache"
@@ -28,6 +27,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
+	"github.com/netbirdio/netbird/util"
 )
 
 const (
@@ -1174,7 +1174,7 @@ func (am *DefaultAccountManager) GetAccountFromPAT(token string) (*Account, *Use
 	secret := token[len(PATPrefix) : len(PATPrefix)+PATSecretLength]
 	encodedChecksum := token[len(PATPrefix)+PATSecretLength : len(PATPrefix)+PATSecretLength+PATChecksumLength]
 
-	verificationChecksum, err := base62.Decode(encodedChecksum)
+	verificationChecksum, err := util.DecodeBase62(encodedChecksum)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("token checksum decoding failed: %w", err)
 	}
