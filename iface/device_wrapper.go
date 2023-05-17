@@ -1,6 +1,8 @@
 package iface
 
 import (
+	"net"
+
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -11,6 +13,9 @@ type PacketFilter interface {
 
 	// DropOutput traffic filter
 	DropOutput(packetData []byte) bool
+
+	// SetNetwork of the wireguard interface to which filtering applied
+	SetNetwork(*net.IPNet)
 }
 
 // DeviceWrapper to override Read or Write of packets

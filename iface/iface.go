@@ -129,6 +129,7 @@ func (w *WGIface) SetFiltering(filter PacketFilter) error {
 		return fmt.Errorf("userspace packet filtering not handled on this device")
 	}
 
+	filter.SetNetwork(w.tun.address.Network)
 	w.tun.wrapper.filter = filter
 	return nil
 }

@@ -24,6 +24,7 @@ type Manager struct {
 	inputRules  []Rule
 	outputRules []Rule
 	rulesIndex  map[string]int
+	wgNetwork   *net.IPNet
 
 	ip4     layers.IPv4
 	ip6     layers.IPv6
@@ -174,7 +175,7 @@ func (u *Manager) DropOutput(packetData []byte) bool {
 }
 
 // dropFilter imlements same logic for booth direction of the traffic
-func (u *Manager) dropFilter(packetData []byte, rules []Rule, isInputPacket bool) bool {
+func (u *Manager) dropFilter(packetData []byte, rules []Rule, isOutputPacket bool) bool {
 	u.mutex.Lock()
 	defer u.mutex.Unlock()
 
@@ -185,8 +186,14 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isInputPacket bool
 	var ipDecoded gopacket.DecodingLayer
 	switch u.decoded[0] {
 	case layers.LayerTypeIPv4:
+		if !u.wgNetwork.Contains(u.ip4.SrcIP) || !u.wgNetwork.Contains(u.ip4.DstIP) {
+			return false
+		}
 		ipDecoded = &u.ip4
 	case layers.LayerTypeIPv6:
+		if !u.wgNetwork.Contains(u.ip6.SrcIP) || !u.wgNetwork.Contains(u.ip6.DstIP) {
+			return false
+		}
 		ipDecoded = &u.ip6
 	default:
 		log.Errorf("unknown layer: %v", u.decoded[0])
@@ -224,7 +231,7 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isInputPacket bool
 	for _, rule := range rules {
 		switch u.decoded[0] {
 		case layers.LayerTypeIPv4:
-			if isInputPacket {
+			if isOutputPacket {
 				if !u.ip4.SrcIP.Equal(rule.ip) {
 					continue
 				}
@@ -234,7 +241,7 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isInputPacket bool
 				}
 			}
 		case layers.LayerTypeIPv6:
-			if isInputPacket {
+			if isOutputPacket {
 				if !u.ip6.SrcIP.Equal(rule.ip) {
 					continue
 				}
@@ -273,4 +280,9 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isInputPacket bool
 
 	// default policy is DROP ALL
 	return true
+}
+
+// SetNetwork of the wireguard interface to which filtering applied
+func (u *Manager) SetNetwork(network *net.IPNet) {
+	u.wgNetwork = network
 }

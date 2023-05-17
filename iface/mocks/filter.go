@@ -5,6 +5,7 @@
 package mocks
 
 import (
+	net "net"
 	reflect "reflect"
 
 	gomock "github.com/golang/mock/gomock"
@@ -59,4 +60,16 @@ func (m *MockPacketFilter) DropOutput(arg0 []byte) bool {
 func (mr *MockPacketFilterMockRecorder) DropOutput(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropOutput", reflect.TypeOf((*MockPacketFilter)(nil).DropOutput), arg0)
+}
+
+// SetNetwork mocks base method.
+func (m *MockPacketFilter) SetNetwork(arg0 *net.IPNet) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetNetwork", arg0)
+}
+
+// SetNetwork indicates an expected call of SetNetwork.
+func (mr *MockPacketFilterMockRecorder) SetNetwork(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetNetwork", reflect.TypeOf((*MockPacketFilter)(nil).SetNetwork), arg0)
 }
