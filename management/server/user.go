@@ -565,6 +565,14 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 	}
 
 	defer func() {
+		if oldUser.IsBlocked() != update.IsBlocked() {
+			if update.IsBlocked() {
+				am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserBlocked, nil)
+			} else {
+				am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserUnblocked, nil)
+			}
+		}
+
 		// store activity logs
 		if oldUser.Role != newUser.Role {
 			am.storeEvent(initiatorUserID, oldUser.Id, accountID, activity.UserRoleUpdated, map[string]any{"role": newUser.Role})
