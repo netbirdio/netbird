@@ -30,6 +30,7 @@ type DefaultManager struct {
 	wgInterface         *iface.WGIface
 	pubKey              string
 	initialClientRoutes []*route.Route
+	notifier            *notifier
 }
 
 // NewManager returns a new route manager
@@ -44,11 +45,16 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 		statusRecorder: statusRecorder,
 		wgInterface:    wgInterface,
 		pubKey:         pubKey,
+		notifier:       newNotifier(),
 	}
 
 	if runtime.GOOS == "android" {
 		cr := dm.clientRoutes(initialRoutes)
-		wgInterface.SetInitialRoutes(cr)
+		dm.notifier.setInitialClientRoutes(cr)
+		networks := readRouteNetworks(cr)
+
+		// make sense to call before create interface
+		wgInterface.SetInitialRoutes(networks)
 	}
 	return dm
 }
@@ -73,7 +79,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 		newServerRoutesMap, newClientRoutesIDMap := m.classifiesRoutes(newRoutes)
 
 		m.updateClientNetworks(updateSerial, newClientRoutesIDMap)
-
+		m.notifier.onNewRoutes(newClientRoutesIDMap)
 		err := m.serverRouter.updateRoutes(newServerRoutesMap)
 		if err != nil {
 			return err
@@ -81,6 +87,14 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 
 		return nil
 	}
+}
+
+func (m *DefaultManager) SetListener(listener OnNewRouteListener) {
+	m.notifier.setListener(listener)
+}
+
+func (m *DefaultManager) RemoveListener() {
+	m.notifier.removeListener()
 }
 
 func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks map[string][]*route.Route) {
@@ -130,8 +144,6 @@ func (m *DefaultManager) classifiesRoutes(newRoutes []*route.Route) (map[string]
 	for _, newRoute := range newRoutes {
 		networkID := route.GetHAUniqueID(newRoute)
 		if !ownNetworkIDs[networkID] {
-			log.Debugf("new route !ownNetworkIDs: (networkID %v) %s, %s", networkID)
-
 			// if prefix is too small, lets assume is a possible default route which is not yet supported
 			// we skip this route management
 			if newRoute.Network.Bits() < 7 {
@@ -146,13 +158,21 @@ func (m *DefaultManager) classifiesRoutes(newRoutes []*route.Route) (map[string]
 	return newServerRoutesMap, newClientRoutesIDMap
 }
 
-func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []string {
-	_, cr := m.classifiesRoutes(initialRoutes)
-	rs := make([]string, 0)
-	for _, networkID := range cr {
-		for _, r := range networkID {
-			rs = append(rs, r.Network.String())
+func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Route {
+	_, crMap := m.classifiesRoutes(initialRoutes)
+	rs := make([]*route.Route, 0)
+	for _, routes := range crMap {
+		for _, r := range routes {
+			rs = append(rs, r)
 		}
 	}
 	return rs
+}
+
+func readRouteNetworks(cr []*route.Route) []string {
+	routesNetworks := make([]string, 0)
+	for _, r := range cr {
+		routesNetworks = append(routesNetworks, r.Network.String())
+	}
+	return routesNetworks
 }
