@@ -209,7 +209,7 @@ func (m *UniversalUDPMuxDefault) GetXORMappedAddr(serverAddr net.Addr, deadline 
 
 	// otherwise, make a STUN request to discover the address
 	// or wait for already sent request to complete
-	waitAddrReceived, err := m.sendStun(serverAddr)
+	waitAddrReceived, err := m.sendSTUN(serverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s", "failed to send STUN packet", err)
 	}
@@ -221,8 +221,10 @@ func (m *UniversalUDPMuxDefault) GetXORMappedAddr(serverAddr net.Addr, deadline 
 		var addr *stun.XORMappedAddress
 		m.mu.Lock()
 		// A very odd case that mappedAddr is nil.
-		// But can happen when the deadline property is larger than params.XORMappedAddrCacheTTL.
-		// We protect the code from panic.
+		// Can happen when the deadline property is larger than params.XORMappedAddrCacheTTL.
+		// Or when we don't receive a response to our m.sendSTUN request (the response is handled asynchronously) and
+		// the XORMapped expires meanwhile triggering a closure of the waitAddrReceived channel.
+		// We protect the code from panic here.
 		if mappedAddr, ok := m.xorMappedMap[serverAddr.String()]; ok {
 			addr = mappedAddr.addr
 		}
@@ -236,11 +238,11 @@ func (m *UniversalUDPMuxDefault) GetXORMappedAddr(serverAddr net.Addr, deadline 
 	}
 }
 
-// sendStun sends a STUN request via UDP conn.
+// sendSTUN sends a STUN request via UDP conn.
 //
 // The returned channel is closed when the STUN response has been received.
 // Method is safe for concurrent use.
-func (m *UniversalUDPMuxDefault) sendStun(serverAddr net.Addr) (chan struct{}, error) {
+func (m *UniversalUDPMuxDefault) sendSTUN(serverAddr net.Addr) (chan struct{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
