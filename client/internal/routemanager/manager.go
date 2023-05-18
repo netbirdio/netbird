@@ -16,6 +16,7 @@ import (
 // Manager is a route manager interface
 type Manager interface {
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
+	SetListener(listener RouteListener)
 	Stop()
 }
 
@@ -88,12 +89,8 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 	}
 }
 
-func (m *DefaultManager) SetListener(listener OnNewRouteListener) {
+func (m *DefaultManager) SetListener(listener RouteListener) {
 	m.notifier.setListener(listener)
-}
-
-func (m *DefaultManager) RemoveListener() {
-	m.notifier.removeListener()
 }
 
 func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks map[string][]*route.Route) {

@@ -7,7 +7,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-type OnNewRouteListener interface {
+type RouteListener interface {
 	OnNewRouteSetting()
 }
 
@@ -15,7 +15,7 @@ type notifier struct {
 	initialRouteIDs []string
 	ids             []string
 
-	routeListener    OnNewRouteListener
+	routeListener    RouteListener
 	routeListenerMux sync.Mutex
 }
 
@@ -23,16 +23,10 @@ func newNotifier() *notifier {
 	return &notifier{}
 }
 
-func (n *notifier) setListener(listener OnNewRouteListener) {
+func (n *notifier) setListener(listener RouteListener) {
 	n.routeListenerMux.Lock()
 	defer n.routeListenerMux.Unlock()
 	n.routeListener = listener
-}
-
-func (n *notifier) removeListener() {
-	n.routeListenerMux.Lock()
-	defer n.routeListenerMux.Unlock()
-	n.routeListener = nil
 }
 
 func (n *notifier) setInitialClientRoutes(clientRoutes []*route.Route) {
@@ -72,7 +66,7 @@ func (n *notifier) notify() {
 		return
 	}
 
-	go func(l OnNewRouteListener) {
+	go func(l RouteListener) {
 		l.OnNewRouteSetting()
 	}(n.routeListener)
 }

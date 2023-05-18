@@ -194,6 +194,7 @@ func (e *Engine) Start() error {
 		return err
 	}
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
+	e.routeManager.SetListener(e.mobileDep.RouteListener)
 
 	err = e.wgInterface.Create()
 	if err != nil {
