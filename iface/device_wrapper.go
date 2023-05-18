@@ -2,6 +2,7 @@ package iface
 
 import (
 	"net"
+	"sync"
 
 	"golang.zx2c4.com/wireguard/tun"
 )
@@ -22,6 +23,7 @@ type PacketFilter interface {
 type DeviceWrapper struct {
 	tun.Device
 	filter PacketFilter
+	mutex  sync.Mutex
 }
 
 // newDeviceWrapper constructor function
@@ -32,16 +34,20 @@ func newDeviceWrapper(device tun.Device) *DeviceWrapper {
 }
 
 // Read wraps read method with filtering feature
-func (t *DeviceWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
-	if n, err = t.Device.Read(bufs, sizes, offset); err != nil {
+func (d *DeviceWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
+	if n, err = d.Device.Read(bufs, sizes, offset); err != nil {
 		return 0, err
 	}
-	if t.filter == nil {
+	d.mutex.Lock()
+	filter := d.filter
+	d.mutex.Unlock()
+
+	if filter == nil {
 		return
 	}
 
 	for i := 0; i < n; i++ {
-		if t.filter.DropInput(bufs[i][offset : offset+sizes[i]]) {
+		if filter.DropInput(bufs[i][offset : offset+sizes[i]]) {
 			bufs = append(bufs[:i], bufs[i+1:]...)
 			sizes = append(sizes[:i], sizes[i+1:]...)
 			n--
@@ -53,21 +59,32 @@ func (t *DeviceWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err
 }
 
 // Write wraps write method with filtering feature
-func (t *DeviceWrapper) Write(bufs [][]byte, offset int) (int, error) {
-	if t.filter == nil {
-		return t.Device.Write(bufs, offset)
+func (d *DeviceWrapper) Write(bufs [][]byte, offset int) (int, error) {
+	d.mutex.Lock()
+	filter := d.filter
+	d.mutex.Unlock()
+
+	if filter == nil {
+		return d.Device.Write(bufs, offset)
 	}
 
 	filteredBufs := make([][]byte, 0, len(bufs))
 	dropped := 0
 	for _, buf := range bufs {
-		if !t.filter.DropOutput(buf[offset:]) {
+		if !filter.DropOutput(buf[offset:]) {
 			filteredBufs = append(filteredBufs, buf)
 			dropped++
 		}
 	}
 
-	n, err := t.Device.Write(filteredBufs, offset)
+	n, err := d.Device.Write(filteredBufs, offset)
 	n += dropped
 	return n, err
+}
+
+// SetFiltering sets packet filter to device
+func (d *DeviceWrapper) SetFiltering(filter PacketFilter) {
+	d.mutex.Lock()
+	d.filter = filter
+	d.mutex.Unlock()
 }

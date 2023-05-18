@@ -130,6 +130,6 @@ func (w *WGIface) SetFiltering(filter PacketFilter) error {
 	}
 
 	filter.SetNetwork(w.tun.address.Network)
-	w.tun.wrapper.filter = filter
+	w.tun.wrapper.SetFiltering(filter)
 	return nil
 }
