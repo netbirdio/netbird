@@ -239,7 +239,7 @@ func (e *Engine) Start() error {
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
 
-	if acl, err := acl.Create(wgIFaceName); err != nil {
+	if acl, err := acl.Create(e.wgInterface); err != nil {
 		log.Errorf("failed to create ACL manager, policy will not work: %s", err.Error())
 	} else {
 		e.acl = acl

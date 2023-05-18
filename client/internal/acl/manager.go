@@ -1,14 +1,24 @@
 package acl
 
 import (
+	"fmt"
 	"net"
 	"strconv"
 	"sync"
 
-	"github.com/netbirdio/netbird/client/firewall"
-	mgmProto "github.com/netbirdio/netbird/management/proto"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/iface"
+	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
+
+// iFaceMapper defines subset methods of interface required for manager
+type iFaceMapper interface {
+	Name() string
+	IsUserspaceBind() bool
+	SetFiltering(iface.PacketFilter) error
+}
 
 // Manager is a ACL rules manager
 type Manager interface {
@@ -18,9 +28,9 @@ type Manager interface {
 
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
-	manager firewall.Manager
-	rules   map[string]firewall.Rule
-	mutex   sync.Mutex
+	manager    firewall.Manager
+	rulesPairs map[string][]firewall.Rule
+	mutex      sync.Mutex
 }
 
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
@@ -34,39 +44,43 @@ func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule) {
 	}
 
 	var (
-		applyFailed bool
-		newRules    = make(map[string]firewall.Rule)
+		applyFailed  bool
+		newRulePairs = make(map[string][]firewall.Rule)
 	)
 	for _, r := range rules {
-		rule := d.protoRuleToFirewallRule(r)
-		if rule == nil {
-			log.Errorf("failed to apply firewall rule: %+v", r)
+		rules, err := d.protoRuleToFirewallRule(r)
+		if err != nil {
+			log.Errorf("failed to apply firewall rule: %+v, %v", r, err)
 			applyFailed = true
 			break
 		}
-		newRules[rule.GetRuleID()] = rule
+		newRulePairs[rules[0].GetRuleID()] = rules
 	}
 	if applyFailed {
 		log.Error("failed to apply firewall rules, rollback ACL to previous state")
-		for _, rule := range newRules {
-			if err := d.manager.DeleteRule(rule); err != nil {
-				log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
-				continue
+		for _, rules := range newRulePairs {
+			for _, rule := range rules {
+				if err := d.manager.DeleteRule(rule); err != nil {
+					log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
+					continue
+				}
 			}
 		}
 		return
 	}
 
-	for ruleID, rule := range d.rules {
-		if _, ok := newRules[ruleID]; !ok {
-			if err := d.manager.DeleteRule(rule); err != nil {
-				log.Errorf("failed to delete firewall rule: %v", err)
-				continue
+	for pairID, rules := range d.rulesPairs {
+		if _, ok := newRulePairs[pairID]; !ok {
+			for _, rule := range rules {
+				if err := d.manager.DeleteRule(rule); err != nil {
+					log.Errorf("failed to delete firewall rule: %v", err)
+					continue
+				}
 			}
-			delete(d.rules, ruleID)
+			delete(d.rulesPairs, pairID)
 		}
 	}
-	d.rules = newRules
+	d.rulesPairs = newRulePairs
 }
 
 // Stop ACL controller and clear firewall state
@@ -79,23 +93,10 @@ func (d *DefaultManager) Stop() {
 	}
 }
 
-func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firewall.Rule {
+func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) ([]firewall.Rule, error) {
 	ip := net.ParseIP(r.PeerIP)
 	if ip == nil {
-		log.Error("invalid IP address, skipping firewall rule")
-		return nil
-	}
-
-	var port *firewall.Port
-	if r.Port != "" {
-		value, err := strconv.Atoi(r.Port)
-		if err != nil {
-			log.Debug("invalid port, skipping firewall rule")
-			return nil
-		}
-		port = &firewall.Port{
-			Values: []int{value},
-		}
+		return nil, fmt.Errorf("invalid IP address, skipping firewall rule")
 	}
 
 	var protocol firewall.Protocol
@@ -109,8 +110,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firew
 	case "all":
 		protocol = firewall.ProtocolALL
 	default:
-		log.Errorf("invalid protocol, skipping firewall rule: %q", r.Protocol)
-		return nil
+		return nil, fmt.Errorf("invalid protocol, skipping firewall rule: %q", r.Protocol)
 	}
 
 	var direction firewall.Direction
@@ -120,8 +120,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firew
 	case "dst":
 		direction = firewall.DirectionDst
 	default:
-		log.Error("invalid direction, skipping firewall rule")
-		return nil
+		return nil, fmt.Errorf("invalid direction, skipping firewall rule")
 	}
 
 	var action firewall.Action
@@ -131,15 +130,42 @@ func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) firew
 	case "drop":
 		action = firewall.ActionDrop
 	default:
-		log.Error("invalid action, skipping firewall rule")
-		return nil
+		return nil, fmt.Errorf("invalid action, skipping firewall rule")
 	}
 
-	rule, err := d.manager.AddFiltering(ip, protocol, port, direction, action, "")
-	if err != nil {
-		log.Errorf("failed to add firewall rule: %v", err)
-		return nil
+	var port *firewall.Port
+	if r.Port != "" {
+		value, err := strconv.Atoi(r.Port)
+		if err != nil {
+			return nil, fmt.Errorf("invalid port, skipping firewall rule")
+		}
+		port = &firewall.Port{
+			Values: []int{value},
+		}
 	}
-	d.rules[rule.GetRuleID()] = rule
-	return rule
+
+	var rules []firewall.Rule
+	rule, err := d.manager.AddFiltering(ip, protocol, nil, port, direction, action, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
+	}
+	rules = append(rules, rule)
+
+	if port != nil {
+		if direction == firewall.DirectionSrc {
+			direction = firewall.DirectionDst
+		} else {
+			direction = firewall.DirectionSrc
+		}
+
+		rule, err = d.manager.AddFiltering(ip, protocol, port, nil, direction, action, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to add firewall rule: %v", err)
+		}
+
+		rules = append(rules, rule)
+	}
+
+	d.rulesPairs[rules[0].GetRuleID()] = rules
+	return rules, nil
 }

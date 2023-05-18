@@ -21,8 +21,11 @@ const (
 	// FilterTableName is the name of the table that is used for filtering by the Netbird client
 	FilterTableName = "netbird-acl"
 
-	// FilterChainName is the name of the chain that is used for filtering by the Netbird client
-	FilterChainName = "netbird-acl-filter"
+	// FilterInputChainName is the name of the chain that is used for filtering incoming packets
+	FilterInputChainName = "netbird-acl-input-filter"
+
+	// FilterOutputChainName is the name of the chain that is used for filtering outgoing packets
+	FilterOutputChainName = "netbird-acl-output-filter"
 )
 
 // Manager of iptables firewall
@@ -33,8 +36,11 @@ type Manager struct {
 	tableIPv4 *nftables.Table
 	tableIPv6 *nftables.Table
 
-	filterChainIPv4 *nftables.Chain
-	filterChainIPv6 *nftables.Chain
+	filterInputChainIPv4  *nftables.Chain
+	filterOutputChainIPv4 *nftables.Chain
+
+	filterInputChainIPv6  *nftables.Chain
+	filterOutputChainIPv6 *nftables.Chain
 
 	wgIfaceName string
 }
@@ -60,7 +66,8 @@ func Create(wgIfaceName string) (*Manager, error) {
 func (m *Manager) AddFiltering(
 	ip net.IP,
 	proto fw.Protocol,
-	port *fw.Port,
+	sPort *fw.Port,
+	dPort *fw.Port,
 	direction fw.Direction,
 	action fw.Action,
 	comment string,
@@ -68,19 +75,37 @@ func (m *Manager) AddFiltering(
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	// get filter chain
-	table, chain, err := m.chain(
-		ip,
-		FilterChainName,
-		nftables.ChainHookInput,
-		nftables.ChainPriorityFilter,
-		nftables.ChainTypeFilter)
+	var (
+		err   error
+		table *nftables.Table
+		chain *nftables.Chain
+	)
+
+	if direction == fw.DirectionDst {
+		table, chain, err = m.chain(
+			ip,
+			FilterOutputChainName,
+			nftables.ChainHookOutput,
+			nftables.ChainPriorityFilter,
+			nftables.ChainTypeFilter)
+	} else {
+		table, chain, err = m.chain(
+			ip,
+			FilterInputChainName,
+			nftables.ChainHookInput,
+			nftables.ChainPriorityFilter,
+			nftables.ChainTypeFilter)
+	}
 	if err != nil {
 		return nil, err
 	}
 
+	ifaceKey := expr.MetaKeyIIFNAME
+	if direction == fw.DirectionDst {
+		ifaceKey = expr.MetaKeyOIFNAME
+	}
 	expressions := []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Meta{Key: ifaceKey, Register: 1},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
@@ -146,7 +171,7 @@ func (m *Manager) AddFiltering(
 		},
 	)
 
-	if port != nil && len(port.Values) != 0 {
+	if sPort != nil && len(sPort.Values) != 0 {
 		expressions = append(expressions,
 			&expr.Payload{
 				DestRegister: 1,
@@ -157,7 +182,23 @@ func (m *Manager) AddFiltering(
 			&expr.Cmp{
 				Op:       expr.CmpOpEq,
 				Register: 1,
-				Data:     encodePort(*port),
+				Data:     encodePort(*sPort),
+			},
+		)
+	}
+
+	if dPort != nil && len(dPort.Values) != 0 {
+		expressions = append(expressions,
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseTransportHeader,
+				Offset:       2,
+				Len:          2,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     encodePort(*dPort),
 			},
 		)
 	}
@@ -211,41 +252,29 @@ func (m *Manager) chain(
 	priority nftables.ChainPriority,
 	cType nftables.ChainType,
 ) (*nftables.Table, *nftables.Chain, error) {
+	var err error
+
+	getChain := func(c *nftables.Chain, tf nftables.TableFamily) (*nftables.Chain, error) {
+		if c != nil {
+			return c, nil
+		}
+		return m.createChainIfNotExists(tf, name, hook, priority, cType)
+	}
+
 	if ip.To4() != nil {
-		if m.filterChainIPv4 != nil {
-			return m.tableIPv4, m.filterChainIPv4, nil
+		if name == FilterInputChainName {
+			m.filterInputChainIPv4, err = getChain(m.filterInputChainIPv4, nftables.TableFamilyIPv4)
+			return m.tableIPv4, m.filterInputChainIPv4, err
 		}
-
-		chain, err := m.createChainIfNotExists(
-			nftables.TableFamilyIPv4,
-			name,
-			hook,
-			priority,
-			cType,
-		)
-		if err != nil {
-			return nil, nil, err
-		}
-		m.filterChainIPv4 = chain
-		return m.tableIPv4, m.filterChainIPv4, nil
+		m.filterOutputChainIPv4, err = getChain(m.filterOutputChainIPv4, nftables.TableFamilyIPv4)
+		return m.tableIPv4, m.filterOutputChainIPv4, err
 	}
-	if m.filterChainIPv6 != nil {
-		return m.tableIPv6, m.filterChainIPv6, nil
+	if name == FilterInputChainName {
+		m.filterInputChainIPv6, err = getChain(m.filterInputChainIPv6, nftables.TableFamilyIPv6)
+		return m.tableIPv4, m.filterInputChainIPv6, err
 	}
-
-	chain, err := m.createChainIfNotExists(
-		nftables.TableFamilyIPv6,
-		name,
-		hook,
-		priority,
-		cType,
-	)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	m.filterChainIPv6 = chain
-	return m.tableIPv6, m.filterChainIPv6, nil
+	m.filterOutputChainIPv6, err = getChain(m.filterOutputChainIPv6, nftables.TableFamilyIPv6)
+	return m.tableIPv4, m.filterOutputChainIPv6, err
 }
 
 // table returns the table for the given family of the IP address
@@ -308,14 +337,14 @@ func (m *Manager) createChainIfNotExists(
 	}
 
 	for _, c := range chains {
-		if c.Name == FilterChainName && c.Table.Name == table.Name {
+		if c.Name == name && c.Table.Name == table.Name {
 			return c, nil
 		}
 	}
 
 	polAccept := nftables.ChainPolicyAccept
 	chain := &nftables.Chain{
-		Name:     FilterChainName,
+		Name:     name,
 		Table:    table,
 		Hooknum:  hooknum,
 		Priority: priority,
@@ -325,8 +354,12 @@ func (m *Manager) createChainIfNotExists(
 
 	chain = m.conn.AddChain(chain)
 
+	ifaceKey := expr.MetaKeyIIFNAME
+	if name == FilterOutputChainName {
+		ifaceKey = expr.MetaKeyOIFNAME
+	}
 	expressions := []expr.Any{
-		&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+		&expr.Meta{Key: ifaceKey, Register: 1},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
@@ -371,7 +404,7 @@ func (m *Manager) Reset() error {
 		return fmt.Errorf("list of chains: %w", err)
 	}
 	for _, c := range chains {
-		if c.Name == FilterChainName {
+		if c.Name == FilterInputChainName || c.Name == FilterOutputChainName {
 			m.conn.DelChain(c)
 		}
 	}

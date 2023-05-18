@@ -37,7 +37,9 @@ require (
 	github.com/getlantern/systray v1.2.1
 	github.com/gliderlabs/ssh v0.3.4
 	github.com/godbus/dbus/v5 v5.1.0
+	github.com/golang/mock v1.6.0
 	github.com/google/go-cmp v0.5.9
+	github.com/google/gopacket v1.1.19
 	github.com/google/nftables v0.0.0-20220808154552-2eca00135732
 	github.com/hashicorp/go-secure-stdlib/base62 v0.1.2
 	github.com/hashicorp/go-version v1.6.0
@@ -89,7 +91,6 @@ require (
 	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/goki/freetype v0.0.0-20181231101311-fa8a33aabaff // indirect
-	github.com/google/gopacket v1.1.19 // indirect
 	github.com/hashicorp/go-uuid v1.0.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/josharian/native v0.0.0-20200817173448-b6b71def0850 // indirect

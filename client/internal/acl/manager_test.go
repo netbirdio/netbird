@@ -4,6 +4,9 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/golang/mock/gomock"
+
+	mocks "github.com/netbirdio/netbird/client/internal/acl/mocks"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
@@ -33,8 +36,15 @@ func TestDefaultManager(t *testing.T) {
 		},
 	}
 
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	iface := mocks.NewMockIFaceMapper(ctrl)
+	iface.EXPECT().IsUserspaceBind().Return(false)
+	iface.EXPECT().Name().Return("lo")
+
 	// we receive one rule from the management so for testing purposes ignore it
-	acl, err := Create("lo")
+	acl, err := Create(iface)
 	if err != nil {
 		t.Errorf("create ACL manager: %v", err)
 		return
@@ -44,8 +54,8 @@ func TestDefaultManager(t *testing.T) {
 	t.Run("apply firewall rules", func(t *testing.T) {
 		acl.ApplyFiltering(fwRules)
 
-		if len(acl.rules) != 2 {
-			t.Errorf("firewall rules not applied: %v", acl.rules)
+		if len(acl.rulesPairs) != 2 {
+			t.Errorf("firewall rules not applied: %v", acl.rulesPairs)
 			return
 		}
 	})
@@ -62,21 +72,21 @@ func TestDefaultManager(t *testing.T) {
 		})
 
 		existedRulesID := map[string]struct{}{}
-		for id := range acl.rules {
+		for id := range acl.rulesPairs {
 			existedRulesID[id] = struct{}{}
 		}
 
 		acl.ApplyFiltering(fwRules)
 
 		// we should have one old and one new rule in the existed rules
-		if len(acl.rules) != 2 {
+		if len(acl.rulesPairs) != 2 {
 			t.Errorf("firewall rules not applied")
 			return
 		}
 
 		// check that old rules was removed
 		for id := range existedRulesID {
-			if _, ok := acl.rules[id]; ok {
+			if _, ok := acl.rulesPairs[id]; ok {
 				t.Errorf("old rule was not removed")
 				return
 			}

@@ -45,7 +45,8 @@ type Manager interface {
 	AddFiltering(
 		ip net.IP,
 		proto Protocol,
-		port *Port,
+		sPort *Port,
+		dPort *Port,
 		direction Direction,
 		action Action,
 		comment string,
