@@ -6,11 +6,11 @@ import (
 	"strconv"
 	"sync"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/iface"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
-
-	log "github.com/sirupsen/logrus"
 )
 
 // iFaceMapper defines subset methods of interface required for manager

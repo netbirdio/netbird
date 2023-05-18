@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/golang/mock/gomock"
+
 	mocks "github.com/netbirdio/netbird/client/internal/acl/mocks"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )

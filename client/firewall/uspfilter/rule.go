@@ -4,6 +4,7 @@ import (
 	"net"
 
 	"github.com/google/gopacket"
+
 	fw "github.com/netbirdio/netbird/client/firewall"
 )
 

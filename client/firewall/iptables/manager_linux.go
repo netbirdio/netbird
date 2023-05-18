@@ -8,9 +8,9 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
