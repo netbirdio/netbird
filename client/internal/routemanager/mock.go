@@ -30,6 +30,11 @@ func (m *MockManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Route
 func (m *MockManager) Start(ctx context.Context, iface *iface.WGIface) {
 }
 
+// SetRouteChangeListener mock implementation of SetRouteChangeListener from Manager interface
+func (m *MockManager) SetRouteChangeListener(listener RouteListener) {
+
+}
+
 // Stop mock implementation of Stop from Manager interface
 func (m *MockManager) Stop() {
 	if m.StopFunc != nil {
