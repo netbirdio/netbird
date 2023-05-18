@@ -7,7 +7,9 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
+// RouteListener is a callback interface for mobile system
 type RouteListener interface {
+	// OnNewRouteSetting invoke when new route setting has been arrived
 	OnNewRouteSetting()
 }
 
