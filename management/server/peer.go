@@ -126,7 +126,7 @@ func (p *Peer) Copy() *Peer {
 }
 
 // UpdateMetaIfNew updates peer's system metadata if new information is provided
-// returns the update status
+// returns true if meta was updated, false otherwise
 func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
