@@ -671,6 +671,7 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		return nil, nil, err
 	}
 
+	// this flag prevents unnecessary calls to the persistent store.
 	shouldStoreAccount := false
 	updateRemotePeers := false
 	if peerLoginExpired(peer, account) {
