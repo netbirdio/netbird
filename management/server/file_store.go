@@ -221,7 +221,6 @@ func restore(file string) (*FileStore, error) {
 // persist account data to a file
 // It is recommended to call it with locking FileStore.mux
 func (s *FileStore) persist(file string) error {
-	log.Debugf("persisting file")
 	return util.WriteJson(file, s)
 }
 
