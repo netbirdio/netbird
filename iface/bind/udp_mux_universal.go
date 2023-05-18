@@ -218,13 +218,19 @@ func (m *UniversalUDPMuxDefault) GetXORMappedAddr(serverAddr net.Addr, deadline 
 	select {
 	case <-waitAddrReceived:
 		// when channel closed, addr was obtained
+		var addr *stun.XORMappedAddress
 		m.mu.Lock()
-		mappedAddr := *m.xorMappedMap[serverAddr.String()]
+		// A very odd case that mappedAddr is nil.
+		// But can happen when the deadline property is larger than params.XORMappedAddrCacheTTL.
+		// We protect the code from panic.
+		if mappedAddr, ok := m.xorMappedMap[serverAddr.String()]; ok {
+			addr = mappedAddr.addr
+		}
 		m.mu.Unlock()
-		if mappedAddr.addr == nil {
+		if addr == nil {
 			return nil, fmt.Errorf("no XOR address mapping")
 		}
-		return mappedAddr.addr, nil
+		return addr, nil
 	case <-time.After(deadline):
 		return nil, fmt.Errorf("timeout while waiting for XORMappedAddr")
 	}
