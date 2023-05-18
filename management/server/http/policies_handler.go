@@ -171,11 +171,30 @@ func (h *Policies) savePolicy(
 			pr.Protocol = server.PolicyRuleProtocolICMP
 		default:
 			util.WriteError(status.Errorf(status.InvalidArgument, "unknown protocol type: %v", r.Protocol), w)
+			return
 		}
 
 		if r.Ports != nil && len(*r.Ports) != 0 {
 			ports := *r.Ports
 			pr.Ports = ports[:]
+		}
+
+		// validate policy object
+		switch pr.Protocol {
+		case server.PolicyRuleProtocolALL, server.PolicyRuleProtocolICMP:
+			if len(pr.Ports) != 0 {
+				util.WriteError(status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
+				return
+			}
+			if !pr.Bidirectional {
+				util.WriteError(status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
+				return
+			}
+		case server.PolicyRuleProtocolTCP, server.PolicyRuleProtocolUDP:
+			if !pr.Bidirectional && len(pr.Ports) == 0 {
+				util.WriteError(status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
+				return
+			}
 		}
 
 		policy.Rules = append(policy.Rules, &pr)
