@@ -27,50 +27,45 @@
 #define L4_CSUM_OFF (ETH_HLEN + sizeof(struct iphdr) + offsetof(struct udphdr, check))
 
 
-SEC("sched_act/socket1")
-int myapp(struct __sk_buff *skb) {
-    void *data = (void *)(long)skb->data;
-    void *data_end = (void *)(long)skb->data_end;
-    struct ethhdr *eth  = data;
+SEC("xdp")
+int xdp_prog_func(struct xdp_md *ctx) {
+	void *data     = (void *)(long)ctx->data;
+	void *data_end = (void *)(long)ctx->data_end;
+	struct ethhdr *eth = data;
     struct iphdr  *ip   = (data + sizeof(struct ethhdr));
     struct udphdr *udp = (data + sizeof(struct ethhdr) + sizeof(struct iphdr));
 
    // return early if not enough data
     if (data + sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr) > data_end){
         bpf_printk("invalid size");
-        return -1;
+        return XDP_PASS;
     }
 
-    // skip non IP packages
+    // skip non IPv4 packages
     if (eth->h_proto != htons(ETH_P_IP)) {
-       return TC_ACT_OK;
+       return XDP_PASS;
     }
 
     if (ip->protocol != IPPROTO_UDP) {
-       bpf_printk("skip non udp pkg");
-       return TC_ACT_OK;
+       return XDP_PASS;
     }
 
     // 16777343 = 127.0.0.1
     if (ip->daddr != 16777343) {
-        bpf_printk("invalid daddr: %d", ip->daddr);
-        return TC_ACT_OK;
+        return XDP_PASS;
     }
 
     if (htons(udp->source) != 51820){
-        bpf_printk("invalid sport: %d", htons(udp->source));
-        return TC_ACT_OK;
+        return XDP_PASS;
     }
 
-    bpf_printk("udp ports: %d, %d", htons(udp->source), htons(udp->dest));
+    bpf_printk("update udp ports, src: %d, dst: %d", htons(udp->source), htons(udp->dest));
 
-    // todo store it on 32 and write it in one step
     __be16 new_src_port = udp->dest;
     __be16 new_dst_port = htons(8081);
-    bpf_skb_store_bytes(skb, L4_SPORT_OFF, &new_src_port, 2, BPF_F_RECOMPUTE_CSUM);
-    bpf_skb_store_bytes(skb, L4_DPORT_OFF, &new_dst_port, 2, BPF_F_RECOMPUTE_CSUM);
-
-	return BPF_OK;
+    udp->dest = new_dst_port;
+    udp->source = new_src_port;
+	return XDP_PASS;
 }
 char _license[] SEC("license") = "GPL";
 
