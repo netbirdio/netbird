@@ -163,7 +163,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		reqStart := time.Now()
 		defer func() {
-			m.totalHTTPRequestDuration.Record(m.ctx, time.Now().Sub(reqStart).Milliseconds())
+			m.totalHTTPRequestDuration.Record(m.ctx, time.Since(reqStart).Milliseconds())
 		}()
 		traceID := hash(fmt.Sprintf("%v", r))
 		log.Tracef("HTTP request %v: %v %v", traceID, r.Method, r.URL)
@@ -196,7 +196,7 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		}
 
 		durationKey := getRequestDurationKey(r.URL.Path, r.Method)
-		reqTook := time.Now().Sub(reqStart)
+		reqTook := time.Since(reqStart)
 		if c, ok := m.httpRequestDurations[durationKey]; ok {
 			c.Record(m.ctx, reqTook.Milliseconds())
 		}

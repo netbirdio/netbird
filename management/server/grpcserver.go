@@ -151,7 +151,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 
 	if s.appMetrics != nil {
-		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Now().Sub(reqStart))
+		s.appMetrics.GRPCMetrics().CountSyncRequestDuration(time.Since(reqStart))
 	}
 
 	// keep a connection to the peer and send updates when available
@@ -271,7 +271,7 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 	reqStart := time.Now()
 	defer func() {
 		if s.appMetrics != nil {
-			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Now().Sub(reqStart))
+			s.appMetrics.GRPCMetrics().CountLoginRequestDuration(time.Since(reqStart))
 		}
 	}()
 	if s.appMetrics != nil {
