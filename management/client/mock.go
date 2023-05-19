@@ -57,6 +57,7 @@ func (m *MockClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 	return m.GetDeviceAuthorizationFlowFunc(serverKey)
 }
 
+// GetRoutes mock implementation of GetRoutes from mgm.Client interface
 func (m *MockClient) GetRoutes() ([]*proto.Route, error) {
 	return nil, nil
 }

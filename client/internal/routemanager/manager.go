@@ -89,7 +89,7 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 	}
 }
 
-// SetListener add RouteListener for route change notifier
+// SetRouteChangeListener set RouteListener for route change notifier
 func (m *DefaultManager) SetRouteChangeListener(listener RouteListener) {
 	m.notifier.setListener(listener)
 }

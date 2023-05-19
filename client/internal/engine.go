@@ -189,7 +189,7 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	routes, err := e.ReadInitialRoutes()
+	routes, err := e.readInitialRoutes()
 	if err != nil {
 		return err
 	}
@@ -1027,7 +1027,7 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) ReadInitialRoutes() ([]*route.Route, error) {
+func (e *Engine) readInitialRoutes() ([]*route.Route, error) {
 	if runtime.GOOS != "android" {
 		return nil, nil
 	}
