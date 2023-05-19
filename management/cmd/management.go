@@ -121,13 +121,6 @@ var (
 					return fmt.Errorf("failed creating datadir: %s: %v", config.Datadir, err)
 				}
 			}
-
-			store, err := server.NewFileStore(config.Datadir)
-			if err != nil {
-				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
-			}
-			peersUpdateManager := server.NewPeersUpdateManager()
-
 			appMetrics, err := telemetry.NewDefaultAppMetrics(cmd.Context())
 			if err != nil {
 				return err
@@ -136,6 +129,11 @@ var (
 			if err != nil {
 				return err
 			}
+			store, err := server.NewFileStore(config.Datadir, appMetrics)
+			if err != nil {
+				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
+			}
+			peersUpdateManager := server.NewPeersUpdateManager()
 
 			var idpManager idp.Manager
 			if config.IdpManagerConfig != nil {
