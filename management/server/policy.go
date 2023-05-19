@@ -158,7 +158,7 @@ func (p *Policy) UpgradeAndFix() {
 		if r.Protocol == "" {
 			r.Protocol = PolicyRuleProtocolALL
 		}
-		if r.Protocol == PolicyRuleProtocolALL && r.Bidirectional == false {
+		if r.Protocol == PolicyRuleProtocolALL && !r.Bidirectional {
 			r.Bidirectional = true
 		}
 		// -- v0.20.4
