@@ -1066,7 +1066,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 
 func createNSStore(t *testing.T) (Store, error) {
 	dataDir := t.TempDir()
-	store, err := mgmt.NewFileStore(config.Datadir, nil)
+	store, err := NewFileStore(dataDir, nil)
 	if err != nil {
 		return nil, err
 	}
