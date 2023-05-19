@@ -19,13 +19,6 @@ type Manager interface {
 	GetUserByEmail(email string) ([]*UserData, error)
 }
 
-// OIDCConfig specifies configuration for OpenID Connect provider
-// These configurations are automatically loaded from the OIDC endpoint
-type OIDCConfig struct {
-	Issuer        string
-	TokenEndpoint string
-}
-
 // ClientConfig defines common client configuration for all IdP manager
 type ClientConfig struct {
 	Issuer        string
@@ -105,8 +98,19 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		return NewAuth0Manager(auth0ClientConfig, appMetrics)
 	//case "azure":
 	//	return NewAzureManager(config.OIDCConfig, config.AzureClientCredentials, appMetrics)
-	//case "keycloak":
-	//	return NewKeycloakManager(config.OIDCConfig, config.KeycloakClientCredentials, appMetrics)
+	case "keycloak":
+		if config.ClientConfig == nil {
+			return nil, fmt.Errorf("IdP client configuration is empty")
+		}
+
+		keycloakClientConfig := KeycloakClientConfig{
+			ClientID:      config.ClientConfig.ClientID,
+			ClientSecret:  config.ClientConfig.ClientSecret,
+			GrantType:     config.ClientConfig.GrantType,
+			TokenEndpoint: config.ClientConfig.TokenEndpoint,
+			AdminEndpoint: config.ExtraConfig["AdminEndpoint"],
+		}
+		return NewKeycloakManager(keycloakClientConfig, appMetrics)
 	case "zitadel":
 		if config.ClientConfig == nil {
 			return nil, fmt.Errorf("IdP client configuration is empty")

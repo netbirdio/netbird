@@ -58,7 +58,7 @@ func TestNewKeycloakManager(t *testing.T) {
 
 	for _, testCase := range []test{testCase1, testCase2, testCase3} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := NewKeycloakManager(OIDCConfig{}, testCase.inputConfig, &telemetry.MockAppMetrics{})
+			_, err := NewKeycloakManager(testCase.inputConfig, &telemetry.MockAppMetrics{})
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 		})
 	}

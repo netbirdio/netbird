@@ -82,8 +82,7 @@ type keycloakProfile struct {
 }
 
 // NewKeycloakManager creates a new instance of the KeycloakManager.
-func NewKeycloakManager(oidcConfig OIDCConfig, config KeycloakClientConfig,
-	appMetrics telemetry.AppMetrics) (*KeycloakManager, error) {
+func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMetrics) (*KeycloakManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -93,8 +92,8 @@ func NewKeycloakManager(oidcConfig OIDCConfig, config KeycloakClientConfig,
 	}
 
 	helper := JsonParser{}
-	config.TokenEndpoint = oidcConfig.TokenEndpoint
-	config.GrantType = "client_credentials"
+	//config.TokenEndpoint = oidcConfig.TokenEndpoint
+	//config.GrantType = "client_credentials"
 
 	if config.ClientID == "" {
 		return nil, fmt.Errorf("keycloak IdP configuration is incomplete, clientID is missing")
