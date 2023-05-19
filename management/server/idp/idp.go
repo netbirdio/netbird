@@ -85,7 +85,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		return nil, nil
 	case "auth0":
 		if config.ClientConfig == nil {
-			return nil, fmt.Errorf("IdP client configuration is empty")
+			return nil, fmt.Errorf("identity provider client configuration is empty")
 		}
 
 		auth0ClientConfig := Auth0ClientConfig{
@@ -96,11 +96,23 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 			GrantType:    config.ClientConfig.GrantType,
 		}
 		return NewAuth0Manager(auth0ClientConfig, appMetrics)
-	//case "azure":
-	//	return NewAzureManager(config.OIDCConfig, config.AzureClientCredentials, appMetrics)
+	case "azure":
+		if config.ClientConfig == nil {
+			return nil, fmt.Errorf("identity provider client configuration is empty")
+		}
+
+		azureClientConfig := AzureClientConfig{
+			ClientID:         config.ClientConfig.ClientID,
+			ClientSecret:     config.ClientConfig.ClientSecret,
+			GrantType:        config.ClientConfig.GrantType,
+			TokenEndpoint:    config.ClientConfig.TokenEndpoint,
+			ObjectID:         config.ExtraConfig["ObjectID"],
+			GraphAPIEndpoint: config.ExtraConfig["GraphAPIEndpoint"],
+		}
+		return NewAzureManager(azureClientConfig, appMetrics)
 	case "keycloak":
 		if config.ClientConfig == nil {
-			return nil, fmt.Errorf("IdP client configuration is empty")
+			return nil, fmt.Errorf("identity provider client configuration is empty")
 		}
 
 		keycloakClientConfig := KeycloakClientConfig{
@@ -113,7 +125,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		return NewKeycloakManager(keycloakClientConfig, appMetrics)
 	case "zitadel":
 		if config.ClientConfig == nil {
-			return nil, fmt.Errorf("IdP client configuration is empty")
+			return nil, fmt.Errorf("identity provider client configuration is empty")
 		}
 
 		zitadelClientConfig := ZitadelClientConfig{

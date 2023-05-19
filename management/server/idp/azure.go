@@ -37,13 +37,12 @@ type AzureManager struct {
 
 // AzureClientConfig azure manager client configurations.
 type AzureClientConfig struct {
-	ClientID     string
-	ClientSecret string
-	ObjectID     string
-
-	GraphAPIEndpoint string `json:"-"`
-	TokenEndpoint    string `json:"-"`
-	GrantType        string `json:"-"`
+	ClientID         string
+	ClientSecret     string
+	ObjectID         string
+	GraphAPIEndpoint string
+	TokenEndpoint    string
+	GrantType        string
 }
 
 // AzureCredentials azure authentication information.
@@ -75,8 +74,7 @@ type azureExtension struct {
 }
 
 // NewAzureManager creates a new instance of the AzureManager.
-func NewAzureManager(oidcConfig OIDCConfig, config AzureClientConfig,
-	appMetrics telemetry.AppMetrics) (*AzureManager, error) {
+func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) (*AzureManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -84,11 +82,7 @@ func NewAzureManager(oidcConfig OIDCConfig, config AzureClientConfig,
 		Timeout:   10 * time.Second,
 		Transport: httpTransport,
 	}
-
 	helper := JsonParser{}
-	config.TokenEndpoint = oidcConfig.TokenEndpoint
-	config.GraphAPIEndpoint = "https://graph.microsoft.com"
-	config.GrantType = "client_credentials"
 
 	if config.ClientID == "" {
 		return nil, fmt.Errorf("azure IdP configuration is incomplete, clientID is missing")
@@ -98,8 +92,20 @@ func NewAzureManager(oidcConfig OIDCConfig, config AzureClientConfig,
 		return nil, fmt.Errorf("azure IdP configuration is incomplete, ClientSecret is missing")
 	}
 
+	if config.TokenEndpoint == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, TokenEndpoint is missing")
+	}
+
+	if config.GraphAPIEndpoint == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, GraphAPIEndpoint is missing")
+	}
+
 	if config.ObjectID == "" {
 		return nil, fmt.Errorf("azure IdP configuration is incomplete, ObjectID is missing")
+	}
+
+	if config.GrantType == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, GrantType is missing")
 	}
 
 	credentials := &AzureCredentials{
