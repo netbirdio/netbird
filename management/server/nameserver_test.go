@@ -1,11 +1,13 @@
 package server
 
 import (
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/stretchr/testify/require"
 	"net/netip"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/management/server/activity"
 )
 
 const (
@@ -1064,7 +1066,7 @@ func createNSManager(t *testing.T) (*DefaultAccountManager, error) {
 
 func createNSStore(t *testing.T) (Store, error) {
 	dataDir := t.TempDir()
-	store, err := NewFileStore(dataDir)
+	store, err := mgmt.NewFileStore(config.Datadir, nil)
 	if err != nil {
 		return nil, err
 	}

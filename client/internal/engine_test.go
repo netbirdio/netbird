@@ -3,8 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/iface/bind"
-	"github.com/pion/transport/v2/stdnet"
 	"net"
 	"net/netip"
 	"os"
@@ -14,6 +12,10 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/pion/transport/v2/stdnet"
+
+	"github.com/netbirdio/netbird/iface/bind"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -1039,7 +1041,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := server.NewFileStore(config.Datadir)
+	store, err := server.NewFileStore(config.Datadir, nil)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}

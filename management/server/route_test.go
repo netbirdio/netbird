@@ -4,10 +4,11 @@ import (
 	"net/netip"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/activity"
-	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/management/server/activity"
+	"github.com/netbirdio/netbird/route"
 )
 
 const (
@@ -946,7 +947,7 @@ func createRouterManager(t *testing.T) (*DefaultAccountManager, error) {
 
 func createRouterStore(t *testing.T) (Store, error) {
 	dataDir := t.TempDir()
-	store, err := NewFileStore(dataDir)
+	store, err := mgmt.NewFileStore(config.Datadir, nil)
 	if err != nil {
 		return nil, err
 	}

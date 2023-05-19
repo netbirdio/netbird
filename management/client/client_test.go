@@ -2,28 +2,31 @@ package client
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/management/server/activity"
 	"net"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/activity"
+
 	"github.com/netbirdio/netbird/client/system"
+
+	log "github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	mgmt "github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/mock_server"
-	log "github.com/sirupsen/logrus"
-	"github.com/stretchr/testify/assert"
 
-	"github.com/netbirdio/netbird/util"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"github.com/netbirdio/netbird/util"
 )
 
 const ValidKey = "A2C8E62B-38F5-4553-B31E-DD66C696CEBB"
@@ -50,7 +53,7 @@ func startManagement(t *testing.T) (*grpc.Server, net.Listener) {
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, err := mgmt.NewFileStore(config.Datadir)
+	store, err := mgmt.NewFileStore(config.Datadir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
