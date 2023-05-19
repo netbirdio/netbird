@@ -9,6 +9,7 @@ import (
 	time "time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/instrument"
 	"go.opentelemetry.io/otel/metric/instrument/syncint64"
@@ -163,7 +164,14 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		reqStart := time.Now()
 		defer func() {
-			m.totalHTTPRequestDuration.Record(m.ctx, time.Since(reqStart).Milliseconds())
+			tookMs := time.Since(reqStart).Milliseconds()
+			m.totalHTTPRequestDuration.Record(m.ctx, tookMs)
+
+			if r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete {
+				m.totalHTTPRequestDuration.Record(m.ctx, tookMs, attribute.String("type", "write"))
+			} else {
+				m.totalHTTPRequestDuration.Record(m.ctx, tookMs, attribute.String("type", "read"))
+			}
 		}()
 		traceID := hash(fmt.Sprintf("%v", r))
 		log.Tracef("HTTP request %v: %v %v", traceID, r.Method, r.URL)
