@@ -9,6 +9,7 @@ import (
 	time "time"
 
 	log "github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/instrument"
 	"go.opentelemetry.io/otel/metric/instrument/syncint64"
@@ -70,10 +71,6 @@ type HTTPMiddleware struct {
 	httpRequestDurations map[string]syncint64.Histogram
 	// all HTTP requests durations
 	totalHTTPRequestDuration syncint64.Histogram
-	// all HTTP requests durations that involve write only operations (PUT/POST/DELETE)
-	totalWriteHTTPRequestDuration syncint64.Histogram
-	// all HTTP requests durations that involve read only operations (GET/OPTIONS)
-	totalReadHTTPRequestDuration syncint64.Histogram
 }
 
 // NewMetricsMiddleware creates a new HTTPMiddleware
@@ -96,14 +93,6 @@ func NewMetricsMiddleware(ctx context.Context, meter metric.Meter) (*HTTPMiddlew
 		fmt.Sprintf("%s_total", httpRequestDurationPrefix),
 		instrument.WithUnit("milliseconds"))
 
-	totalWriteHTTPRequestDuration, err := meter.SyncInt64().Histogram(
-		fmt.Sprintf("%s_total", httpWriteRequestDurationPrefix),
-		instrument.WithUnit("milliseconds"))
-
-	totalReadHTTPRequestDuration, err := meter.SyncInt64().Histogram(
-		fmt.Sprintf("%s_total", httpReadRequestDurationPrefix),
-		instrument.WithUnit("milliseconds"))
-
 	if err != nil {
 		return nil, err
 	}
@@ -118,8 +107,6 @@ func NewMetricsMiddleware(ctx context.Context, meter metric.Meter) (*HTTPMiddlew
 			totalHTTPRequestsCounter:      totalHTTPRequestsCounter,
 			totalHTTPResponseCounter:      totalHTTPResponseCounter,
 			totalHTTPRequestDuration:      totalHTTPRequestDuration,
-			totalWriteHTTPRequestDuration: totalWriteHTTPRequestDuration,
-			totalReadHTTPRequestDuration:  totalReadHTTPRequestDuration,
 		},
 		nil
 }
@@ -183,9 +170,9 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 			m.totalHTTPRequestDuration.Record(m.ctx, tookMs)
 
 			if r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete {
-				m.totalWriteHTTPRequestDuration.Record(m.ctx, tookMs)
+				m.totalHTTPRequestDuration.Record(m.ctx, tookMs, attribute.String("type", "write"))
 			} else {
-				m.totalReadHTTPRequestDuration.Record(m.ctx, tookMs)
+				m.totalHTTPRequestDuration.Record(m.ctx, tookMs, attribute.String("type", "read"))
 			}
 		}()
 		traceID := hash(fmt.Sprintf("%v", r))
