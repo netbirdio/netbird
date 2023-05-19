@@ -23,7 +23,7 @@ func NewStoreMetrics(ctx context.Context, meter metric.Meter) (*StoreMetrics, er
 	if err != nil {
 		return nil, err
 	}
-	persistenceDuration, err := meter.SyncInt64().Histogram("management.store.persistenceDuration.duration.micro",
+	persistenceDuration, err := meter.SyncInt64().Histogram("management.store.persistence.duration.micro",
 		instrument.WithUnit("microseconds"))
 	if err != nil {
 		return nil, err
