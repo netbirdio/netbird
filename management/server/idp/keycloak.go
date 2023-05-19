@@ -37,8 +37,8 @@ type KeycloakClientConfig struct {
 	ClientID      string
 	ClientSecret  string
 	AdminEndpoint string
-	TokenEndpoint string `json:"-"`
-	GrantType     string `json:"-"`
+	TokenEndpoint string
+	GrantType     string
 }
 
 // KeycloakCredentials keycloak authentication information.
@@ -90,10 +90,7 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 		Timeout:   10 * time.Second,
 		Transport: httpTransport,
 	}
-
 	helper := JsonParser{}
-	//config.TokenEndpoint = oidcConfig.TokenEndpoint
-	//config.GrantType = "client_credentials"
 
 	if config.ClientID == "" {
 		return nil, fmt.Errorf("keycloak IdP configuration is incomplete, clientID is missing")
@@ -103,8 +100,16 @@ func NewKeycloakManager(config KeycloakClientConfig, appMetrics telemetry.AppMet
 		return nil, fmt.Errorf("keycloak IdP configuration is incomplete, ClientSecret is missing")
 	}
 
+	if config.TokenEndpoint == "" {
+		return nil, fmt.Errorf("keycloak IdP configuration is incomplete, TokenEndpoint is missing")
+	}
+
 	if config.AdminEndpoint == "" {
 		return nil, fmt.Errorf("keycloak IdP configuration is incomplete, AdminEndpoint is missing")
+	}
+
+	if config.GrantType == "" {
+		return nil, fmt.Errorf("keycloak IdP configuration is incomplete, GrantType is missing")
 	}
 
 	credentials := &KeycloakCredentials{
