@@ -250,11 +250,13 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 
 	unlock = func() {
 		s.globalAccountLock.Unlock()
-		took := time.Since(start)
-		log.Debugf("released global lock in %v", took)
-		if s.metrics != nil {
-			s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
-		}
+		log.Debugf("released global lock in %v", time.Since(start))
+	}
+
+	took := time.Since(start)
+	log.Debugf("took %v to acquire global lock", took)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
 	}
 
 	return unlock
