@@ -125,6 +125,7 @@ func restore(file string) (*FileStore, error) {
 		policies := make(map[string]int, len(account.Policies))
 		for i, policy := range account.Policies {
 			policies[policy.ID] = i
+			policy.UpgradeAndFix()
 		}
 		if account.Policies == nil {
 			account.Policies = make([]*Policy, 0)
