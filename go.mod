@@ -56,6 +56,7 @@ require (
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.8.1
+	go.opentelemetry.io/otel v1.11.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.33.0
 	go.opentelemetry.io/otel/metric v0.33.0
 	go.opentelemetry.io/otel/sdk/metric v0.33.0
@@ -123,7 +124,6 @@ require (
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/yashtewari/glob-intersection v0.1.0 // indirect
 	github.com/yuin/goldmark v1.4.13 // indirect
-	go.opentelemetry.io/otel v1.11.1 // indirect
 	go.opentelemetry.io/otel/sdk v1.11.1 // indirect
 	go.opentelemetry.io/otel/trace v1.11.1 // indirect
 	golang.org/x/image v0.0.0-20200430140353-33d19683fad8 // indirect
