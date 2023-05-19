@@ -151,6 +151,20 @@ func (p *Policy) EventMeta() map[string]any {
 	return map[string]any{"name": p.Name}
 }
 
+// UpgradeAndFix different version of policies to latest version
+func (p *Policy) UpgradeAndFix() {
+	for _, r := range p.Rules {
+		// start migrate from version v0.20.3
+		if r.Protocol == "" {
+			r.Protocol = PolicyRuleProtocolALL
+		}
+		if r.Protocol == PolicyRuleProtocolALL && r.Bidirectional == false {
+			r.Bidirectional = true
+		}
+		// -- v0.20.4
+	}
+}
+
 // FirewallRule is a rule of the firewall.
 type FirewallRule struct {
 	// PeerID of the peer
