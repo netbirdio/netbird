@@ -26,7 +26,7 @@ type MockAppMetrics struct {
 	IDPMetricsFunc     func() *IDPMetrics
 	HTTPMiddlewareFunc func() *HTTPMiddleware
 	GRPCMetricsFunc    func() *GRPCMetrics
-	StoreMetrics       func() *StoreMetrics
+	StoreMetricsFunc   func() *StoreMetrics
 }
 
 // GetMeter mocks the GetMeter function of the AppMetrics interface
@@ -73,6 +73,14 @@ func (mock *MockAppMetrics) HTTPMiddleware() *HTTPMiddleware {
 func (mock *MockAppMetrics) GRPCMetrics() *GRPCMetrics {
 	if mock.GRPCMetricsFunc != nil {
 		return mock.GRPCMetricsFunc()
+	}
+	return nil
+}
+
+// StoreMetrics mocks the MockAppMetrics function of the StoreMetrics interface
+func (mock *MockAppMetrics) StoreMetrics() *StoreMetrics {
+	if mock.StoreMetricsFunc != nil {
+		return mock.StoreMetricsFunc()
 	}
 	return nil
 }
