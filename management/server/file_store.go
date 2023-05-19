@@ -121,9 +121,7 @@ func restore(file string) (*FileStore, error) {
 			store.PrivateDomain2AccountID[account.Domain] = accountID
 		}
 
-		// TODO: policy query generated from the Go template and rule object.
-		//       We need to refactor this part to avoid using templating for policies queries building
-		//       and drop this migration part.
+		// TODO: delete this block after migration
 		policies := make(map[string]int, len(account.Policies))
 		for i, policy := range account.Policies {
 			policies[policy.ID] = i
@@ -137,9 +135,9 @@ func restore(file string) (*FileStore, error) {
 				log.Errorf("unable to migrate rule to policy: %v", err)
 				continue
 			}
-			if i, ok := policies[policy.ID]; ok {
-				account.Policies[i] = policy
-			} else {
+			// don't update policies from rules, rules deprecated,
+			// only append not existed rules as part of the migration process
+			if _, ok := policies[policy.ID]; !ok {
 				account.Policies = append(account.Policies, policy)
 			}
 		}
