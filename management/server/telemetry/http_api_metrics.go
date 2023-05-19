@@ -15,9 +15,11 @@ import (
 )
 
 const (
-	httpRequestCounterPrefix  = "management.http.request.counter"
-	httpResponseCounterPrefix = "management.http.response.counter"
-	httpRequestDurationPrefix = "management.http.request.duration.ms"
+	httpRequestCounterPrefix       = "management.http.request.counter"
+	httpResponseCounterPrefix      = "management.http.response.counter"
+	httpRequestDurationPrefix      = "management.http.request.duration.ms"
+	httpWriteRequestDurationPrefix = "management.http.request.write.duration.ms"
+	httpReadRequestDurationPrefix  = "management.http.request.read.duration.ms"
 )
 
 // WrappedResponseWriter is a wrapper for http.ResponseWriter that allows the
@@ -68,6 +70,10 @@ type HTTPMiddleware struct {
 	httpRequestDurations map[string]syncint64.Histogram
 	// all HTTP requests durations
 	totalHTTPRequestDuration syncint64.Histogram
+	// all HTTP requests durations that involve write only operations (PUT/POST/DELETE)
+	totalWriteHTTPRequestDuration syncint64.Histogram
+	// all HTTP requests durations that involve read only operations (GET/OPTIONS)
+	totalReadHTTPRequestDuration syncint64.Histogram
 }
 
 // NewMetricsMiddleware creates a new HTTPMiddleware
@@ -90,6 +96,14 @@ func NewMetricsMiddleware(ctx context.Context, meter metric.Meter) (*HTTPMiddlew
 		fmt.Sprintf("%s_total", httpRequestDurationPrefix),
 		instrument.WithUnit("milliseconds"))
 
+	totalWriteHTTPRequestDuration, err := meter.SyncInt64().Histogram(
+		fmt.Sprintf("%s_total", httpWriteRequestDurationPrefix),
+		instrument.WithUnit("milliseconds"))
+
+	totalReadHTTPRequestDuration, err := meter.SyncInt64().Histogram(
+		fmt.Sprintf("%s_total", httpReadRequestDurationPrefix),
+		instrument.WithUnit("milliseconds"))
+
 	if err != nil {
 		return nil, err
 	}
@@ -104,6 +118,8 @@ func NewMetricsMiddleware(ctx context.Context, meter metric.Meter) (*HTTPMiddlew
 			totalHTTPRequestsCounter:      totalHTTPRequestsCounter,
 			totalHTTPResponseCounter:      totalHTTPResponseCounter,
 			totalHTTPRequestDuration:      totalHTTPRequestDuration,
+			totalWriteHTTPRequestDuration: totalWriteHTTPRequestDuration,
+			totalReadHTTPRequestDuration:  totalReadHTTPRequestDuration,
 		},
 		nil
 }
@@ -163,7 +179,14 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		reqStart := time.Now()
 		defer func() {
-			m.totalHTTPRequestDuration.Record(m.ctx, time.Since(reqStart).Milliseconds())
+			tookMs := time.Since(reqStart).Milliseconds()
+			m.totalHTTPRequestDuration.Record(m.ctx, tookMs)
+
+			if r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete {
+				m.totalWriteHTTPRequestDuration.Record(m.ctx, tookMs)
+			} else {
+				m.totalReadHTTPRequestDuration.Record(m.ctx, tookMs)
+			}
 		}()
 		traceID := hash(fmt.Sprintf("%v", r))
 		log.Tracef("HTTP request %v: %v %v", traceID, r.Method, r.URL)
