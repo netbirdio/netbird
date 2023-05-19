@@ -107,8 +107,19 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 	//	return NewAzureManager(config.OIDCConfig, config.AzureClientCredentials, appMetrics)
 	//case "keycloak":
 	//	return NewKeycloakManager(config.OIDCConfig, config.KeycloakClientCredentials, appMetrics)
-	//case "zitadel":
-	//	return NewZitadelManager(config.OIDCConfig, config.ZitadelClientCredentials, appMetrics)
+	case "zitadel":
+		if config.ClientConfig == nil {
+			return nil, fmt.Errorf("IdP client configuration is empty")
+		}
+
+		zitadelClientConfig := ZitadelClientConfig{
+			ClientID:           config.ClientConfig.ClientID,
+			ClientSecret:       config.ClientConfig.ClientSecret,
+			GrantType:          config.ClientConfig.GrantType,
+			TokenEndpoint:      config.ClientConfig.TokenEndpoint,
+			ManagementEndpoint: config.ExtraConfig["ManagementEndpoint"],
+		}
+		return NewZitadelManager(zitadelClientConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
