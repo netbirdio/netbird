@@ -2,6 +2,8 @@ package telemetry
 
 import (
 	"context"
+	"time"
+
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/instrument"
 	"go.opentelemetry.io/otel/metric/instrument/asyncint64"
@@ -15,6 +17,8 @@ type GRPCMetrics struct {
 	loginRequestsCounter  syncint64.Counter
 	getKeyRequestsCounter syncint64.Counter
 	activeStreamsGauge    asyncint64.Gauge
+	syncRequestDuration   syncint64.Histogram
+	loginRequestDuration  syncint64.Histogram
 	ctx                   context.Context
 }
 
@@ -38,12 +42,24 @@ func NewGRPCMetrics(ctx context.Context, meter metric.Meter) (*GRPCMetrics, erro
 		return nil, err
 	}
 
+	syncRequestDuration, err := meter.SyncInt64().Histogram("management.grpc.sync.request.duration.ms", instrument.WithUnit("milliseconds"))
+	if err != nil {
+		return nil, err
+	}
+
+	loginRequestDuration, err := meter.SyncInt64().Histogram("management.grpc.login.request.duration.ms", instrument.WithUnit("milliseconds"))
+	if err != nil {
+		return nil, err
+	}
+
 	return &GRPCMetrics{
 		meter:                 meter,
 		syncRequestsCounter:   syncRequestsCounter,
 		loginRequestsCounter:  loginRequestsCounter,
 		getKeyRequestsCounter: getKeyRequestsCounter,
 		activeStreamsGauge:    activeStreamsGauge,
+		syncRequestDuration:   syncRequestDuration,
+		loginRequestDuration:  loginRequestDuration,
 		ctx:                   ctx,
 	}, err
 }
@@ -61,6 +77,16 @@ func (grpcMetrics *GRPCMetrics) CountGetKeyRequest() {
 // CountLoginRequest counts the number of gRPC login requests coming to the gRPC API
 func (grpcMetrics *GRPCMetrics) CountLoginRequest() {
 	grpcMetrics.loginRequestsCounter.Add(grpcMetrics.ctx, 1)
+}
+
+// CountLoginRequestDuration counts the duration of the login gRPC requests
+func (grpcMetrics *GRPCMetrics) CountLoginRequestDuration(duration time.Duration) {
+	grpcMetrics.loginRequestDuration.Record(grpcMetrics.ctx, duration.Milliseconds())
+}
+
+// CountSyncRequestDuration counts the duration of the sync gRPC requests
+func (grpcMetrics *GRPCMetrics) CountSyncRequestDuration(duration time.Duration) {
+	grpcMetrics.syncRequestDuration.Record(grpcMetrics.ctx, duration.Milliseconds())
 }
 
 // RegisterConnectedStreams registers a function that collects number of active streams and feeds it to the metrics gauge.

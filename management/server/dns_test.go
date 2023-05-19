@@ -1,10 +1,12 @@
 package server
 
 import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 const (
@@ -190,7 +192,7 @@ func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
 
 func createDNSStore(t *testing.T) (Store, error) {
 	dataDir := t.TempDir()
-	store, err := NewFileStore(dataDir)
+	store, err := NewFileStore(dataDir, nil)
 	if err != nil {
 		return nil, err
 	}
