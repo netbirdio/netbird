@@ -16,11 +16,9 @@ import (
 )
 
 const (
-	httpRequestCounterPrefix       = "management.http.request.counter"
-	httpResponseCounterPrefix      = "management.http.response.counter"
-	httpRequestDurationPrefix      = "management.http.request.duration.ms"
-	httpWriteRequestDurationPrefix = "management.http.request.write.duration.ms"
-	httpReadRequestDurationPrefix  = "management.http.request.read.duration.ms"
+	httpRequestCounterPrefix  = "management.http.request.counter"
+	httpResponseCounterPrefix = "management.http.response.counter"
+	httpRequestDurationPrefix = "management.http.request.duration.ms"
 )
 
 // WrappedResponseWriter is a wrapper for http.ResponseWriter that allows the
