@@ -31,7 +31,7 @@ func TestIptablesManager(t *testing.T) {
 	t.Run("add first rule", func(t *testing.T) {
 		ip := net.ParseIP("10.20.0.2")
 		port := &fw.Port{Values: []int{8080}}
-		rule1, err = manager.AddFiltering(ip, "tcp", nil, port, fw.DirectionDst, fw.ActionAccept, "accept HTTP traffic")
+		rule1, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "accept HTTP traffic")
 		require.NoError(t, err, "failed to add rule")
 
 		checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, true, rule1.(*Rule).specs...)
@@ -44,7 +44,7 @@ func TestIptablesManager(t *testing.T) {
 			Values: []int{8043: 8046},
 		}
 		rule2, err = manager.AddFiltering(
-			ip, "tcp", port, nil, fw.DirectionSrc, fw.ActionAccept, "accept HTTPS traffic from ports range")
+			ip, "tcp", port, nil, fw.RuleDirectionIN, fw.ActionAccept, "accept HTTPS traffic from ports range")
 		require.NoError(t, err, "failed to add rule")
 
 		checkRuleSpecs(t, ipv4Client, ChainInputFilterName, true, rule2.(*Rule).specs...)
@@ -70,7 +70,7 @@ func TestIptablesManager(t *testing.T) {
 		// add second rule
 		ip := net.ParseIP("10.20.0.3")
 		port := &fw.Port{Values: []int{5353}}
-		_, err = manager.AddFiltering(ip, "udp", nil, port, fw.DirectionDst, fw.ActionAccept, "accept Fake DNS traffic")
+		_, err = manager.AddFiltering(ip, "udp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "accept Fake DNS traffic")
 		require.NoError(t, err, "failed to add rule")
 
 		err = manager.Reset()

@@ -35,9 +35,9 @@ func (m *MockPacketFilter) EXPECT() *MockPacketFilterMockRecorder {
 }
 
 // DropInput mocks base method.
-func (m *MockPacketFilter) DropInput(arg0 []byte) bool {
+func (m *MockPacketFilter) DropOutgoing(arg0 []byte) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DropInput", arg0)
+	ret := m.ctrl.Call(m, "DropOutgoing", arg0)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
@@ -45,13 +45,13 @@ func (m *MockPacketFilter) DropInput(arg0 []byte) bool {
 // DropInput indicates an expected call of DropInput.
 func (mr *MockPacketFilterMockRecorder) DropInput(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropInput", reflect.TypeOf((*MockPacketFilter)(nil).DropInput), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropOutgoing", reflect.TypeOf((*MockPacketFilter)(nil).DropOutgoing), arg0)
 }
 
 // DropOutput mocks base method.
-func (m *MockPacketFilter) DropOutput(arg0 []byte) bool {
+func (m *MockPacketFilter) DropIncoming(arg0 []byte) bool {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "DropOutput", arg0)
+	ret := m.ctrl.Call(m, "DropIncoming", arg0)
 	ret0, _ := ret[0].(bool)
 	return ret0
 }
@@ -59,7 +59,7 @@ func (m *MockPacketFilter) DropOutput(arg0 []byte) bool {
 // DropOutput indicates an expected call of DropOutput.
 func (mr *MockPacketFilterMockRecorder) DropOutput(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropOutput", reflect.TypeOf((*MockPacketFilter)(nil).DropOutput), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DropIncoming", reflect.TypeOf((*MockPacketFilter)(nil).DropIncoming), arg0)
 }
 
 // SetNetwork mocks base method.

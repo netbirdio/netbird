@@ -54,7 +54,7 @@ func TestManagerAddFiltering(t *testing.T) {
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []int{80}}
-	direction := fw.DirectionDst
+	direction := fw.RuleDirectionOUT
 	action := fw.ActionDrop
 	comment := "Test rule"
 
@@ -89,7 +89,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []int{80}}
-	direction := fw.DirectionDst
+	direction := fw.RuleDirectionOUT
 	action := fw.ActionDrop
 	comment := "Test rule"
 
@@ -102,7 +102,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	ip = net.ParseIP("192.168.1.1")
 	proto = fw.ProtocolTCP
 	port = &fw.Port{Values: []int{80}}
-	direction = fw.DirectionDst
+	direction = fw.RuleDirectionOUT
 	action = fw.ActionDrop
 	comment = "Test rule 2"
 
@@ -118,7 +118,7 @@ func TestManagerDeleteRule(t *testing.T) {
 		return
 	}
 
-	if idx, ok := m.rulesIndex[rule2.GetRuleID()]; !ok || len(m.outputRules) != 1 || idx != 0 {
+	if idx, ok := m.rulesIndex[rule2.GetRuleID()]; !ok || len(m.incomingRules) != 1 || idx != 0 {
 		t.Errorf("rule2 is not in the rulesIndex")
 	}
 
@@ -128,7 +128,7 @@ func TestManagerDeleteRule(t *testing.T) {
 		return
 	}
 
-	if len(m.rulesIndex) != 0 || len(m.outputRules) != 0 {
+	if len(m.rulesIndex) != 0 || len(m.incomingRules) != 0 {
 		t.Errorf("rule1 still in the rulesIndex")
 	}
 }
@@ -147,7 +147,7 @@ func TestManagerReset(t *testing.T) {
 	ip := net.ParseIP("192.168.1.1")
 	proto := fw.ProtocolTCP
 	port := &fw.Port{Values: []int{80}}
-	direction := fw.DirectionDst
+	direction := fw.RuleDirectionOUT
 	action := fw.ActionDrop
 	comment := "Test rule"
 
@@ -163,7 +163,7 @@ func TestManagerReset(t *testing.T) {
 		return
 	}
 
-	if len(m.rulesIndex) != 0 || len(m.inputRules) != 0 || len(m.outputRules) != 0 {
+	if len(m.rulesIndex) != 0 || len(m.outgoingRules) != 0 || len(m.incomingRules) != 0 {
 		t.Errorf("rules is not empty")
 	}
 }

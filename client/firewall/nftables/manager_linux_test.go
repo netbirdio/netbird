@@ -35,7 +35,7 @@ func TestNftablesManager(t *testing.T) {
 		fw.ProtocolTCP,
 		nil,
 		&fw.Port{Values: []int{53}},
-		fw.DirectionSrc,
+		fw.RuleDirectionIN,
 		fw.ActionDrop,
 		"",
 	)
