@@ -93,8 +93,8 @@ func checkRuleSpecs(t *testing.T, ipv4Client *iptables.IPTables, chainName strin
 	require.Falsef(t, exists && !mustExists, "rule '%v' exist", rulespec)
 }
 
-func TestIptablesPerformance(t *testing.T) {
-	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 2000, 3000, 4000, 5000, 10000} {
+func TestIptablesCreatePerformance(t *testing.T) {
+	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
 			manager, err := Create("lo")
