@@ -2,6 +2,7 @@ package server
 
 import (
 	_ "embed"
+	"fmt"
 	"strings"
 
 	"github.com/netbirdio/netbird/management/proto"
@@ -44,6 +45,11 @@ const (
 	PolicyRuleFlowDirect = PolicyRuleDirection("direct")
 	// PolicyRuleFlowBidirect allows traffic to both directions
 	PolicyRuleFlowBidirect = PolicyRuleDirection("bidirect")
+)
+
+const (
+	firewallRuleDirectionIN  = 0
+	firewallRuleDirectionOUT = 1
 )
 
 // PolicyUpdateOperation operation object with type and values to be applied
@@ -174,7 +180,7 @@ type FirewallRule struct {
 	PeerIP string
 
 	// Direction of the traffic
-	Direction string
+	Direction int
 
 	// Action of the traffic
 	Action string
@@ -207,19 +213,19 @@ func (a *Account) getPeerConnectionResources(peerID string) ([]*Peer, []*Firewal
 
 			if rule.Bidirectional {
 				if peerInSources {
-					generateResources(rule, destinationPeers, "src")
+					generateResources(rule, destinationPeers, firewallRuleDirectionIN)
 				}
 				if peerInDestinations {
-					generateResources(rule, sourcePeers, "dst")
+					generateResources(rule, sourcePeers, firewallRuleDirectionOUT)
 				}
 			}
 
 			if peerInSources {
-				generateResources(rule, destinationPeers, "dst")
+				generateResources(rule, destinationPeers, firewallRuleDirectionOUT)
 			}
 
 			if peerInDestinations {
-				generateResources(rule, sourcePeers, "src")
+				generateResources(rule, sourcePeers, firewallRuleDirectionIN)
 			}
 		}
 	}
@@ -232,12 +238,12 @@ func (a *Account) getPeerConnectionResources(peerID string) ([]*Peer, []*Firewal
 // The generator function is used to generate the list of peers and firewall rules that are applicable to a given peer.
 // It safe to call the generator function multiple times for same peer and different rules no duplicates will be
 // generated. The accumulator function returns the result of all the generator calls.
-func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, string), func() ([]*Peer, []*FirewallRule)) {
+func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, int), func() ([]*Peer, []*FirewallRule)) {
 	rulesExists := make(map[string]struct{})
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
 	peers := make([]*Peer, 0)
-	return func(rule *PolicyRule, groupPeers []*Peer, direction string) {
+	return func(rule *PolicyRule, groupPeers []*Peer, direction int) {
 			for _, peer := range groupPeers {
 				if _, ok := peersExists[peer.ID]; !ok {
 					peers = append(peers, peer)
@@ -252,7 +258,7 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, string), 
 					Protocol:  string(rule.Protocol),
 				}
 
-				ruleID := peer.ID + peer.IP.String() + direction
+				ruleID := fmt.Sprintf("%s%d", peer.ID+peer.IP.String(), direction)
 				ruleID += string(rule.Protocol) + string(rule.Action) + strings.Join(rule.Ports, ",")
 				if _, ok := rulesExists[ruleID]; ok {
 					continue
@@ -410,12 +416,33 @@ func (am *DefaultAccountManager) savePolicy(account *Account, policy *Policy) (e
 func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 	result := make([]*proto.FirewallRule, len(update))
 	for i := range update {
+		direction := proto.FirewallRule_IN
+		if update[i].Direction == firewallRuleDirectionOUT {
+			direction = proto.FirewallRule_OUT
+		}
+		action := proto.FirewallRule_ACCEPT
+		if update[i].Action == string(PolicyTrafficActionDrop) {
+			action = proto.FirewallRule_DROP
+		}
+
+		protocol := proto.FirewallRule_UNKNOWN
+		switch PolicyRuleProtocolType(update[i].Protocol) {
+		case PolicyRuleProtocolALL:
+			protocol = proto.FirewallRule_ALL
+		case PolicyRuleProtocolTCP:
+			protocol = proto.FirewallRule_TCP
+		case PolicyRuleProtocolUDP:
+			protocol = proto.FirewallRule_UDP
+		case PolicyRuleProtocolICMP:
+			protocol = proto.FirewallRule_ICMP
+		}
+
 		result[i] = &proto.FirewallRule{
 			PeerID:    update[i].PeerID,
 			PeerIP:    update[i].PeerIP,
-			Direction: update[i].Direction,
-			Action:    update[i].Action,
-			Protocol:  update[i].Protocol,
+			Direction: direction,
+			Action:    action,
+			Protocol:  protocol,
 			Port:      update[i].Port,
 		}
 	}
