@@ -102,7 +102,7 @@ func TestManagerDeleteRule(t *testing.T) {
 	ip = net.ParseIP("192.168.1.1")
 	proto = fw.ProtocolTCP
 	port = &fw.Port{Values: []int{80}}
-	direction = fw.RuleDirectionOUT
+	direction = fw.RuleDirectionIN
 	action = fw.ActionDrop
 	comment = "Test rule 2"
 
