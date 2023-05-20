@@ -306,8 +306,24 @@ message NameServer {
 message FirewallRule {
   string PeerID = 1;
   string PeerIP = 2;
-  string Direction = 3;
-  string Action = 4;
-  string Protocol = 5;
+  direction Direction = 3;
+  action Action = 4;
+  protocol Protocol = 5;
   string Port = 6;
+
+  enum direction {
+    IN = 0;
+    OUT = 1;
+  }
+  enum action {
+    ACCEPT = 0;
+    DROP = 1;
+  }
+  enum protocol {
+    UNKNOWN = 0;
+    ALL = 1;
+    TCP = 2;
+    UDP = 3;
+    ICMP = 4;
+  }
 }

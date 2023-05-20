@@ -14,7 +14,7 @@ type Rule struct {
 	ip         net.IP
 	ipLayer    gopacket.LayerType
 	protoLayer gopacket.LayerType
-	direction  fw.Direction
+	direction  fw.RuleDirection
 	sPort      uint16
 	dPort      uint16
 	drop       bool

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net"
 	"testing"
 
@@ -11,98 +12,98 @@ import (
 func TestAccount_getPeersByPolicy(t *testing.T) {
 	account := &Account{
 		Peers: map[string]*Peer{
-			"cfif97at2r9s73au3q00": {
-				ID: "cfif97at2r9s73au3q00",
+			"peerA": {
+				ID: "peerA",
 				IP: net.ParseIP("100.65.14.88"),
 			},
-			"cfif97at2r9s73au3q0g": {
-				ID: "cfif97at2r9s73au3q0g",
+			"peerB": {
+				ID: "peerB",
 				IP: net.ParseIP("100.65.80.39"),
 			},
-			"cfif97at2r9s73au3q10": {
-				ID: "cfif97at2r9s73au3q10",
+			"peerC": {
+				ID: "peerC",
 				IP: net.ParseIP("100.65.254.139"),
 			},
-			"cfif97at2r9s73au3q20": {
-				ID: "cfif97at2r9s73au3q20",
+			"peerD": {
+				ID: "peerD",
 				IP: net.ParseIP("100.65.62.5"),
 			},
-			"cfj4tiqt2r9s73dmeun0": {
-				ID: "cfj4tiqt2r9s73dmeun0",
+			"peerE": {
+				ID: "peerE",
 				IP: net.ParseIP("100.65.32.206"),
 			},
-			"cg7h032t2r9s73cg5fk0": {
-				ID: "cg7h032t2r9s73cg5fk0",
+			"peerF": {
+				ID: "peerF",
 				IP: net.ParseIP("100.65.250.202"),
 			},
-			"cgcnkj2t2r9s73cg5vv0": {
-				ID: "cgcnkj2t2r9s73cg5vv0",
+			"peerG": {
+				ID: "peerG",
 				IP: net.ParseIP("100.65.13.186"),
 			},
-			"cgcol4qt2r9s73cg601g": {
-				ID: "cgcol4qt2r9s73cg601g",
+			"peerH": {
+				ID: "peerH",
 				IP: net.ParseIP("100.65.29.55"),
 			},
 		},
 		Groups: map[string]*Group{
-			"cet9e92t2r9s7383ns20": {
-				ID:   "cet9e92t2r9s7383ns20",
+			"GroupAll": {
+				ID:   "GroupAll",
 				Name: "All",
 				Peers: []string{
-					"cfif97at2r9s73au3q0g",
-					"cfif97at2r9s73au3q00",
-					"cfif97at2r9s73au3q20",
-					"cfif97at2r9s73au3q10",
-					"cfj4tiqt2r9s73dmeun0",
-					"cg7h032t2r9s73cg5fk0",
-					"cgcnkj2t2r9s73cg5vv0",
-					"cgcol4qt2r9s73cg601g",
+					"peerB",
+					"peerA",
+					"peerD",
+					"peerC",
+					"peerE",
+					"peerF",
+					"peerG",
+					"peerH",
 				},
 			},
-			"cev90bat2r9s7383o150": {
-				ID:   "cev90bat2r9s7383o150",
+			"GroupSwarm": {
+				ID:   "GroupSwarm",
 				Name: "swarm",
 				Peers: []string{
-					"cfif97at2r9s73au3q0g",
-					"cfif97at2r9s73au3q00",
-					"cfif97at2r9s73au3q20",
-					"cfj4tiqt2r9s73dmeun0",
-					"cgcnkj2t2r9s73cg5vv0",
-					"cgcol4qt2r9s73cg601g",
+					"peerB",
+					"peerA",
+					"peerD",
+					"peerE",
+					"peerG",
+					"peerH",
 				},
 			},
 		},
 		Rules: map[string]*Rule{
-			"cet9e92t2r9s7383ns2g": {
-				ID:          "cet9e92t2r9s7383ns2g",
+			"RuleDefault": {
+				ID:          "RuleDefault",
 				Name:        "Default",
 				Description: "This is a default rule that allows connections between all the resources",
 				Source: []string{
-					"cet9e92t2r9s7383ns20",
+					"GroupAll",
 				},
 				Destination: []string{
-					"cet9e92t2r9s7383ns20",
+					"GroupAll",
 				},
 			},
-			"cev90bat2r9s7383o15g": {
-				ID:          "cev90bat2r9s7383o15g",
+			"RuleSwarm": {
+				ID:          "RuleSwarm",
 				Name:        "Swarm",
 				Description: "",
 				Source: []string{
-					"cev90bat2r9s7383o150",
-					"cet9e92t2r9s7383ns20",
+					"GroupSwarm",
+					"GroupAll",
 				},
 				Destination: []string{
-					"cev90bat2r9s7383o150",
+					"GroupSwarm",
 				},
 			},
 		},
 	}
 
-	rule1, err := RuleToPolicy(account.Rules["cet9e92t2r9s7383ns2g"])
+	rule1, err := RuleToPolicy(account.Rules["RuleDefault"])
 	assert.NoError(t, err)
 
-	rule2, err := RuleToPolicy(account.Rules["cev90bat2r9s7383o15g"])
+	rule2, err := RuleToPolicy(account.Rules["RuleSwarm"])
 	assert.NoError(t, err)
 
 	account.Policies = append(account.Policies, rule1, rule2)
@@ -116,140 +117,136 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 	})
 
 	t.Run("check first peer map details", func(t *testing.T) {
-		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q0g")
+		peers, firewallRules := account.getPeerConnectionResources("peerB")
 		assert.Len(t, peers, 7)
-		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q00"])
-		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q10"])
-		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q20"])
-		assert.Contains(t, peers, account.Peers["cfj4tiqt2r9s73dmeun0"])
-		assert.Contains(t, peers, account.Peers["cg7h032t2r9s73cg5fk0"])
+		assert.Contains(t, peers, account.Peers["peerA"])
+		assert.Contains(t, peers, account.Peers["peerC"])
+		assert.Contains(t, peers, account.Peers["peerD"])
+		assert.Contains(t, peers, account.Peers["peerE"])
+		assert.Contains(t, peers, account.Peers["peerF"])
 
 		epectedFirewallRules := []*FirewallRule{
 			{
-				PeerID:    "cfif97at2r9s73au3q00",
+				PeerID:    "peerA",
 				PeerIP:    "100.65.14.88",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cfif97at2r9s73au3q00",
+				PeerID:    "peerA",
 				PeerIP:    "100.65.14.88",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cfif97at2r9s73au3q10",
+				PeerID:    "peerC",
 				PeerIP:    "100.65.254.139",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cfif97at2r9s73au3q10",
+				PeerID:    "peerC",
 				PeerIP:    "100.65.254.139",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 
 			{
-				PeerID:    "cfif97at2r9s73au3q20",
+				PeerID:    "peerD",
 				PeerIP:    "100.65.62.5",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cfif97at2r9s73au3q20",
+				PeerID:    "peerD",
 				PeerIP:    "100.65.62.5",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 
 			{
-				PeerID:    "cfj4tiqt2r9s73dmeun0",
+				PeerID:    "peerE",
 				PeerIP:    "100.65.32.206",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cfj4tiqt2r9s73dmeun0",
+				PeerID:    "peerE",
 				PeerIP:    "100.65.32.206",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 
 			{
-				PeerID:    "cg7h032t2r9s73cg5fk0",
+				PeerID:    "peerF",
 				PeerIP:    "100.65.250.202",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cg7h032t2r9s73cg5fk0",
+				PeerID:    "peerF",
 				PeerIP:    "100.65.250.202",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 
 			{
-				PeerID:    "cgcnkj2t2r9s73cg5vv0",
+				PeerID:    "peerG",
 				PeerIP:    "100.65.13.186",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cgcnkj2t2r9s73cg5vv0",
+				PeerID:    "peerG",
 				PeerIP:    "100.65.13.186",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 
 			{
-				PeerID:    "cgcol4qt2r9s73cg601g",
+				PeerID:    "peerH",
 				PeerIP:    "100.65.29.55",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cgcol4qt2r9s73cg601g",
+				PeerID:    "peerH",
 				PeerIP:    "100.65.29.55",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
-		slices.SortFunc(firewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
+		slices.SortFunc(epectedFirewallRules, sortFunc())
+		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
 			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
 		}
@@ -259,142 +256,134 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	account := &Account{
 		Peers: map[string]*Peer{
-			"cfif97at2r9s73au3q00": {
-				ID: "cfif97at2r9s73au3q00",
+			"peerA": {
+				ID: "peerA",
 				IP: net.ParseIP("100.65.14.88"),
 			},
-			"cfif97at2r9s73au3q0g": {
-				ID: "cfif97at2r9s73au3q0g",
+			"peerB": {
+				ID: "peerB",
 				IP: net.ParseIP("100.65.80.39"),
 			},
-			"cfif97at2r9s73au3q10": {
-				ID: "cfif97at2r9s73au3q10",
+			"peerC": {
+				ID: "peerC",
 				IP: net.ParseIP("100.65.254.139"),
 			},
 		},
 		Groups: map[string]*Group{
-			"cet9e92t2r9s7383ns20": {
-				ID:   "cet9e92t2r9s7383ns20",
+			"GroupAll": {
+				ID:   "GroupAll",
 				Name: "All",
 				Peers: []string{
-					"cfif97at2r9s73au3q0g",
-					"cfif97at2r9s73au3q00",
-					"cfif97at2r9s73au3q10",
+					"peerB",
+					"peerA",
+					"peerC",
 				},
 			},
-			"cev90bat2r9s7383o150": {
-				ID:   "cev90bat2r9s7383o150",
+			"GroupSwarm": {
+				ID:   "GroupSwarm",
 				Name: "swarm",
 				Peers: []string{
-					"cfif97at2r9s73au3q0g",
+					"peerB",
 				},
 			},
-			"cg7h032t2r9s73cg5fk0": {
-				ID:   "cg7h032t2r9s73cg5fk0",
+			"peerF": {
+				ID:   "peerF",
 				Name: "dmz",
 				Peers: []string{
-					"cfif97at2r9s73au3q10",
+					"peerC",
 				},
 			},
 		},
 		Rules: map[string]*Rule{
-			"cet9e92t2r9s7383ns2g": {
-				ID:          "cet9e92t2r9s7383ns2g",
+			"RuleDefault": {
+				ID:          "RuleDefault",
 				Name:        "Default",
 				Disabled:    true,
 				Description: "This is a default rule that allows connections between all the resources",
 				Source: []string{
-					"cet9e92t2r9s7383ns20",
+					"GroupAll",
 				},
 				Destination: []string{
-					"cet9e92t2r9s7383ns20",
+					"GroupAll",
 				},
 			},
-			"cev90bat2r9s7383o15g": {
-				ID:          "cev90bat2r9s7383o15g",
+			"RuleSwarm": {
+				ID:          "RuleSwarm",
 				Name:        "Swarm",
 				Description: "",
 				Source: []string{
-					"cev90bat2r9s7383o150",
+					"GroupSwarm",
 				},
 				Destination: []string{
-					"cg7h032t2r9s73cg5fk0",
+					"peerF",
 				},
 			},
 		},
 	}
 
-	rule1, err := RuleToPolicy(account.Rules["cet9e92t2r9s7383ns2g"])
+	rule1, err := RuleToPolicy(account.Rules["RuleDefault"])
 	assert.NoError(t, err)
 
-	rule2, err := RuleToPolicy(account.Rules["cev90bat2r9s7383o15g"])
+	rule2, err := RuleToPolicy(account.Rules["RuleSwarm"])
 	assert.NoError(t, err)
 
 	account.Policies = append(account.Policies, rule1, rule2)
 
 	t.Run("check first peer map", func(t *testing.T) {
-		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q0g")
-		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q10"])
+		peers, firewallRules := account.getPeerConnectionResources("peerB")
+		assert.Contains(t, peers, account.Peers["peerC"])
 
 		epectedFirewallRules := []*FirewallRule{
 			{
-				PeerID:    "cfif97at2r9s73au3q10",
+				PeerID:    "peerC",
 				PeerIP:    "100.65.254.139",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cfif97at2r9s73au3q10",
+				PeerID:    "peerC",
 				PeerIP:    "100.65.254.139",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
-		slices.SortFunc(firewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
+		slices.SortFunc(epectedFirewallRules, sortFunc())
+		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
 			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
 		}
 	})
 
 	t.Run("check second peer map", func(t *testing.T) {
-		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q10")
-		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q0g"])
+		peers, firewallRules := account.getPeerConnectionResources("peerC")
+		assert.Contains(t, peers, account.Peers["peerB"])
 
 		epectedFirewallRules := []*FirewallRule{
 			{
-				PeerID:    "cfif97at2r9s73au3q0g",
+				PeerID:    "peerB",
 				PeerIP:    "100.65.80.39",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 			{
-				PeerID:    "cfif97at2r9s73au3q0g",
+				PeerID:    "peerB",
 				PeerIP:    "100.65.80.39",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
-		slices.SortFunc(firewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
+		slices.SortFunc(epectedFirewallRules, sortFunc())
+		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
 			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
 		}
@@ -403,54 +392,52 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 	account.Policies[1].Rules[0].Bidirectional = false
 
 	t.Run("check first peer map directional only", func(t *testing.T) {
-		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q0g")
-		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q10"])
+		peers, firewallRules := account.getPeerConnectionResources("peerB")
+		assert.Contains(t, peers, account.Peers["peerC"])
 
 		epectedFirewallRules := []*FirewallRule{
 			{
-				PeerID:    "cfif97at2r9s73au3q10",
+				PeerID:    "peerC",
 				PeerIP:    "100.65.254.139",
-				Direction: "dst",
+				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
-		slices.SortFunc(firewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
+		slices.SortFunc(epectedFirewallRules, sortFunc())
+		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
 			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
 		}
 	})
 
 	t.Run("check second peer map directional only", func(t *testing.T) {
-		peers, firewallRules := account.getPeerConnectionResources("cfif97at2r9s73au3q10")
-		assert.Contains(t, peers, account.Peers["cfif97at2r9s73au3q0g"])
+		peers, firewallRules := account.getPeerConnectionResources("peerC")
+		assert.Contains(t, peers, account.Peers["peerB"])
 
 		epectedFirewallRules := []*FirewallRule{
 			{
-				PeerID:    "cfif97at2r9s73au3q0g",
+				PeerID:    "peerB",
 				PeerIP:    "100.65.80.39",
-				Direction: "src",
+				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
 				Protocol:  "all",
 				Port:      "",
 			},
 		}
 		assert.Len(t, firewallRules, len(epectedFirewallRules))
-		slices.SortFunc(epectedFirewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
-		slices.SortFunc(firewallRules, func(a, b *FirewallRule) bool {
-			return a.PeerID+a.Direction < b.PeerID+b.Direction
-		})
+		slices.SortFunc(epectedFirewallRules, sortFunc())
+		slices.SortFunc(firewallRules, sortFunc())
 		for i := range firewallRules {
 			assert.Equal(t, epectedFirewallRules[i], firewallRules[i])
 		}
 	})
+}
+
+func sortFunc() func(a *FirewallRule, b *FirewallRule) bool {
+	return func(a, b *FirewallRule) bool {
+		return a.PeerID+fmt.Sprintf("%d", a.Direction) < b.PeerID+fmt.Sprintf("%d", b.Direction)
+	}
 }

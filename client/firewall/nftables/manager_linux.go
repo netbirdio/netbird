@@ -68,7 +68,7 @@ func (m *Manager) AddFiltering(
 	proto fw.Protocol,
 	sPort *fw.Port,
 	dPort *fw.Port,
-	direction fw.Direction,
+	direction fw.RuleDirection,
 	action fw.Action,
 	comment string,
 ) (fw.Rule, error) {
@@ -81,7 +81,7 @@ func (m *Manager) AddFiltering(
 		chain *nftables.Chain
 	)
 
-	if direction == fw.DirectionDst {
+	if direction == fw.RuleDirectionOUT {
 		table, chain, err = m.chain(
 			ip,
 			FilterOutputChainName,
@@ -101,7 +101,7 @@ func (m *Manager) AddFiltering(
 	}
 
 	ifaceKey := expr.MetaKeyIIFNAME
-	if direction == fw.DirectionDst {
+	if direction == fw.RuleDirectionOUT {
 		ifaceKey = expr.MetaKeyOIFNAME
 	}
 	expressions := []expr.Any{
@@ -150,7 +150,7 @@ func (m *Manager) AddFiltering(
 	}
 
 	// change to destination address position if need
-	if direction == fw.DirectionDst {
+	if direction == fw.RuleDirectionOUT {
 		adrOffset += adrLen
 	}
 

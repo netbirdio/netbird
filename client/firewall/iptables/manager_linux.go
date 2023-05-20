@@ -79,7 +79,7 @@ func (m *Manager) AddFiltering(
 	protocol fw.Protocol,
 	sPort *fw.Port,
 	dPort *fw.Port,
-	direction fw.Direction,
+	direction fw.RuleDirection,
 	action fw.Action,
 	comment string,
 ) (fw.Rule, error) {
@@ -116,7 +116,7 @@ func (m *Manager) AddFiltering(
 		comment,
 	)
 
-	if direction == fw.DirectionDst {
+	if direction == fw.RuleDirectionOUT {
 		ok, err := client.Exists("filter", ChainOutputFilterName, specs...)
 		if err != nil {
 			return nil, fmt.Errorf("check is output rule already exists: %w", err)
@@ -145,7 +145,7 @@ func (m *Manager) AddFiltering(
 	return &Rule{
 		id:    ruleID,
 		specs: specs,
-		dst:   direction == fw.DirectionDst,
+		dst:   direction == fw.RuleDirectionOUT,
 		v6:    ip.To4() == nil,
 	}, nil
 }
@@ -239,12 +239,12 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 // filterRuleSpecs returns the specs of a filtering rule
 func (m *Manager) filterRuleSpecs(
 	table string, ip net.IP, protocol string, sPort, dPort string,
-	direction fw.Direction, action fw.Action, comment string,
+	direction fw.RuleDirection, action fw.Action, comment string,
 ) (specs []string) {
 	switch direction {
-	case fw.DirectionSrc:
+	case fw.RuleDirectionIN:
 		specs = append(specs, "-s", ip.String())
-	case fw.DirectionDst:
+	case fw.RuleDirectionOUT:
 		specs = append(specs, "-d", ip.String())
 	}
 	if protocol != "all" {

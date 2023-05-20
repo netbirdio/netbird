@@ -13,22 +13,24 @@ type Rule interface {
 	GetRuleID() string
 }
 
-// Direction is the direction of the traffic
-type Direction int
+// RuleDirection is the traffic direction which a rule is applied
+type RuleDirection int
 
 const (
-	// DirectionSrc is the direction of the traffic from the source
-	DirectionSrc Direction = iota
-	// DirectionDst is the direction of the traffic from the destination
-	DirectionDst
+	// RuleDirectionIN applies to filters that handlers incoming traffic
+	RuleDirectionIN RuleDirection = iota
+	// RuleDirectionOUT applies to filters that handlers outgoing traffic
+	RuleDirectionOUT
 )
 
 // Action is the action to be taken on a rule
 type Action int
 
 const (
+	// ActionUnknown is a unknown action
+	ActionUnknown Action = iota
 	// ActionAccept is the action to accept a packet
-	ActionAccept Action = iota
+	ActionAccept
 	// ActionDrop is the action to drop a packet
 	ActionDrop
 )
@@ -47,7 +49,7 @@ type Manager interface {
 		proto Protocol,
 		sPort *Port,
 		dPort *Port,
-		direction Direction,
+		direction RuleDirection,
 		action Action,
 		comment string,
 	) (Rule, error)

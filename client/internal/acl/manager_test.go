@@ -6,7 +6,7 @@ import (
 
 	"github.com/golang/mock/gomock"
 
-	mocks "github.com/netbirdio/netbird/client/internal/acl/mocks"
+	"github.com/netbirdio/netbird/client/internal/acl/mocks"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
@@ -21,17 +21,17 @@ func TestDefaultManager(t *testing.T) {
 		{
 			PeerID:    "test",
 			PeerIP:    "10.93.0.1",
-			Direction: "dst",
-			Action:    "accept",
-			Protocol:  "tcp",
+			Direction: mgmProto.FirewallRule_OUT,
+			Action:    mgmProto.FirewallRule_ACCEPT,
+			Protocol:  mgmProto.FirewallRule_TCP,
 			Port:      "80",
 		},
 		{
 			PeerID:    "test2",
 			PeerIP:    "10.93.0.2",
-			Direction: "dst",
-			Action:    "drop",
-			Protocol:  "udp",
+			Direction: mgmProto.FirewallRule_OUT,
+			Action:    mgmProto.FirewallRule_DROP,
+			Protocol:  mgmProto.FirewallRule_UDP,
 			Port:      "53",
 		},
 	}
@@ -66,9 +66,9 @@ func TestDefaultManager(t *testing.T) {
 		fwRules = append(fwRules, &mgmProto.FirewallRule{
 			PeerID:    "test3",
 			PeerIP:    "10.93.0.3",
-			Direction: "src",
-			Action:    "drop",
-			Protocol:  "icmp",
+			Direction: mgmProto.FirewallRule_IN,
+			Action:    mgmProto.FirewallRule_DROP,
+			Protocol:  mgmProto.FirewallRule_ICMP,
 		})
 
 		existedRulesID := map[string]struct{}{}
