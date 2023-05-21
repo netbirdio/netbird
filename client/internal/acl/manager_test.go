@@ -19,7 +19,6 @@ func TestDefaultManager(t *testing.T) {
 
 	fwRules := []*mgmProto.FirewallRule{
 		{
-			PeerID:    "test",
 			PeerIP:    "10.93.0.1",
 			Direction: mgmProto.FirewallRule_OUT,
 			Action:    mgmProto.FirewallRule_ACCEPT,
@@ -27,7 +26,6 @@ func TestDefaultManager(t *testing.T) {
 			Port:      "80",
 		},
 		{
-			PeerID:    "test2",
 			PeerIP:    "10.93.0.2",
 			Direction: mgmProto.FirewallRule_OUT,
 			Action:    mgmProto.FirewallRule_DROP,
@@ -64,7 +62,6 @@ func TestDefaultManager(t *testing.T) {
 		// remove first rule
 		fwRules = fwRules[1:]
 		fwRules = append(fwRules, &mgmProto.FirewallRule{
-			PeerID:    "test3",
 			PeerIP:    "10.93.0.3",
 			Direction: mgmProto.FirewallRule_IN,
 			Action:    mgmProto.FirewallRule_DROP,

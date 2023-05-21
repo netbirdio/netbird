@@ -178,7 +178,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Port:      "",
 			},
 			{
-
 				PeerIP:    "100.65.32.206",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
@@ -187,7 +186,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 
 			{
-
 				PeerIP:    "100.65.250.202",
 				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
@@ -195,7 +193,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Port:      "",
 			},
 			{
-
 				PeerIP:    "100.65.250.202",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
@@ -204,7 +201,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 
 			{
-
 				PeerIP:    "100.65.13.186",
 				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
@@ -212,7 +208,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Port:      "",
 			},
 			{
-
 				PeerIP:    "100.65.13.186",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
@@ -221,7 +216,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 			},
 
 			{
-
 				PeerIP:    "100.65.29.55",
 				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
@@ -229,7 +223,6 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 				Port:      "",
 			},
 			{
-
 				PeerIP:    "100.65.29.55",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
@@ -328,7 +321,6 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 
 		epectedFirewallRules := []*FirewallRule{
 			{
-
 				PeerIP:    "100.65.254.139",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
@@ -336,7 +328,6 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Port:      "",
 			},
 			{
-
 				PeerIP:    "100.65.254.139",
 				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
@@ -358,7 +349,6 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 
 		epectedFirewallRules := []*FirewallRule{
 			{
-
 				PeerIP:    "100.65.80.39",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
@@ -366,7 +356,6 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 				Port:      "",
 			},
 			{
-
 				PeerIP:    "100.65.80.39",
 				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
@@ -390,7 +379,6 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 
 		epectedFirewallRules := []*FirewallRule{
 			{
-
 				PeerIP:    "100.65.254.139",
 				Direction: firewallRuleDirectionOUT,
 				Action:    "accept",
@@ -412,7 +400,6 @@ func TestAccount_getPeersByPolicyDirect(t *testing.T) {
 
 		epectedFirewallRules := []*FirewallRule{
 			{
-
 				PeerIP:    "100.65.80.39",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",
