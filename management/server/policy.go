@@ -173,9 +173,6 @@ func (p *Policy) UpgradeAndFix() {
 
 // FirewallRule is a rule of the firewall.
 type FirewallRule struct {
-	// PeerID of the peer
-	PeerID string
-
 	// PeerIP of the peer
 	PeerIP string
 
@@ -251,7 +248,6 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, int), fun
 				}
 
 				fwRule := FirewallRule{
-					PeerID:    peer.ID,
 					PeerIP:    peer.IP.String(),
 					Direction: direction,
 					Action:    string(rule.Action),
@@ -438,7 +434,6 @@ func toProtocolFirewallRules(update []*FirewallRule) []*proto.FirewallRule {
 		}
 
 		result[i] = &proto.FirewallRule{
-			PeerID:    update[i].PeerID,
 			PeerIP:    update[i].PeerIP,
 			Direction: direction,
 			Action:    action,

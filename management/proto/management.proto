@@ -304,12 +304,11 @@ message NameServer {
 
 // FirewallRule represents a firewall rule
 message FirewallRule {
-  string PeerID = 1;
-  string PeerIP = 2;
-  direction Direction = 3;
-  action Action = 4;
-  protocol Protocol = 5;
-  string Port = 6;
+  string PeerIP = 1;
+  direction Direction = 2;
+  action Action = 3;
+  protocol Protocol = 4;
+  string Port = 5;
 
   enum direction {
     IN = 0;
