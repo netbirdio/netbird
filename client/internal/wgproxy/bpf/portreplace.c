@@ -1,31 +1,15 @@
-#include <stdint.h>
-#include <linux/if_ether.h>
-#include <linux/if_packet.h>
+#include <linux/if_ether.h> // ETH_P_IP
 #include <linux/udp.h>
 #include <linux/ip.h>
 #include <netinet/in.h>
-#include <linux/types.h>
 #include <linux/bpf.h>
-#include <linux/pkt_cls.h>
 #include <bpf/bpf_helpers.h>
-
-#define DEFAULT_PKTGEN_UDP_PORT 9
 
 #define bpf_printk(fmt, ...)                                                   \
   ({                                                                           \
     char ____fmt[] = fmt;                                                      \
     bpf_trace_printk(____fmt, sizeof(____fmt), ##__VA_ARGS__);                 \
   })
-
-
-// L3/L4 offsets
-#define L3_CSUM_OFF (ETH_HLEN + offsetof(struct iphdr, check))
-#define IP_SRC_OFF (ETH_HLEN + offsetof(struct iphdr, saddr))
-#define IP_DST_OFF (ETH_HLEN + offsetof(struct iphdr, daddr))
-#define L4_SPORT_OFF (ETH_HLEN + sizeof(struct iphdr) + offsetof(struct udphdr, source ))
-#define L4_DPORT_OFF (ETH_HLEN + sizeof(struct iphdr) + offsetof(struct udphdr, dest ))
-#define L4_CSUM_OFF (ETH_HLEN + sizeof(struct iphdr) + offsetof(struct udphdr, check))
-
 
 SEC("xdp")
 int xdp_prog_func(struct xdp_md *ctx) {
@@ -50,12 +34,12 @@ int xdp_prog_func(struct xdp_md *ctx) {
        return XDP_PASS;
     }
 
-    // 16777343 = 127.0.0.1
-    if (ip->daddr != 16777343) {
+    // 2130706433 = 127.0.0.1
+    if (ip->daddr != htonl(2130706433)) {
         return XDP_PASS;
     }
 
-    if (htons(udp->source) != 51820){
+    if (udp->source != htons(51820)){
         return XDP_PASS;
     }
 
@@ -68,11 +52,3 @@ int xdp_prog_func(struct xdp_md *ctx) {
 	return XDP_PASS;
 }
 char _license[] SEC("license") = "GPL";
-
-/*
-    unsigned char bytes[4];
-    bytes[0] = dst_ip & 0xFF;
-    bytes[1] = (dst_ip >> 8) & 0xFF;
-    bytes[2] = (dst_ip >> 16) & 0xFF;
-    bytes[3] = (dst_ip >> 24) & 0xFF;
-*/
