@@ -29,6 +29,9 @@ func (l *eBPF) load() error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		_ = objs.Close()
+	}()
 
 	l.link, err = link.AttachXDP(link.XDPOptions{
 		Program:   objs.XdpProgFunc,
@@ -37,10 +40,10 @@ func (l *eBPF) load() error {
 	return err
 }
 
-func (l *eBPF) free() {
+func (l *eBPF) free() error {
 	if l.link != nil {
-		l.link.Close()
-	}
+		return l.link.Close()
 
-	return
+	}
+	return nil
 }
