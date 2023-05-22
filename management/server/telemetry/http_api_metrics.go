@@ -163,16 +163,6 @@ func getResponseCounterKey(endpoint, method string, status int) string {
 func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 	fn := func(rw http.ResponseWriter, r *http.Request) {
 		reqStart := time.Now()
-		defer func() {
-			tookMs := time.Since(reqStart).Milliseconds()
-			m.totalHTTPRequestDuration.Record(m.ctx, tookMs)
-
-			if r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete {
-				m.totalHTTPRequestDuration.Record(m.ctx, tookMs, attribute.String("type", "write"))
-			} else {
-				m.totalHTTPRequestDuration.Record(m.ctx, tookMs, attribute.String("type", "read"))
-			}
-		}()
 		traceID := hash(fmt.Sprintf("%v", r))
 		log.Tracef("HTTP request %v: %v %v", traceID, r.Method, r.URL)
 
@@ -208,7 +198,13 @@ func (m *HTTPMiddleware) Handler(h http.Handler) http.Handler {
 		if c, ok := m.httpRequestDurations[durationKey]; ok {
 			c.Record(m.ctx, reqTook.Milliseconds())
 		}
-		log.Debugf("request %s %s took %d ms", r.Method, r.URL.Path, reqTook.Milliseconds())
+		log.Debugf("request %s %s took %d ms and finished with status %d", r.Method, r.URL.Path, reqTook.Milliseconds(), w.Status())
+
+		if w.Status() == 200 && (r.Method == http.MethodPut || r.Method == http.MethodPost || r.Method == http.MethodDelete) {
+			m.totalHTTPRequestDuration.Record(m.ctx, reqTook.Milliseconds(), attribute.String("type", "write"))
+		} else {
+			m.totalHTTPRequestDuration.Record(m.ctx, reqTook.Milliseconds(), attribute.String("type", "read"))
+		}
 
 	}
 
