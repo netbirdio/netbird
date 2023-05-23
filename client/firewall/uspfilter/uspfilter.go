@@ -32,6 +32,19 @@ type Manager struct {
 	mutex sync.RWMutex
 }
 
+// decoder for packages
+type decoder struct {
+	eth     layers.Ethernet
+	ip4     layers.IPv4
+	ip6     layers.IPv6
+	tcp     layers.TCP
+	udp     layers.UDP
+	icmp4   layers.ICMPv4
+	icmp6   layers.ICMPv6
+	decoded []gopacket.LayerType
+	parser  *gopacket.DecodingLayerParser
+}
+
 // Create userspace firewall manager constructor
 func Create(iface IFaceMapper) (*Manager, error) {
 	m := &Manager{
@@ -275,17 +288,4 @@ func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 // SetNetwork of the wireguard interface to which filtering applied
 func (m *Manager) SetNetwork(network *net.IPNet) {
 	m.wgNetwork = network
-}
-
-// decoder for packages
-type decoder struct {
-	eth     layers.Ethernet
-	ip4     layers.IPv4
-	ip6     layers.IPv6
-	tcp     layers.TCP
-	udp     layers.UDP
-	icmp4   layers.ICMPv4
-	icmp6   layers.ICMPv6
-	decoded []gopacket.LayerType
-	parser  *gopacket.DecodingLayerParser
 }
