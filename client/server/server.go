@@ -236,7 +236,9 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 				}, nil
 			} else {
 				log.Warnf("canceling previous waiting execution")
-				s.oauthAuthFlow.waitCancel()
+				if s.oauthAuthFlow.waitCancel != nil {
+					s.oauthAuthFlow.waitCancel()
+				}
 			}
 		}
 
