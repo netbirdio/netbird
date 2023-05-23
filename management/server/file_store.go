@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 
 	"github.com/netbirdio/netbird/util"
 )
@@ -37,13 +38,20 @@ type FileStore struct {
 	// sync.Mutex indexed by accountID
 	accountLocks      sync.Map   `json:"-"`
 	globalAccountLock sync.Mutex `json:"-"`
+
+	metrics telemetry.AppMetrics `json:"-"`
 }
 
 type StoredAccount struct{}
 
 // NewFileStore restores a store from the file located in the datadir
-func NewFileStore(dataDir string) (*FileStore, error) {
-	return restore(filepath.Join(dataDir, storeFileName))
+func NewFileStore(dataDir string, metrics telemetry.AppMetrics) (*FileStore, error) {
+	fs, err := restore(filepath.Join(dataDir, storeFileName))
+	if err != nil {
+		return nil, err
+	}
+	fs.metrics = metrics
+	return fs, nil
 }
 
 // restore the state of the store from the file.
@@ -220,7 +228,17 @@ func restore(file string) (*FileStore, error) {
 // persist account data to a file
 // It is recommended to call it with locking FileStore.mux
 func (s *FileStore) persist(file string) error {
-	return util.WriteJson(file, s)
+	start := time.Now()
+	err := util.WriteJson(file, s)
+	if err != nil {
+		return err
+	}
+	took := time.Since(start)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountPersistenceDuration(took)
+	}
+	log.Debugf("took %d ms to persist the FileStore", took.Milliseconds())
+	return nil
 }
 
 // AcquireGlobalLock acquires global lock across all the accounts and returns a function that releases the lock
@@ -232,6 +250,12 @@ func (s *FileStore) AcquireGlobalLock() (unlock func()) {
 	unlock = func() {
 		s.globalAccountLock.Unlock()
 		log.Debugf("released global lock in %v", time.Since(start))
+	}
+
+	took := time.Since(start)
+	log.Debugf("took %v to acquire global lock", took)
+	if s.metrics != nil {
+		s.metrics.StoreMetrics().CountGlobalLockAcquisitionDuration(took)
 	}
 
 	return unlock

@@ -25,7 +25,7 @@ func TestStalePeerIndices(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		return
 	}
@@ -172,7 +172,7 @@ func TestStore(t *testing.T) {
 		return
 	}
 
-	restored, err := NewFileStore(store.storeFile)
+	restored, err := NewFileStore(store.storeFile, nil)
 	if err != nil {
 		return
 	}
@@ -232,7 +232,7 @@ func TestRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		return
 	}
@@ -270,7 +270,7 @@ func TestRestorePolicies_Migration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		return
 	}
@@ -304,7 +304,7 @@ func TestGetAccountByPrivateDomain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		return
 	}
@@ -333,7 +333,7 @@ func TestFileStore_GetAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func TestFileStore_GetTokenIDByHashedToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -428,7 +428,7 @@ func TestFileStore_GetTokenIDByHashedToken_Failure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -453,7 +453,7 @@ func TestFileStore_GetUserByTokenID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -481,7 +481,7 @@ func TestFileStore_GetUserByTokenID_Failure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -500,7 +500,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewFileStore(storeDir)
+	store, err := NewFileStore(storeDir, nil)
 	if err != nil {
 		return
 	}
@@ -545,7 +545,7 @@ func TestFileStore_SavePeerStatus(t *testing.T) {
 }
 
 func newStore(t *testing.T) *FileStore {
-	store, err := NewFileStore(t.TempDir())
+	store, err := NewFileStore(t.TempDir(), nil)
 	if err != nil {
 		t.Errorf("failed creating a new store")
 	}

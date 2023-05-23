@@ -15,13 +15,13 @@ import (
 	"sync"
 	"time"
 
-	"codeberg.org/ac/base62"
 	"github.com/eko/gocache/v3/cache"
 	cacheStore "github.com/eko/gocache/v3/store"
 	gocache "github.com/patrickmn/go-cache"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/netbirdio/netbird/base62"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/idp"
@@ -49,16 +49,16 @@ type AccountManager interface {
 	CreateSetupKey(accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
 		autoGroups []string, usageLimit int, userID string) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey, userID string) (*SetupKey, error)
-	CreateUser(accountID, executingUserID string, key *UserInfo) (*UserInfo, error)
-	DeleteUser(accountID, executingUserID string, targetUserID string) error
+	CreateUser(accountID, initiatorUserID string, key *UserInfo) (*UserInfo, error)
+	DeleteUser(accountID, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
-	SaveUser(accountID, userID string, update *User) (*UserInfo, error)
+	SaveUser(accountID, initiatorUserID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
 	GetAccountByUserOrAccountID(userID, accountID, domain string) (*Account, error)
 	GetAccountFromToken(claims jwtclaims.AuthorizationClaims) (*Account, *User, error)
 	GetAccountFromPAT(pat string) (*Account, *User, *PersonalAccessToken, error)
 	MarkPATUsed(tokenID string) error
-	IsUserAdmin(claims jwtclaims.AuthorizationClaims) (bool, error)
+	GetUser(claims jwtclaims.AuthorizationClaims) (*User, error)
 	AccountExists(accountId string) (*bool, error)
 	GetPeerByKey(peerKey string) (*Peer, error)
 	GetPeers(accountID, userID string) ([]*Peer, error)
@@ -69,10 +69,10 @@ type AccountManager interface {
 	GetNetworkMap(peerID string) (*NetworkMap, error)
 	GetPeerNetwork(peerID string) (*Network, error)
 	AddPeer(setupKey, userID string, peer *Peer) (*Peer, *NetworkMap, error)
-	CreatePAT(accountID string, executingUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
-	DeletePAT(accountID string, executingUserID string, targetUserID string, tokenID string) error
-	GetPAT(accountID string, executingUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
-	GetAllPATs(accountID string, executingUserID string, targetUserID string) ([]*PersonalAccessToken, error)
+	CreatePAT(accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error)
+	DeletePAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) error
+	GetPAT(accountID string, initiatorUserID string, targetUserID string, tokenID string) (*PersonalAccessToken, error)
+	GetAllPATs(accountID string, initiatorUserID string, targetUserID string) ([]*PersonalAccessToken, error)
 	UpdatePeerSSHKey(peerID string, sshKey string) error
 	GetUsersFromAccount(accountID, userID string) ([]*UserInfo, error)
 	GetGroup(accountId, groupID string) (*Group, error)
@@ -179,6 +179,7 @@ type UserInfo struct {
 	AutoGroups    []string `json:"auto_groups"`
 	Status        string   `json:"-"`
 	IsServiceUser bool     `json:"is_service_user"`
+	IsBlocked     bool     `json:"is_blocked"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
@@ -903,7 +904,9 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Account) (*idp.UserData, error) {
 	users := make(map[string]struct{}, len(account.Users))
 	for _, user := range account.Users {
-		users[user.Id] = struct{}{}
+		if !user.IsServiceUser {
+			users[user.Id] = struct{}{}
+		}
 	}
 	log.Debugf("looking up user %s of account %s in cache", userID, account.Id)
 	userData, err := am.lookupCache(users, account.Id)

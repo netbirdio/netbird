@@ -13,9 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/iface/bind"
 	"github.com/pion/transport/v2/stdnet"
-
 	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +28,7 @@ import (
 	"github.com/netbirdio/netbird/client/system"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/iface/bind"
 	mgmt "github.com/netbirdio/netbird/management/client"
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
@@ -1040,7 +1039,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := server.NewFileStore(config.Datadir)
+	store, err := server.NewFileStore(config.Datadir, nil)
 	if err != nil {
 		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}

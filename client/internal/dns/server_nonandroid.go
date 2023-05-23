@@ -13,9 +13,10 @@ import (
 
 	"github.com/miekg/dns"
 	"github.com/mitchellh/hashstructure/v2"
+	log "github.com/sirupsen/logrus"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -254,7 +255,14 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	s.updateLocalResolver(localRecords)
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.runtimeIP, s.runtimePort)
 
-	if err = s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
+	hostUpdate := s.currentConfig
+	if s.runtimePort != defaultPort && !s.hostManager.supportCustomPort() {
+		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
+			"Learn more at: https://netbird.io/docs/how-to-guides/nameservers#local-resolver")
+		hostUpdate.routeAll = false
+	}
+
+	if err = s.hostManager.applyDNSConfig(hostUpdate); err != nil {
 		log.Error(err)
 	}
 

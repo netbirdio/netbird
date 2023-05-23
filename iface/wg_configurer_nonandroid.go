@@ -202,7 +202,7 @@ func (c *wGConfigurer) configure(config wgtypes.Config) error {
 	if err != nil {
 		return err
 	}
-	log.Debugf("got Wireguard device %s", c.deviceName)
+	log.Tracef("got Wireguard device %s", c.deviceName)
 
 	return wg.ConfigureDevice(c.deviceName, config)
 }

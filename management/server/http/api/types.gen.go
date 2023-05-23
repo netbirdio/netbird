@@ -46,6 +46,7 @@ const (
 	EventActivityCodeSetupkeyPeerAdd                          EventActivityCode = "setupkey.peer.add"
 	EventActivityCodeSetupkeyRevoke                           EventActivityCode = "setupkey.revoke"
 	EventActivityCodeSetupkeyUpdate                           EventActivityCode = "setupkey.update"
+	EventActivityCodeUserBlock                                EventActivityCode = "user.block"
 	EventActivityCodeUserGroupAdd                             EventActivityCode = "user.group.add"
 	EventActivityCodeUserGroupDelete                          EventActivityCode = "user.group.delete"
 	EventActivityCodeUserInvite                               EventActivityCode = "user.invite"
@@ -53,6 +54,7 @@ const (
 	EventActivityCodeUserPeerAdd                              EventActivityCode = "user.peer.add"
 	EventActivityCodeUserPeerDelete                           EventActivityCode = "user.peer.delete"
 	EventActivityCodeUserRoleUpdate                           EventActivityCode = "user.role.update"
+	EventActivityCodeUserUnblock                              EventActivityCode = "user.unblock"
 )
 
 // Defines values for NameserverNsType.
@@ -104,9 +106,9 @@ const (
 
 // Defines values for UserStatus.
 const (
-	UserStatusActive   UserStatus = "active"
-	UserStatusDisabled UserStatus = "disabled"
-	UserStatusInvited  UserStatus = "invited"
+	UserStatusActive  UserStatus = "active"
+	UserStatusBlocked UserStatus = "blocked"
+	UserStatusInvited UserStatus = "invited"
 )
 
 // Account defines model for Account.
@@ -693,6 +695,9 @@ type User struct {
 	// Id User ID
 	Id string `json:"id"`
 
+	// IsBlocked Is true if this user is blocked. Blocked users can't use the system
+	IsBlocked bool `json:"is_blocked"`
+
 	// IsCurrent Is true if authenticated user is the same as this user
 	IsCurrent *bool `json:"is_current,omitempty"`
 
@@ -734,6 +739,9 @@ type UserCreateRequest struct {
 type UserRequest struct {
 	// AutoGroups Groups to auto-assign to peers registered by this user
 	AutoGroups []string `json:"auto_groups"`
+
+	// IsBlocked If set to true then user is blocked and can't use the system
+	IsBlocked bool `json:"is_blocked"`
 
 	// Role User's NetBird account role
 	Role string `json:"role"`

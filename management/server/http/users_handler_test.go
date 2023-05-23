@@ -3,6 +3,7 @@ package http
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -31,16 +32,19 @@ var usersTestAccount = &server.Account{
 			Id:            existingUserID,
 			Role:          "admin",
 			IsServiceUser: false,
+			AutoGroups:    []string{"group_1"},
 		},
 		regularUserID: {
 			Id:            regularUserID,
 			Role:          "user",
 			IsServiceUser: false,
+			AutoGroups:    []string{"group_1"},
 		},
 		serviceUserID: {
 			Id:            serviceUserID,
 			Role:          "user",
 			IsServiceUser: true,
+			AutoGroups:    []string{"group_1"},
 		},
 	},
 }
@@ -70,7 +74,7 @@ func initUsersTestData() *UsersHandler {
 				}
 				return key, nil
 			},
-			DeleteUserFunc: func(accountID string, executingUserID string, targetUserID string) error {
+			DeleteUserFunc: func(accountID string, initiatorUserID string, targetUserID string) error {
 				if targetUserID == notFoundUserID {
 					return status.Errorf(status.NotFound, "user with ID %s does not exists", targetUserID)
 				}
@@ -78,6 +82,21 @@ func initUsersTestData() *UsersHandler {
 					return status.Errorf(status.PermissionDenied, "user with ID %s is not a service user and can not be deleted", targetUserID)
 				}
 				return nil
+			},
+			SaveUserFunc: func(accountID, userID string, update *server.User) (*server.UserInfo, error) {
+				if update.Id == notFoundUserID {
+					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", update.Id)
+				}
+
+				if userID != existingUserID {
+					return nil, status.Errorf(status.NotFound, "user with ID %s does not exists", userID)
+				}
+
+				info, err := update.Copy().ToUserInfo(nil)
+				if err != nil {
+					return nil, err
+				}
+				return info, nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -140,6 +159,122 @@ func TestGetUsers(t *testing.T) {
 				assert.Equal(t, v.ID, usersTestAccount.Users[v.ID].Id)
 				assert.Equal(t, v.Role, string(usersTestAccount.Users[v.ID].Role))
 				assert.Equal(t, v.IsServiceUser, usersTestAccount.Users[v.ID].IsServiceUser)
+			}
+		})
+	}
+}
+
+func TestUpdateUser(t *testing.T) {
+	tt := []struct {
+		name                  string
+		expectedStatusCode    int
+		requestType           string
+		requestPath           string
+		requestBody           io.Reader
+		expectedUserID        string
+		expectedRole          string
+		expectedStatus        string
+		expectedBlocked       bool
+		expectedIsServiceUser bool
+		expectedGroups        []string
+	}{
+		{
+			name:               "Update_Block_User",
+			requestType:        http.MethodPut,
+			requestPath:        "/api/users/" + regularUserID,
+			expectedStatusCode: http.StatusOK,
+			expectedUserID:     regularUserID,
+			expectedBlocked:    true,
+			expectedRole:       "user",
+			expectedStatus:     "blocked",
+			expectedGroups:     []string{"group_1"},
+			requestBody:        bytes.NewBufferString("{\"role\":\"user\",\"auto_groups\":[\"group_1\"],\"is_service_user\":false, \"is_blocked\": true}"),
+		},
+		{
+			name:               "Update_Change_Role_To_Admin",
+			requestType:        http.MethodPut,
+			requestPath:        "/api/users/" + regularUserID,
+			expectedStatusCode: http.StatusOK,
+			expectedUserID:     regularUserID,
+			expectedBlocked:    false,
+			expectedRole:       "admin",
+			expectedStatus:     "blocked",
+			expectedGroups:     []string{"group_1"},
+			requestBody:        bytes.NewBufferString("{\"role\":\"admin\",\"auto_groups\":[\"group_1\"],\"is_service_user\":false, \"is_blocked\": false}"),
+		},
+		{
+			name:               "Update_Groups",
+			requestType:        http.MethodPut,
+			requestPath:        "/api/users/" + regularUserID,
+			expectedStatusCode: http.StatusOK,
+			expectedUserID:     regularUserID,
+			expectedBlocked:    false,
+			expectedRole:       "admin",
+			expectedStatus:     "blocked",
+			expectedGroups:     []string{"group_2", "group_3"},
+			requestBody:        bytes.NewBufferString("{\"role\":\"admin\",\"auto_groups\":[\"group_3\", \"group_2\"],\"is_service_user\":false, \"is_blocked\": false}"),
+		},
+		{
+			name:               "Should_Fail_Because_AutoGroups_Is_Absent",
+			requestType:        http.MethodPut,
+			requestPath:        "/api/users/" + regularUserID,
+			expectedStatusCode: http.StatusBadRequest,
+			expectedUserID:     regularUserID,
+			expectedBlocked:    false,
+			expectedRole:       "admin",
+			expectedStatus:     "blocked",
+			expectedGroups:     []string{"group_2", "group_3"},
+			requestBody:        bytes.NewBufferString("{\"role\":\"admin\",\"is_service_user\":false, \"is_blocked\": false}"),
+		},
+	}
+
+	userHandler := initUsersTestData()
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/users/{userId}", userHandler.UpdateUser).Methods("PUT")
+			router.ServeHTTP(recorder, req)
+
+			res := recorder.Result()
+			defer res.Body.Close()
+
+			if status := recorder.Code; status != tc.expectedStatusCode {
+				t.Fatalf("handler returned wrong status code: got %v want %v",
+					status, http.StatusOK)
+			}
+
+			if tc.expectedStatusCode == 200 {
+
+				content, err := io.ReadAll(res.Body)
+				if err != nil {
+					t.Fatalf("I don't know what I expected; %v", err)
+				}
+
+				respBody := &api.User{}
+				err = json.Unmarshal(content, &respBody)
+				if err != nil {
+					t.Fatalf("response content is not in correct json format; %v", err)
+				}
+
+				assert.Equal(t, tc.expectedUserID, respBody.Id)
+				assert.Equal(t, tc.expectedRole, respBody.Role)
+				assert.Equal(t, tc.expectedIsServiceUser, *respBody.IsServiceUser)
+				assert.Equal(t, tc.expectedBlocked, respBody.IsBlocked)
+				assert.Len(t, respBody.AutoGroups, len(tc.expectedGroups))
+
+				for _, expectedGroup := range tc.expectedGroups {
+					exists := false
+					for _, actualGroup := range respBody.AutoGroups {
+						if expectedGroup == actualGroup {
+							exists = true
+						}
+					}
+					assert.True(t, exists, fmt.Sprintf("group %s not found in the response", expectedGroup))
+				}
 			}
 		})
 	}

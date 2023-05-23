@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/management/server/activity"
 	"net"
 	"os"
 	"path/filepath"
@@ -10,14 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/encryption"
-	mgmtProto "github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/util"
+	"github.com/netbirdio/netbird/management/server/activity"
+
 	"github.com/stretchr/testify/require"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+
+	"github.com/netbirdio/netbird/encryption"
+	mgmtProto "github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/util"
 )
 
 var (
@@ -408,7 +410,7 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := NewFileStore(config.Datadir)
+	store, err := NewFileStore(config.Datadir, nil)
 	if err != nil {
 		return nil, "", err
 	}

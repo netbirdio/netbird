@@ -78,14 +78,18 @@ func runInForegroundMode(ctx context.Context, cmd *cobra.Command) error {
 		return err
 	}
 
-	config, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+	ic := internal.ConfigInput{
 		ManagementURL:    managementURL,
 		AdminURL:         adminURL,
 		ConfigPath:       configPath,
-		PreSharedKey:     &preSharedKey,
 		NATExternalIPs:   natExternalIPs,
 		CustomDNSAddress: customDNSAddressConverted,
-	})
+	}
+	if preSharedKey != "" {
+		ic.PreSharedKey = &preSharedKey
+	}
+
+	config, err := internal.UpdateOrCreateConfig(ic)
 	if err != nil {
 		return fmt.Errorf("get config file: %v", err)
 	}
@@ -172,7 +176,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 
 	if loginResp.NeedsSSOLogin {
 
-		openURL(cmd, loginResp.VerificationURIComplete)
+		openURL(cmd, loginResp.VerificationURIComplete, loginResp.UserCode)
 
 		_, err = client.WaitSSOLogin(ctx, &proto.WaitSSOLoginRequest{UserCode: loginResp.UserCode})
 		if err != nil {

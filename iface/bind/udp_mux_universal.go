@@ -5,6 +5,7 @@ package bind
 */
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"time"
@@ -68,11 +69,49 @@ func NewUniversalUDPMuxDefault(params UniversalUDPMuxParams) *UniversalUDPMuxDef
 	return m
 }
 
+// ReadFromConn reads from the m.params.UDPConn provided upon the creation. It expects STUN packets only, however, will
+// just ignore other packets printing an warning message.
+// It is a blocking method, consider running in a go routine.
+func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
+	buf := make([]byte, 1500)
+	for {
+		select {
+		case <-ctx.Done():
+			log.Debugf("stopped reading from the UDPConn due to finished context")
+			return
+		default:
+			_, a, err := m.params.UDPConn.ReadFrom(buf)
+			if err != nil {
+				log.Errorf("error while reading packet %s", err)
+				continue
+			}
+			msg := &stun.Message{
+				Raw: buf,
+			}
+			err = msg.Decode()
+			if err != nil {
+				log.Warnf("error while parsing STUN message. The packet doesn't seem to be a STUN packet: %s", err)
+				continue
+			}
+
+			err = m.HandleSTUNMessage(msg, a)
+			if err != nil {
+				log.Errorf("error while handling STUn message: %s", err)
+			}
+		}
+	}
+}
+
 // udpConn is a wrapper around UDPMux conn that overrides ReadFrom and handles STUN/TURN packets
 type udpConn struct {
 	net.PacketConn
 	mux    *UniversalUDPMuxDefault
 	logger logging.LeveledLogger
+}
+
+// GetSharedConn returns the shared udp conn
+func (m *UniversalUDPMuxDefault) GetSharedConn() net.PacketConn {
+	return m.params.UDPConn
 }
 
 // GetListenAddresses returns the listen addr of this UDP
@@ -170,7 +209,7 @@ func (m *UniversalUDPMuxDefault) GetXORMappedAddr(serverAddr net.Addr, deadline 
 
 	// otherwise, make a STUN request to discover the address
 	// or wait for already sent request to complete
-	waitAddrReceived, err := m.sendStun(serverAddr)
+	waitAddrReceived, err := m.sendSTUN(serverAddr)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %s", "failed to send STUN packet", err)
 	}
@@ -179,23 +218,31 @@ func (m *UniversalUDPMuxDefault) GetXORMappedAddr(serverAddr net.Addr, deadline 
 	select {
 	case <-waitAddrReceived:
 		// when channel closed, addr was obtained
+		var addr *stun.XORMappedAddress
 		m.mu.Lock()
-		mappedAddr := *m.xorMappedMap[serverAddr.String()]
+		// A very odd case that mappedAddr is nil.
+		// Can happen when the deadline property is larger than params.XORMappedAddrCacheTTL.
+		// Or when we don't receive a response to our m.sendSTUN request (the response is handled asynchronously) and
+		// the XORMapped expires meanwhile triggering a closure of the waitAddrReceived channel.
+		// We protect the code from panic here.
+		if mappedAddr, ok := m.xorMappedMap[serverAddr.String()]; ok {
+			addr = mappedAddr.addr
+		}
 		m.mu.Unlock()
-		if mappedAddr.addr == nil {
+		if addr == nil {
 			return nil, fmt.Errorf("no XOR address mapping")
 		}
-		return mappedAddr.addr, nil
+		return addr, nil
 	case <-time.After(deadline):
 		return nil, fmt.Errorf("timeout while waiting for XORMappedAddr")
 	}
 }
 
-// sendStun sends a STUN request via UDP conn.
+// sendSTUN sends a STUN request via UDP conn.
 //
 // The returned channel is closed when the STUN response has been received.
 // Method is safe for concurrent use.
-func (m *UniversalUDPMuxDefault) sendStun(serverAddr net.Addr) (chan struct{}, error) {
+func (m *UniversalUDPMuxDefault) sendSTUN(serverAddr net.Addr) (chan struct{}, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

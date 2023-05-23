@@ -28,6 +28,17 @@ type PeerSystemMeta struct {
 	UIVersion string
 }
 
+func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
+	return p.Hostname == other.Hostname &&
+		p.GoOS == other.GoOS &&
+		p.Kernel == other.Kernel &&
+		p.Core == other.Core &&
+		p.Platform == other.Platform &&
+		p.OS == other.OS &&
+		p.WtVersion == other.WtVersion &&
+		p.UIVersion == other.UIVersion
+}
+
 type PeerStatus struct {
 	// LastSeen is the last time peer was connected to the management service
 	LastSeen time.Time
@@ -114,13 +125,19 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
-// UpdateMeta updates peer's system meta data
-func (p *Peer) UpdateMeta(meta PeerSystemMeta) {
+// UpdateMetaIfNew updates peer's system metadata if new information is provided
+// returns true if meta was updated, false otherwise
+func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
 		meta.UIVersion = p.Meta.UIVersion
 	}
+
+	if p.Meta.isEqual(meta) {
+		return false
+	}
 	p.Meta = meta
+	return true
 }
 
 // MarkLoginExpired marks peer's status expired or not
@@ -604,6 +621,11 @@ func (am *DefaultAccountManager) SyncPeer(sync PeerSync) (*Peer, *NetworkMap, er
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
+	err = checkIfPeerOwnerIsBlocked(peer, account)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	if peerLoginExpired(peer, account) {
 		return nil, nil, status.Errorf(status.PermissionDenied, "peer login has expired, please log in once more")
 	}
@@ -643,6 +665,13 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		return nil, nil, status.Errorf(status.Unauthenticated, "peer is not registered")
 	}
 
+	err = checkIfPeerOwnerIsBlocked(peer, account)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// this flag prevents unnecessary calls to the persistent store.
+	shouldStoreAccount := false
 	updateRemotePeers := false
 	if peerLoginExpired(peer, account) {
 		err = checkAuth(login.UserID, peer)
@@ -653,19 +682,26 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		// UserID is present, meaning that JWT validation passed successfully in the API layer.
 		updatePeerLastLogin(peer, account)
 		updateRemotePeers = true
+		shouldStoreAccount = true
 	}
 
-	peer = updatePeerMeta(peer, login.Meta, account)
+	peer, updated := updatePeerMeta(peer, login.Meta, account)
+	if updated {
+		shouldStoreAccount = true
+	}
 
 	peer, err = am.checkAndUpdatePeerSSHKey(peer, account, login.SSHKey)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, nil, err
+	if shouldStoreAccount {
+		err = am.Store.SaveAccount(account)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
+
 	if updateRemotePeers {
 		err = am.updateAccountPeers(account)
 		if err != nil {
@@ -673,6 +709,19 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		}
 	}
 	return peer, account.GetPeerNetworkMap(peer.ID, am.dnsDomain), nil
+}
+
+func checkIfPeerOwnerIsBlocked(peer *Peer, account *Account) error {
+	if peer.AddedWithSSOLogin() {
+		user, err := account.FindUser(peer.UserID)
+		if err != nil {
+			return status.Errorf(status.PermissionDenied, "user doesn't exist")
+		}
+		if user.IsBlocked() {
+			return status.Errorf(status.PermissionDenied, "user is blocked")
+		}
+	}
+	return nil
 }
 
 func checkAuth(loginUserID string, peer *Peer) error {
@@ -826,10 +875,12 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
 }
 
-func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) *Peer {
-	peer.UpdateMeta(meta)
-	account.UpdatePeer(peer)
-	return peer
+func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) (*Peer, bool) {
+	if peer.UpdateMetaIfNew(meta) {
+		account.UpdatePeer(peer)
+		return peer, true
+	}
+	return peer, false
 }
 
 // updateAccountPeers updates all peers that belong to an account.
