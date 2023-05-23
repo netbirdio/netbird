@@ -27,8 +27,7 @@ type Manager struct {
 	incomingRules []Rule
 	rulesIndex    map[string]int
 	wgNetwork     *net.IPNet
-
-	decoded []gopacket.LayerType
+	decoders      sync.Pool
 
 	mutex sync.RWMutex
 }
@@ -37,7 +36,19 @@ type Manager struct {
 func Create(iface IFaceMapper) (*Manager, error) {
 	m := &Manager{
 		rulesIndex: make(map[string]int),
-		decoded:    make([]gopacket.LayerType, 0, 20),
+		decoders: sync.Pool{
+			New: func() any {
+				d := &decoder{
+					decoded: []gopacket.LayerType{},
+				}
+				d.parser = gopacket.NewDecodingLayerParser(
+					layers.LayerTypeIPv4,
+					&d.eth, &d.ip4, &d.ip6, &d.icmp4, &d.icmp6, &d.tcp, &d.udp,
+				)
+				d.parser.IgnoreUnsupported = true
+				return d
+			},
+		},
 	}
 
 	if err := iface.SetFiltering(m); err != nil {
@@ -166,94 +177,57 @@ func (u *Manager) DropIncoming(packetData []byte) bool {
 func (u *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket bool) bool {
 	u.mutex.RLock()
 	defer u.mutex.RUnlock()
-	var (
-		ip4   layers.IPv4
-		ip6   layers.IPv6
-		tcp   layers.TCP
-		udp   layers.UDP
-		icmp4 layers.ICMPv4
-		icmp6 layers.ICMPv6
-	)
 
-	parser := gopacket.NewDecodingLayerParser(layers.LayerTypeIPv4, &ip4, &ip6)
-	parser.IgnoreUnsupported = true
+	d := u.decoders.Get().(*decoder)
+	defer u.decoders.Put(d)
 
-	u.decoded = u.decoded[:0]
-	if err := parser.DecodeLayers(packetData, &u.decoded); err != nil {
-		log.Tracef("couldn't decode layer, err: %s", err)
-		return true
-	} else if len(u.decoded) == 0 {
+	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
 		log.Tracef("couldn't decode layer, err: %s", err)
 		return true
 	}
 
-	var (
-		ipDecoded gopacket.DecodingLayer
-	)
-	ipLayer := u.decoded[0]
+	if len(d.decoded) < 2 {
+		log.Tracef("not enough levels in network packet")
+		return true
+	}
+
+	ipLayer := d.decoded[0]
+
 	switch ipLayer {
 	case layers.LayerTypeIPv4:
-		if !u.wgNetwork.Contains(ip4.SrcIP) || !u.wgNetwork.Contains(ip4.DstIP) {
+		if !u.wgNetwork.Contains(d.ip4.SrcIP) || !u.wgNetwork.Contains(d.ip4.DstIP) {
 			return false
 		}
-		ipDecoded = &ip4
 	case layers.LayerTypeIPv6:
-		if !u.wgNetwork.Contains(ip6.SrcIP) || !u.wgNetwork.Contains(ip6.DstIP) {
-			return false
-		}
-		ipDecoded = &ip6
-	default:
-		log.Errorf("unknown layer: %v", u.decoded[0])
-		return true
-	}
-
-	payloadLayer := ipDecoded.NextLayerType().LayerTypes()[0]
-	switch payloadLayer {
-	case layers.LayerTypeTCP:
-		if err := tcp.DecodeFromBytes(ipDecoded.LayerPayload(), gopacket.NilDecodeFeedback); err != nil {
-			log.Errorf("error decoding tcp packet: %v", err)
-			return false
-		}
-	case layers.LayerTypeUDP:
-		if err := udp.DecodeFromBytes(ipDecoded.LayerPayload(), gopacket.NilDecodeFeedback); err != nil {
-			log.Errorf("error decoding udp packet: %v", err)
-			return false
-		}
-	case layers.LayerTypeICMPv4:
-		if err := icmp4.DecodeFromBytes(ipDecoded.LayerPayload(), gopacket.NilDecodeFeedback); err != nil {
-			log.Errorf("error decoding icmpv4 packet: %v", err)
-			return false
-		}
-	case layers.LayerTypeICMPv6:
-		if err := icmp6.DecodeFromBytes(ipDecoded.LayerPayload(), gopacket.NilDecodeFeedback); err != nil {
-			log.Errorf("error decoding icmpv6 packet: %v", err)
+		if !u.wgNetwork.Contains(d.ip6.SrcIP) || !u.wgNetwork.Contains(d.ip6.DstIP) {
 			return false
 		}
 	default:
-		log.Errorf("layer is not allowed: %v", payloadLayer)
+		log.Errorf("unknown layer: %v", d.decoded[0])
 		return true
 	}
+	payloadLayer := d.decoded[1]
 
 	// check if IP address match by IP
 	for _, rule := range rules {
 		switch ipLayer {
 		case layers.LayerTypeIPv4:
 			if isIncomingPacket {
-				if !ip4.SrcIP.Equal(rule.ip) {
+				if !d.ip4.SrcIP.Equal(rule.ip) {
 					continue
 				}
 			} else {
-				if !ip4.DstIP.Equal(rule.ip) {
+				if !d.ip4.DstIP.Equal(rule.ip) {
 					continue
 				}
 			}
 		case layers.LayerTypeIPv6:
 			if isIncomingPacket {
-				if !ip6.SrcIP.Equal(rule.ip) {
+				if !d.ip6.SrcIP.Equal(rule.ip) {
 					continue
 				}
 			} else {
-				if !ip6.DstIP.Equal(rule.ip) {
+				if !d.ip6.DstIP.Equal(rule.ip) {
 					continue
 				}
 			}
@@ -268,28 +242,27 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 		}
 
 		switch payloadLayer {
-		case 0:
-			return false
 		case layers.LayerTypeTCP:
 			if rule.sPort == 0 && rule.dPort == 0 {
 				return rule.drop
 			}
-			if rule.sPort != 0 && rule.sPort == uint16(tcp.SrcPort) {
+			if rule.sPort != 0 && rule.sPort == uint16(d.tcp.SrcPort) {
 				return rule.drop
 			}
-			if rule.dPort != 0 && rule.dPort == uint16(tcp.DstPort) {
+			if rule.dPort != 0 && rule.dPort == uint16(d.tcp.DstPort) {
 				return rule.drop
 			}
 		case layers.LayerTypeUDP:
 			if rule.sPort == 0 && rule.dPort == 0 {
 				return rule.drop
 			}
-			if rule.sPort != 0 && rule.sPort == uint16(udp.SrcPort) {
+			if rule.sPort != 0 && rule.sPort == uint16(d.udp.SrcPort) {
 				return rule.drop
 			}
-			if rule.dPort != 0 && rule.dPort == uint16(udp.DstPort) {
+			if rule.dPort != 0 && rule.dPort == uint16(d.udp.DstPort) {
 				return rule.drop
 			}
+			return rule.drop
 		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
 			return rule.drop
 		}
@@ -302,4 +275,17 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 // SetNetwork of the wireguard interface to which filtering applied
 func (u *Manager) SetNetwork(network *net.IPNet) {
 	u.wgNetwork = network
+}
+
+// decoder for packages
+type decoder struct {
+	eth     layers.Ethernet
+	ip4     layers.IPv4
+	ip6     layers.IPv6
+	tcp     layers.TCP
+	udp     layers.UDP
+	icmp4   layers.ICMPv4
+	icmp6   layers.ICMPv6
+	decoded []gopacket.LayerType
+	parser  *gopacket.DecodingLayerParser
 }
