@@ -61,7 +61,7 @@ func Create(iface IFaceMapper) (*Manager, error) {
 //
 // If comment argument is empty firewall manager should set
 // rule ID as comment for the rule
-func (u *Manager) AddFiltering(
+func (m *Manager) AddFiltering(
 	ip net.IP,
 	proto fw.Protocol,
 	sPort *fw.Port,
@@ -105,81 +105,81 @@ func (u *Manager) AddFiltering(
 		r.protoLayer = layerTypeAll
 	}
 
-	u.mutex.Lock()
+	m.mutex.Lock()
 	var p int
 	if direction == fw.RuleDirectionIN {
-		u.incomingRules = append(u.incomingRules, r)
-		p = len(u.incomingRules) - 1
+		m.incomingRules = append(m.incomingRules, r)
+		p = len(m.incomingRules) - 1
 	} else {
-		u.outgoingRules = append(u.outgoingRules, r)
-		p = len(u.outgoingRules) - 1
+		m.outgoingRules = append(m.outgoingRules, r)
+		p = len(m.outgoingRules) - 1
 	}
-	u.rulesIndex[r.id] = p
-	u.mutex.Unlock()
+	m.rulesIndex[r.id] = p
+	m.mutex.Unlock()
 
 	return &r, nil
 }
 
 // DeleteRule from the firewall by rule definition
-func (u *Manager) DeleteRule(rule fw.Rule) error {
-	u.mutex.Lock()
-	defer u.mutex.Unlock()
+func (m *Manager) DeleteRule(rule fw.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 
 	r, ok := rule.(*Rule)
 	if !ok {
 		return fmt.Errorf("delete rule: invalid rule type: %T", rule)
 	}
 
-	p, ok := u.rulesIndex[r.id]
+	p, ok := m.rulesIndex[r.id]
 	if !ok {
 		return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
 	}
-	delete(u.rulesIndex, r.id)
+	delete(m.rulesIndex, r.id)
 
 	var toUpdate []Rule
 	if r.direction == fw.RuleDirectionIN {
-		u.incomingRules = append(u.incomingRules[:p], u.incomingRules[p+1:]...)
-		toUpdate = u.incomingRules
+		m.incomingRules = append(m.incomingRules[:p], m.incomingRules[p+1:]...)
+		toUpdate = m.incomingRules
 	} else {
-		u.outgoingRules = append(u.outgoingRules[:p], u.outgoingRules[p+1:]...)
-		toUpdate = u.outgoingRules
+		m.outgoingRules = append(m.outgoingRules[:p], m.outgoingRules[p+1:]...)
+		toUpdate = m.outgoingRules
 	}
 
 	for i := 0; i < len(toUpdate); i++ {
-		u.rulesIndex[toUpdate[i].id] = i
+		m.rulesIndex[toUpdate[i].id] = i
 	}
 	return nil
 }
 
 // Reset firewall to the default state
-func (u *Manager) Reset() error {
-	u.mutex.Lock()
-	defer u.mutex.Unlock()
+func (m *Manager) Reset() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
 
-	u.outgoingRules = u.outgoingRules[:0]
-	u.incomingRules = u.incomingRules[:0]
-	u.rulesIndex = make(map[string]int)
+	m.outgoingRules = m.outgoingRules[:0]
+	m.incomingRules = m.incomingRules[:0]
+	m.rulesIndex = make(map[string]int)
 
 	return nil
 }
 
 // DropOutgoing filter outgoing packets
-func (u *Manager) DropOutgoing(packetData []byte) bool {
-	return u.dropFilter(packetData, u.outgoingRules, false)
+func (m *Manager) DropOutgoing(packetData []byte) bool {
+	return m.dropFilter(packetData, m.outgoingRules, false)
 }
 
 // DropIncoming filter incoming packets
-func (u *Manager) DropIncoming(packetData []byte) bool {
-	return u.dropFilter(packetData, u.incomingRules, true)
+func (m *Manager) DropIncoming(packetData []byte) bool {
+	return m.dropFilter(packetData, m.incomingRules, true)
 }
 
 // dropFilter imlements same logic for booth direction of the traffic
-func (u *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket bool) bool {
-	u.mutex.RLock()
-	defer u.mutex.RUnlock()
+func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket bool) bool {
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
 
-	d := u.decoders.Get().(*decoder)
-	defer u.decoders.Put(d)
+	d := m.decoders.Get().(*decoder)
+	defer m.decoders.Put(d)
 
 	if err := d.parser.DecodeLayers(packetData, &d.decoded); err != nil {
 		log.Tracef("couldn't decode layer, err: %s", err)
@@ -195,11 +195,11 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 
 	switch ipLayer {
 	case layers.LayerTypeIPv4:
-		if !u.wgNetwork.Contains(d.ip4.SrcIP) || !u.wgNetwork.Contains(d.ip4.DstIP) {
+		if !m.wgNetwork.Contains(d.ip4.SrcIP) || !m.wgNetwork.Contains(d.ip4.DstIP) {
 			return false
 		}
 	case layers.LayerTypeIPv6:
-		if !u.wgNetwork.Contains(d.ip6.SrcIP) || !u.wgNetwork.Contains(d.ip6.DstIP) {
+		if !m.wgNetwork.Contains(d.ip6.SrcIP) || !m.wgNetwork.Contains(d.ip6.DstIP) {
 			return false
 		}
 	default:
@@ -273,8 +273,8 @@ func (u *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 }
 
 // SetNetwork of the wireguard interface to which filtering applied
-func (u *Manager) SetNetwork(network *net.IPNet) {
-	u.wgNetwork = network
+func (m *Manager) SetNetwork(network *net.IPNet) {
+	m.wgNetwork = network
 }
 
 // decoder for packages
