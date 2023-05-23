@@ -28,12 +28,13 @@ type OIDCConfig struct {
 
 // Config an idp configuration struct to be loaded from management server's config file
 type Config struct {
-	ManagerType               string
-	OIDCConfig                OIDCConfig `json:"-"`
-	Auth0ClientCredentials    Auth0ClientConfig
-	AzureClientCredentials    AzureClientConfig
-	KeycloakClientCredentials KeycloakClientConfig
-	ZitadelClientCredentials  ZitadelClientConfig
+	ManagerType                string
+	OIDCConfig                 OIDCConfig `json:"-"`
+	Auth0ClientCredentials     Auth0ClientConfig
+	AzureClientCredentials     AzureClientConfig
+	KeycloakClientCredentials  KeycloakClientConfig
+	ZitadelClientCredentials   ZitadelClientConfig
+	AuthentikClientCredentials AuthentikClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
@@ -89,6 +90,14 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		return NewKeycloakManager(config.OIDCConfig, config.KeycloakClientCredentials, appMetrics)
 	case "zitadel":
 		return NewZitadelManager(config.OIDCConfig, config.ZitadelClientCredentials, appMetrics)
+	case "authentik":
+		idpManager, err := NewAuthentikManager(config.OIDCConfig, config.AuthentikClientCredentials, appMetrics)
+		if err != nil {
+			return nil, err
+		}
+
+		fmt.Println(idpManager.credentials.Authenticate())
+		return idpManager, nil
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
