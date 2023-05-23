@@ -1,0 +1,6 @@
+#!/bin/sh
+
+{
+    echo "Preinstall complete"
+    exit 0 # all good
+} > /tmp/my_preinstall.log
