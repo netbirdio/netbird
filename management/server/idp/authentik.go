@@ -362,10 +362,47 @@ func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 	return indexedUsers, nil
 }
 
-// CreateUser creates a new user in authentik Idp and sends an invite.
+// CreateUser creates a new user in authentik Idp and sends an invitation.
 func (am *AuthentikManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return nil, err
+	}
+
+	groupID, err := am.getUserGroupByName("netbird")
+	if err != nil {
+		return nil, err
+	}
+
+	defaultBoolValue := true
+	createUserRequest := api.UserRequest{
+		Email:    &email,
+		Name:     name,
+		IsActive: &defaultBoolValue,
+		Groups:   []string{groupID},
+		Username: email,
+		Attributes: map[string]interface{}{
+			wtAccountID:     accountID,
+			wtPendingInvite: &defaultBoolValue,
+		},
+	}
+	user, resp, err := am.apiClient.CoreApi.CoreUsersCreate(ctx).UserRequest(createUserRequest).Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to create user, statusCode %d", resp.StatusCode)
+	}
+
+	return parseAuthentikUser(*user)
 }
 
 // GetUserByEmail searches users with a given email.
@@ -417,6 +454,38 @@ func (am *AuthentikManager) authenticationContext() (context.Context, error) {
 		},
 	}
 	return context.WithValue(context.Background(), api.ContextAPIKeys, value), nil
+}
+
+// getUserGroupByName retrieves the user group for assigning new users.
+// If the group is not found, a new group with the specified name will be created.
+func (am *AuthentikManager) getUserGroupByName(name string) (string, error) {
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return "", err
+	}
+
+	groupList, _, err := am.apiClient.CoreApi.CoreGroupsList(ctx).Name(name).Execute()
+	if err != nil {
+		return "", err
+	}
+
+	if groupList != nil {
+		if len(groupList.Results) > 0 {
+			return groupList.Results[0].Pk, nil
+		}
+	}
+
+	createGroupRequest := api.GroupRequest{Name: name}
+	group, resp, err := am.apiClient.CoreApi.CoreGroupsCreate(ctx).GroupRequest(createGroupRequest).Execute()
+	if err != nil {
+		return "", err
+	}
+
+	if resp.StatusCode != http.StatusCreated {
+		return "", fmt.Errorf("unable to create user group, statusCode: %d", resp.StatusCode)
+	}
+
+	return group.Pk, nil
 }
 
 func parseAuthentikUser(user api.User) (*UserData, error) {
