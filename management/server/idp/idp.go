@@ -91,13 +91,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 	case "zitadel":
 		return NewZitadelManager(config.OIDCConfig, config.ZitadelClientCredentials, appMetrics)
 	case "authentik":
-		idpManager, err := NewAuthentikManager(config.OIDCConfig, config.AuthentikClientCredentials, appMetrics)
-		if err != nil {
-			return nil, err
-		}
-
-		fmt.Println(idpManager.credentials.Authenticate())
-		return idpManager, nil
+		return NewAuthentikManager(config.OIDCConfig, config.AuthentikClientCredentials, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
