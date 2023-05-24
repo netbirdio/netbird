@@ -297,7 +297,7 @@ func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
 	}
 
 	if am.appMetrics != nil {
-		am.appMetrics.IDPMetrics().CountGetUserByEmail()
+		am.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -322,8 +322,44 @@ func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return nil, err
+	}
+
+	userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
+	}
+
+	indexedUsers := make(map[string][]*UserData)
+	for _, user := range userList.Results {
+		userData, err := parseAuthentikUser(user)
+		if err != nil {
+			return nil, err
+		}
+
+		accountID := userData.AppMetadata.WTAccountID
+		if accountID != "" {
+			if _, ok := indexedUsers[accountID]; !ok {
+				indexedUsers[accountID] = make([]*UserData, 0)
+			}
+			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
+		}
+	}
+
+	return indexedUsers, nil
 }
 
 // CreateUser creates a new user in authentik Idp and sends an invite.
