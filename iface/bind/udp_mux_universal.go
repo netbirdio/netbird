@@ -82,7 +82,7 @@ func (m *UniversalUDPMuxDefault) ReadFromConn(ctx context.Context) {
 		default:
 			_, a, err := m.params.UDPConn.ReadFrom(buf)
 			if err != nil {
-				log.Errorf("error while reading packet %s", err)
+				log.Errorf("error while reading packet: %s", err)
 				continue
 			}
 			msg := &stun.Message{
