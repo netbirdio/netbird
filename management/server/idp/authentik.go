@@ -1,6 +1,7 @@
 package idp
 
 import (
+	"context"
 	"fmt"
 	"github.com/golang-jwt/jwt"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -115,6 +116,7 @@ func (ac *AuthentikCredentials) requestJWTToken() (*http.Response, error) {
 	data.Set("username", ac.clientConfig.Username)
 	data.Set("password", ac.clientConfig.Password)
 	data.Set("grant_type", ac.clientConfig.GrantType)
+	data.Set("scope", "goauthentik.io/api")
 
 	payload := strings.NewReader(data.Encode())
 	req, err := http.NewRequest(http.MethodPost, ac.clientConfig.TokenEndpoint, payload)
@@ -206,39 +208,111 @@ func (ac *AuthentikCredentials) Authenticate() (JWTToken, error) {
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (a AuthentikManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
+func (am *AuthentikManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	//TODO implement me
 	panic("implement me")
 }
 
 // GetUserDataByID requests user data from authentik via ID.
-func (a AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
+	//am.apiClient.CoreApi.CoreUsersList().Uuid()
+	return nil, nil
 }
 
 // GetAccount returns all the users for a given profile.
-func (a AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
+func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (a AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
+func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 // CreateUser creates a new user in authentik Idp and sends an invite.
-func (a AuthentikManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (am *AuthentikManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
-func (a AuthentikManager) GetUserByEmail(email string) ([]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+func (am *AuthentikManager) GetUserByEmail(email string) ([]*UserData, error) {
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return nil, err
+	}
+
+	userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Email(email).Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetUserByEmail()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get user %s, statusCode %d", email, resp.StatusCode)
+	}
+
+	users := make([]*UserData, 0)
+	for _, user := range userList.Results {
+		userData, err := parseAuthentikUser(user)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, userData)
+	}
+
+	return users, nil
+}
+
+func (am *AuthentikManager) authenticationContext() (context.Context, error) {
+	jwtToken, err := am.credentials.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+
+	value := map[string]api.APIKey{
+		"authentik": {
+			Key:    jwtToken.AccessToken,
+			Prefix: jwtToken.TokenType,
+		},
+	}
+	return context.WithValue(context.Background(), api.ContextAPIKeys, value), nil
+}
+
+func parseAuthentikUser(user api.User) (*UserData, error) {
+	var attributes struct {
+		AccountID     string `json:"wt_account_id"`
+		PendingInvite bool   `json:"wt_pending_invite"`
+	}
+
+	helper := JsonParser{}
+	buf, err := helper.Marshal(user.Attributes)
+	if err != nil {
+		return nil, err
+	}
+
+	err = helper.Unmarshal(buf, &attributes)
+	if err != nil {
+		return nil, err
+	}
+
+	return &UserData{
+		Email: *user.Email,
+		Name:  user.Name,
+		ID:    user.Uid,
+		AppMetadata: AppMetadata{
+			WTAccountID:     attributes.AccountID,
+			WTPendingInvite: &attributes.PendingInvite,
+		},
+	}, nil
 }
