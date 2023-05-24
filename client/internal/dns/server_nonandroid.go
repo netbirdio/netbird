@@ -105,17 +105,22 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
-	if s.customAddress != nil {
-		s.runtimeIP = s.customAddress.Addr().String()
-		s.runtimePort = int(s.customAddress.Port())
+	if s.wgInterface.IsUserspaceBind() {
+		s.runtimeIP = s.getLastIPFromNetwork(s.wgInterface.Address().Network)
+		s.runtimePort = 53
 	} else {
-		ip, port, err := s.getFirstListenerAvailable()
-		if err != nil {
-			log.Error(err)
-			return
+		if s.customAddress != nil {
+			s.runtimeIP = s.customAddress.Addr().String()
+			s.runtimePort = int(s.customAddress.Port())
+		} else {
+			ip, port, err := s.getFirstListenerAvailable()
+			if err != nil {
+				log.Error(err)
+				return
+			}
+			s.runtimeIP = ip
+			s.runtimePort = port
 		}
-		s.runtimeIP = ip
-		s.runtimePort = port
 	}
 
 	s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
@@ -476,4 +481,14 @@ func (s *DefaultServer) upstreamCallbacks(
 		}
 	}
 	return
+}
+
+func (s *DefaultServer) getLastIPFromNetwork(network *net.IPNet) string {
+	// Calculate the last IP in the CIDR range
+	var endIP net.IP
+	for i := 0; i < len(network.IP); i++ {
+		endIP = append(endIP, network.IP[i]|^network.Mask[i])
+	}
+
+	return endIP.String()
 }

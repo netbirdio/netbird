@@ -273,6 +273,9 @@ func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 				return rule.drop
 			}
 		case layers.LayerTypeUDP:
+			if rule.udpHook != nil {
+				return rule.udpHook(&d.udp)
+			}
 			if rule.sPort == 0 && rule.dPort == 0 {
 				return rule.drop
 			}
@@ -295,4 +298,40 @@ func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 // SetNetwork of the wireguard interface to which filtering applied
 func (m *Manager) SetNetwork(network *net.IPNet) {
 	m.wgNetwork = network
+}
+
+// AddUDPPacketHook calls hook when UDP packet from given direction matched
+//
+// Hook function returns flag which indicates should be the matched package dropped or not
+func (m *Manager) AddUDPPacketHook(
+	in bool, ip net.IP, dPort uint16, hook func(*layers.UDP) bool,
+) {
+	r := Rule{
+		id:         uuid.New().String(),
+		ip:         ip,
+		protoLayer: layers.LayerTypeUDP,
+		dPort:      dPort,
+		ipLayer:    layers.LayerTypeIPv6,
+		direction:  fw.RuleDirectionOUT,
+		comment:    fmt.Sprintf("UDP Hook direction: %v, ip:%v, dport:%d", in, ip, dPort),
+		udpHook:    hook,
+	}
+
+	m.mutex.Lock()
+	var toUpdate []Rule
+	if in {
+		r.direction = fw.RuleDirectionIN
+		m.incomingRules = append([]Rule{r}, m.incomingRules...)
+		toUpdate = m.incomingRules
+	} else {
+		m.outgoingRules = append([]Rule{r}, m.outgoingRules...)
+		toUpdate = m.outgoingRules
+	}
+	m.mutex.Unlock()
+
+	for i := 0; i < len(toUpdate); i++ {
+		m.rulesIndex[toUpdate[i].id] = i
+	}
+
+	return
 }

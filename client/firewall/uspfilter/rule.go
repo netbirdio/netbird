@@ -4,6 +4,7 @@ import (
 	"net"
 
 	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
 )
@@ -20,6 +21,8 @@ type Rule struct {
 	dPort      uint16
 	drop       bool
 	comment    string
+
+	udpHook func(*layers.UDP) bool
 }
 
 // GetRuleID returns the rule id

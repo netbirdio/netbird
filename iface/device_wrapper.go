@@ -4,6 +4,7 @@ import (
 	"net"
 	"sync"
 
+	"github.com/google/gopacket/layers"
 	"golang.zx2c4.com/wireguard/tun"
 )
 
@@ -14,6 +15,11 @@ type PacketFilter interface {
 
 	// DropIncoming filter incoming packets from external sources to host
 	DropIncoming(packetData []byte) bool
+
+	// AddUDPPacketHook calls hook when UDP packet from given direction matched
+	//
+	// Hook function returns flag which indicates should be the matched package dropped or not
+	AddUDPPacketHook(in bool, ip net.IP, dPort uint16, hook func(*layers.UDP) bool)
 
 	// SetNetwork of the wireguard interface to which filtering applied
 	SetNetwork(*net.IPNet)
