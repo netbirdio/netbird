@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -215,8 +216,33 @@ func (am *AuthentikManager) UpdateUserAppMetadata(userID string, appMetadata App
 
 // GetUserDataByID requests user data from authentik via ID.
 func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	//am.apiClient.CoreApi.CoreUsersList().Uuid()
-	return nil, nil
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return nil, err
+	}
+
+	userPk, err := strconv.ParseInt(userID, 10, 32)
+	if err != nil {
+		return nil, err
+	}
+
+	user, resp, err := am.apiClient.CoreApi.CoreUsersRetrieve(ctx, int32(userPk)).Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetUserDataByID()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get user %s, statusCode %d", userID, resp.StatusCode)
+	}
+
+	return parseAuthentikUser(*user)
 }
 
 // GetAccount returns all the users for a given profile.
@@ -309,7 +335,7 @@ func parseAuthentikUser(user api.User) (*UserData, error) {
 	return &UserData{
 		Email: *user.Email,
 		Name:  user.Name,
-		ID:    user.Uid,
+		ID:    strconv.FormatInt(int64(user.Pk), 10),
 		AppMetadata: AppMetadata{
 			WTAccountID:     attributes.AccountID,
 			WTPendingInvite: &attributes.PendingInvite,
