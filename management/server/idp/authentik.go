@@ -285,8 +285,38 @@ func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetada
 
 // GetAccount returns all the users for a given profile.
 func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return nil, err
+	}
+
+	accountFilter := fmt.Sprintf("{%q:%q}", wtAccountID, accountID)
+	userList, resp, err := am.apiClient.CoreApi.CoreUsersList(ctx).Attributes(accountFilter).Execute()
+	if err != nil {
+		return nil, err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountGetUserByEmail()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get account %s users, statusCode %d", accountID, resp.StatusCode)
+	}
+
+	users := make([]*UserData, 0)
+	for _, user := range userList.Results {
+		userData, err := parseAuthentikUser(user)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, userData)
+	}
+
+	return users, nil
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
