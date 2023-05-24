@@ -84,15 +84,6 @@ func TestNewAuthentikManager(t *testing.T) {
 	}
 }
 
-type mockAuthentikCredentials struct {
-	jwtToken JWTToken
-	err      error
-}
-
-func (mc *mockAuthentikCredentials) Authenticate() (JWTToken, error) {
-	return mc.jwtToken, mc.err
-}
-
 func TestAuthentikRequestJWTToken(t *testing.T) {
 	type requestJWTTokenTest struct {
 		name                    string
