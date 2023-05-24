@@ -14,10 +14,9 @@ import (
 )
 
 type WGProxy struct {
-	listenPort        int
 	ebpf              *eBPF
 	lastUsedPort      uint16
-	localWGListenAddr *net.UDPAddr
+	localWGListenPort int
 
 	turnConnStore map[uint16]net.Conn
 	turnConnMutex sync.Mutex
@@ -27,26 +26,24 @@ type WGProxy struct {
 }
 
 // NewWGProxy
-// todo: lookup a free listenPort
 // todo: use wg filterPort in ebpf instead of hardcoded
-// todo: remove hardocded 8081 proxy port from ebpf
-func NewWGProxy(proxyPort int, wgPort int) (*WGProxy, error) {
-	wgLAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", wgPort))
-	if err != nil {
-		return nil, err
-	}
+func NewWGProxy(wgPort int) *WGProxy {
 	wgProxy := &WGProxy{
-		listenPort:        proxyPort,
-		localWGListenAddr: wgLAddr,
+		localWGListenPort: wgPort,
 		ebpf:              newEBPF(),
 		lastUsedPort:      0,
 		turnConnStore:     make(map[uint16]net.Conn),
 	}
-	return wgProxy, nil
+	return wgProxy
 }
 
 func (p *WGProxy) Listen() error {
-	var err error
+	pl := portLookup{}
+	wgPorxyPort, err := pl.searchFreePort()
+	if err != nil {
+		return err
+	}
+
 	p.rawConn, err = p.prepareSenderRawSocket()
 	if err != nil {
 		return err
@@ -58,7 +55,7 @@ func (p *WGProxy) Listen() error {
 	}
 
 	addr := net.UDPAddr{
-		Port: p.listenPort,
+		Port: wgPorxyPort,
 		IP:   net.ParseIP("127.0.0.1"),
 	}
 
@@ -72,7 +69,7 @@ func (p *WGProxy) Listen() error {
 	}
 
 	go p.proxyToRemote()
-	log.Infof("local wg proxy listening on: %d", p.listenPort)
+	log.Infof("local wg proxy listening on: %d", wgPorxyPort)
 	return nil
 }
 
@@ -203,7 +200,7 @@ func (p *WGProxy) sendPkg(data []byte, port uint16) error {
 	}
 	udpH := &layers.UDP{
 		SrcPort: layers.UDPPort(port),
-		DstPort: layers.UDPPort(p.localWGListenAddr.Port),
+		DstPort: layers.UDPPort(p.localWGListenPort),
 	}
 
 	if err := udpH.SetNetworkLayerForChecksum(ipH); err != nil {

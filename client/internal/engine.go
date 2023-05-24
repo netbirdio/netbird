@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"io"
 	"math/rand"
 	"net"
@@ -13,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/client/internal/wgproxy"
 
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
@@ -184,11 +185,7 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	e.wgProxy, err = wgproxy.NewWGProxy(8081, e.config.WgPort)
-	if err != nil {
-		return err
-	}
-
+	e.wgProxy = wgproxy.NewWGProxy(e.config.WgPort)
 	err = e.wgProxy.Listen()
 	if err != nil {
 		return err
