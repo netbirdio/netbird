@@ -21,7 +21,7 @@ require (
 	golang.org/x/sys v0.6.0
 	golang.zx2c4.com/wireguard v0.0.0-20230223181233-21636207a675
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20211215182854-7a385b3431de
-	golang.zx2c4.com/wireguard/windows v0.5.1
+	golang.zx2c4.com/wireguard/windows v0.5.3
 	google.golang.org/grpc v1.52.3
 	google.golang.org/protobuf v1.28.1
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0

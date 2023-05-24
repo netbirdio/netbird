@@ -3,6 +3,7 @@ package iface
 import (
 	"fmt"
 	"net"
+	"net/netip"
 
 	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
@@ -50,7 +51,6 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
 	err = tunDev.Up()
@@ -142,7 +142,7 @@ func (c *tunDevice) assignAddr() error {
 	tunDev := c.netInterface.(*tun.NativeTun)
 	luid := winipcfg.LUID(tunDev.LUID())
 	log.Debugf("adding address %s to interface: %s", c.address.IP, c.name)
-	return luid.SetIPAddresses([]net.IPNet{{c.address.IP, c.address.Network.Mask}})
+	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(c.address.String())})
 }
 
 // getUAPI returns a Listener
