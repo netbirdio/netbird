@@ -5,6 +5,7 @@ import (
 	"github.com/golang-jwt/jwt"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	log "github.com/sirupsen/logrus"
+	"goauthentik.io/api/v3"
 	"io"
 	"net/http"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 
 // AuthentikManager authentik manager client instance.
 type AuthentikManager struct {
+	apiClient   *api.APIClient
 	httpClient  ManagerHTTPClient
 	credentials ManagerCredentials
 	helper      ManagerHelper
@@ -75,6 +77,16 @@ func NewAuthentikManager(oidcConfig OIDCConfig, config AuthentikClientConfig,
 		return nil, fmt.Errorf("authentik IdP configuration is incomplete, GrantType is missing")
 	}
 
+	// authentik client configuration
+	issuerURL, err := url.Parse(oidcConfig.Issuer)
+	if err != nil {
+		return nil, err
+	}
+	authentikConfig := api.NewConfiguration()
+	authentikConfig.HTTPClient = httpClient
+	authentikConfig.Host = issuerURL.Host
+	authentikConfig.Scheme = issuerURL.Scheme
+
 	credentials := &AuthentikCredentials{
 		clientConfig: config,
 		httpClient:   httpClient,
@@ -83,6 +95,7 @@ func NewAuthentikManager(oidcConfig OIDCConfig, config AuthentikClientConfig,
 	}
 
 	return &AuthentikManager{
+		apiClient:   api.NewAPIClient(authentikConfig),
 		httpClient:  httpClient,
 		credentials: credentials,
 		helper:      helper,
