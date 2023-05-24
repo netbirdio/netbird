@@ -210,8 +210,46 @@ func (ac *AuthentikCredentials) Authenticate() (JWTToken, error) {
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (am *AuthentikManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	//TODO implement me
-	panic("implement me")
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return err
+	}
+
+	userPk, err := strconv.ParseInt(userID, 10, 32)
+	if err != nil {
+		return err
+	}
+
+	var pendingInvite bool
+	if appMetadata.WTPendingInvite != nil {
+		pendingInvite = *appMetadata.WTPendingInvite
+	}
+
+	patchedUserReq := api.PatchedUserRequest{
+		Attributes: map[string]interface{}{
+			wtAccountID:     appMetadata.WTAccountID,
+			wtPendingInvite: pendingInvite,
+		},
+	}
+	_, resp, err := am.apiClient.CoreApi.CoreUsersPartialUpdate(ctx, int32(userPk)).
+		PatchedUserRequest(patchedUserReq).
+		Execute()
+	if err != nil {
+		return err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to update user %s, statusCode %d", userID, resp.StatusCode)
+	}
+
+	return nil
 }
 
 // GetUserDataByID requests user data from authentik via ID.
