@@ -157,6 +157,7 @@ func (u *upstreamResolver) waitUntilResponse() {
 	err := backoff.Retry(operation, exponentialBackOff)
 	if err != nil {
 		log.Warn(err)
+		return
 	}
 
 	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
