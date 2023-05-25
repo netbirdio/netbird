@@ -32,7 +32,6 @@ type registeredHandlerMap map[string]context.CancelFunc
 type DefaultServer struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
-	upstreamCtxCancel  context.CancelFunc
 	mux                sync.Mutex
 	server             *dns.Server
 	dnsMux             *dns.ServeMux
@@ -281,6 +280,7 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 		_, cancel := context.WithCancel(s.ctx)
 
 		if len(customZone.Records) == 0 {
+			cancel()
 			return nil, nil, fmt.Errorf("received an empty list of records")
 		}
 
@@ -324,6 +324,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		}
 
 		if len(handler.upstreamServers) == 0 {
+			cancel()
 			log.Errorf("received a nameserver group with an invalid nameserver list")
 			continue
 		}
@@ -348,11 +349,13 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		}
 
 		if len(nsGroup.Domains) == 0 {
+			cancel()
 			return nil, fmt.Errorf("received a non primary nameserver group with an empty domain list")
 		}
 
 		for _, domain := range nsGroup.Domains {
 			if domain == "" {
+				cancel()
 				return nil, fmt.Errorf("received a nameserver group with an empty domain element")
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
