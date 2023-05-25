@@ -26,6 +26,8 @@ const (
 	customIP    = "127.0.0.153"
 )
 
+type registeredHandlerMap map[string]context.CancelFunc
+
 // DefaultServer dns server object
 type DefaultServer struct {
 	ctx                context.Context
@@ -34,7 +36,7 @@ type DefaultServer struct {
 	mux                sync.Mutex
 	server             *dns.Server
 	dnsMux             *dns.ServeMux
-	dnsMuxMap          registrationMap
+	dnsMuxMap          registeredHandlerMap
 	localResolver      *localResolver
 	wgInterface        *iface.WGIface
 	hostManager        hostManager
@@ -50,6 +52,7 @@ type DefaultServer struct {
 type muxUpdate struct {
 	domain  string
 	handler dns.Handler
+	cancel  context.CancelFunc
 }
 
 // NewDefaultServer returns a new dns server
@@ -79,7 +82,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 		ctxCancel: stop,
 		server:    dnsServer,
 		dnsMux:    mux,
-		dnsMuxMap: make(registrationMap),
+		dnsMuxMap: make(registeredHandlerMap),
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
@@ -275,6 +278,8 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 
 	for _, customZone := range customZones {
 
+		_, cancel := context.WithCancel(s.ctx)
+
 		if len(customZone.Records) == 0 {
 			return nil, nil, fmt.Errorf("received an empty list of records")
 		}
@@ -282,6 +287,7 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 		muxUpdates = append(muxUpdates, muxUpdate{
 			domain:  customZone.Domain,
 			handler: s.localResolver,
+			cancel:  cancel,
 		})
 
 		for _, record := range customZone.Records {
@@ -297,10 +303,6 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 }
 
 func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]muxUpdate, error) {
-	// clean up the previous upstream resolver
-	if s.upstreamCtxCancel != nil {
-		s.upstreamCtxCancel()
-	}
 
 	var muxUpdates []muxUpdate
 	for _, nsGroup := range nameServerGroups {
@@ -309,8 +311,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			continue
 		}
 
-		var ctx context.Context
-		ctx, s.upstreamCtxCancel = context.WithCancel(s.ctx)
+		ctx, cancel := context.WithCancel(s.ctx)
 
 		handler := newUpstreamResolver(ctx)
 		for _, ns := range nsGroup.NameServers {
@@ -341,6 +342,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			muxUpdates = append(muxUpdates, muxUpdate{
 				domain:  nbdns.RootZone,
 				handler: handler,
+				cancel:  cancel,
 			})
 			continue
 		}
@@ -356,6 +358,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			muxUpdates = append(muxUpdates, muxUpdate{
 				domain:  domain,
 				handler: handler,
+				cancel:  cancel,
 			})
 		}
 	}
@@ -363,16 +366,20 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 }
 
 func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
-	muxUpdateMap := make(registrationMap)
+	muxUpdateMap := make(registeredHandlerMap)
 
 	for _, update := range muxUpdates {
 		s.registerMux(update.domain, update.handler)
-		muxUpdateMap[update.domain] = struct{}{}
+		muxUpdateMap[update.domain] = update.cancel
+		if cancel, ok := s.dnsMuxMap[update.domain]; ok {
+			cancel()
+		}
 	}
 
-	for key := range s.dnsMuxMap {
+	for key, cancel := range s.dnsMuxMap {
 		_, found := muxUpdateMap[key]
 		if !found {
+			cancel()
 			s.deregisterMux(key)
 		}
 	}

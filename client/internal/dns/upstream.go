@@ -122,7 +122,7 @@ func (u *upstreamResolver) waitUntilResponse() {
 	exponentialBackOff := &backoff.ExponentialBackOff{
 		InitialInterval:     500 * time.Millisecond,
 		RandomizationFactor: 0.5,
-		Multiplier:          2,
+		Multiplier:          1.1,
 		MaxInterval:         u.reactivatePeriod,
 		MaxElapsedTime:      0,
 		Stop:                backoff.Stop,
@@ -134,7 +134,7 @@ func (u *upstreamResolver) waitUntilResponse() {
 	operation := func() error {
 		select {
 		case <-u.ctx.Done():
-			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop: parent context has been canceled"))
+			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop for upstreams %s: parent context has been canceled", u.upstreamServers))
 		default:
 		}
 
@@ -150,7 +150,7 @@ func (u *upstreamResolver) waitUntilResponse() {
 			}
 		}
 
-		log.Debugf("checking connectivity with upstreams %s failed with error: %s. Retrying in %s", err, u.upstreamServers, exponentialBackOff.NextBackOff())
+		log.Tracef("checking connectivity with upstreams %s failed with error: %s. Retrying in %s", err, u.upstreamServers, exponentialBackOff.NextBackOff())
 		return fmt.Errorf("got an error from upstream check call")
 	}
 
