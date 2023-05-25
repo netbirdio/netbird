@@ -4,29 +4,28 @@ APP=/Applications/NetBird.app
 AGENT=/usr/local/bin/netbird
 LOG_FILE=/var/log/netbird/client_install.log
 
-{
-    echo "Installing NetBird..."
 
-    if test -d $APP; then
-        echo "NetBird app copied successfully."
-    else
-        echo "NetBird app could not be copied to the Applications folder."
-        exit 1
-    fi
+echo "Installing NetBird..."  &>> $LOG_FILE
 
-    ln -s $APP/Contents/MacOS/netbird $AGENT
-    if test -f $AGENT; then
-        echo "NetBird binary linked successfully."
-    else
-        echo "NetBird could not create symlink to /usr/local/bin"
-        exit 1
-    fi
+if test -d $APP; then
+    echo "NetBird app copied successfully."  &>> $LOG_FILE
+else
+    echo "NetBird app could not be copied to the Applications folder."  &>> $LOG_FILE
+    exit 1
+fi
 
-    $AGENT service install
-    $AGENT service start
+ln -s $APP/Contents/MacOS/netbird $AGENT
+if test -f $AGENT; then
+    echo "NetBird binary linked successfully."  &>> $LOG_FILE
+else
+    echo "NetBird could not create symlink to /usr/local/bin"  &>> $LOG_FILE
+    exit 1
+fi
 
-    open $APP
+$AGENT service install
+$AGENT service start
 
-    echo "Finished Netbird installation successfully"
-    exit 0 # all good
-} &>> $LOG_FILE
+open $APP
+
+echo "Finished Netbird installation successfully"  &>> $LOG_FILE
+exit 0 # all good
