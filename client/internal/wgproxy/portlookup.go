@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	portRangeStart = 8081
-	portRangeEnd   = 8081
+	portRangeStart = 3128
+	portRangeEnd   = 3228
 )
 
 type portLookup struct {

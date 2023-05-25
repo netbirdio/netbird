@@ -25,8 +25,7 @@ type WGProxy struct {
 	conn    *net.UDPConn
 }
 
-// NewWGProxy
-// todo: use wg filterPort in ebpf instead of hardcoded
+// NewWGProxy create new WGProxy instance
 func NewWGProxy(wgPort int) *WGProxy {
 	wgProxy := &WGProxy{
 		localWGListenPort: wgPort,
@@ -49,7 +48,7 @@ func (p *WGProxy) Listen() error {
 		return err
 	}
 
-	err = p.ebpf.load()
+	err = p.ebpf.load(wgPorxyPort, p.localWGListenPort)
 	if err != nil {
 		return err
 	}
