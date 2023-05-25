@@ -18,7 +18,7 @@ const layerTypeAll = 0
 
 // IFaceMapper defines subset methods of interface required for manager
 type IFaceMapper interface {
-	SetFiltering(iface.PacketFilter) error
+	SetFilter(iface.PacketFilter) error
 }
 
 // Manager userspace firewall manager
@@ -64,7 +64,7 @@ func Create(iface IFaceMapper) (*Manager, error) {
 		},
 	}
 
-	if err := iface.SetFiltering(m); err != nil {
+	if err := iface.SetFilter(m); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -273,9 +273,22 @@ func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 				return rule.drop
 			}
 		case layers.LayerTypeUDP:
+			// if rule has UDP hook (and if we are here we match this rule)
+			// we ignore rule.drop and call this hook
 			if rule.udpHook != nil {
-				return rule.udpHook(&d.udp)
+				addr := net.UDPAddr{
+					Port: int(d.udp.SrcPort),
+				}
+				if ipLayer == layers.LayerTypeIPv4 {
+					addr.IP = d.ip4.SrcIP
+				} else {
+					addr.IP = d.ip6.SrcIP
+				}
+				payload := make([]byte, len(d.udp.Payload))
+				copy(payload, d.udp.Payload)
+				return rule.udpHook(&addr, payload)
 			}
+
 			if rule.sPort == 0 && rule.dPort == 0 {
 				return rule.drop
 			}
@@ -304,7 +317,7 @@ func (m *Manager) SetNetwork(network *net.IPNet) {
 //
 // Hook function returns flag which indicates should be the matched package dropped or not
 func (m *Manager) AddUDPPacketHook(
-	in bool, ip net.IP, dPort uint16, hook func(*layers.UDP) bool,
+	in bool, ip net.IP, dPort uint16, hook func(*net.UDPAddr, []byte) bool,
 ) {
 	r := Rule{
 		id:         uuid.New().String(),

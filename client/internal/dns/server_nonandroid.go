@@ -5,6 +5,7 @@ package dns
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"net"
 	"net/netip"
 	"runtime"
@@ -106,21 +107,25 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
 	if s.wgInterface.IsUserspaceBind() {
-		s.runtimeIP = s.getLastIPFromNetwork(s.wgInterface.Address().Network)
+		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
 		s.runtimePort = 53
+
+		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
+		s.filterDNSTraffic()
+		return
+	}
+
+	if s.customAddress != nil {
+		s.runtimeIP = s.customAddress.Addr().String()
+		s.runtimePort = int(s.customAddress.Port())
 	} else {
-		if s.customAddress != nil {
-			s.runtimeIP = s.customAddress.Addr().String()
-			s.runtimePort = int(s.customAddress.Port())
-		} else {
-			ip, port, err := s.getFirstListenerAvailable()
-			if err != nil {
-				log.Error(err)
-				return
-			}
-			s.runtimeIP = ip
-			s.runtimePort = port
+		ip, port, err := s.getFirstListenerAvailable()
+		if err != nil {
+			log.Error(err)
+			return
 		}
+		s.runtimeIP = ip
+		s.runtimePort = port
 	}
 
 	s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
@@ -483,12 +488,52 @@ func (s *DefaultServer) upstreamCallbacks(
 	return
 }
 
-func (s *DefaultServer) getLastIPFromNetwork(network *net.IPNet) string {
+func (s *DefaultServer) filterDNSTraffic() {
+	filter := s.wgInterface.GetFilter()
+	if filter == nil {
+		log.Error("can't set DNS filter, filter not initialized")
+		return
+	}
+
+	local := &net.UDPAddr{
+		IP:   net.ParseIP(s.runtimeIP),
+		Port: s.runtimePort,
+	}
+
+	hook := func(remote *net.UDPAddr, payload []byte) bool {
+		msg := new(dns.Msg)
+		if err := msg.Unpack(payload); err != nil {
+			log.Tracef("parse DNS request: %v", err)
+			return true
+		}
+
+		writer := responseWriter{
+			local:       local,
+			remote:      remote,
+			wgInterface: s.wgInterface,
+		}
+		go s.dnsMux.ServeDNS(&writer, msg)
+		return true
+	}
+
+	filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook)
+}
+
+func getLastIPFromNetwork(network *net.IPNet, fromEnd int) string {
 	// Calculate the last IP in the CIDR range
 	var endIP net.IP
 	for i := 0; i < len(network.IP); i++ {
 		endIP = append(endIP, network.IP[i]|^network.Mask[i])
 	}
 
-	return endIP.String()
+	// convert to big.Int
+	endInt := big.NewInt(0)
+	endInt.SetBytes(endIP)
+
+	// subtract fromEnd from the last ip
+	fromEndBig := big.NewInt(int64(fromEnd))
+	resultInt := big.NewInt(0)
+	resultInt.Sub(endInt, fromEndBig)
+
+	return net.IP(resultInt.Bytes()).String()
 }

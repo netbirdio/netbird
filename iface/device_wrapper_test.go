@@ -141,7 +141,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 		mockBufs = [][]byte{}
 
 		tun.EXPECT().Write(mockBufs, 0).Return(0, nil)
-		filter.EXPECT().DropOutput(gomock.Any()).Return(true)
+		filter.EXPECT().DropOutgoing(gomock.Any()).Return(true)
 
 		wrapped := newDeviceWrapper(tun)
 		wrapped.filter = filter
@@ -194,7 +194,7 @@ func TestDeviceWrapperRead(t *testing.T) {
 				sizes[0] = len(bufs[0])
 				return 1, nil
 			})
-		filter.EXPECT().DropInput(gomock.Any()).Return(true)
+		filter.EXPECT().DropIncoming(gomock.Any()).Return(true)
 
 		wrapped := newDeviceWrapper(tun)
 		wrapped.filter = filter

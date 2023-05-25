@@ -15,19 +15,19 @@ import (
 )
 
 type IFaceMock struct {
-	SetFilteringFunc func(iface.PacketFilter) error
+	SetFilterFunc func(iface.PacketFilter) error
 }
 
-func (i *IFaceMock) SetFiltering(iface iface.PacketFilter) error {
-	if i.SetFilteringFunc == nil {
+func (i *IFaceMock) SetFilter(iface iface.PacketFilter) error {
+	if i.SetFilterFunc == nil {
 		return fmt.Errorf("not implemented")
 	}
-	return i.SetFilteringFunc(iface)
+	return i.SetFilterFunc(iface)
 }
 
 func TestManagerCreate(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -42,10 +42,10 @@ func TestManagerCreate(t *testing.T) {
 }
 
 func TestManagerAddFiltering(t *testing.T) {
-	isSetFilteringCalled := false
+	isSetFilterCalled := false
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error {
-			isSetFilteringCalled = true
+		SetFilterFunc: func(iface.PacketFilter) error {
+			isSetFilterCalled = true
 			return nil
 		},
 	}
@@ -74,15 +74,15 @@ func TestManagerAddFiltering(t *testing.T) {
 		return
 	}
 
-	if !isSetFilteringCalled {
-		t.Error("SetFiltering was not called")
+	if !isSetFilterCalled {
+		t.Error("SetFilter was not called")
 		return
 	}
 }
 
 func TestManagerDeleteRule(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -140,7 +140,7 @@ func TestManagerDeleteRule(t *testing.T) {
 
 func TestManagerReset(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -244,7 +244,7 @@ func TestUSPFilterCreatePerformance(t *testing.T) {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
 			ifaceMock := &IFaceMock{
-				SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+				SetFilterFunc: func(iface.PacketFilter) error { return nil },
 			}
 			manager, err := Create(ifaceMock)
 			require.NoError(t, err)

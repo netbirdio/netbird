@@ -18,7 +18,7 @@ import (
 type iFaceMapper interface {
 	Name() string
 	IsUserspaceBind() bool
-	SetFiltering(iface.PacketFilter) error
+	SetFilter(iface.PacketFilter) error
 }
 
 // Manager is a ACL rules manager
