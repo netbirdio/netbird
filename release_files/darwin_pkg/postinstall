@@ -14,7 +14,7 @@ LOG_FILE=/var/log/netbird/client_install.log
         exit 1
     fi
 
-    ln -s $APP/netbird $AGENT
+    ln -s $APP/Contents/MacOS/netbird $AGENT
     if test -f $AGENT; then
         echo "NetBird binary linked successfully."
     else
