@@ -3,24 +3,30 @@ package dns
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 )
 
 const (
-	failsTillDeact   = int32(3)
-	reactivatePeriod = time.Minute
+	failsTillDeact   = int32(5)
+	reactivatePeriod = 30 * time.Second
 	upstreamTimeout  = 15 * time.Second
 )
 
+type upstreamClient interface {
+	ExchangeContext(ctx context.Context, m *dns.Msg, a string) (r *dns.Msg, rtt time.Duration, err error)
+}
+
 type upstreamResolver struct {
 	ctx              context.Context
-	upstreamClient   *dns.Client
+	upstreamClient   upstreamClient
 	upstreamServers  []string
 	disabled         bool
 	failsCount       atomic.Int32
@@ -107,28 +113,56 @@ func (u *upstreamResolver) checkUpstreamFails() {
 		log.Warnf("upstream resolving is disabled for %v", reactivatePeriod)
 		u.deactivate()
 		u.disabled = true
-		go u.waitUntilReactivation()
+		go u.waitUntilResponse()
 	}
 }
 
-// waitUntilReactivation reset fails counter and activates upstream resolving
-func (u *upstreamResolver) waitUntilReactivation() {
-	timer := time.NewTimer(u.reactivatePeriod)
-	defer func() {
-		if !timer.Stop() {
-			<-timer.C
-		}
-	}()
-
-	select {
-	case <-u.ctx.Done():
-		return
-	case <-timer.C:
-		log.Info("upstream resolving is reactivated")
-		u.failsCount.Store(0)
-		u.reactivate()
-		u.disabled = false
+// waitUntilResponse retries, in an exponential interval, querying the upstream servers until it gets a positive response
+func (u *upstreamResolver) waitUntilResponse() {
+	exponentialBackOff := &backoff.ExponentialBackOff{
+		InitialInterval:     500 * time.Millisecond,
+		RandomizationFactor: 0.5,
+		Multiplier:          2,
+		MaxInterval:         u.reactivatePeriod,
+		MaxElapsedTime:      0,
+		Stop:                backoff.Stop,
+		Clock:               backoff.SystemClock,
 	}
+
+	r := new(dns.Msg).SetQuestion("netbird.io.", dns.TypeA)
+
+	operation := func() error {
+		select {
+		case <-u.ctx.Done():
+			return backoff.Permanent(fmt.Errorf("exiting upstream retry loop: parent context has been canceled"))
+		default:
+		}
+
+		var err error
+		for _, upstream := range u.upstreamServers {
+			ctx, cancel := context.WithTimeout(u.ctx, u.upstreamTimeout)
+			_, _, err = u.upstreamClient.ExchangeContext(ctx, r, upstream)
+
+			cancel()
+
+			if err == nil {
+				return nil
+			}
+		}
+
+		log.Debugf("checking connectivity with upstreams %s failed with error: %s. Retrying in %s", err, u.upstreamServers, exponentialBackOff.NextBackOff())
+		return fmt.Errorf("got an error from upstream check call")
+	}
+
+	err := backoff.Retry(operation, exponentialBackOff)
+	if err != nil {
+		log.Warn(err)
+	}
+
+	log.Infof("upstreams %s are responsive again. Adding them back to system", u.upstreamServers)
+	u.failsCount.Store(0)
+	u.reactivate()
+	u.disabled = false
 }
 
 // isTimeout returns true if the given error is a network timeout error.
