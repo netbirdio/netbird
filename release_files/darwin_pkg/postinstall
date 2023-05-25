@@ -29,4 +29,4 @@ LOG_FILE=/var/log/netbird/client_install.log
 
     echo "Finished Netbird installation successfully"
     exit 0 # all good
-} >> $LOG_FILE
+} &>> $LOG_FILE
