@@ -310,7 +310,8 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			log.Warn("received a nameserver group with empty nameserver list")
 			continue
 		}
-
+		// todo fix the lint warning regarding not canceling the context within the loop
+		//nolint
 		ctx, cancel := context.WithCancel(s.ctx)
 
 		handler := newUpstreamResolver(ctx)
