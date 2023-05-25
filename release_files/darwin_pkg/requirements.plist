@@ -2,45 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleSupportedPlatforms</key>
-    <array>
-        <string>MacOSX</string>
-    </array>
-    <key>LSArchitecturePriority</key>
-    <array>
-        <string>x86_64</string>
-        <string>arm64</string>
-    </array>
-    <key>items</key>
-    <array>
-        <dict>
-            <key>assets</key>
-            <array>
-                <dict>
-                    <key>kind</key>
-                    <string>software-package</string>
-                    <key>url</key>
-                    <string>netbird_x86_64.pkg</string>
-                </dict>
-                <dict>
-                    <key>kind</key>
-                    <string>software-package</string>
-                    <key>url</key>
-                    <string>netbird_arm64.pkg</string>
-                </dict>
-            </array>
-            <key>metadata</key>
-            <dict>
-                <key>bundle-identifier</key>
-                <string>io.netbird.client</string>
-                <key>bundle-version</key>
-                <string>0.20.3</string>
-                <key>kind</key>
-                <string>software</string>
-                <key>title</key>
-                <string>NetBird</string>
-            </dict>
-        </dict>
-    </array>
+        <key>arch</key>
+        <array>
+                <string>x86_64</string>
+                <string>arm64</string>
+        </array>
 </dict>
 </plist>
