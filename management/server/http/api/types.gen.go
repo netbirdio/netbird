@@ -30,6 +30,8 @@ const (
 	EventActivityCodePeerRename                               EventActivityCode = "peer.rename"
 	EventActivityCodePeerSshDisable                           EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                            EventActivityCode = "peer.ssh.enable"
+	EventActivityCodePersonalAccessTokenCreate                EventActivityCode = "personal.access.token.create"
+	EventActivityCodePersonalAccessTokenDelete                EventActivityCode = "personal.access.token.delete"
 	EventActivityCodePolicyAdd                                EventActivityCode = "policy.add"
 	EventActivityCodePolicyDelete                             EventActivityCode = "policy.delete"
 	EventActivityCodePolicyUpdate                             EventActivityCode = "policy.update"
@@ -39,6 +41,8 @@ const (
 	EventActivityCodeRuleAdd                                  EventActivityCode = "rule.add"
 	EventActivityCodeRuleDelete                               EventActivityCode = "rule.delete"
 	EventActivityCodeRuleUpdate                               EventActivityCode = "rule.update"
+	EventActivityCodeServiceUserCreate                        EventActivityCode = "service.user.create"
+	EventActivityCodeServiceUserDelete                        EventActivityCode = "service.user.delete"
 	EventActivityCodeSetupkeyAdd                              EventActivityCode = "setupkey.add"
 	EventActivityCodeSetupkeyGroupAdd                         EventActivityCode = "setupkey.group.add"
 	EventActivityCodeSetupkeyGroupDelete                      EventActivityCode = "setupkey.group.delete"
@@ -149,6 +153,15 @@ type GroupMinimum struct {
 
 	// PeersCount Count of peers associated to the group
 	PeersCount int `json:"peers_count"`
+}
+
+// GroupRequest defines model for GroupRequest.
+type GroupRequest struct {
+	// Name Group name identifier
+	Name string `json:"name"`
+
+	// Peers List of peers ids
+	Peers *[]string `json:"peers,omitempty"`
 }
 
 // Nameserver defines model for Nameserver.
@@ -275,6 +288,13 @@ type PeerMinimum struct {
 
 	// Name Peer's hostname
 	Name string `json:"name"`
+}
+
+// PeerRequest defines model for PeerRequest.
+type PeerRequest struct {
+	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
+	Name                   string `json:"name"`
+	SshEnabled             bool   `json:"ssh_enabled"`
 }
 
 // PersonalAccessToken defines model for PersonalAccessToken.
@@ -480,6 +500,27 @@ type RuleMinimum struct {
 	Name string `json:"name"`
 }
 
+// RuleRequest defines model for RuleRequest.
+type RuleRequest struct {
+	// Description Rule friendly description
+	Description string `json:"description"`
+
+	// Destinations List of destination groups
+	Destinations *[]string `json:"destinations,omitempty"`
+
+	// Disabled Rules status
+	Disabled bool `json:"disabled"`
+
+	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
+	Flow string `json:"flow"`
+
+	// Name Rule name identifier
+	Name string `json:"name"`
+
+	// Sources List of source groups
+	Sources *[]string `json:"sources,omitempty"`
+}
+
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
 	// AutoGroups Setup key groups to auto-assign to peers registered with this key
@@ -611,65 +652,6 @@ type PutApiAccountsAccountIdJSONBody struct {
 	Settings AccountSettings `json:"settings"`
 }
 
-// PostApiGroupsJSONBody defines parameters for PostApiGroups.
-type PostApiGroupsJSONBody struct {
-	Name  string    `json:"name"`
-	Peers *[]string `json:"peers,omitempty"`
-}
-
-// PutApiGroupsGroupIdJSONBody defines parameters for PutApiGroupsGroupId.
-type PutApiGroupsGroupIdJSONBody struct {
-	Name  *string   `json:"Name,omitempty"`
-	Peers *[]string `json:"Peers,omitempty"`
-}
-
-// PutApiPeersPeerIdJSONBody defines parameters for PutApiPeersPeerId.
-type PutApiPeersPeerIdJSONBody struct {
-	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
-	Name                   string `json:"name"`
-	SshEnabled             bool   `json:"ssh_enabled"`
-}
-
-// PostApiPoliciesJSONBody defines parameters for PostApiPolicies.
-type PostApiPoliciesJSONBody = PolicyMinimum
-
-// PutApiPoliciesPolicyIdJSONBody defines parameters for PutApiPoliciesPolicyId.
-type PutApiPoliciesPolicyIdJSONBody = PolicyMinimum
-
-// PostApiRulesJSONBody defines parameters for PostApiRules.
-type PostApiRulesJSONBody struct {
-	// Description Rule friendly description
-	Description  string    `json:"description"`
-	Destinations *[]string `json:"destinations,omitempty"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Name Rule name identifier
-	Name    string    `json:"name"`
-	Sources *[]string `json:"sources,omitempty"`
-}
-
-// PutApiRulesRuleIdJSONBody defines parameters for PutApiRulesRuleId.
-type PutApiRulesRuleIdJSONBody struct {
-	// Description Rule friendly description
-	Description  string    `json:"description"`
-	Destinations *[]string `json:"destinations,omitempty"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Name Rule name identifier
-	Name    string    `json:"name"`
-	Sources *[]string `json:"sources,omitempty"`
-}
-
 // GetApiUsersParams defines parameters for GetApiUsers.
 type GetApiUsersParams struct {
 	// ServiceUser Filters users and returns either regular users or service users
@@ -689,19 +671,19 @@ type PutApiDnsNameserversNsgroupIdJSONRequestBody = NameserverGroupRequest
 type PutApiDnsSettingsJSONRequestBody = DNSSettings
 
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
-type PostApiGroupsJSONRequestBody PostApiGroupsJSONBody
+type PostApiGroupsJSONRequestBody = GroupRequest
 
 // PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
-type PutApiGroupsGroupIdJSONRequestBody PutApiGroupsGroupIdJSONBody
+type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
 
 // PutApiPeersPeerIdJSONRequestBody defines body for PutApiPeersPeerId for application/json ContentType.
-type PutApiPeersPeerIdJSONRequestBody PutApiPeersPeerIdJSONBody
+type PutApiPeersPeerIdJSONRequestBody = PeerRequest
 
 // PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
-type PostApiPoliciesJSONRequestBody = PostApiPoliciesJSONBody
+type PostApiPoliciesJSONRequestBody = PolicyMinimum
 
 // PutApiPoliciesPolicyIdJSONRequestBody defines body for PutApiPoliciesPolicyId for application/json ContentType.
-type PutApiPoliciesPolicyIdJSONRequestBody = PutApiPoliciesPolicyIdJSONBody
+type PutApiPoliciesPolicyIdJSONRequestBody = PolicyMinimum
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest
@@ -710,10 +692,10 @@ type PostApiRoutesJSONRequestBody = RouteRequest
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
 
 // PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
-type PostApiRulesJSONRequestBody PostApiRulesJSONBody
+type PostApiRulesJSONRequestBody = RuleRequest
 
 // PutApiRulesRuleIdJSONRequestBody defines body for PutApiRulesRuleId for application/json ContentType.
-type PutApiRulesRuleIdJSONRequestBody PutApiRulesRuleIdJSONBody
+type PutApiRulesRuleIdJSONRequestBody = RuleRequest
 
 // PostApiSetupKeysJSONRequestBody defines body for PostApiSetupKeys for application/json ContentType.
 type PostApiSetupKeysJSONRequestBody = SetupKeyRequest
