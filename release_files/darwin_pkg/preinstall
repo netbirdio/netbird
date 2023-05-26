@@ -2,7 +2,7 @@
 
 LOG_FILE=/var/log/netbird/client_install.log
 
-echo "Start installation..."  &> $LOG_FILE
-echo "Preinstall complete"  &>> $LOG_FILE
-exit 0 # all good
-
+{
+    echo "Preinstall complete"
+    exit 0 # all good
+} &> $LOG_FILE
