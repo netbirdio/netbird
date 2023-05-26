@@ -95,7 +95,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if *req.Name == "" {
+	if req.Name == "" {
 		util.WriteError(status.Errorf(status.InvalidArgument, "group name shouldn't be empty"), w)
 		return
 	}
@@ -108,7 +108,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 	}
 	group := server.Group{
 		ID:    groupID,
-		Name:  *req.Name,
+		Name:  req.Name,
 		Peers: peers,
 	}
 
