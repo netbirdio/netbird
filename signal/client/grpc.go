@@ -327,19 +327,18 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 	attemptTimeout := defaultSendTimeout
 
 	for attempt := 0; attempt < 4; attempt++ {
-		select {
-		case <-c.ctx.Done():
-			return fmt.Errorf("not running message attempt. client context is done: %s", c.ctx.Err())
-		default:
-		}
 		if attempt > 1 {
 			attemptTimeout = time.Duration(attempt) * 5 * time.Second
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
+		ctx, cancel := context.WithTimeout(c.ctx, attemptTimeout)
 
 		_, err = c.realClient.Send(ctx, encryptedMessage)
 
 		cancel()
+
+		if s, ok := status.FromError(err); ok && s.Code() == codes.Canceled {
+			return err
+		}
 
 		if err == nil {
 			return nil
