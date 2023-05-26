@@ -24,6 +24,8 @@ import (
 	"github.com/netbirdio/netbird/signal/proto"
 )
 
+const defaultSendTimeout = 5 * time.Second
+
 // ConnStateNotifier is a wrapper interface of the status recorder
 type ConnStateNotifier interface {
 	MarkSignalDisconnected()
@@ -322,9 +324,23 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
-	defer cancel()
-	_, err = c.realClient.Send(ctx, encryptedMessage)
+	attemptTimeout := defaultSendTimeout
+
+	for attempt := 0; attempt < 4; attempt++ {
+		if attempt > 1 {
+			attemptTimeout = time.Duration(attempt) * defaultSendTimeout * time.Second
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), attemptTimeout)
+
+		_, err = c.realClient.Send(ctx, encryptedMessage)
+
+		cancel()
+
+		if err == nil {
+			break
+		}
+	}
+
 	if err != nil {
 		return err
 	}
