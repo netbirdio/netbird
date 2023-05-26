@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -23,9 +21,6 @@ import (
 )
 
 const (
-	envICEKeepAliveIntervalSec   = "NB_ICE_KEEP_ALIVE_INTERVAL_SEC"
-	envICEDisconnectedTimeoutSec = "NB_ICE_DISCONNECTED_TIMEOUT_SEC"
-
 	iceKeepAliveDefault           = 4 * time.Second
 	iceDisconnectedTimeoutDefault = 6 * time.Second
 )
@@ -161,13 +156,14 @@ func (conn *Conn) reCreateAgent() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	iceKeepAlive, iceDisconnectedTimeout := readICEAgentConfigProperties()
+	iceKeepAlive := iceKeepAlive()
+	iceDisconnectedTimeout := iceDisconnectedTimeout()
 
 	agentConfig := &ice.AgentConfig{
 		MulticastDNSMode:    ice.MulticastDNSModeDisabled,
 		NetworkTypes:        []ice.NetworkType{ice.NetworkTypeUDP4, ice.NetworkTypeUDP6},
 		Urls:                conn.config.StunTurn,
-		CandidateTypes:      []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay},
+		CandidateTypes:      conn.candidateTypes(),
 		FailedTimeout:       &failedTimeout,
 		InterfaceFilter:     stdnet.InterfaceFilter(conn.config.InterfaceBlackList),
 		UDPMux:              conn.config.UDPMux,
@@ -206,32 +202,12 @@ func (conn *Conn) reCreateAgent() error {
 	return nil
 }
 
-func readICEAgentConfigProperties() (time.Duration, time.Duration) {
-	iceKeepAlive := iceKeepAliveDefault
-	iceDisconnectedTimeout := iceDisconnectedTimeoutDefault
-
-	keepAliveEnv := os.Getenv(envICEKeepAliveIntervalSec)
-	if keepAliveEnv != "" {
-		log.Debugf("setting ICE keep alive interval to %s seconds", keepAliveEnv)
-		keepAliveEnvSec, err := strconv.Atoi(keepAliveEnv)
-		if err == nil {
-			iceKeepAlive = time.Duration(keepAliveEnvSec) * time.Second
-		} else {
-			log.Warnf("invalid value %s set for %s, using default %v", keepAliveEnv, envICEKeepAliveIntervalSec, iceKeepAlive)
-		}
+func (conn *Conn) candidateTypes() []ice.CandidateType {
+	if hasICEForceRelayConn() {
+		return []ice.CandidateType{ice.CandidateTypeRelay}
+	} else {
+		return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
 	}
-
-	disconnectedTimeoutEnv := os.Getenv(envICEDisconnectedTimeoutSec)
-	if disconnectedTimeoutEnv != "" {
-		log.Debugf("setting ICE disconnected timeout to %s seconds", disconnectedTimeoutEnv)
-		disconnectedTimeoutSec, err := strconv.Atoi(disconnectedTimeoutEnv)
-		if err == nil {
-			iceDisconnectedTimeout = time.Duration(disconnectedTimeoutSec) * time.Second
-		} else {
-			log.Warnf("invalid value %s set for %s, using default %v", disconnectedTimeoutEnv, envICEDisconnectedTimeoutSec, iceDisconnectedTimeout)
-		}
-	}
-	return iceKeepAlive, iceDisconnectedTimeout
 }
 
 // Open opens connection to the remote peer starting ICE candidate gathering process.
