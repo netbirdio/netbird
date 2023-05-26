@@ -1,4 +1,7 @@
 openapi: 3.0.1
+servers:
+  - url: https://api.netbird.io
+    description: Default server
 info:
   title: NetBird REST API
   description: API to manipulate groups, rules, policies and retrieve information about peers and users
@@ -6,6 +9,8 @@ info:
 tags:
   - name: Users
     description: Interact with and view information about users.
+  - name: Tokens
+    description: Interact with and view information about tokens.
   - name: Peers
     description: Interact with and view information about peers.
   - name: Setup Keys
@@ -31,6 +36,7 @@ components:
         id:
           description: Account ID
           type: string
+          example: ch8i4ug6lnn4g9hqv7l0
         settings:
           $ref: '#/components/schemas/AccountSettings'
       required:
@@ -41,9 +47,11 @@ components:
         peer_login_expiration_enabled:
           description: Enables or disables peer login expiration globally. After peer's login has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
           type: boolean
+          example: true
         peer_login_expiration:
           description: Period of time after which peer login expires (seconds).
           type: integer
+          example: 43200
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
@@ -53,35 +61,44 @@ components:
         id:
           description: User ID
           type: string
+          example: google-oauth2|277474792786460067937
         email:
           description: User's email address
           type: string
+          example: demo@netbird.io
         name:
           description: User's name from idp provider
           type: string
+          example: Tom Schulz
         role:
           description: User's NetBird account role
           type: string
+          example: admin
         status:
           description: User's status
           type: string
           enum: [ "active","invited","blocked" ]
+          example: active
         auto_groups:
           description: Groups to auto-assign to peers registered by this user
           type: array
           items:
             type: string
+            example: devs
         is_current:
           description: Is true if authenticated user is the same as this user
           type: boolean
           readOnly: true
+          example: true
         is_service_user:
           description: Is true if this user is a service user
           type: boolean
           readOnly: true
+          example: false
         is_blocked:
           description: Is true if this user is blocked. Blocked users can't use the system
           type: boolean
+          example: false
       required:
         - id
         - email
@@ -96,14 +113,17 @@ components:
         role:
           description: User's NetBird account role
           type: string
+          example: admin
         auto_groups:
           description: Groups to auto-assign to peers registered by this user
           type: array
           items:
             type: string
+            example: devs
         is_blocked:
           description: If set to true then user is blocked and can't use the system
           type: boolean
+          example: false
       required:
         - role
         - auto_groups
@@ -114,20 +134,25 @@ components:
         email:
           description: User's Email to send invite to
           type: string
+          example: demo@netbird.io
         name:
           description: User's full name
           type: string
+          example: Tom Schulz
         role:
           description: User's NetBird account role
           type: string
+          example: admin
         auto_groups:
           description: Groups to auto-assign to peers registered by this user
           type: array
           items:
             type: string
+            example: devs
         is_service_user:
           description: Is true if this user is a service user
           type: boolean
+          example: false
       required:
         - role
         - auto_groups
@@ -138,12 +163,30 @@ components:
         id:
           description: Peer ID
           type: string
+          example: chacbco6lnnbn6cg5s90
         name:
           description: Peer's hostname
           type: string
+          example: stage-host-1
       required:
         - id
         - name
+    PeerRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          example: stage-host-1
+        ssh_enabled:
+          type: boolean
+          example: true
+        login_expiration_enabled:
+          type: boolean
+          example: false
+      required:
+        - name
+        - ssh_enabled
+        - login_expiration_enabled
     Peer:
       allOf:
         - $ref: '#/components/schemas/PeerMinimum'
@@ -152,19 +195,24 @@ components:
             ip:
               description: Peer's IP address
               type: string
+              example: 10.64.0.1
             connected:
               description: Peer to Management connection status
               type: boolean
+              example: true
             last_seen:
               description: Last time peer connected to Netbird's management service
               type: string
               format: date-time
+              example: 2023-05-05T10:05:26.420578Z
             os:
               description: Peer's operating system and version
               type: string
+              example: Darwin 13.2.1
             version:
               description: Peer's daemon or cli version
               type: string
+              example: 0.14.0
             groups:
               description: Groups that the peer belongs to
               type: array
@@ -173,28 +221,36 @@ components:
             ssh_enabled:
               description: Indicates whether SSH server is enabled on this peer
               type: boolean
+              example: true
             user_id:
               description: User ID of the user that enrolled this peer
               type: string
+              example: google-oauth2|277474792786460067937
             hostname:
               description: Hostname of the machine
               type: string
+              example: stage-host-1
             ui_version:
               description: Peer's desktop UI version
               type: string
+              example: 0.14.0
             dns_label:
               description: Peer's DNS label is the parsed peer name for domain resolution. It is used to form an FQDN by appending the account's domain to the peer label. e.g. peer-dns-label.netbird.cloud
               type: string
+              example: stage-host-1.netbird.cloud
             login_expiration_enabled:
               description: Indicates whether peer login expiration has been enabled or not
               type: boolean
+              example: false
             login_expired:
               description: Indicates whether peer's login expired or not
               type: boolean
+              example: false
             last_login:
               description: Last time this peer performed log in (authentication). E.g., user authenticated.
               type: string
               format: date-time
+              example: 2023-05-05T09:00:35.477782Z
           required:
             - ip
             - connected
@@ -214,47 +270,60 @@ components:
         id:
           description: Setup Key ID
           type: string
+          example: 2531583362
         key:
           description: Setup Key value
           type: string
+          example: A616097E-FCF0-48FA-9354-CA4A61142761
         name:
           description: Setup key name identifier
           type: string
+          example: Default key
         expires:
           description: Setup Key expiration date
           type: string
           format: date-time
+          example: 2023-06-01T14:47:22.291057Z
         type:
           description: Setup key type, one-off for single time usage and reusable
           type: string
+          example: reusable
         valid:
           description: Setup key validity status
           type: boolean
+          example: true
         revoked:
           description: Setup key revocation status
           type: boolean
+          example: false
         used_times:
           description: Usage count of setup key
           type: integer
+          example: 2
         last_used:
           description: Setup key last usage date
           type: string
           format: date-time
+          example: 2023-05-05T09:00:35.477782Z
         state:
           description: Setup key status, "valid", "overused","expired" or "revoked"
           type: string
+          example: valid
         auto_groups:
           description: Setup key groups to auto-assign to peers registered with this key
           type: array
           items:
             type: string
+            example: "devs"
         updated_at:
           description: Setup key last update date
           type: string
           format: date-time
+          example: 2023-05-05T09:00:35.477782Z
         usage_limit:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
+          example: 0
       required:
         - id
         - key
@@ -275,23 +344,29 @@ components:
         name:
           description: Setup Key name
           type: string
+          example: Default key
         type:
           description: Setup key type, one-off for single time usage and reusable
           type: string
+          example: reusable
         expires_in:
           description: Expiration time in seconds
           type: integer
+          example: 43200
         revoked:
           description: Setup key revocation status
           type: boolean
+          example: false
         auto_groups:
           description: Setup key groups to auto-assign to peers registered with this key
           type: array
           items:
             type: string
+            example: "devs"
         usage_limit:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
+          example: 0
       required:
         - name
         - type
@@ -305,24 +380,30 @@ components:
         id:
           description: ID of a token
           type: string
+          example: ch8i54g6lnn4g9hqv7n0
         name:
           description: Name of the token
           type: string
+          example: My first token
         expiration_date:
           description: Date the token expires
           type: string
           format: date-time
+          example: 2023-05-05T14:38:28.977616Z
         created_by:
           description: User ID of the user who created the token
           type: string
+          example: google-oauth2|277474792786460067937
         created_at:
           description: Date the token was created
           type: string
           format: date-time
+          example: 2023-05-02T14:48:20.465209Z
         last_used:
           description: Date the token was last used
           type: string
           format: date-time
+          example: 2023-05-04T12:45:25.9723616Z
       required:
         - id
         - name
@@ -335,6 +416,7 @@ components:
         plain_token:
           description: Plain text representation of the generated token
           type: string
+          example: 2023-05-02T14:48:20.465209Z
         personal_access_token:
           $ref: '#/components/schemas/PersonalAccessToken'
       required:
@@ -346,11 +428,13 @@ components:
         name:
           description: Name of the token
           type: string
+          example: My first token
         expires_in:
           description: Expiration in days
           type: integer
           minimum: 1
           maximum: 365
+          example: 30
       required:
         - name
         - expires_in
@@ -360,16 +444,34 @@ components:
         id:
           description: Group ID
           type: string
+          example: ch8i4ug6lnn4g9hqv7m0
         name:
           description: Group Name identifier
           type: string
+          example: devs
         peers_count:
           description: Count of peers associated to the group
           type: integer
+          example: 2
       required:
         - id
         - name
         - peers_count
+    GroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Group name identifier
+          example: devs
+        peers:
+          type: array
+          description: List of peers ids
+          items:
+            type: string
+          example: "ch8i4ug6lnn4g9hqv7m1"
+      required:
+        - name
     Group:
       allOf:
         - $ref: '#/components/schemas/GroupMinimum'
@@ -388,20 +490,41 @@ components:
         name:
           description: Rule name identifier
           type: string
+          example: Default
         description:
           description: Rule friendly description
           type: string
+          example: This is a default rule that allows connections between all the resources
         disabled:
           description: Rules status
           type: boolean
+          example: false
         flow:
           description: Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
           type: string
+          example: bidirect
       required:
         - name
         - description
         - disabled
         - flow
+    RuleRequest:
+      allOf:
+        - $ref: '#/components/schemas/RuleMinimum'
+        - type: object
+          properties:
+            sources:
+              type: array
+              description: List of source groups
+              items:
+                type: string
+                example: "ch8i4ug6lnn4g9hqv7m1"
+            destinations:
+              type: array
+              description: List of destination groups
+              items:
+                type: string
+                example: "ch8i4ug6lnn4g9hqv7m0"
     Rule:
       allOf:
         - type: object
@@ -409,6 +532,7 @@ components:
             id:
               description: Rule ID
               type: string
+              example: ch8i4ug6lnn4g9hqv7mg
           required:
             - id
         - $ref: '#/components/schemas/RuleMinimum'
@@ -433,15 +557,19 @@ components:
         id:
           description: Rule ID
           type: string
+          example: ch8i4ug6lnn4g9hqv7mg
         name:
           description: Rule name identifier
           type: string
+          example: Default
         description:
           description: Rule friendly description
           type: string
+          example: This is a default rule that allows connections between all the resources
         enabled:
           description: Rules status
           type: boolean
+          example: true
         sources:
           description: policy source groups
           type: array
@@ -456,6 +584,7 @@ components:
           description: policy accept or drops packets
           type: string
           enum: ["accept","drop"]
+          example: accept
       required:
         - name
         - sources
@@ -468,15 +597,19 @@ components:
         name:
           description: Policy name identifier
           type: string
+          example: ch8i4ug6lnn4g9hqv7mg
         description:
           description: Policy friendly description
           type: string
+          example: This is a default policy that allows connections between all the resources
         enabled:
           description: Policy status
           type: boolean
+          example: true
         query:
           description: Policy Rego query
           type: string
+          example: package netbird\n\nall[rule] {\n    is_peer_in_any_group([\"ch8i4ug6lnn4g9hqv7m0\",\"ch8i4ug6lnn4g9hqv7m0\"])\n    rule := {\n        rules_from_group(\"ch8i4ug6lnn4g9hqv7m0\", \"dst\", \"accept\", \"\"),\n        rules_from_group(\"ch8i4ug6lnn4g9hqv7m0\", \"src\", \"accept\", \"\"),\n    }[_][_]\n}\n
         rules:
           description: Policy rule object for policy UI editor
           type: array
@@ -496,6 +629,7 @@ components:
             id:
               description: Policy ID
               type: string
+              example: ch8i4ug6lnn4g9hqv7mg
           required:
             - id
     RouteRequest:
@@ -504,33 +638,41 @@ components:
         description:
           description: Route description
           type: string
+          example: My first route
         network_id:
           description: Route network identifier, to group HA routes
           type: string
           maxLength: 40
           minLength: 1
+          example: Route 1
         enabled:
           description: Route status
           type: boolean
+          example: true
         peer:
           description: Peer Identifier associated with route
           type: string
+          example: chacbco6lnnbn6cg5s91
         network:
           description: Network range in CIDR format
           type: string
+          example: 10.64.0.0/24
         metric:
           description: Route metric number. Lowest number has higher priority
           type: integer
           maximum: 9999
           minimum: 1
+          example: 9999
         masquerade:
           description: Indicate if peer should masquerade traffic to this route's prefix
           type: boolean
+          example: true
         groups:
           description: Route group tag groups
           type: array
           items:
             type: string
+            example: "chacdk86lnnboviihd70"
       required:
         - id
         - description
@@ -548,9 +690,11 @@ components:
             id:
               description: Route Id
               type: string
+              example: chacdk86lnnboviihd7g
             network_type:
               description: Network type indicating if it is IPv4 or IPv6
               type: string
+              example: IPv4
           required:
             - id
             - network_type
@@ -561,13 +705,16 @@ components:
         ip:
           description: Nameserver IP
           type: string
+          example: 8.8.8.8
         ns_type:
           description: Nameserver Type
           type: string
           enum: [ "udp" ]
+          example: udp
         port:
           description: Nameserver Port
           type: integer
+          example: 53
       required:
         - ip
         - ns_type
@@ -580,9 +727,11 @@ components:
           type: string
           maxLength: 40
           minLength: 1
+          example: Google DNS
         description:
           description: Nameserver group  description
           type: string
+          example: Google DNS servers
         nameservers:
           description: Nameserver group
           minLength: 1
@@ -593,14 +742,17 @@ components:
         enabled:
           description: Nameserver group status
           type: boolean
+          example: true
         groups:
           description: Nameserver group tag groups
           type: array
           items:
             type: string
+            example: ch8i4ug6lnn4g9hqv7m0
         primary:
           description: Nameserver group primary status
           type: boolean
+          example: true
         domains:
           description: Nameserver group domain list
           type: array
@@ -608,6 +760,7 @@ components:
             type: string
             minLength: 1
             maxLength: 255
+            example: "example.com"
       required:
         - name
         - description
@@ -623,6 +776,7 @@ components:
             id:
               description: Nameserver group ID
               type: string
+              example: ch8i4ug6lnn4g9hqv7m0
           required:
             - id
         - $ref: '#/components/schemas/NameserverGroupRequest'
@@ -634,6 +788,7 @@ components:
           type: array
           items:
             type: string
+            example: ch8i4ug6lnn4g9hqv7m0
       required:
         - disabled_management_groups
     Event:
@@ -642,13 +797,16 @@ components:
         id:
           description: Event unique identifier
           type: string
+          example: 10
         timestamp:
           description: The date and time when the event occurred
           type: string
           format: date-time
+          example: 2023-05-05T10:04:37.473542Z
         activity:
           description: The activity that occurred during the event
           type: string
+          example: Route created
         activity_code:
           description: The string code of the activity that occurred during the event
           type: string
@@ -662,18 +820,23 @@ components:
                   "account.create", "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.disable", "account.setting.peer.login.expiration.enable",
                   "route.add", "route.delete", "route.update",
                   "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
-                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable" ]
+                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable",
+                  "service.user.create", "personal.access.token.create", "service.user.delete", "personal.access.token.delete" ]
+          example: route.add
         initiator_id:
           description: The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
           type: string
+          example: google-oauth2|123456789012345678901
         target_id:
           description: The ID of the target of the event. E.g., an ID of the peer that a user removed.
           type: string
+          example: chad9d86lnnc59g18ou0
         meta:
           description: The metadata of the event
           type: object
           additionalProperties:
             type: string
+          example: { "name": "my route", "network_range": "10.64.0.0/24", "peer_id": "chacbco6lnnbn6cg5s91"}
       required:
         - id
         - timestamp
@@ -721,7 +884,8 @@ security:
 paths:
   /api/accounts:
     get:
-      summary: Returns a list of accounts of a user. Always returns a list of one account.
+      summary: List all Accounts
+      description: Returns a list of accounts of a user. Always returns a list of one account.
       tags: [ Accounts ]
       security:
         - BearerAuth: [ ]
@@ -745,7 +909,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/accounts/{accountId}:
     put:
-      summary: Update information about an account
+      summary: Update an Account
+      description: Update information about an account
       tags: [ Accounts ]
       security:
         - BearerAuth: [ ]
@@ -785,7 +950,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/users:
     get:
-      summary: Returns a list of all users
+      summary: List all Users
+      description: Returns a list of all users
       tags: [ Users ]
       security:
         - BearerAuth: [ ]
@@ -814,7 +980,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a User (or invite)
+      summary: Create a User
+      description: Creates a new service user or sends an invite to a regular user
       tags: [ Users ]
       security:
         - BearerAuth: [ ]
@@ -842,7 +1009,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/users/{userId}:
     put:
-      summary: Update information about a User
+      summary: Update a User
+      description: Update information about a User
       tags: [ Users ]
       security:
         - BearerAuth: [ ]
@@ -877,9 +1045,11 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a User
+      description: Delete a User
       tags: [ Users ]
       security:
         - BearerAuth: [ ]
+        - TokenAuth: [ ]
       parameters:
         - in: path
           name: userId
@@ -901,10 +1071,11 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/users/{userId}/tokens:
     get:
-      summary: Returns a list of all tokens for a user
-      tags: [ Users ]
+      summary: List all Tokens
+      description: Returns a list of all tokens for a user
+      tags: [ Tokens ]
       security:
-        - BearerAuth: []
+        - BearerAuth: [ ]
         - TokenAuth: [ ]
       parameters:
         - in: path
@@ -931,8 +1102,9 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a new token for a user
-      tags: [ Users ]
+      summary: Create a Token
+      description: Create a new token for a user
+      tags: [ Tokens ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -966,8 +1138,9 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/users/{userId}/tokens/{tokenId}:
     get:
-      summary: Returns a specific token for a user
-      tags: [ Users ]
+      summary: Retrieve a Token
+      description: Returns a specific token for a user
+      tags: [ Tokens ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -1000,8 +1173,9 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a token for a user
-      tags: [ Users ]
+      summary: Delete a Token
+      description: Delete a token for a user
+      tags: [ Tokens ]
       security:
         - BearerAuth: [ ]
         - TokenAuth: [ ]
@@ -1032,7 +1206,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/peers:
     get:
-      summary: Returns a list of all peers
+      summary: List all Peers
+      description: Returns a list of all peers
       tags: [ Peers ]
       security:
         - BearerAuth: [ ]
@@ -1056,7 +1231,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/peers/{peerId}:
     get:
-      summary: Get information about a peer
+      summary: Retrieve a Peer
+      description: Get information about a peer
       tags: [ Peers ]
       security:
         - BearerAuth: [ ]
@@ -1084,7 +1260,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update information about a peer
+      summary: Update a Peer
+      description: Update information about a peer
       tags: [ Peers ]
       security:
         - BearerAuth: [ ]
@@ -1101,18 +1278,7 @@ paths:
         content:
           'application/json':
             schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                ssh_enabled:
-                  type: boolean
-                login_expiration_enabled:
-                  type: boolean
-              required:
-                - name
-                - ssh_enabled
-                - login_expiration_enabled
+              $ref: '#/components/schemas/PeerRequest'
       responses:
         '200':
           description: A Peer object
@@ -1129,7 +1295,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a peer
+      summary: Delete a Peer
+      description: Delete a peer
       tags: [ Peers ]
       security:
         - BearerAuth: [ ]
@@ -1155,7 +1322,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/setup-keys:
     get:
-      summary: Returns a list of all Setup Keys
+      summary: List all Setup Keys
+      description: Returns a list of all Setup Keys
       tags: [ Setup Keys ]
       security:
         - BearerAuth: [ ]
@@ -1178,7 +1346,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Creates a Setup Key
+      summary: Create a Setup Key
+      description: Creates a Setup Key
       tags: [ Setup Keys ]
       security:
         - BearerAuth: [ ]
@@ -1206,7 +1375,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/setup-keys/{keyId}:
     get:
-      summary: Get information about a Setup Key
+      summary: Retrieve a Setup Key
+      description: Get information about a Setup Key
       tags: [ Setup Keys ]
       security:
         - BearerAuth: [ ]
@@ -1234,7 +1404,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update information about a Setup Key
+      summary: Update a Setup Key
+      description: Update information about a Setup Key
       tags: [ Setup Keys ]
       security:
         - BearerAuth: [ ]
@@ -1269,7 +1440,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/groups:
     get:
-      summary: Returns a list of all Groups
+      summary: List all Groups
+      description: Returns a list of all Groups
       tags: [ Groups ]
       security:
         - BearerAuth: [ ]
@@ -1292,7 +1464,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Creates a Group
+      summary: Create a Group
+      description: Creates a Group
       tags: [ Groups ]
       security:
         - BearerAuth: [ ]
@@ -1302,16 +1475,7 @@ paths:
         content:
           'application/json':
             schema:
-              type: object
-              properties:
-                name:
-                  type: string
-                peers:
-                  type: array
-                  items:
-                    type: string
-              required:
-                - name
+              $ref: '#/components/schemas/GroupRequest'
       responses:
         '200':
           description: A Group Object
@@ -1329,7 +1493,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/groups/{groupId}:
     get:
-      summary: Get information about a Group
+      summary: Retrieve a Group
+      description: Get information about a Group
       tags: [ Groups ]
       security:
         - BearerAuth: [ ]
@@ -1357,7 +1522,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update/Replace a Group
+      summary: Update a Group
+      description: Update/Replace a Group
       tags: [ Groups ]
       security:
         - BearerAuth: [ ]
@@ -1374,14 +1540,7 @@ paths:
         content:
           'application/json':
             schema:
-              type: object
-              properties:
-                Name:
-                  type: string
-                Peers:
-                  type: array
-                  items:
-                    type: string
+              $ref: '#/components/schemas/GroupRequest'
       responses:
         '200':
           description: A Group object
@@ -1399,6 +1558,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Group
+      description: Delete a Group
       tags: [ Groups ]
       security:
         - BearerAuth: [ ]
@@ -1424,7 +1584,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/rules:
     get:
-      summary: Returns a list of all Rules
+      summary: List all Rules
+      description: Returns a list of all Rules
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1447,7 +1608,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Creates a Rule
+      summary: Create a Rule
+      description: Creates a Rule
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1457,18 +1619,7 @@ paths:
         content:
           'application/json':
             schema:
-              allOf:
-                - $ref: '#/components/schemas/RuleMinimum'
-                - type: object
-                  properties:
-                    sources:
-                      type: array
-                      items:
-                        type: string
-                    destinations:
-                      type: array
-                      items:
-                        type: string
+              $ref: '#/components/schemas/RuleRequest'
       responses:
         '200':
           description: A Rule Object
@@ -1478,7 +1629,8 @@ paths:
                 $ref: '#/components/schemas/Rule'
   /api/rules/{ruleId}:
     get:
-      summary: Get information about a Rules
+      summary: Retrieve a Rule
+      description: Get information about a Rules
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1506,7 +1658,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update/Replace a Rule
+      summary: Update a Rule
+      description: Update/Replace a Rule
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1523,18 +1676,7 @@ paths:
         content:
           'application/json':
             schema:
-              allOf:
-                - $ref: '#/components/schemas/RuleMinimum'
-                - type: object
-                  properties:
-                    sources:
-                      type: array
-                      items:
-                        type: string
-                    destinations:
-                      type: array
-                      items:
-                        type: string
+              $ref: '#/components/schemas/RuleRequest'
       responses:
         '200':
           description: A Rule object
@@ -1552,6 +1694,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Rule
+      description: Delete a Rule
       tags: [ Rules ]
       security:
         - BearerAuth: [ ]
@@ -1577,7 +1720,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/policies:
     get:
-      summary: Returns a list of all Policies
+      summary: List all Policies
+      description: Returns a list of all Policies
       tags: [ Policies ]
       security:
         - BearerAuth: [ ]
@@ -1600,7 +1744,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Creates a Policy
+      summary: Create a Policy
+      description: Creates a Policy
       tags: [ Policies ]
       security:
         - BearerAuth: [ ]
@@ -1610,8 +1755,7 @@ paths:
         content:
           'application/json':
             schema:
-              allOf:
-                - $ref: '#/components/schemas/PolicyMinimum'
+              $ref: '#/components/schemas/PolicyMinimum'
       responses:
         '200':
           description: A Policy Object
@@ -1621,7 +1765,8 @@ paths:
                 $ref: '#/components/schemas/Policy'
   /api/policies/{policyId}:
     get:
-      summary: Get information about a Policies
+      summary: Retrieve a Policy
+      description: Get information about a Policies
       tags: [ Policies ]
       security:
         - BearerAuth: [ ]
@@ -1649,7 +1794,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update/Replace a Policy
+      summary: Update a Policy
+      description: Update/Replace a Policy
       tags: [ Policies ]
       security:
         - BearerAuth: [ ]
@@ -1666,8 +1812,7 @@ paths:
         content:
           'application/json':
             schema:
-              allOf:
-                - $ref: '#/components/schemas/PolicyMinimum'
+              $ref: '#/components/schemas/PolicyMinimum'
       responses:
         '200':
           description: A Policy object
@@ -1685,6 +1830,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Policy
+      description: Delete a Policy
       tags: [ Policies ]
       security:
         - BearerAuth: [ ]
@@ -1710,7 +1856,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/routes:
     get:
-      summary: Returns a list of all routes
+      summary: List all Routes
+      description: Returns a list of all routes
       tags: [ Routes ]
       security:
         - BearerAuth: [ ]
@@ -1733,7 +1880,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Creates a Route
+      summary: Create a Route
+      description: Creates a Route
       tags: [ Routes ]
       security:
         - BearerAuth: [ ]
@@ -1762,7 +1910,8 @@ paths:
 
   /api/routes/{routeId}:
     get:
-      summary: Get information about a Routes
+      summary: Retrieve a Route
+      description: Get information about a Routes
       tags: [ Routes ]
       security:
         - BearerAuth: [ ]
@@ -1790,7 +1939,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update/Replace a Route
+      summary: Update a Route
+      description: Update/Replace a Route
       tags: [ Routes ]
       security:
         - BearerAuth: [ ]
@@ -1825,6 +1975,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Route
+      description: Delete a Route
       tags: [ Routes ]
       security:
         - BearerAuth: [ ]
@@ -1850,7 +2001,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/dns/nameservers:
     get:
-      summary: Returns a list of all Nameserver Groups
+      summary: List all Nameserver Groups
+      description: Returns a list of all Nameserver Groups
       tags: [ DNS ]
       security:
         - BearerAuth: [ ]
@@ -1873,7 +2025,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Creates a Nameserver Group
+      summary: Create a Nameserver Group
+      description: Creates a Nameserver Group
       tags: [ DNS ]
       security:
         - BearerAuth: [ ]
@@ -1899,10 +2052,10 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/dns/nameservers/{nsgroupId}:
     get:
-      summary: Get information about a Nameserver Groups
+      summary: Retrieve a Nameserver Group
+      description: Get information about a Nameserver Groups
       tags: [ DNS ]
       security:
         - BearerAuth: [ ]
@@ -1930,7 +2083,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update/Replace a Nameserver Group
+      summary: Update a Nameserver Group
+      description: Update/Replace a Nameserver Group
       tags: [ DNS ]
       security:
         - BearerAuth: [ ]
@@ -1965,6 +2119,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
     delete:
       summary: Delete a Nameserver Group
+      description: Delete a Nameserver Group
       tags: [ DNS ]
       security:
         - BearerAuth: [ ]
@@ -1988,10 +2143,10 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
-
   /api/dns/settings:
     get:
-      summary: Returns a DNS settings object
+      summary: Retrieve DNS Settings
+      description: Returns a DNS settings object
       tags: [ DNS ]
       security:
         - BearerAuth: [ ]
@@ -2013,7 +2168,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Updates a DNS settings object
+      summary: Update DNS Settings
+      description: Updates a DNS settings object
       tags: [ DNS ]
       security:
         - BearerAuth: [ ]
@@ -2041,7 +2197,8 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/events:
     get:
-      summary: Returns a list of all events
+      summary: List all Events
+      description: Returns a list of all events
       tags: [ Events ]
       security:
         - BearerAuth: [ ]
