@@ -18,7 +18,6 @@ type localResolver struct {
 }
 
 func (d *localResolver) stop() {
-	return
 }
 
 // ServeDNS handles a DNS request
