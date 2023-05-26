@@ -342,16 +342,11 @@ func (c *GrpcClient) Send(msg *proto.Message) error {
 		cancel()
 
 		if err == nil {
-			break
+			return nil
 		}
-
 	}
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // receive receives messages from other peers coming through the Signal Exchange
