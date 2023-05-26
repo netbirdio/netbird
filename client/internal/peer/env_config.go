@@ -49,8 +49,5 @@ func iceDisconnectedTimeout() time.Duration {
 
 func hasICEForceRelayConn() bool {
 	disconnectedTimeoutEnv := os.Getenv(envICEForceRelayConn)
-	if strings.ToLower(disconnectedTimeoutEnv) == "true" {
-		return true
-	}
-	return false
+	return strings.ToLower(disconnectedTimeoutEnv) == "true"
 }
