@@ -41,7 +41,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		},
 	}
 
-	_, cancel := context.WithCancel(context.TODO())
+	dummyHandler := &localResolver{}
 
 	testCases := []struct {
 		name                string
@@ -79,13 +79,13 @@ func TestUpdateDNSServer(t *testing.T) {
 					},
 				},
 			},
-			expectedUpstreamMap: registeredHandlerMap{"netbird.io": cancel, "netbird.cloud": cancel, nbdns.RootZone: cancel},
+			expectedUpstreamMap: registeredHandlerMap{"netbird.io": dummyHandler, "netbird.cloud": dummyHandler, nbdns.RootZone: dummyHandler},
 			expectedLocalMap:    registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 		},
 		{
 			name:            "New Config Should Succeed",
 			initLocalMap:    registrationMap{"netbird.cloud": struct{}{}},
-			initUpstreamMap: registeredHandlerMap{buildRecordKey(zoneRecords[0].Name, 1, 1): cancel},
+			initUpstreamMap: registeredHandlerMap{buildRecordKey(zoneRecords[0].Name, 1, 1): dummyHandler},
 			initSerial:      0,
 			inputSerial:     1,
 			inputUpdate: nbdns.Config{
@@ -103,7 +103,7 @@ func TestUpdateDNSServer(t *testing.T) {
 					},
 				},
 			},
-			expectedUpstreamMap: registeredHandlerMap{"netbird.io": cancel, "netbird.cloud": cancel},
+			expectedUpstreamMap: registeredHandlerMap{"netbird.io": dummyHandler, "netbird.cloud": dummyHandler},
 			expectedLocalMap:    registrationMap{buildRecordKey(zoneRecords[0].Name, 1, 1): struct{}{}},
 		},
 		{
@@ -183,7 +183,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		{
 			name:                "Empty Config Should Succeed and Clean Maps",
 			initLocalMap:        registrationMap{"netbird.cloud": struct{}{}},
-			initUpstreamMap:     registeredHandlerMap{zoneRecords[0].Name: cancel},
+			initUpstreamMap:     registeredHandlerMap{zoneRecords[0].Name: dummyHandler},
 			initSerial:          0,
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: true},
@@ -193,7 +193,7 @@ func TestUpdateDNSServer(t *testing.T) {
 		{
 			name:                "Disabled Service Should clean map",
 			initLocalMap:        registrationMap{"netbird.cloud": struct{}{}},
-			initUpstreamMap:     registeredHandlerMap{zoneRecords[0].Name: cancel},
+			initUpstreamMap:     registeredHandlerMap{zoneRecords[0].Name: dummyHandler},
 			initSerial:          0,
 			inputSerial:         1,
 			inputUpdate:         nbdns.Config{ServiceEnable: false},

@@ -26,7 +26,7 @@ const (
 	customIP    = "127.0.0.153"
 )
 
-type registeredHandlerMap map[string]context.CancelFunc
+type registeredHandlerMap map[string]handlerWithStop
 
 // DefaultServer dns server object
 type DefaultServer struct {
@@ -48,10 +48,14 @@ type DefaultServer struct {
 	customAddress      *netip.AddrPort
 }
 
+type handlerWithStop interface {
+	dns.Handler
+	stop()
+}
+
 type muxUpdate struct {
 	domain  string
-	handler dns.Handler
-	cancel  context.CancelFunc
+	handler handlerWithStop
 }
 
 // NewDefaultServer returns a new dns server
@@ -277,17 +281,13 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 
 	for _, customZone := range customZones {
 
-		_, cancel := context.WithCancel(s.ctx)
-
 		if len(customZone.Records) == 0 {
-			cancel()
 			return nil, nil, fmt.Errorf("received an empty list of records")
 		}
 
 		muxUpdates = append(muxUpdates, muxUpdate{
 			domain:  customZone.Domain,
 			handler: s.localResolver,
-			cancel:  cancel,
 		})
 
 		for _, record := range customZone.Records {
@@ -310,11 +310,8 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			log.Warn("received a nameserver group with empty nameserver list")
 			continue
 		}
-		// todo fix the lint warning regarding not canceling the context within the loop
-		//nolint
-		ctx, cancel := context.WithCancel(s.ctx)
 
-		handler := newUpstreamResolver(ctx)
+		handler := newUpstreamResolver(s.ctx)
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
 				log.Warnf("skiping nameserver %s with type %s, this peer supports only %s",
@@ -325,7 +322,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		}
 
 		if len(handler.upstreamServers) == 0 {
-			cancel()
+			handler.stop()
 			log.Errorf("received a nameserver group with an invalid nameserver list")
 			continue
 		}
@@ -344,25 +341,23 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			muxUpdates = append(muxUpdates, muxUpdate{
 				domain:  nbdns.RootZone,
 				handler: handler,
-				cancel:  cancel,
 			})
 			continue
 		}
 
 		if len(nsGroup.Domains) == 0 {
-			cancel()
+			handler.stop()
 			return nil, fmt.Errorf("received a non primary nameserver group with an empty domain list")
 		}
 
 		for _, domain := range nsGroup.Domains {
 			if domain == "" {
-				cancel()
+				handler.stop()
 				return nil, fmt.Errorf("received a nameserver group with an empty domain element")
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
 				domain:  domain,
 				handler: handler,
-				cancel:  cancel,
 			})
 		}
 	}
@@ -374,16 +369,16 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 
 	for _, update := range muxUpdates {
 		s.registerMux(update.domain, update.handler)
-		muxUpdateMap[update.domain] = update.cancel
-		if cancel, ok := s.dnsMuxMap[update.domain]; ok {
-			cancel()
+		muxUpdateMap[update.domain] = update.handler
+		if existingHandler, ok := s.dnsMuxMap[update.domain]; ok {
+			existingHandler.stop()
 		}
 	}
 
-	for key, cancel := range s.dnsMuxMap {
+	for key, existingHandler := range s.dnsMuxMap {
 		_, found := muxUpdateMap[key]
 		if !found {
-			cancel()
+			existingHandler.stop()
 			s.deregisterMux(key)
 		}
 	}

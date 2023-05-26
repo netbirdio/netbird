@@ -26,6 +26,7 @@ type upstreamClient interface {
 
 type upstreamResolver struct {
 	ctx              context.Context
+	cancel           context.CancelFunc
 	upstreamClient   upstreamClient
 	upstreamServers  []string
 	disabled         bool
@@ -39,14 +40,21 @@ type upstreamResolver struct {
 	reactivate func()
 }
 
-func newUpstreamResolver(ctx context.Context) *upstreamResolver {
+func newUpstreamResolver(parentCTX context.Context) *upstreamResolver {
+	ctx, cancel := context.WithCancel(parentCTX)
 	return &upstreamResolver{
 		ctx:              ctx,
+		cancel:           cancel,
 		upstreamClient:   &dns.Client{},
 		upstreamTimeout:  upstreamTimeout,
 		reactivatePeriod: reactivatePeriod,
 		failsTillDeact:   failsTillDeact,
 	}
+}
+
+func (u *upstreamResolver) stop() {
+	log.Debugf("stoping serving DNS for upstreams %s", u.upstreamServers)
+	u.cancel()
 }
 
 // ServeDNS handles a DNS request
