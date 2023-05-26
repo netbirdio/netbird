@@ -205,9 +205,8 @@ func (conn *Conn) reCreateAgent() error {
 func (conn *Conn) candidateTypes() []ice.CandidateType {
 	if hasICEForceRelayConn() {
 		return []ice.CandidateType{ice.CandidateTypeRelay}
-	} else {
-		return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
 	}
+	return []ice.CandidateType{ice.CandidateTypeHost, ice.CandidateTypeServerReflexive, ice.CandidateTypeRelay}
 }
 
 // Open opens connection to the remote peer starting ICE candidate gathering process.
