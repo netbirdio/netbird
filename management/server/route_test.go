@@ -911,8 +911,6 @@ func TestGetNetworkMap_RouteSync(t *testing.T) {
 	newPolicy.Name = "peer1 only"
 	newPolicy.Rules[0].Sources = []string{newGroup.ID}
 	newPolicy.Rules[0].Destinations = []string{newGroup.ID}
-	err = newPolicy.UpdateQueryFromRules()
-	require.NoError(t, err)
 
 	err = am.SavePolicy(account.Id, userID, newPolicy)
 	require.NoError(t, err)

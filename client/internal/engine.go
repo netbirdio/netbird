@@ -17,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
@@ -114,6 +115,7 @@ type Engine struct {
 	statusRecorder *peer.Status
 
 	routeManager routemanager.Manager
+	acl          acl.Manager
 
 	dnsServer dns.Server
 }
@@ -221,6 +223,12 @@ func (e *Engine) Start() error {
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
+
+	if acl, err := acl.Create(e.wgInterface); err != nil {
+		log.Errorf("failed to create ACL manager, policy will not work: %s", err.Error())
+	} else {
+		e.acl = acl
+	}
 
 	if e.dnsServer == nil {
 		// todo fix custom address
@@ -622,6 +630,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
+	if e.acl != nil {
+		e.acl.ApplyFiltering(networkMap.FirewallRules)
+	}
 	e.networkSerial = serial
 	return nil
 }
@@ -1005,6 +1016,9 @@ func (e *Engine) close() {
 		e.dnsServer.Stop()
 	}
 
+	if e.acl != nil {
+		e.acl.Stop()
+	}
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

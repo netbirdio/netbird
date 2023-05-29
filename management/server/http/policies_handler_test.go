@@ -23,16 +23,12 @@ import (
 	"github.com/netbirdio/netbird/management/server/mock_server"
 )
 
-func initRulesTestData(rules ...*server.Rule) *RulesHandler {
-	testPolicies := make(map[string]*server.Policy, len(rules))
-	for _, rule := range rules {
-		policy, err := server.RuleToPolicy(rule)
-		if err != nil {
-			panic(err)
-		}
+func initPoliciesTestData(policies ...*server.Policy) *Policies {
+	testPolicies := make(map[string]*server.Policy, len(policies))
+	for _, policy := range policies {
 		testPolicies[policy.ID] = policy
 	}
-	return &RulesHandler{
+	return &Policies{
 		accountManager: &mock_server.MockAccountManager{
 			GetPolicyFunc: func(_, policyID, _ string) (*server.Policy, error) {
 				policy, ok := testPolicies[policyID]
@@ -44,6 +40,7 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 			SavePolicyFunc: func(_, _ string, policy *server.Policy) error {
 				if !strings.HasPrefix(policy.ID, "id-") {
 					policy.ID = "id-was-set"
+					policy.Rules[0].ID = "id-was-set"
 				}
 				return nil
 			},
@@ -70,7 +67,9 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 				return &server.Account{
 					Id:     claims.AccountId,
 					Domain: "hotmail.com",
-					Rules:  map[string]*server.Rule{"id-existed": {ID: "id-existed"}},
+					Policies: []*server.Policy{
+						{ID: "id-existed"},
+					},
 					Groups: map[string]*server.Group{
 						"F": {ID: "F"},
 						"G": {ID: "G"},
@@ -93,7 +92,7 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 	}
 }
 
-func TestRulesGetRule(t *testing.T) {
+func TestPoliciesGetPolicy(t *testing.T) {
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -103,26 +102,29 @@ func TestRulesGetRule(t *testing.T) {
 		requestBody    io.Reader
 	}{
 		{
-			name:           "GetRule OK",
+			name:           "GetPolicy OK",
 			expectedBody:   true,
 			requestType:    http.MethodGet,
-			requestPath:    "/api/rules/idoftherule",
+			requestPath:    "/api/policies/idofthepolicy",
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "GetRule not found",
+			name:           "GetPolicy not found",
 			requestType:    http.MethodGet,
-			requestPath:    "/api/rules/notexists",
+			requestPath:    "/api/policies/notexists",
 			expectedStatus: http.StatusNotFound,
 		},
 	}
 
-	rule := &server.Rule{
-		ID:   "idoftherule",
+	policy := &server.Policy{
+		ID:   "idofthepolicy",
 		Name: "Rule",
+		Rules: []*server.PolicyRule{
+			{ID: "idoftherule", Name: "Rule"},
+		},
 	}
 
-	p := initRulesTestData(rule)
+	p := initPoliciesTestData(policy)
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -130,7 +132,7 @@ func TestRulesGetRule(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/rules/{ruleId}", p.GetRule).Methods("GET")
+			router.HandleFunc("/api/policies/{policyId}", p.GetPolicy).Methods("GET")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -151,78 +153,125 @@ func TestRulesGetRule(t *testing.T) {
 				t.Fatalf("I don't know what I expected; %v", err)
 			}
 
-			var got api.Rule
+			var got api.Policy
 			if err = json.Unmarshal(content, &got); err != nil {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 
-			assert.Equal(t, got.Id, rule.ID)
-			assert.Equal(t, got.Name, rule.Name)
+			assert.Equal(t, *got.Id, policy.ID)
+			assert.Equal(t, got.Name, policy.Name)
 		})
 	}
 }
 
-func TestRulesWriteRule(t *testing.T) {
+func TestPoliciesWritePolicy(t *testing.T) {
+	str := func(s string) *string { return &s }
 	tt := []struct {
 		name           string
 		expectedStatus int
 		expectedBody   bool
-		expectedRule   *api.Rule
+		expectedPolicy *api.Policy
 		requestType    string
 		requestPath    string
 		requestBody    io.Reader
 	}{
 		{
-			name:        "WriteRule POST OK",
+			name:        "WritePolicy POST OK",
 			requestType: http.MethodPost,
-			requestPath: "/api/rules",
+			requestPath: "/api/policies",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":"Default POSTed Rule","Flow":"bidirect"}`)),
+				[]byte(`{
+                    "Name":"Default POSTed Policy",
+                    "Rules":[
+                        {
+                            "Name":"Default POSTed Policy",
+                            "Description": "Description",
+                            "Protocol": "tcp",
+                            "Action": "accept",
+                            "Bidirectional":true
+                        }
+                ]}`)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
-			expectedRule: &api.Rule{
-				Id:   "id-was-set",
-				Name: "Default POSTed Rule",
-				Flow: server.TrafficFlowBidirectString,
+			expectedPolicy: &api.Policy{
+				Id:   str("id-was-set"),
+				Name: "Default POSTed Policy",
+				Rules: []api.PolicyRule{
+					{
+						Id:            str("id-was-set"),
+						Name:          "Default POSTed Policy",
+						Description:   str("Description"),
+						Protocol:      "tcp",
+						Action:        "accept",
+						Bidirectional: true,
+					},
+				},
 			},
 		},
 		{
-			name:        "WriteRule POST Invalid Name",
+			name:        "WritePolicy POST Invalid Name",
 			requestType: http.MethodPost,
-			requestPath: "/api/rules",
+			requestPath: "/api/policies",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":"","Flow":"bidirect"}`)),
+				[]byte(`{"Name":""}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
 		},
 		{
-			name:        "WriteRule PUT OK",
+			name:        "WritePolicy PUT OK",
 			requestType: http.MethodPut,
-			requestPath: "/api/rules/id-existed",
+			requestPath: "/api/policies/id-existed",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":"Default POSTed Rule","Flow":"bidirect"}`)),
+				[]byte(`{
+                    "ID": "id-existed",
+                    "Name":"Default POSTed Policy",
+                    "Rules":[
+                        {
+                            "ID": "id-existed",
+                            "Name":"Default POSTed Policy",
+                            "Description": "Description",
+                            "Protocol": "tcp",
+                            "Action": "accept",
+                            "Bidirectional":true
+                        }
+                ]}`)),
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
-			expectedRule: &api.Rule{
-				Id:   "id-existed",
-				Name: "Default POSTed Rule",
-				Flow: server.TrafficFlowBidirectString,
+			expectedPolicy: &api.Policy{
+				Id:   str("id-existed"),
+				Name: "Default POSTed Policy",
+				Rules: []api.PolicyRule{
+					{
+						Id:            str("id-existed"),
+						Name:          "Default POSTed Policy",
+						Description:   str("Description"),
+						Protocol:      "tcp",
+						Action:        "accept",
+						Bidirectional: true,
+					},
+				},
 			},
 		},
 		{
-			name:        "WriteRule PUT Invalid Name",
+			name:        "WritePolicy PUT Invalid Name",
 			requestType: http.MethodPut,
-			requestPath: "/api/rules/id-existed",
+			requestPath: "/api/policies/id-existed",
 			requestBody: bytes.NewBuffer(
-				[]byte(`{"Name":"","Flow":"bidirect"}`)),
+				[]byte(`{"ID":"id-existed","Name":"","Rules":[{"ID":"id-existed"}]}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
 		},
 	}
 
-	p := initRulesTestData(&server.Rule{
+	p := initPoliciesTestData(&server.Policy{
 		ID:   "id-existed",
 		Name: "Default POSTed Rule",
-		Flow: server.TrafficFlowBidirect,
+		Rules: []*server.PolicyRule{
+			{
+				ID:            "id-existed",
+				Name:          "Default POSTed Rule",
+				Bidirectional: true,
+			},
+		},
 	})
 
 	for _, tc := range tt {
@@ -231,8 +280,8 @@ func TestRulesWriteRule(t *testing.T) {
 			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
 
 			router := mux.NewRouter()
-			router.HandleFunc("/api/rules", p.CreateRule).Methods("POST")
-			router.HandleFunc("/api/rules/{ruleId}", p.UpdateRule).Methods("PUT")
+			router.HandleFunc("/api/policies", p.CreatePolicy).Methods("POST")
+			router.HandleFunc("/api/policies/{policyId}", p.UpdatePolicy).Methods("PUT")
 			router.ServeHTTP(recorder, req)
 
 			res := recorder.Result()
@@ -241,6 +290,7 @@ func TestRulesWriteRule(t *testing.T) {
 			content, err := io.ReadAll(res.Body)
 			if err != nil {
 				t.Fatalf("I don't know what I expected; %v", err)
+				return
 			}
 
 			if status := recorder.Code; status != tc.expectedStatus {
@@ -253,13 +303,13 @@ func TestRulesWriteRule(t *testing.T) {
 				return
 			}
 
-			got := &api.Rule{}
-			if err = json.Unmarshal(content, &got); err != nil {
-				t.Fatalf("Sent content is not in correct json format; %v", err)
+			expected, err := json.Marshal(tc.expectedPolicy)
+			if err != nil {
+				t.Fatalf("marshal expected policy: %v", err)
+				return
 			}
-			tc.expectedRule.Id = got.Id
 
-			assert.Equal(t, got, tc.expectedRule)
+			assert.Equal(t, strings.Trim(string(content), " \n"), string(expected), "content mismatch")
 		})
 	}
 }

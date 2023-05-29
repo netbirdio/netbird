@@ -227,15 +227,12 @@ func TestAccountManager_GetNetworkMapWithPolicy(t *testing.T) {
 	policy.Enabled = true
 	policy.Rules = []*PolicyRule{
 		{
-			Enabled:      true,
-			Sources:      []string{group1.ID},
-			Destinations: []string{group2.ID},
-			Action:       PolicyTrafficActionAccept,
+			Enabled:       true,
+			Sources:       []string{group1.ID},
+			Destinations:  []string{group2.ID},
+			Bidirectional: true,
+			Action:        PolicyTrafficActionAccept,
 		},
-	}
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		t.Errorf("expecting policy to be updated, got failure %v", err)
-		return
 	}
 	err = manager.SavePolicy(account.Id, userID, &policy)
 	if err != nil {
