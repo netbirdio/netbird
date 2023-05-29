@@ -39,8 +39,7 @@ type OktaCredentials struct {
 }
 
 // NewOktaManager creates a new instance of the OktaManager.
-func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
-	appMetrics telemetry.AppMetrics) (*OktaManager, error) {
+func NewOktaManager(config OktaClientConfig, appMetrics telemetry.AppMetrics) (*OktaManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -50,12 +49,22 @@ func NewOktaManager(oidcConfig OIDCConfig, config OktaClientConfig,
 	}
 
 	helper := JsonParser{}
-	config.Issuer = baseURL(oidcConfig.Issuer)
-	config.TokenEndpoint = oidcConfig.TokenEndpoint
-	config.GrantType = "client_credentials"
+	config.Issuer = baseURL(config.Issuer)
 
 	if config.APIToken == "" {
 		return nil, fmt.Errorf("okta IdP configuration is incomplete, APIToken is missing")
+	}
+
+	if config.Issuer == "" {
+		return nil, fmt.Errorf("okta IdP configuration is incomplete, Issuer is missing")
+	}
+
+	if config.TokenEndpoint == "" {
+		return nil, fmt.Errorf("okta IdP configuration is incomplete, TokenEndpoint is missing")
+	}
+
+	if config.GrantType == "" {
+		return nil, fmt.Errorf("okta IdP configuration is incomplete, GrantType is missing")
 	}
 
 	_, client, err := okta.NewClient(context.Background(),
