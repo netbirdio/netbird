@@ -128,7 +128,18 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 
 		return NewKeycloakManager(keycloakClientConfig, appMetrics)
 	case "zitadel":
-		return NewZitadelManager(config.OIDCConfig, config.ZitadelClientCredentials, appMetrics)
+		zitadelClientConfig := config.ZitadelClientCredentials
+		if config.ClientConfig != nil {
+			zitadelClientConfig = ZitadelClientConfig{
+				ClientID:           config.ClientConfig.ClientID,
+				ClientSecret:       config.ClientConfig.ClientSecret,
+				GrantType:          config.ClientConfig.GrantType,
+				TokenEndpoint:      config.ClientConfig.TokenEndpoint,
+				ManagementEndpoint: config.ExtraConfig["ManagementEndpoint"],
+			}
+		}
+
+		return NewZitadelManager(zitadelClientConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
