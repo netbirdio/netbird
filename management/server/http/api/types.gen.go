@@ -30,6 +30,8 @@ const (
 	EventActivityCodePeerRename                               EventActivityCode = "peer.rename"
 	EventActivityCodePeerSshDisable                           EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                            EventActivityCode = "peer.ssh.enable"
+	EventActivityCodePersonalAccessTokenCreate                EventActivityCode = "personal.access.token.create"
+	EventActivityCodePersonalAccessTokenDelete                EventActivityCode = "personal.access.token.delete"
 	EventActivityCodePolicyAdd                                EventActivityCode = "policy.add"
 	EventActivityCodePolicyDelete                             EventActivityCode = "policy.delete"
 	EventActivityCodePolicyUpdate                             EventActivityCode = "policy.update"
@@ -39,6 +41,8 @@ const (
 	EventActivityCodeRuleAdd                                  EventActivityCode = "rule.add"
 	EventActivityCodeRuleDelete                               EventActivityCode = "rule.delete"
 	EventActivityCodeRuleUpdate                               EventActivityCode = "rule.update"
+	EventActivityCodeServiceUserCreate                        EventActivityCode = "service.user.create"
+	EventActivityCodeServiceUserDelete                        EventActivityCode = "service.user.delete"
 	EventActivityCodeSetupkeyAdd                              EventActivityCode = "setupkey.add"
 	EventActivityCodeSetupkeyGroupAdd                         EventActivityCode = "setupkey.group.add"
 	EventActivityCodeSetupkeyGroupDelete                      EventActivityCode = "setupkey.group.delete"
@@ -66,42 +70,6 @@ const (
 const (
 	PolicyRuleActionAccept PolicyRuleAction = "accept"
 	PolicyRuleActionDrop   PolicyRuleAction = "drop"
-)
-
-// Defines values for PolicyRuleProtocol.
-const (
-	PolicyRuleProtocolAll  PolicyRuleProtocol = "all"
-	PolicyRuleProtocolIcmp PolicyRuleProtocol = "icmp"
-	PolicyRuleProtocolTcp  PolicyRuleProtocol = "tcp"
-	PolicyRuleProtocolUdp  PolicyRuleProtocol = "udp"
-)
-
-// Defines values for PolicyRuleMinimumAction.
-const (
-	PolicyRuleMinimumActionAccept PolicyRuleMinimumAction = "accept"
-	PolicyRuleMinimumActionDrop   PolicyRuleMinimumAction = "drop"
-)
-
-// Defines values for PolicyRuleMinimumProtocol.
-const (
-	PolicyRuleMinimumProtocolAll  PolicyRuleMinimumProtocol = "all"
-	PolicyRuleMinimumProtocolIcmp PolicyRuleMinimumProtocol = "icmp"
-	PolicyRuleMinimumProtocolTcp  PolicyRuleMinimumProtocol = "tcp"
-	PolicyRuleMinimumProtocolUdp  PolicyRuleMinimumProtocol = "udp"
-)
-
-// Defines values for PolicyRuleUpdateAction.
-const (
-	PolicyRuleUpdateActionAccept PolicyRuleUpdateAction = "accept"
-	PolicyRuleUpdateActionDrop   PolicyRuleUpdateAction = "drop"
-)
-
-// Defines values for PolicyRuleUpdateProtocol.
-const (
-	PolicyRuleUpdateProtocolAll  PolicyRuleUpdateProtocol = "all"
-	PolicyRuleUpdateProtocolIcmp PolicyRuleUpdateProtocol = "icmp"
-	PolicyRuleUpdateProtocolTcp  PolicyRuleUpdateProtocol = "tcp"
-	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
 )
 
 // Defines values for UserStatus.
@@ -185,6 +153,15 @@ type GroupMinimum struct {
 
 	// PeersCount Count of peers associated to the group
 	PeersCount int `json:"peers_count"`
+}
+
+// GroupRequest defines model for GroupRequest.
+type GroupRequest struct {
+	// Name Group name identifier
+	Name string `json:"name"`
+
+	// Peers List of peers ids
+	Peers *[]string `json:"peers,omitempty"`
 }
 
 // Nameserver defines model for Nameserver.
@@ -313,6 +290,13 @@ type PeerMinimum struct {
 	Name string `json:"name"`
 }
 
+// PeerRequest defines model for PeerRequest.
+type PeerRequest struct {
+	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
+	Name                   string `json:"name"`
+	SshEnabled             bool   `json:"ssh_enabled"`
+}
+
 // PersonalAccessToken defines model for PersonalAccessToken.
 type PersonalAccessToken struct {
 	// CreatedAt Date the token was created
@@ -360,7 +344,7 @@ type Policy struct {
 	Enabled bool `json:"enabled"`
 
 	// Id Policy ID
-	Id *string `json:"id,omitempty"`
+	Id string `json:"id"`
 
 	// Name Policy name identifier
 	Name string `json:"name"`
@@ -380,138 +364,6 @@ type PolicyMinimum struct {
 	// Enabled Policy status
 	Enabled bool `json:"enabled"`
 
-	// Id Policy ID
-	Id *string `json:"id,omitempty"`
-
-	// Name Policy name identifier
-	Name string `json:"name"`
-
-	// Query Policy Rego query
-	Query string `json:"query"`
-}
-
-// PolicyRule defines model for PolicyRule.
-type PolicyRule struct {
-	// Action Policy rule accept or drops packets
-	Action PolicyRuleAction `json:"action"`
-
-	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
-	Bidirectional bool `json:"bidirectional"`
-
-	// Description Policy rule friendly description
-	Description *string `json:"description,omitempty"`
-
-	// Destinations Policy rule destination groups
-	Destinations []GroupMinimum `json:"destinations"`
-
-	// Enabled Policy rule status
-	Enabled bool `json:"enabled"`
-
-	// Id Policy rule ID
-	Id *string `json:"id,omitempty"`
-
-	// Name Policy rule name identifier
-	Name string `json:"name"`
-
-	// Ports Policy rule affected ports or it ranges list
-	Ports *[]string `json:"ports,omitempty"`
-
-	// Protocol Policy rule type of the traffic
-	Protocol PolicyRuleProtocol `json:"protocol"`
-
-	// Sources Policy rule source groups
-	Sources []GroupMinimum `json:"sources"`
-}
-
-// PolicyRuleAction Policy rule accept or drops packets
-type PolicyRuleAction string
-
-// PolicyRuleProtocol Policy rule type of the traffic
-type PolicyRuleProtocol string
-
-// PolicyRuleMinimum defines model for PolicyRuleMinimum.
-type PolicyRuleMinimum struct {
-	// Action Policy rule accept or drops packets
-	Action PolicyRuleMinimumAction `json:"action"`
-
-	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
-	Bidirectional bool `json:"bidirectional"`
-
-	// Description Policy rule friendly description
-	Description *string `json:"description,omitempty"`
-
-	// Enabled Policy rule status
-	Enabled bool `json:"enabled"`
-
-	// Id Policy rule ID
-	Id *string `json:"id,omitempty"`
-
-	// Name Policy rule name identifier
-	Name string `json:"name"`
-
-	// Ports Policy rule affected ports or it ranges list
-	Ports *[]string `json:"ports,omitempty"`
-
-	// Protocol Policy rule type of the traffic
-	Protocol PolicyRuleMinimumProtocol `json:"protocol"`
-}
-
-// PolicyRuleMinimumAction Policy rule accept or drops packets
-type PolicyRuleMinimumAction string
-
-// PolicyRuleMinimumProtocol Policy rule type of the traffic
-type PolicyRuleMinimumProtocol string
-
-// PolicyRuleUpdate defines model for PolicyRuleUpdate.
-type PolicyRuleUpdate struct {
-	// Action Policy rule accept or drops packets
-	Action PolicyRuleUpdateAction `json:"action"`
-
-	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
-	Bidirectional bool `json:"bidirectional"`
-
-	// Description Policy rule friendly description
-	Description *string `json:"description,omitempty"`
-
-	// Destinations Policy rule destination groups
-	Destinations []string `json:"destinations"`
-
-	// Enabled Policy rule status
-	Enabled bool `json:"enabled"`
-
-	// Id Policy rule ID
-	Id *string `json:"id,omitempty"`
-
-	// Name Policy rule name identifier
-	Name string `json:"name"`
-
-	// Ports Policy rule affected ports or it ranges list
-	Ports *[]string `json:"ports,omitempty"`
-
-	// Protocol Policy rule type of the traffic
-	Protocol PolicyRuleUpdateProtocol `json:"protocol"`
-
-	// Sources Policy rule source groups
-	Sources []string `json:"sources"`
-}
-
-// PolicyRuleUpdateAction Policy rule accept or drops packets
-type PolicyRuleUpdateAction string
-
-// PolicyRuleUpdateProtocol Policy rule type of the traffic
-type PolicyRuleUpdateProtocol string
-
-// PolicyUpdate defines model for PolicyUpdate.
-type PolicyUpdate struct {
-	// Description Policy friendly description
-	Description string `json:"description"`
-
-	// Enabled Policy status
-	Enabled bool `json:"enabled"`
-
-	// Id Policy ID
-	Id *string `json:"id,omitempty"`
-
 	// Name Policy name identifier
 	Name string `json:"name"`
 
@@ -519,8 +371,35 @@ type PolicyUpdate struct {
 	Query string `json:"query"`
 
 	// Rules Policy rule object for policy UI editor
-	Rules []PolicyRuleUpdate `json:"rules"`
+	Rules []PolicyRule `json:"rules"`
 }
+
+// PolicyRule defines model for PolicyRule.
+type PolicyRule struct {
+	// Action policy accept or drops packets
+	Action PolicyRuleAction `json:"action"`
+
+	// Description Rule friendly description
+	Description *string `json:"description,omitempty"`
+
+	// Destinations policy destination groups
+	Destinations []GroupMinimum `json:"destinations"`
+
+	// Enabled Rules status
+	Enabled bool `json:"enabled"`
+
+	// Id Rule ID
+	Id *string `json:"id,omitempty"`
+
+	// Name Rule name identifier
+	Name string `json:"name"`
+
+	// Sources policy source groups
+	Sources []GroupMinimum `json:"sources"`
+}
+
+// PolicyRuleAction policy accept or drops packets
+type PolicyRuleAction string
 
 // Route defines model for Route.
 type Route struct {
@@ -619,6 +498,27 @@ type RuleMinimum struct {
 
 	// Name Rule name identifier
 	Name string `json:"name"`
+}
+
+// RuleRequest defines model for RuleRequest.
+type RuleRequest struct {
+	// Description Rule friendly description
+	Description string `json:"description"`
+
+	// Destinations List of destination groups
+	Destinations *[]string `json:"destinations,omitempty"`
+
+	// Disabled Rules status
+	Disabled bool `json:"disabled"`
+
+	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
+	Flow string `json:"flow"`
+
+	// Name Rule name identifier
+	Name string `json:"name"`
+
+	// Sources List of source groups
+	Sources *[]string `json:"sources,omitempty"`
 }
 
 // SetupKey defines model for SetupKey.
@@ -752,65 +652,6 @@ type PutApiAccountsAccountIdJSONBody struct {
 	Settings AccountSettings `json:"settings"`
 }
 
-// PostApiGroupsJSONBody defines parameters for PostApiGroups.
-type PostApiGroupsJSONBody struct {
-	Name  string    `json:"name"`
-	Peers *[]string `json:"peers,omitempty"`
-}
-
-// PutApiGroupsGroupIdJSONBody defines parameters for PutApiGroupsGroupId.
-type PutApiGroupsGroupIdJSONBody struct {
-	Name  *string   `json:"Name,omitempty"`
-	Peers *[]string `json:"Peers,omitempty"`
-}
-
-// PutApiPeersPeerIdJSONBody defines parameters for PutApiPeersPeerId.
-type PutApiPeersPeerIdJSONBody struct {
-	LoginExpirationEnabled bool   `json:"login_expiration_enabled"`
-	Name                   string `json:"name"`
-	SshEnabled             bool   `json:"ssh_enabled"`
-}
-
-// PostApiPoliciesJSONBody defines parameters for PostApiPolicies.
-type PostApiPoliciesJSONBody = PolicyUpdate
-
-// PutApiPoliciesPolicyIdJSONBody defines parameters for PutApiPoliciesPolicyId.
-type PutApiPoliciesPolicyIdJSONBody = PolicyUpdate
-
-// PostApiRulesJSONBody defines parameters for PostApiRules.
-type PostApiRulesJSONBody struct {
-	// Description Rule friendly description
-	Description  string    `json:"description"`
-	Destinations *[]string `json:"destinations,omitempty"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Name Rule name identifier
-	Name    string    `json:"name"`
-	Sources *[]string `json:"sources,omitempty"`
-}
-
-// PutApiRulesRuleIdJSONBody defines parameters for PutApiRulesRuleId.
-type PutApiRulesRuleIdJSONBody struct {
-	// Description Rule friendly description
-	Description  string    `json:"description"`
-	Destinations *[]string `json:"destinations,omitempty"`
-
-	// Disabled Rules status
-	Disabled bool `json:"disabled"`
-
-	// Flow Rule flow, currently, only "bidirect" for bi-directional traffic is accepted
-	Flow string `json:"flow"`
-
-	// Name Rule name identifier
-	Name    string    `json:"name"`
-	Sources *[]string `json:"sources,omitempty"`
-}
-
 // GetApiUsersParams defines parameters for GetApiUsers.
 type GetApiUsersParams struct {
 	// ServiceUser Filters users and returns either regular users or service users
@@ -830,19 +671,19 @@ type PutApiDnsNameserversNsgroupIdJSONRequestBody = NameserverGroupRequest
 type PutApiDnsSettingsJSONRequestBody = DNSSettings
 
 // PostApiGroupsJSONRequestBody defines body for PostApiGroups for application/json ContentType.
-type PostApiGroupsJSONRequestBody PostApiGroupsJSONBody
+type PostApiGroupsJSONRequestBody = GroupRequest
 
 // PutApiGroupsGroupIdJSONRequestBody defines body for PutApiGroupsGroupId for application/json ContentType.
-type PutApiGroupsGroupIdJSONRequestBody PutApiGroupsGroupIdJSONBody
+type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
 
 // PutApiPeersPeerIdJSONRequestBody defines body for PutApiPeersPeerId for application/json ContentType.
-type PutApiPeersPeerIdJSONRequestBody PutApiPeersPeerIdJSONBody
+type PutApiPeersPeerIdJSONRequestBody = PeerRequest
 
 // PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
-type PostApiPoliciesJSONRequestBody = PostApiPoliciesJSONBody
+type PostApiPoliciesJSONRequestBody = PolicyMinimum
 
 // PutApiPoliciesPolicyIdJSONRequestBody defines body for PutApiPoliciesPolicyId for application/json ContentType.
-type PutApiPoliciesPolicyIdJSONRequestBody = PutApiPoliciesPolicyIdJSONBody
+type PutApiPoliciesPolicyIdJSONRequestBody = PolicyMinimum
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest
@@ -851,10 +692,10 @@ type PostApiRoutesJSONRequestBody = RouteRequest
 type PutApiRoutesRouteIdJSONRequestBody = RouteRequest
 
 // PostApiRulesJSONRequestBody defines body for PostApiRules for application/json ContentType.
-type PostApiRulesJSONRequestBody PostApiRulesJSONBody
+type PostApiRulesJSONRequestBody = RuleRequest
 
 // PutApiRulesRuleIdJSONRequestBody defines body for PutApiRulesRuleId for application/json ContentType.
-type PutApiRulesRuleIdJSONRequestBody PutApiRulesRuleIdJSONBody
+type PutApiRulesRuleIdJSONRequestBody = RuleRequest
 
 // PostApiSetupKeysJSONRequestBody defines body for PostApiSetupKeys for application/json ContentType.
 type PostApiSetupKeysJSONRequestBody = SetupKeyRequest
