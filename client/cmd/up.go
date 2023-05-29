@@ -35,7 +35,29 @@ var (
 )
 
 func init() {
+	upCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
+	upCmd.PersistentFlags().StringVar(&adminURL, "admin-url", "", fmt.Sprintf("Admin Panel URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultAdminURL))
+	upCmd.PersistentFlags().StringVarP(&managementURL, "management-url", "m", "", fmt.Sprintf("Management Service URL [http|https]://[host]:[port] (default \"%s\")", internal.DefaultManagementURL))
+	upCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
+	upCmd.PersistentFlags().StringVar(&logFile, "log-file", defaultLogFile, "sets Netbird log path. If console is specified the the log will be output to stdout")
 	upCmd.PersistentFlags().BoolVarP(&foregroundMode, "foreground-mode", "F", false, "start service in foreground")
+	upCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
+	upCmd.PersistentFlags().StringVarP(&hostName, "hostname", "n", "", "Sets a custom hostname for the device")
+	upCmd.PersistentFlags().StringVar(&preSharedKey, "preshared-key", "", "Sets Wireguard PreSharedKey property. If set, then only peers that have the same key can communicate.")
+	upCmd.PersistentFlags().StringVarP(&setupKey, "setup-key", "k", "", "Setup key obtained from the Management Service Dashboard (used to register peer)")
+	upCmd.PersistentFlags().StringSliceVar(&natExternalIPs, externalIPMapFlag, nil,
+		`Sets external IPs maps between local addresses and interfaces.`+
+			`You can specify a comma-separated list with a single IP and IP/IP or IP/Interface Name. `+
+			`An empty string "" clears the previous configuration. `+
+			`E.g. --external-ip-map 12.34.56.78/10.0.0.1 or --external-ip-map 12.34.56.200,12.34.56.78/10.0.0.1,12.34.56.80/eth1 `+
+			`or --external-ip-map ""`,
+	)
+	upCmd.PersistentFlags().StringVar(&customDNSAddress, dnsResolverAddress, "",
+		`Sets a custom address for NetBird's local DNS resolver. `+
+			`If set, the agent won't attempt to discover the best ip and port to listen on. `+
+			`An empty string "" clears the previous configuration. `+
+			`E.g. --dns-resolver-address 127.0.0.1:5053 or --dns-resolver-address ""`,
+	)
 }
 
 func upFunc(cmd *cobra.Command, args []string) error {

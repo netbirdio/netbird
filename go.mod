@@ -21,7 +21,7 @@ require (
 	golang.org/x/sys v0.8.0
 	golang.zx2c4.com/wireguard v0.0.0-20230223181233-21636207a675
 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20211215182854-7a385b3431de
-	golang.zx2c4.com/wireguard/windows v0.5.1
+	golang.zx2c4.com/wireguard/windows v0.5.3
 	google.golang.org/grpc v1.52.3
 	google.golang.org/protobuf v1.30.0
 	gopkg.in/natefinch/lumberjack.v2 v2.0.0
@@ -127,7 +127,7 @@ require (
 	github.com/yuin/goldmark v1.4.13 // indirect
 	go.opentelemetry.io/otel/sdk v1.11.1 // indirect
 	go.opentelemetry.io/otel/trace v1.11.1 // indirect
-	golang.org/x/image v0.0.0-20200430140353-33d19683fad8 // indirect
+	golang.org/x/image v0.5.0 // indirect
 	golang.org/x/mod v0.8.0 // indirect
 	golang.org/x/oauth2 v0.8.0 // indirect
 	golang.org/x/text v0.9.0 // indirect
@@ -146,4 +146,4 @@ replace github.com/kardianos/service => github.com/netbirdio/service v0.0.0-2023
 
 replace github.com/getlantern/systray => github.com/netbirdio/systray v0.0.0-20221012095658-dc8eda872c0c
 
-replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20230426151838-5c7986a94d53
+replace golang.zx2c4.com/wireguard => github.com/netbirdio/wireguard-go v0.0.0-20230524172305-5a498a82b33f

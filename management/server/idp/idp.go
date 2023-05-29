@@ -19,22 +19,27 @@ type Manager interface {
 	GetUserByEmail(email string) ([]*UserData, error)
 }
 
-// OIDCConfig specifies configuration for OpenID Connect provider
-// These configurations are automatically loaded from the OIDC endpoint
-type OIDCConfig struct {
+// ClientConfig defines common client configuration for all IdP manager
+type ClientConfig struct {
 	Issuer        string
 	TokenEndpoint string
+	ClientID      string
+	ClientSecret  string
+	GrantType     string
 }
+
+// ExtraConfig stores IdP specific config that are unique to individual IdPs
+type ExtraConfig map[string]string
 
 // Config an idp configuration struct to be loaded from management server's config file
 type Config struct {
-	ManagerType                string
-	OIDCConfig                 OIDCConfig `json:"-"`
-	Auth0ClientCredentials     Auth0ClientConfig
-	AzureClientCredentials     AzureClientConfig
-	KeycloakClientCredentials  KeycloakClientConfig
-	ZitadelClientCredentials   ZitadelClientConfig
-	AuthentikClientCredentials AuthentikClientConfig
+	ManagerType               string
+	ClientConfig              *ClientConfig
+	ExtraConfig               ExtraConfig
+	Auth0ClientCredentials    Auth0ClientConfig
+	AzureClientCredentials    AzureClientConfig
+	KeycloakClientCredentials KeycloakClientConfig
+	ZitadelClientCredentials  ZitadelClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
@@ -83,15 +88,47 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 	case "none", "":
 		return nil, nil
 	case "auth0":
-		return NewAuth0Manager(config.OIDCConfig, config.Auth0ClientCredentials, appMetrics)
+		auth0ClientConfig := config.Auth0ClientCredentials
+		if config.ClientConfig != nil {
+			auth0ClientConfig = Auth0ClientConfig{
+				Audience:     config.ExtraConfig["Audience"],
+				AuthIssuer:   config.ClientConfig.Issuer,
+				ClientID:     config.ClientConfig.ClientID,
+				ClientSecret: config.ClientConfig.ClientSecret,
+				GrantType:    config.ClientConfig.GrantType,
+			}
+		}
+
+		return NewAuth0Manager(auth0ClientConfig, appMetrics)
 	case "azure":
-		return NewAzureManager(config.OIDCConfig, config.AzureClientCredentials, appMetrics)
+		azureClientConfig := config.AzureClientCredentials
+		if config.ClientConfig != nil {
+			azureClientConfig = AzureClientConfig{
+				ClientID:         config.ClientConfig.ClientID,
+				ClientSecret:     config.ClientConfig.ClientSecret,
+				GrantType:        config.ClientConfig.GrantType,
+				TokenEndpoint:    config.ClientConfig.TokenEndpoint,
+				ObjectID:         config.ExtraConfig["ObjectID"],
+				GraphAPIEndpoint: config.ExtraConfig["GraphAPIEndpoint"],
+			}
+		}
+
+		return NewAzureManager(azureClientConfig, appMetrics)
 	case "keycloak":
-		return NewKeycloakManager(config.OIDCConfig, config.KeycloakClientCredentials, appMetrics)
+		keycloakClientConfig := config.KeycloakClientCredentials
+		if config.ClientConfig != nil {
+			keycloakClientConfig = KeycloakClientConfig{
+				ClientID:      config.ClientConfig.ClientID,
+				ClientSecret:  config.ClientConfig.ClientSecret,
+				GrantType:     config.ClientConfig.GrantType,
+				TokenEndpoint: config.ClientConfig.TokenEndpoint,
+				AdminEndpoint: config.ExtraConfig["AdminEndpoint"],
+			}
+		}
+
+		return NewKeycloakManager(keycloakClientConfig, appMetrics)
 	case "zitadel":
 		return NewZitadelManager(config.OIDCConfig, config.ZitadelClientCredentials, appMetrics)
-	case "authentik":
-		return NewAuthentikManager(config.OIDCConfig, config.AuthentikClientCredentials, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}

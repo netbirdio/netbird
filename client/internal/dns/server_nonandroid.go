@@ -26,15 +26,16 @@ const (
 	customIP    = "127.0.0.153"
 )
 
+type registeredHandlerMap map[string]handlerWithStop
+
 // DefaultServer dns server object
 type DefaultServer struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
-	upstreamCtxCancel  context.CancelFunc
 	mux                sync.Mutex
 	server             *dns.Server
 	dnsMux             *dns.ServeMux
-	dnsMuxMap          registrationMap
+	dnsMuxMap          registeredHandlerMap
 	localResolver      *localResolver
 	wgInterface        *iface.WGIface
 	hostManager        hostManager
@@ -47,9 +48,14 @@ type DefaultServer struct {
 	customAddress      *netip.AddrPort
 }
 
+type handlerWithStop interface {
+	dns.Handler
+	stop()
+}
+
 type muxUpdate struct {
 	domain  string
-	handler dns.Handler
+	handler handlerWithStop
 }
 
 // NewDefaultServer returns a new dns server
@@ -79,7 +85,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 		ctxCancel: stop,
 		server:    dnsServer,
 		dnsMux:    mux,
-		dnsMuxMap: make(registrationMap),
+		dnsMuxMap: make(registeredHandlerMap),
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
@@ -297,10 +303,6 @@ func (s *DefaultServer) buildLocalHandlerUpdate(customZones []nbdns.CustomZone) 
 }
 
 func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.NameServerGroup) ([]muxUpdate, error) {
-	// clean up the previous upstream resolver
-	if s.upstreamCtxCancel != nil {
-		s.upstreamCtxCancel()
-	}
 
 	var muxUpdates []muxUpdate
 	for _, nsGroup := range nameServerGroups {
@@ -309,10 +311,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 			continue
 		}
 
-		var ctx context.Context
-		ctx, s.upstreamCtxCancel = context.WithCancel(s.ctx)
-
-		handler := newUpstreamResolver(ctx)
+		handler := newUpstreamResolver(s.ctx)
 		for _, ns := range nsGroup.NameServers {
 			if ns.NSType != nbdns.UDPNameServerType {
 				log.Warnf("skiping nameserver %s with type %s, this peer supports only %s",
@@ -323,6 +322,7 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		}
 
 		if len(handler.upstreamServers) == 0 {
+			handler.stop()
 			log.Errorf("received a nameserver group with an invalid nameserver list")
 			continue
 		}
@@ -346,11 +346,13 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 		}
 
 		if len(nsGroup.Domains) == 0 {
+			handler.stop()
 			return nil, fmt.Errorf("received a non primary nameserver group with an empty domain list")
 		}
 
 		for _, domain := range nsGroup.Domains {
 			if domain == "" {
+				handler.stop()
 				return nil, fmt.Errorf("received a nameserver group with an empty domain element")
 			}
 			muxUpdates = append(muxUpdates, muxUpdate{
@@ -363,16 +365,20 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 }
 
 func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
-	muxUpdateMap := make(registrationMap)
+	muxUpdateMap := make(registeredHandlerMap)
 
 	for _, update := range muxUpdates {
 		s.registerMux(update.domain, update.handler)
-		muxUpdateMap[update.domain] = struct{}{}
+		muxUpdateMap[update.domain] = update.handler
+		if existingHandler, ok := s.dnsMuxMap[update.domain]; ok {
+			existingHandler.stop()
+		}
 	}
 
-	for key := range s.dnsMuxMap {
+	for key, existingHandler := range s.dnsMuxMap {
 		_, found := muxUpdateMap[key]
 		if !found {
+			existingHandler.stop()
 			s.deregisterMux(key)
 		}
 	}

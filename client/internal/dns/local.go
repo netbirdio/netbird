@@ -2,10 +2,12 @@ package dns
 
 import (
 	"fmt"
-	"github.com/miekg/dns"
-	nbdns "github.com/netbirdio/netbird/dns"
-	log "github.com/sirupsen/logrus"
 	"sync"
+
+	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 type registrationMap map[string]struct{}
@@ -13,6 +15,9 @@ type registrationMap map[string]struct{}
 type localResolver struct {
 	registeredMap registrationMap
 	records       sync.Map
+}
+
+func (d *localResolver) stop() {
 }
 
 // ServeDNS handles a DNS request
