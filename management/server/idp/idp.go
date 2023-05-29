@@ -40,8 +40,8 @@ type Config struct {
 	AzureClientCredentials     AzureClientConfig
 	KeycloakClientCredentials  KeycloakClientConfig
 	ZitadelClientCredentials   ZitadelClientConfig
-	OktaClientCredentials      OktaClientConfig
 	AuthentikClientCredentials AuthentikClientConfig
+	OktaClientCredentials      OktaClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
@@ -142,18 +142,6 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		}
 
 		return NewZitadelManager(zitadelClientConfig, appMetrics)
-	case "okta":
-		oktaClientConfig := config.OktaClientCredentials
-		if config.ClientConfig != nil {
-			oktaClientConfig = OktaClientConfig{
-				Issuer:        config.ClientConfig.Issuer,
-				TokenEndpoint: config.ClientConfig.TokenEndpoint,
-				GrantType:     config.ClientConfig.GrantType,
-				APIToken:      config.ExtraConfig["APIToken"],
-			}
-		}
-
-		return NewOktaManager(oktaClientConfig, appMetrics)
 	case "authentik":
 		authentikConfig := config.AuthentikClientCredentials
 		if config.ClientConfig != nil {
@@ -168,6 +156,19 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		}
 
 		return NewAuthentikManager(authentikConfig, appMetrics)
+	case "okta":
+		oktaClientConfig := config.OktaClientCredentials
+		if config.ClientConfig != nil {
+			oktaClientConfig = OktaClientConfig{
+				Issuer:        config.ClientConfig.Issuer,
+				TokenEndpoint: config.ClientConfig.TokenEndpoint,
+				GrantType:     config.ClientConfig.GrantType,
+				APIToken:      config.ExtraConfig["APIToken"],
+			}
+		}
+
+		return NewOktaManager(oktaClientConfig, appMetrics)
+
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
