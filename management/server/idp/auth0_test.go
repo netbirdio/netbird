@@ -461,7 +461,7 @@ func TestNewAuth0Manager(t *testing.T) {
 
 	for _, testCase := range []test{testCase1, testCase2} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := NewAuth0Manager(OIDCConfig{}, testCase.inputConfig, &telemetry.MockAppMetrics{})
+			_, err := NewAuth0Manager(testCase.inputConfig, &telemetry.MockAppMetrics{})
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 		})
 	}
