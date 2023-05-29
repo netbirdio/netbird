@@ -32,10 +32,10 @@ type Auth0Manager struct {
 // Auth0ClientConfig auth0 manager client configurations
 type Auth0ClientConfig struct {
 	Audience     string
-	AuthIssuer   string `json:"-"`
+	AuthIssuer   string
 	ClientID     string
 	ClientSecret string
-	GrantType    string `json:"-"`
+	GrantType    string
 }
 
 // auth0JWTRequest payload struct to request a JWT Token
@@ -110,9 +110,7 @@ type auth0Profile struct {
 }
 
 // NewAuth0Manager creates a new instance of the Auth0Manager
-func NewAuth0Manager(oidcConfig OIDCConfig, config Auth0ClientConfig,
-	appMetrics telemetry.AppMetrics) (*Auth0Manager, error) {
-
+func NewAuth0Manager(config Auth0ClientConfig, appMetrics telemetry.AppMetrics) (*Auth0Manager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -120,13 +118,14 @@ func NewAuth0Manager(oidcConfig OIDCConfig, config Auth0ClientConfig,
 		Timeout:   10 * time.Second,
 		Transport: httpTransport,
 	}
-
 	helper := JsonParser{}
-	config.AuthIssuer = oidcConfig.TokenEndpoint
-	config.GrantType = "client_credentials"
+
+	if config.AuthIssuer == "" {
+		return nil, fmt.Errorf("auth0 IdP configuration is incomplete, AuthIssuer is missing")
+	}
 
 	if config.ClientID == "" {
-		return nil, fmt.Errorf("auth0 IdP configuration is incomplete, clientID is missing")
+		return nil, fmt.Errorf("auth0 IdP configuration is incomplete, ClientID is missing")
 	}
 
 	if config.ClientSecret == "" {
@@ -135,6 +134,10 @@ func NewAuth0Manager(oidcConfig OIDCConfig, config Auth0ClientConfig,
 
 	if config.Audience == "" {
 		return nil, fmt.Errorf("auth0 IdP configuration is incomplete, Audience is missing")
+	}
+
+	if config.GrantType == "" {
+		return nil, fmt.Errorf("auth0 IdP configuration is incomplete, GrantType is missing")
 	}
 
 	credentials := &Auth0Credentials{

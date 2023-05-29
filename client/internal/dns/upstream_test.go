@@ -2,10 +2,11 @@ package dns
 
 import (
 	"context"
-	"github.com/miekg/dns"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 func TestUpstreamResolver_ServeDNS(t *testing.T) {
@@ -106,8 +107,29 @@ func TestUpstreamResolver_ServeDNS(t *testing.T) {
 	}
 }
 
+type mockUpstreamResolver struct {
+	r   *dns.Msg
+	rtt time.Duration
+	err error
+}
+
+// ExchangeContext mock implementation of ExchangeContext from upstreamResolver
+func (c mockUpstreamResolver) ExchangeContext(_ context.Context, _ *dns.Msg, _ string) (r *dns.Msg, rtt time.Duration, err error) {
+	return c.r, c.rtt, c.err
+}
+
 func TestUpstreamResolver_DeactivationReactivation(t *testing.T) {
-	resolver := newUpstreamResolver(context.TODO())
+	resolver := &upstreamResolver{
+		ctx: context.TODO(),
+		upstreamClient: &mockUpstreamResolver{
+			err: nil,
+			r:   new(dns.Msg),
+			rtt: time.Millisecond,
+		},
+		upstreamTimeout:  upstreamTimeout,
+		reactivatePeriod: reactivatePeriod,
+		failsTillDeact:   failsTillDeact,
+	}
 	resolver.upstreamServers = []string{"0.0.0.0:-1"}
 	resolver.failsTillDeact = 0
 	resolver.reactivatePeriod = time.Microsecond * 100

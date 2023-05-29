@@ -2,14 +2,20 @@ package cmd
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/util"
 	"time"
+
+	"github.com/netbirdio/netbird/util"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/proto"
 )
+
+func init() {
+	downCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
+	downCmd.PersistentFlags().StringVar(&daemonAddr, "daemon-addr", defaultDaemonAddr, "Daemon service address to serve CLI requests [unix|tcp]://[path|host:port]")
+}
 
 var downCmd = &cobra.Command{
 	Use:   "down",

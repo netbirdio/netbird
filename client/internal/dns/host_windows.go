@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -40,6 +41,10 @@ func newHostManager(wgInterface *iface.WGIface) (hostManager, error) {
 	return &registryConfigurator{
 		guid: guid,
 	}, nil
+}
+
+func (s *registryConfigurator) supportCustomPort() bool {
+	return false
 }
 
 func (r *registryConfigurator) applyDNSConfig(config hostDNSConfig) error {

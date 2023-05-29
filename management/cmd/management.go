@@ -121,13 +121,6 @@ var (
 					return fmt.Errorf("failed creating datadir: %s: %v", config.Datadir, err)
 				}
 			}
-
-			store, err := server.NewFileStore(config.Datadir)
-			if err != nil {
-				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
-			}
-			peersUpdateManager := server.NewPeersUpdateManager()
-
 			appMetrics, err := telemetry.NewDefaultAppMetrics(cmd.Context())
 			if err != nil {
 				return err
@@ -136,6 +129,11 @@ var (
 			if err != nil {
 				return err
 			}
+			store, err := server.NewFileStore(config.Datadir, appMetrics)
+			if err != nil {
+				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
+			}
+			peersUpdateManager := server.NewPeersUpdateManager()
 
 			var idpManager idp.Manager
 			if config.IdpManagerConfig != nil {
@@ -395,12 +393,6 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 			return nil, err
 		}
 		log.Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
-
-		log.Infof("configuring IdpManagerConfig.OIDCConfig.Issuer with a new value %s,", oidcConfig.Issuer)
-		config.IdpManagerConfig.OIDCConfig.Issuer = strings.TrimRight(oidcConfig.Issuer, "/")
-
-		log.Infof("configuring IdpManagerConfig.OIDCConfig.TokenEndpoint with a new value %s,", oidcConfig.TokenEndpoint)
-		config.IdpManagerConfig.OIDCConfig.TokenEndpoint = oidcConfig.TokenEndpoint
 
 		log.Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
 			oidcConfig.Issuer, config.HttpConfig.AuthIssuer)

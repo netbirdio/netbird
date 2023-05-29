@@ -28,6 +28,17 @@ type PeerSystemMeta struct {
 	UIVersion string
 }
 
+func (p PeerSystemMeta) isEqual(other PeerSystemMeta) bool {
+	return p.Hostname == other.Hostname &&
+		p.GoOS == other.GoOS &&
+		p.Kernel == other.Kernel &&
+		p.Core == other.Core &&
+		p.Platform == other.Platform &&
+		p.OS == other.OS &&
+		p.WtVersion == other.WtVersion &&
+		p.UIVersion == other.UIVersion
+}
+
 type PeerStatus struct {
 	// LastSeen is the last time peer was connected to the management service
 	LastSeen time.Time
@@ -114,13 +125,19 @@ func (p *Peer) Copy() *Peer {
 	}
 }
 
-// UpdateMeta updates peer's system meta data
-func (p *Peer) UpdateMeta(meta PeerSystemMeta) {
+// UpdateMetaIfNew updates peer's system metadata if new information is provided
+// returns true if meta was updated, false otherwise
+func (p *Peer) UpdateMetaIfNew(meta PeerSystemMeta) bool {
 	// Avoid overwriting UIVersion if the update was triggered sole by the CLI client
 	if meta.UIVersion == "" {
 		meta.UIVersion = p.Meta.UIVersion
 	}
+
+	if p.Meta.isEqual(meta) {
+		return false
+	}
 	p.Meta = meta
+	return true
 }
 
 // MarkLoginExpired marks peer's status expired or not
@@ -654,6 +671,8 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		return nil, nil, err
 	}
 
+	// this flag prevents unnecessary calls to the persistent store.
+	shouldStoreAccount := false
 	updateRemotePeers := false
 	if peerLoginExpired(peer, account) {
 		err = checkAuth(login.UserID, peer)
@@ -664,19 +683,26 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		// UserID is present, meaning that JWT validation passed successfully in the API layer.
 		updatePeerLastLogin(peer, account)
 		updateRemotePeers = true
+		shouldStoreAccount = true
 	}
 
-	peer = updatePeerMeta(peer, login.Meta, account)
+	peer, updated := updatePeerMeta(peer, login.Meta, account)
+	if updated {
+		shouldStoreAccount = true
+	}
 
 	peer, err = am.checkAndUpdatePeerSSHKey(peer, account, login.SSHKey)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	err = am.Store.SaveAccount(account)
-	if err != nil {
-		return nil, nil, err
+	if shouldStoreAccount {
+		err = am.Store.SaveAccount(account)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
+
 	if updateRemotePeers {
 		err = am.updateAccountPeers(account)
 		if err != nil {
@@ -850,10 +876,12 @@ func (am *DefaultAccountManager) GetPeer(accountID, peerID, userID string) (*Pee
 	return nil, status.Errorf(status.Internal, "user %s has no access to peer %s under account %s", userID, peerID, accountID)
 }
 
-func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) *Peer {
-	peer.UpdateMeta(meta)
-	account.UpdatePeer(peer)
-	return peer
+func updatePeerMeta(peer *Peer, meta PeerSystemMeta, account *Account) (*Peer, bool) {
+	if peer.UpdateMetaIfNew(meta) {
+		account.UpdatePeer(peer)
+		return peer, true
+	}
+	return peer, false
 }
 
 // GetPeerRules returns a list of source or destination rules of a given peer.

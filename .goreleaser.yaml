@@ -12,11 +12,7 @@ builds:
       - arm
       - amd64
       - arm64
-      - mips
       - 386
-    gomips:
-      - hardfloat
-      - softfloat
     ignore:
       - goos: windows
         goarch: arm64
@@ -24,6 +20,26 @@ builds:
         goarch: arm
       - goos: windows
         goarch: 386
+    ldflags:
+      - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    tags:
+      - load_wgnt_from_rsrc
+
+  - id: netbird-static
+    dir: client
+    binary: netbird
+    env: [CGO_ENABLED=0]
+    goos:
+      - linux
+    goarch:
+      - mips
+      - mipsle
+      - mips64
+      - mips64le
+    gomips:
+      - hardfloat
+      - softfloat
     ldflags:
       - -s -w -X github.com/netbirdio/netbird/version.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.CommitDate}} -X main.builtBy=goreleaser
     mod_timestamp: '{{ .CommitTimestamp }}'
@@ -67,6 +83,7 @@ builds:
 archives:
   - builds:
       - netbird
+      - netbird-static
 
 nfpms:
 
