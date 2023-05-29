@@ -57,7 +57,7 @@ func TestNewZitadelManager(t *testing.T) {
 
 	for _, testCase := range []test{testCase1, testCase2, testCase3} {
 		t.Run(testCase.name, func(t *testing.T) {
-			_, err := NewZitadelManager(OIDCConfig{}, testCase.inputConfig, &telemetry.MockAppMetrics{})
+			_, err := NewZitadelManager(testCase.inputConfig, &telemetry.MockAppMetrics{})
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 		})
 	}
