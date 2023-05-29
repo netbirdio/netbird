@@ -94,6 +94,20 @@ const (
 	PolicyRuleMinimumProtocolUdp  PolicyRuleMinimumProtocol = "udp"
 )
 
+// Defines values for PolicyRuleUpdateAction.
+const (
+	PolicyRuleUpdateActionAccept PolicyRuleUpdateAction = "accept"
+	PolicyRuleUpdateActionDrop   PolicyRuleUpdateAction = "drop"
+)
+
+// Defines values for PolicyRuleUpdateProtocol.
+const (
+	PolicyRuleUpdateProtocolAll  PolicyRuleUpdateProtocol = "all"
+	PolicyRuleUpdateProtocolIcmp PolicyRuleUpdateProtocol = "icmp"
+	PolicyRuleUpdateProtocolTcp  PolicyRuleUpdateProtocol = "tcp"
+	PolicyRuleUpdateProtocolUdp  PolicyRuleUpdateProtocol = "udp"
+)
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive  UserStatus = "active"
@@ -468,6 +482,66 @@ type PolicyRuleMinimumAction string
 // PolicyRuleMinimumProtocol Policy rule type of the traffic
 type PolicyRuleMinimumProtocol string
 
+// PolicyRuleUpdate defines model for PolicyRuleUpdate.
+type PolicyRuleUpdate struct {
+	// Action Policy rule accept or drops packets
+	Action PolicyRuleUpdateAction `json:"action"`
+
+	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
+	Bidirectional bool `json:"bidirectional"`
+
+	// Description Policy rule friendly description
+	Description *string `json:"description,omitempty"`
+
+	// Destinations Policy rule destination groups
+	Destinations []string `json:"destinations"`
+
+	// Enabled Policy rule status
+	Enabled bool `json:"enabled"`
+
+	// Id Policy rule ID
+	Id *string `json:"id,omitempty"`
+
+	// Name Policy rule name identifier
+	Name string `json:"name"`
+
+	// Ports Policy rule affected ports or it ranges list
+	Ports *[]string `json:"ports,omitempty"`
+
+	// Protocol Policy rule type of the traffic
+	Protocol PolicyRuleUpdateProtocol `json:"protocol"`
+
+	// Sources Policy rule source groups
+	Sources []string `json:"sources"`
+}
+
+// PolicyRuleUpdateAction Policy rule accept or drops packets
+type PolicyRuleUpdateAction string
+
+// PolicyRuleUpdateProtocol Policy rule type of the traffic
+type PolicyRuleUpdateProtocol string
+
+// PolicyUpdate defines model for PolicyUpdate.
+type PolicyUpdate struct {
+	// Description Policy friendly description
+	Description string `json:"description"`
+
+	// Enabled Policy status
+	Enabled bool `json:"enabled"`
+
+	// Id Policy ID
+	Id *string `json:"id,omitempty"`
+
+	// Name Policy name identifier
+	Name string `json:"name"`
+
+	// Query Policy Rego query
+	Query string `json:"query"`
+
+	// Rules Policy rule object for policy UI editor
+	Rules []PolicyRuleUpdate `json:"rules"`
+}
+
 // Route defines model for Route.
 type Route struct {
 	// Description Route description
@@ -747,10 +821,10 @@ type PutApiGroupsGroupIdJSONRequestBody = GroupRequest
 type PutApiPeersPeerIdJSONRequestBody = PeerRequest
 
 // PostApiPoliciesJSONRequestBody defines body for PostApiPolicies for application/json ContentType.
-type PostApiPoliciesJSONRequestBody = PolicyMinimum
+type PostApiPoliciesJSONRequestBody = PolicyUpdate
 
 // PutApiPoliciesPolicyIdJSONRequestBody defines body for PutApiPoliciesPolicyId for application/json ContentType.
-type PutApiPoliciesPolicyIdJSONRequestBody = PolicyMinimum
+type PutApiPoliciesPolicyIdJSONRequestBody = PolicyUpdate
 
 // PostApiRoutesJSONRequestBody defines body for PostApiRoutes for application/json ContentType.
 type PostApiRoutesJSONRequestBody = RouteRequest

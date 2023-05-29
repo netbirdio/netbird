@@ -1803,7 +1803,7 @@ paths:
         content:
           'application/json':
             schema:
-              $ref: '#/components/schemas/PolicyMinimum'
+              $ref: '#/components/schemas/PolicyUpdate'
       responses:
         '200':
           description: A Policy Object
@@ -1860,7 +1860,7 @@ paths:
         content:
           'application/json':
             schema:
-              $ref: '#/components/schemas/PolicyMinimum'
+              $ref: '#/components/schemas/PolicyUpdate'
       responses:
         '200':
           description: A Policy object
