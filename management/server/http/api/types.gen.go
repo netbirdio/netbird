@@ -72,6 +72,28 @@ const (
 	PolicyRuleActionDrop   PolicyRuleAction = "drop"
 )
 
+// Defines values for PolicyRuleProtocol.
+const (
+	PolicyRuleProtocolAll  PolicyRuleProtocol = "all"
+	PolicyRuleProtocolIcmp PolicyRuleProtocol = "icmp"
+	PolicyRuleProtocolTcp  PolicyRuleProtocol = "tcp"
+	PolicyRuleProtocolUdp  PolicyRuleProtocol = "udp"
+)
+
+// Defines values for PolicyRuleMinimumAction.
+const (
+	PolicyRuleMinimumActionAccept PolicyRuleMinimumAction = "accept"
+	PolicyRuleMinimumActionDrop   PolicyRuleMinimumAction = "drop"
+)
+
+// Defines values for PolicyRuleMinimumProtocol.
+const (
+	PolicyRuleMinimumProtocolAll  PolicyRuleMinimumProtocol = "all"
+	PolicyRuleMinimumProtocolIcmp PolicyRuleMinimumProtocol = "icmp"
+	PolicyRuleMinimumProtocolTcp  PolicyRuleMinimumProtocol = "tcp"
+	PolicyRuleMinimumProtocolUdp  PolicyRuleMinimumProtocol = "udp"
+)
+
 // Defines values for UserStatus.
 const (
 	UserStatusActive  UserStatus = "active"
@@ -344,7 +366,7 @@ type Policy struct {
 	Enabled bool `json:"enabled"`
 
 	// Id Policy ID
-	Id string `json:"id"`
+	Id *string `json:"id,omitempty"`
 
 	// Name Policy name identifier
 	Name string `json:"name"`
@@ -364,42 +386,87 @@ type PolicyMinimum struct {
 	// Enabled Policy status
 	Enabled bool `json:"enabled"`
 
+	// Id Policy ID
+	Id *string `json:"id,omitempty"`
+
 	// Name Policy name identifier
 	Name string `json:"name"`
 
 	// Query Policy Rego query
 	Query string `json:"query"`
-
-	// Rules Policy rule object for policy UI editor
-	Rules []PolicyRule `json:"rules"`
 }
 
 // PolicyRule defines model for PolicyRule.
 type PolicyRule struct {
-	// Action policy accept or drops packets
+	// Action Policy rule accept or drops packets
 	Action PolicyRuleAction `json:"action"`
 
-	// Description Rule friendly description
+	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
+	Bidirectional bool `json:"bidirectional"`
+
+	// Description Policy rule friendly description
 	Description *string `json:"description,omitempty"`
 
-	// Destinations policy destination groups
+	// Destinations Policy rule destination groups
 	Destinations []GroupMinimum `json:"destinations"`
 
-	// Enabled Rules status
+	// Enabled Policy rule status
 	Enabled bool `json:"enabled"`
 
-	// Id Rule ID
+	// Id Policy rule ID
 	Id *string `json:"id,omitempty"`
 
-	// Name Rule name identifier
+	// Name Policy rule name identifier
 	Name string `json:"name"`
 
-	// Sources policy source groups
+	// Ports Policy rule affected ports or it ranges list
+	Ports *[]string `json:"ports,omitempty"`
+
+	// Protocol Policy rule type of the traffic
+	Protocol PolicyRuleProtocol `json:"protocol"`
+
+	// Sources Policy rule source groups
 	Sources []GroupMinimum `json:"sources"`
 }
 
-// PolicyRuleAction policy accept or drops packets
+// PolicyRuleAction Policy rule accept or drops packets
 type PolicyRuleAction string
+
+// PolicyRuleProtocol Policy rule type of the traffic
+type PolicyRuleProtocol string
+
+// PolicyRuleMinimum defines model for PolicyRuleMinimum.
+type PolicyRuleMinimum struct {
+	// Action Policy rule accept or drops packets
+	Action PolicyRuleMinimumAction `json:"action"`
+
+	// Bidirectional Define if the rule is applicable in both directions, sources, and destinations.
+	Bidirectional bool `json:"bidirectional"`
+
+	// Description Policy rule friendly description
+	Description *string `json:"description,omitempty"`
+
+	// Enabled Policy rule status
+	Enabled bool `json:"enabled"`
+
+	// Id Policy rule ID
+	Id *string `json:"id,omitempty"`
+
+	// Name Policy rule name identifier
+	Name string `json:"name"`
+
+	// Ports Policy rule affected ports or it ranges list
+	Ports *[]string `json:"ports,omitempty"`
+
+	// Protocol Policy rule type of the traffic
+	Protocol PolicyRuleMinimumProtocol `json:"protocol"`
+}
+
+// PolicyRuleMinimumAction Policy rule accept or drops packets
+type PolicyRuleMinimumAction string
+
+// PolicyRuleMinimumProtocol Policy rule type of the traffic
+type PolicyRuleMinimumProtocol string
 
 // Route defines model for Route.
 type Route struct {
