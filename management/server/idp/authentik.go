@@ -27,6 +27,7 @@ type AuthentikManager struct {
 
 // AuthentikClientConfig authentik manager client configurations.
 type AuthentikClientConfig struct {
+	Issuer        string
 	ClientID      string
 	Username      string
 	Password      string
@@ -45,7 +46,7 @@ type AuthentikCredentials struct {
 }
 
 // NewAuthentikManager creates a new instance of the AuthentikManager.
-func NewAuthentikManager(oidcConfig OIDCConfig, config AuthentikClientConfig,
+func NewAuthentikManager(config AuthentikClientConfig,
 	appMetrics telemetry.AppMetrics) (*AuthentikManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
@@ -56,8 +57,6 @@ func NewAuthentikManager(oidcConfig OIDCConfig, config AuthentikClientConfig,
 	}
 
 	helper := JsonParser{}
-	config.TokenEndpoint = oidcConfig.TokenEndpoint
-	config.GrantType = "client_credentials"
 
 	if config.ClientID == "" {
 		return nil, fmt.Errorf("authentik IdP configuration is incomplete, clientID is missing")
@@ -80,7 +79,7 @@ func NewAuthentikManager(oidcConfig OIDCConfig, config AuthentikClientConfig,
 	}
 
 	// authentik client configuration
-	issuerURL, err := url.Parse(oidcConfig.Issuer)
+	issuerURL, err := url.Parse(config.Issuer)
 	if err != nil {
 		return nil, err
 	}

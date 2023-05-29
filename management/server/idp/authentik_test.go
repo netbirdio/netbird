@@ -64,21 +64,19 @@ func TestNewAuthentikManager(t *testing.T) {
 		assertErrFuncMessage: "should return error when field empty",
 	}
 
-	//testCase5Config := defaultTestConfig
-	//testCase5Config.GrantType = ""
-	//
-	//testCase5 := test{
-	//	name:                 "Missing GrantType Configuration",
-	//	inputConfig:          testCase5Config,
-	//	assertErrFunc:        require.Error,
-	//	assertErrFuncMessage: "should return error when field empty",
-	//}
+	testCase5Config := defaultTestConfig
+	testCase5Config.GrantType = ""
 
-	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4} {
+	testCase5 := test{
+		name:                 "Missing GrantType Configuration",
+		inputConfig:          testCase5Config,
+		assertErrFunc:        require.Error,
+		assertErrFuncMessage: "should return error when field empty",
+	}
+
+	for _, testCase := range []test{testCase1, testCase2, testCase3, testCase4, testCase5} {
 		t.Run(testCase.name, func(t *testing.T) {
-			oidcConfig := OIDCConfig{TokenEndpoint: "https://localhost:8080/application/o/token/"}
-
-			_, err := NewAuthentikManager(oidcConfig, testCase.inputConfig, &telemetry.MockAppMetrics{})
+			_, err := NewAuthentikManager(testCase.inputConfig, &telemetry.MockAppMetrics{})
 			testCase.assertErrFunc(t, err, testCase.assertErrFuncMessage)
 		})
 	}
