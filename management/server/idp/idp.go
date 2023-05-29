@@ -33,14 +33,15 @@ type ExtraConfig map[string]string
 
 // Config an idp configuration struct to be loaded from management server's config file
 type Config struct {
-	ManagerType               string
-	ClientConfig              *ClientConfig
-	ExtraConfig               ExtraConfig
-	Auth0ClientCredentials    Auth0ClientConfig
-	AzureClientCredentials    AzureClientConfig
-	KeycloakClientCredentials KeycloakClientConfig
-	ZitadelClientCredentials  ZitadelClientConfig
-	OktaClientCredentials     OktaClientConfig
+	ManagerType                string
+	ClientConfig               *ClientConfig
+	ExtraConfig                ExtraConfig
+	Auth0ClientCredentials     Auth0ClientConfig
+	AzureClientCredentials     AzureClientConfig
+	KeycloakClientCredentials  KeycloakClientConfig
+	ZitadelClientCredentials   ZitadelClientConfig
+	OktaClientCredentials      OktaClientConfig
+	AuthentikClientCredentials AuthentikClientConfig
 }
 
 // ManagerCredentials interface that authenticates using the credential of each type of idp
@@ -141,7 +142,6 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		}
 
 		return NewZitadelManager(zitadelClientConfig, appMetrics)
-
 	case "okta":
 		oktaClientConfig := config.OktaClientCredentials
 		if config.ClientConfig != nil {
@@ -154,6 +154,20 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		}
 
 		return NewOktaManager(oktaClientConfig, appMetrics)
+	case "authentik":
+		authentikConfig := config.AuthentikClientCredentials
+		if config.ClientConfig != nil {
+			authentikConfig = AuthentikClientConfig{
+				Issuer:        config.ClientConfig.Issuer,
+				ClientID:      config.ClientConfig.ClientID,
+				TokenEndpoint: config.ClientConfig.TokenEndpoint,
+				GrantType:     config.ClientConfig.GrantType,
+				Username:      config.ExtraConfig["Username"],
+				Password:      config.ExtraConfig["Password"],
+			}
+		}
+
+		return NewAuthentikManager(authentikConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
