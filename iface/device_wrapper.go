@@ -17,8 +17,9 @@ type PacketFilter interface {
 
 	// AddUDPPacketHook calls hook when UDP packet from given direction matched
 	//
-	// Hook function returns flag which indicates should be the matched package dropped or not
-	AddUDPPacketHook(in bool, ip net.IP, dPort uint16, hook func(*net.UDPAddr, []byte) bool)
+	// Hook function returns flag which indicates should be the matched package dropped or not.
+	// Hook function receives raw network packet data as argument.
+	AddUDPPacketHook(in bool, ip net.IP, dPort uint16, hook func(packet []byte) bool)
 
 	// SetNetwork of the wireguard interface to which filtering applied
 	SetNetwork(*net.IPNet)

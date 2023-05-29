@@ -276,17 +276,9 @@ func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 			// if rule has UDP hook (and if we are here we match this rule)
 			// we ignore rule.drop and call this hook
 			if rule.udpHook != nil {
-				addr := net.UDPAddr{
-					Port: int(d.udp.SrcPort),
-				}
-				if ipLayer == layers.LayerTypeIPv4 {
-					addr.IP = d.ip4.SrcIP
-				} else {
-					addr.IP = d.ip6.SrcIP
-				}
-				payload := make([]byte, len(d.udp.Payload))
-				copy(payload, d.udp.Payload)
-				return rule.udpHook(&addr, payload)
+				packetCopy := make([]byte, len(packetData))
+				copy(packetCopy, packetData)
+				return rule.udpHook(packetCopy)
 			}
 
 			if rule.sPort == 0 && rule.dPort == 0 {
@@ -317,7 +309,7 @@ func (m *Manager) SetNetwork(network *net.IPNet) {
 //
 // Hook function returns flag which indicates should be the matched package dropped or not
 func (m *Manager) AddUDPPacketHook(
-	in bool, ip net.IP, dPort uint16, hook func(*net.UDPAddr, []byte) bool,
+	in bool, ip net.IP, dPort uint16, hook func([]byte) bool,
 ) {
 	r := Rule{
 		id:         uuid.New().String(),
@@ -330,6 +322,10 @@ func (m *Manager) AddUDPPacketHook(
 		udpHook:    hook,
 	}
 
+	if ip.To4() != nil {
+		r.ipLayer = layers.LayerTypeIPv4
+	}
+
 	m.mutex.Lock()
 	var toUpdate []Rule
 	if in {
@@ -340,11 +336,11 @@ func (m *Manager) AddUDPPacketHook(
 		m.outgoingRules = append([]Rule{r}, m.outgoingRules...)
 		toUpdate = m.outgoingRules
 	}
-	m.mutex.Unlock()
 
-	for i := 0; i < len(toUpdate); i++ {
+	for i := range toUpdate {
 		m.rulesIndex[toUpdate[i].id] = i
 	}
+	m.mutex.Unlock()
 
 	return
 }

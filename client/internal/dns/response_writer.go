@@ -7,12 +7,15 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
+	"golang.zx2c4.com/wireguard/device"
+
 	"github.com/netbirdio/netbird/iface"
 )
 
 type responseWriter struct {
 	local       net.Addr
 	remote      net.Addr
+	packet      gopacket.Packet
 	wgInterface *iface.WGIface
 }
 
@@ -38,33 +41,29 @@ func (r *responseWriter) WriteMsg(msg *dns.Msg) error {
 
 // Write writes a raw buffer back to the client.
 func (r *responseWriter) Write(data []byte) (int, error) {
-	local := r.local.(*net.UDPAddr)
-	remote := r.remote.(*net.UDPAddr)
+	var ip gopacket.SerializableLayer
 
-	var ipLayer gopacket.NetworkLayer
-	// Create the IP layer
-	ipLayer = &layers.IPv4{
-		SrcIP: local.IP,
-		DstIP: remote.IP,
-	}
-	if remote.IP.To4() == nil {
-		ipLayer = &layers.IPv6{
-			SrcIP: local.IP,
-			DstIP: remote.IP,
-		}
+	// Get the UDP layer
+	udpLayer := r.packet.Layer(layers.LayerTypeUDP)
+	udp := udpLayer.(*layers.UDP)
+
+	// Swap the source and destination addresses for the response
+	udp.SrcPort, udp.DstPort = udp.DstPort, udp.SrcPort
+
+	// Check if it's an IPv4 packet
+	if ipv4Layer := r.packet.Layer(layers.LayerTypeIPv4); ipv4Layer != nil {
+		ipv4 := ipv4Layer.(*layers.IPv4)
+		ipv4.SrcIP, ipv4.DstIP = ipv4.DstIP, ipv4.SrcIP
+		ip = ipv4
+	} else if ipv6Layer := r.packet.Layer(layers.LayerTypeIPv6); ipv6Layer != nil {
+		ipv6 := ipv6Layer.(*layers.IPv6)
+		ipv6.SrcIP, ipv6.DstIP = ipv6.DstIP, ipv6.SrcIP
+		ip = ipv6
 	}
 
-	// Create the UDP layer
-	udpLayer := &layers.UDP{
-		SrcPort: layers.UDPPort(local.Port),
-		DstPort: layers.UDPPort(remote.Port),
-	}
-	if err := udpLayer.SetNetworkLayerForChecksum(ipLayer); err != nil {
+	if err := udp.SetNetworkLayerForChecksum(ip.(gopacket.NetworkLayer)); err != nil {
 		return 0, fmt.Errorf("failed to set network layer for checksum: %v", err)
 	}
-
-	// Create the payload layer
-	payloadLayer := gopacket.Payload(data)
 
 	// Serialize the packet
 	buffer := gopacket.NewSerializeBuffer()
@@ -73,17 +72,13 @@ func (r *responseWriter) Write(data []byte) (int, error) {
 		FixLengths:       true,
 	}
 
-	var err error
-	if remote.IP.To4() == nil {
-		err = gopacket.SerializeLayers(buffer, options, ipLayer.(*layers.IPv6), udpLayer, payloadLayer)
-	} else {
-		err = gopacket.SerializeLayers(buffer, options, ipLayer.(*layers.IPv4), udpLayer, payloadLayer)
-	}
+	payload := gopacket.Payload(data)
+	err := gopacket.SerializeLayers(buffer, options, ip, udp, payload)
 	if err != nil {
-		return 0, fmt.Errorf("failed serialize network packet: %v", err)
+		return 0, fmt.Errorf("failed to serialize packet: %v", err)
 	}
 
-	return r.wgInterface.GetDevice().Write([][]byte{buffer.Bytes()}, 0)
+	return r.wgInterface.GetDevice().Write([][]byte{buffer.Bytes()}, device.MessageTransportOffsetContent)
 }
 
 // Close closes the connection.

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
 	"github.com/mitchellh/hashstructure/v2"
 	log "github.com/sirupsen/logrus"
@@ -107,6 +109,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
 	if s.wgInterface.IsUserspaceBind() {
+		s.setListenerStatus(true)
 		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
 		s.runtimePort = 53
 
@@ -495,21 +498,27 @@ func (s *DefaultServer) filterDNSTraffic() {
 		return
 	}
 
-	local := &net.UDPAddr{
-		IP:   net.ParseIP(s.runtimeIP),
-		Port: s.runtimePort,
+	firstLayerDecoder := layers.LayerTypeIPv4
+	if s.wgInterface.Address().Network.IP.To4() == nil {
+		firstLayerDecoder = layers.LayerTypeIPv6
 	}
 
-	hook := func(remote *net.UDPAddr, payload []byte) bool {
+	hook := func(packetData []byte) bool {
+		// Decode the packet
+		packet := gopacket.NewPacket(packetData, firstLayerDecoder, gopacket.Default)
+
+		// Get the UDP layer
+		udpLayer := packet.Layer(layers.LayerTypeUDP)
+		udp := udpLayer.(*layers.UDP)
+
 		msg := new(dns.Msg)
-		if err := msg.Unpack(payload); err != nil {
+		if err := msg.Unpack(udp.Payload); err != nil {
 			log.Tracef("parse DNS request: %v", err)
 			return true
 		}
 
 		writer := responseWriter{
-			local:       local,
-			remote:      remote,
+			packet:      packet,
 			wgInterface: s.wgInterface,
 		}
 		go s.dnsMux.ServeDNS(&writer, msg)

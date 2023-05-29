@@ -21,7 +21,7 @@ type Rule struct {
 	drop       bool
 	comment    string
 
-	udpHook func(*net.UDPAddr, []byte) bool
+	udpHook func([]byte) bool
 }
 
 // GetRuleID returns the rule id
