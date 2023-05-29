@@ -23,6 +23,12 @@ var (
 	host string
 )
 
+func init() {
+	sshCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "sets Netbird log level")
+	sshCmd.PersistentFlags().IntVarP(&port, "port", "p", nbssh.DefaultSSHPort, "Sets remote SSH port. Defaults to "+fmt.Sprint(nbssh.DefaultSSHPort))
+	sshCmd.PersistentFlags().StringVarP(&configPath, "config", "c", defaultConfigPath, "Netbird config file location")
+}
+
 var sshCmd = &cobra.Command{
 	Use: "ssh",
 	Args: func(cmd *cobra.Command, args []string) error {
@@ -113,8 +119,4 @@ func runSSH(ctx context.Context, addr string, pemKey []byte, cmd *cobra.Command)
 	}
 
 	return nil
-}
-
-func init() {
-	sshCmd.PersistentFlags().IntVarP(&port, "port", "p", nbssh.DefaultSSHPort, "Sets remote SSH port. Defaults to "+fmt.Sprint(nbssh.DefaultSSHPort))
 }
