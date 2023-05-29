@@ -7,7 +7,6 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
-	"golang.zx2c4.com/wireguard/device"
 
 	"github.com/netbirdio/netbird/iface"
 )
@@ -78,7 +77,9 @@ func (r *responseWriter) Write(data []byte) (int, error) {
 		return 0, fmt.Errorf("failed to serialize packet: %v", err)
 	}
 
-	return r.wgInterface.GetDevice().Write([][]byte{buffer.Bytes()}, device.MessageTransportOffsetContent)
+	send := buffer.Bytes()
+	r.wgInterface.GetDevice().NextRead(send)
+	return len(send), nil
 }
 
 // Close closes the connection.

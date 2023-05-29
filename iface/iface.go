@@ -9,7 +9,6 @@ import (
 	"github.com/netbirdio/netbird/iface/bind"
 
 	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
 
@@ -146,10 +145,10 @@ func (w *WGIface) GetFilter() PacketFilter {
 	return w.filter
 }
 
-// GetDevice to interact with raw device (without filtering)
-func (w *WGIface) GetDevice() tun.Device {
+// GetDevice to interact with raw device (with filtering)
+func (w *WGIface) GetDevice() *DeviceWrapper {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	return w.tun.wrapper.Device
+	return w.tun.wrapper
 }

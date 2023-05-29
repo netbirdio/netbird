@@ -30,17 +30,35 @@ type DeviceWrapper struct {
 	tun.Device
 	filter PacketFilter
 	mutex  sync.RWMutex
+	next   chan []byte
 }
 
 // newDeviceWrapper constructor function
 func newDeviceWrapper(device tun.Device) *DeviceWrapper {
 	return &DeviceWrapper{
 		Device: device,
+		next:   make(chan []byte, 10),
 	}
 }
 
 // Read wraps read method with filtering feature
 func (d *DeviceWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
+	d.mutex.RLock()
+	var next []byte
+	if len(d.next) > 0 {
+		next = <-d.next
+	}
+	d.mutex.RUnlock()
+
+	if next != nil {
+		if len(bufs) == 0 {
+			bufs = append(bufs, next)
+		} else {
+			bufs[0] = next
+		}
+		return 1, nil
+	}
+
 	if n, err = d.Device.Read(bufs, sizes, offset); err != nil {
 		return 0, err
 	}
@@ -86,6 +104,11 @@ func (d *DeviceWrapper) Write(bufs [][]byte, offset int) (int, error) {
 	n, err := d.Device.Write(filteredBufs, offset)
 	n += dropped
 	return n, err
+}
+
+// NextRead pushes packet data to next read
+func (d *DeviceWrapper) NextRead(data []byte) {
+	d.next <- data
 }
 
 // SetFilter sets packet filter to device
