@@ -1,11 +1,13 @@
-package iptables
+package nftables
+
+import (
+	"github.com/google/nftables"
+)
 
 // Rule to handle management of rules
 type Rule struct {
-	id    string
-	specs []string
-	dst   bool
-	v6    bool
+	*nftables.Rule
+	id string
 }
 
 // GetRuleID returns the rule id

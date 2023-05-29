@@ -78,6 +78,9 @@ jobs:
       - name: Generate RouteManager Test bin
         run: CGO_ENABLED=0 go test -c -o routemanager-testing.bin ./client/internal/routemanager/...
 
+      - name: Generate nftables Manager Test bin
+        run: CGO_ENABLED=0 go test -c -o nftablesmanager-testing.bin ./client/firewall/nftables/...
+
       - name: Generate Engine Test bin
         run: CGO_ENABLED=0 go test -c -o engine-testing.bin ./client/internal
 
@@ -95,6 +98,9 @@ jobs:
 
       - name: Run RouteManager tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal/routemanager --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/routemanager-testing.bin  -test.timeout 5m -test.parallel 1
+
+      - name: Run nftables Manager tests in docker
+        run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/firewall --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/nftablesmanager-testing.bin  -test.timeout 5m -test.parallel 1
 
       - name: Run Engine tests in docker
         run: docker run -t --cap-add=NET_ADMIN --privileged --rm -v $PWD:/ci -w /ci/client/internal --entrypoint /busybox/sh gcr.io/distroless/base:debug -c /ci/engine-testing.bin  -test.timeout 5m -test.parallel 1

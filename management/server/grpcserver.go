@@ -436,6 +436,8 @@ func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials
 
 	offlinePeers := toRemotePeerConfig(networkMap.OfflinePeers, dnsName)
 
+	firewallRules := toProtocolFirewallRules(networkMap.FirewallRules)
+
 	return &proto.SyncResponse{
 		WiretrusteeConfig:  wtConfig,
 		PeerConfig:         pConfig,
@@ -449,6 +451,7 @@ func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials
 			RemotePeersIsEmpty: len(remotePeers) == 0,
 			Routes:             routesUpdate,
 			DNSConfig:          dnsUpdate,
+			FirewallRules:      firewallRules,
 		},
 	}
 }
