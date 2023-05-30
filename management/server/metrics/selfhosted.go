@@ -269,8 +269,6 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["active_peers_last_day"] = activePeersLastDay
 	metricsProperties["user_peers"] = userPeers
 	metricsProperties["rules"] = rules
-	metricsProperties["rules_protocol"] = rulesProtocol
-	metricsProperties["rules_direction"] = rulesDirection
 	metricsProperties["groups"] = groups
 	metricsProperties["routes"] = routes
 	metricsProperties["nameservers"] = nameservers
@@ -278,6 +276,15 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["min_active_peer_version"] = minActivePeerVersion
 	metricsProperties["max_active_peer_version"] = maxActivePeerVersion
 	metricsProperties["ui_clients"] = uiClient
+
+	for protocol, count := range rulesProtocol {
+		metricsProperties["rules_protocol_"+protocol] = count
+	}
+
+	for direction, count := range rulesDirection {
+		metricsProperties["rules_direction_"+direction] = count
+	}
+
 	for os, count := range osPeers {
 		metricsProperties[os] = count
 	}
