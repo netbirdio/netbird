@@ -133,6 +133,7 @@ func NewEngine(
 	signalClient signal.Client, mgmClient mgm.Client,
 	config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status,
 ) *Engine {
+
 	return &Engine{
 		ctx:            ctx,
 		cancel:         cancel,
@@ -147,6 +148,7 @@ func NewEngine(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
+		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
 	}
 }
 
