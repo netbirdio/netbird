@@ -158,6 +158,8 @@ func (w *Worker) generateProperties() properties {
 		uptime             float64
 		accounts           int
 		users              int
+		serviceUsers       int
+		pats               int
 		peers              int
 		setupKeysUsage     int
 		activePeersLastDay int
@@ -182,11 +184,19 @@ func (w *Worker) generateProperties() properties {
 
 	for _, account := range w.dataSource.GetAllAccounts() {
 		accounts++
-		users = users + len(account.Users)
 		rules = rules + len(account.Rules)
 		groups = groups + len(account.Groups)
 		routes = routes + len(account.Routes)
 		nameservers = nameservers + len(account.NameServerGroups)
+
+		for _, user := range account.Users {
+			if user.IsServiceUser {
+				serviceUsers++
+			} else {
+				users++
+			}
+			pats = +len(user.PATs)
+		}
 
 		for _, key := range account.SetupKeys {
 			setupKeysUsage = setupKeysUsage + key.UsedTimes
@@ -224,6 +234,7 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["uptime"] = uptime
 	metricsProperties["accounts"] = accounts
 	metricsProperties["users"] = users
+	metricsProperties["pats"] = pats
 	metricsProperties["peers"] = peers
 	metricsProperties["setup_keys_usage"] = setupKeysUsage
 	metricsProperties["active_peers_last_day"] = activePeersLastDay
