@@ -334,7 +334,6 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
-	conn.wgProxy = conn.wgProxyFactory.GetProxy()
 	log.Infof("connected to peer %s, endpoint address: %s", conn.config.Key, remoteAddr.String())
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
@@ -365,6 +364,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 	var endpoint net.Addr
 	if isRelayCandidate(pair.Local) {
 		log.Debugf("setup relay connection")
+		conn.wgProxy = conn.wgProxyFactory.GetProxy()
 		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
 		if err != nil {
 			return nil, err
