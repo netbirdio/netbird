@@ -234,6 +234,7 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["uptime"] = uptime
 	metricsProperties["accounts"] = accounts
 	metricsProperties["users"] = users
+	metricsProperties["service_users"] = serviceUsers
 	metricsProperties["pats"] = pats
 	metricsProperties["peers"] = peers
 	metricsProperties["setup_keys_usage"] = setupKeysUsage
