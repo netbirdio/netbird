@@ -65,7 +65,7 @@ func (p *WGEBPFProxy) Listen() error {
 
 	p.conn, err = net.ListenUDP("udp", &addr)
 	if err != nil {
-		cErr := p.Close()
+		cErr := p.Free()
 		if err != nil {
 			log.Errorf("failed to close the wgproxy: %s", cErr)
 		}
@@ -91,8 +91,13 @@ func (p *WGEBPFProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
 	return wgEndpoint, nil
 }
 
-// Close resources
-func (p *WGEBPFProxy) Close() error {
+// CloseConn doing nothing because this type of proxy implementation does not store the connection
+func (p *WGEBPFProxy) CloseConn() error {
+	return nil
+}
+
+// Free resources
+func (p *WGEBPFProxy) Free() error {
 	var err1, err2, err3 error
 	if p.conn != nil {
 		err1 = p.conn.Close()

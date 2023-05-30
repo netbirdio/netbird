@@ -109,7 +109,9 @@ type Conn struct {
 
 	statusRecorder *Status
 
-	wgProxy      wgproxy.Proxy
+	wgProxyFactory *wgproxy.Factory
+	wgProxy        wgproxy.Proxy
+
 	remoteModeCh chan ModeMessage
 	meta         meta
 
@@ -145,7 +147,7 @@ func (conn *Conn) UpdateStunTurn(turnStun []*ice.URL) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, wgProxy wgproxy.Proxy, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.Factory, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -155,7 +157,7 @@ func NewConn(config ConnConfig, statusRecorder *Status, wgProxy wgproxy.Proxy, a
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
 		remoteModeCh:   make(chan ModeMessage, 1),
-		wgProxy:        wgProxy,
+		wgProxyFactory: wgProxyFactory,
 		adapter:        adapter,
 		iFaceDiscover:  iFaceDiscover,
 	}, nil
@@ -332,6 +334,7 @@ func (conn *Conn) Open() error {
 		return err
 	}
 
+	conn.wgProxy = conn.wgProxyFactory.GetProxy()
 	log.Infof("connected to peer %s, endpoint address: %s", conn.config.Key, remoteAddr.String())
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
@@ -434,8 +437,13 @@ func (conn *Conn) cleanup() error {
 		}
 	}
 
+	if conn.wgProxy != nil {
+		err2 = conn.wgProxy.CloseConn()
+		conn.wgProxy = nil
+	}
+
 	// todo: is it problem if we try to remove a peer what is never existed?
-	err2 = conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
+	err3 = conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
 
 	if conn.notifyDisconnected != nil {
 		conn.notifyDisconnected()

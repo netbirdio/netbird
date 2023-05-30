@@ -13,8 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal/wgproxy"
-
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -23,6 +21,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
@@ -102,8 +101,8 @@ type Engine struct {
 
 	ctx context.Context
 
-	wgInterface *iface.WGIface
-	wgProxy     wgproxy.Proxy
+	wgInterface    *iface.WGIface
+	wgProxyFactory *wgproxy.Factory
 
 	udpMux     *bind.UniversalUDPMuxDefault
 	udpMuxConn io.Closer
@@ -185,7 +184,7 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	e.wgProxy = wgproxy.GetProxy(e.config.WgPort)
+	e.wgProxyFactory = wgproxy.NewFactory(e.config.WgPort)
 
 	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
@@ -851,7 +850,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxy, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
+	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
 	if err != nil {
 		return nil, err
 	}
@@ -1008,6 +1007,10 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
+	if err := e.wgProxyFactory.Free(); err != nil {
+		log.Errorf("failed closing ebpf proxy: %s", err)
+	}
+
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
