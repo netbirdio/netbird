@@ -360,16 +360,13 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 	}
 
 	var endpoint net.Addr
-	var direct bool
 	if isRelayCandidate(pair.Local) {
 		log.Debugf("setup relay connection")
-		direct = false
 		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		direct = true
 		// To support old version's with direct mode we attempt to punch an additional role with the remote wireguard port
 		go conn.punchRemoteWGPort(pair, remoteWgPort)
 		endpoint = remoteConn.RemoteAddr()
@@ -389,7 +386,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 		ConnStatusUpdate:       time.Now(),
 		LocalIceCandidateType:  pair.Local.Type().String(),
 		RemoteIceCandidateType: pair.Remote.Type().String(),
-		Direct:                 direct,
+		Direct:                 !isRelayCandidate(pair.Local),
 	}
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
