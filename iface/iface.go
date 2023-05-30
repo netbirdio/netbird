@@ -70,17 +70,12 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 
 // UpdatePeer updates existing Wireguard Peer or creates a new one if doesn't exist
 // Endpoint is optional
-func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint net.Addr, preSharedKey *wgtypes.Key) error {
+func (w *WGIface) UpdatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	rAddr, err := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
-	if err != nil {
-		return err
-	}
-
 	log.Debugf("updating interface %s peer %s, endpoint %s ", w.tun.DeviceName(), peerKey, endpoint)
-	return w.configurer.updatePeer(peerKey, allowedIps, keepAlive, rAddr, preSharedKey)
+	return w.configurer.updatePeer(peerKey, allowedIps, keepAlive, endpoint, preSharedKey)
 }
 
 // RemovePeer removes a Wireguard Peer from the interface iface

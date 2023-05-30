@@ -375,7 +375,9 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 		endpoint = remoteConn.RemoteAddr()
 	}
 
-	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpoint, conn.config.WgConfig.PreSharedKey)
+	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
+
+	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
 		// todo remove from proxy
 		return nil, err
