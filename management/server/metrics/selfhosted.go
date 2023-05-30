@@ -157,15 +157,19 @@ func (w *Worker) generateProperties() properties {
 	var (
 		uptime             float64
 		accounts           int
+		expirationEnabled  int
 		users              int
 		serviceUsers       int
 		pats               int
 		peers              int
+		peersSSHEnabled    int
 		setupKeysUsage     int
 		activePeersLastDay int
 		osPeers            map[string]int
 		userPeers          int
 		rules              int
+		rulesProtocol      map[string]int
+		rulesDirection     map[string]int
 		groups             int
 		routes             int
 		nameservers        int
@@ -184,10 +188,25 @@ func (w *Worker) generateProperties() properties {
 
 	for _, account := range w.dataSource.GetAllAccounts() {
 		accounts++
+
+		if account.Settings.PeerLoginExpirationEnabled {
+			expirationEnabled++
+		}
+
 		rules = rules + len(account.Rules)
 		groups = groups + len(account.Groups)
 		routes = routes + len(account.Routes)
 		nameservers = nameservers + len(account.NameServerGroups)
+
+		for _, rule := range account.Rules {
+			policyRule := rule.ToPolicyRule()
+			rulesProtocol[string(policyRule.Protocol)]++
+			if policyRule.Bidirectional {
+				rulesDirection["bidirectional"]++
+			} else {
+				rulesDirection["oneway"]++
+			}
+		}
 
 		for _, user := range account.Users {
 			if user.IsServiceUser {
@@ -204,6 +223,11 @@ func (w *Worker) generateProperties() properties {
 
 		for _, peer := range account.Peers {
 			peers++
+
+			if peer.SSHEnabled {
+				peersSSHEnabled++
+			}
+
 			if peer.SetupKey == "" {
 				userPeers++
 			}
@@ -237,10 +261,14 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["service_users"] = serviceUsers
 	metricsProperties["pats"] = pats
 	metricsProperties["peers"] = peers
+	metricsProperties["peers_ssh_enabled"] = peersSSHEnabled
+	metricsProperties["peers_login_expiration_enabled"] = expirationEnabled
 	metricsProperties["setup_keys_usage"] = setupKeysUsage
 	metricsProperties["active_peers_last_day"] = activePeersLastDay
 	metricsProperties["user_peers"] = userPeers
 	metricsProperties["rules"] = rules
+	metricsProperties["rules_protocol"] = rulesProtocol
+	metricsProperties["rules_direction"] = rulesDirection
 	metricsProperties["groups"] = groups
 	metricsProperties["routes"] = routes
 	metricsProperties["nameservers"] = nameservers
