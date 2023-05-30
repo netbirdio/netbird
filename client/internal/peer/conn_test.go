@@ -36,7 +36,9 @@ func TestNewConn_interfaceFilter(t *testing.T) {
 
 func TestConn_GetKey(t *testing.T) {
 	wgProxyFactory := wgproxy.NewFactory(connConf.LocalWgPort)
-	defer wgProxyFactory.Free()
+	defer func() {
+		_ = wgProxyFactory.Free()
+	}()
 	conn, err := NewConn(connConf, nil, wgProxyFactory, nil, nil)
 	if err != nil {
 		return
@@ -49,8 +51,9 @@ func TestConn_GetKey(t *testing.T) {
 
 func TestConn_OnRemoteOffer(t *testing.T) {
 	wgProxyFactory := wgproxy.NewFactory(connConf.LocalWgPort)
-	defer wgProxyFactory.Free()
-
+	defer func() {
+		_ = wgProxyFactory.Free()
+	}()
 	conn, err := NewConn(connConf, NewRecorder("https://mgm"), wgProxyFactory, nil, nil)
 	if err != nil {
 		return
@@ -85,8 +88,9 @@ func TestConn_OnRemoteOffer(t *testing.T) {
 
 func TestConn_OnRemoteAnswer(t *testing.T) {
 	wgProxyFactory := wgproxy.NewFactory(connConf.LocalWgPort)
-	defer wgProxyFactory.Free()
-
+	defer func() {
+		_ = wgProxyFactory.Free()
+	}()
 	conn, err := NewConn(connConf, NewRecorder("https://mgm"), wgProxyFactory, nil, nil)
 	if err != nil {
 		return
@@ -120,8 +124,9 @@ func TestConn_OnRemoteAnswer(t *testing.T) {
 }
 func TestConn_Status(t *testing.T) {
 	wgProxyFactory := wgproxy.NewFactory(connConf.LocalWgPort)
-	defer wgProxyFactory.Free()
-
+	defer func() {
+		_ = wgProxyFactory.Free()
+	}()
 	conn, err := NewConn(connConf, NewRecorder("https://mgm"), wgProxyFactory, nil, nil)
 	if err != nil {
 		return
@@ -149,8 +154,9 @@ func TestConn_Status(t *testing.T) {
 
 func TestConn_Close(t *testing.T) {
 	wgProxyFactory := wgproxy.NewFactory(connConf.LocalWgPort)
-	defer wgProxyFactory.Free()
-
+	defer func() {
+		_ = wgProxyFactory.Free()
+	}()
 	conn, err := NewConn(connConf, NewRecorder("https://mgm"), wgProxyFactory, nil, nil)
 	if err != nil {
 		return

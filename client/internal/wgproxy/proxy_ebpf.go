@@ -156,7 +156,7 @@ func (p *WGEBPFProxy) proxyToRemote() {
 
 func (p *WGEBPFProxy) storeTurnConn(turnConn net.Conn) uint16 {
 	p.turnConnMutex.Lock()
-	p.turnConnMutex.Unlock()
+	defer p.turnConnMutex.Unlock()
 
 	port := p.nextFreePort()
 	p.turnConnStore[port] = turnConn
@@ -166,7 +166,7 @@ func (p *WGEBPFProxy) storeTurnConn(turnConn net.Conn) uint16 {
 func (p *WGEBPFProxy) removeTurnConn(turnConnID uint16) {
 	log.Tracef("remove turn conn from store by port: %d", turnConnID)
 	p.turnConnMutex.Lock()
-	p.turnConnMutex.Unlock()
+	defer p.turnConnMutex.Unlock()
 	delete(p.turnConnStore, turnConnID)
 
 }
