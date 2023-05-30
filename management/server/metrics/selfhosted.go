@@ -217,7 +217,7 @@ func (w *Worker) generateProperties() properties {
 			} else {
 				users++
 			}
-			pats = +len(user.PATs)
+			pats += len(user.PATs)
 		}
 
 		for _, key := range account.SetupKeys {
