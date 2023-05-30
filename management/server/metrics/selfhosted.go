@@ -182,6 +182,8 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties := make(properties)
 	osPeers = make(map[string]int)
 	osUIClients = make(map[string]int)
+	rulesProtocol = make(map[string]int)
+	rulesDirection = make(map[string]int)
 	uptime = time.Since(w.startupTime).Seconds()
 	connections := w.connManager.GetAllConnectedPeers()
 	version = nbversion.NetbirdVersion()
