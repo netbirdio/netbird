@@ -18,6 +18,7 @@ type WGUserSpaceProxy struct {
 	localConn  net.Conn
 }
 
+// NewWGUserSpaceProxy instantiate a user space WireGuard proxy
 func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
 	p := &WGUserSpaceProxy{
 		localWGListenPort: wgPort,
@@ -26,6 +27,7 @@ func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
 	return p
 }
 
+// AddTurnConn start the proxy with the given remote conn
 func (p *WGUserSpaceProxy) AddTurnConn(remoteConn net.Conn) (net.Addr, error) {
 	p.remoteConn = remoteConn
 
@@ -42,6 +44,7 @@ func (p *WGUserSpaceProxy) AddTurnConn(remoteConn net.Conn) (net.Addr, error) {
 	return p.localConn.LocalAddr(), err
 }
 
+// CloseConn close the localConn
 func (p *WGUserSpaceProxy) CloseConn() error {
 	p.cancel()
 	if p.localConn == nil {
