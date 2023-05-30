@@ -93,7 +93,6 @@ func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetri
 		Timeout:   10 * time.Second,
 		Transport: httpTransport,
 	}
-
 	helper := JsonParser{}
 
 	if config.ClientID == "" {
@@ -112,8 +111,8 @@ func NewZitadelManager(config ZitadelClientConfig, appMetrics telemetry.AppMetri
 		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, ManagementEndpoint is missing")
 	}
 
-	if config.GrantType != "client_credentials" {
-		return nil, fmt.Errorf("zitadel idp configuration failed. Grant Type should be client_credentials")
+	if config.GrantType == "" {
+		return nil, fmt.Errorf("zitadel IdP configuration is incomplete, GrantType is missing")
 	}
 
 	credentials := &ZitadelCredentials{

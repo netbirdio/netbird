@@ -3,9 +3,11 @@ package iface
 import (
 	"fmt"
 	"net"
+	"net/netip"
 
 	"github.com/pion/transport/v2"
 	log "github.com/sirupsen/logrus"
+	"golang.org/x/sys/windows"
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/ipc"
 	"golang.zx2c4.com/wireguard/tun"
@@ -50,13 +52,28 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	if err != nil {
 		return nil, err
 	}
-
 	// We need to create a wireguard-go device and listen to configuration requests
 	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
 	err = tunDev.Up()
 	if err != nil {
 		_ = tunIface.Close()
 		return nil, err
+	}
+
+	luid := winipcfg.LUID(tunIface.(*tun.NativeTun).LUID())
+
+	nbiface, err := luid.IPInterface(windows.AF_INET)
+	if err != nil {
+		_ = tunIface.Close()
+		return nil, fmt.Errorf("got error when getting ip interface %s", err)
+	}
+
+	nbiface.NLMTU = uint32(c.mtu)
+
+	err = nbiface.Set()
+	if err != nil {
+		_ = tunIface.Close()
+		return nil, fmt.Errorf("got error when getting setting the interface mtu: %s", err)
 	}
 
 	c.uapi, err = c.getUAPI(c.name)
@@ -142,7 +159,7 @@ func (c *tunDevice) assignAddr() error {
 	tunDev := c.netInterface.(*tun.NativeTun)
 	luid := winipcfg.LUID(tunDev.LUID())
 	log.Debugf("adding address %s to interface: %s", c.address.IP, c.name)
-	return luid.SetIPAddresses([]net.IPNet{{c.address.IP, c.address.Network.Mask}})
+	return luid.SetIPAddresses([]netip.Prefix{netip.MustParsePrefix(c.address.String())})
 }
 
 // getUAPI returns a Listener

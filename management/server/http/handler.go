@@ -43,7 +43,7 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 	acMiddleware := middleware.NewAccessControl(
 		authCfg.Audience,
 		authCfg.UserIDClaim,
-		accountManager.IsUserAdmin)
+		accountManager.GetUser)
 
 	rootRouter := mux.NewRouter()
 	metricsMiddleware := appMetrics.HTTPMiddleware()

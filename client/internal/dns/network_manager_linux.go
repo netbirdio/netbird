@@ -11,8 +11,9 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/hashicorp/go-version"
 	"github.com/miekg/dns"
-	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -86,6 +87,10 @@ func newNetworkManagerDbusConfigurator(wgInterface *iface.WGIface) (hostManager,
 	return &networkManagerDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),
 	}, nil
+}
+
+func (n *networkManagerDbusConfigurator) supportCustomPort() bool {
+	return false
 }
 
 func (n *networkManagerDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {

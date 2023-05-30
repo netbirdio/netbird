@@ -91,6 +91,10 @@ const (
 	ServiceUserCreated
 	// ServiceUserDeleted indicates that a user deleted a service user
 	ServiceUserDeleted
+	// UserBlocked indicates that a user blocked another user
+	UserBlocked
+	// UserUnblocked indicates that a user unblocked another user
+	UserUnblocked
 )
 
 const (
@@ -184,6 +188,10 @@ const (
 	ServiceUserCreatedMessage string = "Service user created"
 	// ServiceUserDeletedMessage is a human-readable text message of the ServiceUserDeleted activity
 	ServiceUserDeletedMessage string = "Service user deleted"
+	// UserBlockedMessage is a human-readable text message of the UserBlocked activity
+	UserBlockedMessage string = "User blocked"
+	// UserUnblockedMessage is a human-readable text message of the UserUnblocked activity
+	UserUnblockedMessage string = "User unblocked"
 )
 
 // Activity that triggered an Event
@@ -282,6 +290,10 @@ func (a Activity) Message() string {
 		return ServiceUserCreatedMessage
 	case ServiceUserDeleted:
 		return ServiceUserDeletedMessage
+	case UserBlocked:
+		return UserBlockedMessage
+	case UserUnblocked:
+		return UserUnblockedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -300,6 +312,10 @@ func (a Activity) StringCode() string {
 		return "user.join"
 	case UserInvited:
 		return "user.invite"
+	case UserBlocked:
+		return "user.block"
+	case UserUnblocked:
+		return "user.unblock"
 	case AccountCreated:
 		return "account.create"
 	case RuleAdded:

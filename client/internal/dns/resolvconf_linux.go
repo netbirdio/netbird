@@ -5,8 +5,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/iface"
 )
 
 const resolvconfCommand = "resolvconf"
@@ -19,6 +20,10 @@ func newResolvConfConfigurator(wgInterface *iface.WGIface) (hostManager, error) 
 	return &resolvconf{
 		ifaceName: wgInterface.Name(),
 	}, nil
+}
+
+func (r *resolvconf) supportCustomPort() bool {
+	return false
 }
 
 func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {

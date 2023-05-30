@@ -39,8 +39,8 @@ type AzureManager struct {
 type AzureClientConfig struct {
 	ClientID         string
 	ClientSecret     string
-	GraphAPIEndpoint string
 	ObjectID         string
+	GraphAPIEndpoint string
 	TokenEndpoint    string
 	GrantType        string
 }
@@ -82,15 +82,30 @@ func NewAzureManager(config AzureClientConfig, appMetrics telemetry.AppMetrics) 
 		Timeout:   10 * time.Second,
 		Transport: httpTransport,
 	}
-
 	helper := JsonParser{}
 
-	if config.ClientID == "" || config.ClientSecret == "" || config.GrantType == "" || config.GraphAPIEndpoint == "" || config.TokenEndpoint == "" {
-		return nil, fmt.Errorf("azure idp configuration is not complete")
+	if config.ClientID == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, clientID is missing")
 	}
 
-	if config.GrantType != "client_credentials" {
-		return nil, fmt.Errorf("azure idp configuration failed. Grant Type should be client_credentials")
+	if config.ClientSecret == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, ClientSecret is missing")
+	}
+
+	if config.TokenEndpoint == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, TokenEndpoint is missing")
+	}
+
+	if config.GraphAPIEndpoint == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, GraphAPIEndpoint is missing")
+	}
+
+	if config.ObjectID == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, ObjectID is missing")
+	}
+
+	if config.GrantType == "" {
+		return nil, fmt.Errorf("azure IdP configuration is incomplete, GrantType is missing")
 	}
 
 	credentials := &AzureCredentials{

@@ -18,6 +18,11 @@ type program struct {
 	serv   *grpc.Server
 }
 
+func init() {
+	serviceCmd.AddCommand(runCmd, startCmd, stopCmd, restartCmd) // service control commands are subcommands of service
+	serviceCmd.AddCommand(installCmd, uninstallCmd)              // service installer commands are subcommands of service
+}
+
 func newProgram(ctx context.Context, cancel context.CancelFunc) *program {
 	ctx = internal.CtxInitState(ctx)
 	return &program{ctx: ctx, cancel: cancel}

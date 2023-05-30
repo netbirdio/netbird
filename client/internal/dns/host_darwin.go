@@ -8,8 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -37,6 +38,10 @@ func newHostManager(_ *iface.WGIface) (hostManager, error) {
 	return &systemConfigurator{
 		createdKeys: make(map[string]struct{}),
 	}, nil
+}
+
+func (s *systemConfigurator) supportCustomPort() bool {
+	return true
 }
 
 func (s *systemConfigurator) applyDNSConfig(config hostDNSConfig) error {

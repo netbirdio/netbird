@@ -7,9 +7,10 @@ import (
 	"hash/crc32"
 	"time"
 
-	"codeberg.org/ac/base62"
 	b "github.com/hashicorp/go-secure-stdlib/base62"
 	"github.com/rs/xid"
+
+	"github.com/netbirdio/netbird/base62"
 )
 
 const (

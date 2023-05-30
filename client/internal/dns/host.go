@@ -10,6 +10,7 @@ import (
 type hostManager interface {
 	applyDNSConfig(config hostDNSConfig) error
 	restoreHostDNS() error
+	supportCustomPort() bool
 }
 
 type hostDNSConfig struct {
@@ -26,8 +27,9 @@ type domainConfig struct {
 }
 
 type mockHostConfigurator struct {
-	applyDNSConfigFunc func(config hostDNSConfig) error
-	restoreHostDNSFunc func() error
+	applyDNSConfigFunc    func(config hostDNSConfig) error
+	restoreHostDNSFunc    func() error
+	supportCustomPortFunc func() bool
 }
 
 func (m *mockHostConfigurator) applyDNSConfig(config hostDNSConfig) error {
@@ -44,10 +46,18 @@ func (m *mockHostConfigurator) restoreHostDNS() error {
 	return fmt.Errorf("method restoreHostDNS is not implemented")
 }
 
+func (m *mockHostConfigurator) supportCustomPort() bool {
+	if m.supportCustomPortFunc != nil {
+		return m.supportCustomPortFunc()
+	}
+	return false
+}
+
 func newNoopHostMocker() hostManager {
 	return &mockHostConfigurator{
-		applyDNSConfigFunc: func(config hostDNSConfig) error { return nil },
-		restoreHostDNSFunc: func() error { return nil },
+		applyDNSConfigFunc:    func(config hostDNSConfig) error { return nil },
+		restoreHostDNSFunc:    func() error { return nil },
+		supportCustomPortFunc: func() bool { return true },
 	}
 }
 

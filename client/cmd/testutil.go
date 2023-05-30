@@ -2,13 +2,16 @@ package cmd
 
 import (
 	"context"
-	"github.com/netbirdio/netbird/management/server/activity"
 	"net"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/netbirdio/netbird/management/server/activity"
+
 	"github.com/netbirdio/netbird/util"
+
+	"google.golang.org/grpc"
 
 	clientProto "github.com/netbirdio/netbird/client/proto"
 	client "github.com/netbirdio/netbird/client/server"
@@ -16,7 +19,6 @@ import (
 	mgmt "github.com/netbirdio/netbird/management/server"
 	sigProto "github.com/netbirdio/netbird/signal/proto"
 	sig "github.com/netbirdio/netbird/signal/server"
-	"google.golang.org/grpc"
 )
 
 func startTestingServices(t *testing.T) string {
@@ -63,7 +65,7 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, err := mgmt.NewFileStore(config.Datadir)
+	store, err := mgmt.NewFileStore(config.Datadir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

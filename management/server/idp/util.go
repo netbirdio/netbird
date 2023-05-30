@@ -3,6 +3,7 @@ package idp
 import (
 	"encoding/json"
 	"math/rand"
+	"net/url"
 	"strings"
 )
 
@@ -56,4 +57,15 @@ func GeneratePassword(passwordLength, minSpecialChar, minNum, minUpperCase int) 
 		inRune[i], inRune[j] = inRune[j], inRune[i]
 	})
 	return string(inRune)
+}
+
+// baseURL returns the base url  by concatenating
+// the scheme and host components of the parsed URL.
+func baseURL(rawURL string) string {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+
+	return parsedURL.Scheme + "://" + parsedURL.Host
 }

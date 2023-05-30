@@ -62,6 +62,16 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 }
 
 func enableIPForwarding() error {
-	err := os.WriteFile(ipv4ForwardingPath, []byte("1"), 0644)
-	return err
+	bytes, err := os.ReadFile(ipv4ForwardingPath)
+	if err != nil {
+		return err
+	}
+
+	// check if it is already enabled
+	// see more: https://github.com/netbirdio/netbird/issues/872
+	if len(bytes) > 0 && bytes[0] == 49 {
+		return nil
+	}
+
+	return os.WriteFile(ipv4ForwardingPath, []byte("1"), 0644)
 }

@@ -9,10 +9,11 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/miekg/dns"
-	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
+
+	nbdns "github.com/netbirdio/netbird/dns"
+	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -73,6 +74,10 @@ func newSystemdDbusConfigurator(wgInterface *iface.WGIface) (hostManager, error)
 	return &systemdDbusConfigurator{
 		dbusLinkObject: dbus.ObjectPath(s),
 	}, nil
+}
+
+func (s *systemdDbusConfigurator) supportCustomPort() bool {
+	return true
 }
 
 func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {

@@ -42,7 +42,7 @@ func (h *PeersHandler) getPeer(account *server.Account, peerID, userID string, w
 }
 
 func (h *PeersHandler) updatePeer(account *server.Account, user *server.User, peerID string, w http.ResponseWriter, r *http.Request) {
-	req := &api.PutApiPeersPeerIdJSONBody{}
+	req := &api.PeerRequest{}
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
