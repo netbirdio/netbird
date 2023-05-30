@@ -200,13 +200,14 @@ func (w *Worker) generateProperties() properties {
 		routes = routes + len(account.Routes)
 		nameservers = nameservers + len(account.NameServerGroups)
 
-		for _, rule := range account.Rules {
-			policyRule := rule.ToPolicyRule()
-			rulesProtocol[string(policyRule.Protocol)]++
-			if policyRule.Bidirectional {
-				rulesDirection["bidirectional"]++
-			} else {
-				rulesDirection["oneway"]++
+		for _, policy := range account.Policies {
+			for _, rule := range policy.Rules {
+				rulesProtocol[string(rule.Protocol)]++
+				if rule.Bidirectional {
+					rulesDirection["bidirectional"]++
+				} else {
+					rulesDirection["oneway"]++
+				}
 			}
 		}
 
