@@ -98,25 +98,21 @@ func (p *WGEBPFProxy) CloseConn() error {
 
 // Free resources
 func (p *WGEBPFProxy) Free() error {
-	var err1, err2, err3 error
+	var err1, err2 error
 	if p.conn != nil {
 		err1 = p.conn.Close()
 	}
 
 	err2 = p.ebpf.free()
 	if p.rawConn != nil {
-		err3 = p.rawConn.Close()
+		err2 = p.rawConn.Close()
 	}
 
 	if err1 != nil {
 		return err1
 	}
 
-	if err2 != nil {
-		return err2
-	}
-
-	return err3
+	return err2
 }
 
 func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
