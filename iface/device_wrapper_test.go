@@ -1,6 +1,7 @@
 package iface
 
 import (
+	"bytes"
 	"net"
 	"testing"
 
@@ -13,13 +14,6 @@ import (
 func TestDeviceWrapperRead(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
-
-	tun := mocks.NewMockDevice(ctrl)
-	filter := mocks.NewMockPacketFilter(ctrl)
-
-	mockBufs := [][]byte{{}}
-	mockSizes := []int{0}
-	mockOffset := 0
 
 	t.Run("read ICMP", func(t *testing.T) {
 		ipLayer := &layers.IPv4{
@@ -46,6 +40,11 @@ func TestDeviceWrapperRead(t *testing.T) {
 			return
 		}
 
+		mockBufs := [][]byte{{}}
+		mockSizes := []int{0}
+		mockOffset := 0
+
+		tun := mocks.NewMockDevice(ctrl)
 		tun.EXPECT().Read(mockBufs, mockSizes, mockOffset).
 			DoAndReturn(func(bufs [][]byte, sizes []int, offset int) (int, error) {
 				bufs[0] = buffer.Bytes()
@@ -95,7 +94,10 @@ func TestDeviceWrapperRead(t *testing.T) {
 			return
 		}
 
+		mockBufs := [][]byte{buffer.Bytes()}
+
 		mockBufs[0] = buffer.Bytes()
+		tun := mocks.NewMockDevice(ctrl)
 		tun.EXPECT().Write(mockBufs, 0).Return(1, nil)
 
 		wrapped := newDeviceWrapper(tun)
@@ -138,10 +140,13 @@ func TestDeviceWrapperRead(t *testing.T) {
 			return
 		}
 
-		mockBufs = [][]byte{}
+		mockBufs := [][]byte{}
 
+		tun := mocks.NewMockDevice(ctrl)
 		tun.EXPECT().Write(mockBufs, 0).Return(0, nil)
-		filter.EXPECT().DropOutgoing(gomock.Any()).Return(true)
+
+		filter := mocks.NewMockPacketFilter(ctrl)
+		filter.EXPECT().DropIncoming(gomock.Any()).Return(true)
 
 		wrapped := newDeviceWrapper(tun)
 		wrapped.filter = filter
@@ -188,13 +193,15 @@ func TestDeviceWrapperRead(t *testing.T) {
 		mockSizes := []int{0}
 		mockOffset := 0
 
+		tun := mocks.NewMockDevice(ctrl)
 		tun.EXPECT().Read(mockBufs, mockSizes, mockOffset).
 			DoAndReturn(func(bufs [][]byte, sizes []int, offset int) (int, error) {
 				bufs[0] = buffer.Bytes()
 				sizes[0] = len(bufs[0])
 				return 1, nil
 			})
-		filter.EXPECT().DropIncoming(gomock.Any()).Return(true)
+		filter := mocks.NewMockPacketFilter(ctrl)
+		filter.EXPECT().DropOutgoing(gomock.Any()).Return(true)
 
 		wrapped := newDeviceWrapper(tun)
 		wrapped.filter = filter
@@ -210,6 +217,64 @@ func TestDeviceWrapperRead(t *testing.T) {
 		}
 		if n != 0 {
 			t.Errorf("expected n=0, got %d", n)
+			return
+		}
+	})
+
+	t.Run("read pushed packet instead real", func(t *testing.T) {
+		testData := []byte{0x1, 0x2, 0x3}
+
+		tun := mocks.NewMockDevice(ctrl)
+		wrapped := newDeviceWrapper(tun)
+		wrapped.NextRead(testData)
+
+		bufs := [][]byte{{}}
+		sizes := []int{0}
+		offset := 0
+
+		n, err := wrapped.Read(bufs, sizes, offset)
+		if err != nil {
+			t.Errorf("unexpeted error: %v", err)
+			return
+		}
+		if n != 1 {
+			t.Errorf("expected n=1, got %d", n)
+			return
+		}
+
+		if bytes.Compare(bufs[0], testData) != 0 {
+			t.Errorf("expected %v, got %v", testData, bufs[0])
+			return
+		}
+
+		mockBufs := [][]byte{{}}
+		mockSizes := []int{0}
+		mockOffset := 0
+
+		testData = []byte{0x2, 0x3, 0x4}
+		tun.EXPECT().Read(mockBufs, mockSizes, mockOffset).
+			DoAndReturn(func(bufs [][]byte, sizes []int, offset int) (int, error) {
+				bufs[0] = testData[:]
+				sizes[0] = len(bufs[0])
+				return 1, nil
+			})
+
+		bufs = [][]byte{{}}
+		sizes = []int{0}
+		offset = 0
+
+		n, err = wrapped.Read(bufs, sizes, offset)
+		if err != nil {
+			t.Errorf("unexpeted error: %v", err)
+			return
+		}
+		if n != 1 {
+			t.Errorf("expected n=1, got %d", n)
+			return
+		}
+
+		if bytes.Compare(testData, bufs[0]) != 0 {
+			t.Errorf("expected %v, got %v", testData, bufs[0])
 			return
 		}
 	})

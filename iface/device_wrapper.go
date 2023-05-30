@@ -43,20 +43,15 @@ func newDeviceWrapper(device tun.Device) *DeviceWrapper {
 
 // Read wraps read method with filtering feature
 func (d *DeviceWrapper) Read(bufs [][]byte, sizes []int, offset int) (n int, err error) {
-	d.mutex.RLock()
-	var next []byte
-	if len(d.next) > 0 {
-		next = <-d.next
-	}
-	d.mutex.RUnlock()
-
-	if next != nil {
+	select {
+	case next := <-d.next:
 		if len(bufs) == 0 {
 			bufs = append(bufs, next)
 		} else {
 			bufs[0] = next
 		}
 		return 1, nil
+	default:
 	}
 
 	if n, err = d.Device.Read(bufs, sizes, offset); err != nil {

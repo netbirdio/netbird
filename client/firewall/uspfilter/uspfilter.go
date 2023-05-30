@@ -341,6 +341,4 @@ func (m *Manager) AddUDPPacketHook(
 		m.rulesIndex[toUpdate[i].id] = i
 	}
 	m.mutex.Unlock()
-
-	return
 }
