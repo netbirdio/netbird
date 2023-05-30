@@ -631,7 +631,10 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 
 	if e.acl != nil {
-		e.acl.ApplyFiltering(networkMap.FirewallRules)
+		// if we got empty rules list but management not set networkMap.FirewallRulesIsEmpty flag
+		// we have old version of management without rules handling, we should allow all traffic
+		allowByDefault := len(networkMap.FirewallRules) == 0 && !networkMap.FirewallRulesIsEmpty
+		e.acl.ApplyFiltering(networkMap.FirewallRules, allowByDefault)
 	}
 	e.networkSerial = serial
 	return nil

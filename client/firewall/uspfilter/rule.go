@@ -13,6 +13,7 @@ type Rule struct {
 	id         string
 	ip         net.IP
 	ipLayer    gopacket.LayerType
+	matchByIP  bool
 	protoLayer gopacket.LayerType
 	direction  fw.RuleDirection
 	sPort      uint16

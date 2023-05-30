@@ -50,7 +50,7 @@ func TestDefaultManager(t *testing.T) {
 	defer acl.Stop()
 
 	t.Run("apply firewall rules", func(t *testing.T) {
-		acl.ApplyFiltering(fwRules)
+		acl.ApplyFiltering(fwRules, false)
 
 		if len(acl.rulesPairs) != 2 {
 			t.Errorf("firewall rules not applied: %v", acl.rulesPairs)
@@ -73,7 +73,7 @@ func TestDefaultManager(t *testing.T) {
 			existedRulesID[id] = struct{}{}
 		}
 
-		acl.ApplyFiltering(fwRules)
+		acl.ApplyFiltering(fwRules, false)
 
 		// we should have one old and one new rule in the existed rules
 		if len(acl.rulesPairs) != 2 {

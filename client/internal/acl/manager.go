@@ -22,7 +22,7 @@ type iFaceMapper interface {
 
 // Manager is a ACL rules manager
 type Manager interface {
-	ApplyFiltering(rules []*mgmProto.FirewallRule)
+	ApplyFiltering(rules []*mgmProto.FirewallRule, allowByDefault bool)
 	Stop()
 }
 
@@ -34,7 +34,9 @@ type DefaultManager struct {
 }
 
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
-func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule) {
+//
+// If allowByDefault is ture it appends allow ALL traffic rules to input and output chains.
+func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule, allowByDefault bool) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -47,6 +49,22 @@ func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule) {
 		applyFailed  bool
 		newRulePairs = make(map[string][]firewall.Rule)
 	)
+	if allowByDefault {
+		rules = append(rules,
+			&mgmProto.FirewallRule{
+				PeerIP:    "0.0.0.0",
+				Direction: mgmProto.FirewallRule_IN,
+				Action:    mgmProto.FirewallRule_ACCEPT,
+				Protocol:  mgmProto.FirewallRule_ALL,
+			},
+			&mgmProto.FirewallRule{
+				PeerIP:    "0.0.0.0",
+				Direction: mgmProto.FirewallRule_OUT,
+				Action:    mgmProto.FirewallRule_ACCEPT,
+				Protocol:  mgmProto.FirewallRule_ALL,
+			},
+		)
+	}
 	for _, r := range rules {
 		rules, err := d.protoRuleToFirewallRule(r)
 		if err != nil {
