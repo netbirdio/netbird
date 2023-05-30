@@ -109,7 +109,7 @@ type Conn struct {
 
 	statusRecorder *Status
 
-	wgProxy      *wgproxy.WGProxy
+	wgProxy      wgproxy.Proxy
 	remoteModeCh chan ModeMessage
 	meta         meta
 
@@ -145,7 +145,7 @@ func (conn *Conn) UpdateStunTurn(turnStun []*ice.URL) {
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, wgProxy *wgproxy.WGProxy, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status, wgProxy wgproxy.Proxy, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -364,7 +364,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 	if isRelayCandidate(pair.Local) {
 		log.Debugf("setup relay connection")
 		direct = false
-		endpoint, err = conn.wgProxy.TurnConn(remoteConn)
+		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
 		if err != nil {
 			return nil, err
 		}

@@ -103,7 +103,7 @@ type Engine struct {
 	ctx context.Context
 
 	wgInterface *iface.WGIface
-	wgProxy     *wgproxy.WGProxy
+	wgProxy     wgproxy.Proxy
 
 	udpMux     *bind.UniversalUDPMuxDefault
 	udpMuxConn io.Closer
@@ -185,11 +185,7 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	e.wgProxy = wgproxy.NewWGProxy(e.config.WgPort)
-	err = e.wgProxy.Listen()
-	if err != nil {
-		return err
-	}
+	e.wgProxy = wgproxy.GetProxy(e.config.WgPort)
 
 	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
