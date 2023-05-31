@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/stretchr/testify/require"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
@@ -168,6 +170,72 @@ func TestManagerReset(t *testing.T) {
 
 	if len(m.rulesIndex) != 0 || len(m.outgoingRules) != 0 || len(m.incomingRules) != 0 {
 		t.Errorf("rules is not empty")
+	}
+}
+
+func TestNotMatchByIP(t *testing.T) {
+	ifaceMock := &IFaceMock{
+		SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+	}
+
+	m, err := Create(ifaceMock)
+	if err != nil {
+		t.Errorf("failed to create Manager: %v", err)
+		return
+	}
+	m.wgNetwork = &net.IPNet{
+		IP:   net.ParseIP("100.10.0.0"),
+		Mask: net.CIDRMask(16, 32),
+	}
+
+	ip := net.ParseIP("0.0.0.0")
+	proto := fw.ProtocolUDP
+	direction := fw.RuleDirectionOUT
+	action := fw.ActionAccept
+	comment := "Test rule"
+
+	_, err = m.AddFiltering(ip, proto, nil, nil, direction, action, comment)
+	if err != nil {
+		t.Errorf("failed to add filtering: %v", err)
+		return
+	}
+
+	ipv4 := &layers.IPv4{
+		TTL:      64,
+		Version:  4,
+		SrcIP:    net.ParseIP("100.10.0.1"),
+		DstIP:    net.ParseIP("100.10.0.100"),
+		Protocol: layers.IPProtocolUDP,
+	}
+	udp := &layers.UDP{
+		SrcPort: 51334,
+		DstPort: 53,
+	}
+
+	if err := udp.SetNetworkLayerForChecksum(ipv4); err != nil {
+		t.Errorf("failed to set network layer for checksum: %v", err)
+		return
+	}
+	payload := gopacket.Payload([]byte("test"))
+
+	buf := gopacket.NewSerializeBuffer()
+	opts := gopacket.SerializeOptions{
+		ComputeChecksums: true,
+		FixLengths:       true,
+	}
+	if err = gopacket.SerializeLayers(buf, opts, ipv4, udp, payload); err != nil {
+		t.Errorf("failed to serialize packet: %v", err)
+		return
+	}
+
+	if m.dropFilter(buf.Bytes(), m.outgoingRules, false) {
+		t.Errorf("expected packet to be accepted")
+		return
+	}
+
+	if err = m.Reset(); err != nil {
+		t.Errorf("failed to reset Manager: %v", err)
+		return
 	}
 }
 

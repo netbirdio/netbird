@@ -139,37 +139,40 @@ func (m *Manager) AddFiltering(
 		})
 	}
 
-	// source address position
-	var adrLen, adrOffset uint32
-	if ip.To4() == nil {
-		adrLen = 16
-		adrOffset = 8
-	} else {
-		adrLen = 4
-		adrOffset = 12
+	// don't use IP matching if IP is ip 0.0.0.0
+	if s := ip.String(); s != "0.0.0.0" && s != "::" {
+		// source address position
+		var adrLen, adrOffset uint32
+		if ip.To4() == nil {
+			adrLen = 16
+			adrOffset = 8
+		} else {
+			adrLen = 4
+			adrOffset = 12
+		}
+
+		// change to destination address position if need
+		if direction == fw.RuleDirectionOUT {
+			adrOffset += adrLen
+		}
+
+		ipToAdd, _ := netip.AddrFromSlice(ip)
+		add := ipToAdd.Unmap()
+
+		expressions = append(expressions,
+			&expr.Payload{
+				DestRegister: 1,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       adrOffset,
+				Len:          adrLen,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     add.AsSlice(),
+			},
+		)
 	}
-
-	// change to destination address position if need
-	if direction == fw.RuleDirectionOUT {
-		adrOffset += adrLen
-	}
-
-	ipToAdd, _ := netip.AddrFromSlice(ip)
-	add := ipToAdd.Unmap()
-
-	expressions = append(expressions,
-		&expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       adrOffset,
-			Len:          adrLen,
-		},
-		&expr.Cmp{
-			Op:       expr.CmpOpEq,
-			Register: 1,
-			Data:     add.AsSlice(),
-		},
-	)
 
 	if sPort != nil && len(sPort.Values) != 0 {
 		expressions = append(expressions,

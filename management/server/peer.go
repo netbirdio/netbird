@@ -395,9 +395,11 @@ func (am *DefaultAccountManager) DeletePeer(accountID, peerID, userID string) (*
 				RemotePeersIsEmpty: true,
 				// new field
 				NetworkMap: &proto.NetworkMap{
-					Serial:             account.Network.CurrentSerial(),
-					RemotePeers:        []*proto.RemotePeerConfig{},
-					RemotePeersIsEmpty: true,
+					Serial:               account.Network.CurrentSerial(),
+					RemotePeers:          []*proto.RemotePeerConfig{},
+					RemotePeersIsEmpty:   true,
+					FirewallRules:        []*proto.FirewallRule{},
+					FirewallRulesIsEmpty: true,
 				},
 			},
 		})
