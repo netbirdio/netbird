@@ -1,14 +1,23 @@
 package firewall
 
-// PortProtocol is the protocol of the port
-type PortProtocol string
+// Protocol is the protocol of the port
+type Protocol string
 
 const (
-	// PortProtocolTCP is the TCP protocol
-	PortProtocolTCP PortProtocol = "tcp"
+	// ProtocolTCP is the TCP protocol
+	ProtocolTCP Protocol = "tcp"
 
-	// PortProtocolUDP is the UDP protocol
-	PortProtocolUDP PortProtocol = "udp"
+	// ProtocolUDP is the UDP protocol
+	ProtocolUDP Protocol = "udp"
+
+	// ProtocolICMP is the ICMP protocol
+	ProtocolICMP Protocol = "icmp"
+
+	// ProtocolALL cover all supported protocols
+	ProtocolALL Protocol = "all"
+
+	// ProtocolUnknown unknown protocol
+	ProtocolUnknown Protocol = "unknown"
 )
 
 // Port of the address for firewall rule
@@ -18,7 +27,4 @@ type Port struct {
 
 	// Values contains one value for single port, multiple values for the list of ports, or two values for the range of ports
 	Values []int
-
-	// Proto is the protocol of the port
-	Proto PortProtocol
 }

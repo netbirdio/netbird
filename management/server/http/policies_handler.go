@@ -6,7 +6,6 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/http/api"
@@ -47,7 +46,17 @@ func (h *Policies) GetAllPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	util.WriteJSONObject(w, accountPolicies)
+	policies := []*api.Policy{}
+	for _, policy := range accountPolicies {
+		resp := toPolicyResponse(account, policy)
+		if len(resp.Rules) == 0 {
+			util.WriteError(status.Errorf(status.Internal, "no rules in the policy"), w)
+			return
+		}
+		policies = append(policies, resp)
+	}
+
+	util.WriteJSONObject(w, policies)
 }
 
 // UpdatePolicy handles update to a policy identified by a given ID
@@ -78,63 +87,7 @@ func (h *Policies) UpdatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PutApiPoliciesPolicyIdJSONRequestBody
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
-		return
-	}
-
-	if req.Name == "" {
-		util.WriteError(status.Errorf(status.InvalidArgument, "policy name shouldn't be empty"), w)
-		return
-	}
-
-	policy := server.Policy{
-		ID:          policyID,
-		Name:        req.Name,
-		Enabled:     req.Enabled,
-		Description: req.Description,
-		Query:       req.Query,
-	}
-	if req.Rules != nil {
-		for _, r := range req.Rules {
-			pr := server.PolicyRule{
-				Destinations: groupMinimumsToStrings(account, r.Destinations),
-				Sources:      groupMinimumsToStrings(account, r.Sources),
-				Name:         r.Name,
-			}
-			pr.Enabled = r.Enabled
-			if r.Description != nil {
-				pr.Description = *r.Description
-			}
-			if r.Id != nil {
-				pr.ID = *r.Id
-			}
-			switch r.Action {
-			case api.PolicyRuleActionAccept:
-				pr.Action = server.PolicyTrafficActionAccept
-			case api.PolicyRuleActionDrop:
-				pr.Action = server.PolicyTrafficActionDrop
-			default:
-				util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
-				return
-			}
-			policy.Rules = append(policy.Rules, &pr)
-		}
-	}
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		log.Errorf("failed to update policy query: %v", err)
-		util.WriteError(err, w)
-		return
-	}
-
-	if err = h.accountManager.SavePolicy(account.Id, user.Id, &policy); err != nil {
-		util.WriteError(err, w)
-		return
-	}
-
-	util.WriteJSONObject(w, toPolicyResponse(account, &policy))
+	h.savePolicy(w, r, account, user, policyID)
 }
 
 // CreatePolicy handles policy creation request
@@ -146,9 +99,19 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req api.PostApiPoliciesJSONRequestBody
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
+	h.savePolicy(w, r, account, user, "")
+}
+
+// savePolicy handles policy creation and update
+func (h *Policies) savePolicy(
+	w http.ResponseWriter,
+	r *http.Request,
+	account *server.Account,
+	user *server.User,
+	policyID string,
+) {
+	var req api.PutApiPoliciesPolicyIdJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
 		return
 	}
@@ -158,49 +121,97 @@ func (h *Policies) CreatePolicy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	policy := &server.Policy{
-		ID:          xid.New().String(),
+	if len(req.Rules) == 0 {
+		util.WriteError(status.Errorf(status.InvalidArgument, "policy rules shouldn't be empty"), w)
+		return
+	}
+
+	if policyID == "" {
+		policyID = xid.New().String()
+	}
+
+	policy := server.Policy{
+		ID:          policyID,
 		Name:        req.Name,
 		Enabled:     req.Enabled,
 		Description: req.Description,
-		Query:       req.Query,
 	}
+	for _, r := range req.Rules {
+		pr := server.PolicyRule{
+			ID:            policyID, //TODO: when policy can contain multiple rules, need refactor
+			Name:          r.Name,
+			Destinations:  groupMinimumsToStrings(account, r.Destinations),
+			Sources:       groupMinimumsToStrings(account, r.Sources),
+			Bidirectional: r.Bidirectional,
+		}
 
-	if req.Rules != nil {
-		for _, r := range req.Rules {
-			pr := server.PolicyRule{
-				ID:           xid.New().String(),
-				Destinations: groupMinimumsToStrings(account, r.Destinations),
-				Sources:      groupMinimumsToStrings(account, r.Sources),
-				Name:         r.Name,
-			}
-			pr.Enabled = r.Enabled
-			if r.Description != nil {
-				pr.Description = *r.Description
-			}
-			switch r.Action {
-			case api.PolicyRuleActionAccept:
-				pr.Action = server.PolicyTrafficActionAccept
-			case api.PolicyRuleActionDrop:
-				pr.Action = server.PolicyTrafficActionDrop
-			default:
-				util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
+		pr.Enabled = r.Enabled
+		if r.Description != nil {
+			pr.Description = *r.Description
+		}
+
+		switch r.Action {
+		case api.PolicyRuleUpdateActionAccept:
+			pr.Action = server.PolicyTrafficActionAccept
+		case api.PolicyRuleUpdateActionDrop:
+			pr.Action = server.PolicyTrafficActionDrop
+		default:
+			util.WriteError(status.Errorf(status.InvalidArgument, "unknown action type"), w)
+			return
+		}
+
+		switch r.Protocol {
+		case api.PolicyRuleUpdateProtocolAll:
+			pr.Protocol = server.PolicyRuleProtocolALL
+		case api.PolicyRuleUpdateProtocolTcp:
+			pr.Protocol = server.PolicyRuleProtocolTCP
+		case api.PolicyRuleUpdateProtocolUdp:
+			pr.Protocol = server.PolicyRuleProtocolUDP
+		case api.PolicyRuleUpdateProtocolIcmp:
+			pr.Protocol = server.PolicyRuleProtocolICMP
+		default:
+			util.WriteError(status.Errorf(status.InvalidArgument, "unknown protocol type: %v", r.Protocol), w)
+			return
+		}
+
+		if r.Ports != nil && len(*r.Ports) != 0 {
+			ports := *r.Ports
+			pr.Ports = ports[:]
+		}
+
+		// validate policy object
+		switch pr.Protocol {
+		case server.PolicyRuleProtocolALL, server.PolicyRuleProtocolICMP:
+			if len(pr.Ports) != 0 {
+				util.WriteError(status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol ports is not allowed"), w)
 				return
 			}
-			policy.Rules = append(policy.Rules, &pr)
+			if !pr.Bidirectional {
+				util.WriteError(status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
+				return
+			}
+		case server.PolicyRuleProtocolTCP, server.PolicyRuleProtocolUDP:
+			if !pr.Bidirectional && len(pr.Ports) == 0 {
+				util.WriteError(status.Errorf(status.InvalidArgument, "for ALL or ICMP protocol type flow can be only bi-directional"), w)
+				return
+			}
 		}
+
+		policy.Rules = append(policy.Rules, &pr)
 	}
-	if err := policy.UpdateQueryFromRules(); err != nil {
+
+	if err := h.accountManager.SavePolicy(account.Id, user.Id, &policy); err != nil {
 		util.WriteError(err, w)
 		return
 	}
 
-	if err = h.accountManager.SavePolicy(account.Id, user.Id, policy); err != nil {
-		util.WriteError(err, w)
+	resp := toPolicyResponse(account, &policy)
+	if len(resp.Rules) == 0 {
+		util.WriteError(status.Errorf(status.Internal, "no rules in the policy"), w)
 		return
 	}
 
-	util.WriteJSONObject(w, toPolicyResponse(account, policy))
+	util.WriteJSONObject(w, resp)
 }
 
 // DeletePolicy handles policy deletion request
@@ -252,7 +263,13 @@ func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		util.WriteJSONObject(w, toPolicyResponse(account, policy))
+		resp := toPolicyResponse(account, policy)
+		if len(resp.Rules) == 0 {
+			util.WriteError(status.Errorf(status.Internal, "no rules in the policy"), w)
+			return
+		}
+
+		util.WriteJSONObject(w, resp)
 	default:
 		util.WriteError(status.Errorf(status.NotFound, "method not found"), w)
 	}
@@ -261,22 +278,24 @@ func (h *Policies) GetPolicy(w http.ResponseWriter, r *http.Request) {
 func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Policy {
 	cache := make(map[string]api.GroupMinimum)
 	ap := &api.Policy{
-		Id:          policy.ID,
+		Id:          &policy.ID,
 		Name:        policy.Name,
 		Description: policy.Description,
 		Enabled:     policy.Enabled,
-		Query:       policy.Query,
 	}
-	if len(policy.Rules) == 0 {
-		return ap
-	}
-
 	for _, r := range policy.Rules {
 		rule := api.PolicyRule{
-			Id:          &r.ID,
-			Name:        r.Name,
-			Enabled:     r.Enabled,
-			Description: &r.Description,
+			Id:            &r.ID,
+			Name:          r.Name,
+			Enabled:       r.Enabled,
+			Description:   &r.Description,
+			Bidirectional: r.Bidirectional,
+			Protocol:      api.PolicyRuleProtocol(r.Protocol),
+			Action:        api.PolicyRuleAction(r.Action),
+		}
+		if len(r.Ports) != 0 {
+			portsCopy := r.Ports[:]
+			rule.Ports = &portsCopy
 		}
 		for _, gid := range r.Sources {
 			_, ok := cache[gid]
@@ -314,13 +333,13 @@ func toPolicyResponse(account *server.Account, policy *server.Policy) *api.Polic
 	return ap
 }
 
-func groupMinimumsToStrings(account *server.Account, gm []api.GroupMinimum) []string {
+func groupMinimumsToStrings(account *server.Account, gm []string) []string {
 	result := make([]string, 0, len(gm))
-	for _, gm := range gm {
-		if _, ok := account.Groups[gm.Id]; ok {
+	for _, g := range gm {
+		if _, ok := account.Groups[g]; !ok {
 			continue
 		}
-		result = append(result, gm.Id)
+		result = append(result, g)
 	}
 	return result
 }

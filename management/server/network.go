@@ -25,11 +25,12 @@ const (
 )
 
 type NetworkMap struct {
-	Peers        []*Peer
-	Network      *Network
-	Routes       []*route.Route
-	DNSConfig    nbdns.Config
-	OfflinePeers []*Peer
+	Peers         []*Peer
+	Network       *Network
+	Routes        []*route.Route
+	DNSConfig     nbdns.Config
+	OfflinePeers  []*Peer
+	FirewallRules []*FirewallRule
 }
 
 type Network struct {
@@ -118,14 +119,15 @@ func generateIPs(ipNet *net.IPNet, exclusions map[string]struct{}) ([]net.IP, in
 		}
 	}
 
-	// remove network address and broadcast address
+	// remove network address, broadcast and Fake DNS resolver address
 	lenIPs := len(ips)
 	switch {
 	case lenIPs < 2:
 		return ips, lenIPs
-
-	default:
+	case lenIPs < 3:
 		return ips[1 : len(ips)-1], lenIPs - 2
+	default:
+		return ips[1 : len(ips)-2], lenIPs - 3
 	}
 }
 

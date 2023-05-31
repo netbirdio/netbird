@@ -67,13 +67,15 @@ func (r *Rule) ToPolicyRule() *PolicyRule {
 		return nil
 	}
 	return &PolicyRule{
-		ID:           r.ID,
-		Name:         r.Name,
-		Enabled:      !r.Disabled,
-		Description:  r.Description,
-		Action:       PolicyTrafficActionAccept,
-		Destinations: r.Destination,
-		Sources:      r.Source,
+		ID:            r.ID,
+		Name:          r.Name,
+		Enabled:       !r.Disabled,
+		Description:   r.Description,
+		Destinations:  r.Destination,
+		Sources:       r.Source,
+		Bidirectional: true,
+		Protocol:      PolicyRuleProtocolALL,
+		Action:        PolicyTrafficActionAccept,
 	}
 }
 
@@ -82,15 +84,11 @@ func RuleToPolicy(rule *Rule) (*Policy, error) {
 	if rule == nil {
 		return nil, fmt.Errorf("rule is empty")
 	}
-	policy := &Policy{
+	return &Policy{
 		ID:          rule.ID,
 		Name:        rule.Name,
 		Description: rule.Description,
 		Enabled:     !rule.Disabled,
 		Rules:       []*PolicyRule{rule.ToPolicyRule()},
-	}
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		return nil, err
-	}
-	return policy, nil
+	}, nil
 }

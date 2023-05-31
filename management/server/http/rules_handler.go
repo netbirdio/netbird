@@ -112,10 +112,6 @@ func (h *RulesHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	policy.Rules[0].Destinations = reqDestinations
 	policy.Rules[0].Enabled = !req.Disabled
 	policy.Rules[0].Description = req.Description
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		util.WriteError(err, w)
-		return
-	}
 
 	switch req.Flow {
 	case server.TrafficFlowBidirectString:

@@ -919,16 +919,13 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		Enabled: true,
 		Rules: []*PolicyRule{
 			{
-				Enabled:      true,
-				Sources:      []string{"group-id"},
-				Destinations: []string{"group-id"},
-				Action:       PolicyTrafficActionAccept,
+				Enabled:       true,
+				Sources:       []string{"group-id"},
+				Destinations:  []string{"group-id"},
+				Bidirectional: true,
+				Action:        PolicyTrafficActionAccept,
 			},
 		},
-	}
-	if err := policy.UpdateQueryFromRules(); err != nil {
-		t.Errorf("update policy query from rules: %v", err)
-		return
 	}
 
 	wg := sync.WaitGroup{}

@@ -30,9 +30,6 @@ func initRulesTestData(rules ...*server.Rule) *RulesHandler {
 		if err != nil {
 			panic(err)
 		}
-		if err := policy.UpdateQueryFromRules(); err != nil {
-			panic(err)
-		}
 		testPolicies[policy.ID] = policy
 	}
 	return &RulesHandler{

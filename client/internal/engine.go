@@ -17,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
+	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/proxy"
@@ -114,6 +115,7 @@ type Engine struct {
 	statusRecorder *peer.Status
 
 	routeManager routemanager.Manager
+	acl          acl.Manager
 
 	dnsServer dns.Server
 }
@@ -180,11 +182,19 @@ func (e *Engine) Start() error {
 	if err != nil {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
-	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.Routes, e.mobileDep.TunAdapter, transportNet)
+
+	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err
 	}
+
+	routes, err := e.readInitialRoutes()
+	if err != nil {
+		return err
+	}
+	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
+	e.routeManager.SetRouteChangeListener(e.mobileDep.RouteListener)
 
 	err = e.wgInterface.Create()
 	if err != nil {
@@ -220,7 +230,11 @@ func (e *Engine) Start() error {
 		e.udpMux = mux
 	}
 
-	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder)
+	if acl, err := acl.Create(e.wgInterface); err != nil {
+		log.Errorf("failed to create ACL manager, policy will not work: %s", err.Error())
+	} else {
+		e.acl = acl
+	}
 
 	if e.dnsServer == nil {
 		// todo fix custom address
@@ -622,6 +636,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		log.Errorf("failed to update dns server, err: %v", err)
 	}
 
+	if e.acl != nil {
+		e.acl.ApplyFiltering(networkMap.FirewallRules)
+	}
 	e.networkSerial = serial
 	return nil
 }
@@ -1004,6 +1021,22 @@ func (e *Engine) close() {
 	if e.dnsServer != nil {
 		e.dnsServer.Stop()
 	}
+
+	if e.acl != nil {
+		e.acl.Stop()
+	}
+}
+
+func (e *Engine) readInitialRoutes() ([]*route.Route, error) {
+	if runtime.GOOS != "android" {
+		return nil, nil
+	}
+
+	routesResp, err := e.mgmClient.GetRoutes()
+	if err != nil {
+		return nil, err
+	}
+	return toRoutes(routesResp), nil
 
 }
 
