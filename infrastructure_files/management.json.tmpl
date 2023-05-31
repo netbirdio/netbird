@@ -42,11 +42,11 @@
         "ClientConfig": {
             "Issuer": "$NETBIRD_AUTH_AUTHORITY",
             "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
-            "ClientID": "$NETBIRD_MGMT_CLIENT_ID",
-            "ClientSecret": "$NETBIRD_MGMT_CLIENT_SECRET",
+            "ClientID": "$NETBIRD_IDP_MGMT_CLIENT_ID",
+            "ClientSecret": "$NETBIRD_IDP_MGMT_CLIENT_SECRET",
             "GrantType": "client_credentials"
         },
-        "ExtraConfig": $NETBIRD_MGMT_EXTRA_CONFIG
+        "ExtraConfig": $NETBIRD_IDP_MGMT_EXTRA_CONFIG
      },
     "DeviceAuthorizationFlow": {
         "Provider": "$NETBIRD_AUTH_DEVICE_AUTH_PROVIDER",

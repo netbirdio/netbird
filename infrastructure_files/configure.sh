@@ -137,7 +137,7 @@ fi
 
 # Check if management identity provider is set
 if [ -n "$NETBIRD_MGMT_IDP" ]; then
-  NETBIRD_MGMT_EXTRA_CONFIG={}
+  EXTRA_CONFIG={}
 
   # extract extra config from all env prefixed with NETBIRD_IDP_MGMT_EXTRA_
   for var in ${!NETBIRD_IDP_MGMT_EXTRA_*}; do
@@ -148,13 +148,14 @@ if [ -n "$NETBIRD_MGMT_IDP" ]; then
     )
     value="${!var}"
 
-    NETBIRD_MGMT_EXTRA_CONFIG=$(jq --arg k "$key" --arg v "$value" '.[$k] = $v' <<<"$NETBIRD_MGMT_EXTRA_CONFIG")
+   echo "$var"
+    EXTRA_CONFIG=$(jq --arg k "$key" --arg v "$value" '.[$k] = $v' <<<"$EXTRA_CONFIG")
   done
 
   export NETBIRD_MGMT_IDP
-  export NETBIRD_MGMT_CLIENT_ID
-  export NETBIRD_MGMT_CLIENT_SECRET
-  export NETBIRD_MGMT_EXTRA_CONFIG
+  export NETBIRD_IDP_MGMT_CLIENT_ID
+  export NETBIRD_IDP_MGMT_CLIENT_SECRET
+  export NETBIRD_IDP_MGMT_EXTRA_CONFIG=$EXTRA_CONFIG
 fi
 
 env | grep NETBIRD
