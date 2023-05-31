@@ -4,7 +4,7 @@ APP=/Applications/NetBird.app
 AGENT=/usr/local/bin/netbird
 LOG_FILE=/var/log/netbird/client_install.log
 
-mkdir -p $LOG_FILE
+mkdir -p /var/log/netbird/
 
 {
     echo "Installing NetBird..."
