@@ -1,7 +1,5 @@
 #!/bin/bash
 
-source zitadel.sh
-
 if ! which curl >/dev/null 2>&1; then
   echo "This script uses curl fetch OpenID configuration from IDP."
   echo "Please install curl and re-run the script https://curl.se/"
@@ -103,7 +101,7 @@ export NETBIRD_AUTH_SUPPORTED_SCOPES=$(jq -r '.scopes_supported | join(" ")' ope
 export NETBIRD_AUTH_TOKEN_ENDPOINT=$(jq -r '.token_endpoint' openid-configuration.json)
 export NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT=$(jq -r '.device_authorization_endpoint' openid-configuration.json)
 
-if [ "$NETBIRD_USE_AUTH0" == "true" ]; then
+if [ $NETBIRD_USE_AUTH0 == "true" ]; then
   export NETBIRD_AUTH_SUPPORTED_SCOPES="openid profile email offline_access api email_verified"
 else
   export NETBIRD_AUTH_SUPPORTED_SCOPES="openid profile email offline_access api"
@@ -137,28 +135,15 @@ if [[ "$NETBIRD_DISABLE_LETSENCRYPT" == "true" ]]; then
   unset NETBIRD_MGMT_API_CERT_KEY_FILE
 fi
 
-env | grep NETBIRD
-
-MGMT_JSON_TEMPLATE="management.json.tmpl"
-
-# configure zitadel IdP
-if [[ "$NETBIRD_IDP_PROVIDER" == "zitadel" ]]; then
-
-  configure_zitadel_instance
-
-  if [ -n "$APPLICATION_CLIENT_ID" ]; then
-    export NETBIRD_AUTH_CLIENT_ID="$APPLICATION_CLIENT_ID"
-    export NETBIRD_AUTH_AUDIENCE="$APPLICATION_CLIENT_ID"
-    export NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID="$APPLICATION_CLIENT_ID"
-    export NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE="$APPLICATION_CLIENT_ID"
-    export ZITADEL_CLIENT_ID="$ZITADEL_CLIENT_ID"
-    export ZITADEL_CLIENT_SECRET="$ZITADEL_CLIENT_SECRET"
-    export ZITADEL_INSTANCE_URL="$INSTANCE_URL"
-  fi
-
-  MGMT_JSON_TEMPLATE="management.json.zitadel.tmpl"
+# Check if management identity provider is set
+if [ -n "$NETBIRD_MGMT_IDP" ]; then
+  export NETBIRD_MGMT_IDP
+  export NETBIRD_MGMT_CLIENT_ID
+  export NETBIRD_MGMT_CLIENT_SECRET
 fi
 
+env | grep NETBIRD
+
 envsubst <docker-compose.yml.tmpl >docker-compose.yml
+envsubst <management.json.tmpl >management.json
 envsubst <turnserver.conf.tmpl >turnserver.conf
-envsubst <$MGMT_JSON_TEMPLATE >management.json

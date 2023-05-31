@@ -38,7 +38,15 @@
         "OIDCConfigEndpoint":"$NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT"
     },
     "IdpManagerConfig": {
-        "Manager": "none"
+        "ManagerType": "$NETBIRD_MGMT_IDP",
+        "ClientConfig": {
+            "Issuer": "$NETBIRD_AUTH_AUTHORITY",
+            "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
+            "ClientID": "$NETBIRD_MGMT_CLIENT_ID",
+            "ClientSecret": "$NETBIRD_MGMT_CLIENT_SECRET",
+            "GrantType": "client_credentials"
+        },
+        "ExtraConfig": {}
      },
     "DeviceAuthorizationFlow": {
         "Provider": "$NETBIRD_AUTH_DEVICE_AUTH_PROVIDER",
