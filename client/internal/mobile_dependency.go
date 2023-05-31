@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/iface"
 )
@@ -9,5 +10,5 @@ import (
 type MobileDependency struct {
 	TunAdapter    iface.TunAdapter
 	IFaceDiscover stdnet.ExternalIFaceDiscover
-	Routes        []string
+	RouteListener routemanager.RouteListener
 }
