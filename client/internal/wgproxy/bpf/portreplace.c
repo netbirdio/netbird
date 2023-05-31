@@ -60,7 +60,6 @@ int xdp_prog_func(struct xdp_md *ctx) {
 
     // return early if not enough data
     if (data + sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr) > data_end){
-        bpf_printk("invalid size");
         return XDP_PASS;
     }
 
@@ -81,8 +80,6 @@ int xdp_prog_func(struct xdp_md *ctx) {
     if (udp->source != htons(wg_port)){
         return XDP_PASS;
     }
-
-    bpf_printk("update udp ports, src: %d, dst: %d", htons(udp->source), htons(udp->dest));
 
     __be16 new_src_port = udp->dest;
     __be16 new_dst_port = htons(proxy_port);
