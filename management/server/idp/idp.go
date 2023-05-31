@@ -110,8 +110,8 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 				ClientSecret:     config.ClientConfig.ClientSecret,
 				GrantType:        config.ClientConfig.GrantType,
 				TokenEndpoint:    config.ClientConfig.TokenEndpoint,
-				ObjectID:         config.ExtraConfig["ObjectID"],
-				GraphAPIEndpoint: config.ExtraConfig["GraphAPIEndpoint"],
+				ObjectID:         config.ExtraConfig["ObjectId"],
+				GraphAPIEndpoint: config.ExtraConfig["GraphApiEndpoint"],
 			}
 		}
 
@@ -163,7 +163,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 				Issuer:        config.ClientConfig.Issuer,
 				TokenEndpoint: config.ClientConfig.TokenEndpoint,
 				GrantType:     config.ClientConfig.GrantType,
-				APIToken:      config.ExtraConfig["APIToken"],
+				APIToken:      config.ExtraConfig["ApiToken"],
 			}
 		}
 
