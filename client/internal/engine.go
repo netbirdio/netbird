@@ -186,8 +186,6 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	e.wgProxyFactory = wgproxy.NewFactory(e.config.WgPort)
-
 	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
