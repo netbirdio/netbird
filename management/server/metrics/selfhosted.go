@@ -157,13 +157,19 @@ func (w *Worker) generateProperties() properties {
 	var (
 		uptime             float64
 		accounts           int
+		expirationEnabled  int
 		users              int
+		serviceUsers       int
+		pats               int
 		peers              int
+		peersSSHEnabled    int
 		setupKeysUsage     int
 		activePeersLastDay int
 		osPeers            map[string]int
 		userPeers          int
 		rules              int
+		rulesProtocol      map[string]int
+		rulesDirection     map[string]int
 		groups             int
 		routes             int
 		nameservers        int
@@ -176,17 +182,43 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties := make(properties)
 	osPeers = make(map[string]int)
 	osUIClients = make(map[string]int)
+	rulesProtocol = make(map[string]int)
+	rulesDirection = make(map[string]int)
 	uptime = time.Since(w.startupTime).Seconds()
 	connections := w.connManager.GetAllConnectedPeers()
 	version = nbversion.NetbirdVersion()
 
 	for _, account := range w.dataSource.GetAllAccounts() {
 		accounts++
-		users = users + len(account.Users)
-		rules = rules + len(account.Rules)
+
+		if account.Settings.PeerLoginExpirationEnabled {
+			expirationEnabled++
+		}
+
 		groups = groups + len(account.Groups)
 		routes = routes + len(account.Routes)
 		nameservers = nameservers + len(account.NameServerGroups)
+
+		for _, policy := range account.Policies {
+			for _, rule := range policy.Rules {
+				rules++
+				rulesProtocol[string(rule.Protocol)]++
+				if rule.Bidirectional {
+					rulesDirection["bidirectional"]++
+				} else {
+					rulesDirection["oneway"]++
+				}
+			}
+		}
+
+		for _, user := range account.Users {
+			if user.IsServiceUser {
+				serviceUsers++
+			} else {
+				users++
+			}
+			pats += len(user.PATs)
+		}
 
 		for _, key := range account.SetupKeys {
 			setupKeysUsage = setupKeysUsage + key.UsedTimes
@@ -194,6 +226,11 @@ func (w *Worker) generateProperties() properties {
 
 		for _, peer := range account.Peers {
 			peers++
+
+			if peer.SSHEnabled {
+				peersSSHEnabled++
+			}
+
 			if peer.SetupKey == "" {
 				userPeers++
 			}
@@ -224,7 +261,11 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["uptime"] = uptime
 	metricsProperties["accounts"] = accounts
 	metricsProperties["users"] = users
+	metricsProperties["service_users"] = serviceUsers
+	metricsProperties["pats"] = pats
 	metricsProperties["peers"] = peers
+	metricsProperties["peers_ssh_enabled"] = peersSSHEnabled
+	metricsProperties["peers_login_expiration_enabled"] = expirationEnabled
 	metricsProperties["setup_keys_usage"] = setupKeysUsage
 	metricsProperties["active_peers_last_day"] = activePeersLastDay
 	metricsProperties["user_peers"] = userPeers
@@ -236,6 +277,15 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["min_active_peer_version"] = minActivePeerVersion
 	metricsProperties["max_active_peer_version"] = maxActivePeerVersion
 	metricsProperties["ui_clients"] = uiClient
+
+	for protocol, count := range rulesProtocol {
+		metricsProperties["rules_protocol_"+protocol] = count
+	}
+
+	for direction, count := range rulesDirection {
+		metricsProperties["rules_direction_"+direction] = count
+	}
+
 	for os, count := range osPeers {
 		metricsProperties[os] = count
 	}
