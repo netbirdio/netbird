@@ -635,7 +635,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		// we have old version of management without rules handling, we should allow all traffic
 		allowByDefault := len(networkMap.FirewallRules) == 0 && !networkMap.FirewallRulesIsEmpty
 		if allowByDefault {
-			log.Warn("received a firewall update from an older NetBird management version, allowing all traffic from the NetBird network")
+			log.Warn("this peer is connected to a NetBird Management service with an older version. Allowing all traffic from connected peers")
 		}
 		e.acl.ApplyFiltering(networkMap.FirewallRules, allowByDefault)
 	}
