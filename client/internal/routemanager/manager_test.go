@@ -397,7 +397,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun43%d", n), "100.65.65.2/24", iface.DefaultMTU, nil, nil, newNet)
+			wgInterface, err := iface.NewWGIFace(fmt.Sprintf("utun43%d", n), "100.65.65.2/24", iface.DefaultMTU, nil, newNet)
 			require.NoError(t, err, "should create testing WGIface interface")
 			defer wgInterface.Close()
 
@@ -406,7 +406,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 
 			statusRecorder := peer.NewRecorder("https://mgm")
 			ctx := context.TODO()
-			routeManager := NewManager(ctx, localPeerKey, wgInterface, statusRecorder)
+			routeManager := NewManager(ctx, localPeerKey, wgInterface, statusRecorder, nil)
 			defer routeManager.Stop()
 
 			if len(testCase.inputInitRoutes) > 0 {

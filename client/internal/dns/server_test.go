@@ -208,7 +208,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU, nil, nil, newNet)
+			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU, nil, newNet)
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -13,6 +13,7 @@ import (
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/client/system"
@@ -23,7 +24,7 @@ import (
 )
 
 // RunClient with main logic.
-func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) error {
+func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
@@ -150,10 +151,11 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 			return wrapErr(err)
 		}
 
-		md, err := newMobileDependency(tunAdapter, iFaceDiscover, mgmClient)
-		if err != nil {
-			log.Error(err)
-			return wrapErr(err)
+		// in case of non Android os these variables will be nil
+		md := MobileDependency{
+			TunAdapter:    tunAdapter,
+			IFaceDiscover: iFaceDiscover,
+			RouteListener: routeListener,
 		}
 
 		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, md, statusRecorder)
