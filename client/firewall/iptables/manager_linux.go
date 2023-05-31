@@ -236,11 +236,20 @@ func (m *Manager) filterRuleSpecs(
 	table string, ip net.IP, protocol string, sPort, dPort string,
 	direction fw.RuleDirection, action fw.Action, comment string,
 ) (specs []string) {
+	matchByIP := true
+	// don't use IP matching if IP is ip 0.0.0.0
+	if s := ip.String(); s == "0.0.0.0" || s == "::" {
+		matchByIP = false
+	}
 	switch direction {
 	case fw.RuleDirectionIN:
-		specs = append(specs, "-s", ip.String())
+		if matchByIP {
+			specs = append(specs, "-s", ip.String())
+		}
 	case fw.RuleDirectionOUT:
-		specs = append(specs, "-d", ip.String())
+		if matchByIP {
+			specs = append(specs, "-d", ip.String())
+		}
 	}
 	if protocol != "all" {
 		specs = append(specs, "-p", protocol)

@@ -242,6 +242,9 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, int), fun
 	peers := make([]*Peer, 0)
 	return func(rule *PolicyRule, groupPeers []*Peer, direction int) {
 			for _, peer := range groupPeers {
+				if peer == nil {
+					continue
+				}
 				if _, ok := peersExists[peer.ID]; !ok {
 					peers = append(peers, peer)
 					peersExists[peer.ID] = struct{}{}
@@ -457,8 +460,8 @@ func getAllPeersFromGroups(account *Account, groups []string, peerID string) ([]
 		}
 
 		for _, p := range group.Peers {
-			peer := account.Peers[p]
-			if peer.ID == peerID {
+			peer, ok := account.Peers[p]
+			if ok && peer != nil && peer.ID == peerID {
 				peerInGroups = true
 				continue
 			}

@@ -87,6 +87,7 @@ func (m *Manager) AddFiltering(
 		id:        uuid.New().String(),
 		ip:        ip,
 		ipLayer:   layers.LayerTypeIPv6,
+		matchByIP: true,
 		direction: direction,
 		drop:      action == fw.ActionDrop,
 		comment:   comment,
@@ -94,6 +95,10 @@ func (m *Manager) AddFiltering(
 	if ipNormalized := ip.To4(); ipNormalized != nil {
 		r.ipLayer = layers.LayerTypeIPv4
 		r.ip = ipNormalized
+	}
+
+	if s := r.ip.String(); s == "0.0.0.0" || s == "::" {
+		r.matchByIP = false
 	}
 
 	if sPort != nil && len(sPort.Values) == 1 {
@@ -223,25 +228,27 @@ func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 
 	// check if IP address match by IP
 	for _, rule := range rules {
-		switch ipLayer {
-		case layers.LayerTypeIPv4:
-			if isIncomingPacket {
-				if !d.ip4.SrcIP.Equal(rule.ip) {
-					continue
+		if rule.matchByIP {
+			switch ipLayer {
+			case layers.LayerTypeIPv4:
+				if isIncomingPacket {
+					if !d.ip4.SrcIP.Equal(rule.ip) {
+						continue
+					}
+				} else {
+					if !d.ip4.DstIP.Equal(rule.ip) {
+						continue
+					}
 				}
-			} else {
-				if !d.ip4.DstIP.Equal(rule.ip) {
-					continue
-				}
-			}
-		case layers.LayerTypeIPv6:
-			if isIncomingPacket {
-				if !d.ip6.SrcIP.Equal(rule.ip) {
-					continue
-				}
-			} else {
-				if !d.ip6.DstIP.Equal(rule.ip) {
-					continue
+			case layers.LayerTypeIPv6:
+				if isIncomingPacket {
+					if !d.ip6.SrcIP.Equal(rule.ip) {
+						continue
+					}
+				} else {
+					if !d.ip6.DstIP.Equal(rule.ip) {
+						continue
+					}
 				}
 			}
 		}

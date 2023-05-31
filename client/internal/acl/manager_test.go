@@ -1,7 +1,6 @@
 package acl
 
 import (
-	"runtime"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -11,12 +10,6 @@ import (
 )
 
 func TestDefaultManager(t *testing.T) {
-	// TODO: enable when other platform will be added
-	if runtime.GOOS != "linux" {
-		t.Skipf("ACL manager not supported in the: %s", runtime.GOOS)
-		return
-	}
-
 	fwRules := []*mgmProto.FirewallRule{
 		{
 			PeerIP:    "10.93.0.1",
@@ -38,8 +31,9 @@ func TestDefaultManager(t *testing.T) {
 	defer ctrl.Finish()
 
 	iface := mocks.NewMockIFaceMapper(ctrl)
-	iface.EXPECT().IsUserspaceBind().Return(false)
-	iface.EXPECT().Name().Return("lo")
+	iface.EXPECT().IsUserspaceBind().Return(true)
+	// iface.EXPECT().Name().Return("lo")
+	iface.EXPECT().SetFiltering(gomock.Any())
 
 	// we receive one rule from the management so for testing purposes ignore it
 	acl, err := Create(iface)
@@ -50,7 +44,7 @@ func TestDefaultManager(t *testing.T) {
 	defer acl.Stop()
 
 	t.Run("apply firewall rules", func(t *testing.T) {
-		acl.ApplyFiltering(fwRules)
+		acl.ApplyFiltering(fwRules, false)
 
 		if len(acl.rulesPairs) != 2 {
 			t.Errorf("firewall rules not applied: %v", acl.rulesPairs)
@@ -73,7 +67,7 @@ func TestDefaultManager(t *testing.T) {
 			existedRulesID[id] = struct{}{}
 		}
 
-		acl.ApplyFiltering(fwRules)
+		acl.ApplyFiltering(fwRules, false)
 
 		// we should have one old and one new rule in the existed rules
 		if len(acl.rulesPairs) != 2 {
@@ -87,6 +81,20 @@ func TestDefaultManager(t *testing.T) {
 				t.Errorf("old rule was not removed")
 				return
 			}
+		}
+	})
+
+	t.Run("handle default rules", func(t *testing.T) {
+		acl.ApplyFiltering(nil, false)
+		if len(acl.rulesPairs) != 0 {
+			t.Errorf("rules should be empty if default not allowed, got: %v rules", len(acl.rulesPairs))
+			return
+		}
+
+		acl.ApplyFiltering(nil, true)
+		if len(acl.rulesPairs) != 2 {
+			t.Errorf("two default rules should be set if default is allowed, got: %v rules", len(acl.rulesPairs))
+			return
 		}
 	})
 }
