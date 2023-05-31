@@ -24,8 +24,9 @@ type WGEBPFProxy struct {
 	turnConnStore map[uint16]net.Conn
 	turnConnMutex sync.Mutex
 
-	rawConn net.PacketConn
-	conn    *net.UDPConn
+	rawConn     net.PacketConn
+	conn        *net.UDPConn
+	layerBuffer gopacket.SerializeBuffer
 }
 
 // NewWGEBPFProxy create new WGEBPFProxy instance
@@ -36,6 +37,7 @@ func NewWGEBPFProxy(wgPort int) *WGEBPFProxy {
 		ebpf:              newEBPF(),
 		lastUsedPort:      0,
 		turnConnStore:     make(map[uint16]net.Conn),
+		layerBuffer:       gopacket.NewSerializeBuffer(),
 	}
 	return wgProxy
 }
@@ -116,8 +118,8 @@ func (p *WGEBPFProxy) Free() error {
 }
 
 func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
+	buf := make([]byte, 1500)
 	for {
-		buf := make([]byte, 1500)
 		n, err := remoteConn.Read(buf)
 		if err != nil {
 			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
@@ -133,8 +135,8 @@ func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
 
 // proxyToRemote read messages from local WireGuard interface and forward it to remote conn
 func (p *WGEBPFProxy) proxyToRemote() {
+	buf := make([]byte, 1500)
 	for {
-		buf := make([]byte, 1500)
 		n, addr, err := p.conn.ReadFromUDP(buf)
 		if err != nil {
 			log.Errorf("failed to read UDP pkg from WG: %s", err)
@@ -196,7 +198,6 @@ func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
 func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
 	localhost := net.ParseIP("127.0.0.1")
 
-	buffer := gopacket.NewSerializeBuffer()
 	payload := gopacket.Payload(data)
 	ipH := &layers.IPv4{
 		DstIP:    localhost,
@@ -213,10 +214,10 @@ func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
 	if err := udpH.SetNetworkLayerForChecksum(ipH); err != nil {
 		return err
 	}
-	err := gopacket.SerializeLayers(buffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
+	err := gopacket.SerializeLayers(p.layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
 	if err != nil {
 		return err
 	}
-	_, err = p.rawConn.WriteTo(buffer.Bytes(), &net.IPAddr{IP: localhost})
+	_, err = p.rawConn.WriteTo(p.layerBuffer.Bytes(), &net.IPAddr{IP: localhost})
 	return err
 }
