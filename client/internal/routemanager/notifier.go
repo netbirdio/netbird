@@ -14,8 +14,8 @@ type RouteListener interface {
 }
 
 type notifier struct {
-	initialRouteIDs []string
-	ids             []string
+	initialRouteRangers []string
+	routeRangers        []string
 
 	routeListener    RouteListener
 	routeListenerMux sync.Mutex
@@ -32,30 +32,30 @@ func (n *notifier) setListener(listener RouteListener) {
 }
 
 func (n *notifier) setInitialClientRoutes(clientRoutes []*route.Route) {
-	ids := make([]string, 0)
+	nets := make([]string, 0)
 	for _, r := range clientRoutes {
-		ids = append(ids, r.ID)
+		nets = append(nets, r.Network.String())
 	}
-	sort.Strings(ids)
-	n.initialRouteIDs = ids
+	sort.Strings(nets)
+	n.initialRouteRangers = nets
 }
 
 func (n *notifier) onNewRoutes(idMap map[string][]*route.Route) {
-	newIDs := make([]string, 0)
+	newNets := make([]string, 0)
 	for _, routes := range idMap {
 		for _, r := range routes {
-			newIDs = append(newIDs, r.ID)
+			newNets = append(newNets, r.Network.String())
 		}
 	}
 
-	sort.Strings(newIDs)
-	if !n.hasDiff(n.ids, newIDs) {
+	sort.Strings(newNets)
+	if !n.hasDiff(n.routeRangers, newNets) {
 		return
 	}
 
-	n.ids = newIDs
+	n.routeRangers = newNets
 
-	if !n.hasDiff(n.initialRouteIDs, newIDs) {
+	if !n.hasDiff(n.initialRouteRangers, newNets) {
 		return
 	}
 	n.notify()
