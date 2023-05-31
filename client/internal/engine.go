@@ -634,6 +634,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		// if we got empty rules list but management not set networkMap.FirewallRulesIsEmpty flag
 		// we have old version of management without rules handling, we should allow all traffic
 		allowByDefault := len(networkMap.FirewallRules) == 0 && !networkMap.FirewallRulesIsEmpty
+		if allowByDefault {
+			log.Warn("received a firewall update from an older NetBird management version, allowing all traffic from the NetBird network")
+		}
 		e.acl.ApplyFiltering(networkMap.FirewallRules, allowByDefault)
 	}
 	e.networkSerial = serial
