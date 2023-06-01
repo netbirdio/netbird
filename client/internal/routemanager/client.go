@@ -86,12 +86,6 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 			continue
 		}
 
-		if chosen == "" && currID == "" {
-			chosen = r.ID
-			chosenScore = 0
-			continue
-		}
-
 		if r.Metric < route.MaxMetric {
 			metricDiff := route.MaxMetric - r.Metric
 			tempScore = metricDiff * 10
@@ -105,7 +99,7 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 			tempScore++
 		}
 
-		if tempScore > chosenScore {
+		if tempScore > chosenScore || (tempScore == chosenScore && r.ID > currID) {
 			chosen = r.ID
 			chosenScore = tempScore
 		}
