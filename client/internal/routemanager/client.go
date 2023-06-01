@@ -71,7 +71,7 @@ func (c *clientNetwork) getRouterPeerStatuses() map[string]routerPeerStatus {
 }
 
 func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]routerPeerStatus) string {
-	var chosen string
+	chosen := ""
 	chosenScore := 0
 
 	currID := ""
@@ -85,17 +85,26 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 		if !found || !peerStatus.connected {
 			continue
 		}
+
 		if r.Metric < route.MaxMetric {
 			metricDiff := route.MaxMetric - r.Metric
 			tempScore = metricDiff * 10
 		}
+
 		if !peerStatus.relayed {
 			tempScore++
 		}
-		if !peerStatus.direct {
+
+		if peerStatus.direct {
 			tempScore++
 		}
-		if tempScore > chosenScore || (tempScore == chosenScore && currID == r.ID) {
+
+		if tempScore > chosenScore || (tempScore == chosenScore && r.ID == currID) {
+			chosen = r.ID
+			chosenScore = tempScore
+		}
+
+		if chosen == "" && currID == "" {
 			chosen = r.ID
 			chosenScore = tempScore
 		}
@@ -106,7 +115,9 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 		for _, r := range c.routes {
 			peers = append(peers, r.Peer)
 		}
-		log.Warnf("no route was chosen for network %s because no peers from list %s were connected", c.network, peers)
+
+		log.Warnf("the network %s has not been assigned a routing peer as no peers from the list %s are currently connected", c.network, peers)
+
 	} else if chosen != currID {
 		log.Infof("new chosen route is %s with peer %s with score %d", chosen, c.routes[chosen].Peer, chosenScore)
 	}
