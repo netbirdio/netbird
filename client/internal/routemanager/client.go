@@ -99,7 +99,12 @@ func (c *clientNetwork) getBestRouteFromStatuses(routePeerStatuses map[string]ro
 			tempScore++
 		}
 
-		if tempScore > chosenScore || (tempScore == chosenScore && r.ID > currID) {
+		if tempScore > chosenScore || (tempScore == chosenScore && r.ID == currID) {
+			chosen = r.ID
+			chosenScore = tempScore
+		}
+
+		if chosen == "" && currID == "" {
 			chosen = r.ID
 			chosenScore = tempScore
 		}
