@@ -48,6 +48,9 @@ jobs:
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
           CI_NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT: https://example.eu.auth0.com/.well-known/openid-configuration
           CI_NETBIRD_USE_AUTH0: true
+          CI_NETBIRD_MGMT_IDP: auth0
+          CI_NETBIRD_IDP_MGMT_CLIENT_ID: testing.client.id
+          CI_NETBIRD_IDP_MGMT_CLIENT_SECRET: testing.client.secret
 
       - name: check values
         working-directory: infrastructure_files
@@ -67,6 +70,9 @@ jobs:
           CI_NETBIRD_AUTH_USER_ID_CLAIM: "email"
           CI_NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE: "super"
           CI_NETBIRD_AUTH_DEVICE_AUTH_SCOPE: "openid email"
+          CI_NETBIRD_MGMT_IDP: auth0
+          CI_NETBIRD_IDP_MGMT_CLIENT_ID: testing.client.id
+          CI_NETBIRD_IDP_MGMT_CLIENT_SECRET: testing.client.secret
 
         run: |
           grep AUTH_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_ID
@@ -83,6 +89,13 @@ jobs:
           grep -A 1 ProviderConfig management.json | grep Audience | grep $CI_NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE
           grep Scope management.json | grep "$CI_NETBIRD_AUTH_DEVICE_AUTH_SCOPE"
           grep UseIDToken management.json | grep false
+          grep ManagerType management.json | grep $CI_NETBIRD_MGMT_IDP 
+          grep Issuer management.json | grep $CI_NETBIRD_AUTH_TOKEN_ENDPOINT
+          grep TokenEndpoint management.json | grep $CI_NETBIRD_AUTH_TOKEN_ENDPOINT
+          grep ClientID management.json | grep $CI_NETBIRD_IDP_MGMT_CLIENT_ID
+          grep ClientSecret management.json | grep $CI_NETBIRD_IDP_MGMT_CLIENT_SECRET
+          grep GrantType management.json | grep client_credential
+          
 
       - name: run docker compose up
         working-directory: infrastructure_files
