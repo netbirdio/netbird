@@ -84,6 +84,10 @@ type JWTToken struct {
 
 // NewManager returns a new idp manager based on the configuration that it receives
 func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error) {
+	if config.ClientConfig != nil {
+		config.ClientConfig.Issuer = strings.TrimSuffix(config.ClientConfig.Issuer, "/")
+	}
+
 	switch strings.ToLower(config.ManagerType) {
 	case "none", "":
 		return nil, nil
