@@ -189,6 +189,9 @@ message NetworkMap {
 
   // FirewallRule represents a list of firewall rules to be applied to peer
   repeated FirewallRule FirewallRules = 8;
+
+  // firewallRulesIsEmpty indicates whether FirewallRule array is empty or not to bypass protobuf null and empty array equality.
+  bool firewallRulesIsEmpty = 9;
 }
 
 // RemotePeerConfig represents a configuration of a remote peer.

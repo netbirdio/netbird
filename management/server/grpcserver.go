@@ -444,14 +444,15 @@ func toSyncResponse(config *Config, peer *Peer, turnCredentials *TURNCredentials
 		RemotePeers:        remotePeers,
 		RemotePeersIsEmpty: len(remotePeers) == 0,
 		NetworkMap: &proto.NetworkMap{
-			Serial:             networkMap.Network.CurrentSerial(),
-			PeerConfig:         pConfig,
-			RemotePeers:        remotePeers,
-			OfflinePeers:       offlinePeers,
-			RemotePeersIsEmpty: len(remotePeers) == 0,
-			Routes:             routesUpdate,
-			DNSConfig:          dnsUpdate,
-			FirewallRules:      firewallRules,
+			Serial:               networkMap.Network.CurrentSerial(),
+			PeerConfig:           pConfig,
+			RemotePeers:          remotePeers,
+			OfflinePeers:         offlinePeers,
+			RemotePeersIsEmpty:   len(remotePeers) == 0,
+			Routes:               routesUpdate,
+			DNSConfig:            dnsUpdate,
+			FirewallRules:        firewallRules,
+			FirewallRulesIsEmpty: len(firewallRules) == 0,
 		},
 	}
 }
