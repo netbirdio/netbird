@@ -32,6 +32,7 @@ tags:
 components:
   schemas:
     Account:
+      type: object
       properties:
         id:
           description: Account ID
@@ -43,6 +44,7 @@ components:
         - id
         - settings
     AccountSettings:
+      type: object
       properties:
         peer_login_expiration_enabled:
           description: Enables or disables peer login expiration globally. After peer's login has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
@@ -55,6 +57,13 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+    AccountRequest:
+      type: object
+      properties:
+        settings:
+          $ref: '#/components/schemas/AccountSettings'
+      required:
+        - settings
     User:
       type: object
       properties:
@@ -975,12 +984,7 @@ paths:
         content:
           'application/json':
             schema:
-              type: object
-              properties:
-                settings:
-                  $ref: '#/components/schemas/AccountSettings'
-              required:
-                - settings
+              $ref: '#/components/schemas/AccountRequest'
       responses:
         '200':
           description: An Account object
