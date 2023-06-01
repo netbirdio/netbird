@@ -122,6 +122,11 @@ type Account struct {
 	Settings AccountSettings `json:"settings"`
 }
 
+// AccountRequest defines model for AccountRequest.
+type AccountRequest struct {
+	Settings AccountSettings `json:"settings"`
+}
+
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
 	// PeerLoginExpiration Period of time after which peer login expires (seconds).
@@ -788,11 +793,6 @@ type UserRequest struct {
 	Role string `json:"role"`
 }
 
-// PutApiAccountsAccountIdJSONBody defines parameters for PutApiAccountsAccountId.
-type PutApiAccountsAccountIdJSONBody struct {
-	Settings AccountSettings `json:"settings"`
-}
-
 // GetApiUsersParams defines parameters for GetApiUsers.
 type GetApiUsersParams struct {
 	// ServiceUser Filters users and returns either regular users or service users
@@ -800,7 +800,7 @@ type GetApiUsersParams struct {
 }
 
 // PutApiAccountsAccountIdJSONRequestBody defines body for PutApiAccountsAccountId for application/json ContentType.
-type PutApiAccountsAccountIdJSONRequestBody PutApiAccountsAccountIdJSONBody
+type PutApiAccountsAccountIdJSONRequestBody = AccountRequest
 
 // PostApiDnsNameserversJSONRequestBody defines body for PostApiDnsNameservers for application/json ContentType.
 type PostApiDnsNameserversJSONRequestBody = NameserverGroupRequest
