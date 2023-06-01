@@ -146,6 +146,11 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
+	if receivedState.ConnStatus == StatusConnecting ||
+		(receivedState.ConnStatus == StatusDisconnected && peerState.ConnStatus == StatusConnecting) {
+		return nil
+	}
+
 	ch, found := d.changeNotify[receivedState.PubKey]
 	if found && ch != nil {
 		close(ch)
