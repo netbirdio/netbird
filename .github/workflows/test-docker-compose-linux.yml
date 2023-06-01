@@ -6,6 +6,7 @@ on:
       - main
   pull_request:
 
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
   cancel-in-progress: true
@@ -48,7 +49,7 @@ jobs:
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
           CI_NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT: https://example.eu.auth0.com/.well-known/openid-configuration
           CI_NETBIRD_USE_AUTH0: true
-          CI_NETBIRD_MGMT_IDP: auth0
+          CI_NETBIRD_MGMT_IDP: "none"
           CI_NETBIRD_IDP_MGMT_CLIENT_ID: testing.client.id
           CI_NETBIRD_IDP_MGMT_CLIENT_SECRET: testing.client.secret
 
@@ -70,7 +71,7 @@ jobs:
           CI_NETBIRD_AUTH_USER_ID_CLAIM: "email"
           CI_NETBIRD_AUTH_DEVICE_AUTH_AUDIENCE: "super"
           CI_NETBIRD_AUTH_DEVICE_AUTH_SCOPE: "openid email"
-          CI_NETBIRD_MGMT_IDP: auth0
+          CI_NETBIRD_MGMT_IDP: "none"
           CI_NETBIRD_IDP_MGMT_CLIENT_ID: testing.client.id
           CI_NETBIRD_IDP_MGMT_CLIENT_SECRET: testing.client.secret
 
@@ -98,7 +99,7 @@ jobs:
 
       - name: run docker compose up
         working-directory: infrastructure_files
-        run: | 
+        run: |
           docker-compose up -d
           sleep 5
           docker-compose ps
