@@ -5,6 +5,7 @@ AGENT=/usr/local/bin/netbird
 LOG_FILE=/var/log/netbird/client_install.log
 
 mkdir -p /var/log/netbird/
+mkdir -p /usr/local/bin/
 
 {
     echo "Installing NetBird..."
