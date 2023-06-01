@@ -478,7 +478,7 @@ components:
           description: List of peers ids
           items:
             type: string
-          example: "ch8i4ug6lnn4g9hqv7m1"
+            example: "ch8i4ug6lnn4g9hqv7m1"
       required:
         - name
     Group:
@@ -578,10 +578,12 @@ components:
         enabled:
           description: Policy rule status
           type: boolean
+          example: true
         action:
           description: Policy rule accept or drops packets
           type: string
           enum: ["accept","drop"]
+          example: "accept"
         bidirectional:
           description: Define if the rule is applicable in both directions, sources, and destinations.
           type: boolean
@@ -596,7 +598,7 @@ components:
           type: array
           items:
             type: string
-          example: [80,443]
+            example: "80"
       required:
         - name
         - enabled
@@ -613,11 +615,13 @@ components:
               type: array
               items:
                 type: string
+                example: "ch8i4ug6lnn4g9hqv797"
             destinations:
               description: Policy rule destination groups
               type: array
               items:
                 type: string
+                example: "ch8i4ug6lnn4g9h7v7m0"
           required:
             - sources
             - destinations
@@ -645,6 +649,7 @@ components:
         id:
           description: Policy ID
           type: string
+          example: ch8i4ug6lnn4g9hqv7mg
         name:
           description: Policy name identifier
           type: string
@@ -660,6 +665,7 @@ components:
         query:
           description: Policy Rego query
           type: string
+          example: "package netbird\\n\\nall[rule] {\\n is_peer_in_any_group([\\\"ch8i4ug6lnn4g9hqv7m0\\\",\\\"ch8i4ug6lnn4g9hqv7m0\\\"])\\n rule := {\\n rules_from_group(\\\"ch8i4ug6lnn4g9hqv7m0\\\", \\\"dst\\\", \\\"accept\\\", \\\"\\\"),\\n rules_from_group(\\\"ch8i4ug6lnn4g9hqv7m0\\\", \\\"src\\\", \\\"accept\\\", \\\"\\\"),\\n }[_][_]\\n}\\n"
       required:
         - name
         - description
