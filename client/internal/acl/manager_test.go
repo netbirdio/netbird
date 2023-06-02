@@ -168,7 +168,7 @@ func TestDefaultManagerSquashRules(t *testing.T) {
 	}
 
 	manager := &DefaultManager{}
-	rules := manager.squashAcceptRules(networkMap)
+	rules, _ := manager.squashAcceptRules(networkMap)
 	if len(rules) != 2 {
 		t.Errorf("rules should contain 2, got: %v", rules)
 		return
@@ -266,7 +266,65 @@ func TestDefaultManagerSquashRulesNoAffect(t *testing.T) {
 	}
 
 	manager := &DefaultManager{}
-	if rules := manager.squashAcceptRules(networkMap); len(rules) != len(networkMap.FirewallRules) {
+	if rules, _ := manager.squashAcceptRules(networkMap); len(rules) != len(networkMap.FirewallRules) {
 		t.Errorf("we should got same amount of rules as intput, got %v", len(rules))
+	}
+}
+
+func TestDefaultManagerEnableSSHRules(t *testing.T) {
+	networkMap := &mgmProto.NetworkMap{
+		PeerConfig: &mgmProto.PeerConfig{
+			SshConfig: &mgmProto.SSHConfig{
+				SshEnabled: true,
+			},
+		},
+		RemotePeers: []*mgmProto.RemotePeerConfig{
+			{AllowedIps: []string{"10.93.0.1"}},
+			{AllowedIps: []string{"10.93.0.2"}},
+			{AllowedIps: []string{"10.93.0.3"}},
+		},
+		FirewallRules: []*mgmProto.FirewallRule{
+			{
+				PeerIP:    "10.93.0.1",
+				Direction: mgmProto.FirewallRule_IN,
+				Action:    mgmProto.FirewallRule_ACCEPT,
+				Protocol:  mgmProto.FirewallRule_TCP,
+			},
+			{
+				PeerIP:    "10.93.0.2",
+				Direction: mgmProto.FirewallRule_IN,
+				Action:    mgmProto.FirewallRule_ACCEPT,
+				Protocol:  mgmProto.FirewallRule_TCP,
+			},
+			{
+				PeerIP:    "10.93.0.3",
+				Direction: mgmProto.FirewallRule_OUT,
+				Action:    mgmProto.FirewallRule_ACCEPT,
+				Protocol:  mgmProto.FirewallRule_UDP,
+			},
+		},
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	iface := mocks.NewMockIFaceMapper(ctrl)
+	iface.EXPECT().IsUserspaceBind().Return(true)
+	// iface.EXPECT().Name().Return("lo")
+	iface.EXPECT().SetFiltering(gomock.Any())
+
+	// we receive one rule from the management so for testing purposes ignore it
+	acl, err := Create(iface)
+	if err != nil {
+		t.Errorf("create ACL manager: %v", err)
+		return
+	}
+	defer acl.Stop()
+
+	acl.ApplyFiltering(networkMap)
+
+	if len(acl.rulesPairs) != 4 {
+		t.Errorf("expect 4 rules (last must be SSH), got: %d", len(acl.rulesPairs))
+		return
 	}
 }
