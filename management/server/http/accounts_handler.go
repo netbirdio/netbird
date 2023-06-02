@@ -65,7 +65,7 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req api.PutApiAccountsAccountIdJSONBody
+	var req api.PutApiAccountsAccountIdJSONRequestBody
 	err = json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)

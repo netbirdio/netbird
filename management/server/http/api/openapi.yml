@@ -32,6 +32,7 @@ tags:
 components:
   schemas:
     Account:
+      type: object
       properties:
         id:
           description: Account ID
@@ -43,6 +44,7 @@ components:
         - id
         - settings
     AccountSettings:
+      type: object
       properties:
         peer_login_expiration_enabled:
           description: Enables or disables peer login expiration globally. After peer's login has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
@@ -55,6 +57,13 @@ components:
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
+    AccountRequest:
+      type: object
+      properties:
+        settings:
+          $ref: '#/components/schemas/AccountSettings'
+      required:
+        - settings
     User:
       type: object
       properties:
@@ -469,7 +478,7 @@ components:
           description: List of peers ids
           items:
             type: string
-          example: "ch8i4ug6lnn4g9hqv7m1"
+            example: "ch8i4ug6lnn4g9hqv7m1"
       required:
         - name
     Group:
@@ -569,10 +578,12 @@ components:
         enabled:
           description: Policy rule status
           type: boolean
+          example: true
         action:
           description: Policy rule accept or drops packets
           type: string
           enum: ["accept","drop"]
+          example: "accept"
         bidirectional:
           description: Define if the rule is applicable in both directions, sources, and destinations.
           type: boolean
@@ -587,7 +598,7 @@ components:
           type: array
           items:
             type: string
-          example: [80,443]
+            example: "80"
       required:
         - name
         - enabled
@@ -604,11 +615,13 @@ components:
               type: array
               items:
                 type: string
+                example: "ch8i4ug6lnn4g9hqv797"
             destinations:
               description: Policy rule destination groups
               type: array
               items:
                 type: string
+                example: "ch8i4ug6lnn4g9h7v7m0"
           required:
             - sources
             - destinations
@@ -636,6 +649,7 @@ components:
         id:
           description: Policy ID
           type: string
+          example: ch8i4ug6lnn4g9hqv7mg
         name:
           description: Policy name identifier
           type: string
@@ -651,6 +665,7 @@ components:
         query:
           description: Policy Rego query
           type: string
+          example: "package netbird\\n\\nall[rule] {\\n is_peer_in_any_group([\\\"ch8i4ug6lnn4g9hqv7m0\\\",\\\"ch8i4ug6lnn4g9hqv7m0\\\"])\\n rule := {\\n rules_from_group(\\\"ch8i4ug6lnn4g9hqv7m0\\\", \\\"dst\\\", \\\"accept\\\", \\\"\\\"),\\n rules_from_group(\\\"ch8i4ug6lnn4g9hqv7m0\\\", \\\"src\\\", \\\"accept\\\", \\\"\\\"),\\n }[_][_]\\n}\\n"
       required:
         - name
         - description
@@ -932,7 +947,7 @@ security:
 paths:
   /api/accounts:
     get:
-      summary: List all accounts
+      summary: List all Accounts
       description: Returns a list of accounts of a user. Always returns a list of one account.
       tags: [ Accounts ]
       security:
@@ -957,7 +972,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/accounts/{accountId}:
     put:
-      summary: Update an account
+      summary: Update an Account
       description: Update information about an account
       tags: [ Accounts ]
       security:
@@ -975,12 +990,7 @@ paths:
         content:
           'application/json':
             schema:
-              type: object
-              properties:
-                settings:
-                  $ref: '#/components/schemas/AccountSettings'
-              required:
-                - settings
+              $ref: '#/components/schemas/AccountRequest'
       responses:
         '200':
           description: An Account object
@@ -998,7 +1008,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/users:
     get:
-      summary: List all users
+      summary: List all Users
       description: Returns a list of all users
       tags: [ Users ]
       security:
@@ -1028,7 +1038,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a user
+      summary: Create a User
       description: Creates a new service user or sends an invite to a regular user
       tags: [ Users ]
       security:
@@ -1057,7 +1067,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/users/{userId}:
     put:
-      summary: Update a user
+      summary: Update a User
       description: Update information about a User
       tags: [ Users ]
       security:
@@ -1092,7 +1102,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a user
+      summary: Delete a User
       description: Delete a user
       tags: [ Users ]
       security:
@@ -1119,7 +1129,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/users/{userId}/tokens:
     get:
-      summary: List all tokens
+      summary: List all Tokens
       description: Returns a list of all tokens for a user
       tags: [ Tokens ]
       security:
@@ -1150,7 +1160,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a token
+      summary: Create a Token
       description: Create a new token for a user
       tags: [ Tokens ]
       security:
@@ -1186,7 +1196,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/users/{userId}/tokens/{tokenId}:
     get:
-      summary: Retrieve a token
+      summary: Retrieve a Token
       description: Returns a specific token for a user
       tags: [ Tokens ]
       security:
@@ -1221,7 +1231,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a token
+      summary: Delete a Token
       description: Delete a token for a user
       tags: [ Tokens ]
       security:
@@ -1254,7 +1264,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/peers:
     get:
-      summary: List all peers
+      summary: List all Peers
       description: Returns a list of all peers
       tags: [ Peers ]
       security:
@@ -1279,7 +1289,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/peers/{peerId}:
     get:
-      summary: Retrieve a peer
+      summary: Retrieve a Peer
       description: Get information about a peer
       tags: [ Peers ]
       security:
@@ -1308,7 +1318,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update a peer
+      summary: Update a Peer
       description: Update information about a peer
       tags: [ Peers ]
       security:
@@ -1343,7 +1353,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a peer
+      summary: Delete a Peer
       description: Delete a peer
       tags: [ Peers ]
       security:
@@ -1370,7 +1380,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/setup-keys:
     get:
-      summary: List all setup keys
+      summary: List all Setup Keys
       description: Returns a list of all Setup Keys
       tags: [ Setup Keys ]
       security:
@@ -1394,7 +1404,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a setup key
+      summary: Create a Setup Key
       description: Creates a setup key
       tags: [ Setup Keys ]
       security:
@@ -1423,7 +1433,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/setup-keys/{keyId}:
     get:
-      summary: Retrieve a setup key
+      summary: Retrieve a Setup Key
       description: Get information about a setup key
       tags: [ Setup Keys ]
       security:
@@ -1452,7 +1462,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update a setup key
+      summary: Update a Setup Key
       description: Update information about a setup key
       tags: [ Setup Keys ]
       security:
@@ -1488,7 +1498,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/groups:
     get:
-      summary: List all groups
+      summary: List all Groups
       description: Returns a list of all groups
       tags: [ Groups ]
       security:
@@ -1512,7 +1522,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a group
+      summary: Create a Group
       description: Creates a group
       tags: [ Groups ]
       security:
@@ -1541,7 +1551,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/groups/{groupId}:
     get:
-      summary: Retrieve a group
+      summary: Retrieve a Group
       description: Get information about a group
       tags: [ Groups ]
       security:
@@ -1570,7 +1580,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update a group
+      summary: Update a Group
       description: Update/Replace a group
       tags: [ Groups ]
       security:
@@ -1632,7 +1642,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/rules:
     get:
-      summary: List all rules
+      summary: List all Rules
       description: Returns a list of all rules
       tags: [ Rules ]
       security:
@@ -1656,7 +1666,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a rule
+      summary: Create a Rule
       description: Creates a rule
       tags: [ Rules ]
       security:
@@ -1677,7 +1687,7 @@ paths:
                 $ref: '#/components/schemas/Rule'
   /api/rules/{ruleId}:
     get:
-      summary: Retrieve a rule
+      summary: Retrieve a Rule
       description: Get information about a rules
       tags: [ Rules ]
       security:
@@ -1706,7 +1716,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update a rule
+      summary: Update a Rule
       description: Update/Replace a rule
       tags: [ Rules ]
       security:
@@ -1741,7 +1751,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a rule
+      summary: Delete a Rule
       description: Delete a rule
       tags: [ Rules ]
       security:
@@ -1768,7 +1778,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/policies:
     get:
-      summary: List all policies
+      summary: List all Policies
       description: Returns a list of all policies
       tags: [ Policies ]
       security:
@@ -1792,7 +1802,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a policy
+      summary: Create a Policy
       description: Creates a policy
       tags: [ Policies ]
       security:
@@ -1813,7 +1823,7 @@ paths:
                 $ref: '#/components/schemas/Policy'
   /api/policies/{policyId}:
     get:
-      summary: Retrieve a policy
+      summary: Retrieve a Policy
       description: Get information about a Policies
       tags: [ Policies ]
       security:
@@ -1842,7 +1852,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update a policy
+      summary: Update a Policy
       description: Update/Replace a Policy
       tags: [ Policies ]
       security:
@@ -1904,7 +1914,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/routes:
     get:
-      summary: List all routes
+      summary: List all Routes
       description: Returns a list of all routes
       tags: [ Routes ]
       security:
@@ -1928,7 +1938,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a route
+      summary: Create a Route
       description: Creates a Route
       tags: [ Routes ]
       security:
@@ -1958,7 +1968,7 @@ paths:
 
   /api/routes/{routeId}:
     get:
-      summary: Retrieve a route
+      summary: Retrieve a Route
       description: Get information about a Routes
       tags: [ Routes ]
       security:
@@ -1987,7 +1997,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update a route
+      summary: Update a Route
       description: Update/Replace a Route
       tags: [ Routes ]
       security:
@@ -2049,7 +2059,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/dns/nameservers:
     get:
-      summary: List all nameserver groups
+      summary: List all Nameserver Groups
       description: Returns a list of all Nameserver Groups
       tags: [ DNS ]
       security:
@@ -2073,7 +2083,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     post:
-      summary: Create a nameserver group
+      summary: Create a Nameserver Group
       description: Creates a Nameserver Group
       tags: [ DNS ]
       security:
@@ -2103,7 +2113,7 @@ paths:
 
   /api/dns/nameservers/{nsgroupId}:
     get:
-      summary: Retrieve a nameserver group
+      summary: Retrieve a Nameserver Group
       description: Get information about a Nameserver Groups
       tags: [ DNS ]
       security:
@@ -2132,7 +2142,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update a nameserver group
+      summary: Update a Nameserver Group
       description: Update/Replace a Nameserver Group
       tags: [ DNS ]
       security:
@@ -2167,7 +2177,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a nameserver group
+      summary: Delete a Nameserver Group
       description: Delete a Nameserver Group
       tags: [ DNS ]
       security:
@@ -2218,7 +2228,7 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     put:
-      summary: Update DNS settings
+      summary: Update DNS Settings
       description: Updates a DNS settings object
       tags: [ DNS ]
       security:
@@ -2247,7 +2257,7 @@ paths:
           "$ref": "#/components/responses/internal_error"
   /api/events:
     get:
-      summary: List all events
+      summary: List all Events
       description: Returns a list of all events
       tags: [ Events ]
       security:
