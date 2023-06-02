@@ -22,7 +22,7 @@ type iFaceMapper interface {
 
 // Manager is a ACL rules manager
 type Manager interface {
-	ApplyFiltering(rules []*mgmProto.FirewallRule, allowByDefault bool)
+	ApplyFiltering(networkMap *mgmProto.NetworkMap)
 	Stop()
 }
 
@@ -36,7 +36,7 @@ type DefaultManager struct {
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
 //
 // If allowByDefault is ture it appends allow ALL traffic rules to input and output chains.
-func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule, allowByDefault bool) {
+func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 
@@ -45,11 +45,12 @@ func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule, allowByD
 		return
 	}
 
-	var (
-		applyFailed  bool
-		newRulePairs = make(map[string][]firewall.Rule)
-	)
-	if allowByDefault {
+	rules := d.squashAcceptRules(networkMap)
+
+	// if we got empty rules list but management not set networkMap.FirewallRulesIsEmpty flag
+	// we have old version of management without rules handling, we should allow all traffic
+	if len(networkMap.FirewallRules) == 0 && !networkMap.FirewallRulesIsEmpty {
+		log.Warn("this peer is connected to a NetBird Management service with an older version. Allowing all traffic from connected peers")
 		rules = append(rules,
 			&mgmProto.FirewallRule{
 				PeerIP:    "0.0.0.0",
@@ -65,14 +66,17 @@ func (d *DefaultManager) ApplyFiltering(rules []*mgmProto.FirewallRule, allowByD
 			},
 		)
 	}
+
+	applyFailed := false
+	newRulePairs := make(map[string][]firewall.Rule)
 	for _, r := range rules {
-		rules, err := d.protoRuleToFirewallRule(r)
+		rulePair, err := d.protoRuleToFirewallRule(r)
 		if err != nil {
 			log.Errorf("failed to apply firewall rule: %+v, %v", r, err)
 			applyFailed = true
 			break
 		}
-		newRulePairs[rules[0].GetRuleID()] = rules
+		newRulePairs[rulePair[0].GetRuleID()] = rulePair
 	}
 	if applyFailed {
 		log.Error("failed to apply firewall rules, rollback ACL to previous state")
@@ -165,7 +169,7 @@ func (d *DefaultManager) addInRules(ip net.IP, protocol firewall.Protocol, port 
 	}
 	rules = append(rules, rule)
 
-	if shouldSkipInvertedRule(protocol) {
+	if shouldSkipInvertedRule(protocol, port) {
 		return rules, nil
 	}
 
@@ -185,7 +189,7 @@ func (d *DefaultManager) addOutRules(ip net.IP, protocol firewall.Protocol, port
 	}
 	rules = append(rules, rule)
 
-	if shouldSkipInvertedRule(protocol) {
+	if shouldSkipInvertedRule(protocol, port) {
 		return rules, nil
 	}
 
@@ -196,6 +200,125 @@ func (d *DefaultManager) addOutRules(ip net.IP, protocol firewall.Protocol, port
 
 	return append(rules, rule), nil
 }
+
+// squashAcceptRules does complex logic to convert many rules which allows connection by traffic type
+// to all peers in the network man to one rule which just accepts that type of the traffic.
+//
+// NOTE: It will not squash two rules for same protocol if one covers all peers in the network,
+// but other has port definitions or has drop policy.
+func (d *DefaultManager) squashAcceptRules(networkMap *mgmProto.NetworkMap) []*mgmProto.FirewallRule {
+	totalIPs := 0
+	for _, p := range networkMap.RemotePeers {
+		for range p.AllowedIps {
+			totalIPs++
+		}
+	}
+
+	type protoMatch map[mgmProto.FirewallRuleProtocol]map[string]int
+
+	in := protoMatch{}
+	out := protoMatch{}
+
+	// this function we use to do calculation, can we squash the rules by protocol or not.
+	// We summ amount of Peers IP for given protocol we found in original rules list.
+	// But we zeroed the IP's for protocol if:
+	// 1. Any of the rule has DROP action type.
+	// 2. Any of rule contains Port.
+	//
+	// We zeroed this to notify squash function that this protocol can't be squashed.
+	addRuleToCalculationMap := func(i int, r *mgmProto.FirewallRule, protocols protoMatch) {
+		drop := r.Action == mgmProto.FirewallRule_DROP || r.Port != ""
+		if drop {
+			protocols[r.Protocol] = map[string]int{}
+			return
+		}
+		if _, ok := protocols[r.Protocol]; !ok {
+			protocols[r.Protocol] = map[string]int{}
+		}
+		match := protocols[r.Protocol]
+
+		if _, ok := match[r.PeerIP]; ok {
+			return
+		}
+		match[r.PeerIP] = i
+	}
+
+	for i, r := range networkMap.FirewallRules {
+		// calculate squash for different directions
+		if r.Direction == mgmProto.FirewallRule_IN {
+			addRuleToCalculationMap(i, r, in)
+		} else {
+			addRuleToCalculationMap(i, r, out)
+		}
+	}
+
+	// order of squashing by protocol is important
+	// only for ther first element ALL, it must be done first
+	protocolOrders := []mgmProto.FirewallRuleProtocol{
+		mgmProto.FirewallRule_ALL,
+		mgmProto.FirewallRule_ICMP,
+		mgmProto.FirewallRule_TCP,
+		mgmProto.FirewallRule_UDP,
+	}
+
+	// trace which type of protocols was squashed
+	squashedRules := []*mgmProto.FirewallRule{}
+	squashedProtocols := map[mgmProto.FirewallRuleProtocol]struct{}{}
+	squash := func(matches protoMatch, direction mgmProto.FirewallRuleDirection) {
+		for _, protocol := range protocolOrders {
+			if ipset, ok := matches[protocol]; !ok || len(ipset) != totalIPs || len(ipset) < 2 {
+				// don't squash if :
+				// 1. Rules not cover all peers in the network
+				// 2. Rules cover only one peer in the network.
+				continue
+			}
+
+			// add special rule 0.0.0.0 which allows all IP's in our firewall implementations
+			squashedRules = append(squashedRules, &mgmProto.FirewallRule{
+				PeerIP:    "0.0.0.0",
+				Direction: direction,
+				Action:    mgmProto.FirewallRule_ACCEPT,
+				Protocol:  protocol,
+			})
+			squashedProtocols[protocol] = struct{}{}
+
+			if protocol == mgmProto.FirewallRule_ALL {
+				// if we have ALL traffic type squashed rule
+				// it allows all other type of traffic, so we can stop processing
+				break
+			}
+		}
+	}
+
+	squash(in, mgmProto.FirewallRule_IN)
+	squash(out, mgmProto.FirewallRule_OUT)
+
+	if len(squashedRules) == 0 {
+		return networkMap.FirewallRules
+	}
+
+	// if all protocol was squashed everything is allow and we can ignore all other rules
+	if _, ok := squashedProtocols[mgmProto.FirewallRule_ALL]; ok {
+		return squashedRules
+	}
+
+	var rules []*mgmProto.FirewallRule
+	// filter out rules which was squashed from final list
+	// if we also have other not squashed rules.
+	for i, r := range networkMap.FirewallRules {
+		if _, ok := squashedProtocols[r.Protocol]; ok {
+			if m, ok := in[r.Protocol]; ok && m[r.PeerIP] == i {
+				continue
+			} else if m, ok := out[r.Protocol]; ok && m[r.PeerIP] == i {
+				continue
+			}
+		}
+		rules = append(rules, r)
+	}
+
+	return append(rules, squashedRules...)
+}
+
 func convertToFirewallProtocol(protocol mgmProto.FirewallRuleProtocol) firewall.Protocol {
 	switch protocol {
 	case mgmProto.FirewallRule_TCP:
@@ -211,8 +334,8 @@ func convertToFirewallProtocol(protocol mgmProto.FirewallRuleProtocol) firewall.
 	}
 }
 
-func shouldSkipInvertedRule(protocol firewall.Protocol) bool {
-	return protocol == firewall.ProtocolALL || protocol == firewall.ProtocolICMP
+func shouldSkipInvertedRule(protocol firewall.Protocol, port *firewall.Port) bool {
+	return protocol == firewall.ProtocolALL || protocol == firewall.ProtocolICMP || port == nil
 }
 
 func convertFirewallAction(action mgmProto.FirewallRuleAction) firewall.Action {
