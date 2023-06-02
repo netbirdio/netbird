@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/iface"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
@@ -45,7 +46,30 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		return
 	}
 
-	rules := d.squashAcceptRules(networkMap)
+	rules, squashedProtocols := d.squashAcceptRules(networkMap)
+
+	enableSSH := (networkMap.PeerConfig != nil &&
+		networkMap.PeerConfig.SshConfig != nil &&
+		networkMap.PeerConfig.SshConfig.SshEnabled)
+	if _, ok := squashedProtocols[mgmProto.FirewallRule_ALL]; ok {
+		enableSSH = enableSSH && !ok
+	}
+	if _, ok := squashedProtocols[mgmProto.FirewallRule_TCP]; ok {
+		enableSSH = enableSSH && !ok
+	}
+
+	// if TCP protocol rules not squashed and SSH enabled
+	// we add default firewall rule which accepts connection to any peer
+	// in the network by SSH (TCP 22 port).
+	if enableSSH {
+		rules = append(rules, &mgmProto.FirewallRule{
+			PeerIP:    "0.0.0.0",
+			Direction: mgmProto.FirewallRule_IN,
+			Action:    mgmProto.FirewallRule_ACCEPT,
+			Protocol:  mgmProto.FirewallRule_TCP,
+			Port:      strconv.Itoa(ssh.DefaultSSHPort),
+		})
+	}
 
 	// if we got empty rules list but management not set networkMap.FirewallRulesIsEmpty flag
 	// we have old version of management without rules handling, we should allow all traffic
@@ -202,11 +226,13 @@ func (d *DefaultManager) addOutRules(ip net.IP, protocol firewall.Protocol, port
 }
 
 // squashAcceptRules does complex logic to convert many rules which allows connection by traffic type
-// to all peers in the network man to one rule which just accepts that type of the traffic.
+// to all peers in the network map to one rule which just accepts that type of the traffic.
 //
 // NOTE: It will not squash two rules for same protocol if one covers all peers in the network,
 // but other has port definitions or has drop policy.
-func (d *DefaultManager) squashAcceptRules(networkMap *mgmProto.NetworkMap) []*mgmProto.FirewallRule {
+func (d *DefaultManager) squashAcceptRules(
+	networkMap *mgmProto.NetworkMap,
+) ([]*mgmProto.FirewallRule, map[mgmProto.FirewallRuleProtocol]struct{}) {
 	totalIPs := 0
 	for _, p := range networkMap.RemotePeers {
 		for range p.AllowedIps {
@@ -293,13 +319,13 @@ func (d *DefaultManager) squashAcceptRules(networkMap *mgmProto.NetworkMap) []*m
 	squash(in, mgmProto.FirewallRule_IN)
 	squash(out, mgmProto.FirewallRule_OUT)
 
-	if len(squashedRules) == 0 {
-		return networkMap.FirewallRules
-	}
-
 	// if all protocol was squashed everything is allow and we can ignore all other rules
 	if _, ok := squashedProtocols[mgmProto.FirewallRule_ALL]; ok {
-		return squashedRules
+		return squashedRules, squashedProtocols
+	}
+
+	if len(squashedRules) == 0 {
+		return networkMap.FirewallRules, squashedProtocols
 	}
 
 	var rules []*mgmProto.FirewallRule
@@ -316,7 +342,7 @@ func (d *DefaultManager) squashAcceptRules(networkMap *mgmProto.NetworkMap) []*m
 		rules = append(rules, r)
 	}
 
-	return append(rules, squashedRules...)
+	return append(rules, squashedRules...), squashedProtocols
 }
 
 func convertToFirewallProtocol(protocol mgmProto.FirewallRuleProtocol) firewall.Protocol {
