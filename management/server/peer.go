@@ -495,6 +495,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, nil, err
 	}
 
+	_, err = account.FindPeerByPubKey(peer.Key)
+	if err == nil {
+		return nil, nil, status.Errorf(status.PreconditionFailed, "peer has been already registered")
+	}
+
 	opEvent := &activity.Event{
 		Timestamp: time.Now().UTC(),
 		AccountID: account.Id,
