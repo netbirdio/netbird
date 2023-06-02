@@ -84,6 +84,10 @@ type JWTToken struct {
 
 // NewManager returns a new idp manager based on the configuration that it receives
 func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error) {
+	if config.ClientConfig != nil {
+		config.ClientConfig.Issuer = strings.TrimSuffix(config.ClientConfig.Issuer, "/")
+	}
+
 	switch strings.ToLower(config.ManagerType) {
 	case "none", "":
 		return nil, nil
@@ -108,8 +112,8 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 				ClientSecret:     config.ClientConfig.ClientSecret,
 				GrantType:        config.ClientConfig.GrantType,
 				TokenEndpoint:    config.ClientConfig.TokenEndpoint,
-				ObjectID:         config.ExtraConfig["ObjectID"],
-				GraphAPIEndpoint: config.ExtraConfig["GraphAPIEndpoint"],
+				ObjectID:         config.ExtraConfig["ObjectId"],
+				GraphAPIEndpoint: config.ExtraConfig["GraphApiEndpoint"],
 			}
 		}
 
@@ -155,7 +159,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 			Issuer:        config.ClientConfig.Issuer,
 			TokenEndpoint: config.ClientConfig.TokenEndpoint,
 			GrantType:     config.ClientConfig.GrantType,
-			APIToken:      config.ExtraConfig["APIToken"],
+			APIToken:      config.ExtraConfig["ApiToken"],
 		}
 		return NewOktaManager(oktaClientConfig, appMetrics)
 
