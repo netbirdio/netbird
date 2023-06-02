@@ -495,6 +495,11 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		return nil, nil, err
 	}
 
+	// This is a handling for the case when the same machine (with the same WireGuard pub key) tries to register twice.
+	// Such case is possible when AddPeer function takes long time to finish after AcquireAccountLock (e.g., database is slow)
+	// and the peer disconnects with a timeout and tries to register again.
+	// We just check if this machine has been registered before and reject the second registration.
+	// The connecting peer should be able to recover with a retry.
 	_, err = account.FindPeerByPubKey(peer.Key)
 	if err == nil {
 		return nil, nil, status.Errorf(status.PreconditionFailed, "peer has been already registered")
