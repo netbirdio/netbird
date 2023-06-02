@@ -9,6 +9,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/client/ssh"
 	"github.com/netbirdio/netbird/iface"
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
@@ -66,7 +67,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 			Direction: mgmProto.FirewallRule_IN,
 			Action:    mgmProto.FirewallRule_ACCEPT,
 			Protocol:  mgmProto.FirewallRule_TCP,
-			Port:      "22",
+			Port:      strconv.Itoa(ssh.DefaultSSHPort),
 		})
 	}
 
