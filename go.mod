@@ -63,6 +63,7 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v0.33.0
 	goauthentik.io/api/v3 v3.2023051.3
 	golang.org/x/exp v0.0.0-20220518171630-0b5c67f07fdf
+	golang.org/x/mobile v0.0.0-20190719004257-d2bd2a29d028
 	golang.org/x/net v0.10.0
 	golang.org/x/sync v0.1.0
 	golang.org/x/term v0.8.0
