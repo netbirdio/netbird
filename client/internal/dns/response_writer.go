@@ -7,15 +7,14 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
-
-	"github.com/netbirdio/netbird/iface"
+	"golang.zx2c4.com/wireguard/tun"
 )
 
 type responseWriter struct {
-	local       net.Addr
-	remote      net.Addr
-	packet      gopacket.Packet
-	wgInterface *iface.WGIface
+	local  net.Addr
+	remote net.Addr
+	packet gopacket.Packet
+	device tun.Device
 }
 
 // LocalAddr returns the net.Addr of the server
@@ -81,7 +80,7 @@ func (r *responseWriter) Write(data []byte) (int, error) {
 	sendBuffer := make([]byte, 40, len(send)+40)
 	sendBuffer = append(sendBuffer, send...)
 
-	return r.wgInterface.GetDevice().Device.Write([][]byte{sendBuffer}, 40)
+	return r.device.Write([][]byte{sendBuffer}, 40)
 }
 
 // Close closes the connection.

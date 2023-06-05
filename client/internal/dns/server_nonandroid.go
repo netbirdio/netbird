@@ -518,8 +518,8 @@ func (s *DefaultServer) filterDNSTraffic() {
 		}
 
 		writer := responseWriter{
-			packet:      packet,
-			wgInterface: s.wgInterface,
+			packet: packet,
+			device: s.wgInterface.GetDevice().Device,
 		}
 		go s.dnsMux.ServeDNS(&writer, msg)
 		return true
