@@ -108,7 +108,7 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
-	if s.wgInterface.IsUserspaceBind() {
+	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
 		s.setListenerStatus(true)
 		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
 		s.runtimePort = 53

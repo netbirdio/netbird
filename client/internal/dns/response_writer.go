@@ -78,8 +78,10 @@ func (r *responseWriter) Write(data []byte) (int, error) {
 	}
 
 	send := buffer.Bytes()
-	r.wgInterface.GetDevice().NextRead(send)
-	return len(send), nil
+	sendBuffer := make([]byte, 40, len(send)+40)
+	sendBuffer = append(sendBuffer, send...)
+
+	return r.wgInterface.GetDevice().Device.Write([][]byte{sendBuffer}, 40)
 }
 
 // Close closes the connection.

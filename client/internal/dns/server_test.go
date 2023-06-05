@@ -9,10 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal/stdnet"
-
 	"github.com/miekg/dns"
 
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 )

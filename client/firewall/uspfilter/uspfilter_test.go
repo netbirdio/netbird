@@ -175,7 +175,7 @@ func TestManagerReset(t *testing.T) {
 
 func TestNotMatchByIP(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
