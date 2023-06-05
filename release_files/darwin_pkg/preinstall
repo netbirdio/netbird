@@ -5,10 +5,6 @@ LOG_FILE=/var/log/netbird/client_install.log
 mkdir -p /var/log/netbird/
 
 {
-    netbird service stop || true
-    netbird service uninstall || true
-    pkill -f netbird || true
-
     echo "Preinstall complete"
     exit 0 # all good
 } &> $LOG_FILE
