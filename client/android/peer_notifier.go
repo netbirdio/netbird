@@ -1,5 +1,7 @@
 package android
 
+import _ "golang.org/x/mobile/bind"
+
 // PeerInfo describe information about the peers. It designed for the UI usage
 type PeerInfo struct {
 	IP         string
