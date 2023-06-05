@@ -217,5 +217,6 @@ jobs:
         with:
           workflow: docs site build and push
           repo: netbirdio/docs
+          ref: "refs/heads/main"
           token: ${{ secrets.SIGN_GITHUB_TOKEN }}
           inputs: '{ "generateAPI": true }'
