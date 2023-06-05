@@ -793,14 +793,14 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 	}
 }
 
-func (e Engine) peerExists(peerKey string) bool {
+func (e *Engine) peerExists(peerKey string) bool {
 	e.syncMsgMux.Lock()
 	defer e.syncMsgMux.Unlock()
 	_, ok := e.peerConns[peerKey]
 	return ok
 }
 
-func (e Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
+func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, error) {
 	log.Debugf("creating peer connection %s", pubKey)
 	var stunTurn []*ice.URL
 	stunTurn = append(stunTurn, e.STUNs...)
