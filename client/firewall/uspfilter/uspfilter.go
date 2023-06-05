@@ -276,9 +276,7 @@ func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 			// if rule has UDP hook (and if we are here we match this rule)
 			// we ignore rule.drop and call this hook
 			if rule.udpHook != nil {
-				packetCopy := make([]byte, len(packetData))
-				copy(packetCopy, packetData)
-				return rule.udpHook(packetCopy)
+				return rule.udpHook(packetData)
 			}
 
 			if rule.sPort == 0 && rule.dPort == 0 {

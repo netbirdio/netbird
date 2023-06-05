@@ -138,6 +138,94 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 }
 
+func TestAddUDPPacketHook(t *testing.T) {
+	tests := []struct {
+		name       string
+		in         bool
+		expDir     fw.RuleDirection
+		ip         net.IP
+		dPort      uint16
+		hook       func([]byte) bool
+		expectedID string
+	}{
+		{
+			name:   "Test Outgoing UDP Packet Hook",
+			in:     false,
+			expDir: fw.RuleDirectionOUT,
+			ip:     net.IPv4(10, 168, 0, 1),
+			dPort:  8000,
+			hook:   func([]byte) bool { return true },
+		},
+		{
+			name:   "Test Incoming UDP Packet Hook",
+			in:     true,
+			expDir: fw.RuleDirectionIN,
+			ip:     net.IPv6loopback,
+			dPort:  9000,
+			hook:   func([]byte) bool { return false },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &Manager{
+				incomingRules: []Rule{},
+				outgoingRules: []Rule{},
+				rulesIndex:    make(map[string]int),
+			}
+
+			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
+
+			var addedRule Rule
+			if tt.in {
+				if len(manager.incomingRules) != 1 {
+					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules))
+					return
+				}
+				addedRule = manager.incomingRules[0]
+			} else {
+				if len(manager.outgoingRules) != 1 {
+					t.Errorf("expected 1 outgoing rule, got %d", len(manager.outgoingRules))
+					return
+				}
+				addedRule = manager.outgoingRules[0]
+			}
+
+			if !tt.ip.Equal(addedRule.ip) {
+				t.Errorf("expected ip %s, got %s", tt.ip, addedRule.ip)
+				return
+			}
+			if tt.dPort != addedRule.dPort {
+				t.Errorf("expected dPort %d, got %d", tt.dPort, addedRule.dPort)
+				return
+			}
+			if layers.LayerTypeUDP != addedRule.protoLayer {
+				t.Errorf("expected protoLayer %s, got %s", layers.LayerTypeUDP, addedRule.protoLayer)
+				return
+			}
+			if tt.expDir != addedRule.direction {
+				t.Errorf("expected direction %d, got %d", tt.expDir, addedRule.direction)
+				return
+			}
+			if addedRule.udpHook == nil {
+				t.Errorf("expected udpHook to be set")
+				return
+			}
+
+			// Ensure rulesIndex is correctly updated
+			index, ok := manager.rulesIndex[addedRule.id]
+			if !ok {
+				t.Errorf("expected rule to be in rulesIndex")
+				return
+			}
+			if index != 0 {
+				t.Errorf("expected rule index to be 0, got %d", index)
+				return
+			}
+		})
+	}
+}
+
 func TestManagerReset(t *testing.T) {
 	ifaceMock := &IFaceMock{
 		SetFilterFunc: func(iface.PacketFilter) error { return nil },
