@@ -4,8 +4,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "golang.org/x/mobile/bind"
-
 	"github.com/netbirdio/netbird/client/internal"
 )
 

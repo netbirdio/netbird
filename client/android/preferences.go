@@ -1,8 +1,6 @@
 package android
 
 import (
-	_ "golang.org/x/mobile/bind"
-
 	"github.com/netbirdio/netbird/client/internal"
 )
 

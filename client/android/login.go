@@ -8,7 +8,6 @@ import (
 	"github.com/cenkalti/backoff/v4"
 
 	log "github.com/sirupsen/logrus"
-	_ "golang.org/x/mobile/bind"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
