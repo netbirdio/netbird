@@ -17,6 +17,8 @@ mkdir -p /usr/local/bin/
         exit 1
     fi
 
+    osascript -e 'quit app "Netbird"' || true
+
     ln -s $APP/Contents/MacOS/netbird $AGENT
     if test -f $AGENT; then
         echo "NetBird binary linked successfully."
@@ -25,8 +27,11 @@ mkdir -p /usr/local/bin/
         exit 1
     fi
 
-    $AGENT service install
-    $AGENT service start
+    $AGENT service stop || true
+    $AGENT service uninstall || true
+
+    $AGENT service install || true
+    $AGENT service start || true
 
     open $APP
 
