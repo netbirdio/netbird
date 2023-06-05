@@ -5,7 +5,7 @@ LOG_FILE=/var/log/netbird/client_install.log
 mkdir -p /var/log/netbird/
 
 {
-    pkill -f netbird || true
+    osascript -e 'quit app "Netbird"' || true
     echo "Preinstall complete"
     exit 0 # all good
 } &> $LOG_FILE
