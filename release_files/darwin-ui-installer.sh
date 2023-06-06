@@ -30,9 +30,8 @@ fi
 
 if [ -n "$NB_BIN" ]
 then
-  echo "Stopping and uninstalling NetBird daemon"
+  echo "Stopping NetBird daemon"
   netbird service stop || true
-  netbird service uninstall || true
 fi
 
 # start netbird daemon service
