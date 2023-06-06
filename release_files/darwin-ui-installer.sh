@@ -27,6 +27,14 @@ then
   echo "Please run: brew install netbirdio/tap/netbird"
   echo "to update it"
 fi
+
+if [ -n "$NB_BIN" ]
+then
+  echo "Stopping and uninstalling NetBird daemon"
+  netbird service stop || true
+  netbird service uninstall || true
+fi
+
 # start netbird daemon service
 echo "Starting Netbird daemon"
 netbird service install || true
