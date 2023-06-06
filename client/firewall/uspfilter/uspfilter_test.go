@@ -327,6 +327,50 @@ func TestNotMatchByIP(t *testing.T) {
 	}
 }
 
+// TestRemovePacketHook tests the functionality of the RemovePacketHook method
+func TestRemovePacketHook(t *testing.T) {
+	// creating mock iface
+	iface := &IFaceMock{
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
+	}
+
+	// creating manager instance
+	manager, err := Create(iface)
+	if err != nil {
+		t.Fatalf("Failed to create Manager: %s", err)
+	}
+
+	// Add a UDP packet hook
+	hookFunc := func(data []byte) bool { return true }
+	hookID := manager.AddUDPPacketHook(false, net.IPv4(192, 168, 0, 1), 8080, hookFunc)
+
+	// Assert the hook is added by finding it in the manager's outgoing rules
+	found := false
+	for _, rule := range manager.outgoingRules {
+		if rule.id == hookID {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatalf("The hook was not added properly.")
+	}
+
+	// Now remove the packet hook
+	err = manager.RemovePacketHook(hookID)
+	if err != nil {
+		t.Fatalf("Failed to remove hook: %s", err)
+	}
+
+	// Assert the hook is removed by checking it in the manager's outgoing rules
+	for _, rule := range manager.outgoingRules {
+		if rule.id == hookID {
+			t.Fatalf("The hook was not removed properly.")
+		}
+	}
+}
+
 func TestUSPFilterCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {

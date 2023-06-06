@@ -308,7 +308,7 @@ func (m *Manager) SetNetwork(network *net.IPNet) {
 // Hook function returns flag which indicates should be the matched package dropped or not
 func (m *Manager) AddUDPPacketHook(
 	in bool, ip net.IP, dPort uint16, hook func([]byte) bool,
-) {
+) string {
 	r := Rule{
 		id:         uuid.New().String(),
 		ip:         ip,
@@ -339,4 +339,21 @@ func (m *Manager) AddUDPPacketHook(
 		m.rulesIndex[toUpdate[i].id] = i
 	}
 	m.mutex.Unlock()
+
+	return r.id
+}
+
+// RemovePacketHook removes packet hook by given ID
+func (m *Manager) RemovePacketHook(hookID string) error {
+	for _, r := range m.incomingRules {
+		if r.id == hookID {
+			return m.DeleteRule(&r)
+		}
+	}
+	for _, r := range m.outgoingRules {
+		if r.id == hookID {
+			return m.DeleteRule(&r)
+		}
+	}
+	return fmt.Errorf("hook with given id not found")
 }

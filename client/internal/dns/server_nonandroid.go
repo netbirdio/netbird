@@ -114,7 +114,14 @@ func (s *DefaultServer) Start() {
 		s.runtimePort = 53
 
 		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
-		s.filterDNSTraffic()
+		go func() {
+			s.setListenerStatus(true)
+			defer s.setListenerStatus(false)
+
+			hookID := s.filterDNSTraffic()
+			<-s.ctx.Done()
+			s.wgInterface.GetFilter().RemovePacketHook(hookID)
+		}()
 		return
 	}
 
@@ -491,11 +498,11 @@ func (s *DefaultServer) upstreamCallbacks(
 	return
 }
 
-func (s *DefaultServer) filterDNSTraffic() {
+func (s *DefaultServer) filterDNSTraffic() string {
 	filter := s.wgInterface.GetFilter()
 	if filter == nil {
 		log.Error("can't set DNS filter, filter not initialized")
-		return
+		return ""
 	}
 
 	firstLayerDecoder := layers.LayerTypeIPv4
@@ -525,7 +532,7 @@ func (s *DefaultServer) filterDNSTraffic() {
 		return true
 	}
 
-	filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook)
+	return filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook)
 }
 
 func getLastIPFromNetwork(network *net.IPNet, fromEnd int) string {
