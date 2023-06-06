@@ -17,6 +17,7 @@ import (
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
 	Name() string
+	Address() iface.WGAddress
 	IsUserspaceBind() bool
 	SetFiltering(iface.PacketFilter) error
 }
