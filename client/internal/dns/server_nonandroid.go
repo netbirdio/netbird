@@ -114,9 +114,8 @@ func (s *DefaultServer) Start() {
 		s.runtimePort = 53
 
 		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
+		s.fakeResolverWG.Add(1)
 		go func() {
-			s.fakeResolverWG.Add(1)
-
 			s.setListenerStatus(true)
 			defer s.setListenerStatus(false)
 
