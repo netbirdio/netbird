@@ -46,6 +46,7 @@ jobs:
         env:
           CI_NETBIRD_DOMAIN: localhost
           CI_NETBIRD_AUTH_CLIENT_ID: testing.client.id
+          CI_NETBIRD_AUTH_CLIENT_SECRET: testing.client.secret
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
           CI_NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT: https://example.eu.auth0.com/.well-known/openid-configuration
           CI_NETBIRD_USE_AUTH0: true
@@ -58,6 +59,7 @@ jobs:
         env:
           CI_NETBIRD_DOMAIN: localhost
           CI_NETBIRD_AUTH_CLIENT_ID: testing.client.id
+          CI_NETBIRD_AUTH_CLIENT_SECRET: testing.client.secret
           CI_NETBIRD_AUTH_AUDIENCE: testing.ci
           CI_NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT: https://example.eu.auth0.com/.well-known/openid-configuration
           CI_NETBIRD_USE_AUTH0: true
@@ -77,6 +79,7 @@ jobs:
 
         run: |
           grep AUTH_CLIENT_ID docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_ID
+          grep AUTH_CLIENT_SECRET docker-compose.yml | grep $CI_NETBIRD_AUTH_CLIENT_SECRET
           grep AUTH_AUTHORITY docker-compose.yml | grep $CI_NETBIRD_AUTH_AUTHORITY
           grep AUTH_AUDIENCE docker-compose.yml | grep $CI_NETBIRD_AUTH_AUDIENCE
           grep AUTH_SUPPORTED_SCOPES docker-compose.yml | grep "$CI_NETBIRD_AUTH_SUPPORTED_SCOPES"
