@@ -84,3 +84,7 @@ func (n *notifier) hasDiff(a []string, b []string) bool {
 	}
 	return false
 }
+
+func (n *notifier) initialRouteRanges() []string {
+	return n.initialRouteRangers
+}

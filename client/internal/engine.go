@@ -189,6 +189,16 @@ func (e *Engine) Start() error {
 		return err
 	}
 
+	if e.dnsServer == nil {
+		// todo fix custom address
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+		if err != nil {
+			e.close()
+			return err
+		}
+		e.dnsServer = dnsServer
+	}
+
 	routes, err := e.readInitialRoutes()
 	if err != nil {
 		return err
@@ -196,7 +206,14 @@ func (e *Engine) Start() error {
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
 	e.routeManager.SetRouteChangeListener(e.mobileDep.RouteListener)
 
-	err = e.wgInterface.Create()
+	if runtime.GOOS != "android" {
+		err = e.wgInterface.Create()
+	} else {
+		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{
+			e.routeManager.InitialRouteRange(),
+			e.dnsServer.DnsIP(),
+		})
+	}
 	if err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIFaceName, err.Error())
 		e.close()
@@ -234,16 +251,6 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create ACL manager, policy will not work: %s", err.Error())
 	} else {
 		e.acl = acl
-	}
-
-	if e.dnsServer == nil {
-		// todo fix custom address
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
-		if err != nil {
-			e.close()
-			return err
-		}
-		e.dnsServer = dnsServer
 	}
 
 	e.receiveSignalEvents()

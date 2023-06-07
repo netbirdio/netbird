@@ -15,13 +15,12 @@ import (
 type tunDevice struct {
 	address    WGAddress
 	mtu        int
-	routes     []string
 	tunAdapter TunAdapter
+	iceBind    *bind.ICEBind
 
 	fd      int
 	name    string
 	device  *device.Device
-	iceBind *bind.ICEBind
 	wrapper *DeviceWrapper
 }
 
@@ -34,14 +33,10 @@ func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNe
 	}
 }
 
-func (t *tunDevice) SetRoutes(routes []string) {
-	t.routes = routes
-}
-
-func (t *tunDevice) Create() error {
+func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
 	var err error
-	routesString := t.routesToString()
-	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, routesString)
+	routesString := t.routesToString(mIFaceArgs.Routes)
+	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, mIFaceArgs.Dns, routesString)
 	if err != nil {
 		log.Errorf("failed to create Android interface: %s", err)
 		return err
@@ -95,6 +90,6 @@ func (t *tunDevice) Close() (err error) {
 	return
 }
 
-func (t *tunDevice) routesToString() string {
-	return strings.Join(t.routes, ";")
+func (t *tunDevice) routesToString(routes []string) string {
+	return strings.Join(routes, ";")
 }

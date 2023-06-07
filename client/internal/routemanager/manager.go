@@ -17,6 +17,7 @@ import (
 type Manager interface {
 	UpdateRoutes(updateSerial uint64, newRoutes []*route.Route) error
 	SetRouteChangeListener(listener RouteListener)
+	InitialRouteRange() []string
 	Stop()
 }
 
@@ -51,10 +52,6 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 	if runtime.GOOS == "android" {
 		cr := dm.clientRoutes(initialRoutes)
 		dm.notifier.setInitialClientRoutes(cr)
-		networks := readRouteNetworks(cr)
-
-		// make sense to call before create interface
-		wgInterface.SetInitialRoutes(networks)
 	}
 	return dm
 }
@@ -92,6 +89,11 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 // SetRouteChangeListener set RouteListener for route change notifier
 func (m *DefaultManager) SetRouteChangeListener(listener RouteListener) {
 	m.notifier.setListener(listener)
+}
+
+// InitialRouteRange return the list of initial routes. It used by mobile systems
+func (m *DefaultManager) InitialRouteRange() []string {
+	return m.notifier.initialRouteRanges()
 }
 
 func (m *DefaultManager) updateClientNetworks(updateSerial uint64, networks map[string][]*route.Route) {
@@ -162,12 +164,4 @@ func (m *DefaultManager) clientRoutes(initialRoutes []*route.Route) []*route.Rou
 		rs = append(rs, routes...)
 	}
 	return rs
-}
-
-func readRouteNetworks(cr []*route.Route) []string {
-	routesNetworks := make([]string, 0)
-	for _, r := range cr {
-		routesNetworks = append(routesNetworks, r.Network.String())
-	}
-	return routesNetworks
 }
