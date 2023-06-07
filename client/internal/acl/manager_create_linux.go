@@ -10,7 +10,7 @@ import (
 )
 
 // Create creates a firewall manager instance for the Linux
-func Create(iface iFaceMapper) (manager *DefaultManager, err error) {
+func Create(iface IFaceMapper) (manager *DefaultManager, err error) {
 	var fm firewall.Manager
 	if iface.IsUserspaceBind() {
 		// use userspace packet filtering firewall

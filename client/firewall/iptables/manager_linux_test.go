@@ -25,6 +25,7 @@ func (i *iFaceMock) Name() string {
 	}
 	panic("NameFunc is not set")
 }
+
 func (i *iFaceMock) Address() iface.WGAddress {
 	if i.AddressFunc != nil {
 		return i.AddressFunc()
