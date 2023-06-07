@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	"github.com/rs/xid"
@@ -175,8 +176,13 @@ func (h *Policies) savePolicy(
 		}
 
 		if r.Ports != nil && len(*r.Ports) != 0 {
-			ports := *r.Ports
-			pr.Ports = ports[:]
+			for _, v := range *r.Ports {
+				if port, err := strconv.Atoi(v); err != nil || port < 1 || port > 65535 {
+					util.WriteError(status.Errorf(status.InvalidArgument, "valid port value is in 1..65535 range"), w)
+					return
+				}
+				pr.Ports = append(pr.Ports, v)
+			}
 		}
 
 		// validate policy object
