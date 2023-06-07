@@ -15,6 +15,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -42,14 +43,20 @@ type Manager struct {
 	filterInputChainIPv6  *nftables.Chain
 	filterOutputChainIPv6 *nftables.Chain
 
-	wgIfaceName string
+	wgIface iFaceMapper
+}
+
+// iFaceMapper defines subset methods of interface required for manager
+type iFaceMapper interface {
+	Name() string
+	Address() iface.WGAddress
 }
 
 // Create nftables firewall manager
-func Create(wgIfaceName string) (*Manager, error) {
+func Create(wgIface iFaceMapper) (*Manager, error) {
 	m := &Manager{
-		conn:        &nftables.Conn{},
-		wgIfaceName: wgIfaceName,
+		conn:    &nftables.Conn{},
+		wgIface: wgIface,
 	}
 
 	if err := m.Reset(); err != nil {
@@ -109,7 +116,7 @@ func (m *Manager) AddFiltering(
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     ifname(m.wgIfaceName),
+			Data:     ifname(m.wgIface.Name()),
 		},
 	}
 
@@ -358,15 +365,82 @@ func (m *Manager) createChainIfNotExists(
 	chain = m.conn.AddChain(chain)
 
 	ifaceKey := expr.MetaKeyIIFNAME
+	shiftDSTAddr := 0
 	if name == FilterOutputChainName {
 		ifaceKey = expr.MetaKeyOIFNAME
+		shiftDSTAddr = 1
 	}
+
 	expressions := []expr.Any{
 		&expr.Meta{Key: ifaceKey, Register: 1},
 		&expr.Cmp{
 			Op:       expr.CmpOpEq,
 			Register: 1,
-			Data:     ifname(m.wgIfaceName),
+			Data:     ifname(m.wgIface.Name()),
+		},
+	}
+
+	mask, _ := netip.AddrFromSlice(m.wgIface.Address().Network.Mask)
+	if m.wgIface.Address().IP.To4() == nil {
+		ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To16())
+		expressions = append(expressions,
+			&expr.Payload{
+				DestRegister: 2,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       uint32(8 + (16 * shiftDSTAddr)),
+				Len:          16,
+			},
+			&expr.Bitwise{
+				SourceRegister: 2,
+				DestRegister:   2,
+				Len:            16,
+				Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+				Mask:           mask.Unmap().AsSlice(),
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpNeq,
+				Register: 2,
+				Data:     ip.Unmap().AsSlice(),
+			},
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		)
+	} else {
+		ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
+		expressions = append(expressions,
+			&expr.Payload{
+				DestRegister: 2,
+				Base:         expr.PayloadBaseNetworkHeader,
+				Offset:       uint32(12 + (4 * shiftDSTAddr)),
+				Len:          4,
+			},
+			&expr.Bitwise{
+				SourceRegister: 2,
+				DestRegister:   2,
+				Len:            4,
+				Xor:            []byte{0x0, 0x0, 0x0, 0x0},
+				Mask:           m.wgIface.Address().Network.Mask,
+			},
+			&expr.Cmp{
+				Op:       expr.CmpOpNeq,
+				Register: 2,
+				Data:     ip.Unmap().AsSlice(),
+			},
+			&expr.Verdict{Kind: expr.VerdictAccept},
+		)
+	}
+
+	_ = m.conn.AddRule(&nftables.Rule{
+		Table: table,
+		Chain: chain,
+		Exprs: expressions,
+	})
+
+	expressions = []expr.Any{
+		&expr.Meta{Key: ifaceKey, Register: 1},
+		&expr.Cmp{
+			Op:       expr.CmpOpEq,
+			Register: 1,
+			Data:     ifname(m.wgIface.Name()),
 		},
 		&expr.Verdict{Kind: expr.VerdictDrop},
 	}
@@ -375,7 +449,6 @@ func (m *Manager) createChainIfNotExists(
 		Chain: chain,
 		Exprs: expressions,
 	})
-
 	if err := m.conn.Flush(); err != nil {
 		return nil, err
 	}

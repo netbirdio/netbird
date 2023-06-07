@@ -11,6 +11,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
+	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -20,12 +21,6 @@ const (
 	// ChainOutputFilterName is the name of the chain that is used for filtering outgoing packets
 	ChainOutputFilterName = "NETBIRD-ACL-OUTPUT"
 )
-
-// jumpNetbirdInputDefaultRule always added by manager to the input chain for all trafic from the Netbird interface
-var jumpNetbirdInputDefaultRule = []string{"-j", ChainInputFilterName}
-
-// jumpNetbirdOutputDefaultRule always added by manager to the output chain for all trafic from the Netbird interface
-var jumpNetbirdOutputDefaultRule = []string{"-j", ChainOutputFilterName}
 
 // dropAllDefaultRule in the Netbird chain
 var dropAllDefaultRule = []string{"-j", "DROP"}
@@ -37,13 +32,25 @@ type Manager struct {
 	ipv4Client *iptables.IPTables
 	ipv6Client *iptables.IPTables
 
-	wgIfaceName string
+	inputDefaultRuleSpecs  []string
+	outputDefaultRuleSpecs []string
+	wgIface                iFaceMapper
+}
+
+// iFaceMapper defines subset methods of interface required for manager
+type iFaceMapper interface {
+	Name() string
+	Address() iface.WGAddress
 }
 
 // Create iptables firewall manager
-func Create(wgIfaceName string) (*Manager, error) {
+func Create(wgIface iFaceMapper) (*Manager, error) {
 	m := &Manager{
-		wgIfaceName: wgIfaceName,
+		wgIface: wgIface,
+		inputDefaultRuleSpecs: []string{
+			"-i", wgIface.Name(), "-j", ChainInputFilterName, "-s", wgIface.Address().String()},
+		outputDefaultRuleSpecs: []string{
+			"-o", wgIface.Name(), "-j", ChainOutputFilterName, "-d", wgIface.Address().String()},
 	}
 
 	// init clients for booth ipv4 and ipv6
@@ -193,11 +200,10 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 		return fmt.Errorf("failed to check if input chain exists: %w", err)
 	}
 	if ok {
-		specs := append([]string{"-i", m.wgIfaceName}, jumpNetbirdInputDefaultRule...)
-		if ok, err := client.Exists("filter", "INPUT", specs...); err != nil {
+		if ok, err := client.Exists("filter", "INPUT", m.inputDefaultRuleSpecs...); err != nil {
 			return err
 		} else if ok {
-			if err := client.Delete("filter", "INPUT", specs...); err != nil {
+			if err := client.Delete("filter", "INPUT", m.inputDefaultRuleSpecs...); err != nil {
 				log.WithError(err).Errorf("failed to delete default input rule: %v", err)
 			}
 		}
@@ -208,11 +214,10 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 		return fmt.Errorf("failed to check if output chain exists: %w", err)
 	}
 	if ok {
-		specs := append([]string{"-o", m.wgIfaceName}, jumpNetbirdOutputDefaultRule...)
-		if ok, err := client.Exists("filter", "OUTPUT", specs...); err != nil {
+		if ok, err := client.Exists("filter", "OUTPUT", m.outputDefaultRuleSpecs...); err != nil {
 			return err
 		} else if ok {
-			if err := client.Delete("filter", "OUTPUT", specs...); err != nil {
+			if err := client.Delete("filter", "OUTPUT", m.outputDefaultRuleSpecs...); err != nil {
 				log.WithError(err).Errorf("failed to delete default output rule: %v", err)
 			}
 		}
@@ -296,8 +301,7 @@ func (m *Manager) client(ip net.IP) (*iptables.IPTables, error) {
 			return nil, fmt.Errorf("failed to create default drop all in netbird input chain: %w", err)
 		}
 
-		specs := append([]string{"-i", m.wgIfaceName}, jumpNetbirdInputDefaultRule...)
-		if err := client.AppendUnique("filter", "INPUT", specs...); err != nil {
+		if err := client.AppendUnique("filter", "INPUT", m.inputDefaultRuleSpecs...); err != nil {
 			return nil, fmt.Errorf("failed to create input chain jump rule: %w", err)
 		}
 
@@ -317,8 +321,7 @@ func (m *Manager) client(ip net.IP) (*iptables.IPTables, error) {
 			return nil, fmt.Errorf("failed to create default drop all in netbird output chain: %w", err)
 		}
 
-		specs := append([]string{"-o", m.wgIfaceName}, jumpNetbirdOutputDefaultRule...)
-		if err := client.AppendUnique("filter", "OUTPUT", specs...); err != nil {
+		if err := client.AppendUnique("filter", "OUTPUT", m.outputDefaultRuleSpecs...); err != nil {
 			return nil, fmt.Errorf("failed to create output chain jump rule: %w", err)
 		}
 	}
