@@ -36,6 +36,7 @@ type DefaultServer struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 	mux                sync.Mutex
+	fakeResolverWG     sync.WaitGroup
 	server             *dns.Server
 	dnsMux             *dns.ServeMux
 	dnsMuxMap          registeredHandlerMap
@@ -109,18 +110,21 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
 	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
-		s.setListenerStatus(true)
 		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
 		s.runtimePort = 53
 
 		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
 		go func() {
+			s.fakeResolverWG.Add(1)
+
 			s.setListenerStatus(true)
 			defer s.setListenerStatus(false)
 
 			hookID := s.filterDNSTraffic()
-			<-s.ctx.Done()
-			s.wgInterface.GetFilter().RemovePacketHook(hookID)
+			s.fakeResolverWG.Wait()
+			if err := s.wgInterface.GetFilter().RemovePacketHook(hookID); err != nil {
+				log.Errorf("unable to remove DNS packet hook: %s", err)
+			}
 		}()
 		return
 	}
@@ -192,6 +196,10 @@ func (s *DefaultServer) Stop() {
 		log.Error(err)
 	}
 
+	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
+		s.fakeResolverWG.Done()
+	}
+
 	err = s.stopListener()
 	if err != nil {
 		log.Error(err)
@@ -255,12 +263,15 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
-	// is the service should be disabled, we stop the listener
+	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if !update.ServiceEnable {
-		err := s.stopListener()
-		if err != nil {
-			log.Error(err)
+		if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
+			s.fakeResolverWG.Done()
+		} else {
+			if err := s.stopListener(); err != nil {
+				log.Error(err)
+			}
 		}
 	} else if !s.listenerIsRunning {
 		s.Start()
