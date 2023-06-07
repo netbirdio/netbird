@@ -196,7 +196,7 @@ func (s *DefaultServer) Stop() {
 		log.Error(err)
 	}
 
-	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
+	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
 		s.fakeResolverWG.Done()
 	}
 
