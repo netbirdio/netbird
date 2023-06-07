@@ -206,16 +206,3 @@ jobs:
           ref: ${{ env.SIGN_PIPE_VER }}
           token: ${{ secrets.SIGN_GITHUB_TOKEN }}
           inputs: '{ "tag": "${{ github.ref }}" }'
-
-  trigger_docs_build:
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Trigger API pages generation and docs build
-        uses: benc-uk/workflow-dispatch@v1
-        with:
-          workflow: docs site build and push
-          repo: netbirdio/docs
-          ref: "refs/heads/main"
-          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
-          inputs: '{ "generateAPI": true }'
