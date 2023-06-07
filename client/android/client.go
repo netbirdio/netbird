@@ -118,11 +118,9 @@ func (c *Client) PeersList() *PeerInfoArray {
 			p.IP,
 			p.FQDN,
 			p.ConnStatus.String(),
-			p.Direct,
 		}
 		peerInfos[n] = pi
 	}
-
 	return &PeerInfoArray{items: peerInfos}
 }
 
