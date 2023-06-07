@@ -34,6 +34,20 @@ func (m *MockIFaceMapper) EXPECT() *MockIFaceMapperMockRecorder {
 	return m.recorder
 }
 
+// Address mocks base method.
+func (m *MockIFaceMapper) Address() iface.WGAddress {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Address")
+	ret0, _ := ret[0].(iface.WGAddress)
+	return ret0
+}
+
+// Address indicates an expected call of Address.
+func (mr *MockIFaceMapperMockRecorder) Address() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Address", reflect.TypeOf((*MockIFaceMapper)(nil).Address))
+}
+
 // IsUserspaceBind mocks base method.
 func (m *MockIFaceMapper) IsUserspaceBind() bool {
 	m.ctrl.T.Helper()
