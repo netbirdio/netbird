@@ -210,8 +210,8 @@ func (e *Engine) Start() error {
 		err = e.wgInterface.Create()
 	} else {
 		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{
-			e.routeManager.InitialRouteRange(),
-			e.dnsServer.DnsIP(),
+			Routes: e.routeManager.InitialRouteRange(),
+			Dns:    e.dnsServer.DnsIP(),
 		})
 	}
 	if err != nil {
