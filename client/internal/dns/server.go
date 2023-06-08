@@ -112,7 +112,8 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
-	if s.wgInterface.IsUserspaceBind() {
+	// nil check required in unit tests
+	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
 		s.fakeResolverWG.Add(1)
 		go func() {
 			s.setListenerStatus(true)
