@@ -14,11 +14,12 @@ import (
 	mgmProto "github.com/netbirdio/netbird/management/proto"
 )
 
-// iFaceMapper defines subset methods of interface required for manager
-type iFaceMapper interface {
+// IFaceMapper defines subset methods of interface required for manager
+type IFaceMapper interface {
 	Name() string
+	Address() iface.WGAddress
 	IsUserspaceBind() bool
-	SetFiltering(iface.PacketFilter) error
+	SetFilter(iface.PacketFilter) error
 }
 
 // Manager is a ACL rules manager

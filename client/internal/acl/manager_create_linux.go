@@ -10,7 +10,7 @@ import (
 )
 
 // Create creates a firewall manager instance for the Linux
-func Create(iface iFaceMapper) (manager *DefaultManager, err error) {
+func Create(iface IFaceMapper) (manager *DefaultManager, err error) {
 	var fm firewall.Manager
 	if iface.IsUserspaceBind() {
 		// use userspace packet filtering firewall
@@ -19,10 +19,10 @@ func Create(iface iFaceMapper) (manager *DefaultManager, err error) {
 			return nil, err
 		}
 	} else {
-		if fm, err = nftables.Create(iface.Name()); err != nil {
+		if fm, err = nftables.Create(iface); err != nil {
 			log.Debugf("failed to create nftables manager: %s", err)
 			// fallback to iptables
-			if fm, err = iptables.Create(iface.Name()); err != nil {
+			if fm, err = iptables.Create(iface); err != nil {
 				log.Errorf("failed to create iptables manager: %s", err)
 				return nil, err
 			}

@@ -1,10 +1,17 @@
 #!/bin/sh
 
-LOG_FILE=/var/log/netbird/client_install.log
+set -x
+
+LOG_FILE=/var/log/netbird/client_pre_install.log
+AGENT=/usr/local/bin/netbird
 
 mkdir -p /var/log/netbird/
 
 {
+    osascript -e 'quit app "Netbird"' || true
+    $AGENT service stop || true
+
     echo "Preinstall complete"
     exit 0 # all good
 } &> $LOG_FILE
+

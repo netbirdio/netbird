@@ -1,8 +1,10 @@
 #!/bin/sh
 
+set -x
+
 APP=/Applications/NetBird.app
 AGENT=/usr/local/bin/netbird
-LOG_FILE=/var/log/netbird/client_install.log
+LOG_FILE=/var/log/netbird/client_post_install.log
 
 mkdir -p /var/log/netbird/
 mkdir -p /usr/local/bin/
@@ -17,7 +19,7 @@ mkdir -p /usr/local/bin/
         exit 1
     fi
 
-    ln -s $APP/Contents/MacOS/netbird $AGENT
+    ln -fs $APP/Contents/MacOS/netbird $AGENT
     if test -f $AGENT; then
         echo "NetBird binary linked successfully."
     else
@@ -25,11 +27,12 @@ mkdir -p /usr/local/bin/
         exit 1
     fi
 
-    $AGENT service install
-    $AGENT service start
+    $AGENT service install || true
+    $AGENT service start || true
 
     open $APP
 
     echo "Finished Netbird installation successfully"
     exit 0 # all good
 } &> $LOG_FILE
+

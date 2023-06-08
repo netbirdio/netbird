@@ -5,7 +5,6 @@ type PeerInfo struct {
 	IP         string
 	FQDN       string
 	ConnStatus string // Todo replace to enum
-	Direct     bool
 }
 
 // PeerInfoCollection made for Java layer to get non default types as collection

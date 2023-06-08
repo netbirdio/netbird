@@ -23,6 +23,7 @@ type WGIface struct {
 	configurer    wGConfigurer
 	mu            sync.Mutex
 	userspaceBind bool
+	filter        PacketFilter
 }
 
 // IsUserspaceBind indicates whether this interfaces is userspace with bind.ICEBind
@@ -120,8 +121,8 @@ func (w *WGIface) Close() error {
 	return w.tun.Close()
 }
 
-// SetFiltering sets packet filters for the userspace impelemntation
-func (w *WGIface) SetFiltering(filter PacketFilter) error {
+// SetFilter sets packet filters for the userspace impelemntation
+func (w *WGIface) SetFilter(filter PacketFilter) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -129,7 +130,25 @@ func (w *WGIface) SetFiltering(filter PacketFilter) error {
 		return fmt.Errorf("userspace packet filtering not handled on this device")
 	}
 
-	filter.SetNetwork(w.tun.address.Network)
-	w.tun.wrapper.SetFiltering(filter)
+	w.filter = filter
+	w.filter.SetNetwork(w.tun.address.Network)
+
+	w.tun.wrapper.SetFilter(filter)
 	return nil
+}
+
+// GetFilter returns packet filter used by interface if it uses userspace device implementation
+func (w *WGIface) GetFilter() PacketFilter {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.filter
+}
+
+// GetDevice to interact with raw device (with filtering)
+func (w *WGIface) GetDevice() *DeviceWrapper {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	return w.tun.wrapper
 }

@@ -18,7 +18,7 @@ const layerTypeAll = 0
 
 // IFaceMapper defines subset methods of interface required for manager
 type IFaceMapper interface {
-	SetFiltering(iface.PacketFilter) error
+	SetFilter(iface.PacketFilter) error
 }
 
 // Manager userspace firewall manager
@@ -64,7 +64,7 @@ func Create(iface IFaceMapper) (*Manager, error) {
 		},
 	}
 
-	if err := iface.SetFiltering(m); err != nil {
+	if err := iface.SetFilter(m); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -273,6 +273,12 @@ func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 				return rule.drop
 			}
 		case layers.LayerTypeUDP:
+			// if rule has UDP hook (and if we are here we match this rule)
+			// we ignore rule.drop and call this hook
+			if rule.udpHook != nil {
+				return rule.udpHook(packetData)
+			}
+
 			if rule.sPort == 0 && rule.dPort == 0 {
 				return rule.drop
 			}
@@ -295,4 +301,59 @@ func (m *Manager) dropFilter(packetData []byte, rules []Rule, isIncomingPacket b
 // SetNetwork of the wireguard interface to which filtering applied
 func (m *Manager) SetNetwork(network *net.IPNet) {
 	m.wgNetwork = network
+}
+
+// AddUDPPacketHook calls hook when UDP packet from given direction matched
+//
+// Hook function returns flag which indicates should be the matched package dropped or not
+func (m *Manager) AddUDPPacketHook(
+	in bool, ip net.IP, dPort uint16, hook func([]byte) bool,
+) string {
+	r := Rule{
+		id:         uuid.New().String(),
+		ip:         ip,
+		protoLayer: layers.LayerTypeUDP,
+		dPort:      dPort,
+		ipLayer:    layers.LayerTypeIPv6,
+		direction:  fw.RuleDirectionOUT,
+		comment:    fmt.Sprintf("UDP Hook direction: %v, ip:%v, dport:%d", in, ip, dPort),
+		udpHook:    hook,
+	}
+
+	if ip.To4() != nil {
+		r.ipLayer = layers.LayerTypeIPv4
+	}
+
+	m.mutex.Lock()
+	var toUpdate []Rule
+	if in {
+		r.direction = fw.RuleDirectionIN
+		m.incomingRules = append([]Rule{r}, m.incomingRules...)
+		toUpdate = m.incomingRules
+	} else {
+		m.outgoingRules = append([]Rule{r}, m.outgoingRules...)
+		toUpdate = m.outgoingRules
+	}
+
+	for i := range toUpdate {
+		m.rulesIndex[toUpdate[i].id] = i
+	}
+	m.mutex.Unlock()
+
+	return r.id
+}
+
+// RemovePacketHook removes packet hook by given ID
+func (m *Manager) RemovePacketHook(hookID string) error {
+	for _, r := range m.incomingRules {
+		if r.id == hookID {
+			return m.DeleteRule(&r)
+		}
+	}
+	for _, r := range m.outgoingRules {
+		if r.id == hookID {
+			return m.DeleteRule(&r)
+		}
+	}
+	return fmt.Errorf("hook with given id not found")
 }
