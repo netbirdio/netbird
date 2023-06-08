@@ -35,7 +35,7 @@ func TestDefaultManager(t *testing.T) {
 	iface := mocks.NewMockIFaceMapper(ctrl)
 	iface.EXPECT().IsUserspaceBind().Return(true)
 	// iface.EXPECT().Name().Return("lo")
-	iface.EXPECT().SetFiltering(gomock.Any())
+	iface.EXPECT().SetFilter(gomock.Any())
 
 	// we receive one rule from the management so for testing purposes ignore it
 	acl, err := Create(iface)
@@ -311,7 +311,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	iface := mocks.NewMockIFaceMapper(ctrl)
 	iface.EXPECT().IsUserspaceBind().Return(true)
 	// iface.EXPECT().Name().Return("lo")
-	iface.EXPECT().SetFiltering(gomock.Any())
+	iface.EXPECT().SetFilter(gomock.Any())
 
 	// we receive one rule from the management so for testing purposes ignore it
 	acl, err := Create(iface)

@@ -15,19 +15,19 @@ import (
 )
 
 type IFaceMock struct {
-	SetFilteringFunc func(iface.PacketFilter) error
+	SetFilterFunc func(iface.PacketFilter) error
 }
 
-func (i *IFaceMock) SetFiltering(iface iface.PacketFilter) error {
-	if i.SetFilteringFunc == nil {
+func (i *IFaceMock) SetFilter(iface iface.PacketFilter) error {
+	if i.SetFilterFunc == nil {
 		return fmt.Errorf("not implemented")
 	}
-	return i.SetFilteringFunc(iface)
+	return i.SetFilterFunc(iface)
 }
 
 func TestManagerCreate(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -42,10 +42,10 @@ func TestManagerCreate(t *testing.T) {
 }
 
 func TestManagerAddFiltering(t *testing.T) {
-	isSetFilteringCalled := false
+	isSetFilterCalled := false
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error {
-			isSetFilteringCalled = true
+		SetFilterFunc: func(iface.PacketFilter) error {
+			isSetFilterCalled = true
 			return nil
 		},
 	}
@@ -74,15 +74,15 @@ func TestManagerAddFiltering(t *testing.T) {
 		return
 	}
 
-	if !isSetFilteringCalled {
-		t.Error("SetFiltering was not called")
+	if !isSetFilterCalled {
+		t.Error("SetFilter was not called")
 		return
 	}
 }
 
 func TestManagerDeleteRule(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -138,9 +138,97 @@ func TestManagerDeleteRule(t *testing.T) {
 	}
 }
 
+func TestAddUDPPacketHook(t *testing.T) {
+	tests := []struct {
+		name       string
+		in         bool
+		expDir     fw.RuleDirection
+		ip         net.IP
+		dPort      uint16
+		hook       func([]byte) bool
+		expectedID string
+	}{
+		{
+			name:   "Test Outgoing UDP Packet Hook",
+			in:     false,
+			expDir: fw.RuleDirectionOUT,
+			ip:     net.IPv4(10, 168, 0, 1),
+			dPort:  8000,
+			hook:   func([]byte) bool { return true },
+		},
+		{
+			name:   "Test Incoming UDP Packet Hook",
+			in:     true,
+			expDir: fw.RuleDirectionIN,
+			ip:     net.IPv6loopback,
+			dPort:  9000,
+			hook:   func([]byte) bool { return false },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &Manager{
+				incomingRules: []Rule{},
+				outgoingRules: []Rule{},
+				rulesIndex:    make(map[string]int),
+			}
+
+			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
+
+			var addedRule Rule
+			if tt.in {
+				if len(manager.incomingRules) != 1 {
+					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules))
+					return
+				}
+				addedRule = manager.incomingRules[0]
+			} else {
+				if len(manager.outgoingRules) != 1 {
+					t.Errorf("expected 1 outgoing rule, got %d", len(manager.outgoingRules))
+					return
+				}
+				addedRule = manager.outgoingRules[0]
+			}
+
+			if !tt.ip.Equal(addedRule.ip) {
+				t.Errorf("expected ip %s, got %s", tt.ip, addedRule.ip)
+				return
+			}
+			if tt.dPort != addedRule.dPort {
+				t.Errorf("expected dPort %d, got %d", tt.dPort, addedRule.dPort)
+				return
+			}
+			if layers.LayerTypeUDP != addedRule.protoLayer {
+				t.Errorf("expected protoLayer %s, got %s", layers.LayerTypeUDP, addedRule.protoLayer)
+				return
+			}
+			if tt.expDir != addedRule.direction {
+				t.Errorf("expected direction %d, got %d", tt.expDir, addedRule.direction)
+				return
+			}
+			if addedRule.udpHook == nil {
+				t.Errorf("expected udpHook to be set")
+				return
+			}
+
+			// Ensure rulesIndex is correctly updated
+			index, ok := manager.rulesIndex[addedRule.id]
+			if !ok {
+				t.Errorf("expected rule to be in rulesIndex")
+				return
+			}
+			if index != 0 {
+				t.Errorf("expected rule index to be 0, got %d", index)
+				return
+			}
+		})
+	}
+}
+
 func TestManagerReset(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -175,7 +263,7 @@ func TestManagerReset(t *testing.T) {
 
 func TestNotMatchByIP(t *testing.T) {
 	ifaceMock := &IFaceMock{
-		SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
 	}
 
 	m, err := Create(ifaceMock)
@@ -239,12 +327,56 @@ func TestNotMatchByIP(t *testing.T) {
 	}
 }
 
+// TestRemovePacketHook tests the functionality of the RemovePacketHook method
+func TestRemovePacketHook(t *testing.T) {
+	// creating mock iface
+	iface := &IFaceMock{
+		SetFilterFunc: func(iface.PacketFilter) error { return nil },
+	}
+
+	// creating manager instance
+	manager, err := Create(iface)
+	if err != nil {
+		t.Fatalf("Failed to create Manager: %s", err)
+	}
+
+	// Add a UDP packet hook
+	hookFunc := func(data []byte) bool { return true }
+	hookID := manager.AddUDPPacketHook(false, net.IPv4(192, 168, 0, 1), 8080, hookFunc)
+
+	// Assert the hook is added by finding it in the manager's outgoing rules
+	found := false
+	for _, rule := range manager.outgoingRules {
+		if rule.id == hookID {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Fatalf("The hook was not added properly.")
+	}
+
+	// Now remove the packet hook
+	err = manager.RemovePacketHook(hookID)
+	if err != nil {
+		t.Fatalf("Failed to remove hook: %s", err)
+	}
+
+	// Assert the hook is removed by checking it in the manager's outgoing rules
+	for _, rule := range manager.outgoingRules {
+		if rule.id == hookID {
+			t.Fatalf("The hook was not removed properly.")
+		}
+	}
+}
+
 func TestUSPFilterCreatePerformance(t *testing.T) {
 	for _, testMax := range []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000} {
 		t.Run(fmt.Sprintf("Testing %d rules", testMax), func(t *testing.T) {
 			// just check on the local interface
 			ifaceMock := &IFaceMock{
-				SetFilteringFunc: func(iface.PacketFilter) error { return nil },
+				SetFilterFunc: func(iface.PacketFilter) error { return nil },
 			}
 			manager, err := Create(ifaceMock)
 			require.NoError(t, err)

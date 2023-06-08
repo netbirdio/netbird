@@ -76,16 +76,16 @@ func (mr *MockIFaceMapperMockRecorder) Name() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Name", reflect.TypeOf((*MockIFaceMapper)(nil).Name))
 }
 
-// SetFiltering mocks base method.
-func (m *MockIFaceMapper) SetFiltering(arg0 iface.PacketFilter) error {
+// SetFilter mocks base method.
+func (m *MockIFaceMapper) SetFilter(arg0 iface.PacketFilter) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "SetFiltering", arg0)
+	ret := m.ctrl.Call(m, "SetFilter", arg0)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
-// SetFiltering indicates an expected call of SetFiltering.
-func (mr *MockIFaceMapperMockRecorder) SetFiltering(arg0 interface{}) *gomock.Call {
+// SetFilter indicates an expected call of SetFilter.
+func (mr *MockIFaceMapperMockRecorder) SetFilter(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFiltering", reflect.TypeOf((*MockIFaceMapper)(nil).SetFiltering), arg0)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFilter", reflect.TypeOf((*MockIFaceMapper)(nil).SetFilter), arg0)
 }

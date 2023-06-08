@@ -5,12 +5,15 @@ package dns
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"net"
 	"net/netip"
 	"runtime"
 	"sync"
 	"time"
 
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
 	"github.com/mitchellh/hashstructure/v2"
 	log "github.com/sirupsen/logrus"
@@ -33,6 +36,7 @@ type DefaultServer struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 	mux                sync.Mutex
+	fakeResolverWG     sync.WaitGroup
 	server             *dns.Server
 	dnsMux             *dns.ServeMux
 	dnsMuxMap          registeredHandlerMap
@@ -105,6 +109,25 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 
 // Start runs the listener in a go routine
 func (s *DefaultServer) Start() {
+	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
+		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
+		s.runtimePort = 53
+
+		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
+		s.fakeResolverWG.Add(1)
+		go func() {
+			s.setListenerStatus(true)
+			defer s.setListenerStatus(false)
+
+			hookID := s.filterDNSTraffic()
+			s.fakeResolverWG.Wait()
+			if err := s.wgInterface.GetFilter().RemovePacketHook(hookID); err != nil {
+				log.Errorf("unable to remove DNS packet hook: %s", err)
+			}
+		}()
+		return
+	}
+
 	if s.customAddress != nil {
 		s.runtimeIP = s.customAddress.Addr().String()
 		s.runtimePort = int(s.customAddress.Port())
@@ -172,6 +195,10 @@ func (s *DefaultServer) Stop() {
 		log.Error(err)
 	}
 
+	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
+		s.fakeResolverWG.Done()
+	}
+
 	err = s.stopListener()
 	if err != nil {
 		log.Error(err)
@@ -235,12 +262,15 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
-	// is the service should be disabled, we stop the listener
+	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if !update.ServiceEnable {
-		err := s.stopListener()
-		if err != nil {
-			log.Error(err)
+		if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
+			s.fakeResolverWG.Done()
+		} else {
+			if err := s.stopListener(); err != nil {
+				log.Error(err)
+			}
 		}
 	} else if !s.listenerIsRunning {
 		s.Start()
@@ -476,4 +506,60 @@ func (s *DefaultServer) upstreamCallbacks(
 		}
 	}
 	return
+}
+
+func (s *DefaultServer) filterDNSTraffic() string {
+	filter := s.wgInterface.GetFilter()
+	if filter == nil {
+		log.Error("can't set DNS filter, filter not initialized")
+		return ""
+	}
+
+	firstLayerDecoder := layers.LayerTypeIPv4
+	if s.wgInterface.Address().Network.IP.To4() == nil {
+		firstLayerDecoder = layers.LayerTypeIPv6
+	}
+
+	hook := func(packetData []byte) bool {
+		// Decode the packet
+		packet := gopacket.NewPacket(packetData, firstLayerDecoder, gopacket.Default)
+
+		// Get the UDP layer
+		udpLayer := packet.Layer(layers.LayerTypeUDP)
+		udp := udpLayer.(*layers.UDP)
+
+		msg := new(dns.Msg)
+		if err := msg.Unpack(udp.Payload); err != nil {
+			log.Tracef("parse DNS request: %v", err)
+			return true
+		}
+
+		writer := responseWriter{
+			packet: packet,
+			device: s.wgInterface.GetDevice().Device,
+		}
+		go s.dnsMux.ServeDNS(&writer, msg)
+		return true
+	}
+
+	return filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook)
+}
+
+func getLastIPFromNetwork(network *net.IPNet, fromEnd int) string {
+	// Calculate the last IP in the CIDR range
+	var endIP net.IP
+	for i := 0; i < len(network.IP); i++ {
+		endIP = append(endIP, network.IP[i]|^network.Mask[i])
+	}
+
+	// convert to big.Int
+	endInt := big.NewInt(0)
+	endInt.SetBytes(endIP)
+
+	// subtract fromEnd from the last ip
+	fromEndBig := big.NewInt(int64(fromEnd))
+	resultInt := big.NewInt(0)
+	resultInt.Sub(endInt, fromEndBig)
+
+	return net.IP(resultInt.Bytes()).String()
 }

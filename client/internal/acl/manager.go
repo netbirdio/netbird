@@ -19,7 +19,7 @@ type IFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
 	IsUserspaceBind() bool
-	SetFiltering(iface.PacketFilter) error
+	SetFilter(iface.PacketFilter) error
 }
 
 // Manager is a ACL rules manager
