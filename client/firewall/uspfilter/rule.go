@@ -20,6 +20,8 @@ type Rule struct {
 	dPort      uint16
 	drop       bool
 	comment    string
+
+	udpHook func([]byte) bool
 }
 
 // GetRuleID returns the rule id

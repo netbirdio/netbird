@@ -9,10 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/netbirdio/netbird/client/internal/stdnet"
-
 	"github.com/miekg/dns"
 
+	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
 )
@@ -238,6 +237,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			dnsServer.updateSerial = testCase.initSerial
 			// pretend we are running
 			dnsServer.listenerIsRunning = true
+			dnsServer.fakeResolverWG.Add(1)
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
