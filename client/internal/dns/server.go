@@ -539,7 +539,7 @@ func (s *DefaultServer) evalRuntimeAddress() {
 		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
 	}()
 
-	if s.wgInterface.IsUserspaceBind() {
+	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
 		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
 		s.runtimePort = defaultPort
 		return

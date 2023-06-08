@@ -428,7 +428,7 @@ func getDefaultServerWithNoHostManager(t *testing.T, addrPort string) *DefaultSe
 
 	ctx, cancel := context.WithCancel(context.TODO())
 
-	return &DefaultServer{
+	ds := &DefaultServer{
 		ctx:       ctx,
 		ctxCancel: cancel,
 		server:    dnsServer,
@@ -439,6 +439,8 @@ func getDefaultServerWithNoHostManager(t *testing.T, addrPort string) *DefaultSe
 		},
 		customAddress: parsedAddrPort,
 	}
+	ds.evalRuntimeAddress()
+	return ds
 }
 
 func TestGetLastIPFromNetwork(t *testing.T) {
