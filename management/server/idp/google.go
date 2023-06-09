@@ -6,6 +6,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"golang.org/x/oauth2/google"
 	admin "google.golang.org/api/admin/directory/v1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"net/http"
 	"os"
@@ -83,8 +84,26 @@ func NewGoogleManager(config GoogleClientConfig, appMetrics telemetry.AppMetrics
 }
 
 func (gm *GoogleManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	//TODO implement me
-	panic("implement me")
+	user, err := gm.usersService.Get(userID).Do()
+	if err != nil {
+		return err
+	}
+
+	metadata, err := gm.helper.Marshal(appMetadata)
+	if err != nil {
+		return err
+	}
+
+	user.CustomSchemas = map[string]googleapi.RawMessage{
+		"app_metadata": metadata,
+	}
+
+	_, err = gm.usersService.Update(userID, user).Do()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (gm *GoogleManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
@@ -108,7 +127,6 @@ func (gm *GoogleManager) CreateUser(email string, name string, accountID string)
 }
 
 func (gm *GoogleManager) GetUserByEmail(email string) ([]*UserData, error) {
-	//TODO implement me
 	panic("implement me")
 }
 
