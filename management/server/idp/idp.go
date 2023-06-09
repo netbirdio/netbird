@@ -163,11 +163,11 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		}
 		return NewOktaManager(oktaClientConfig, appMetrics)
 	case "google":
-		googleClientConfig := GoogleClientConfig{
+		googleClientConfig := GoogleWorkspaceClientConfig{
 			ServiceAccountKeyPath: config.ExtraConfig["ServiceAccountKeyPath"],
 			Domain:                config.ExtraConfig["Domain"],
 		}
-		return NewGoogleManager(googleClientConfig, appMetrics)
+		return NewGoogleWorkspaceManager(googleClientConfig, appMetrics)
 
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)

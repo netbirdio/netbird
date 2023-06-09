@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// GoogleManager google manager client instance.
-type GoogleManager struct {
+// GoogleWorkspaceManager Google Workspace manager client instance.
+type GoogleWorkspaceManager struct {
 	usersService *admin.UsersService
 	Domain       string
 	httpClient   ManagerHTTPClient
@@ -24,27 +24,27 @@ type GoogleManager struct {
 	appMetrics   telemetry.AppMetrics
 }
 
-// GoogleClientConfig google manager client configurations.
-type GoogleClientConfig struct {
+// GoogleWorkspaceClientConfig Google Workspace manager client configurations.
+type GoogleWorkspaceClientConfig struct {
 	ServiceAccountKeyPath string
 	Domain                string
 }
 
-// GoogleCredentials google authentication information.
-type GoogleCredentials struct {
-	clientConfig GoogleClientConfig
+// GoogleWorkspaceCredentials Google Workspace authentication information.
+type GoogleWorkspaceCredentials struct {
+	clientConfig GoogleWorkspaceClientConfig
 	helper       ManagerHelper
 	httpClient   ManagerHTTPClient
 	mux          sync.Mutex
 	appMetrics   telemetry.AppMetrics
 }
 
-func (gc *GoogleCredentials) Authenticate() (JWTToken, error) {
+func (gc *GoogleWorkspaceCredentials) Authenticate() (JWTToken, error) {
 	return JWTToken{}, nil
 }
 
-// NewGoogleManager creates a new instance of the GoogleManager.
-func NewGoogleManager(config GoogleClientConfig, appMetrics telemetry.AppMetrics) (*GoogleManager, error) {
+// NewGoogleWorkspaceManager creates a new instance of the GoogleWorkspaceManager.
+func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics telemetry.AppMetrics) (*GoogleWorkspaceManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -62,7 +62,7 @@ func NewGoogleManager(config GoogleClientConfig, appMetrics telemetry.AppMetrics
 		return nil, fmt.Errorf("google IdP configuration is incomplete, Domain is missing")
 	}
 
-	credentials := &GoogleCredentials{
+	credentials := &GoogleWorkspaceCredentials{
 		clientConfig: config,
 		httpClient:   httpClient,
 		helper:       helper,
@@ -80,7 +80,7 @@ func NewGoogleManager(config GoogleClientConfig, appMetrics telemetry.AppMetrics
 		return nil, err
 	}
 
-	return &GoogleManager{
+	return &GoogleWorkspaceManager{
 		usersService: service.Users,
 		Domain:       config.Domain,
 		httpClient:   httpClient,
@@ -91,7 +91,7 @@ func NewGoogleManager(config GoogleClientConfig, appMetrics telemetry.AppMetrics
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (gm *GoogleManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
+func (gm *GoogleWorkspaceManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	user, err := gm.usersService.Get(userID).Do()
 	if err != nil {
 		return err
@@ -118,8 +118,8 @@ func (gm *GoogleManager) UpdateUserAppMetadata(userID string, appMetadata AppMet
 	return nil
 }
 
-// GetUserDataByID requests user data from keycloak via ID.
-func (gm *GoogleManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
+// GetUserDataByID requests user data from Google Workspace via ID.
+func (gm *GoogleWorkspaceManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
 	user, err := gm.usersService.Get(userID).Do()
 	if err != nil {
 		return nil, err
@@ -129,11 +129,11 @@ func (gm *GoogleManager) GetUserDataByID(userID string, appMetadata AppMetadata)
 		gm.appMetrics.IDPMetrics().CountGetUserDataByID()
 	}
 
-	return parseGoogleUser(user)
+	return parseGoogleWorkspaceUser(user)
 }
 
 // GetAccount returns all the users for a given profile.
-func (gm *GoogleManager) GetAccount(accountID string) ([]*UserData, error) {
+func (gm *GoogleWorkspaceManager) GetAccount(accountID string) ([]*UserData, error) {
 	query := fmt.Sprintf("app_metadata.wt_account_id=\"%s\"", accountID)
 	usersList, err := gm.usersService.List().Domain(gm.Domain).Query(query).Do()
 	if err != nil {
@@ -142,7 +142,7 @@ func (gm *GoogleManager) GetAccount(accountID string) ([]*UserData, error) {
 
 	usersData := make([]*UserData, 0)
 	for _, user := range usersList.Users {
-		userData, err := parseGoogleUser(user)
+		userData, err := parseGoogleWorkspaceUser(user)
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +155,7 @@ func (gm *GoogleManager) GetAccount(accountID string) ([]*UserData, error) {
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (gm *GoogleManager) GetAllAccounts() (map[string][]*UserData, error) {
+func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, error) {
 	usersList, err := gm.usersService.List().Domain(gm.Domain).Do()
 	if err != nil {
 		return nil, err
@@ -167,7 +167,7 @@ func (gm *GoogleManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range usersList.Users {
-		userData, err := parseGoogleUser(user)
+		userData, err := parseGoogleWorkspaceUser(user)
 		if err != nil {
 			return nil, err
 		}
@@ -185,14 +185,14 @@ func (gm *GoogleManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 // CreateUser creates a new user in Google Workspace and sends an invitation.
-func (gm *GoogleManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (gm *GoogleWorkspaceManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
-func (gm *GoogleManager) GetUserByEmail(email string) ([]*UserData, error) {
+func (gm *GoogleWorkspaceManager) GetUserByEmail(email string) ([]*UserData, error) {
 	user, err := gm.usersService.Get(email).Do()
 	if err != nil {
 		return nil, err
@@ -202,7 +202,7 @@ func (gm *GoogleManager) GetUserByEmail(email string) ([]*UserData, error) {
 		gm.appMetrics.IDPMetrics().CountGetUserByEmail()
 	}
 
-	userData, err := parseGoogleUser(user)
+	userData, err := parseGoogleWorkspaceUser(user)
 	if err != nil {
 		return nil, err
 	}
@@ -230,8 +230,8 @@ func getClient(keyPath string) (*http.Client, error) {
 	return config.Client(context.Background()), nil
 }
 
-// parseGoogleUser parse google user to UserData.
-func parseGoogleUser(user *admin.User) (*UserData, error) {
+// parseGoogleWorkspaceUser parse google user to UserData.
+func parseGoogleWorkspaceUser(user *admin.User) (*UserData, error) {
 	var (
 		emailAddress string
 		appMetadata  AppMetadata
