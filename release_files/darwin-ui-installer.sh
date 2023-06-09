@@ -31,14 +31,13 @@ fi
 if [ -n "$NB_BIN" ]
 then
   echo "Stopping NetBird daemon"
-  osascript -e 'quit app "Netbird UI"' || true
-  netbird service stop || true
-  netbird service uninstall || true
+  osascript -e 'quit app "Netbird UI"' 2> /dev/null || true
+  netbird service stop 2> /dev/null || true
 fi
 
 # start netbird daemon service
 echo "Starting Netbird daemon"
-netbird service install || true
+netbird service install 2> /dev/null || true
 netbird service start || true
 
 # start app
