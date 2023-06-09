@@ -127,7 +127,20 @@ func (gm *GoogleManager) CreateUser(email string, name string, accountID string)
 }
 
 func (gm *GoogleManager) GetUserByEmail(email string) ([]*UserData, error) {
-	panic("implement me")
+	user, err := gm.usersService.Get(email).Do()
+	if err != nil {
+		return nil, err
+	}
+
+	userData, err := parseGoogleUser(user)
+	if err != nil {
+		return nil, err
+	}
+
+	users := make([]*UserData, 0)
+	users = append(users, userData)
+
+	return users, nil
 }
 
 // getClient creates a new HTTP client with the service account credentials
@@ -145,4 +158,50 @@ func getClient(keyPath string) (*http.Client, error) {
 	}
 
 	return config.Client(context.Background()), nil
+}
+
+// parseGoogleUser parse google user to UserData.
+func parseGoogleUser(user *admin.User) (*UserData, error) {
+	var (
+		emailAddress string
+		appMetadata  AppMetadata
+	)
+
+	// Get user primary emailAddress
+	if user.Emails != nil {
+		emailsList, ok := user.Emails.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("failed to get emails")
+		}
+
+		for _, emailData := range emailsList {
+			email, ok := emailData.(map[string]interface{})
+			if !ok {
+				return nil, fmt.Errorf("failed to get email data")
+			}
+
+			isPrimary, ok := email["primary"].(bool)
+			if ok && isPrimary {
+				emailAddress = email["address"].(string)
+				break
+			}
+		}
+	}
+
+	// Get app metadata from custom schemas
+	if user.CustomSchemas != nil {
+		rawMessage := user.CustomSchemas["app_metadata"]
+		helper := JsonParser{}
+
+		if err := helper.Unmarshal(rawMessage, &appMetadata); err != nil {
+			return nil, err
+		}
+	}
+
+	return &UserData{
+		ID:          user.Id,
+		Email:       emailAddress,
+		Name:        user.Name.FullName,
+		AppMetadata: appMetadata,
+	}, nil
 }
