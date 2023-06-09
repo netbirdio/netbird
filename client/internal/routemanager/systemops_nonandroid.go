@@ -107,16 +107,11 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 		}
 
 		dst, err := toIPAddr(m.Addrs[0])
-		log.Debugf("checking route: %s", dst)
 		if err != nil {
 			return true, fmt.Errorf("unexpected RIB destination: %v", err)
 		}
 
-		mask, err := toIPAddr(m.Addrs[2])
-		log.Debugf("checking route mask: %s", mask)
-		if err != nil {
-			return true, fmt.Errorf("unexpected RIB destination: %v", err)
-		}
+		mask, _ := toIPAddr(m.Addrs[2])
 		cidr, _ := net.IPMask(mask.To4()).Size()
 		if dst.String() == prefix.Addr().String() && cidr == prefix.Bits() {
 			return true, nil

@@ -1,12 +1,16 @@
 package routemanager
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/pion/transport/v2/stdnet"
+	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/netbirdio/netbird/iface"
@@ -120,6 +124,11 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 	MOCK_ADDR := "127.0.0.1"
 
 	for _, testCase := range testCases {
+		var buf bytes.Buffer
+		log.SetOutput(&buf)
+		defer func() {
+			log.SetOutput(os.Stderr)
+		}()
 		t.Run(testCase.name, func(t *testing.T) {
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
@@ -143,9 +152,13 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 			}
 
 			// route should either not have been added or should have been removed
+			// In case of already existing route, it should not have been added (but still exist)
 			ok, err := existsInRouteTable(testCase.prefix)
+			fmt.Println("Buffer string: ", buf.String())
 			require.NoError(t, err, "should not return err")
-			require.False(t, ok, "route should not exist")
+			if !strings.Contains(buf.String(), "because it already exists") {
+				require.False(t, ok, "route should not exist")
+			}
 		})
 	}
 }
