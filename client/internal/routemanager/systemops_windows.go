@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/netip"
 
-	"github.com/StackExchange/wmi"
+	"github.com/yusufpapurcu/wmi"
 )
 
 type Win32_IP4RouteTable struct {
