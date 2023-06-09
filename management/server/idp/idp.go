@@ -165,14 +165,9 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 	case "google":
 		googleClientConfig := GoogleClientConfig{
 			ServiceAccountKeyPath: config.ExtraConfig["ServiceAccountKeyPath"],
+			Domain:                config.ExtraConfig["Domain"],
 		}
-		manager, err := NewGoogleManager(googleClientConfig, appMetrics)
-		if err != nil {
-			return nil, err
-		}
-
-		fmt.Println(manager.credentials.Authenticate())
-		return manager, nil
+		return NewGoogleManager(googleClientConfig, appMetrics)
 
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)

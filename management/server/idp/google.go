@@ -17,6 +17,7 @@ import (
 // GoogleManager google manager client instance.
 type GoogleManager struct {
 	usersService *admin.UsersService
+	Domain       string
 	httpClient   ManagerHTTPClient
 	credentials  ManagerCredentials
 	helper       ManagerHelper
@@ -26,6 +27,7 @@ type GoogleManager struct {
 // GoogleClientConfig google manager client configurations.
 type GoogleClientConfig struct {
 	ServiceAccountKeyPath string
+	Domain                string
 }
 
 // GoogleCredentials google authentication information.
@@ -56,6 +58,10 @@ func NewGoogleManager(config GoogleClientConfig, appMetrics telemetry.AppMetrics
 		return nil, fmt.Errorf("google IdP configuration is incomplete, ServiceAccountKeyPath is missing")
 	}
 
+	if config.Domain == "" {
+		return nil, fmt.Errorf("google IdP configuration is incomplete, Domain is missing")
+	}
+
 	credentials := &GoogleCredentials{
 		clientConfig: config,
 		httpClient:   httpClient,
@@ -76,6 +82,7 @@ func NewGoogleManager(config GoogleClientConfig, appMetrics telemetry.AppMetrics
 
 	return &GoogleManager{
 		usersService: service.Users,
+		Domain:       config.Domain,
 		httpClient:   httpClient,
 		credentials:  credentials,
 		helper:       helper,
@@ -134,8 +141,32 @@ func (gm *GoogleManager) GetAccount(accountID string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (gm *GoogleManager) GetAllAccounts() (map[string][]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	usersList, err := gm.usersService.List().Domain(gm.Domain).Do()
+	if err != nil {
+		return nil, err
+	}
+
+	if gm.appMetrics != nil {
+		gm.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	indexedUsers := make(map[string][]*UserData)
+	for _, user := range usersList.Users {
+		userData, err := parseGoogleUser(user)
+		if err != nil {
+			return nil, err
+		}
+
+		accountID := userData.AppMetadata.WTAccountID
+		if accountID != "" {
+			if _, ok := indexedUsers[accountID]; !ok {
+				indexedUsers[accountID] = make([]*UserData, 0)
+			}
+			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
+		}
+	}
+
+	return indexedUsers, nil
 }
 
 // CreateUser creates a new user in Google Workspace and sends an invitation.
