@@ -83,6 +83,7 @@ func NewGoogleManager(config GoogleClientConfig, appMetrics telemetry.AppMetrics
 	}, nil
 }
 
+// UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (gm *GoogleManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	user, err := gm.usersService.Get(userID).Do()
 	if err != nil {
@@ -103,6 +104,10 @@ func (gm *GoogleManager) UpdateUserAppMetadata(userID string, appMetadata AppMet
 		return err
 	}
 
+	if gm.appMetrics != nil {
+		gm.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
+	}
+
 	return nil
 }
 
@@ -120,25 +125,35 @@ func (gm *GoogleManager) GetUserDataByID(userID string, appMetadata AppMetadata)
 	return parseGoogleUser(user)
 }
 
+// GetAccount returns all the users for a given profile.
 func (gm *GoogleManager) GetAccount(accountID string) ([]*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
+// GetAllAccounts gets all registered accounts with corresponding user data.
+// It returns a list of users indexed by accountID.
 func (gm *GoogleManager) GetAllAccounts() (map[string][]*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
+// CreateUser creates a new user in Google Workspace and sends an invitation.
 func (gm *GoogleManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
+// GetUserByEmail searches users with a given email.
+// If no users have been found, this function returns an empty list.
 func (gm *GoogleManager) GetUserByEmail(email string) ([]*UserData, error) {
 	user, err := gm.usersService.Get(email).Do()
 	if err != nil {
 		return nil, err
+	}
+
+	if gm.appMetrics != nil {
+		gm.appMetrics.IDPMetrics().CountGetUserByEmail()
 	}
 
 	userData, err := parseGoogleUser(user)
