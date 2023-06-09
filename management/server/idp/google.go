@@ -134,8 +134,23 @@ func (gm *GoogleManager) GetUserDataByID(userID string, appMetadata AppMetadata)
 
 // GetAccount returns all the users for a given profile.
 func (gm *GoogleManager) GetAccount(accountID string) ([]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	query := fmt.Sprintf("app_metadata.wt_account_id=\"%s\"", accountID)
+	usersList, err := gm.usersService.List().Domain(gm.Domain).Query(query).Do()
+	if err != nil {
+		return nil, err
+	}
+
+	usersData := make([]*UserData, 0)
+	for _, user := range usersList.Users {
+		userData, err := parseGoogleUser(user)
+		if err != nil {
+			return nil, err
+		}
+
+		usersData = append(usersData, userData)
+	}
+
+	return usersData, nil
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
