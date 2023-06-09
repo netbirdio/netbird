@@ -589,7 +589,7 @@ func getLastIPFromNetwork(network *net.IPNet, fromEnd int) string {
 
 func hasValidDnsServer(cfg *nbdns.Config) bool {
 	for _, c := range cfg.NameServerGroups {
-		if len(c.Domains) == 0 {
+		if c.Primary {
 			return true
 		}
 	}
