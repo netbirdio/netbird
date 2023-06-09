@@ -2,13 +2,19 @@ package routemanager
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/iface"
-	"github.com/pion/transport/v2/stdnet"
-	"github.com/stretchr/testify/require"
 	"net"
 	"net/netip"
 	"testing"
+
+	"github.com/pion/transport/v2/stdnet"
+	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/iface"
 )
+
+// func TestAddRoute(t *testing.T) {
+// 	addToRouteTableIfNoExists()
+// }
 
 func TestAddRemoveRoutes(t *testing.T) {
 	testCases := []struct {
