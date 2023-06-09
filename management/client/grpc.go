@@ -172,8 +172,8 @@ func (c *GrpcClient) Sync(msgHandler func(msg *proto.SyncResponse) error) error 
 	return nil
 }
 
-// GetRoutes return with the routes
-func (c *GrpcClient) GetRoutes() ([]*proto.Route, error) {
+// GetNetworkMap return with the network map
+func (c *GrpcClient) GetNetworkMap() (*proto.NetworkMap, error) {
 	serverPubKey, err := c.GetServerPublicKey()
 	if err != nil {
 		log.Debugf("failed getting Management Service public key: %s", err)
@@ -212,7 +212,7 @@ func (c *GrpcClient) GetRoutes() ([]*proto.Route, error) {
 		return nil, fmt.Errorf("invalid msg, required network map")
 	}
 
-	return decryptedResp.GetNetworkMap().GetRoutes(), nil
+	return decryptedResp.GetNetworkMap(), nil
 }
 
 func (c *GrpcClient) connectToStream(ctx context.Context, serverPubKey wgtypes.Key) (proto.ManagementService_SyncClient, error) {

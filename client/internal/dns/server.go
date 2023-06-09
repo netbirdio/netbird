@@ -56,6 +56,7 @@ type DefaultServer struct {
 	previousConfigHash uint64
 	currentConfig      hostDNSConfig
 	customAddress      *netip.AddrPort
+	enabled            bool
 }
 
 type handlerWithStop interface {
@@ -69,7 +70,7 @@ type muxUpdate struct {
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAddress string) (*DefaultServer, error) {
+func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAddress string, initialDnsCfg *nbdns.Config) (*DefaultServer, error) {
 	mux := dns.NewServeMux()
 
 	var addrPort *netip.AddrPort
@@ -104,6 +105,10 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 		wgInterface:   wgInterface,
 		customAddress: addrPort,
 		hostManager:   hostManager,
+	}
+
+	if initialDnsCfg != nil {
+		defaultServer.enabled = hasValidDnsServer(initialDnsCfg)
 	}
 
 	defaultServer.evalRuntimeAddress()
@@ -142,6 +147,9 @@ func (s *DefaultServer) Start() {
 }
 
 func (s *DefaultServer) DnsIP() string {
+	if !s.enabled {
+		return ""
+	}
 	return s.runtimeIP
 }
 
@@ -577,4 +585,8 @@ func getLastIPFromNetwork(network *net.IPNet, fromEnd int) string {
 	resultInt.Sub(endInt, fromEndBig)
 
 	return net.IP(resultInt.Bytes()).String()
+}
+
+func hasValidDnsServer(cfg *nbdns.Config) bool {
+	return len(cfg.NameServerGroups) > 0
 }

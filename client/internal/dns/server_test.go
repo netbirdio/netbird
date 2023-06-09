@@ -221,7 +221,7 @@ func TestUpdateDNSServer(t *testing.T) {
 					t.Log(err)
 				}
 			}()
-			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "")
+			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", nil)
 			if err != nil {
 				t.Fatal(err)
 			}

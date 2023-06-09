@@ -189,9 +189,19 @@ func (e *Engine) Start() error {
 		return err
 	}
 
+	var routes []*route.Route
+	var dnsCfg *nbdns.Config
+
+	if runtime.GOOS == "android" {
+		routes, dnsCfg, err = e.readInitialSettings()
+		if err != nil {
+			return err
+		}
+	}
+
 	if e.dnsServer == nil {
 		// todo fix custom address
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, dnsCfg)
 		if err != nil {
 			e.close()
 			return err
@@ -199,10 +209,6 @@ func (e *Engine) Start() error {
 		e.dnsServer = dnsServer
 	}
 
-	routes, err := e.readInitialRoutes()
-	if err != nil {
-		return err
-	}
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
 	e.routeManager.SetRouteChangeListener(e.mobileDep.RouteListener)
 
@@ -1034,17 +1040,14 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) readInitialRoutes() ([]*route.Route, error) {
-	if runtime.GOOS != "android" {
-		return nil, nil
-	}
-
-	routesResp, err := e.mgmClient.GetRoutes()
+func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
+	netMap, err := e.mgmClient.GetNetworkMap()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return toRoutes(routesResp), nil
-
+	routes := toRoutes(netMap.GetRoutes())
+	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
+	return routes, &dnsCfg, nil
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
