@@ -53,9 +53,6 @@ type Client struct {
 
 // NewClient instantiate a new Client
 func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, iFaceDiscover IFaceDiscover, routeListener RouteListener) *Client {
-	lvl, _ := log.ParseLevel("trace")
-	log.SetLevel(lvl)
-
 	return &Client{
 		cfgFile:       cfgFile,
 		deviceName:    deviceName,
@@ -105,6 +102,11 @@ func (c *Client) Stop() {
 	}
 
 	c.ctxCancel()
+}
+
+// SetTraceLogLevel configure the logger to trace level
+func (c *Client) SetTraceLogLevel() {
+	log.SetLevel(log.TraceLevel)
 }
 
 // PeersList return with the list of the PeerInfos
