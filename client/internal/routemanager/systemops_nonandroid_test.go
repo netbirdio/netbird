@@ -86,42 +86,58 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 		t.Fatal("shouldn't return error when fetching the gateway: ", err)
 	}
 	testCases := []struct {
-		name              string
-		prefix            netip.Prefix
-		preExistingPrefix netip.Prefix
-		shouldAddRoute    bool
+		name               string
+		prefix             netip.Prefix
+		gateway            string
+		preExistingPrefix  netip.Prefix
+		preExistingGateway string
+		shouldAddRoute     bool
 	}{
 		{
 			name:           "Should Add And Remove random Route",
 			prefix:         netip.MustParsePrefix("99.99.99.99/32"),
+			gateway:        "127.0.0.1",
 			shouldAddRoute: true,
 		},
 		{
 			name:           "Should Not Add Route if overlaps with default gateway",
 			prefix:         netip.MustParsePrefix(defaultGateway.String() + "/31"),
+			gateway:        "127.0.0.1",
 			shouldAddRoute: false,
 		},
 		{
-			name:              "Should Add Route if bigger network exists",
-			prefix:            netip.MustParsePrefix("100.100.100.0/24"),
-			preExistingPrefix: netip.MustParsePrefix("100.100.0.0/16"),
-			shouldAddRoute:    true,
+			name:               "Should Add Route if bigger network exists",
+			prefix:             netip.MustParsePrefix("100.100.100.0/24"),
+			gateway:            "127.0.0.1",
+			preExistingPrefix:  netip.MustParsePrefix("100.100.0.0/16"),
+			preExistingGateway: "127.0.0.1",
+			shouldAddRoute:     true,
 		},
 		{
-			name:              "Should Add Route if smaller network exists",
-			prefix:            netip.MustParsePrefix("100.100.0.0/16"),
-			preExistingPrefix: netip.MustParsePrefix("100.100.100.0/24"),
-			shouldAddRoute:    true,
+			name:               "Should Add Route if smaller network exists",
+			prefix:             netip.MustParsePrefix("100.100.0.0/16"),
+			gateway:            "127.0.0.1",
+			preExistingPrefix:  netip.MustParsePrefix("100.100.100.0/24"),
+			preExistingGateway: "127.0.0.1",
+			shouldAddRoute:     true,
 		},
 		{
-			name:              "Should Not Add Route if same network exists",
-			prefix:            netip.MustParsePrefix("100.100.0.0/16"),
-			preExistingPrefix: netip.MustParsePrefix("100.100.0.0/16"),
-			shouldAddRoute:    false,
+			name:               "Should Not Add Route if same network with same gateway exists",
+			prefix:             netip.MustParsePrefix("100.100.0.0/16"),
+			gateway:            "127.0.0.1",
+			preExistingPrefix:  netip.MustParsePrefix("100.100.0.0/16"),
+			preExistingGateway: "127.0.0.1",
+			shouldAddRoute:     false,
+		},
+		{
+			name:               "Should Not Add Route if same network with different gateway exists",
+			prefix:             netip.MustParsePrefix("100.100.0.0/16"),
+			gateway:            "127.0.0.1",
+			preExistingPrefix:  netip.MustParsePrefix("100.100.0.0/16"),
+			preExistingGateway: "123.0.0.1",
+			shouldAddRoute:     false,
 		},
 	}
-
-	MOCK_ADDR := "127.0.0.1"
 
 	for _, testCase := range testCases {
 		var buf bytes.Buffer
@@ -132,28 +148,28 @@ func TestAddExistAndRemoveRoute(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
-				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, MOCK_ADDR)
+				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, testCase.preExistingGateway)
 				require.NoError(t, err, "should not return err when adding pre-existing route")
 			}
 
 			// Add the route
-			err = addToRouteTableIfNoExists(testCase.prefix, MOCK_ADDR)
+			err = addToRouteTableIfNoExists(testCase.prefix, testCase.gateway)
 			require.NoError(t, err, "should not return err when adding pre-existing route")
 
 			if testCase.shouldAddRoute {
 				// test if route exists after adding
-				ok, err := existsInRouteTable(testCase.prefix)
+				ok, err := routeExistsWithSameGateway(testCase.prefix, testCase.gateway)
 				require.NoError(t, err, "should not return err")
 				require.True(t, ok, "route should exist")
 
 				// remove route again if added
-				err = removeFromRouteTableIfNonSystem(testCase.prefix, MOCK_ADDR)
+				err = removeFromRouteTableIfNonSystem(testCase.prefix, testCase.gateway)
 				require.NoError(t, err, "should not return err")
 			}
 
 			// route should either not have been added or should have been removed
 			// In case of already existing route, it should not have been added (but still exist)
-			ok, err := existsInRouteTable(testCase.prefix)
+			ok, err := routeExistsWithSameGateway(testCase.prefix, testCase.gateway)
 			fmt.Println("Buffer string: ", buf.String())
 			require.NoError(t, err, "should not return err")
 			if !strings.Contains(buf.String(), "because it already exists") {
