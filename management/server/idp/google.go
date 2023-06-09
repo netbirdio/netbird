@@ -106,9 +106,18 @@ func (gm *GoogleManager) UpdateUserAppMetadata(userID string, appMetadata AppMet
 	return nil
 }
 
+// GetUserDataByID requests user data from keycloak via ID.
 func (gm *GoogleManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	user, err := gm.usersService.Get(userID).Do()
+	if err != nil {
+		return nil, err
+	}
+
+	if gm.appMetrics != nil {
+		gm.appMetrics.IDPMetrics().CountGetUserDataByID()
+	}
+
+	return parseGoogleUser(user)
 }
 
 func (gm *GoogleManager) GetAccount(accountID string) ([]*UserData, error) {
