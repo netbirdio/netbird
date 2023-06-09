@@ -164,10 +164,15 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		return NewOktaManager(oktaClientConfig, appMetrics)
 	case "google":
 		googleClientConfig := GoogleClientConfig{
-			TokenEndpoint: config.ClientConfig.TokenEndpoint,
-			GrantType:     config.ClientConfig.GrantType,
+			ServiceAccountKeyPath: config.ExtraConfig["ServiceAccountKeyPath"],
 		}
-		return NewGoogleManager(googleClientConfig, appMetrics)
+		manager, err := NewGoogleManager(googleClientConfig, appMetrics)
+		if err != nil {
+			return nil, err
+		}
+
+		fmt.Println(manager.credentials.Authenticate())
+		return manager, nil
 
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
