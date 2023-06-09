@@ -97,7 +97,7 @@ loop:
 			rt := (*routeInfoInMemory)(unsafe.Pointer(&m.Data[0]))
 			attrs, err := syscall.ParseNetlinkRouteAttr(&m)
 			if err != nil {
-				return nil, err
+				return true, err
 			}
 			if rt.Family != syscall.AF_INET {
 				continue loop
