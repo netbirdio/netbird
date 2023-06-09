@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"syscall"
 
 	"github.com/vishvananda/netlink"
 )
