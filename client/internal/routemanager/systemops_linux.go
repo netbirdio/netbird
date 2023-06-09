@@ -7,9 +7,26 @@ import (
 	"net/netip"
 	"os"
 	"syscall"
+	"unsafe"
 
 	"github.com/vishvananda/netlink"
 )
+
+// Pulled from http://man7.org/linux/man-pages/man7/rtnetlink.7.html
+// See the section on RTM_NEWROUTE, specifically 'struct rtmsg'.
+type routeInfoInMemory struct {
+	Family byte
+	DstLen byte
+	SrcLen byte
+	TOS    byte
+
+	Table    byte
+	Protocol byte
+	Scope    byte
+	Type     byte
+
+	Flags uint32
+}
 
 const ipv4ForwardingPath = "/proc/sys/net/ipv4/ip_forward"
 
@@ -65,11 +82,11 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 	tab, err := syscall.NetlinkRIB(syscall.RTM_GETROUTE, syscall.AF_UNSPEC)
 	if err != nil {
-		return nil, err
+		return true, err
 	}
 	msgs, err := syscall.ParseNetlinkMessage(tab)
 	if err != nil {
-		return nil, err
+		return true, err
 	}
 loop:
 	for _, m := range msgs {
