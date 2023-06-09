@@ -92,18 +92,15 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (gm *GoogleWorkspaceManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	user, err := gm.usersService.Get(userID).Do()
-	if err != nil {
-		return err
-	}
-
 	metadata, err := gm.helper.Marshal(appMetadata)
 	if err != nil {
 		return err
 	}
 
-	user.CustomSchemas = map[string]googleapi.RawMessage{
-		"app_metadata": metadata,
+	user := &admin.User{
+		CustomSchemas: map[string]googleapi.RawMessage{
+			"app_metadata": metadata,
+		},
 	}
 
 	_, err = gm.usersService.Update(userID, user).Do()
