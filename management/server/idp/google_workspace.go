@@ -118,7 +118,7 @@ func (gm *GoogleWorkspaceManager) UpdateUserAppMetadata(userID string, appMetada
 
 // GetUserDataByID requests user data from Google Workspace via ID.
 func (gm *GoogleWorkspaceManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	user, err := gm.usersService.Get(userID).Do()
+	user, err := gm.usersService.Get(userID).Projection("full").Do()
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +133,7 @@ func (gm *GoogleWorkspaceManager) GetUserDataByID(userID string, appMetadata App
 // GetAccount returns all the users for a given profile.
 func (gm *GoogleWorkspaceManager) GetAccount(accountID string) ([]*UserData, error) {
 	query := fmt.Sprintf("app_metadata.wt_account_id=\"%s\"", accountID)
-	usersList, err := gm.usersService.List().Domain(gm.Domain).Query(query).Do()
+	usersList, err := gm.usersService.List().Domain(gm.Domain).Query(query).Projection("full").Do()
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (gm *GoogleWorkspaceManager) GetAccount(accountID string) ([]*UserData, err
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, error) {
-	usersList, err := gm.usersService.List().Domain(gm.Domain).Do()
+	usersList, err := gm.usersService.List().Domain(gm.Domain).Projection("full").Do()
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (gm *GoogleWorkspaceManager) CreateUser(email string, name string, accountI
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
 func (gm *GoogleWorkspaceManager) GetUserByEmail(email string) ([]*UserData, error) {
-	user, err := gm.usersService.Get(email).Do()
+	user, err := gm.usersService.Get(email).Projection("full").Do()
 	if err != nil {
 		return nil, err
 	}
