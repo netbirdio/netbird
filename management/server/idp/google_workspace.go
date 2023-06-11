@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -37,7 +36,6 @@ type GoogleWorkspaceCredentials struct {
 	clientConfig GoogleWorkspaceClientConfig
 	helper       ManagerHelper
 	httpClient   ManagerHTTPClient
-	mux          sync.Mutex
 	appMetrics   telemetry.AppMetrics
 }
 
@@ -76,6 +74,7 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 	service, err := admin.NewService(context.Background(),
 		option.WithScopes(admin.AdminDirectoryUserScope),
 		option.WithCredentials(adminCredentials),
+		option.WithHTTPClient(httpClient),
 	)
 	if err != nil {
 		return nil, err
