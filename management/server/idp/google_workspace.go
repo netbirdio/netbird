@@ -10,6 +10,7 @@ import (
 	"google.golang.org/api/option"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
@@ -183,8 +184,42 @@ func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, erro
 
 // CreateUser creates a new user in Google Workspace and sends an invitation.
 func (gm *GoogleWorkspaceManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	invite := true
+	metadata := AppMetadata{
+		WTAccountID:     accountID,
+		WTPendingInvite: &invite,
+	}
+
+	username := &admin.UserName{}
+	fields := strings.Fields(name)
+	if n := len(fields); n > 0 {
+		username.GivenName = strings.Join(fields[:n-1], " ")
+		username.FamilyName = fields[n-1]
+	}
+
+	payload, err := gm.helper.Marshal(metadata)
+	if err != nil {
+		return nil, err
+	}
+
+	user := &admin.User{
+		Name:         username,
+		PrimaryEmail: email,
+		CustomSchemas: map[string]googleapi.RawMessage{
+			"app_metadata": payload,
+		},
+		Password: GeneratePassword(8, 1, 1, 1),
+	}
+	user, err = gm.usersService.Insert(user).Do()
+	if err != nil {
+		return nil, err
+	}
+
+	if gm.appMetrics != nil {
+		gm.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	return gm.GetUserDataByID(user.Id, AppMetadata{WTAccountID: accountID})
 }
 
 // GetUserByEmail searches users with a given email.
