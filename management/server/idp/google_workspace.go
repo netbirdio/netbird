@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
 	admin "google.golang.org/api/admin/directory/v1"
 	"google.golang.org/api/googleapi"
@@ -55,10 +56,6 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 	}
 	helper := JsonParser{}
 
-	if config.ServiceAccountKeyPath == "" {
-		return nil, fmt.Errorf("google IdP configuration is incomplete, ServiceAccountKeyPath is missing")
-	}
-
 	if config.Domain == "" {
 		return nil, fmt.Errorf("google IdP configuration is incomplete, Domain is missing")
 	}
@@ -71,12 +68,15 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 	}
 
 	// Create a new Admin SDK Directory service client
-	adminServiceClient, err := getClient(config.ServiceAccountKeyPath)
+	adminCredentials, err := getGoogleCredentials(config.ServiceAccountKeyPath)
 	if err != nil {
 		return nil, err
 	}
 
-	service, err := admin.NewService(context.Background(), option.WithHTTPClient(adminServiceClient))
+	service, err := admin.NewService(context.Background(),
+		option.WithScopes(admin.AdminDirectoryUserScope),
+		option.WithCredentials(adminCredentials),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -248,21 +248,32 @@ func (gm *GoogleWorkspaceManager) GetUserByEmail(email string) ([]*UserData, err
 	return users, nil
 }
 
-// getClient creates a new HTTP client with the service account credentials
-func getClient(keyPath string) (*http.Client, error) {
-	keyFile, err := os.ReadFile(keyPath)
+// getGoogleCredentials retrieves Google credentials, first attempting to find them at the default location.
+// If the credentials cannot be found, it falls back to using the provided fallbackKeyPath.
+// Returns the retrieved credentials or an error if unsuccessful.
+func getGoogleCredentials(fallbackKeyPath string) (*google.Credentials, error) {
+	log.Debug("retrieving google credentials from the default location")
+	creds, err := google.FindDefaultCredentials(context.Background())
+	if err == nil {
+		return creds, nil
+	}
+
+	if fallbackKeyPath == "" {
+		return nil, fmt.Errorf("google IdP configuration is incomplete, ServiceAccountKeyPath is missing")
+	}
+	log.Debugf("failed to retrieve google credentials from the default location, now using %s as a fallback path", fallbackKeyPath)
+
+	keyFile, err := os.ReadFile(fallbackKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read service account key file: %v", err)
 	}
 
-	// Include a scope that grants the ability to view and manage user provisioning
-	// within your domain
-	config, err := google.JWTConfigFromJSON(keyFile, admin.AdminDirectoryUserScope)
+	creds, err = google.CredentialsFromJSON(context.Background(), keyFile, admin.AdminDirectoryUserScope)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse service account key file: %v", err)
+		return nil, err
 	}
 
-	return config.Client(context.Background()), nil
+	return creds, nil
 }
 
 // parseGoogleWorkspaceUser parse google user to UserData.
