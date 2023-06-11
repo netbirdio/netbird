@@ -219,6 +219,9 @@ func (gm *GoogleWorkspaceManager) CreateUser(email string, name string, accountI
 		gm.appMetrics.IDPMetrics().CountCreateUser()
 	}
 
+	// wait for user provisioning before fetching the user info
+	time.Sleep(3 * time.Second)
+
 	return gm.GetUserDataByID(user.Id, AppMetadata{WTAccountID: accountID})
 }
 
@@ -264,31 +267,7 @@ func getClient(keyPath string) (*http.Client, error) {
 
 // parseGoogleWorkspaceUser parse google user to UserData.
 func parseGoogleWorkspaceUser(user *admin.User) (*UserData, error) {
-	var (
-		emailAddress string
-		appMetadata  AppMetadata
-	)
-
-	// Get user primary emailAddress
-	if user.Emails != nil {
-		emailsList, ok := user.Emails.([]interface{})
-		if !ok {
-			return nil, fmt.Errorf("failed to get emails")
-		}
-
-		for _, emailData := range emailsList {
-			email, ok := emailData.(map[string]interface{})
-			if !ok {
-				return nil, fmt.Errorf("failed to get email data")
-			}
-
-			isPrimary, ok := email["primary"].(bool)
-			if ok && isPrimary {
-				emailAddress = email["address"].(string)
-				break
-			}
-		}
-	}
+	var appMetadata AppMetadata
 
 	// Get app metadata from custom schemas
 	if user.CustomSchemas != nil {
@@ -302,7 +281,7 @@ func parseGoogleWorkspaceUser(user *admin.User) (*UserData, error) {
 
 	return &UserData{
 		ID:          user.Id,
-		Email:       emailAddress,
+		Email:       user.PrimaryEmail,
 		Name:        user.Name.FullName,
 		AppMetadata: appMetadata,
 	}, nil
