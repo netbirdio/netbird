@@ -1,9 +1,11 @@
 package iface
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/pion/transport/v2"
+	log "github.com/sirupsen/logrus"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
@@ -27,7 +29,16 @@ func NewWGIFace(ifaceName string, address string, mtu int, tunAdapter TunAdapter
 	return wgIFace, nil
 }
 
-// SetInitialRoutes store the given routes and on the tun creation will be used
-func (w *WGIface) SetInitialRoutes(routes []string) {
-	w.tun.SetRoutes(routes)
+// CreateOnMobile creates a new Wireguard interface, sets a given IP and brings it up.
+// Will reuse an existing one.
+func (w *WGIface) CreateOnMobile(mIFaceArgs MobileIFaceArguments) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	log.Debugf("create WireGuard interface %s", w.tun.DeviceName())
+	return w.tun.Create(mIFaceArgs)
+}
+
+// Create this function make sense on mobile only
+func (w *WGIface) Create() error {
+	return fmt.Errorf("this function has not implemented on mobile")
 }

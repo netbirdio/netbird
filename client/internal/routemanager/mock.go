@@ -14,8 +14,8 @@ type MockManager struct {
 	StopFunc         func()
 }
 
-// InitialClientRoutesNetworks mock implementation of InitialClientRoutesNetworks from Manager interface
-func (m *MockManager) InitialClientRoutesNetworks() []string {
+// InitialRouteRange mock implementation of InitialRouteRange from Manager interface
+func (m *MockManager) InitialRouteRange() []string {
 	return nil
 }
 
