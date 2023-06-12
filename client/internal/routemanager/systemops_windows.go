@@ -27,6 +27,7 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 	}
 
 	for _, route := range routes {
+		fmt.Println(routes)
 		ip := net.ParseIP(route.Mask)
 		ip = ip.To4()
 		mask := net.IPv4Mask(ip[0], ip[1], ip[2], ip[3])
@@ -34,6 +35,7 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 		fmt.Println(route.Destination, "<=>", prefix.Addr().String())
 		fmt.Println(cidr, "<=>", prefix.Bits())
 		if route.Destination == prefix.Addr().String() && cidr == prefix.Bits() {
+			fmt.Println("Found route exists in table")
 			return true, nil
 		}
 	}
