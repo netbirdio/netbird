@@ -4,7 +4,7 @@
 package routemanager
 
 import (
-	"fmt"
+	"net"
 	"net/netip"
 
 	"github.com/yusufpapurcu/wmi"
@@ -25,15 +25,13 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 		return true, err
 	}
 
-	fmt.Println("Destination Networks:")
 	for _, route := range routes {
-		fmt.Println("Destination :", route.Destination)
-		fmt.Println("Mask :", route.Mask)
-		// mask, _ := toIPAddr(m.Addrs[2])
-		// cidr, _ := net.IPMask(mask.To4()).Size()
-		// if route.Destination == prefix.Addr().String() && cidr == prefix.Bits() {
-		// 	return true, nil
-		// }
+		ip := net.ParseIP(route.Mask)
+		mask := net.IPMask(ip)
+		cidr, _ := mask.Size()
+		if route.Destination == prefix.Addr().String() && cidr == prefix.Bits() {
+			return true, nil
+		}
 	}
 	return false, nil
 }
