@@ -1,0 +1,22 @@
+name: update docs
+
+on:
+  push:
+    tags:
+      - 'v*'
+    paths:
+      - 'management/server/http/api/openapi.yml'
+
+jobs:
+  trigger_docs_api_update:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Trigger API pages generation
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          workflow: generate api pages
+          repo: netbirdio/docs
+          ref: "refs/heads/main"
+          token: ${{ secrets.SIGN_GITHUB_TOKEN }}
+          inputs: '{ "tag": "${{ github.ref }}" }'
