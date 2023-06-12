@@ -36,15 +36,6 @@ func (w *WGIface) GetBind() *bind.ICEBind {
 	return w.tun.iceBind
 }
 
-// Create creates a new Wireguard interface, sets a given IP and brings it up.
-// Will reuse an existing one.
-func (w *WGIface) Create() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	log.Debugf("create WireGuard interface %s", w.tun.DeviceName())
-	return w.tun.Create()
-}
-
 // Name returns the interface name
 func (w *WGIface) Name() string {
 	return w.tun.DeviceName()
