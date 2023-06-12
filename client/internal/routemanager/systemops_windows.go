@@ -4,6 +4,7 @@
 package routemanager
 
 import (
+	"fmt"
 	"net"
 	"net/netip"
 
@@ -29,6 +30,8 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 		ip := net.ParseIP(route.Mask)
 		mask := net.IPMask(ip)
 		cidr, _ := mask.Size()
+		fmt.Println(route.Destination, "<=>", prefix.Addr().String())
+		fmt.Println(cidr, "<=>", prefix.Bits())
 		if route.Destination == prefix.Addr().String() && cidr == prefix.Bits() {
 			return true, nil
 		}
