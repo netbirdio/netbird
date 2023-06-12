@@ -28,7 +28,8 @@ func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 
 	for _, route := range routes {
 		ip := net.ParseIP(route.Mask)
-		mask := net.IPMask(ip)
+		ip = ip.To4()
+		mask := net.IPv4Mask(ip[0], ip[1], ip[2], ip[3])
 		cidr, _ := mask.Size()
 		fmt.Println(route.Destination, "<=>", prefix.Addr().String())
 		fmt.Println(cidr, "<=>", prefix.Bits())
