@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v*'
-    branches:
-      - main
     paths:
       - 'management/server/http/api/openapi.yml'
 
