@@ -163,8 +163,6 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 		},
 	}
 
-	// MOCK_ADDR := "127.0.0.1"
-
 	for n, testCase := range testCases {
 		var buf bytes.Buffer
 		log.SetOutput(&buf)
@@ -183,16 +181,16 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 			err = wgInterface.Create()
 			require.NoError(t, err, "should create testing wireguard interface")
 
-			MOCK_ADDR := wgInterface.Address().IP.String()
+			MockAddr := wgInterface.Address().IP.String()
 
 			// Prepare the environment
 			if testCase.preExistingPrefix.IsValid() {
-				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, MOCK_ADDR)
+				err := addToRouteTableIfNoExists(testCase.preExistingPrefix, MockAddr)
 				require.NoError(t, err, "should not return err when adding pre-existing route")
 			}
 
 			// Add the route
-			err = addToRouteTableIfNoExists(testCase.prefix, MOCK_ADDR)
+			err = addToRouteTableIfNoExists(testCase.prefix, MockAddr)
 			require.NoError(t, err, "should not return err when adding route")
 
 			if testCase.shouldAddRoute {
@@ -202,7 +200,7 @@ func TestAddExistAndRemoveRouteNonAndroid(t *testing.T) {
 				require.True(t, ok, "route should exist")
 
 				// remove route again if added
-				err = removeFromRouteTableIfNonSystem(testCase.prefix, MOCK_ADDR)
+				err = removeFromRouteTableIfNonSystem(testCase.prefix, MockAddr)
 				require.NoError(t, err, "should not return err")
 			}
 
