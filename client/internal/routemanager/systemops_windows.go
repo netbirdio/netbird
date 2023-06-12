@@ -11,15 +11,14 @@ import (
 )
 
 type Win32_IP4RouteTable struct {
-	Destination  string
-	Mask         string
-	NextHop      string
-	InterfaceIdx int
+	Destination string
+	Mask        string
+	NextHop     string
 }
 
 func existsInRouteTable(prefix netip.Prefix) (bool, error) {
 	var routes []Win32_IP4RouteTable
-	query := "SELECT Destination, Mask, NextHop, InterfaceIndex FROM Win32_IP4RouteTable"
+	query := "SELECT Destination, Mask, NextHop FROM Win32_IP4RouteTable"
 
 	err := wmi.Query(query, &routes)
 	if err != nil {
