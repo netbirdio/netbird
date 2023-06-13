@@ -13,7 +13,7 @@ type MockServer struct {
 }
 
 // Start mock implementation of Start from Server interface
-func (m *MockServer) Start() {
+func (m *MockServer) listen() {
 	if m.StartFunc != nil {
 		m.StartFunc()
 	}

@@ -291,7 +291,7 @@ func TestDNSServerStartStop(t *testing.T) {
 			dnsServer := getDefaultServerWithNoHostManager(t, testCase.addrPort)
 
 			dnsServer.hostManager = newNoopHostMocker()
-			dnsServer.Start()
+			dnsServer.listen()
 			time.Sleep(100 * time.Millisecond)
 			if !dnsServer.listenerIsRunning {
 				t.Fatal("dns server listener is not running")
