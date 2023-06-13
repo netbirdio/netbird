@@ -199,7 +199,7 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	if e.dnsServer == nil {
+	if e.dnsServer == nil && runtime.GOOS == "android" {
 		// todo fix custom address
 		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, dnsCfg)
 		if err != nil {
@@ -257,6 +257,16 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create ACL manager, policy will not work: %s", err.Error())
 	} else {
 		e.acl = acl
+	}
+
+	if e.dnsServer == nil && runtime.GOOS != "android" {
+		// todo fix custom address
+		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, dnsCfg)
+		if err != nil {
+			e.close()
+			return err
+		}
+		e.dnsServer = dnsServer
 	}
 
 	e.receiveSignalEvents()
