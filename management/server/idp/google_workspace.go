@@ -221,10 +221,7 @@ func (gm *GoogleWorkspaceManager) CreateUser(email string, name string, accountI
 		gm.appMetrics.IDPMetrics().CountCreateUser()
 	}
 
-	// wait for user provisioning before fetching the user info
-	time.Sleep(3 * time.Second)
-
-	return gm.GetUserDataByID(user.Id, AppMetadata{WTAccountID: accountID})
+	return parseGoogleWorkspaceUser(user)
 }
 
 // GetUserByEmail searches users with a given email.
@@ -313,7 +310,7 @@ func configureAppMetadataSchema(service *admin.Service, customerID string) error
 			},
 		},
 	}
-	appMetadataSchema, err = service.Schemas.Insert(customerID, appMetadataSchema).Do()
+	_, err = service.Schemas.Insert(customerID, appMetadataSchema).Do()
 	if err != nil {
 		return err
 	}
