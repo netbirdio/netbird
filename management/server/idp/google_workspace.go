@@ -18,7 +18,7 @@ import (
 // GoogleWorkspaceManager Google Workspace manager client instance.
 type GoogleWorkspaceManager struct {
 	usersService *admin.UsersService
-	Domain       string
+	CustomerID   string
 	httpClient   ManagerHTTPClient
 	credentials  ManagerCredentials
 	helper       ManagerHelper
@@ -28,7 +28,7 @@ type GoogleWorkspaceManager struct {
 // GoogleWorkspaceClientConfig Google Workspace manager client configurations.
 type GoogleWorkspaceClientConfig struct {
 	ServiceAccountKeyPath string
-	Domain                string
+	CustomerID            string
 }
 
 // GoogleWorkspaceCredentials Google Workspace authentication information.
@@ -54,8 +54,8 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 	}
 	helper := JsonParser{}
 
-	if config.Domain == "" {
-		return nil, fmt.Errorf("google IdP configuration is incomplete, Domain is missing")
+	if config.CustomerID == "" {
+		return nil, fmt.Errorf("google IdP configuration is incomplete, CustomerID is missing")
 	}
 
 	credentials := &GoogleWorkspaceCredentials{
@@ -72,9 +72,8 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 	}
 
 	service, err := admin.NewService(context.Background(),
-		option.WithScopes(admin.AdminDirectoryUserScope),
+		option.WithScopes(admin.AdminDirectoryUserScope, admin.AdminDirectoryUserschemaScope),
 		option.WithCredentials(adminCredentials),
-		option.WithHTTPClient(httpClient),
 	)
 	if err != nil {
 		return nil, err
@@ -82,7 +81,7 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 
 	return &GoogleWorkspaceManager{
 		usersService: service.Users,
-		Domain:       config.Domain,
+		CustomerID:   config.CustomerID,
 		httpClient:   httpClient,
 		credentials:  credentials,
 		helper:       helper,
@@ -132,7 +131,7 @@ func (gm *GoogleWorkspaceManager) GetUserDataByID(userID string, appMetadata App
 // GetAccount returns all the users for a given profile.
 func (gm *GoogleWorkspaceManager) GetAccount(accountID string) ([]*UserData, error) {
 	query := fmt.Sprintf("app_metadata.wt_account_id=\"%s\"", accountID)
-	usersList, err := gm.usersService.List().Domain(gm.Domain).Query(query).Projection("full").Do()
+	usersList, err := gm.usersService.List().Customer(gm.CustomerID).Query(query).Projection("full").Do()
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +152,7 @@ func (gm *GoogleWorkspaceManager) GetAccount(accountID string) ([]*UserData, err
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, error) {
-	usersList, err := gm.usersService.List().Domain(gm.Domain).Projection("full").Do()
+	usersList, err := gm.usersService.List().Customer(gm.CustomerID).Projection("full").Do()
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +266,12 @@ func getGoogleCredentials(fallbackKeyPath string) (*google.Credentials, error) {
 		return nil, fmt.Errorf("unable to read service account key file: %v", err)
 	}
 
-	creds, err = google.CredentialsFromJSON(context.Background(), keyFile, admin.AdminDirectoryUserScope)
+	creds, err = google.CredentialsFromJSON(
+		context.Background(),
+		keyFile,
+		admin.AdminDirectoryUserschemaScope,
+		admin.AdminDirectoryUserScope,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -165,7 +165,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 	case "google":
 		googleClientConfig := GoogleWorkspaceClientConfig{
 			ServiceAccountKeyPath: config.ExtraConfig["ServiceAccountKeyPath"],
-			Domain:                config.ExtraConfig["Domain"],
+			CustomerID:            config.ExtraConfig["CustomerId"],
 		}
 		return NewGoogleWorkspaceManager(googleClientConfig, appMetrics)
 
