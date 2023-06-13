@@ -225,6 +225,10 @@ func TestUpdateDNSServer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			err = dnsServer.Initialize()
+			if err != nil {
+				t.Fatal(err)
+			}
 			defer func() {
 				err = dnsServer.hostManager.restoreHostDNS()
 				if err != nil {
