@@ -79,6 +79,10 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 		return nil, err
 	}
 
+	if err = configureAppMetadataSchema(service, config.CustomerID); err != nil {
+		return nil, err
+	}
+
 	return &GoogleWorkspaceManager{
 		usersService: service.Users,
 		CustomerID:   config.CustomerID,
@@ -277,6 +281,44 @@ func getGoogleCredentials(fallbackKeyPath string) (*google.Credentials, error) {
 	}
 
 	return creds, nil
+}
+
+// configureAppMetadataSchema create a custom schema for managing app metadata fields in Google Workspace.
+func configureAppMetadataSchema(service *admin.Service, customerID string) error {
+	schemaList, err := service.Schemas.List(customerID).Do()
+	if err != nil {
+		return err
+	}
+
+	// checks if app_metadata schema is already created
+	for _, schema := range schemaList.Schemas {
+		if schema.SchemaName == "app_metadata" {
+			return nil
+		}
+	}
+
+	// create new app_metadata schema
+	appMetadataSchema := &admin.Schema{
+		SchemaName: "app_metadata",
+		Fields: []*admin.SchemaFieldSpec{
+			{
+				FieldName:   "wt_account_id",
+				FieldType:   "STRING",
+				MultiValued: false,
+			},
+			{
+				FieldName:   "wt_pending_invite",
+				FieldType:   "BOOL",
+				MultiValued: false,
+			},
+		},
+	}
+	appMetadataSchema, err = service.Schemas.Insert(customerID, appMetadataSchema).Do()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // parseGoogleWorkspaceUser parse google user to UserData.
