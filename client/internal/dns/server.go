@@ -114,6 +114,10 @@ func (s *DefaultServer) Initialize() (err error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
+	if s.hostManager != nil {
+		return nil
+	}
+
 	s.hostManager, err = newHostManager(s.wgInterface)
 	return
 }
