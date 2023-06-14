@@ -148,7 +148,7 @@ func (om *OktaManager) CreateUser(email string, name string, accountID string) (
 	return parseOktaUser(user)
 }
 
-// GetUserDataByID requests user data from keycloak via ID.
+// GetUserDataByID requests user data from okta via ID.
 func (om *OktaManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
 	user, resp, err := om.client.User.GetUser(context.Background(), userID)
 	if err != nil {
