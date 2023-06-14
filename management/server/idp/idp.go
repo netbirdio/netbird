@@ -162,7 +162,13 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 			APIToken:      config.ExtraConfig["ApiToken"],
 		}
 		return NewOktaManager(oktaClientConfig, appMetrics)
-
+	case "jumpcloud":
+		jumpcloudConfig := JumpcloudClientConfig{
+			Issuer:        config.ClientConfig.Issuer,
+			TokenEndpoint: config.ClientConfig.TokenEndpoint,
+			GrantType:     config.ClientConfig.GrantType,
+		}
+		return NewJumpcloudManager(jumpcloudConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
