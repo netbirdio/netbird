@@ -199,7 +199,7 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	if e.dnsServer == nil && runtime.GOOS == "android" {
+	if e.dnsServer == nil {
 		// todo fix custom address
 		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, dnsCfg)
 		if err != nil {
@@ -259,14 +259,10 @@ func (e *Engine) Start() error {
 		e.acl = acl
 	}
 
-	if e.dnsServer == nil && runtime.GOOS != "android" {
-		// todo fix custom address
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, dnsCfg)
-		if err != nil {
-			e.close()
-			return err
-		}
-		e.dnsServer = dnsServer
+	err = e.dnsServer.Initialize()
+	if err != nil {
+		e.close()
+		return err
 	}
 
 	e.receiveSignalEvents()
