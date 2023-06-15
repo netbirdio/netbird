@@ -163,12 +163,12 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		}
 		return NewOktaManager(oktaClientConfig, appMetrics)
 	case "jumpcloud":
-		jumpcloudConfig := JumpcloudClientConfig{
+		jumpCloudConfig := JumpCloudClientConfig{
 			Issuer:        config.ClientConfig.Issuer,
 			TokenEndpoint: config.ClientConfig.TokenEndpoint,
 			GrantType:     config.ClientConfig.GrantType,
 		}
-		return NewJumpcloudManager(jumpcloudConfig, appMetrics)
+		return NewJumpCloudManager(jumpCloudConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}

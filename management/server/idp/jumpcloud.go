@@ -7,31 +7,31 @@ import (
 	"time"
 )
 
-// JumpcloudManager jumpcloud manager client instance.
-type JumpcloudManager struct {
+// JumpCloudManager jumpcloud manager client instance.
+type JumpCloudManager struct {
 	httpClient  ManagerHTTPClient
 	credentials ManagerCredentials
 	helper      ManagerHelper
 	appMetrics  telemetry.AppMetrics
 }
 
-// JumpcloudClientConfig jumpcloud manager client configurations.
-type JumpcloudClientConfig struct {
+// JumpCloudClientConfig jumpcloud manager client configurations.
+type JumpCloudClientConfig struct {
 	Issuer        string
 	TokenEndpoint string
 	GrantType     string
 }
 
-// JumpcloudCredentials jumpcloud authentication information.
-type JumpcloudCredentials struct {
-	clientConfig JumpcloudClientConfig
+// JumpCloudCredentials jumpcloud authentication information.
+type JumpCloudCredentials struct {
+	clientConfig JumpCloudClientConfig
 	helper       ManagerHelper
 	httpClient   ManagerHTTPClient
 	appMetrics   telemetry.AppMetrics
 }
 
-// NewJumpcloudManager creates a new instance of the JumpcloudManager.
-func NewJumpcloudManager(config JumpcloudClientConfig, appMetrics telemetry.AppMetrics) (*JumpcloudManager, error) {
+// NewJumpCloudManager creates a new instance of the JumpCloudManager.
+func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppMetrics) (*JumpCloudManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
@@ -54,14 +54,14 @@ func NewJumpcloudManager(config JumpcloudClientConfig, appMetrics telemetry.AppM
 		return nil, fmt.Errorf("jumpcloud IdP configuration is incomplete, GrantType is missing")
 	}
 
-	credentials := &JumpcloudCredentials{
+	credentials := &JumpCloudCredentials{
 		clientConfig: config,
 		httpClient:   httpClient,
 		helper:       helper,
 		appMetrics:   appMetrics,
 	}
 
-	return &JumpcloudManager{
+	return &JumpCloudManager{
 		httpClient:  httpClient,
 		credentials: credentials,
 		helper:      helper,
@@ -70,44 +70,44 @@ func NewJumpcloudManager(config JumpcloudClientConfig, appMetrics telemetry.AppM
 }
 
 // Authenticate retrieves access token to use the jumpcloud user API.
-func (jc *JumpcloudCredentials) Authenticate() (JWTToken, error) {
+func (jc *JumpCloudCredentials) Authenticate() (JWTToken, error) {
 	return JWTToken{}, nil
 }
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (j *JumpcloudManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
+func (jm *JumpCloudManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
 	//TODO implement me
 	panic("implement me")
 }
 
 // GetUserDataByID requests user data from jumpcloud via ID.
-func (j *JumpcloudManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
+func (jm *JumpCloudManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 // GetAccount returns all the users for a given profile.
-func (j *JumpcloudManager) GetAccount(accountID string) ([]*UserData, error) {
+func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
-func (j *JumpcloudManager) GetAllAccounts() (map[string][]*UserData, error) {
+func (j *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 // CreateUser creates a new user in jumpcloud Idp and sends an invitation.
-func (j *JumpcloudManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (jm *JumpCloudManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
 
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
-func (j *JumpcloudManager) GetUserByEmail(email string) ([]*UserData, error) {
+func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 	//TODO implement me
 	panic("implement me")
 }
