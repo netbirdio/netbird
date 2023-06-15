@@ -29,7 +29,7 @@ const (
 
 // Server is a dns server interface
 type Server interface {
-	Start()
+	Initialize() error
 	Stop()
 	DnsIP() string
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
@@ -82,11 +82,6 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 		addrPort = &parsedAddrPort
 	}
 
-	hostManager, err := newHostManager(wgInterface)
-	if err != nil {
-		return nil, err
-	}
-
 	ctx, stop := context.WithCancel(ctx)
 
 	defaultServer := &DefaultServer{
@@ -104,7 +99,6 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 		},
 		wgInterface:   wgInterface,
 		customAddress: addrPort,
-		hostManager:   hostManager,
 	}
 
 	if initialDnsCfg != nil {
@@ -115,8 +109,21 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 	return defaultServer, nil
 }
 
-// Start runs the listener in a go routine
-func (s *DefaultServer) Start() {
+// Initialize instantiate host manager. It required to be initialized wginterface
+func (s *DefaultServer) Initialize() (err error) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if s.hostManager != nil {
+		return nil
+	}
+
+	s.hostManager, err = newHostManager(s.wgInterface)
+	return
+}
+
+// listen runs the listener in a go routine
+func (s *DefaultServer) listen() {
 	// nil check required in unit tests
 	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
 		s.fakeResolverWG.Add(1)
@@ -231,6 +238,10 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
+		if s.hostManager == nil {
+			return fmt.Errorf("dns service is not initialized yet")
+		}
+
 		hash, err := hashstructure.Hash(update, hashstructure.FormatV2, &hashstructure.HashOptions{
 			ZeroNil:         true,
 			IgnoreZeroValue: true,
@@ -270,7 +281,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 			}
 		}
 	} else if !s.listenerIsRunning {
-		s.Start()
+		s.listen()
 	}
 
 	localMuxUpdates, localRecords, err := s.buildLocalHandlerUpdate(update.CustomZones)
