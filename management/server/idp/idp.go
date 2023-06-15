@@ -164,8 +164,8 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		return NewOktaManager(oktaClientConfig, appMetrics)
 	case "google":
 		googleClientConfig := GoogleWorkspaceClientConfig{
-			ServiceAccountKeyPath: config.ExtraConfig["ServiceAccountKeyPath"],
-			CustomerID:            config.ExtraConfig["CustomerId"],
+			ServiceAccountKey: config.ExtraConfig["ServiceAccountKey"],
+			CustomerID:        config.ExtraConfig["CustomerId"],
 		}
 		return NewGoogleWorkspaceManager(googleClientConfig, appMetrics)
 

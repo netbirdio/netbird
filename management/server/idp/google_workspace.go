@@ -2,6 +2,7 @@ package idp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	log "github.com/sirupsen/logrus"
@@ -10,7 +11,6 @@ import (
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -27,8 +27,8 @@ type GoogleWorkspaceManager struct {
 
 // GoogleWorkspaceClientConfig Google Workspace manager client configurations.
 type GoogleWorkspaceClientConfig struct {
-	ServiceAccountKeyPath string
-	CustomerID            string
+	ServiceAccountKey string
+	CustomerID        string
 }
 
 // GoogleWorkspaceCredentials Google Workspace authentication information.
@@ -66,7 +66,7 @@ func NewGoogleWorkspaceManager(config GoogleWorkspaceClientConfig, appMetrics te
 	}
 
 	// Create a new Admin SDK Directory service client
-	adminCredentials, err := getGoogleCredentials(config.ServiceAccountKeyPath)
+	adminCredentials, err := getGoogleCredentials(config.ServiceAccountKey)
 	if err != nil {
 		return nil, err
 	}
@@ -247,29 +247,32 @@ func (gm *GoogleWorkspaceManager) GetUserByEmail(email string) ([]*UserData, err
 	return users, nil
 }
 
-// getGoogleCredentials retrieves Google credentials, first attempting to find them at the default location.
-// If the credentials cannot be found, it falls back to using the provided fallbackKeyPath.
-// Returns the retrieved credentials or an error if unsuccessful.
-func getGoogleCredentials(fallbackKeyPath string) (*google.Credentials, error) {
-	log.Debug("retrieving google credentials from the default location")
-	creds, err := google.FindDefaultCredentials(context.Background())
-	if err == nil {
-		return creds, nil
-	}
-
-	if fallbackKeyPath == "" {
-		return nil, fmt.Errorf("google IdP configuration is incomplete, ServiceAccountKeyPath is missing")
-	}
-	log.Debugf("failed to retrieve google credentials from the default location, now using %s as a fallback path", fallbackKeyPath)
-
-	keyFile, err := os.ReadFile(fallbackKeyPath)
+// getGoogleCredentials retrieves Google credentials based on the provided serviceAccountKey.
+// It decodes the base64-encoded serviceAccountKey and attempts to obtain credentials using it.
+// If that fails, it falls back to using the default Google credentials path.
+// It returns the retrieved credentials or an error if unsuccessful.
+func getGoogleCredentials(serviceAccountKey string) (*google.Credentials, error) {
+	log.Debug("retrieving google credentials from the base64 encoded service account key")
+	decodeKey, err := base64.StdEncoding.DecodeString(serviceAccountKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to read service account key file: %v", err)
+		return nil, fmt.Errorf("failed to decode service account key: %w", err)
 	}
 
-	creds, err = google.CredentialsFromJSON(
+	creds, err := google.CredentialsFromJSON(
 		context.Background(),
-		keyFile,
+		decodeKey,
+		admin.AdminDirectoryUserschemaScope,
+		admin.AdminDirectoryUserScope,
+	)
+	if err == nil {
+		return creds, err
+	}
+
+	log.Debugf("failed to retrieve Google credentials from ServiceAccountKey: %v", err)
+	log.Debug("falling back to default google credentials location")
+
+	creds, err = google.FindDefaultCredentials(
+		context.Background(),
 		admin.AdminDirectoryUserschemaScope,
 		admin.AdminDirectoryUserScope,
 	)
