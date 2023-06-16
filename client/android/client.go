@@ -65,7 +65,7 @@ func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, iFaceDiscover 
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(urlOpener URLOpener) error {
+func (c *Client) Run(urlOpener URLOpener, dns *DNSList) error {
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -90,7 +90,7 @@ func (c *Client) Run(urlOpener URLOpener) error {
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	return internal.RunClient(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener)
+	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener, dns.items)
 }
 
 // Stop the internal client and free the resources
@@ -124,6 +124,10 @@ func (c *Client) PeersList() *PeerInfoArray {
 		peerInfos[n] = pi
 	}
 	return &PeerInfoArray{items: peerInfos}
+}
+
+func (c *Client) UpdateDNSUpstreams(list DNSList) {
+
 }
 
 // SetConnectionListener set the network connection listener
