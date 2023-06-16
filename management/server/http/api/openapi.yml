@@ -1102,8 +1102,8 @@ paths:
         '500':
           "$ref": "#/components/responses/internal_error"
     delete:
-      summary: Delete a User
-      description: Delete a user
+      summary: Block a User
+      description: This method blocks a user from accessing the system, but leaves the IDP user intact.
       tags: [ Users ]
       security:
         - BearerAuth: [ ]
