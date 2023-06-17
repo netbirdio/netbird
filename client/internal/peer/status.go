@@ -135,6 +135,8 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 		peerState.IP = receivedState.IP
 	}
 
+	skipNotification := shouldSkipNotify(receivedState, peerState)
+
 	if receivedState.ConnStatus != peerState.ConnStatus {
 		peerState.ConnStatus = receivedState.ConnStatus
 		peerState.ConnStatusUpdate = receivedState.ConnStatusUpdate
@@ -146,7 +148,7 @@ func (d *Status) UpdatePeerState(receivedState State) error {
 
 	d.peers[receivedState.PubKey] = peerState
 
-	if shouldSkipNotify(receivedState, peerState) {
+	if skipNotification {
 		return nil
 	}
 
