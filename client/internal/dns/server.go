@@ -163,7 +163,7 @@ func (s *DefaultServer) DnsIP() string {
 
 func (s *DefaultServer) getFirstListenerAvailable() (string, int, error) {
 	ips := []string{defaultIP, customIP}
-	if runtime.GOOS != "darwin" && s.wgInterface != nil {
+	if runtime.GOOS != "darwin" {
 		ips = append([]string{s.wgInterface.Address().IP.String()}, ips...)
 	}
 	ports := []int{defaultPort, customPort}
@@ -209,7 +209,7 @@ func (s *DefaultServer) Stop() {
 }
 
 func (s *DefaultServer) stopListener() error {
-	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
+	if s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
 		// udpFilterHookID here empty only in the unit tests
 		if filter := s.wgInterface.GetFilter(); filter != nil && s.udpFilterHookID != "" {
 			if err := filter.RemovePacketHook(s.udpFilterHookID); err != nil {
@@ -570,6 +570,12 @@ func (s *DefaultServer) evalRuntimeAddress() {
 	defer func() {
 		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
 	}()
+
+	if s.wgInterface.IsUserspaceBind() {
+		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
+		s.runtimePort = defaultPort
+		return
+	}
 
 	if s.customAddress != nil {
 		s.runtimeIP = s.customAddress.Addr().String()
