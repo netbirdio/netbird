@@ -16,6 +16,33 @@ import (
 	"github.com/netbirdio/netbird/iface"
 )
 
+type mocWGIface struct {
+}
+
+func (w mocWGIface) Name() string {
+	panic("implement me")
+}
+
+func (w mocWGIface) Address() iface.WGAddress {
+	panic("implement me")
+}
+
+func (w mocWGIface) GetFilter() iface.PacketFilter {
+	panic("implement me")
+}
+
+func (w mocWGIface) GetDevice() *iface.DeviceWrapper {
+	panic("implement me")
+}
+
+func (w mocWGIface) GetInterfaceGUIDString() (string, error) {
+	panic("implement me")
+}
+
+func (w mocWGIface) IsUserspaceBind() bool {
+	return false
+}
+
 var zoneRecords = []nbdns.SimpleRecord{
 	{
 		Name:  "peera.netbird.cloud",
@@ -443,6 +470,7 @@ func getDefaultServerWithNoHostManager(t *testing.T, addrPort string) *DefaultSe
 		},
 		customAddress: parsedAddrPort,
 	}
+	ds.wgInterface = mocWGIface{}
 	ds.evalRuntimeAddress()
 	return ds
 }

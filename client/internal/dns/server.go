@@ -17,7 +17,6 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -47,7 +46,7 @@ type DefaultServer struct {
 	dnsMux             *dns.ServeMux
 	dnsMuxMap          registeredHandlerMap
 	localResolver      *localResolver
-	wgInterface        *iface.WGIface
+	wgInterface        WGIface
 	hostManager        hostManager
 	updateSerial       uint64
 	listenerIsRunning  bool
@@ -70,7 +69,7 @@ type muxUpdate struct {
 }
 
 // NewDefaultServer returns a new dns server
-func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAddress string, initialDnsCfg *nbdns.Config) (*DefaultServer, error) {
+func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress string, initialDnsCfg *nbdns.Config) (*DefaultServer, error) {
 	mux := dns.NewServeMux()
 
 	var addrPort *netip.AddrPort
@@ -125,7 +124,7 @@ func (s *DefaultServer) Initialize() (err error) {
 // listen runs the listener in a go routine
 func (s *DefaultServer) listen() {
 	// nil check required in unit tests
-	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
+	if s.wgInterface.IsUserspaceBind() {
 		s.fakeResolverWG.Add(1)
 		go func() {
 			s.setListenerStatus(true)
@@ -162,7 +161,7 @@ func (s *DefaultServer) DnsIP() string {
 
 func (s *DefaultServer) getFirstListenerAvailable() (string, int, error) {
 	ips := []string{defaultIP, customIP}
-	if runtime.GOOS != "darwin" && s.wgInterface != nil {
+	if runtime.GOOS != "darwin" {
 		ips = append([]string{s.wgInterface.Address().IP.String()}, ips...)
 	}
 	ports := []int{defaultPort, customPort}
@@ -199,7 +198,7 @@ func (s *DefaultServer) Stop() {
 		log.Error(err)
 	}
 
-	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
+	if s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
 		s.fakeResolverWG.Done()
 	}
 
@@ -273,7 +272,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if !update.ServiceEnable {
-		if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
+		if s.wgInterface.IsUserspaceBind() {
 			s.fakeResolverWG.Done()
 		} else {
 			if err := s.stopListener(); err != nil {
@@ -558,7 +557,7 @@ func (s *DefaultServer) evalRuntimeAddress() {
 		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
 	}()
 
-	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
+	if s.wgInterface.IsUserspaceBind() {
 		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
 		s.runtimePort = defaultPort
 		return

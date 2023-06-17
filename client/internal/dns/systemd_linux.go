@@ -15,7 +15,6 @@ import (
 	"golang.org/x/sys/unix"
 
 	nbdns "github.com/netbirdio/netbird/dns"
-	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -53,7 +52,7 @@ type systemdDbusLinkDomainsInput struct {
 	MatchOnly bool
 }
 
-func newSystemdDbusConfigurator(wgInterface *iface.WGIface) (hostManager, error) {
+func newSystemdDbusConfigurator(wgInterface WGIface) (hostManager, error) {
 	iface, err := net.InterfaceByName(wgInterface.Name())
 	if err != nil {
 		return nil, err
