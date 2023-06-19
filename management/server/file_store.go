@@ -205,6 +205,10 @@ func restore(file string) (*FileStore, error) {
 						group.Peers[i] = p.ID
 					}
 				}
+				// TODO: delete this block after migration
+				if group.Issued == "" {
+					group.Issued = GroupIssuedAPI
+				}
 			}
 
 			// detect routes that have Peer.Key as a reference and replace it with ID.

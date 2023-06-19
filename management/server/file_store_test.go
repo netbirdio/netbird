@@ -262,6 +262,7 @@ func TestRestore(t *testing.T) {
 	require.Len(t, store.TokenID2UserID, 1, "failed to restore a FileStore wrong TokenID2UserID mapping length")
 }
 
+// TODO: outdated, delete this
 func TestRestorePolicies_Migration(t *testing.T) {
 	storeDir := t.TempDir()
 
@@ -294,6 +295,30 @@ func TestRestorePolicies_Migration(t *testing.T) {
 	require.Equal(t, policy.Rules[0].Sources,
 		[]string{"cfefqs706sqkneg59g3g"},
 		"failed to restore a FileStore file - missing Account Policies Sources")
+}
+
+func TestRestoreGroups_Migration(t *testing.T) {
+	storeDir := t.TempDir()
+
+	err := util.CopyFileContents("testdata/store.json", filepath.Join(storeDir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := NewFileStore(storeDir, nil)
+	if err != nil {
+		return
+	}
+
+	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+	require.Len(t, account.Groups, 1, "failed to restore a FileStore file - missing Account Groups")
+
+	var group *Group
+	for _, g := range account.Groups {
+		group = g
+	}
+
+	require.Equal(t, group.Issued, GroupIssuedAPI, "default group should has API issued mark")
 }
 
 func TestGetAccountByPrivateDomain(t *testing.T) {
