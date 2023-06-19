@@ -327,15 +327,8 @@ func TestRestoreGroups_Migration(t *testing.T) {
 	}
 	account = store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
 
-	require.Len(t, account.Groups, 1, "failed to restore a FileStore file - missing Account Groups")
-
-	// check that default group has API issued mark
-	var group *Group
-	for _, g := range account.Groups {
-		group = g
-	}
-
-	require.Equal(t, GroupIssuedAPI, group.Issued, "default group should has API issued mark")
+	require.Contains(t, account.Groups, "cfefqs706sqkneg59g3g", "failed to restore a FileStore file - missing Account Groups")
+	require.Equal(t, GroupIssuedAPI, account.Groups["cfefqs706sqkneg59g3g"].Issued, "default group should has API issued mark")
 }
 
 func TestGetAccountByPrivateDomain(t *testing.T) {
