@@ -310,15 +310,32 @@ func TestRestoreGroups_Migration(t *testing.T) {
 		return
 	}
 
+	// create default group
 	account := store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+	account.Groups = map[string]*Group{
+		"cfefqs706sqkneg59g3g": {
+			ID:   "cfefqs706sqkneg59g3g",
+			Name: "All",
+		},
+	}
+	err = store.SaveAccount(account)
+	require.NoError(t, err, "failed to save account")
+
+	// restore account with default group with empty Issue field
+	if store, err = NewFileStore(storeDir, nil); err != nil {
+		return
+	}
+	account = store.Accounts["bf1c8084-ba50-4ce7-9439-34653001fc3b"]
+
 	require.Len(t, account.Groups, 1, "failed to restore a FileStore file - missing Account Groups")
 
+	// check that default group has API issued mark
 	var group *Group
 	for _, g := range account.Groups {
 		group = g
 	}
 
-	require.Equal(t, group.Issued, GroupIssuedAPI, "default group should has API issued mark")
+	require.Equal(t, GroupIssuedAPI, group.Issued, "default group should has API issued mark")
 }
 
 func TestGetAccountByPrivateDomain(t *testing.T) {
