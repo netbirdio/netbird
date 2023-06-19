@@ -57,6 +57,7 @@ require (
 	github.com/rs/xid v1.3.0
 	github.com/skratchdot/open-golang v0.0.0-20200116055534-eef842397966
 	github.com/stretchr/testify v1.8.1
+	github.com/yusufpapurcu/wmi v1.2.3
 	go.opentelemetry.io/otel v1.11.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.33.0
 	go.opentelemetry.io/otel/metric v0.33.0
@@ -92,6 +93,7 @@ require (
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20211024062804-40e447a793be // indirect
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/go-redis/redis/v8 v8.11.5 // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/goki/freetype v0.0.0-20181231101311-fa8a33aabaff // indirect
