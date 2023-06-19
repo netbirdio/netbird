@@ -59,6 +59,11 @@ type Status struct {
 	mgmAddress      string
 	signalAddress   string
 	notifier        *notifier
+
+	// To reduce the number of notification invocation this bool will be true when need to call the notification
+	// Some Peer actions mostly used by in a batch when the network map has been synchronized. In these type of events
+	// set to true this variable and at the end of the processing we will reset it by the FinishPeerListModifications()
+	peerListChangedForNotification bool
 }
 
 // NewRecorder returns a new Status instance
@@ -78,11 +83,13 @@ func (d *Status) ReplaceOfflinePeers(replacement []State) {
 	defer d.mux.Unlock()
 	d.offlinePeers = make([]State, len(replacement))
 	copy(d.offlinePeers, replacement)
-	d.notifyPeerListChanged()
+
+	// todo we should set to true in case if the list changed only
+	d.peerListChangedForNotification = true
 }
 
 // AddPeer adds peer to Daemon status map
-func (d *Status) AddPeer(peerPubKey string) error {
+func (d *Status) AddPeer(peerPubKey string, fqdn string) error {
 	d.mux.Lock()
 	defer d.mux.Unlock()
 
@@ -90,7 +97,12 @@ func (d *Status) AddPeer(peerPubKey string) error {
 	if ok {
 		return errors.New("peer already exist")
 	}
-	d.peers[peerPubKey] = State{PubKey: peerPubKey, ConnStatus: StatusDisconnected}
+	d.peers[peerPubKey] = State{
+		PubKey:     peerPubKey,
+		ConnStatus: StatusDisconnected,
+		FQDN:       fqdn,
+	}
+	d.peerListChangedForNotification = true
 	return nil
 }
 
@@ -112,13 +124,13 @@ func (d *Status) RemovePeer(peerPubKey string) error {
 	defer d.mux.Unlock()
 
 	_, ok := d.peers[peerPubKey]
-	if ok {
-		delete(d.peers, peerPubKey)
-		return nil
+	if !ok {
+		return errors.New("no peer with to remove")
 	}
 
-	d.notifyPeerListChanged()
-	return errors.New("no peer with to remove")
+	delete(d.peers, peerPubKey)
+	d.peerListChangedForNotification = true
+	return nil
 }
 
 // UpdatePeerState updates peer status
@@ -188,8 +200,21 @@ func (d *Status) UpdatePeerFQDN(peerPubKey, fqdn string) error {
 	peerState.FQDN = fqdn
 	d.peers[peerPubKey] = peerState
 
-	d.notifyPeerListChanged()
 	return nil
+}
+
+// FinishPeerListModifications this event invoke the notification
+func (d *Status) FinishPeerListModifications() {
+	d.mux.Lock()
+
+	if !d.peerListChangedForNotification {
+		d.mux.Unlock()
+		return
+	}
+	d.peerListChangedForNotification = false
+	d.mux.Unlock()
+
+	d.notifyPeerListChanged()
 }
 
 // GetPeerStateChangeNotifier returns a change notifier channel for a peer
