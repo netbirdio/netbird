@@ -624,22 +624,25 @@ func (a *Account) GetPeer(peerID string) *Peer {
 }
 
 // AddJWTGroups to existed groups if they does not exists
-func (a *Account) AddJWTGroups(groups []string) error {
+func (a *Account) AddJWTGroups(groups []string) (int, error) {
 	existedGroups := make(map[string]*Group)
 	for _, g := range a.Groups {
 		existedGroups[g.Name] = g
 	}
 
+	var count int
 	for _, name := range groups {
 		if _, ok := existedGroups[name]; !ok {
-			a.Groups[name] = &Group{
-				ID:     xid.New().String(),
+			id := xid.New().String()
+			a.Groups[id] = &Group{
+				ID:     id,
 				Name:   name,
 				Issued: GroupIssuedJWT,
 			}
+			count++
 		}
 	}
-	return nil
+	return count, nil
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1277,9 +1280,23 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 			return account, user, nil
 		}
 		if claim, ok := claims.Raw[account.Settings.JWTGroupsClaimName]; ok {
-			if groups, ok := claim.([]string); ok {
-				if err := account.AddJWTGroups(groups); err != nil {
+			if slice, ok := claim.([]interface{}); ok {
+				var groups []string
+				for _, item := range slice {
+					if g, ok := item.(string); ok {
+						groups = append(groups, g)
+					} else {
+						log.Errorf("JWT claim %q is not a string: %v", account.Settings.JWTGroupsClaimName, item)
+					}
+				}
+				n, err := account.AddJWTGroups(groups)
+				if err != nil {
 					log.Errorf("failed to add JWT groups: %v", err)
+				}
+				if n > 0 {
+					if err := am.Store.SaveAccount(account); err != nil {
+						log.Errorf("failed to save account: %v", err)
+					}
 				}
 			} else {
 				log.Debugf("JWT claim %q is not a string array", account.Settings.JWTGroupsClaimName)

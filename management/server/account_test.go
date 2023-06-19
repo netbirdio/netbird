@@ -478,7 +478,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		Domain:         domain,
 		UserId:         userId,
 		DomainCategory: "test-category",
-		Raw:            jwt.MapClaims{"idp-groups": []string{"group1", "group2"}},
+		Raw:            jwt.MapClaims{"idp-groups": []interface{}{"group1", "group2"}},
 	}
 
 	t.Run("JWT groups disabled", func(t *testing.T) {
@@ -507,12 +507,17 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		require.NoError(t, err, "get account by token failed")
 		require.Len(t, account.Groups, 3, "groups should be added to the account")
 
-		g1, ok := account.Groups["group1"]
+		groupsByNames := map[string]*Group{}
+		for _, g := range account.Groups {
+			groupsByNames[g.Name] = g
+		}
+
+		g1, ok := groupsByNames["group1"]
 		require.True(t, ok, "group1 should be added to the account")
 		require.Equal(t, g1.Name, "group1", "group1 name should match")
 		require.Equal(t, g1.Issued, GroupIssuedJWT, "group1 issued should match")
 
-		g2, ok := account.Groups["group2"]
+		g2, ok := groupsByNames["group2"]
 		require.True(t, ok, "group2 should be added to the account")
 		require.Equal(t, g2.Name, "group2", "group2 name should match")
 		require.Equal(t, g2.Issued, GroupIssuedJWT, "group2 issued should match")
