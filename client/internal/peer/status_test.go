@@ -9,13 +9,13 @@ import (
 func TestAddPeer(t *testing.T) {
 	key := "abc"
 	status := NewRecorder("https://mgm")
-	err := status.AddPeer(key)
+	err := status.AddPeer(key, "abc.netbird")
 	assert.NoError(t, err, "shouldn't return error")
 
 	_, exists := status.peers[key]
 	assert.True(t, exists, "value was found")
 
-	err = status.AddPeer(key)
+	err = status.AddPeer(key, "abc.netbird")
 
 	assert.Error(t, err, "should return error on duplicate")
 }
@@ -23,7 +23,7 @@ func TestAddPeer(t *testing.T) {
 func TestGetPeer(t *testing.T) {
 	key := "abc"
 	status := NewRecorder("https://mgm")
-	err := status.AddPeer(key)
+	err := status.AddPeer(key, "abc.netbird")
 	assert.NoError(t, err, "shouldn't return error")
 
 	peerStatus, err := status.GetPeer(key)
