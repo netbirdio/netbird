@@ -489,7 +489,8 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 
 	t.Run("JWT groups enabled without claim name", func(t *testing.T) {
 		initAccount.Settings.JWTGroupsEnabled = true
-		manager.Store.SaveAccount(initAccount)
+		err := manager.Store.SaveAccount(initAccount)
+		require.NoError(t, err, "save account failed")
 
 		account, _, err := manager.GetAccountFromToken(claims)
 		require.NoError(t, err, "get account by token failed")
@@ -499,7 +500,8 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	t.Run("JWT groups enabled", func(t *testing.T) {
 		initAccount.Settings.JWTGroupsEnabled = true
 		initAccount.Settings.JWTGroupsClaimName = "idp-groups"
-		manager.Store.SaveAccount(initAccount)
+		err := manager.Store.SaveAccount(initAccount)
+		require.NoError(t, err, "save account failed")
 
 		account, _, err := manager.GetAccountFromToken(claims)
 		require.NoError(t, err, "get account by token failed")

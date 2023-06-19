@@ -1392,8 +1392,9 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
-			ID:   xid.New().String(),
-			Name: "All",
+			ID:     xid.New().String(),
+			Name:   "All",
+			Issued: GroupIssuedAPI,
 		}
 		for _, peer := range account.Peers {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)
