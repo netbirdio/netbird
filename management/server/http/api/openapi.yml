@@ -59,7 +59,7 @@ components:
           type: boolean
           example: true
         jwt_groups_claim_name:
-          description: name of the claim from which we extract groups name to add it to account groups.
+          description: Name of the claim from which we extract groups names to add it to account groups.
           type: string
           example: "roles"
       required:

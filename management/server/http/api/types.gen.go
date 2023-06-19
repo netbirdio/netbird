@@ -129,7 +129,7 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
-	// JwtGroupsClaimName name of the claim from which we extract groups name to add it to account groups.
+	// JwtGroupsClaimName Name of the claim from which we extract groups names to add it to account groups.
 	JwtGroupsClaimName *string `json:"jwt_groups_claim_name,omitempty"`
 
 	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
