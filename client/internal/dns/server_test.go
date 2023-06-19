@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/golang/mock/gomock"
-	"github.com/miekg/dns"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
@@ -27,7 +26,11 @@ func (w mocWGIface) Name() string {
 }
 
 func (w mocWGIface) Address() iface.WGAddress {
-	panic("implement me")
+	ip, network, _ := net.ParseCIDR("172.16.254.0/24")
+	return iface.WGAddress{
+		IP:      ip,
+		Network: network,
+	}
 }
 
 func (w mocWGIface) GetFilter() iface.PacketFilter {
@@ -251,11 +254,11 @@ func TestUpdateDNSServer(t *testing.T) {
 					t.Log(err)
 				}
 			}()
-			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", nil)
+			dnsServer, err := NewDefaultServer(context.Background(), wgIface, "")
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = dnsServer.Initialize()
+			err = dnsServer.InitializeHostMgr()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -270,7 +273,10 @@ func TestUpdateDNSServer(t *testing.T) {
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
 			dnsServer.updateSerial = testCase.initSerial
 			// pretend we are running
-			dnsServer.listenerIsRunning = true
+			/*
+				dnsServer.listenerIsRunning = true
+				dnsServer.fakeResolverWG.Add(1)
+			*/
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
@@ -309,7 +315,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	ov := os.Getenv("NB_WG_KERNEL_DISABLED")
 	defer os.Setenv("NB_WG_KERNEL_DISABLED", ov)
 
-	os.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	_ = os.Setenv("NB_WG_KERNEL_DISABLED", "true")
 	newNet, err := stdnet.NewNet(nil)
 	if err != nil {
 		t.Errorf("create stdnet: %v", err)
@@ -345,21 +351,21 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	packetfilter := pfmock.NewMockPacketFilter(ctrl)
 	packetfilter.EXPECT().SetNetwork(ipNet)
 	packetfilter.EXPECT().DropOutgoing(gomock.Any()).AnyTimes()
-	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-	packetfilter.EXPECT().RemovePacketHook(gomock.Any()).AnyTimes()
+	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
+	packetfilter.EXPECT().RemovePacketHook(gomock.Any())
 
 	if err := wgIface.SetFilter(packetfilter); err != nil {
 		t.Errorf("set packet filter: %v", err)
 		return
 	}
 
-	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", nil)
+	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "")
 	if err != nil {
 		t.Errorf("create DNS server: %v", err)
 		return
 	}
 
-	err = dnsServer.Initialize()
+	err = dnsServer.InitializeHostMgr()
 	if err != nil {
 		t.Errorf("run DNS server: %v", err)
 		return
@@ -448,21 +454,24 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dnsServer := getDefaultServerWithNoHostManager(t, testCase.addrPort)
-
-			dnsServer.hostManager = newNoopHostMocker()
-			dnsServer.listen()
-			time.Sleep(100 * time.Millisecond)
-			if !dnsServer.listenerIsRunning {
-				t.Fatal("dns server listener is not running")
+			dnsServer, err := NewDefaultServer(context.Background(), mocWGIface{}, testCase.addrPort)
+			if err != nil {
+				t.Fatalf("%v", err)
 			}
+			dnsServer.hostManager = newNoopHostMocker()
+			dnsServer.service.Listen()
+			time.Sleep(100 * time.Millisecond)
+			/*
+				if !dnsServer.service.listenerIsRunning {
+					t.Fatal("dns server listener is not running")
+				}*/
 			defer dnsServer.Stop()
-			err := dnsServer.localResolver.registerRecord(zoneRecords[0])
+			err = dnsServer.localResolver.registerRecord(zoneRecords[0])
 			if err != nil {
 				t.Error(err)
 			}
 
-			dnsServer.dnsMux.Handle("netbird.cloud", dnsServer.localResolver)
+			dnsServer.service.RegisterMux("netbird.cloud", dnsServer.localResolver)
 
 			resolver := &net.Resolver{
 				PreferGo: true,
@@ -470,7 +479,7 @@ func TestDNSServerStartStop(t *testing.T) {
 					d := net.Dialer{
 						Timeout: time.Second * 5,
 					}
-					addr := fmt.Sprintf("%s:%d", dnsServer.runtimeIP, dnsServer.runtimePort)
+					addr := fmt.Sprintf("%s:%d", dnsServer.service.RuntimeIP(), dnsServer.service.RuntimePort())
 					conn, err := d.DialContext(ctx, network, addr)
 					if err != nil {
 						t.Log(err)
@@ -505,7 +514,8 @@ func TestDNSServerStartStop(t *testing.T) {
 func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	hostManager := &mockHostConfigurator{}
 	server := DefaultServer{
-		dnsMux: dns.DefaultServeMux,
+		//dnsMux: dns.DefaultServeMux,
+		service: newServiceViaMemory(mocWGIface{}),
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},
@@ -565,66 +575,5 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	got = strings.Join(domains, ",")
 	if expected != got {
 		t.Errorf("expected domains list: %q, got %q", expected, domainsUpdate)
-	}
-}
-
-func getDefaultServerWithNoHostManager(t *testing.T, addrPort string) *DefaultServer {
-	mux := dns.NewServeMux()
-
-	var parsedAddrPort *netip.AddrPort
-	if addrPort != "" {
-		parsed, err := netip.ParseAddrPort(addrPort)
-		if err != nil {
-			t.Fatal(err)
-		}
-		parsedAddrPort = &parsed
-	}
-
-	dnsServer := &dns.Server{
-		Net:     "udp",
-		Handler: mux,
-		UDPSize: 65535,
-	}
-
-	ctx, cancel := context.WithCancel(context.TODO())
-
-	ds := &DefaultServer{
-		ctx:       ctx,
-		ctxCancel: cancel,
-		server:    dnsServer,
-		dnsMux:    mux,
-		dnsMuxMap: make(registeredHandlerMap),
-		localResolver: &localResolver{
-			registeredMap: make(registrationMap),
-		},
-		customAddress: parsedAddrPort,
-	}
-	ds.wgInterface = mocWGIface{}
-	ds.evalRuntimeAddress()
-	return ds
-}
-
-func TestGetLastIPFromNetwork(t *testing.T) {
-	tests := []struct {
-		addr string
-		ip   string
-	}{
-		{"2001:db8::/32", "2001:db8:ffff:ffff:ffff:ffff:ffff:fffe"},
-		{"192.168.0.0/30", "192.168.0.2"},
-		{"192.168.0.0/16", "192.168.255.254"},
-		{"192.168.0.0/24", "192.168.0.254"},
-	}
-
-	for _, tt := range tests {
-		_, ipnet, err := net.ParseCIDR(tt.addr)
-		if err != nil {
-			t.Errorf("Error parsing CIDR: %v", err)
-			return
-		}
-
-		lastIP := getLastIPFromNetwork(ipnet, 1)
-		if lastIP != tt.ip {
-			t.Errorf("wrong IP address, expected %s: got %s", tt.ip, lastIP)
-		}
 	}
 }

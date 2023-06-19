@@ -12,8 +12,8 @@ type MockServer struct {
 	UpdateDNSServerFunc func(serial uint64, update nbdns.Config) error
 }
 
-// Initialize mock implementation of Initialize from Server interface
-func (m *MockServer) Initialize() error {
+// InitializeHostMgr mock implementation of Initialize from Server interface
+func (m *MockServer) InitializeHostMgr() error {
 	if m.InitializeFunc != nil {
 		return m.InitializeFunc()
 	}

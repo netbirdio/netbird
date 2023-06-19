@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"fmt"
+	"github.com/pion/ice/v2"
 	"io"
 	"math/rand"
 	"net"
@@ -13,7 +14,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -197,16 +197,18 @@ func (e *Engine) Start() error {
 		if err != nil {
 			return err
 		}
-	}
-
-	if e.dnsServer == nil {
-		// todo fix custom address
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, dnsCfg)
-		if err != nil {
-			e.close()
-			return err
+		if e.dnsServer == nil {
+			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, dnsCfg, e.mobileDep.UpstreamDNSAddresses)
 		}
-		e.dnsServer = dnsServer
+	} else {
+		// todo fix custom address
+		if e.dnsServer == nil {
+			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+			if err != nil {
+				e.close()
+				return err
+			}
+		}
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
@@ -259,7 +261,7 @@ func (e *Engine) Start() error {
 		e.acl = acl
 	}
 
-	err = e.dnsServer.Initialize()
+	err = e.dnsServer.InitializeHostMgr()
 	if err != nil {
 		e.close()
 		return err
