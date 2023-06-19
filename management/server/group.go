@@ -14,6 +14,9 @@ type Group struct {
 	// Name visible in the UI
 	Name string
 
+	// Issued of the group
+	Issued string
+
 	// Peers list of the group
 	Peers []string
 }
@@ -45,9 +48,10 @@ func (g *Group) EventMeta() map[string]any {
 
 func (g *Group) Copy() *Group {
 	return &Group{
-		ID:    g.ID,
-		Name:  g.Name,
-		Peers: g.Peers[:],
+		ID:     g.ID,
+		Name:   g.Name,
+		Issued: g.Issued,
+		Peers:  g.Peers[:],
 	}
 }
 
