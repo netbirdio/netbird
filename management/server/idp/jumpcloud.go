@@ -40,6 +40,11 @@ type JumpCloudCredentials struct {
 	appMetrics   telemetry.AppMetrics
 }
 
+type JumpCloudAttribute struct {
+	Name  string `json:"name"`
+	Value any    `json:"value"`
+}
+
 // NewJumpCloudManager creates a new instance of the JumpCloudManager.
 func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppMetrics) (*JumpCloudManager, error) {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
@@ -89,8 +94,41 @@ func (jc *JumpCloudCredentials) Authenticate() (JWTToken, error) {
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (jm *JumpCloudManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	//TODO implement me
-	panic("implement me")
+	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
+		Key: jm.apiToken,
+	})
+	updateReq := map[string]any{
+		"body": v1.Systemuserput{
+			Attributes: []interface{}{
+				JumpCloudAttribute{
+					Name:  "wtAccountID",
+					Value: appMetadata.WTAccountID,
+				},
+				JumpCloudAttribute{
+					Name:  "wtPendingInvite",
+					Value: appMetadata.WTPendingInvite,
+				},
+			},
+		},
+	}
+
+	_, resp, err := jm.apiV1Client.SystemusersApi.SystemusersPut(authCtx, userID, contentType, accept, updateReq)
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if jm.appMetrics != nil {
+			jm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to update user %s, statusCode %d", userID, resp.StatusCode)
+	}
+
+	if jm.appMetrics != nil {
+		jm.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
+	}
+
+	return nil
 }
 
 // GetUserDataByID requests user data from JumpCloud via ID.
@@ -121,7 +159,7 @@ func (jm *JumpCloudManager) CreateUser(email string, name string, accountID stri
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
 func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
-	auth := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
+	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
 		Key: jm.apiToken,
 	})
 	searchFilter := map[string]interface{}{
@@ -131,7 +169,7 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 		},
 	}
 
-	usersList, resp, err := jm.apiV1Client.SearchApi.SearchSystemusersPost(auth, contentType, accept, searchFilter)
+	usersList, resp, err := jm.apiV1Client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
 	if err != nil {
 		return nil, err
 	}
