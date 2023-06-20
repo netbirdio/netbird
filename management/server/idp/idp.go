@@ -162,6 +162,12 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 			APIToken:      config.ExtraConfig["ApiToken"],
 		}
 		return NewOktaManager(oktaClientConfig, appMetrics)
+	case "google":
+		googleClientConfig := GoogleWorkspaceClientConfig{
+			ServiceAccountKey: config.ExtraConfig["ServiceAccountKey"],
+			CustomerID:        config.ExtraConfig["CustomerId"],
+		}
+		return NewGoogleWorkspaceManager(googleClientConfig, appMetrics)
 
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)

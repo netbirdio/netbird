@@ -55,6 +55,11 @@ func TestDefaultManager(t *testing.T) {
 	})
 
 	t.Run("add extra rules", func(t *testing.T) {
+		existedPairs := map[string]struct{}{}
+		for id := range acl.rulesPairs {
+			existedPairs[id] = struct{}{}
+		}
+
 		// remove first rule
 		networkMap.FirewallRules = networkMap.FirewallRules[1:]
 		networkMap.FirewallRules = append(
@@ -67,11 +72,6 @@ func TestDefaultManager(t *testing.T) {
 			},
 		)
 
-		existedRulesID := map[string]struct{}{}
-		for id := range acl.rulesPairs {
-			existedRulesID[id] = struct{}{}
-		}
-
 		acl.ApplyFiltering(networkMap)
 
 		// we should have one old and one new rule in the existed rules
@@ -80,12 +80,15 @@ func TestDefaultManager(t *testing.T) {
 			return
 		}
 
-		// check that old rules was removed
-		for id := range existedRulesID {
-			if _, ok := acl.rulesPairs[id]; ok {
-				t.Errorf("old rule was not removed")
-				return
+		// check that old rule was removed
+		previousCount := 0
+		for id := range acl.rulesPairs {
+			if _, ok := existedPairs[id]; ok {
+				previousCount++
 			}
+		}
+		if previousCount != 1 {
+			t.Errorf("old rule was not removed")
 		}
 	})
 
