@@ -168,7 +168,6 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 			CustomerID:        config.ExtraConfig["CustomerId"],
 		}
 		return NewGoogleWorkspaceManager(googleClientConfig, appMetrics)
-
 	case "jumpcloud":
 		jumpCloudConfig := JumpCloudClientConfig{
 			APIToken: config.ExtraConfig["ApiToken"],

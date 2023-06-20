@@ -313,8 +313,8 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 // parseJumpCloudUser parse JumpCloud system user returned from API V1 to UserData.
 func parseJumpCloudUser(user v1.Systemuserreturn) *UserData {
+	appMetadata := AppMetadata{}
 	names := []string{user.Firstname, user.Middlename, user.Lastname}
-	var appMetadata AppMetadata
 
 	for _, attribute := range user.Attributes {
 		if jcAttribute, ok := attribute.(map[string]any); ok {
