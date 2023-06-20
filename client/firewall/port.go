@@ -1,5 +1,9 @@
 package firewall
 
+import (
+	"strconv"
+)
+
 // Protocol is the protocol of the port
 type Protocol string
 
@@ -27,4 +31,16 @@ type Port struct {
 
 	// Values contains one value for single port, multiple values for the list of ports, or two values for the range of ports
 	Values []int
+}
+
+// String interface implementation
+func (p *Port) String() string {
+	var ports string
+	for _, port := range p.Values {
+		if ports != "" {
+			ports += ","
+		}
+		ports += strconv.Itoa(port)
+	}
+	return ports
 }
