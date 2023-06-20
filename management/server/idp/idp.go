@@ -164,9 +164,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		return NewOktaManager(oktaClientConfig, appMetrics)
 	case "jumpcloud":
 		jumpCloudConfig := JumpCloudClientConfig{
-			TokenEndpoint: config.ClientConfig.TokenEndpoint,
-			GrantType:     config.ClientConfig.GrantType,
-			APIToken:      config.ExtraConfig["ApiToken"],
+			APIToken: config.ExtraConfig["ApiToken"],
 		}
 		return NewJumpCloudManager(jumpCloudConfig, appMetrics)
 	default:

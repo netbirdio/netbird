@@ -27,9 +27,7 @@ type JumpCloudManager struct {
 
 // JumpCloudClientConfig JumpCloud manager client configurations.
 type JumpCloudClientConfig struct {
-	APIToken      string
-	TokenEndpoint string
-	GrantType     string
+	APIToken string
 }
 
 // JumpCloudCredentials JumpCloud authentication information.
@@ -59,14 +57,6 @@ func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppM
 
 	if config.APIToken == "" {
 		return nil, fmt.Errorf("jumpCloud IdP configuration is incomplete, ApiToken is missing")
-	}
-
-	if config.TokenEndpoint == "" {
-		return nil, fmt.Errorf("jumpCloud IdP configuration is incomplete, TokenEndpoint is missing")
-	}
-
-	if config.GrantType == "" {
-		return nil, fmt.Errorf("jumpCloud IdP configuration is incomplete, GrantType is missing")
 	}
 
 	client := v1.NewAPIClient(v1.NewConfiguration())
