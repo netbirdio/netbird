@@ -187,10 +187,7 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 	usersData := make([]*UserData, 0)
 	for _, user := range usersList.Results {
-		userData, err := parseV1SystemUser(user)
-		if err != nil {
-			return nil, err
-		}
+		userData := parseV1SystemUser(user)
 		usersData = append(usersData, userData)
 	}
 
@@ -198,13 +195,28 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 // parseV1SystemUser parse JumpCloud system user returned from API V1 to UserData.
-func parseV1SystemUser(user v1.Systemuserreturn) (*UserData, error) {
+func parseV1SystemUser(user v1.Systemuserreturn) *UserData {
 	names := []string{user.Firstname, user.Middlename, user.Lastname}
+	var appMetadata AppMetadata
+
+	for _, attribute := range user.Attributes {
+		if jcAttribute, ok := attribute.(map[string]any); ok {
+			if jcAttribute["name"] == "wtAccountID" {
+				appMetadata.WTAccountID = jcAttribute["value"].(string)
+			}
+
+			if jcAttribute["name"] == "wtPendingInvite" {
+				if value, ok := jcAttribute["value"].(bool); ok {
+					appMetadata.WTPendingInvite = &value
+				}
+			}
+		}
+	}
 
 	return &UserData{
 		Email:       user.Email,
 		Name:        strings.Join(names, " "),
 		ID:          user.Id,
-		AppMetadata: AppMetadata{},
-	}, nil
+		AppMetadata: appMetadata,
+	}
 }
