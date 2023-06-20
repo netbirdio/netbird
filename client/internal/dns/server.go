@@ -194,16 +194,18 @@ func (s *DefaultServer) Stop() {
 	defer s.mux.Unlock()
 	s.ctxCancel()
 
-	err := s.hostManager.restoreHostDNS()
-	if err != nil {
-		log.Error(err)
+	if s.hostManager != nil {
+		err := s.hostManager.restoreHostDNS()
+		if err != nil {
+			log.Error(err)
+		}
 	}
 
 	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
 		s.fakeResolverWG.Done()
 	}
 
-	err = s.stopListener()
+	err := s.stopListener()
 	if err != nil {
 		log.Error(err)
 	}
