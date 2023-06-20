@@ -167,6 +167,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 			Issuer:        config.ClientConfig.Issuer,
 			TokenEndpoint: config.ClientConfig.TokenEndpoint,
 			GrantType:     config.ClientConfig.GrantType,
+			APIToken:      config.ExtraConfig["ApiToken"],
 		}
 		return NewJumpCloudManager(jumpCloudConfig, appMetrics)
 	default:

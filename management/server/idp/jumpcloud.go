@@ -17,6 +17,7 @@ type JumpCloudManager struct {
 
 // JumpCloudClientConfig jumpcloud manager client configurations.
 type JumpCloudClientConfig struct {
+	APIToken      string
 	Issuer        string
 	TokenEndpoint string
 	GrantType     string
@@ -41,6 +42,10 @@ func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppM
 	}
 
 	helper := JsonParser{}
+
+	if config.APIToken == "" {
+		return nil, fmt.Errorf("jumpcloud IdP configuration is incomplete, ApiToken is missing")
+	}
 
 	if config.Issuer == "" {
 		return nil, fmt.Errorf("jumpcloud IdP configuration is incomplete, Issuer is missing")
