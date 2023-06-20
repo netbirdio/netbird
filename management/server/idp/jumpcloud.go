@@ -181,7 +181,7 @@ func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 	}
 
 	if jm.appMetrics != nil {
-		jm.appMetrics.IDPMetrics().CountGetUserByEmail()
+		jm.appMetrics.IDPMetrics().CountGetAccount()
 	}
 
 	usersData := make([]*UserData, 0)
@@ -196,8 +196,40 @@ func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
+		Key: jm.apiToken,
+	})
+
+	usersList, resp, err := jm.apiV1Client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if jm.appMetrics != nil {
+			jm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get all accounts, statusCode %d", resp.StatusCode)
+	}
+
+	if jm.appMetrics != nil {
+		jm.appMetrics.IDPMetrics().CountGetAllAccounts()
+	}
+
+	indexedUsers := make(map[string][]*UserData)
+	for _, user := range usersList.Results {
+		userData := parseV1SystemUser(user)
+
+		accountID := userData.AppMetadata.WTAccountID
+		if accountID != "" {
+			if _, ok := indexedUsers[accountID]; !ok {
+				indexedUsers[accountID] = make([]*UserData, 0)
+			}
+			indexedUsers[accountID] = append(indexedUsers[accountID], userData)
+		}
+	}
+
+	return indexedUsers, nil
 }
 
 // CreateUser creates a new user in JumpCloud Idp and sends an invitation.
