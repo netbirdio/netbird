@@ -158,8 +158,39 @@ func (jm *JumpCloudManager) GetUserDataByID(userID string, _ AppMetadata) (*User
 
 // GetAccount returns all the users for a given profile.
 func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
+		Key: jm.apiToken,
+	})
+	searchFilter := map[string]interface{}{
+		"searchFilter": map[string]interface{}{
+			"filter": []string{accountID},
+			"fields": []string{"wtAccountID"},
+		},
+	}
+
+	usersList, resp, err := jm.apiV1Client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if jm.appMetrics != nil {
+			jm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get account %s users, statusCode %d", accountID, resp.StatusCode)
+	}
+
+	if jm.appMetrics != nil {
+		jm.appMetrics.IDPMetrics().CountGetUserByEmail()
+	}
+
+	usersData := make([]*UserData, 0)
+	for _, user := range usersList.Results {
+		userData := parseV1SystemUser(user)
+		usersData = append(usersData, userData)
+	}
+
+	return usersData, nil
 }
 
 // GetAllAccounts gets all registered accounts with corresponding user data.
