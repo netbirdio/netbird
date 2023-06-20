@@ -132,9 +132,28 @@ func (jm *JumpCloudManager) UpdateUserAppMetadata(userID string, appMetadata App
 }
 
 // GetUserDataByID requests user data from JumpCloud via ID.
-func (jm *JumpCloudManager) GetUserDataByID(userID string, appMetadata AppMetadata) (*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+func (jm *JumpCloudManager) GetUserDataByID(userID string, _ AppMetadata) (*UserData, error) {
+	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
+		Key: jm.apiToken,
+	})
+
+	user, resp, err := jm.apiV1Client.SystemusersApi.SystemusersGet(authCtx, userID, contentType, accept, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if jm.appMetrics != nil {
+			jm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to get user %s, statusCode %d", userID, resp.StatusCode)
+	}
+
+	if jm.appMetrics != nil {
+		jm.appMetrics.IDPMetrics().CountGetUserDataByID()
+	}
+
+	return parseV1SystemUser(user), nil
 }
 
 // GetAccount returns all the users for a given profile.
