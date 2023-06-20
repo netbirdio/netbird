@@ -234,8 +234,53 @@ func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 // CreateUser creates a new user in JumpCloud Idp and sends an invitation.
 func (jm *JumpCloudManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
-	//TODO implement me
-	panic("implement me")
+	var firstName, lastName string
+	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
+		Key: jm.apiToken,
+	})
+
+	fields := strings.Fields(name)
+	if n := len(fields); n > 0 {
+		firstName = strings.Join(fields[:n-1], " ")
+		lastName = fields[n-1]
+	}
+	createUserReq := map[string]any{
+		"body": v1.Systemuserputpost{
+			Username:  firstName,
+			Email:     email,
+			Firstname: firstName,
+			Lastname:  lastName,
+			Activated: true,
+			Attributes: []any{
+				JumpCloudAttribute{
+					Name:  "wtAccountID",
+					Value: accountID,
+				},
+				JumpCloudAttribute{
+					Name:  "wtPendingInvite",
+					Value: true,
+				},
+			},
+		},
+	}
+
+	user, resp, err := jm.client.SystemusersApi.SystemusersPost(authCtx, contentType, accept, createUserReq)
+	if err != nil {
+		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if jm.appMetrics != nil {
+			jm.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return nil, fmt.Errorf("unable to create user %s, statusCode %d", email, resp.StatusCode)
+	}
+
+	if jm.appMetrics != nil {
+		jm.appMetrics.IDPMetrics().CountCreateUser()
+	}
+
+	return parseJumpCloudUser(user), nil
 }
 
 // GetUserByEmail searches users with a given email.
