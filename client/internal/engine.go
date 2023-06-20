@@ -199,7 +199,7 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	if e.dnsServer == nil && runtime.GOOS == "android" {
+	if e.dnsServer == nil {
 		// todo fix custom address
 		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, dnsCfg)
 		if err != nil {
@@ -259,14 +259,10 @@ func (e *Engine) Start() error {
 		e.acl = acl
 	}
 
-	if e.dnsServer == nil && runtime.GOOS != "android" {
-		// todo fix custom address
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, dnsCfg)
-		if err != nil {
-			e.close()
-			return err
-		}
-		e.dnsServer = dnsServer
+	err = e.dnsServer.Initialize()
+	if err != nil {
+		e.close()
+		return err
 	}
 
 	e.receiveSignalEvents()
@@ -609,6 +605,7 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	// cleanup request, most likely our peer has been deleted
 	if networkMap.GetRemotePeersIsEmpty() {
 		err := e.removeAllPeers()
+		e.statusRecorder.FinishPeerListModifications()
 		if err != nil {
 			return err
 		}
@@ -627,6 +624,8 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		if err != nil {
 			return err
 		}
+
+		e.statusRecorder.FinishPeerListModifications()
 
 		// update SSHServer by adding remote peer SSH keys
 		if !isNil(e.sshServer) {
@@ -763,16 +762,12 @@ func (e *Engine) addNewPeer(peerConfig *mgmProto.RemotePeerConfig) error {
 		}
 		e.peerConns[peerKey] = conn
 
-		err = e.statusRecorder.AddPeer(peerKey)
+		err = e.statusRecorder.AddPeer(peerKey, peerConfig.Fqdn)
 		if err != nil {
 			log.Warnf("error adding peer %s to status recorder, got error: %v", peerKey, err)
 		}
 
 		go e.connWorker(conn, peerKey)
-	}
-	err := e.statusRecorder.UpdatePeerFQDN(peerKey, peerConfig.Fqdn)
-	if err != nil {
-		log.Warnf("error updating peer's %s fqdn in the status recorder, got error: %v", peerKey, err)
 	}
 	return nil
 }

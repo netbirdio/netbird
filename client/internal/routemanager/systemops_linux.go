@@ -6,9 +6,27 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"syscall"
+	"unsafe"
 
 	"github.com/vishvananda/netlink"
 )
+
+// Pulled from http://man7.org/linux/man-pages/man7/rtnetlink.7.html
+// See the section on RTM_NEWROUTE, specifically 'struct rtmsg'.
+type routeInfoInMemory struct {
+	Family byte
+	DstLen byte
+	SrcLen byte
+	TOS    byte
+
+	Table    byte
+	Protocol byte
+	Scope    byte
+	Type     byte
+
+	Flags uint32
+}
 
 const ipv4ForwardingPath = "/proc/sys/net/ipv4/ip_forward"
 
@@ -59,6 +77,45 @@ func removeFromRouteTable(prefix netip.Prefix) error {
 	}
 
 	return nil
+}
+
+func existsInRouteTable(prefix netip.Prefix) (bool, error) {
+	tab, err := syscall.NetlinkRIB(syscall.RTM_GETROUTE, syscall.AF_UNSPEC)
+	if err != nil {
+		return true, err
+	}
+	msgs, err := syscall.ParseNetlinkMessage(tab)
+	if err != nil {
+		return true, err
+	}
+loop:
+	for _, m := range msgs {
+		switch m.Header.Type {
+		case syscall.NLMSG_DONE:
+			break loop
+		case syscall.RTM_NEWROUTE:
+			rt := (*routeInfoInMemory)(unsafe.Pointer(&m.Data[0]))
+			attrs, err := syscall.ParseNetlinkRouteAttr(&m)
+			if err != nil {
+				return true, err
+			}
+			if rt.Family != syscall.AF_INET {
+				continue loop
+			}
+
+			for _, attr := range attrs {
+				if attr.Attr.Type == syscall.RTA_DST {
+					ip := net.IP(attr.Value)
+					mask := net.CIDRMask(int(rt.DstLen), len(attr.Value)*8)
+					cidr, _ := mask.Size()
+					if ip.String() == prefix.Addr().String() && cidr == prefix.Bits() {
+						return true, nil
+					}
+				}
+			}
+		}
+	}
+	return false, nil
 }
 
 func enableIPForwarding() error {
