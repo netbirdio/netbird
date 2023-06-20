@@ -17,7 +17,7 @@ const (
 
 // JumpCloudManager JumpCloud manager client instance.
 type JumpCloudManager struct {
-	apiV1Client *v1.APIClient
+	client      *v1.APIClient
 	apiToken    string
 	httpClient  ManagerHTTPClient
 	credentials ManagerCredentials
@@ -69,7 +69,7 @@ func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppM
 		return nil, fmt.Errorf("jumpCloud IdP configuration is incomplete, GrantType is missing")
 	}
 
-	apiV1Client := v1.NewAPIClient(v1.NewConfiguration())
+	client := v1.NewAPIClient(v1.NewConfiguration())
 	credentials := &JumpCloudCredentials{
 		clientConfig: config,
 		httpClient:   httpClient,
@@ -78,7 +78,7 @@ func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppM
 	}
 
 	return &JumpCloudManager{
-		apiV1Client: apiV1Client,
+		client:      client,
 		apiToken:    config.APIToken,
 		httpClient:  httpClient,
 		credentials: credentials,
@@ -112,7 +112,7 @@ func (jm *JumpCloudManager) UpdateUserAppMetadata(userID string, appMetadata App
 		},
 	}
 
-	_, resp, err := jm.apiV1Client.SystemusersApi.SystemusersPut(authCtx, userID, contentType, accept, updateReq)
+	_, resp, err := jm.client.SystemusersApi.SystemusersPut(authCtx, userID, contentType, accept, updateReq)
 	if err != nil {
 		return err
 	}
@@ -137,7 +137,7 @@ func (jm *JumpCloudManager) GetUserDataByID(userID string, _ AppMetadata) (*User
 		Key: jm.apiToken,
 	})
 
-	user, resp, err := jm.apiV1Client.SystemusersApi.SystemusersGet(authCtx, userID, contentType, accept, nil)
+	user, resp, err := jm.client.SystemusersApi.SystemusersGet(authCtx, userID, contentType, accept, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +153,7 @@ func (jm *JumpCloudManager) GetUserDataByID(userID string, _ AppMetadata) (*User
 		jm.appMetrics.IDPMetrics().CountGetUserDataByID()
 	}
 
-	return parseV1SystemUser(user), nil
+	return parseJumpCloudUser(user), nil
 }
 
 // GetAccount returns all the users for a given profile.
@@ -168,7 +168,7 @@ func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 		},
 	}
 
-	usersList, resp, err := jm.apiV1Client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
+	usersList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 
 	usersData := make([]*UserData, 0)
 	for _, user := range usersList.Results {
-		userData := parseV1SystemUser(user)
+		userData := parseJumpCloudUser(user)
 		usersData = append(usersData, userData)
 	}
 
@@ -200,7 +200,7 @@ func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 		Key: jm.apiToken,
 	})
 
-	usersList, resp, err := jm.apiV1Client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, nil)
+	usersList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +218,7 @@ func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 	indexedUsers := make(map[string][]*UserData)
 	for _, user := range usersList.Results {
-		userData := parseV1SystemUser(user)
+		userData := parseJumpCloudUser(user)
 
 		accountID := userData.AppMetadata.WTAccountID
 		if accountID != "" {
@@ -246,12 +246,12 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 	})
 	searchFilter := map[string]interface{}{
 		"searchFilter": map[string]interface{}{
-			"searchTerm": email,
-			"fields":     []string{"email"},
+			"filter": []string{email},
+			"fields": []string{"email"},
 		},
 	}
 
-	usersList, resp, err := jm.apiV1Client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
+	usersList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -269,15 +269,15 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 
 	usersData := make([]*UserData, 0)
 	for _, user := range usersList.Results {
-		userData := parseV1SystemUser(user)
+		userData := parseJumpCloudUser(user)
 		usersData = append(usersData, userData)
 	}
 
 	return usersData, nil
 }
 
-// parseV1SystemUser parse JumpCloud system user returned from API V1 to UserData.
-func parseV1SystemUser(user v1.Systemuserreturn) *UserData {
+// parseJumpCloudUser parse JumpCloud system user returned from API V1 to UserData.
+func parseJumpCloudUser(user v1.Systemuserreturn) *UserData {
 	names := []string{user.Firstname, user.Middlename, user.Lastname}
 	var appMetadata AppMetadata
 
