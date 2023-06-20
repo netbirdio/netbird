@@ -44,8 +44,17 @@ type DefaultManager struct {
 func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
+
 	start := time.Now()
-	defer func() { log.Infof("rules applied: %v", time.Since(start)) }()
+	defer func() {
+		total := 0
+		for _, pairs := range d.rulesPairs {
+			total += len(pairs)
+		}
+		log.Infof(
+			"ACL rules processed in: %v, total rules count: %d",
+			time.Since(start), total)
+	}()
 
 	if d.manager == nil {
 		log.Debug("firewall manager is not supported, skipping firewall rules")
