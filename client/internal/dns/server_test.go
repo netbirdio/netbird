@@ -244,7 +244,6 @@ func TestUpdateDNSServer(t *testing.T) {
 			dnsServer.updateSerial = testCase.initSerial
 			// pretend we are running
 			dnsServer.listenerIsRunning = true
-			dnsServer.fakeResolverWG.Add(1)
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
@@ -319,8 +318,8 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	packetfilter := pfmock.NewMockPacketFilter(ctrl)
 	packetfilter.EXPECT().SetNetwork(ipNet)
 	packetfilter.EXPECT().DropOutgoing(gomock.Any()).AnyTimes()
-	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any())
-	packetfilter.EXPECT().RemovePacketHook(gomock.Any())
+	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+	packetfilter.EXPECT().RemovePacketHook(gomock.Any()).AnyTimes()
 
 	if err := wgIface.SetFilter(packetfilter); err != nil {
 		t.Errorf("set packet filter: %v", err)

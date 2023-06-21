@@ -42,7 +42,7 @@ type DefaultServer struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 	mux                sync.Mutex
-	fakeResolverWG     sync.WaitGroup
+	udpFilterHookID    string
 	server             *dns.Server
 	dnsMux             *dns.ServeMux
 	dnsMuxMap          registeredHandlerMap
@@ -126,18 +126,8 @@ func (s *DefaultServer) Initialize() (err error) {
 func (s *DefaultServer) listen() {
 	// nil check required in unit tests
 	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
-		s.fakeResolverWG.Add(1)
+		s.udpFilterHookID = s.filterDNSTraffic()
 		s.setListenerStatus(true)
-		go func() {
-			hookID := s.filterDNSTraffic()
-			s.fakeResolverWG.Wait()
-
-			s.mux.Lock()
-			defer s.mux.Unlock()
-			if err := s.wgInterface.GetFilter().RemovePacketHook(hookID); err != nil {
-				log.Errorf("unable to remove DNS packet hook: %s", err)
-			}
-		}()
 		return
 	}
 
@@ -202,10 +192,6 @@ func (s *DefaultServer) Stop() {
 		}
 	}
 
-	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
-		s.fakeResolverWG.Done()
-	}
-
 	err := s.stopListener()
 	if err != nil {
 		log.Error(err)
@@ -213,6 +199,17 @@ func (s *DefaultServer) Stop() {
 }
 
 func (s *DefaultServer) stopListener() error {
+	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
+		// udpFilterHookID here empty only in the unit tests
+		if filter := s.wgInterface.GetFilter(); filter != nil && s.udpFilterHookID != "" {
+			if err := filter.RemovePacketHook(s.udpFilterHookID); err != nil {
+				log.Errorf("unable to remove DNS packet hook: %s", err)
+			}
+		}
+		s.udpFilterHookID = ""
+		s.listenerIsRunning = false
+	}
+
 	if !s.listenerIsRunning {
 		return nil
 	}
@@ -276,13 +273,8 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if !update.ServiceEnable {
-		if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
-			s.fakeResolverWG.Done()
-			s.setListenerStatus(false)
-		} else {
-			if err := s.stopListener(); err != nil {
-				log.Error(err)
-			}
+		if err := s.stopListener(); err != nil {
+			log.Error(err)
 		}
 	} else if !s.listenerIsRunning {
 		s.listen()
