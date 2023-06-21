@@ -127,12 +127,15 @@ func (s *DefaultServer) listen() {
 	// nil check required in unit tests
 	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
 		s.fakeResolverWG.Add(1)
+		s.setListenerStatus(true)
 		go func() {
-			s.setListenerStatus(true)
-			defer s.setListenerStatus(false)
-
 			hookID := s.filterDNSTraffic()
 			s.fakeResolverWG.Wait()
+
+			s.mux.Lock()
+			defer s.mux.Unlock()
+			s.setListenerStatus(false)
+
 			if err := s.wgInterface.GetFilter().RemovePacketHook(hookID); err != nil {
 				log.Errorf("unable to remove DNS packet hook: %s", err)
 			}
