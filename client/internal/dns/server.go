@@ -105,7 +105,6 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 		defaultServer.enabled = hasValidDnsServer(initialDnsCfg)
 	}
 
-	defaultServer.evalRuntimeAddress()
 	return defaultServer, nil
 }
 
@@ -118,6 +117,7 @@ func (s *DefaultServer) Initialize() (err error) {
 		return nil
 	}
 
+	s.evalRuntimeAddress()
 	s.hostManager, err = newHostManager(s.wgInterface)
 	return
 }
