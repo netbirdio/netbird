@@ -78,11 +78,14 @@ func TestAccountManager_GetNetworkMap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var setupKey *SetupKey
-	for _, key := range account.SetupKeys {
-		if key.Type == SetupKeyReusable {
-			setupKey = key
-		}
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userId)
+	if err != nil {
+		return
+	}
+
+	if err != nil {
+		t.Fatal("error creating setup key")
+		return
 	}
 
 	peerKey1, err := wgtypes.GeneratePrivateKey()
@@ -328,7 +331,15 @@ func TestAccountManager_GetPeerNetwork(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	setupKey := getSetupKey(account, SetupKeyReusable)
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userId)
+	if err != nil {
+		return
+	}
+
+	if err != nil {
+		t.Fatal("error creating setup key")
+		return
+	}
 
 	peerKey1, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
@@ -394,7 +405,15 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 	}
 
 	// two peers one added by a regular user and one with a setup key
-	setupKey := getSetupKey(account, SetupKeyReusable)
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, adminUser)
+	if err != nil {
+		return
+	}
+
+	if err != nil {
+		t.Fatal("error creating setup key")
+		return
+	}
 	peerKey1, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		t.Fatal(err)
@@ -469,14 +488,4 @@ func TestDefaultAccountManager_GetPeer(t *testing.T) {
 		return
 	}
 	assert.NotNil(t, peer)
-}
-
-func getSetupKey(account *Account, keyType SetupKeyType) *SetupKey {
-	var setupKey *SetupKey
-	for _, key := range account.SetupKeys {
-		if key.Type == keyType {
-			setupKey = key
-		}
-	}
-	return setupKey
 }
