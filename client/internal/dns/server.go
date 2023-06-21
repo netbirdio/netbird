@@ -275,7 +275,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if !update.ServiceEnable {
-		if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
+		if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
 			s.fakeResolverWG.Done()
 		} else {
 			if err := s.stopListener(); err != nil {
