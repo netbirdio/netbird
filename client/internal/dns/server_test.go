@@ -349,21 +349,58 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 	dnsServer.localResolver.registeredMap = registrationMap{"netbird.cloud": struct{}{}}
 	dnsServer.updateSerial = 0
 
+	nameServers := []nbdns.NameServer{
+		{
+			IP:     netip.MustParseAddr("8.8.8.8"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+		{
+			IP:     netip.MustParseAddr("8.8.4.4"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+	}
+
+	update := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{
+				Domain:  "netbird.cloud",
+				Records: zoneRecords,
+			},
+		},
+		NameServerGroups: []*nbdns.NameServerGroup{
+			{
+				Domains:     []string{"netbird.io"},
+				NameServers: nameServers,
+			},
+			{
+				NameServers: nameServers,
+				Primary:     true,
+			},
+		},
+	}
+
 	// Start the server with regular configuration
-	if err := dnsServer.UpdateDNSServer(1, nbdns.Config{ServiceEnable: true}); err != nil {
+	if err := dnsServer.UpdateDNSServer(1, update); err != nil {
 		t.Fatalf("update dns server should not fail, got error: %v", err)
 		return
 	}
 
+	update2 := update
+	update2.ServiceEnable = false
 	// Disable the server, stop the listener
-	if err := dnsServer.UpdateDNSServer(2, nbdns.Config{ServiceEnable: false}); err != nil {
+	if err := dnsServer.UpdateDNSServer(2, update2); err != nil {
 		t.Fatalf("update dns server should not fail, got error: %v", err)
 		return
 	}
 
+	update3 := update2
+	update3.NameServerGroups = update3.NameServerGroups[:1]
 	// But service still get updates and we checking that we handle
 	// internal state in the right way
-	if err := dnsServer.UpdateDNSServer(3, nbdns.Config{ServiceEnable: false, CustomZones: []nbdns.CustomZone{}}); err != nil {
+	if err := dnsServer.UpdateDNSServer(3, update3); err != nil {
 		t.Fatalf("update dns server should not fail, got error: %v", err)
 		return
 	}

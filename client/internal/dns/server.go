@@ -134,8 +134,6 @@ func (s *DefaultServer) listen() {
 
 			s.mux.Lock()
 			defer s.mux.Unlock()
-			s.setListenerStatus(false)
-
 			if err := s.wgInterface.GetFilter().RemovePacketHook(hookID); err != nil {
 				log.Errorf("unable to remove DNS packet hook: %s", err)
 			}
@@ -280,6 +278,7 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	if !update.ServiceEnable {
 		if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
 			s.fakeResolverWG.Done()
+			s.setListenerStatus(false)
 		} else {
 			if err := s.stopListener(); err != nil {
 				log.Error(err)
