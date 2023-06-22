@@ -105,6 +105,10 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 		defaultServer.enabled = hasValidDnsServer(initialDnsCfg)
 	}
 
+	if wgInterface.IsUserspaceBind() {
+		defaultServer.evelRuntimeAddressForUserspace()
+	}
+
 	return defaultServer, nil
 }
 
@@ -117,7 +121,9 @@ func (s *DefaultServer) Initialize() (err error) {
 		return nil
 	}
 
-	s.evalRuntimeAddress()
+	if !s.wgInterface.IsUserspaceBind() {
+		s.evalRuntimeAddress()
+	}
 	s.hostManager, err = newHostManager(s.wgInterface)
 	return
 }
@@ -549,16 +555,16 @@ func (s *DefaultServer) filterDNSTraffic() string {
 	return filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook)
 }
 
+func (s *DefaultServer) evelRuntimeAddressForUserspace() {
+	s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
+	s.runtimePort = defaultPort
+	s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
+}
+
 func (s *DefaultServer) evalRuntimeAddress() {
 	defer func() {
 		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
 	}()
-
-	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
-		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
-		s.runtimePort = defaultPort
-		return
-	}
 
 	if s.customAddress != nil {
 		s.runtimeIP = s.customAddress.Addr().String()
