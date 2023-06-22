@@ -150,6 +150,10 @@ func (s *DefaultServer) listen() {
 	}()
 }
 
+// DnsIP returns the DNS resolver server IP address
+//
+// When kernel space interface used it return real DNS server listener IP address
+// For bind interface, fake DNS resolver address returned (second last IP address from Nebird network)
 func (s *DefaultServer) DnsIP() string {
 	if !s.enabled {
 		return ""
@@ -214,6 +218,7 @@ func (s *DefaultServer) stopListener() error {
 		}
 		s.udpFilterHookID = ""
 		s.listenerIsRunning = false
+		return nil
 	}
 
 	if !s.listenerIsRunning {
