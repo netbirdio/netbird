@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/miekg/dns"
 
 	"github.com/netbirdio/netbird/client/internal/stdnet"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
+	pfmock "github.com/netbirdio/netbird/iface/mocks"
 )
 
 var zoneRecords = []nbdns.SimpleRecord{
@@ -241,7 +244,6 @@ func TestUpdateDNSServer(t *testing.T) {
 			dnsServer.updateSerial = testCase.initSerial
 			// pretend we are running
 			dnsServer.listenerIsRunning = true
-			dnsServer.fakeResolverWG.Add(1)
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
@@ -273,6 +275,133 @@ func TestUpdateDNSServer(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDNSFakeResolverHandleUpdates(t *testing.T) {
+	ov := os.Getenv("NB_WG_KERNEL_DISABLED")
+	defer os.Setenv("NB_WG_KERNEL_DISABLED", ov)
+
+	os.Setenv("NB_WG_KERNEL_DISABLED", "true")
+	newNet, err := stdnet.NewNet(nil)
+	if err != nil {
+		t.Errorf("create stdnet: %v", err)
+		return
+	}
+
+	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.1/32", iface.DefaultMTU, nil, newNet)
+	if err != nil {
+		t.Errorf("build interface wireguard: %v", err)
+		return
+	}
+
+	err = wgIface.Create()
+	if err != nil {
+		t.Errorf("crate and init wireguard interface: %v", err)
+		return
+	}
+	defer func() {
+		if err = wgIface.Close(); err != nil {
+			t.Logf("close wireguard interface: %v", err)
+		}
+	}()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	_, ipNet, err := net.ParseCIDR("100.66.100.1/32")
+	if err != nil {
+		t.Errorf("parse CIDR: %v", err)
+		return
+	}
+
+	packetfilter := pfmock.NewMockPacketFilter(ctrl)
+	packetfilter.EXPECT().SetNetwork(ipNet)
+	packetfilter.EXPECT().DropOutgoing(gomock.Any()).AnyTimes()
+	packetfilter.EXPECT().AddUDPPacketHook(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+	packetfilter.EXPECT().RemovePacketHook(gomock.Any()).AnyTimes()
+
+	if err := wgIface.SetFilter(packetfilter); err != nil {
+		t.Errorf("set packet filter: %v", err)
+		return
+	}
+
+	dnsServer, err := NewDefaultServer(context.Background(), wgIface, "", nil)
+	if err != nil {
+		t.Errorf("create DNS server: %v", err)
+		return
+	}
+
+	err = dnsServer.Initialize()
+	if err != nil {
+		t.Errorf("run DNS server: %v", err)
+		return
+	}
+	defer func() {
+		if err = dnsServer.hostManager.restoreHostDNS(); err != nil {
+			t.Logf("restore DNS settings on the host: %v", err)
+			return
+		}
+	}()
+
+	dnsServer.dnsMuxMap = registeredHandlerMap{zoneRecords[0].Name: &localResolver{}}
+	dnsServer.localResolver.registeredMap = registrationMap{"netbird.cloud": struct{}{}}
+	dnsServer.updateSerial = 0
+
+	nameServers := []nbdns.NameServer{
+		{
+			IP:     netip.MustParseAddr("8.8.8.8"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+		{
+			IP:     netip.MustParseAddr("8.8.4.4"),
+			NSType: nbdns.UDPNameServerType,
+			Port:   53,
+		},
+	}
+
+	update := nbdns.Config{
+		ServiceEnable: true,
+		CustomZones: []nbdns.CustomZone{
+			{
+				Domain:  "netbird.cloud",
+				Records: zoneRecords,
+			},
+		},
+		NameServerGroups: []*nbdns.NameServerGroup{
+			{
+				Domains:     []string{"netbird.io"},
+				NameServers: nameServers,
+			},
+			{
+				NameServers: nameServers,
+				Primary:     true,
+			},
+		},
+	}
+
+	// Start the server with regular configuration
+	if err := dnsServer.UpdateDNSServer(1, update); err != nil {
+		t.Fatalf("update dns server should not fail, got error: %v", err)
+		return
+	}
+
+	update2 := update
+	update2.ServiceEnable = false
+	// Disable the server, stop the listener
+	if err := dnsServer.UpdateDNSServer(2, update2); err != nil {
+		t.Fatalf("update dns server should not fail, got error: %v", err)
+		return
+	}
+
+	update3 := update2
+	update3.NameServerGroups = update3.NameServerGroups[:1]
+	// But service still get updates and we checking that we handle
+	// internal state in the right way
+	if err := dnsServer.UpdateDNSServer(3, update3); err != nil {
+		t.Fatalf("update dns server should not fail, got error: %v", err)
+		return
 	}
 }
 
