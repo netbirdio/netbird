@@ -42,7 +42,7 @@ type DefaultServer struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 	mux                sync.Mutex
-	fakeResolverWG     sync.WaitGroup
+	udpFilterHookID    string
 	server             *dns.Server
 	dnsMux             *dns.ServeMux
 	dnsMuxMap          registeredHandlerMap
@@ -105,7 +105,10 @@ func NewDefaultServer(ctx context.Context, wgInterface *iface.WGIface, customAdd
 		defaultServer.enabled = hasValidDnsServer(initialDnsCfg)
 	}
 
-	defaultServer.evalRuntimeAddress()
+	if wgInterface.IsUserspaceBind() {
+		defaultServer.evelRuntimeAddressForUserspace()
+	}
+
 	return defaultServer, nil
 }
 
@@ -118,6 +121,9 @@ func (s *DefaultServer) Initialize() (err error) {
 		return nil
 	}
 
+	if !s.wgInterface.IsUserspaceBind() {
+		s.evalRuntimeAddress()
+	}
 	s.hostManager, err = newHostManager(s.wgInterface)
 	return
 }
@@ -126,17 +132,8 @@ func (s *DefaultServer) Initialize() (err error) {
 func (s *DefaultServer) listen() {
 	// nil check required in unit tests
 	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
-		s.fakeResolverWG.Add(1)
-		go func() {
-			s.setListenerStatus(true)
-			defer s.setListenerStatus(false)
-
-			hookID := s.filterDNSTraffic()
-			s.fakeResolverWG.Wait()
-			if err := s.wgInterface.GetFilter().RemovePacketHook(hookID); err != nil {
-				log.Errorf("unable to remove DNS packet hook: %s", err)
-			}
-		}()
+		s.udpFilterHookID = s.filterDNSTraffic()
+		s.setListenerStatus(true)
 		return
 	}
 
@@ -153,6 +150,10 @@ func (s *DefaultServer) listen() {
 	}()
 }
 
+// DnsIP returns the DNS resolver server IP address
+//
+// When kernel space interface used it return real DNS server listener IP address
+// For bind interface, fake DNS resolver address returned (second last IP address from Nebird network)
 func (s *DefaultServer) DnsIP() string {
 	if !s.enabled {
 		return ""
@@ -201,10 +202,6 @@ func (s *DefaultServer) Stop() {
 		}
 	}
 
-	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
-		s.fakeResolverWG.Done()
-	}
-
 	err := s.stopListener()
 	if err != nil {
 		log.Error(err)
@@ -212,6 +209,18 @@ func (s *DefaultServer) Stop() {
 }
 
 func (s *DefaultServer) stopListener() error {
+	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() && s.listenerIsRunning {
+		// udpFilterHookID here empty only in the unit tests
+		if filter := s.wgInterface.GetFilter(); filter != nil && s.udpFilterHookID != "" {
+			if err := filter.RemovePacketHook(s.udpFilterHookID); err != nil {
+				log.Errorf("unable to remove DNS packet hook: %s", err)
+			}
+		}
+		s.udpFilterHookID = ""
+		s.listenerIsRunning = false
+		return nil
+	}
+
 	if !s.listenerIsRunning {
 		return nil
 	}
@@ -275,12 +284,8 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if !update.ServiceEnable {
-		if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
-			s.fakeResolverWG.Done()
-		} else {
-			if err := s.stopListener(); err != nil {
-				log.Error(err)
-			}
+		if err := s.stopListener(); err != nil {
+			log.Error(err)
 		}
 	} else if !s.listenerIsRunning {
 		s.listen()
@@ -555,16 +560,16 @@ func (s *DefaultServer) filterDNSTraffic() string {
 	return filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook)
 }
 
+func (s *DefaultServer) evelRuntimeAddressForUserspace() {
+	s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
+	s.runtimePort = defaultPort
+	s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
+}
+
 func (s *DefaultServer) evalRuntimeAddress() {
 	defer func() {
 		s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
 	}()
-
-	if s.wgInterface != nil && s.wgInterface.IsUserspaceBind() {
-		s.runtimeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
-		s.runtimePort = defaultPort
-		return
-	}
 
 	if s.customAddress != nil {
 		s.runtimeIP = s.customAddress.Addr().String()
