@@ -20,6 +20,9 @@ import (
 // DefaultSSHPort is the default SSH port of the NetBird's embedded SSH server
 const DefaultSSHPort = 44338
 
+// TerminalTimeout is the timeout for terminal session to be ready
+const TerminalTimeout = 10 * time.Second
+
 // DefaultSSHServer is a function that creates DefaultServer
 func DefaultSSHServer(hostKeyPEM []byte, addr string) (Server, error) {
 	return newDefaultServer(hostKeyPEM, addr)
@@ -213,40 +216,22 @@ func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
 		io.Copy(file, session)
 	}()
 
-	// For nodes on AWS the terminal takes a while to be ready so we need to wait
-	terminalIsReady := make(chan bool)
-	go func() {
-		for {
-			log.Debugf("Checking if terminal is ready")
-			if checkIfFileIsReady(file) {
-				terminalIsReady <- true
-			}
-			time.Sleep(100 * time.Millisecond)
-		}
-	}()
-	timer := time.NewTimer(30 * time.Second)
+	timer := time.NewTimer(TerminalTimeout)
 	for {
 		select {
 		case <-timer.C:
 			session.Write([]byte("Reached timeout while opening connection\n"))
 			session.Exit(1)
-		case <-terminalIsReady:
+			return
+		default:
 			// stdout
-			io.Copy(session, file)
-			session.Exit(0)
+			writtenBytes, err := io.Copy(session, file)
+			if err != nil && writtenBytes != 0 {
+				session.Exit(0)
+				return
+			}
 		}
 	}
-}
-
-func checkIfFileIsReady(file *os.File) bool {
-	buffer := make([]byte, 0)
-	_, err := file.Read(buffer)
-	// _, err := file.Stat()
-	// log.Infof("file stat: %v", err)
-	if err == nil {
-		return true
-	}
-	return false
 }
 
 // Start starts SSH server. Blocking
