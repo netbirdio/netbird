@@ -74,10 +74,11 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
 func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, initialDnsCfg nbdns.Config, hostsDnsList []string) *DefaultServer {
-	ds := newDefaultServer(ctx, wgInterface, newServiceViaListener(wgInterface, nil))
+	log.Debugf("host dns address list is: %v", hostsDnsList)
+	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface))
 	ds.hostsDnsList = hostsDnsList
-	ds.addHostRootZone()
 	ds.service.Listen()
+	ds.addHostRootZone()
 
 	// suppose the ctx is not done in this phase so we can ignore the error
 	_ = ds.UpdateDNSServer(0, initialDnsCfg)
@@ -442,5 +443,6 @@ func (s *DefaultServer) addHostRootZone() {
 	for n, ua := range s.hostsDnsList {
 		handler.upstreamServers[n] = fmt.Sprintf("%s:53", ua)
 	}
+	log.Debugf("register dns handler for zone: '%s'", nbdns.RootZone)
 	s.service.RegisterMux(nbdns.RootZone, handler)
 }

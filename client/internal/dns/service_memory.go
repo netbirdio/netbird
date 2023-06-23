@@ -42,6 +42,7 @@ func (s *serviceViaMemory) Listen() {
 	s.udpFilterHookID = s.filterDNSTraffic()
 	s.listenerIsRunning = true
 
+	log.Debugf("dns service listening on: %s", s.RuntimeIP())
 }
 
 func (s *serviceViaMemory) Stop() {
