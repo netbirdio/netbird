@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -72,8 +73,8 @@ var sshCmd = &cobra.Command{
 		go func() {
 			// blocking
 			if err := runSSH(sshctx, host, []byte(config.SSHKey), cmd); err != nil {
+				log.Debug(err)
 				os.Exit(1)
-				// log.Print(err)
 			}
 			cancel()
 		}()
@@ -95,7 +96,7 @@ func runSSH(ctx context.Context, addr string, pemKey []byte, cmd *cobra.Command)
 		cmd.Printf("Couldn't connect. Please check the connection status or if the ssh server is enabled on the other peer" +
 			"You can verify the connection by running:\n\n" +
 			" netbird status\n\n")
-		return nil
+		return err
 	}
 	go func() {
 		<-ctx.Done()
