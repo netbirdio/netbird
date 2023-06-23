@@ -213,21 +213,25 @@ func (srv *DefaultServer) sessionHandler(session ssh.Session) {
 func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
 	go func() {
 		// stdin
-		io.Copy(file, session)
+		_, err := io.Copy(file, session)
+		if err != nil {
+			_ = session.Exit(1)
+			return
+		}
 	}()
 
 	timer := time.NewTimer(TerminalTimeout)
 	for {
 		select {
 		case <-timer.C:
-			session.Write([]byte("Reached timeout while opening connection\n"))
-			session.Exit(1)
+			_, _ = session.Write([]byte("Reached timeout while opening connection\n"))
+			_ = session.Exit(1)
 			return
 		default:
 			// stdout
 			writtenBytes, err := io.Copy(session, file)
 			if err != nil && writtenBytes != 0 {
-				session.Exit(0)
+				_ = session.Exit(0)
 				return
 			}
 		}
