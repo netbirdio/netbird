@@ -9,7 +9,6 @@ import (
 	"strings"
 	"syscall"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
 	"github.com/netbirdio/netbird/client/internal"
@@ -73,7 +72,8 @@ var sshCmd = &cobra.Command{
 		go func() {
 			// blocking
 			if err := runSSH(sshctx, host, []byte(config.SSHKey), cmd); err != nil {
-				log.Print(err)
+				os.Exit(1)
+				// log.Print(err)
 			}
 			cancel()
 		}()
@@ -92,11 +92,9 @@ func runSSH(ctx context.Context, addr string, pemKey []byte, cmd *cobra.Command)
 	c, err := nbssh.DialWithKey(fmt.Sprintf("%s:%d", addr, port), user, pemKey)
 	if err != nil {
 		cmd.Printf("Error: %v\n", err)
-		cmd.Printf("Couldn't connect. " +
-			"You might be disconnected from the NetBird network, or the NetBird agent isn't running.\n" +
-			"Run the status command: \n\n" +
-			" netbird status\n\n" +
-			"It might also be that the SSH server is disabled on the agent you are trying to connect to.\n")
+		cmd.Printf("Couldn't connect. Please check the connection status or if the ssh server is enabled on the other peer" +
+			"You can verify the connection by running:\n\n" +
+			" netbird status\n\n")
 		return nil
 	}
 	go func() {
