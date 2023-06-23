@@ -9,7 +9,7 @@ const (
 )
 
 type service interface {
-	Listen()
+	Listen() error
 	Stop()
 	RegisterMux(domain string, handler dns.Handler)
 	DeregisterMux(key string)

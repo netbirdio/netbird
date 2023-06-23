@@ -49,7 +49,7 @@ type Client struct {
 	ctxCancelLock *sync.Mutex
 	deviceName    string
 	routeListener routemanager.RouteListener
-	onHostDnsFn   *func([]string)
+	onHostDnsFn   func([]string)
 }
 
 // NewClient instantiate a new Client
@@ -91,7 +91,8 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList) error {
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener, dns.items, c.onHostDnsFn)
+	c.onHostDnsFn = func([]string) {}
+	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener, dns.items, &c.onHostDnsFn)
 }
 
 // Stop the internal client and free the resources
@@ -127,11 +128,12 @@ func (c *Client) PeersList() *PeerInfoArray {
 	return &PeerInfoArray{items: peerInfos}
 }
 
-func (c *Client) OnUpdateHostDNS(list DNSList) {
+func (c *Client) OnUpdateHostDNS(list *DNSList) {
 	if c.onHostDnsFn == nil {
 		return
 	}
-	(*c.onHostDnsFn)(list.items)
+
+	c.onHostDnsFn(list.items)
 }
 
 // SetConnectionListener set the network connection listener

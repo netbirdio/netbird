@@ -15,7 +15,7 @@ import (
 
 // Server is a dns server interface
 type Server interface {
-	InitializeHostMgr() error
+	Initialize() error
 	Stop()
 	DnsIP() string
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
@@ -39,6 +39,7 @@ type DefaultServer struct {
 	previousConfigHash uint64
 	currentConfig      hostDNSConfig
 	hostsDnsList       []string
+	permanent          bool
 }
 
 type handlerWithStop interface {
@@ -76,12 +77,9 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, initialDnsCfg nbdns.Config, hostsDnsList []string) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface))
+	ds.permanent = true
 	ds.hostsDnsList = hostsDnsList
-	ds.service.Listen()
 	ds.addHostRootZone()
-
-	// suppose the ctx is not done in this phase so we can ignore the error
-	_ = ds.UpdateDNSServer(0, initialDnsCfg)
 	return ds
 }
 
@@ -101,8 +99,8 @@ func newDefaultServer(ctx context.Context, wgInterface WGIface, dnsService servi
 	return defaultServer
 }
 
-// InitializeHostMgr instantiate host manager. It required to be initialized wginterface
-func (s *DefaultServer) InitializeHostMgr() (err error) {
+// Initialize instantiate host manager and the dns service
+func (s *DefaultServer) Initialize() (err error) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
@@ -110,7 +108,13 @@ func (s *DefaultServer) InitializeHostMgr() (err error) {
 		return nil
 	}
 
-	// todo re evaluate the runtime ip for listener
+	if s.permanent {
+		err = s.service.Listen()
+		if err != nil {
+			return err
+		}
+	}
+
 	s.hostManager, err = newHostManager(s.wgInterface)
 	return
 }
@@ -144,8 +148,10 @@ func (s *DefaultServer) UpdateHostDNSServer(hostsDnsList []string) {
 	s.hostsDnsList = hostsDnsList
 	_, ok := s.dnsMuxMap[nbdns.RootZone]
 	if ok {
+		log.Debugf("on new host DNS config but skip to apply it")
 		return
 	}
+	log.Debugf("update host DNS settings: %+v", hostsDnsList)
 	s.addHostRootZone()
 }
 
@@ -195,10 +201,11 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
+	//todo should it handle in case of permanent dns service?
 	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if update.ServiceEnable {
-		s.service.Listen()
+		_ = s.service.Listen()
 	} else {
 		s.service.Stop()
 	}
@@ -443,6 +450,7 @@ func (s *DefaultServer) addHostRootZone() {
 	for n, ua := range s.hostsDnsList {
 		handler.upstreamServers[n] = fmt.Sprintf("%s:53", ua)
 	}
-	log.Debugf("register dns handler for zone: '%s'", nbdns.RootZone)
+	handler.deactivate = func() {}
+	handler.reactivate = func() {}
 	s.service.RegisterMux(nbdns.RootZone, handler)
 }

@@ -20,9 +20,9 @@ const (
 )
 
 type serviceViaListener struct {
-	wgInterface WGIface
-
+	wgInterface       WGIface
 	dnsMux            *dns.ServeMux
+	customAddr        *netip.AddrPort
 	server            *dns.Server
 	runtimeIP         string
 	runtimePort       int
@@ -36,25 +36,26 @@ func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *service
 	s := &serviceViaListener{
 		wgInterface: wgIface,
 		dnsMux:      mux,
-	}
-	// todo: run eval after WGIface creation
-	s.runtimeIP, s.runtimePort = s.evalRuntimeAddress(customAddr)
-	s.server = &dns.Server{
-		Net:     "udp",
-		Handler: mux,
-		Addr:    fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort),
-		UDPSize: 65535,
+		customAddr:  customAddr,
+		server: &dns.Server{
+			Net:     "udp",
+			Handler: mux,
+			UDPSize: 65535,
+		},
 	}
 	return s
 }
 
-func (s *serviceViaListener) Listen() {
+func (s *serviceViaListener) Listen() error {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
 	if s.listenerIsRunning {
-		return
+		return nil
 	}
+
+	s.runtimeIP, s.runtimePort = s.evalRuntimeAddress()
+	s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
 
 	log.Debugf("starting dns on %s", s.server.Addr)
 	go func() {
@@ -66,6 +67,7 @@ func (s *serviceViaListener) Listen() {
 			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.runtimePort, err)
 		}
 	}()
+	return nil
 }
 
 func (s *serviceViaListener) Stop() {
@@ -129,9 +131,9 @@ func (s *serviceViaListener) getFirstListenerAvailable() (string, int, error) {
 	return "", 0, fmt.Errorf("unable to find an unused ip and port combination. IPs tested: %v and ports %v", ips, ports)
 }
 
-func (s *serviceViaListener) evalRuntimeAddress(customAddress *netip.AddrPort) (string, int) {
-	if customAddress != nil {
-		return customAddress.Addr().String(), int(customAddress.Port())
+func (s *serviceViaListener) evalRuntimeAddress() (string, int) {
+	if s.customAddr != nil {
+		return s.customAddr.Addr().String(), int(s.customAddr.Port())
 	}
 
 	ip, port, err := s.getFirstListenerAvailable()

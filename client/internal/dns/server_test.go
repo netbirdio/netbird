@@ -258,7 +258,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = dnsServer.InitializeHostMgr()
+			err = dnsServer.Initialize()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -365,7 +365,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		return
 	}
 
-	err = dnsServer.InitializeHostMgr()
+	err = dnsServer.Initialize()
 	if err != nil {
 		t.Errorf("run DNS server: %v", err)
 		return

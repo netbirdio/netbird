@@ -1,13 +1,15 @@
 package dns
 
 import (
+	"fmt"
+	"math/big"
+	"net"
+	"sync"
+
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-	"math/big"
-	"net"
-	"sync"
 )
 
 type serviceViaMemory struct {
@@ -31,18 +33,23 @@ func newServiceViaMemory(wgIface WGIface) *serviceViaMemory {
 	return s
 }
 
-func (s *serviceViaMemory) Listen() {
+func (s *serviceViaMemory) Listen() error {
 	s.listenerFlagLock.Lock()
 	defer s.listenerFlagLock.Unlock()
 
 	if s.listenerIsRunning {
-		return
+		return nil
 	}
 
-	s.udpFilterHookID = s.filterDNSTraffic()
+	var err error
+	s.udpFilterHookID, err = s.filterDNSTraffic()
+	if err != nil {
+		return err
+	}
 	s.listenerIsRunning = true
 
 	log.Debugf("dns service listening on: %s", s.RuntimeIP())
+	return nil
 }
 
 func (s *serviceViaMemory) Stop() {
@@ -76,11 +83,10 @@ func (s *serviceViaMemory) RuntimeIP() string {
 	return s.runtimeIP
 }
 
-func (s *serviceViaMemory) filterDNSTraffic() string {
+func (s *serviceViaMemory) filterDNSTraffic() (string, error) {
 	filter := s.wgInterface.GetFilter()
 	if filter == nil {
-		log.Error("can't set DNS filter, filter not initialized")
-		return ""
+		return "", fmt.Errorf("can't set DNS filter, filter not initialized")
 	}
 
 	firstLayerDecoder := layers.LayerTypeIPv4
@@ -110,7 +116,7 @@ func (s *serviceViaMemory) filterDNSTraffic() string {
 		return true
 	}
 
-	return filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook)
+	return filter.AddUDPPacketHook(false, net.ParseIP(s.runtimeIP), uint16(s.runtimePort), hook), nil
 }
 
 func getLastIPFromNetwork(network *net.IPNet, fromEnd int) string {
