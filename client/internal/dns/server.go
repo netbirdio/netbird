@@ -19,6 +19,7 @@ type Server interface {
 	Stop()
 	DnsIP() string
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
+	UpdateHostDNSServer(strings []string)
 }
 
 type registeredHandlerMap map[string]handlerWithStop
@@ -37,7 +38,7 @@ type DefaultServer struct {
 	updateSerial       uint64
 	previousConfigHash uint64
 	currentConfig      hostDNSConfig
-	enabledOnMobile    bool
+	hostsDnsList       []string
 }
 
 type handlerWithStop interface {
@@ -72,9 +73,14 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
-func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, initialDnsCfg *nbdns.Config, upstreamAddresses []string) *DefaultServer {
-	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface))
-	ds.enabledOnMobile = hasValidDnsServer(initialDnsCfg)
+func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, initialDnsCfg nbdns.Config, hostsDnsList []string) *DefaultServer {
+	ds := newDefaultServer(ctx, wgInterface, newServiceViaListener(wgInterface, nil))
+	ds.hostsDnsList = hostsDnsList
+	ds.addHostRootZone()
+	ds.service.Listen()
+
+	// suppose the ctx is not done in this phase so we can ignore the error
+	_ = ds.UpdateDNSServer(0, initialDnsCfg)
 	return ds
 }
 
@@ -103,6 +109,7 @@ func (s *DefaultServer) InitializeHostMgr() (err error) {
 		return nil
 	}
 
+	// todo re evaluate the runtime ip for listener
 	s.hostManager, err = newHostManager(s.wgInterface)
 	return
 }
@@ -112,9 +119,6 @@ func (s *DefaultServer) InitializeHostMgr() (err error) {
 // When kernel space interface used it return real DNS server listener IP address
 // For bind interface, fake DNS resolver address returned (second last IP address from Nebird network)
 func (s *DefaultServer) DnsIP() string {
-	if !s.enabledOnMobile {
-		return ""
-	}
 	return s.service.RuntimeIP()
 }
 
@@ -132,6 +136,16 @@ func (s *DefaultServer) Stop() {
 	}
 
 	s.service.Stop()
+}
+
+func (s *DefaultServer) UpdateHostDNSServer(hostsDnsList []string) {
+	// todo handle in thread safe way
+	s.hostsDnsList = hostsDnsList
+	_, ok := s.dnsMuxMap[nbdns.RootZone]
+	if ok {
+		return
+	}
+	s.addHostRootZone()
 }
 
 // UpdateDNSServer processes an update received from the management service
@@ -196,7 +210,6 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	if err != nil {
 		return fmt.Errorf("not applying dns update, error: %v", err)
 	}
-
 	muxUpdates := append(localMuxUpdates, upstreamMuxUpdates...)
 
 	s.updateMux(muxUpdates)
@@ -309,19 +322,30 @@ func (s *DefaultServer) buildUpstreamHandlerUpdate(nameServerGroups []*nbdns.Nam
 func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 	muxUpdateMap := make(registeredHandlerMap)
 
+	var isContainRootUpdate bool
+
 	for _, update := range muxUpdates {
 		s.service.RegisterMux(update.domain, update.handler)
 		muxUpdateMap[update.domain] = update.handler
 		if existingHandler, ok := s.dnsMuxMap[update.domain]; ok {
 			existingHandler.stop()
 		}
+
+		if update.domain == nbdns.RootZone {
+			isContainRootUpdate = true
+		}
 	}
 
 	for key, existingHandler := range s.dnsMuxMap {
 		_, found := muxUpdateMap[key]
 		if !found {
-			existingHandler.stop()
-			s.service.DeregisterMux(key)
+			if !isContainRootUpdate && key == nbdns.RootZone {
+				s.addHostRootZone()
+				existingHandler.stop()
+			} else {
+				existingHandler.stop()
+				s.service.DeregisterMux(key)
+			}
 		}
 	}
 
@@ -412,11 +436,11 @@ func (s *DefaultServer) upstreamCallbacks(
 	return
 }
 
-func hasValidDnsServer(cfg *nbdns.Config) bool {
-	for _, c := range cfg.NameServerGroups {
-		if c.Primary {
-			return true
-		}
+func (s *DefaultServer) addHostRootZone() {
+	handler := newUpstreamResolver(s.ctx)
+	handler.upstreamServers = make([]string, len(s.hostsDnsList))
+	for n, ua := range s.hostsDnsList {
+		handler.upstreamServers[n] = fmt.Sprintf("%s:53", ua)
 	}
-	return false
+	s.service.RegisterMux(nbdns.RootZone, handler)
 }

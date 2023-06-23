@@ -32,10 +32,10 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener, dnsAddresses []string) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
-		TunAdapter:           tunAdapter,
-		IFaceDiscover:        iFaceDiscover,
-		RouteListener:        routeListener,
-		UpstreamDNSAddresses: dnsAddresses,
+		TunAdapter:       tunAdapter,
+		IFaceDiscover:    iFaceDiscover,
+		RouteListener:    routeListener,
+		HostDNSAddresses: dnsAddresses,
 	}
 	return runClient(ctx, config, statusRecorder, mobileDependency)
 }
