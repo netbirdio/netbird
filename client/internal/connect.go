@@ -29,13 +29,14 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status)
 }
 
 // RunClientMobile with main logic on mobile system
-func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener, dnsAddresses []string) error {
+func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener, dnsAddresses []string, onHostDnsUpdateFn *func([]string)) error {
 	// in case of non Android os these variables will be nil
 	mobileDependency := MobileDependency{
-		TunAdapter:       tunAdapter,
-		IFaceDiscover:    iFaceDiscover,
-		RouteListener:    routeListener,
-		HostDNSAddresses: dnsAddresses,
+		TunAdapter:        tunAdapter,
+		IFaceDiscover:     iFaceDiscover,
+		RouteListener:     routeListener,
+		HostDNSAddresses:  dnsAddresses,
+		onHostDnsUpdateFn: onHostDnsUpdateFn,
 	}
 	return runClient(ctx, config, statusRecorder, mobileDependency)
 }

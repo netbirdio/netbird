@@ -200,6 +200,11 @@ func (e *Engine) Start() error {
 		if e.dnsServer == nil {
 			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, dnsCfg, e.mobileDep.HostDNSAddresses)
 		}
+
+		hostDnsUpdateFn := func(dnsList []string) {
+			e.dnsServer.UpdateHostDNSServer(dnsList)
+		}
+		e.mobileDep.onHostDnsUpdateFn = &hostDnsUpdateFn
 	} else {
 		// todo fix custom address
 		if e.dnsServer == nil {

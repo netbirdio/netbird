@@ -8,8 +8,9 @@ import (
 
 // MobileDependency collect all dependencies for mobile platform
 type MobileDependency struct {
-	TunAdapter       iface.TunAdapter
-	IFaceDiscover    stdnet.ExternalIFaceDiscover
-	RouteListener    routemanager.RouteListener
-	HostDNSAddresses []string
+	TunAdapter        iface.TunAdapter
+	IFaceDiscover     stdnet.ExternalIFaceDiscover
+	RouteListener     routemanager.RouteListener
+	HostDNSAddresses  []string
+	onHostDnsUpdateFn *func([]string)
 }
