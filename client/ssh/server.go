@@ -23,6 +23,9 @@ const DefaultSSHPort = 44338
 // TerminalTimeout is the timeout for terminal session to be ready
 const TerminalTimeout = 10 * time.Second
 
+// TerminalBackoffDelay is the delay between terminal session readiness checks
+const TerminalBackoffDelay = 500 * time.Millisecond
+
 // DefaultSSHServer is a function that creates DefaultServer
 func DefaultSSHServer(hostKeyPEM []byte, addr string) (Server, error) {
 	return newDefaultServer(hostKeyPEM, addr)
@@ -220,6 +223,7 @@ func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
 		}
 	}()
 
+	// AWS Linux 2 machines need some time to open the terminal so we need to wait for it
 	timer := time.NewTimer(TerminalTimeout)
 	for {
 		select {
@@ -234,6 +238,7 @@ func (srv *DefaultServer) stdInOut(file *os.File, session ssh.Session) {
 				_ = session.Exit(0)
 				return
 			}
+			time.Sleep(TerminalBackoffDelay)
 		}
 	}
 }
