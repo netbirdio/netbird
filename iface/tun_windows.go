@@ -56,7 +56,7 @@ func (c *tunDevice) createWithUserspace() (NetInterface, error) {
 	c.wrapper = newDeviceWrapper(tunIface)
 
 	// We need to create a wireguard-go device and listen to configuration requests
-	tunDev := device.NewDevice(tunIface, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
+	tunDev := device.NewDevice(c.wrapper, c.iceBind, device.NewLogger(device.LogLevelSilent, "[netbird] "))
 	err = tunDev.Up()
 	if err != nil {
 		_ = tunIface.Close()
