@@ -97,15 +97,8 @@ curl "${NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT}" -q -o openid-configuration.js
 
 export NETBIRD_AUTH_AUTHORITY=$(jq -r '.issuer' openid-configuration.json)
 export NETBIRD_AUTH_JWT_CERTS=$(jq -r '.jwks_uri' openid-configuration.json)
-export NETBIRD_AUTH_SUPPORTED_SCOPES=$(jq -r '.scopes_supported | join(" ")' openid-configuration.json)
 export NETBIRD_AUTH_TOKEN_ENDPOINT=$(jq -r '.token_endpoint' openid-configuration.json)
 export NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT=$(jq -r '.device_authorization_endpoint' openid-configuration.json)
-
-if [ "$NETBIRD_USE_AUTH0" == "true" ]; then
-  export NETBIRD_AUTH_SUPPORTED_SCOPES="openid profile email offline_access api email_verified"
-else
-  export NETBIRD_AUTH_SUPPORTED_SCOPES="openid profile email offline_access api"
-fi
 
 if [[ ! -z "${NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID}" ]]; then
   # user enabled Device Authorization Grant feature
