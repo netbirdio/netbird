@@ -372,7 +372,7 @@ func (c *GrpcClient) receive(stream proto.SignalExchange_ConnectStreamClient,
 		}
 
 		if appKeepAlive.IsKeepAliveMsg(msg.Body) {
-			log.Printf("received keepalive")
+			log.Tracef("received keepalive")
 			continue
 		}
 

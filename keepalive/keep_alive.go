@@ -123,6 +123,7 @@ func (k *KeepAlive) keepAliveIsSupported(ctx context.Context) (string, bool) {
 func (k *KeepAlive) addIoMonitor(address string, m *ioMonitor) {
 	k.Lock()
 	defer k.Unlock()
+	log.Debugf("add stream address for keepalive list: %s", address)
 	k.streams[address] = m
 }
 
