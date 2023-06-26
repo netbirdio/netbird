@@ -208,6 +208,37 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, users)
 }
 
+// Invite resend invitations to users who haven't activated their accounts,
+// prior to the expiration period.
+func (h *UsersHandler) Invite(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
+		return
+	}
+
+	claims := h.claimsExtractor.FromRequestContext(r)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	req := &api.PostApiUsersUserIdInviteJSONRequestBody{}
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+		return
+	}
+
+	err = h.accountManager.InviteUser(account.Id, user.Id, req.Email)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
+	util.WriteJSONObject(w, emptyObject{})
+}
+
 func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 	autoGroups := user.AutoGroups
 	if autoGroups == nil {

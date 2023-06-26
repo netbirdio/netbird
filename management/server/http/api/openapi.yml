@@ -166,6 +166,15 @@ components:
         - role
         - auto_groups
         - is_service_user
+    UserInviteRequest:
+      type: object
+      properties:
+        email:
+          description: User's Email to send invite to
+          type: string
+          example: demo@netbird.io
+      required:
+        - email
     PeerMinimum:
       type: object
       properties:
@@ -1254,6 +1263,39 @@ paths:
         '200':
           description: Delete status code
           content: { }
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
+  /api/users/{userId}/invite:
+    post:
+      summary: Resend user invitation
+      description: Resent user invitation
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a user
+      requestBody:
+        description: PersonalAccessToken create parameters
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserInviteRequest'
+      responses:
+        '200':
+          description: Invite status code
+          content: {}
         '400':
           "$ref": "#/components/responses/bad_request"
         '401':
