@@ -77,10 +77,6 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(status.Errorf(status.NotFound, "couldn't find group with ID %s", groupID), w)
 		return
 	}
-	if eg.Issued != server.GroupIssuedAPI {
-		util.WriteError(status.Errorf(status.InvalidArgument, "updating group created not from API is not allowed"), w)
-		return
-	}
 
 	allGroup, err := account.GetGroupAll()
 	if err != nil {
@@ -114,7 +110,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		ID:     groupID,
 		Name:   req.Name,
 		Peers:  peers,
-		Issued: server.GroupIssuedAPI,
+		Issued: eg.Issued,
 	}
 
 	if err := h.accountManager.SaveGroup(account.Id, user.Id, &group); err != nil {
