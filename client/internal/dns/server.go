@@ -44,8 +44,9 @@ type DefaultServer struct {
 	currentConfig      hostDNSConfig
 
 	// permanent related properties
-	permanent    bool
-	hostsDnsList []string
+	permanent        bool
+	hostsDnsList     []string
+	hostsDnsListLock sync.Mutex
 }
 
 type handlerWithStop interface {
@@ -154,7 +155,9 @@ func (s *DefaultServer) Stop() {
 // OnUpdatedHostDNSServer update the DNS servers addresses for root zones
 // It will be applied if the mgm server do not enforce DNS settings for root zone
 func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
-	// todo handle in thread safe way
+	s.hostsDnsListLock.Lock()
+	defer s.hostsDnsListLock.Unlock()
+
 	s.hostsDnsList = hostsDnsList
 	_, ok := s.dnsMuxMap[nbdns.RootZone]
 	if ok {
@@ -358,7 +361,9 @@ func (s *DefaultServer) updateMux(muxUpdates []muxUpdate) {
 		_, found := muxUpdateMap[key]
 		if !found {
 			if !isContainRootUpdate && key == nbdns.RootZone {
+				s.hostsDnsListLock.Lock()
 				s.addHostRootZone()
+				s.hostsDnsListLock.Unlock()
 				existingHandler.stop()
 			} else {
 				existingHandler.stop()
