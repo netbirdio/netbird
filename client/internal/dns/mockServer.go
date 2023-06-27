@@ -12,8 +12,8 @@ type MockServer struct {
 	UpdateDNSServerFunc func(serial uint64, update nbdns.Config) error
 }
 
-// InitializeHostMgr mock implementation of Initialize from Server interface
-func (m *MockServer) InitializeHostMgr() error {
+// Initialize mock implementation of Initialize from Server interface
+func (m *MockServer) Initialize() error {
 	if m.InitializeFunc != nil {
 		return m.InitializeFunc()
 	}
@@ -29,6 +29,11 @@ func (m *MockServer) Stop() {
 
 func (m *MockServer) DnsIP() string {
 	return ""
+}
+
+func (m *MockServer) OnUpdatedHostDNSServer(strings []string) {
+	//TODO implement me
+	panic("implement me")
 }
 
 // UpdateDNSServer mock implementation of UpdateDNSServer from Server interface

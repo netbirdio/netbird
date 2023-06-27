@@ -7,6 +7,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -33,6 +34,11 @@ type IFaceDiscover interface {
 // RouteListener export internal RouteListener for mobile
 type RouteListener interface {
 	routemanager.RouteListener
+}
+
+// DnsReadyListener export internal dns ReadyListener for mobile
+type DnsReadyListener interface {
+	dns.ReadyListener
 }
 
 func init() {
@@ -66,7 +72,7 @@ func NewClient(cfgFile, deviceName string, tunAdapter TunAdapter, iFaceDiscover 
 }
 
 // Run start the internal client. It is a blocker function
-func (c *Client) Run(urlOpener URLOpener, dns *DNSList) error {
+func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsReadyListener) error {
 	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
 		ConfigPath: c.cfgFile,
 	})
@@ -92,7 +98,7 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList) error {
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
-	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener, dns.items, &c.onHostDnsFn)
+	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener, dns.items, dnsReadyListener)
 }
 
 // Stop the internal client and free the resources
@@ -128,12 +134,15 @@ func (c *Client) PeersList() *PeerInfoArray {
 	return &PeerInfoArray{items: peerInfos}
 }
 
-func (c *Client) OnUpdateHostDNS(list *DNSList) {
-	if c.onHostDnsFn == nil {
-		return
+// OnUpdatedHostDNS update the DNS servers addresses for root zones
+func (c *Client) OnUpdatedHostDNS(list *DNSList) error {
+	dnsServer, err := dns.GetServerDns()
+	if err != nil {
+		return err
 	}
 
-	c.onHostDnsFn(list.items)
+	dnsServer.OnUpdatedHostDNSServer(list.items)
+	return nil
 }
 
 // SetConnectionListener set the network connection listener

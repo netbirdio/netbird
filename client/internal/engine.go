@@ -3,7 +3,6 @@ package internal
 import (
 	"context"
 	"fmt"
-	"github.com/pion/ice/v2"
 	"io"
 	"math/rand"
 	"net"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
@@ -198,11 +198,7 @@ func (e *Engine) Start() error {
 			return err
 		}
 		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, dnsCfg, e.mobileDep.HostDNSAddresses)
-		}
-
-		*e.mobileDep.onHostDnsUpdateFn = func(dnsList []string) {
-			e.dnsServer.UpdateHostDNSServer(dnsList)
+			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, dnsCfg, e.mobileDep.HostDNSAddresses, e.mobileDep.DnsReadyListener)
 		}
 	} else {
 		// todo fix custom address

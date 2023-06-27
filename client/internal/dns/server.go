@@ -13,13 +13,18 @@ import (
 	nbdns "github.com/netbirdio/netbird/dns"
 )
 
+// ReadyListener is a notification mechanism what indicate the server is ready to handle host dns address changes
+type ReadyListener interface {
+	OnReady()
+}
+
 // Server is a dns server interface
 type Server interface {
 	Initialize() error
 	Stop()
 	DnsIP() string
 	UpdateDNSServer(serial uint64, update nbdns.Config) error
-	UpdateHostDNSServer(strings []string)
+	OnUpdatedHostDNSServer(strings []string)
 }
 
 type registeredHandlerMap map[string]handlerWithStop
@@ -38,8 +43,11 @@ type DefaultServer struct {
 	updateSerial       uint64
 	previousConfigHash uint64
 	currentConfig      hostDNSConfig
-	hostsDnsList       []string
-	permanent          bool
+
+	// permanent related properties
+	permanent     bool
+	hostsDnsList  []string
+	readyListener ReadyListener
 }
 
 type handlerWithStop interface {
@@ -74,12 +82,14 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
-func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, initialDnsCfg nbdns.Config, hostsDnsList []string) *DefaultServer {
+func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, initialDnsCfg nbdns.Config, hostsDnsList []string, readyListener ReadyListener) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface))
 	ds.permanent = true
 	ds.hostsDnsList = hostsDnsList
 	ds.addHostRootZone()
+	setServerDns(ds)
+	go readyListener.OnReady()
 	return ds
 }
 
@@ -143,7 +153,9 @@ func (s *DefaultServer) Stop() {
 	s.service.Stop()
 }
 
-func (s *DefaultServer) UpdateHostDNSServer(hostsDnsList []string) {
+// OnUpdatedHostDNSServer update the DNS servers addresses for root zones
+// It will be applied if the mgm server do not enforce DNS settings for root zone
+func (s *DefaultServer) OnUpdatedHostDNSServer(hostsDnsList []string) {
 	// todo handle in thread safe way
 	s.hostsDnsList = hostsDnsList
 	_, ok := s.dnsMuxMap[nbdns.RootZone]
@@ -201,7 +213,7 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
-	//todo should it handle in case of permanent dns service?
+	// todo should it handle in case of permanent dns service?
 	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if update.ServiceEnable {
