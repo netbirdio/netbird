@@ -1380,6 +1380,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
 	routes := make(map[string]*route.Route)
+	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
 	users[userID] = NewAdminUser(userID)
 	dnsSettings := &DNSSettings{
@@ -1389,7 +1390,7 @@ func newAccountWithId(accountID, userID, domain string) *Account {
 
 	acc := &Account{
 		Id:               accountID,
-		SetupKeys:        map[string]*SetupKey{},
+		SetupKeys:        setupKeys,
 		Network:          network,
 		Peers:            peers,
 		Users:            users,
