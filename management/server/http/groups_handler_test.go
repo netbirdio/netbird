@@ -42,9 +42,17 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandle
 				if groupID != "idofthegroup" {
 					return nil, status.Errorf(status.NotFound, "not found")
 				}
+				if groupID == "id-jwt-group" {
+					return &server.Group{
+						ID:     "id-jwt-group",
+						Name:   "Default Group",
+						Issued: server.GroupIssuedJWT,
+					}, nil
+				}
 				return &server.Group{
-					ID:   "idofthegroup",
-					Name: "Group",
+					ID:     "idofthegroup",
+					Name:   "Group",
+					Issued: server.GroupIssuedAPI,
 				}, nil
 			},
 			UpdateGroupFunc: func(_ string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error) {
@@ -80,8 +88,9 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandle
 						user.Id: user,
 					},
 					Groups: map[string]*server.Group{
-						"id-existed": {ID: "id-existed", Peers: []string{"A", "B"}},
-						"id-all":     {ID: "id-all", Name: "All"},
+						"id-jwt-group": {ID: "id-jwt-group", Name: "From JWT", Issued: server.GroupIssuedJWT},
+						"id-existed":   {ID: "id-existed", Peers: []string{"A", "B"}, Issued: server.GroupIssuedAPI},
+						"id-all":       {ID: "id-all", Name: "All", Issued: server.GroupIssuedAPI},
 					},
 				}, user, nil
 			},
@@ -169,6 +178,8 @@ func TestGetGroup(t *testing.T) {
 }
 
 func TestWriteGroup(t *testing.T) {
+	groupIssuedAPI := "api"
+	groupIssuedJWT := "jwt"
 	tt := []struct {
 		name           string
 		expectedStatus int
@@ -187,8 +198,9 @@ func TestWriteGroup(t *testing.T) {
 			expectedStatus: http.StatusOK,
 			expectedBody:   true,
 			expectedGroup: &api.Group{
-				Id:   "id-was-set",
-				Name: "Default POSTed Group",
+				Id:     "id-was-set",
+				Name:   "Default POSTed Group",
+				Issued: &groupIssuedAPI,
 			},
 		},
 		{
@@ -208,8 +220,9 @@ func TestWriteGroup(t *testing.T) {
 				[]byte(`{"Name":"Default POSTed Group"}`)),
 			expectedStatus: http.StatusOK,
 			expectedGroup: &api.Group{
-				Id:   "id-existed",
-				Name: "Default POSTed Group",
+				Id:     "id-existed",
+				Name:   "Default POSTed Group",
+				Issued: &groupIssuedAPI,
 			},
 		},
 		{
@@ -229,6 +242,19 @@ func TestWriteGroup(t *testing.T) {
 				[]byte(`{"Name":"super"}`)),
 			expectedStatus: http.StatusUnprocessableEntity,
 			expectedBody:   false,
+		},
+		{
+			name:        "Write Group PUT not not change Issue",
+			requestType: http.MethodPut,
+			requestPath: "/api/groups/id-jwt-group",
+			requestBody: bytes.NewBuffer(
+				[]byte(`{"Name":"changed","Issued":"api"}`)),
+			expectedStatus: http.StatusOK,
+			expectedGroup: &api.Group{
+				Id:     "id-jwt-group",
+				Name:   "changed",
+				Issued: &groupIssuedJWT,
+			},
 		},
 	}
 

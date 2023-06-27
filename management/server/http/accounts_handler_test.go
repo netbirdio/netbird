@@ -58,6 +58,9 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 	accountID := "test_account"
 	adminUser := server.NewAdminUser("test_user")
 
+	sr := func(v string) *string { return &v }
+	br := func(v bool) *bool { return &v }
+
 	handler := initAccountsTestData(&server.Account{
 		Id:      accountID,
 		Domain:  "hotmail.com",
@@ -91,6 +94,8 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedSettings: api.AccountSettings{
 				PeerLoginExpiration:        int(time.Hour.Seconds()),
 				PeerLoginExpirationEnabled: false,
+				JwtGroupsClaimName:         sr(""),
+				JwtGroupsEnabled:           br(false),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -105,6 +110,24 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			expectedSettings: api.AccountSettings{
 				PeerLoginExpiration:        15552000,
 				PeerLoginExpirationEnabled: true,
+				JwtGroupsClaimName:         sr(""),
+				JwtGroupsEnabled:           br(false),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK wiht JWT",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": false,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"roles\"}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:        15552000,
+				PeerLoginExpirationEnabled: false,
+				JwtGroupsClaimName:         sr("roles"),
+				JwtGroupsEnabled:           br(true),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
