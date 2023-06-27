@@ -448,6 +448,12 @@ func (am *AzureManager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	return nil
 }
 
+// InviteUserByID resend invitations to users who haven't activated,
+// their accounts prior to the expiration period.
+func (am *AzureManager) InviteUserByID(_ string) error {
+	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
 func (am *AzureManager) getUserExtensions() ([]azureExtension, error) {
 	q := url.Values{}
 	q.Add("$select", extensionFields)

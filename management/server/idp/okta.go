@@ -302,6 +302,12 @@ func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetad
 	return nil
 }
 
+// InviteUserByID resend invitations to users who haven't activated,
+// their accounts prior to the expiration period.
+func (om *OktaManager) InviteUserByID(_ string) error {
+	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
 // updateUserProfileSchema updates the Okta user schema to include custom fields,
 // wt_account_id and wt_pending_invite.
 func updateUserProfileSchema(client *okta.Client) error {

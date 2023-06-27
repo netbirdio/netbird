@@ -247,6 +247,12 @@ func (gm *GoogleWorkspaceManager) GetUserByEmail(email string) ([]*UserData, err
 	return users, nil
 }
 
+// InviteUserByID resend invitations to users who haven't activated,
+// their accounts prior to the expiration period.
+func (gm *GoogleWorkspaceManager) InviteUserByID(_ string) error {
+	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
 // getGoogleCredentials retrieves Google credentials based on the provided serviceAccountKey.
 // It decodes the base64-encoded serviceAccountKey and attempts to obtain credentials using it.
 // If that fails, it falls back to using the default Google credentials path.
