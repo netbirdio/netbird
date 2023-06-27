@@ -129,10 +129,10 @@ func (m *Manager) AddFiltering(
 	var p int
 	if direction == fw.RuleDirectionIN {
 		m.incomingRules[r.ip.String()] = append(m.incomingRules[r.ip.String()], r)
-		p = len(m.incomingRules) - 1
+		p = len(m.incomingRules[r.ip.String()]) - 1
 	} else {
 		m.outgoingRules[r.ip.String()] = append(m.outgoingRules[r.ip.String()], r)
-		p = len(m.outgoingRules) - 1
+		p = len(m.outgoingRules[r.ip.String()]) - 1
 	}
 	m.rulesIndex[r.id] = p
 	m.mutex.Unlock()
@@ -234,18 +234,18 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string][]Rule, isIncom
 	case layers.LayerTypeIPv4:
 		if isIncomingPacket {
 			srcIP = d.ip4.SrcIP
-			ipRules = rules[srcIP.String()]
+			ipRules = append(rules[srcIP.String()], rules["0.0.0.0"]...)
 		} else {
 			dstIP = d.ip4.DstIP
-			ipRules = rules[dstIP.String()]
+			ipRules = append(rules[dstIP.String()], rules["0.0.0.0"]...)
 		}
 	case layers.LayerTypeIPv6:
 		if isIncomingPacket {
 			srcIP = d.ip6.SrcIP
-			ipRules = rules[srcIP.String()]
+			ipRules = append(rules[srcIP.String()], rules["::"]...)
 		} else {
 			dstIP = d.ip6.DstIP
-			ipRules = rules[dstIP.String()]
+			ipRules = append(rules[dstIP.String()], rules["::"]...)
 		}
 	}
 
