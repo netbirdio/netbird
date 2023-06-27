@@ -72,7 +72,7 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, ok = account.Groups[groupID]
+	eg, ok := account.Groups[groupID]
 	if !ok {
 		util.WriteError(status.Errorf(status.NotFound, "couldn't find group with ID %s", groupID), w)
 		return
@@ -107,9 +107,10 @@ func (h *GroupsHandler) UpdateGroup(w http.ResponseWriter, r *http.Request) {
 		peers = *req.Peers
 	}
 	group := server.Group{
-		ID:    groupID,
-		Name:  req.Name,
-		Peers: peers,
+		ID:     groupID,
+		Name:   req.Name,
+		Peers:  peers,
+		Issued: eg.Issued,
 	}
 
 	if err := h.accountManager.SaveGroup(account.Id, user.Id, &group); err != nil {
@@ -149,9 +150,10 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 		peers = *req.Peers
 	}
 	group := server.Group{
-		ID:    xid.New().String(),
-		Name:  req.Name,
-		Peers: peers,
+		ID:     xid.New().String(),
+		Name:   req.Name,
+		Peers:  peers,
+		Issued: server.GroupIssuedAPI,
 	}
 
 	err = h.accountManager.SaveGroup(account.Id, user.Id, &group)
@@ -237,6 +239,7 @@ func toGroupResponse(account *server.Account, group *server.Group) *api.Group {
 		Id:         group.ID,
 		Name:       group.Name,
 		PeersCount: len(group.Peers),
+		Issued:     &group.Issued,
 	}
 
 	for _, pid := range group.Peers {

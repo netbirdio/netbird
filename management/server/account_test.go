@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/route"
@@ -458,6 +459,69 @@ func TestDefaultAccountManager_GetAccountFromToken(t *testing.T) {
 			require.EqualValues(t, testCase.expectedDomain, account.Domain, "expected account domain should match")
 		})
 	}
+}
+
+func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
+	userId := "user-id"
+	domain := "test.domain"
+
+	initAccount := newAccountWithId("", userId, domain)
+	manager, err := createManager(t)
+	require.NoError(t, err, "unable to create account manager")
+
+	accountID := initAccount.Id
+	_, err = manager.GetAccountByUserOrAccountID(userId, accountID, domain)
+	require.NoError(t, err, "create init user failed")
+
+	claims := jwtclaims.AuthorizationClaims{
+		AccountId:      accountID,
+		Domain:         domain,
+		UserId:         userId,
+		DomainCategory: "test-category",
+		Raw:            jwt.MapClaims{"idp-groups": []interface{}{"group1", "group2"}},
+	}
+
+	t.Run("JWT groups disabled", func(t *testing.T) {
+		account, _, err := manager.GetAccountFromToken(claims)
+		require.NoError(t, err, "get account by token failed")
+		require.Len(t, account.Groups, 1, "only ALL group should exists")
+	})
+
+	t.Run("JWT groups enabled without claim name", func(t *testing.T) {
+		initAccount.Settings.JWTGroupsEnabled = true
+		err := manager.Store.SaveAccount(initAccount)
+		require.NoError(t, err, "save account failed")
+
+		account, _, err := manager.GetAccountFromToken(claims)
+		require.NoError(t, err, "get account by token failed")
+		require.Len(t, account.Groups, 1, "if group claim is not set no group added from JWT")
+	})
+
+	t.Run("JWT groups enabled", func(t *testing.T) {
+		initAccount.Settings.JWTGroupsEnabled = true
+		initAccount.Settings.JWTGroupsClaimName = "idp-groups"
+		err := manager.Store.SaveAccount(initAccount)
+		require.NoError(t, err, "save account failed")
+
+		account, _, err := manager.GetAccountFromToken(claims)
+		require.NoError(t, err, "get account by token failed")
+		require.Len(t, account.Groups, 3, "groups should be added to the account")
+
+		groupsByNames := map[string]*Group{}
+		for _, g := range account.Groups {
+			groupsByNames[g.Name] = g
+		}
+
+		g1, ok := groupsByNames["group1"]
+		require.True(t, ok, "group1 should be added to the account")
+		require.Equal(t, g1.Name, "group1", "group1 name should match")
+		require.Equal(t, g1.Issued, GroupIssuedJWT, "group1 issued should match")
+
+		g2, ok := groupsByNames["group2"]
+		require.True(t, ok, "group2 should be added to the account")
+		require.Equal(t, g2.Name, "group2", "group2 name should match")
+		require.Equal(t, g2.Issued, GroupIssuedJWT, "group2 issued should match")
+	})
 }
 
 func TestAccountManager_GetAccountFromPAT(t *testing.T) {

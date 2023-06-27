@@ -129,6 +129,12 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// JwtGroupsClaimName Name of the claim from which we extract groups names to add it to account groups.
+	JwtGroupsClaimName *string `json:"jwt_groups_claim_name,omitempty"`
+
+	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
+	JwtGroupsEnabled *bool `json:"jwt_groups_enabled,omitempty"`
+
 	// PeerLoginExpiration Period of time after which peer login expires (seconds).
 	PeerLoginExpiration int `json:"peer_login_expiration"`
 
@@ -174,6 +180,9 @@ type Group struct {
 	// Id Group ID
 	Id string `json:"id"`
 
+	// Issued How group was issued by API or from JWT token
+	Issued *string `json:"issued,omitempty"`
+
 	// Name Group Name identifier
 	Name string `json:"name"`
 
@@ -188,6 +197,9 @@ type Group struct {
 type GroupMinimum struct {
 	// Id Group ID
 	Id string `json:"id"`
+
+	// Issued How group was issued by API or from JWT token
+	Issued *string `json:"issued,omitempty"`
 
 	// Name Group Name identifier
 	Name string `json:"name"`

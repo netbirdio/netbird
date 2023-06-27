@@ -157,6 +157,14 @@ func restore(file string) (*FileStore, error) {
 			addPeerLabelsToAccount(account, existingLabels)
 		}
 
+		// TODO: delete this block after migration
+		// Set API as issuer for groups which has not this field
+		for _, group := range account.Groups {
+			if group.Issued == "" {
+				group.Issued = GroupIssuedAPI
+			}
+		}
+
 		allGroup, err := account.GetGroupAll()
 		if err != nil {
 			log.Errorf("unable to find the All group, this should happen only when migrate from a version that didn't support groups. Error: %v", err)

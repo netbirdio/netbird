@@ -54,6 +54,14 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
+        jwt_groups_enabled:
+          description: Allows extract groups from JWT claim and add it to account groups.
+          type: boolean
+          example: true
+        jwt_groups_claim_name:
+          description: Name of the claim from which we extract groups names to add it to account groups.
+          type: string
+          example: "roles"
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
@@ -462,6 +470,10 @@ components:
           description: Count of peers associated to the group
           type: integer
           example: 2
+        issued:
+          description: How group was issued by API or from JWT token
+          type: string
+          example: api
       required:
         - id
         - name

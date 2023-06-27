@@ -48,6 +48,12 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 			Domain:         "test.com",
 			AccountId:      "testAcc",
 			DomainCategory: "public",
+			Raw: jwt.MapClaims{
+				"https://login/wt_account_domain":          "test.com",
+				"https://login/wt_account_domain_category": "public",
+				"https://login/wt_account_id":              "testAcc",
+				"sub":                                      "test",
+			},
 		},
 		testingFunc: require.EqualValues,
 		expectedMSG: "extracted claims should match input claims",
@@ -59,6 +65,10 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 		inputAuthorizationClaims: AuthorizationClaims{
 			UserId:    "test",
 			AccountId: "testAcc",
+			Raw: jwt.MapClaims{
+				"https://login/wt_account_id": "testAcc",
+				"sub":                         "test",
+			},
 		},
 		testingFunc: require.EqualValues,
 		expectedMSG: "extracted claims should match input claims",
@@ -70,6 +80,10 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 		inputAuthorizationClaims: AuthorizationClaims{
 			UserId: "test",
 			Domain: "test.com",
+			Raw: jwt.MapClaims{
+				"https://login/wt_account_domain": "test.com",
+				"sub":                             "test",
+			},
 		},
 		testingFunc: require.EqualValues,
 		expectedMSG: "extracted claims should match input claims",
@@ -82,6 +96,11 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 			UserId:    "test",
 			Domain:    "test.com",
 			AccountId: "testAcc",
+			Raw: jwt.MapClaims{
+				"https://login/wt_account_domain": "test.com",
+				"https://login/wt_account_id":     "testAcc",
+				"sub":                             "test",
+			},
 		},
 		testingFunc: require.EqualValues,
 		expectedMSG: "extracted claims should match input claims",
@@ -92,6 +111,9 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 		inputAudiance: "https://login/",
 		inputAuthorizationClaims: AuthorizationClaims{
 			UserId: "test",
+			Raw: jwt.MapClaims{
+				"sub": "test",
+			},
 		},
 		testingFunc: require.EqualValues,
 		expectedMSG: "extracted claims should match input claims",

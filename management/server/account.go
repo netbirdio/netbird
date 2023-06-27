@@ -34,6 +34,8 @@ const (
 	PublicCategory             = "public"
 	PrivateCategory            = "private"
 	UnknownCategory            = "unknown"
+	GroupIssuedAPI             = "api"
+	GroupIssuedJWT             = "jwt"
 	CacheExpirationMax         = 7 * 24 * 3600 * time.Second // 7 days
 	CacheExpirationMin         = 3 * 24 * 3600 * time.Second // 3 days
 	DefaultPeerLoginExpiration = 24 * time.Hour
@@ -139,6 +141,13 @@ type Settings struct {
 	// PeerLoginExpiration is a setting that indicates when peer login expires.
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
+
+	// JWTGroupsEnabled allows extract groups from JWT claim, which name defined in the JWTGroupsClaimName
+	// and add it to account groups.
+	JWTGroupsEnabled bool
+
+	// JWTGroupsClaimName from which we extract groups name to add it to account groups
+	JWTGroupsClaimName string
 }
 
 // Copy copies the Settings struct
@@ -146,6 +155,8 @@ func (s *Settings) Copy() *Settings {
 	return &Settings{
 		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
 		PeerLoginExpiration:        s.PeerLoginExpiration,
+		JWTGroupsEnabled:           s.JWTGroupsEnabled,
+		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 	}
 }
 
@@ -610,6 +621,28 @@ func (a *Account) GetGroupAll() (*Group, error) {
 // GetPeer looks up a Peer by ID
 func (a *Account) GetPeer(peerID string) *Peer {
 	return a.Peers[peerID]
+}
+
+// AddJWTGroups to existed groups if they does not exists
+func (a *Account) AddJWTGroups(groups []string) (int, error) {
+	existedGroups := make(map[string]*Group)
+	for _, g := range a.Groups {
+		existedGroups[g.Name] = g
+	}
+
+	var count int
+	for _, name := range groups {
+		if _, ok := existedGroups[name]; !ok {
+			id := xid.New().String()
+			a.Groups[id] = &Group{
+				ID:     id,
+				Name:   name,
+				Issued: GroupIssuedJWT,
+			}
+			count++
+		}
+	}
+	return count, nil
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1241,6 +1274,38 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		}
 	}
 
+	if account.Settings.JWTGroupsEnabled {
+		if account.Settings.JWTGroupsClaimName == "" {
+			log.Errorf("JWT groups are enabled but no claim name is set")
+			return account, user, nil
+		}
+		if claim, ok := claims.Raw[account.Settings.JWTGroupsClaimName]; ok {
+			if slice, ok := claim.([]interface{}); ok {
+				var groups []string
+				for _, item := range slice {
+					if g, ok := item.(string); ok {
+						groups = append(groups, g)
+					} else {
+						log.Errorf("JWT claim %q is not a string: %v", account.Settings.JWTGroupsClaimName, item)
+					}
+				}
+				n, err := account.AddJWTGroups(groups)
+				if err != nil {
+					log.Errorf("failed to add JWT groups: %v", err)
+				}
+				if n > 0 {
+					if err := am.Store.SaveAccount(account); err != nil {
+						log.Errorf("failed to save account: %v", err)
+					}
+				}
+			} else {
+				log.Debugf("JWT claim %q is not a string array", account.Settings.JWTGroupsClaimName)
+			}
+		} else {
+			log.Debugf("JWT claim %q not found", account.Settings.JWTGroupsClaimName)
+		}
+	}
+
 	return account, user, nil
 }
 
@@ -1344,8 +1409,9 @@ func (am *DefaultAccountManager) GetDNSDomain() string {
 func addAllGroup(account *Account) error {
 	if len(account.Groups) == 0 {
 		allGroup := &Group{
-			ID:   xid.New().String(),
-			Name: "All",
+			ID:     xid.New().String(),
+			Name:   "All",
+			Issued: GroupIssuedAPI,
 		}
 		for _, peer := range account.Peers {
 			allGroup.Peers = append(allGroup.Peers, peer.ID)

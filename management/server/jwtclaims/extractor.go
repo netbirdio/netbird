@@ -73,7 +73,9 @@ func NewClaimsExtractor(options ...ClaimsExtractorOption) *ClaimsExtractor {
 // FromToken extracts claims from the token (after auth)
 func (c *ClaimsExtractor) FromToken(token *jwt.Token) AuthorizationClaims {
 	claims := token.Claims.(jwt.MapClaims)
-	jwtClaims := AuthorizationClaims{}
+	jwtClaims := AuthorizationClaims{
+		Raw: claims,
+	}
 	userID, ok := claims[c.userIDClaim].(string)
 	if !ok {
 		return jwtClaims
