@@ -17,6 +17,7 @@ type Manager interface {
 	GetAllAccounts() (map[string][]*UserData, error)
 	CreateUser(email string, name string, accountID string) (*UserData, error)
 	GetUserByEmail(email string) ([]*UserData, error)
+	InviteUserByID(userID string) error
 }
 
 // ClientConfig defines common client configuration for all IdP manager
