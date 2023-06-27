@@ -82,7 +82,7 @@ func NewDefaultServer(ctx context.Context, wgInterface WGIface, customAddress st
 }
 
 // NewDefaultServerPermanentUpstream returns a new dns server. It optimized for mobile systems
-func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, initialDnsCfg nbdns.Config, hostsDnsList []string, readyListener ReadyListener) *DefaultServer {
+func NewDefaultServerPermanentUpstream(ctx context.Context, wgInterface WGIface, hostsDnsList []string, readyListener ReadyListener) *DefaultServer {
 	log.Debugf("host dns address list is: %v", hostsDnsList)
 	ds := newDefaultServer(ctx, wgInterface, newServiceViaMemory(wgInterface))
 	ds.permanent = true

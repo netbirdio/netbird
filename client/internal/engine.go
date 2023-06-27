@@ -190,15 +190,14 @@ func (e *Engine) Start() error {
 	}
 
 	var routes []*route.Route
-	var dnsCfg nbdns.Config
 
 	if runtime.GOOS == "android" {
-		routes, dnsCfg, err = e.readInitialSettings()
+		routes, err = e.readInitialSettings()
 		if err != nil {
 			return err
 		}
 		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, dnsCfg, e.mobileDep.HostDNSAddresses, e.mobileDep.DnsReadyListener)
+			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, e.mobileDep.DnsReadyListener)
 		}
 	} else {
 		// todo fix custom address
@@ -1047,14 +1046,13 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) readInitialSettings() ([]*route.Route, nbdns.Config, error) {
+func (e *Engine) readInitialSettings() ([]*route.Route, error) {
 	netMap, err := e.mgmClient.GetNetworkMap()
 	if err != nil {
-		return nil, nbdns.Config{}, err
+		return nil, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
-	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
-	return routes, dnsCfg, nil
+	return routes, nil
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {
