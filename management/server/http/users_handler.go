@@ -208,9 +208,9 @@ func (h *UsersHandler) GetAllUsers(w http.ResponseWriter, r *http.Request) {
 	util.WriteJSONObject(w, users)
 }
 
-// Invite resend invitations to users who haven't activated their accounts,
+// InviteUser resend invitations to users who haven't activated their accounts,
 // prior to the expiration period.
-func (h *UsersHandler) Invite(w http.ResponseWriter, r *http.Request) {
+func (h *UsersHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		util.WriteErrorResponse("wrong HTTP method", http.StatusMethodNotAllowed, w)
 		return
