@@ -1439,33 +1439,28 @@ func addAllGroup(account *Account) error {
 }
 
 // newAccountWithId creates a new Account with a default SetupKey (doesn't store in a Store) and provided id
-func newAccountWithId(accountId, userId, domain string) *Account {
+func newAccountWithId(accountID, userID, domain string) *Account {
 	log.Debugf("creating new account")
 
-	setupKeys := make(map[string]*SetupKey)
-	defaultKey := GenerateDefaultSetupKey()
-	oneOffKey := GenerateSetupKey("One-off key", SetupKeyOneOff, DefaultSetupKeyDuration, []string{},
-		SetupKeyUnlimitedUsage)
-	setupKeys[defaultKey.Key] = defaultKey
-	setupKeys[oneOffKey.Key] = oneOffKey
 	network := NewNetwork()
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
 	routes := make(map[string]*route.Route)
+	setupKeys := map[string]*SetupKey{}
 	nameServersGroups := make(map[string]*nbdns.NameServerGroup)
-	users[userId] = NewAdminUser(userId)
+	users[userID] = NewAdminUser(userID)
 	dnsSettings := &DNSSettings{
 		DisabledManagementGroups: make([]string, 0),
 	}
-	log.Debugf("created new account %s with setup key %s", accountId, defaultKey.Key)
+	log.Debugf("created new account %s", accountID)
 
 	acc := &Account{
-		Id:               accountId,
+		Id:               accountID,
 		SetupKeys:        setupKeys,
 		Network:          network,
 		Peers:            peers,
 		Users:            users,
-		CreatedBy:        userId,
+		CreatedBy:        userID,
 		Domain:           domain,
 		Routes:           routes,
 		NameServerGroups: nameServersGroups,

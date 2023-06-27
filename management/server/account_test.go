@@ -54,7 +54,7 @@ func verifyNewAccountHasDefaultFields(t *testing.T, account *Account, createdBy 
 		t.Errorf("expected account to have len(Peers) = %v, got %v", 0, len(account.Peers))
 	}
 
-	if len(account.SetupKeys) != 2 {
+	if len(account.SetupKeys) != 0 {
 		t.Errorf("expected account to have len(SetupKeys) = %v, got %v", 2, len(account.SetupKeys))
 	}
 
@@ -768,20 +768,21 @@ func TestAccountManager_AddPeer(t *testing.T) {
 		return
 	}
 
-	account, err := createAccount(manager, "test_account", "account_creator", "netbird.cloud")
+	userID := "account_creator"
+	account, err := createAccount(manager, "test_account", userID, "netbird.cloud")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	serial := account.Network.CurrentSerial() // should be 0
 
-	var setupKey *SetupKey
-	for _, key := range account.SetupKeys {
-		setupKey = key
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID)
+	if err != nil {
+		return
 	}
 
-	if setupKey == nil {
-		t.Errorf("expecting account to have a default setup key")
+	if err != nil {
+		t.Fatal("error creating setup key")
 		return
 	}
 
@@ -922,16 +923,13 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var setupKey *SetupKey
-	for _, key := range account.SetupKeys {
-		setupKey = key
-		if setupKey.Type == SetupKeyReusable {
-			break
-		}
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID)
+	if err != nil {
+		return
 	}
 
-	if setupKey == nil {
-		t.Errorf("expecting account to have a default setup key")
+	if err != nil {
+		t.Fatal("error creating setup key")
 		return
 	}
 
@@ -1106,9 +1104,14 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var setupKey *SetupKey
-	for _, key := range account.SetupKeys {
-		setupKey = key
+	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID)
+	if err != nil {
+		return
+	}
+
+	if err != nil {
+		t.Fatal("error creating setup key")
+		return
 	}
 
 	key, err := wgtypes.GenerateKey()
