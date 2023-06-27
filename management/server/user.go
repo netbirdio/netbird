@@ -318,6 +318,46 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 	return nil
 }
 
+// InviteUser resend invitations to users who haven't activated their accounts prior to the expiration period.
+func (am *DefaultAccountManager) InviteUser(accountID string, initiatorUserID string, targetUserEmail string) error {
+	unlock := am.Store.AcquireAccountLock(accountID)
+	defer unlock()
+
+	if am.idpManager == nil {
+		return status.Errorf(status.PreconditionFailed, "IdP manager must be enabled to send user invites")
+	}
+
+	_, err := am.Store.GetAccount(accountID)
+	if err != nil {
+		return status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
+	}
+
+	// check if the user is already registered with this email
+	user, err := am.lookupUserInCacheByEmail(targetUserEmail, accountID)
+	if err != nil {
+		return err
+	}
+
+	if user == nil {
+		return status.Errorf(status.NotFound, "user account %s doesn't exist", targetUserEmail)
+	}
+
+	// check if user account is already invited and account is not activated
+	pendingInvite := user.AppMetadata.WTPendingInvite
+	if pendingInvite == nil || !*pendingInvite {
+		return status.Errorf(status.PreconditionFailed, "can't invite a user with an activated NetBird account")
+	}
+
+	err = am.idpManager.InviteUserByID(user.ID)
+	if err != nil {
+		return err
+	}
+
+	am.storeEvent(initiatorUserID, user.ID, accountID, activity.UserInvited, nil)
+
+	return nil
+}
+
 // CreatePAT creates a new PAT for the given user
 func (am *DefaultAccountManager) CreatePAT(accountID string, initiatorUserID string, targetUserID string, tokenName string, expiresIn int) (*PersonalAccessTokenGenerated, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
