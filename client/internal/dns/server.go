@@ -34,7 +34,6 @@ type DefaultServer struct {
 	ctx                context.Context
 	ctxCancel          context.CancelFunc
 	mux                sync.Mutex
-	udpFilterHookID    string
 	service            service
 	dnsMuxMap          registeredHandlerMap
 	localResolver      *localResolver
@@ -45,9 +44,8 @@ type DefaultServer struct {
 	currentConfig      hostDNSConfig
 
 	// permanent related properties
-	permanent     bool
-	hostsDnsList  []string
-	readyListener ReadyListener
+	permanent    bool
+	hostsDnsList []string
 }
 
 type handlerWithStop interface {

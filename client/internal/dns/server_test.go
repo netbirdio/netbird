@@ -459,9 +459,13 @@ func TestDNSServerStartStop(t *testing.T) {
 				t.Fatalf("%v", err)
 			}
 			dnsServer.hostManager = newNoopHostMocker()
-			dnsServer.service.Listen()
+			err = dnsServer.service.Listen()
+			if err != nil {
+				t.Fatalf("dns server is not running: %s", err)
+			}
 			time.Sleep(100 * time.Millisecond)
-			/*
+            // todo fix test
+            /*
 				if !dnsServer.service.listenerIsRunning {
 					t.Fatal("dns server listener is not running")
 				}*/
