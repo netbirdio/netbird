@@ -1274,7 +1274,7 @@ paths:
   /api/users/{userId}/invite:
     post:
       summary: Resend user invitation
-      description: Resent user invitation
+      description: Resend user invitation
       tags: [ Users ]
       security:
         - BearerAuth: [ ]
