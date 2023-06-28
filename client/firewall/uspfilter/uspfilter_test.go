@@ -123,8 +123,8 @@ func TestManagerDeleteRule(t *testing.T) {
 		return
 	}
 
-	if idx, ok := m.rulesIndex[rule2.GetRuleID()]; !ok || len(m.incomingRules) != 1 || idx != 0 {
-		t.Errorf("rule2 is not in the rulesIndex")
+	if _, ok := m.incomingRules[ip.String()][rule2.GetRuleID()]; !ok {
+		t.Errorf("rule2 is not in the incomingRules")
 	}
 
 	err = m.DeleteRule(rule2)
@@ -133,8 +133,8 @@ func TestManagerDeleteRule(t *testing.T) {
 		return
 	}
 
-	if len(m.rulesIndex) != 0 || len(m.incomingRules) != 0 {
-		t.Errorf("rule1 still in the rulesIndex")
+	if _, ok := m.incomingRules[ip.String()][rule2.GetRuleID()]; ok {
+		t.Errorf("rule2 is not in the incomingRules")
 	}
 }
 
@@ -169,26 +169,29 @@ func TestAddUDPPacketHook(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := &Manager{
-				incomingRules: []Rule{},
-				outgoingRules: []Rule{},
-				rulesIndex:    make(map[string]int),
+				incomingRules: map[string]map[string]Rule{},
+				outgoingRules: map[string]map[string]Rule{},
 			}
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
 
 			var addedRule Rule
 			if tt.in {
-				if len(manager.incomingRules) != 1 {
+				if len(manager.incomingRules[tt.ip.String()]) != 1 {
 					t.Errorf("expected 1 incoming rule, got %d", len(manager.incomingRules))
 					return
 				}
-				addedRule = manager.incomingRules[0]
+				for _, rule := range manager.incomingRules[tt.ip.String()] {
+					addedRule = rule
+				}
 			} else {
 				if len(manager.outgoingRules) != 1 {
 					t.Errorf("expected 1 outgoing rule, got %d", len(manager.outgoingRules))
 					return
 				}
-				addedRule = manager.outgoingRules[0]
+				for _, rule := range manager.outgoingRules[tt.ip.String()] {
+					addedRule = rule
+				}
 			}
 
 			if !tt.ip.Equal(addedRule.ip) {
@@ -209,17 +212,6 @@ func TestAddUDPPacketHook(t *testing.T) {
 			}
 			if addedRule.udpHook == nil {
 				t.Errorf("expected udpHook to be set")
-				return
-			}
-
-			// Ensure rulesIndex is correctly updated
-			index, ok := manager.rulesIndex[addedRule.id]
-			if !ok {
-				t.Errorf("expected rule to be in rulesIndex")
-				return
-			}
-			if index != 0 {
-				t.Errorf("expected rule index to be 0, got %d", index)
 				return
 			}
 		})
@@ -256,7 +248,7 @@ func TestManagerReset(t *testing.T) {
 		return
 	}
 
-	if len(m.rulesIndex) != 0 || len(m.outgoingRules) != 0 || len(m.incomingRules) != 0 {
+	if len(m.outgoingRules) != 0 || len(m.incomingRules) != 0 {
 		t.Errorf("rules is not empty")
 	}
 }
@@ -346,10 +338,12 @@ func TestRemovePacketHook(t *testing.T) {
 
 	// Assert the hook is added by finding it in the manager's outgoing rules
 	found := false
-	for _, rule := range manager.outgoingRules {
-		if rule.id == hookID {
-			found = true
-			break
+	for _, arr := range manager.outgoingRules {
+		for _, rule := range arr {
+			if rule.id == hookID {
+				found = true
+				break
+			}
 		}
 	}
 
@@ -364,9 +358,11 @@ func TestRemovePacketHook(t *testing.T) {
 	}
 
 	// Assert the hook is removed by checking it in the manager's outgoing rules
-	for _, rule := range manager.outgoingRules {
-		if rule.id == hookID {
-			t.Fatalf("The hook was not removed properly.")
+	for _, arr := range manager.outgoingRules {
+		for _, rule := range arr {
+			if rule.id == hookID {
+				t.Fatalf("The hook was not removed properly.")
+			}
 		}
 	}
 }
