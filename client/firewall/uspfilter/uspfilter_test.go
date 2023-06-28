@@ -169,8 +169,8 @@ func TestAddUDPPacketHook(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			manager := &Manager{
-				incomingRules: map[string]map[string]Rule{},
-				outgoingRules: map[string]map[string]Rule{},
+				incomingRules: map[string]RuleSet{},
+				outgoingRules: map[string]RuleSet{},
 			}
 
 			manager.AddUDPPacketHook(tt.in, tt.ip, tt.dPort, tt.hook)
