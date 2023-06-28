@@ -12,7 +12,7 @@ import (
 
 func (c *tunDevice) Create() error {
 	if WireGuardModuleIsLoaded() {
-		log.Info("create tun interface with kernel WireGuard support: %s", c.DeviceName())
+		log.Infof("create tun interface with kernel WireGuard support: %s", c.DeviceName())
 		return c.createWithKernel()
 	}
 
