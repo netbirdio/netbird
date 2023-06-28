@@ -379,14 +379,14 @@ func TestInviteUser(t *testing.T) {
 		expectedResult []*server.User
 	}{
 		{
-			name:           "Invite User",
+			name:           "Invite User with Existing User",
 			requestType:    http.MethodPost,
 			requestPath:    "/api/users/" + existingUserID + "/invite",
 			expectedStatus: http.StatusOK,
 			requestBody:    bytes.NewBuffer(userToInviteReqPayload),
 		},
 		{
-			name:           "Invite User with Existing User",
+			name:           "Invite User with Non Existing User",
 			requestType:    http.MethodPost,
 			requestPath:    "/api/users/" + existingUserID + "/invite",
 			expectedStatus: http.StatusNotFound,

@@ -169,12 +169,12 @@ components:
     UserInviteRequest:
       type: object
       properties:
-        email:
-          description: User's Email to send invite to
+        user_id:
+          description: Users ID send invite to
           type: string
-          example: demo@netbird.io
+          example: google-oauth2|277474792786460067937
       required:
-        - email
+        - user_id
     PeerMinimum:
       type: object
       properties:
@@ -1287,7 +1287,7 @@ paths:
             type: string
           description: The unique identifier of a user
       requestBody:
-        description: PersonalAccessToken create parameters
+        description: User invite information
         content:
           application/json:
             schema:
