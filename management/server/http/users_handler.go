@@ -230,7 +230,12 @@ func (h *UsersHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.InviteUser(account.Id, user.Id, req.Email)
+	if req.UserId == "" {
+		util.WriteErrorResponse("request body is missing the required field user_id", http.StatusBadRequest, w)
+		return
+	}
+
+	err = h.accountManager.InviteUser(account.Id, user.Id, req.UserId)
 	if err != nil {
 		util.WriteError(err, w)
 		return

@@ -103,7 +103,7 @@ func initUsersTestData() *UsersHandler {
 					return status.Errorf(status.NotFound, "user with ID %s does not exists", initiatorUserID)
 				}
 
-				if targetUserEmail == notFoundUserEmail {
+				if targetUserEmail == notFoundUserID {
 					return status.Errorf(status.NotFound, "user with email %s does not exists", targetUserEmail)
 				}
 
@@ -352,20 +352,25 @@ func TestCreateUser(t *testing.T) {
 }
 
 func TestInviteUser(t *testing.T) {
-	notFoundUserToInvite := api.UserInviteRequest{
-		Email: notFoundUserEmail,
+	existingUserToInvite := api.UserInviteRequest{
+		UserId: "auth0|12456",
 	}
 
-	notFoundUserReqPayload, err := json.Marshal(notFoundUserToInvite)
+	inviteExistingUserReqPayload, err := json.Marshal(existingUserToInvite)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	userToInvite := api.UserInviteRequest{
-		Email: "email",
+	nonExistingUserToInvite := api.UserInviteRequest{
+		UserId: notFoundUserID,
 	}
 
-	userToInviteReqPayload, err := json.Marshal(userToInvite)
+	InviteNonExistingUserReqPayload, err := json.Marshal(nonExistingUserToInvite)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	inviteMissingFieldReqPayload, err := json.Marshal(api.UserInviteRequest{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -383,14 +388,21 @@ func TestInviteUser(t *testing.T) {
 			requestType:    http.MethodPost,
 			requestPath:    "/api/users/" + existingUserID + "/invite",
 			expectedStatus: http.StatusOK,
-			requestBody:    bytes.NewBuffer(userToInviteReqPayload),
+			requestBody:    bytes.NewBuffer(inviteExistingUserReqPayload),
+		},
+		{
+			name:           "Invite User with missing user_id",
+			requestType:    http.MethodPost,
+			requestPath:    "/api/users/" + existingUserID + "/invite",
+			expectedStatus: http.StatusBadRequest,
+			requestBody:    bytes.NewBuffer(inviteMissingFieldReqPayload),
 		},
 		{
 			name:           "Invite User with Non Existing User",
 			requestType:    http.MethodPost,
 			requestPath:    "/api/users/" + existingUserID + "/invite",
 			expectedStatus: http.StatusNotFound,
-			requestBody:    bytes.NewBuffer(notFoundUserReqPayload),
+			requestBody:    bytes.NewBuffer(InviteNonExistingUserReqPayload),
 		},
 	}
 

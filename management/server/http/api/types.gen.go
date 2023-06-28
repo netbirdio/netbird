@@ -783,8 +783,8 @@ type UserCreateRequest struct {
 
 // UserInviteRequest defines model for UserInviteRequest.
 type UserInviteRequest struct {
-	// Email User's Email to send invite to
-	Email string `json:"email"`
+	// UserId Users ID to send invite to
+	UserId string `json:"user_id"`
 }
 
 // UserRequest defines model for UserRequest.

@@ -170,7 +170,7 @@ components:
       type: object
       properties:
         user_id:
-          description: Users ID send invite to
+          description: Users ID to send invite to
           type: string
           example: google-oauth2|277474792786460067937
       required:

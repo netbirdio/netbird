@@ -501,9 +501,9 @@ func (am *MockAccountManager) DeleteUser(accountID string, initiatorUserID strin
 	return status.Errorf(codes.Unimplemented, "method DeleteUser is not implemented")
 }
 
-func (am *MockAccountManager) InviteUser(accountID string, initiatorUserID string, targetUserEmail string) error {
+func (am *MockAccountManager) InviteUser(accountID string, initiatorUserID string, targetUserID string) error {
 	if am.InviteUserFunc != nil {
-		return am.InviteUserFunc(accountID, initiatorUserID, targetUserEmail)
+		return am.InviteUserFunc(accountID, initiatorUserID, targetUserID)
 	}
 	return status.Errorf(codes.Unimplemented, "method InviteUser is not implemented")
 }
