@@ -1,10 +1,12 @@
 package server
 
 import (
+	"net/netip"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 )
@@ -17,6 +19,7 @@ const (
 	dnsAccountID     = "testingAcc"
 	dnsAdminUserID   = "testingAdminUser"
 	dnsRegularUserID = "testingRegularUser"
+	dnsNSGroup1      = "ns1"
 )
 
 func TestGetDNSSettings(t *testing.T) {
@@ -163,6 +166,7 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, newAccountDNSConfig.DNSConfig.CustomZones, 1, "default DNS config should have one custom zone for peers")
 	require.True(t, newAccountDNSConfig.DNSConfig.ServiceEnable, "default DNS config should have local DNS service enabled")
+	require.Len(t, newAccountDNSConfig.DNSConfig.NameServerGroups, 0, "updated DNS config should have no nameserver groups since peer 1 is NS for the only existing NS group")
 
 	dnsSettings := account.DNSSettings.Copy()
 	dnsSettings.DisabledManagementGroups = append(dnsSettings.DisabledManagementGroups, dnsGroup1ID)
@@ -174,11 +178,11 @@ func TestGetNetworkMap_DNSConfigSync(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, updatedAccountDNSConfig.DNSConfig.CustomZones, 0, "updated DNS config should have no custom zone when peer belongs to a disabled group")
 	require.False(t, updatedAccountDNSConfig.DNSConfig.ServiceEnable, "updated DNS config should have local DNS service disabled when peer belongs to a disabled group")
-
 	peer2AccountDNSConfig, err := am.GetNetworkMap(peer2.ID)
 	require.NoError(t, err)
 	require.Len(t, peer2AccountDNSConfig.DNSConfig.CustomZones, 1, "DNS config should have one custom zone for peers not in the disabled group")
 	require.True(t, peer2AccountDNSConfig.DNSConfig.ServiceEnable, "DNS config should have DNS service enabled for peers not in the disabled group")
+	require.Len(t, peer2AccountDNSConfig.DNSConfig.NameServerGroups, 1, "updated DNS config should have 1 nameserver groups since peer 2 is part of the group All")
 }
 
 func createDNSManager(t *testing.T) (*DefaultAccountManager, error) {
@@ -246,7 +250,7 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 		return nil, err
 	}
 
-	_, _, err = am.AddPeer("", dnsAdminUserID, peer1)
+	savedPeer1, _, err := am.AddPeer("", dnsAdminUserID, peer1)
 	if err != nil {
 		return nil, err
 	}
@@ -283,6 +287,24 @@ func initTestDNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, erro
 
 	account.Groups[newGroup1.ID] = newGroup1
 	account.Groups[newGroup2.ID] = newGroup2
+
+	allGroup, err := account.GetGroupAll()
+	if err != nil {
+		return nil, err
+	}
+
+	account.NameServerGroups[dnsNSGroup1] = &dns.NameServerGroup{
+		ID:   dnsNSGroup1,
+		Name: "ns-group-1",
+		NameServers: []dns.NameServer{{
+			IP:     netip.MustParseAddr(savedPeer1.IP.String()),
+			NSType: dns.UDPNameServerType,
+			Port:   dns.DefaultDNSPort,
+		}},
+		Primary: true,
+		Enabled: true,
+		Groups:  []string{allGroup.ID},
+	}
 
 	err = am.Store.SaveAccount(account)
 	if err != nil {

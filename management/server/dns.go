@@ -2,13 +2,15 @@ package server
 
 import (
 	"fmt"
+	"strconv"
+
 	"github.com/miekg/dns"
+	log "github.com/sirupsen/logrus"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
-	"strconv"
 )
 
 const defaultTTL = 300
@@ -199,13 +201,25 @@ func getPeerNSGroups(account *Account, peerID string) []*nbdns.NameServerGroup {
 		for _, gID := range nsGroup.Groups {
 			_, found := groupList[gID]
 			if found {
-				peerNSGroups = append(peerNSGroups, nsGroup.Copy())
-				break
+				if !peerIsNameserver(account.GetPeer(peerID), nsGroup) {
+					peerNSGroups = append(peerNSGroups, nsGroup.Copy())
+					break
+				}
 			}
 		}
 	}
 
 	return peerNSGroups
+}
+
+// peerIsNameserver returns true if the peer is a nameserver for a nsGroup
+func peerIsNameserver(peer *Peer, nsGroup *nbdns.NameServerGroup) bool {
+	for _, ns := range nsGroup.NameServers {
+		if peer.IP.Equal(ns.IP.AsSlice()) {
+			return true
+		}
+	}
+	return false
 }
 
 func addPeerLabelsToAccount(account *Account, peerLabels lookupMap) {
