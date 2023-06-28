@@ -8,13 +8,16 @@ import (
 )
 
 type ioMonitor struct {
-	mu sync.Mutex
+	mu         sync.Mutex
+	streamLock sync.Mutex
 	grpc.ServerStream
 	lastSeen time.Time
 }
 
 func (l *ioMonitor) sendMsg(m interface{}) error {
 	l.updateLastSeen()
+	l.streamLock.Lock()
+	defer l.streamLock.Unlock()
 	return l.ServerStream.SendMsg(m)
 }
 

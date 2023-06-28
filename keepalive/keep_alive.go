@@ -45,6 +45,7 @@ func (k *KeepAlive) StreamInterceptor() grpc.StreamServerInterceptor {
 
 		m := &ioMonitor{
 			sync.Mutex{},
+			sync.Mutex{},
 			stream,
 			time.Now(),
 		}
