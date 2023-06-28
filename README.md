@@ -70,9 +70,9 @@ For stable versions, see [releases](https://github.com/netbirdio/netbird/release
 
 ### Start using NetBird
 -  Hosted version: [https://app.netbird.io/](https://app.netbird.io/).
--  See our documentation for [Quickstart Guide](https://netbird.io/docs/getting-started/quickstart).
--  If you are looking to self-host NetBird, check our [Self-Hosting Guide](https://netbird.io/docs/getting-started/self-hosting).
--  Step-by-step [Installation Guide](https://netbird.io/docs/getting-started/installation) for different platforms.
+-  See our documentation for [Quickstart Guide](https://docs.netbird.io/how-to/getting-started).
+-  If you are looking to self-host NetBird, check our [Self-Hosting Guide](https://docs.netbird.io/selfhosted/selfhosted-guide).
+-  Step-by-step [Installation Guide](https://docs.netbird.io/how-to/getting-started#installation) for different platforms.
 -  Web UI [repository](https://github.com/netbirdio/dashboard).
 -  5 min [demo video](https://youtu.be/Tu9tPsUWaY0) on YouTube.
 
@@ -91,7 +91,7 @@ For stable versions, see [releases](https://github.com/netbirdio/netbird/release
   <img src="https://netbird.io/docs/img/architecture/high-level-dia.png" width="700"/>
 </p>
 
-See a complete [architecture overview](https://netbird.io/docs/overview/architecture) for details.
+See a complete [architecture overview](https://docs.netbird.io/about-netbird/how-netbird-works#architecture) for details.
 
 ### Roadmap
 -  [Public Roadmap](https://github.com/netbirdio/netbird/projects/2)
