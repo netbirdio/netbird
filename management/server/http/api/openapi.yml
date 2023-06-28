@@ -166,15 +166,6 @@ components:
         - role
         - auto_groups
         - is_service_user
-    UserInviteRequest:
-      type: object
-      properties:
-        user_id:
-          description: Users ID to send invite to
-          type: string
-          example: google-oauth2|277474792786460067937
-      required:
-        - user_id
     PeerMinimum:
       type: object
       properties:
@@ -1286,12 +1277,6 @@ paths:
           schema:
             type: string
           description: The unique identifier of a user
-      requestBody:
-        description: User invite information
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/UserInviteRequest'
       responses:
         '200':
           description: Invite status code

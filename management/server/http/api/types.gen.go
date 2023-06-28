@@ -781,12 +781,6 @@ type UserCreateRequest struct {
 	Role string `json:"role"`
 }
 
-// UserInviteRequest defines model for UserInviteRequest.
-type UserInviteRequest struct {
-	// UserId Users ID to send invite to
-	UserId string `json:"user_id"`
-}
-
 // UserRequest defines model for UserRequest.
 type UserRequest struct {
 	// AutoGroups Groups to auto-assign to peers registered by this user
@@ -855,9 +849,6 @@ type PostApiUsersJSONRequestBody = UserCreateRequest
 
 // PutApiUsersUserIdJSONRequestBody defines body for PutApiUsersUserId for application/json ContentType.
 type PutApiUsersUserIdJSONRequestBody = UserRequest
-
-// PostApiUsersUserIdInviteJSONRequestBody defines body for PostApiUsersUserIdInvite for application/json ContentType.
-type PostApiUsersUserIdInviteJSONRequestBody = UserInviteRequest
 
 // PostApiUsersUserIdTokensJSONRequestBody defines body for PostApiUsersUserIdTokens for application/json ContentType.
 type PostApiUsersUserIdTokensJSONRequestBody = PersonalAccessTokenRequest

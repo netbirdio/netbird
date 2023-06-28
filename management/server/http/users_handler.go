@@ -223,19 +223,14 @@ func (h *UsersHandler) InviteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	req := &api.PostApiUsersUserIdInviteJSONRequestBody{}
-	err = json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		util.WriteErrorResponse("couldn't parse JSON request", http.StatusBadRequest, w)
+	vars := mux.Vars(r)
+	targetUserID := vars["userId"]
+	if len(targetUserID) == 0 {
+		util.WriteError(status.Errorf(status.InvalidArgument, "invalid user ID"), w)
 		return
 	}
 
-	if req.UserId == "" {
-		util.WriteErrorResponse("request body is missing the required field user_id", http.StatusBadRequest, w)
-		return
-	}
-
-	err = h.accountManager.InviteUser(account.Id, user.Id, req.UserId)
+	err = h.accountManager.InviteUser(account.Id, user.Id, targetUserID)
 	if err != nil {
 		util.WriteError(err, w)
 		return

@@ -352,57 +352,26 @@ func TestCreateUser(t *testing.T) {
 }
 
 func TestInviteUser(t *testing.T) {
-	existingUserToInvite := api.UserInviteRequest{
-		UserId: "auth0|12456",
-	}
-
-	inviteExistingUserReqPayload, err := json.Marshal(existingUserToInvite)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	nonExistingUserToInvite := api.UserInviteRequest{
-		UserId: notFoundUserID,
-	}
-
-	InviteNonExistingUserReqPayload, err := json.Marshal(nonExistingUserToInvite)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	inviteMissingFieldReqPayload, err := json.Marshal(api.UserInviteRequest{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	tt := []struct {
 		name           string
 		expectedStatus int
 		requestType    string
 		requestPath    string
-		requestBody    io.Reader
-		expectedResult []*server.User
+		requestVars    map[string]string
 	}{
 		{
 			name:           "Invite User with Existing User",
 			requestType:    http.MethodPost,
 			requestPath:    "/api/users/" + existingUserID + "/invite",
 			expectedStatus: http.StatusOK,
-			requestBody:    bytes.NewBuffer(inviteExistingUserReqPayload),
+			requestVars:    map[string]string{"userId": existingUserID},
 		},
 		{
 			name:           "Invite User with missing user_id",
 			requestType:    http.MethodPost,
-			requestPath:    "/api/users/" + existingUserID + "/invite",
-			expectedStatus: http.StatusBadRequest,
-			requestBody:    bytes.NewBuffer(inviteMissingFieldReqPayload),
-		},
-		{
-			name:           "Invite User with Non Existing User",
-			requestType:    http.MethodPost,
-			requestPath:    "/api/users/" + existingUserID + "/invite",
+			requestPath:    "/api/users/" + notFoundUserID + "/invite",
 			expectedStatus: http.StatusNotFound,
-			requestBody:    bytes.NewBuffer(InviteNonExistingUserReqPayload),
+			requestVars:    map[string]string{"userId": notFoundUserID},
 		},
 	}
 
@@ -410,7 +379,8 @@ func TestInviteUser(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
+			req = mux.SetURLVars(req, tc.requestVars)
 			rr := httptest.NewRecorder()
 
 			userHandler.InviteUser(rr, req)
