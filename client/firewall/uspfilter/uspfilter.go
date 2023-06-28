@@ -23,9 +23,8 @@ type IFaceMapper interface {
 
 // Manager userspace firewall manager
 type Manager struct {
-	outgoingRules map[string][]Rule
-	incomingRules map[string][]Rule
-	rulesIndex    map[string]int
+	outgoingRules map[string]map[string]Rule
+	incomingRules map[string]map[string]Rule
 	wgNetwork     *net.IPNet
 	decoders      sync.Pool
 
@@ -48,7 +47,6 @@ type decoder struct {
 // Create userspace firewall manager constructor
 func Create(iface IFaceMapper) (*Manager, error) {
 	m := &Manager{
-		rulesIndex: make(map[string]int),
 		decoders: sync.Pool{
 			New: func() any {
 				d := &decoder{
@@ -62,8 +60,8 @@ func Create(iface IFaceMapper) (*Manager, error) {
 				return d
 			},
 		},
-		outgoingRules: make(map[string][]Rule),
-		incomingRules: make(map[string][]Rule),
+		outgoingRules: make(map[string]map[string]Rule),
+		incomingRules: make(map[string]map[string]Rule),
 	}
 
 	if err := iface.SetFilter(m); err != nil {
@@ -126,15 +124,17 @@ func (m *Manager) AddFiltering(
 	}
 
 	m.mutex.Lock()
-	var p int
 	if direction == fw.RuleDirectionIN {
-		m.incomingRules[r.ip.String()] = append(m.incomingRules[r.ip.String()], r)
-		p = len(m.incomingRules[r.ip.String()]) - 1
+		if _, ok := m.incomingRules[r.ip.String()]; !ok {
+			m.incomingRules[r.ip.String()] = make(map[string]Rule)
+		}
+		m.incomingRules[r.ip.String()][r.id] = r
 	} else {
-		m.outgoingRules[r.ip.String()] = append(m.outgoingRules[r.ip.String()], r)
-		p = len(m.outgoingRules[r.ip.String()]) - 1
+		if _, ok := m.outgoingRules[r.ip.String()]; !ok {
+			m.outgoingRules[r.ip.String()] = make(map[string]Rule)
+		}
+		m.outgoingRules[r.ip.String()][r.id] = r
 	}
-	m.rulesIndex[r.id] = p
 	m.mutex.Unlock()
 
 	return &r, nil
@@ -150,24 +150,20 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		return fmt.Errorf("delete rule: invalid rule type: %T", rule)
 	}
 
-	p, ok := m.rulesIndex[r.id]
-	if !ok {
-		return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
-	}
-	delete(m.rulesIndex, r.id)
-
-	var toUpdate []Rule
 	if r.direction == fw.RuleDirectionIN {
-		m.incomingRules[r.ip.String()] = append(m.incomingRules[r.ip.String()][:p], m.incomingRules[r.ip.String()][p+1:]...)
-		toUpdate = m.incomingRules[r.ip.String()]
+		_, ok := m.incomingRules[r.ip.String()][r.id]
+		if !ok {
+			return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
+		}
+		delete(m.incomingRules[r.ip.String()], r.id)
 	} else {
-		m.outgoingRules[r.ip.String()] = append(m.outgoingRules[r.ip.String()][:p], m.outgoingRules[r.ip.String()][p+1:]...)
-		toUpdate = m.outgoingRules[r.ip.String()]
+		_, ok := m.outgoingRules[r.ip.String()][r.id]
+		if !ok {
+			return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
+		}
+		delete(m.outgoingRules[r.ip.String()], r.id)
 	}
 
-	for i := 0; i < len(toUpdate); i++ {
-		m.rulesIndex[toUpdate[i].id] = i
-	}
 	return nil
 }
 
@@ -176,9 +172,8 @@ func (m *Manager) Reset() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	m.outgoingRules = make(map[string][]Rule)
-	m.incomingRules = make(map[string][]Rule)
-	m.rulesIndex = make(map[string]int)
+	m.outgoingRules = make(map[string]map[string]Rule)
+	m.incomingRules = make(map[string]map[string]Rule)
 
 	return nil
 }
@@ -194,7 +189,7 @@ func (m *Manager) DropIncoming(packetData []byte) bool {
 }
 
 // dropFilter imlements same logic for booth direction of the traffic
-func (m *Manager) dropFilter(packetData []byte, rules map[string][]Rule, isIncomingPacket bool) bool {
+func (m *Manager) dropFilter(packetData []byte, rules map[string]map[string]Rule, isIncomingPacket bool) bool {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
 
@@ -226,41 +221,39 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string][]Rule, isIncom
 		log.Errorf("unknown layer: %v", d.decoded[0])
 		return true
 	}
-	payloadLayer := d.decoded[1]
 
-	var srcIP, dstIP net.IP
-	var ipRules []Rule
+	var ip net.IP
 	switch ipLayer {
 	case layers.LayerTypeIPv4:
 		if isIncomingPacket {
-			srcIP = d.ip4.SrcIP
-			ipRules = append(rules[srcIP.String()], rules["0.0.0.0"]...)
+			ip = d.ip4.SrcIP
 		} else {
-			dstIP = d.ip4.DstIP
-			ipRules = append(rules[dstIP.String()], rules["0.0.0.0"]...)
+			ip = d.ip4.DstIP
 		}
 	case layers.LayerTypeIPv6:
 		if isIncomingPacket {
-			srcIP = d.ip6.SrcIP
-			ipRules = append(rules[srcIP.String()], rules["::"]...)
+			ip = d.ip6.SrcIP
 		} else {
-			dstIP = d.ip6.DstIP
-			ipRules = append(rules[dstIP.String()], rules["::"]...)
+			ip = d.ip6.DstIP
 		}
 	}
 
+	_, ok := rules["0.0.0.0"]
+	if ok {
+		return false
+	}
+
+	_, ok = rules["::"]
+	if ok {
+		return false
+	}
+
+	payloadLayer := d.decoded[1]
+
 	// check if IP address match by IP
-	for _, rule := range ipRules {
-		if rule.matchByIP {
-			if isIncomingPacket {
-				if !srcIP.Equal(rule.ip) {
-					continue
-				}
-			} else {
-				if !dstIP.Equal(rule.ip) {
-					continue
-				}
-			}
+	for _, rule := range rules[ip.String()] {
+		if rule.matchByIP && !ip.Equal(rule.ip) {
+			continue
 		}
 
 		if rule.protoLayer == layerTypeAll {
@@ -335,19 +328,19 @@ func (m *Manager) AddUDPPacketHook(
 	}
 
 	m.mutex.Lock()
-	var toUpdate []Rule
 	if in {
 		r.direction = fw.RuleDirectionIN
-		m.incomingRules[r.ip.String()] = append([]Rule{r}, m.incomingRules[r.ip.String()]...)
-		toUpdate = m.incomingRules[r.ip.String()]
+		if _, ok := m.incomingRules[r.ip.String()]; !ok {
+			m.incomingRules[r.ip.String()] = make(map[string]Rule)
+		}
+		m.incomingRules[r.ip.String()][r.id] = r
 	} else {
-		m.outgoingRules[r.ip.String()] = append([]Rule{r}, m.outgoingRules[r.ip.String()]...)
-		toUpdate = m.outgoingRules[r.ip.String()]
+		if _, ok := m.outgoingRules[r.ip.String()]; !ok {
+			m.outgoingRules[r.ip.String()] = make(map[string]Rule)
+		}
+		m.outgoingRules[r.ip.String()][r.id] = r
 	}
 
-	for i := range toUpdate {
-		m.rulesIndex[toUpdate[i].id] = i
-	}
 	m.mutex.Unlock()
 
 	return r.id
