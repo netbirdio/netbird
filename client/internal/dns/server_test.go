@@ -19,13 +19,14 @@ import (
 )
 
 type mocWGIface struct {
+	filter iface.PacketFilter
 }
 
 func (w mocWGIface) Name() string {
 	panic("implement me")
 }
 
-func (w mocWGIface) Address() iface.WGAddress {
+func (w *mocWGIface) Address() iface.WGAddress {
 	ip, network, _ := net.ParseCIDR("172.16.254.0/24")
 	return iface.WGAddress{
 		IP:      ip,
@@ -33,20 +34,24 @@ func (w mocWGIface) Address() iface.WGAddress {
 	}
 }
 
-func (w mocWGIface) GetFilter() iface.PacketFilter {
+func (w *mocWGIface) GetFilter() iface.PacketFilter {
+	return w.filter
+}
+
+func (w *mocWGIface) GetDevice() *iface.DeviceWrapper {
 	panic("implement me")
 }
 
-func (w mocWGIface) GetDevice() *iface.DeviceWrapper {
+func (w *mocWGIface) GetInterfaceGUIDString() (string, error) {
 	panic("implement me")
 }
 
-func (w mocWGIface) GetInterfaceGUIDString() (string, error) {
-	panic("implement me")
-}
-
-func (w mocWGIface) IsUserspaceBind() bool {
+func (w *mocWGIface) IsUserspaceBind() bool {
 	return false
+}
+
+func (w *mocWGIface) SetFilter(packetfilter iface.PacketFilter) {
+	w.filter = packetfilter
 }
 
 var zoneRecords = []nbdns.SimpleRecord{
@@ -454,7 +459,7 @@ func TestDNSServerStartStop(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			dnsServer, err := NewDefaultServer(context.Background(), mocWGIface{}, testCase.addrPort)
+			dnsServer, err := NewDefaultServer(context.Background(), &mocWGIface{}, testCase.addrPort)
 			if err != nil {
 				t.Fatalf("%v", err)
 			}
@@ -464,8 +469,8 @@ func TestDNSServerStartStop(t *testing.T) {
 				t.Fatalf("dns server is not running: %s", err)
 			}
 			time.Sleep(100 * time.Millisecond)
-            // todo fix test
-            /*
+			// todo fix test
+			/*
 				if !dnsServer.service.listenerIsRunning {
 					t.Fatal("dns server listener is not running")
 				}*/
@@ -519,7 +524,7 @@ func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	hostManager := &mockHostConfigurator{}
 	server := DefaultServer{
 		//dnsMux: dns.DefaultServeMux,
-		service: newServiceViaMemory(mocWGIface{}),
+		service: newServiceViaMemory(&mocWGIface{}),
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
 		},

@@ -197,7 +197,8 @@ func (e *Engine) Start() error {
 			return err
 		}
 		if e.dnsServer == nil {
-			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses, e.mobileDep.DnsReadyListener)
+			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses)
+			go e.mobileDep.DnsReadyListener.OnReady()
 		}
 	} else {
 		// todo fix custom address
