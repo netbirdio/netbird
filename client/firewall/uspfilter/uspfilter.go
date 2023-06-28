@@ -238,13 +238,7 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]map[string]Rule
 		}
 	}
 
-	_, ok := rules["0.0.0.0"]
-	if ok {
-		return false
-	}
-
-	_, ok = rules["::"]
-	if ok {
+	if len(rules["0.0.0.0"]) > 0 || len(rules["::"]) > 0 {
 		return false
 	}
 
