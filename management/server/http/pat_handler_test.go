@@ -25,6 +25,7 @@ const (
 	notFoundAccountID = "notFoundAccountID"
 	existingUserID    = "existingUserID"
 	notFoundUserID    = "notFoundUserID"
+	notFoundUserEmail = "notFoundUserEmail"
 	existingTokenID   = "existingTokenID"
 	notFoundTokenID   = "notFoundTokenID"
 	domain            = "hotmail.com"

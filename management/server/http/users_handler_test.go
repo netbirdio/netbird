@@ -98,6 +98,17 @@ func initUsersTestData() *UsersHandler {
 				}
 				return info, nil
 			},
+			InviteUserFunc: func(accountID string, initiatorUserID string, targetUserEmail string) error {
+				if initiatorUserID != existingUserID {
+					return status.Errorf(status.NotFound, "user with ID %s does not exists", initiatorUserID)
+				}
+
+				if targetUserEmail == notFoundUserEmail {
+					return status.Errorf(status.NotFound, "user with email %s does not exists", targetUserEmail)
+				}
+
+				return nil
+			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
@@ -328,6 +339,69 @@ func TestCreateUser(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			userHandler.CreateUser(rr, req)
+
+			res := rr.Result()
+			defer res.Body.Close()
+
+			if status := rr.Code; status != tc.expectedStatus {
+				t.Fatalf("handler returned wrong status code: got %v want %v",
+					status, tc.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestInviteUser(t *testing.T) {
+	notFoundUserToInvite := api.UserInviteRequest{
+		Email: notFoundUserEmail,
+	}
+
+	notFoundUserReqPayload, err := json.Marshal(notFoundUserToInvite)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userToInvite := api.UserInviteRequest{
+		Email: "email",
+	}
+
+	userToInviteReqPayload, err := json.Marshal(userToInvite)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tt := []struct {
+		name           string
+		expectedStatus int
+		requestType    string
+		requestPath    string
+		requestBody    io.Reader
+		expectedResult []*server.User
+	}{
+		{
+			name:           "Invite User",
+			requestType:    http.MethodPost,
+			requestPath:    "/api/users/" + existingUserID + "/invite",
+			expectedStatus: http.StatusOK,
+			requestBody:    bytes.NewBuffer(userToInviteReqPayload),
+		},
+		{
+			name:           "Invite User with Existing User",
+			requestType:    http.MethodPost,
+			requestPath:    "/api/users/" + existingUserID + "/invite",
+			expectedStatus: http.StatusNotFound,
+			requestBody:    bytes.NewBuffer(notFoundUserReqPayload),
+		},
+	}
+
+	userHandler := initUsersTestData()
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.requestType, tc.requestPath, tc.requestBody)
+			rr := httptest.NewRecorder()
+
+			userHandler.InviteUser(rr, req)
 
 			res := rr.Result()
 			defer res.Body.Close()
