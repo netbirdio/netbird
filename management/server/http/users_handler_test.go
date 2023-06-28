@@ -98,13 +98,13 @@ func initUsersTestData() *UsersHandler {
 				}
 				return info, nil
 			},
-			InviteUserFunc: func(accountID string, initiatorUserID string, targetUserEmail string) error {
+			InviteUserFunc: func(accountID string, initiatorUserID string, targetUserID string) error {
 				if initiatorUserID != existingUserID {
 					return status.Errorf(status.NotFound, "user with ID %s does not exists", initiatorUserID)
 				}
 
-				if targetUserEmail == notFoundUserID {
-					return status.Errorf(status.NotFound, "user with email %s does not exists", targetUserEmail)
+				if targetUserID == notFoundUserID {
+					return status.Errorf(status.NotFound, "user with ID %s does not exists", targetUserID)
 				}
 
 				return nil
