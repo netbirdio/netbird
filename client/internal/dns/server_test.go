@@ -286,11 +286,6 @@ func TestUpdateDNSServer(t *testing.T) {
 			dnsServer.dnsMuxMap = testCase.initUpstreamMap
 			dnsServer.localResolver.registeredMap = testCase.initLocalMap
 			dnsServer.updateSerial = testCase.initSerial
-			// pretend we are running
-			/*
-				dnsServer.listenerIsRunning = true
-				dnsServer.fakeResolverWG.Add(1)
-			*/
 
 			err = dnsServer.UpdateDNSServer(testCase.inputSerial, testCase.inputUpdate)
 			if err != nil {
@@ -478,11 +473,6 @@ func TestDNSServerStartStop(t *testing.T) {
 				t.Fatalf("dns server is not running: %s", err)
 			}
 			time.Sleep(100 * time.Millisecond)
-			// todo fix test
-			/*
-				if !dnsServer.service.listenerIsRunning {
-					t.Fatal("dns server listener is not running")
-				}*/
 			defer dnsServer.Stop()
 			err = dnsServer.localResolver.registerRecord(zoneRecords[0])
 			if err != nil {
