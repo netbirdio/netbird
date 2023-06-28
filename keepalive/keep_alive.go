@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	GrpcVersionHeaderKey = "version"
+	GrpcVersionHeaderKey = "x-netbird-version"
 
 	reversProxyHeaderKey = "x-netbird-peer"
 	keepAliveInterval    = 30 * time.Second
