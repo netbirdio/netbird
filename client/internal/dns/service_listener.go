@@ -54,7 +54,12 @@ func (s *serviceViaListener) Listen() error {
 		return nil
 	}
 
-	s.runtimeIP, s.runtimePort = s.evalRuntimeAddress()
+	var err error
+	s.runtimeIP, s.runtimePort, err = s.evalRuntimeAddress()
+	if err != nil {
+		log.Errorf("failed to eval runtime address: %s", err)
+		return err
+	}
 	s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
 
 	log.Debugf("starting dns on %s", s.server.Addr)
@@ -131,15 +136,10 @@ func (s *serviceViaListener) getFirstListenerAvailable() (string, int, error) {
 	return "", 0, fmt.Errorf("unable to find an unused ip and port combination. IPs tested: %v and ports %v", ips, ports)
 }
 
-func (s *serviceViaListener) evalRuntimeAddress() (string, int) {
+func (s *serviceViaListener) evalRuntimeAddress() (string, int, error) {
 	if s.customAddr != nil {
-		return s.customAddr.Addr().String(), int(s.customAddr.Port())
+		return s.customAddr.Addr().String(), int(s.customAddr.Port()), nil
 	}
 
-	ip, port, err := s.getFirstListenerAvailable()
-	if err != nil {
-		// todo error handling
-		log.Error(err)
-	}
-	return ip, port
+	return s.getFirstListenerAvailable()
 }
