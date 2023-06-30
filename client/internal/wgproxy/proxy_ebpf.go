@@ -81,7 +81,10 @@ func (p *WGEBPFProxy) Listen() error {
 
 // AddTurnConn add new turn connection for the proxy
 func (p *WGEBPFProxy) AddTurnConn(turnConn net.Conn) (net.Addr, error) {
-	wgEndpointPort := p.storeTurnConn(turnConn)
+	wgEndpointPort, err := p.storeTurnConn(turnConn)
+	if err != nil {
+		return nil, err
+	}
 
 	go p.proxyToLocal(wgEndpointPort, turnConn)
 	log.Infof("turn conn added to wg proxy store: %s, endpoint port: :%d", turnConn.RemoteAddr(), wgEndpointPort)
@@ -160,13 +163,16 @@ func (p *WGEBPFProxy) proxyToRemote() {
 	}
 }
 
-func (p *WGEBPFProxy) storeTurnConn(turnConn net.Conn) uint16 {
+func (p *WGEBPFProxy) storeTurnConn(turnConn net.Conn) (uint16, error) {
 	p.turnConnMutex.Lock()
 	defer p.turnConnMutex.Unlock()
 
-	port := p.nextFreePort()
-	p.turnConnStore[port] = turnConn
-	return port
+	np, err := p.nextFreePort()
+	if err != nil {
+		return np, err
+	}
+	p.turnConnStore[np] = turnConn
+	return np, nil
 }
 
 func (p *WGEBPFProxy) removeTurnConn(turnConnID uint16) {
@@ -177,9 +183,21 @@ func (p *WGEBPFProxy) removeTurnConn(turnConnID uint16) {
 
 }
 
-func (p *WGEBPFProxy) nextFreePort() uint16 {
-	p.lastUsedPort = p.lastUsedPort + 1 | 1
-	return p.lastUsedPort
+func (p *WGEBPFProxy) nextFreePort() (uint16, error) {
+	if len(p.turnConnStore) == 65535 {
+		return 0, fmt.Errorf("reached maximum turn connection numbers")
+	}
+generatePort:
+	if p.lastUsedPort == 65535 {
+		p.lastUsedPort = 1
+	} else {
+		p.lastUsedPort++
+	}
+
+	if _, ok := p.turnConnStore[p.lastUsedPort]; ok {
+		goto generatePort
+	}
+	return p.lastUsedPort, nil
 }
 
 func (p *WGEBPFProxy) prepareSenderRawSocket() (net.PacketConn, error) {
