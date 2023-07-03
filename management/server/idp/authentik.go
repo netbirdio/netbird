@@ -440,6 +440,12 @@ func (am *AuthentikManager) GetUserByEmail(email string) ([]*UserData, error) {
 	return users, nil
 }
 
+// InviteUserByID resend invitations to users who haven't activated,
+// their accounts prior to the expiration period.
+func (am *AuthentikManager) InviteUserByID(_ string) error {
+	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
 func (am *AuthentikManager) authenticationContext() (context.Context, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {

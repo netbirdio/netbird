@@ -98,6 +98,11 @@ type userExportJobStatusResponse struct {
 	ID           string    `json:"id"`
 }
 
+// userVerificationJobRequest is a user verification request struct
+type userVerificationJobRequest struct {
+	UserID string `json:"user_id"`
+}
+
 // auth0Profile represents an Auth0 user profile response
 type auth0Profile struct {
 	AccountID     string `json:"wt_account_id"`
@@ -687,6 +692,48 @@ func (am *Auth0Manager) CreateUser(email string, name string, accountID string) 
 	log.Debugf("created user %s in account %s", createResp.ID, accountID)
 
 	return &createResp, nil
+}
+
+// InviteUserByID resend invitations to users who haven't activated,
+// their accounts prior to the expiration period.
+func (am *Auth0Manager) InviteUserByID(userID string) error {
+	userVerificationReq := userVerificationJobRequest{
+		UserID: userID,
+	}
+
+	payload, err := am.helper.Marshal(userVerificationReq)
+	if err != nil {
+		return err
+	}
+
+	req, err := am.createPostRequest("/api/v2/jobs/verification-email", string(payload))
+	if err != nil {
+		return err
+	}
+
+	resp, err := am.httpClient.Do(req)
+	if err != nil {
+		log.Debugf("Couldn't get job response %v", err)
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+
+	defer func() {
+		err = resp.Body.Close()
+		if err != nil {
+			log.Errorf("error while closing invite user response body: %v", err)
+		}
+	}()
+	if !(resp.StatusCode == 200 || resp.StatusCode == 201) {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to invite user, statusCode %d", resp.StatusCode)
+	}
+
+	return nil
 }
 
 // checkExportJobStatus checks the status of the job created at CreateExportUsersJob.

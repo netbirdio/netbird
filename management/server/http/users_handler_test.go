@@ -98,6 +98,17 @@ func initUsersTestData() *UsersHandler {
 				}
 				return info, nil
 			},
+			InviteUserFunc: func(accountID string, initiatorUserID string, targetUserID string) error {
+				if initiatorUserID != existingUserID {
+					return status.Errorf(status.NotFound, "user with ID %s does not exists", initiatorUserID)
+				}
+
+				if targetUserID == notFoundUserID {
+					return status.Errorf(status.NotFound, "user with ID %s does not exists", targetUserID)
+				}
+
+				return nil
+			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {
@@ -328,6 +339,51 @@ func TestCreateUser(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			userHandler.CreateUser(rr, req)
+
+			res := rr.Result()
+			defer res.Body.Close()
+
+			if status := rr.Code; status != tc.expectedStatus {
+				t.Fatalf("handler returned wrong status code: got %v want %v",
+					status, tc.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestInviteUser(t *testing.T) {
+	tt := []struct {
+		name           string
+		expectedStatus int
+		requestType    string
+		requestPath    string
+		requestVars    map[string]string
+	}{
+		{
+			name:           "Invite User with Existing User",
+			requestType:    http.MethodPost,
+			requestPath:    "/api/users/" + existingUserID + "/invite",
+			expectedStatus: http.StatusOK,
+			requestVars:    map[string]string{"userId": existingUserID},
+		},
+		{
+			name:           "Invite User with missing user_id",
+			requestType:    http.MethodPost,
+			requestPath:    "/api/users/" + notFoundUserID + "/invite",
+			expectedStatus: http.StatusNotFound,
+			requestVars:    map[string]string{"userId": notFoundUserID},
+		},
+	}
+
+	userHandler := initUsersTestData()
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
+			req = mux.SetURLVars(req, tc.requestVars)
+			rr := httptest.NewRecorder()
+
+			userHandler.InviteUser(rr, req)
 
 			res := rr.Result()
 			defer res.Body.Close()
