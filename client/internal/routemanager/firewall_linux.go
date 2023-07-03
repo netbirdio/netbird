@@ -35,7 +35,15 @@ func NewFirewall(parentCTX context.Context) firewallManager {
 	if isIptablesSupported() {
 		log.Debugf("iptables is supported")
 		ipv4Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+		if !isIptablesClientAvailable(ipv4Client) {
+			log.Infof("iptables is missing for ipv4")
+			ipv4Client = nil
+		}
 		ipv6Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv6)
+		if !isIptablesClientAvailable(ipv6Client) {
+			log.Infof("iptables is missing for ipv6")
+			ipv6Client = nil
+		}
 
 		return &iptablesManager{
 			ctx:        ctx,
@@ -57,6 +65,14 @@ func NewFirewall(parentCTX context.Context) firewallManager {
 	}
 
 	return manager
+}
+
+func isIptablesClientAvailable(client *iptables.IPTables) bool {
+	_, err := client.ListChains("filter")
+	if err != nil {
+		return false
+	}
+	return true
 }
 
 func getInPair(pair routerPair) routerPair {
