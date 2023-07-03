@@ -69,10 +69,7 @@ func NewFirewall(parentCTX context.Context) firewallManager {
 
 func isIptablesClientAvailable(client *iptables.IPTables) bool {
 	_, err := client.ListChains("filter")
-	if err == nil {
-		return true
-	}
-	return false
+	return err == nil
 }
 
 func getInPair(pair routerPair) routerPair {

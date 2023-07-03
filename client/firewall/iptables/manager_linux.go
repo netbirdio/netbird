@@ -79,10 +79,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 
 func isIptablesClientAvailable(client *iptables.IPTables) bool {
 	_, err := client.ListChains("filter")
-	if err == nil {
-		return true
-	}
-	return false
+	return err == nil
 }
 
 // AddFiltering rule to the firewall
