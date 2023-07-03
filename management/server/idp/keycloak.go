@@ -461,6 +461,12 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userID string, appMetadata AppM
 	return nil
 }
 
+// InviteUserByID resend invitations to users who haven't activated,
+// their accounts prior to the expiration period.
+func (km *KeycloakManager) InviteUserByID(_ string) error {
+	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
 func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadata AppMetadata) (string, error) {
 	attrs := keycloakUserAttributes{}
 	attrs.Set(wtAccountID, appMetadata.WTAccountID)

@@ -441,6 +441,12 @@ func (zm *ZitadelManager) UpdateUserAppMetadata(userID string, appMetadata AppMe
 	return nil
 }
 
+// InviteUserByID resend invitations to users who haven't activated,
+// their accounts prior to the expiration period.
+func (zm *ZitadelManager) InviteUserByID(_ string) error {
+	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
 // getUserMetadata requests user metadata from zitadel via ID.
 func (zm *ZitadelManager) getUserMetadata(userID string) ([]zitadelMetadata, error) {
 	resource := fmt.Sprintf("users/%s/metadata/_search", userID)

@@ -81,6 +81,7 @@ type MockAccountManager struct {
 	UpdateAccountSettingsFunc       func(accountID, userID string, newSettings *server.Settings) (*server.Account, error)
 	LoginPeerFunc                   func(login server.PeerLogin) (*server.Peer, *server.NetworkMap, error)
 	SyncPeerFunc                    func(sync server.PeerSync) (*server.Peer, *server.NetworkMap, error)
+	InviteUserFunc                  func(accountID string, initiatorUserID string, targetUserEmail string) error
 }
 
 // GetUsersFromAccount mock implementation of GetUsersFromAccount from server.AccountManager interface
@@ -498,6 +499,13 @@ func (am *MockAccountManager) DeleteUser(accountID string, initiatorUserID strin
 		return am.DeleteUserFunc(accountID, initiatorUserID, targetUserID)
 	}
 	return status.Errorf(codes.Unimplemented, "method DeleteUser is not implemented")
+}
+
+func (am *MockAccountManager) InviteUser(accountID string, initiatorUserID string, targetUserID string) error {
+	if am.InviteUserFunc != nil {
+		return am.InviteUserFunc(accountID, initiatorUserID, targetUserID)
+	}
+	return status.Errorf(codes.Unimplemented, "method InviteUser is not implemented")
 }
 
 // GetNameServerGroup mocks GetNameServerGroup of the AccountManager interface

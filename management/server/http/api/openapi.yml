@@ -1274,6 +1274,33 @@ paths:
           "$ref": "#/components/responses/forbidden"
         '500':
           "$ref": "#/components/responses/internal_error"
+  /api/users/{userId}/invite:
+    post:
+      summary: Resend user invitation
+      description: Resend user invitation
+      tags: [ Users ]
+      security:
+        - BearerAuth: [ ]
+        - TokenAuth: [ ]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema:
+            type: string
+          description: The unique identifier of a user
+      responses:
+        '200':
+          description: Invite status code
+          content: {}
+        '400':
+          "$ref": "#/components/responses/bad_request"
+        '401':
+          "$ref": "#/components/responses/requires_authentication"
+        '403':
+          "$ref": "#/components/responses/forbidden"
+        '500':
+          "$ref": "#/components/responses/internal_error"
   /api/peers:
     get:
       summary: List all Peers

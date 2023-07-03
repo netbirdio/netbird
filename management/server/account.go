@@ -53,6 +53,7 @@ type AccountManager interface {
 	SaveSetupKey(accountID string, key *SetupKey, userID string) (*SetupKey, error)
 	CreateUser(accountID, initiatorUserID string, key *UserInfo) (*UserInfo, error)
 	DeleteUser(accountID, initiatorUserID string, targetUserID string) error
+	InviteUser(accountID string, initiatorUserID string, targetUserID string) error
 	ListSetupKeys(accountID, userID string) ([]*SetupKey, error)
 	SaveUser(accountID, initiatorUserID string, update *User) (*UserInfo, error)
 	GetSetupKey(accountID, userID, keyID string) (*SetupKey, error)
