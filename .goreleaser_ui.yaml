@@ -55,9 +55,6 @@ nfpms:
       - src: client/ui/disconnected.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
-      - libayatana-appindicator3-1
-      - libgtk-3-dev
-      - libappindicator3-dev
       - netbird
 
   - maintainer: Netbird <dev@netbird.io>
