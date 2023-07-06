@@ -522,7 +522,6 @@ func TestDNSServerStartStop(t *testing.T) {
 func TestDNSServerUpstreamDeactivateCallback(t *testing.T) {
 	hostManager := &mockHostConfigurator{}
 	server := DefaultServer{
-		//dnsMux: dns.DefaultServeMux,
 		service: newServiceViaMemory(&mocWGIface{}),
 		localResolver: &localResolver{
 			registeredMap: make(registrationMap),
