@@ -12,6 +12,7 @@ import (
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
@@ -29,6 +30,8 @@ const (
 	FilterOutputChainName = "netbird-acl-output-filter"
 )
 
+var anyIPSecuence = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
 // Manager of iptables firewall
 type Manager struct {
 	mutex sync.Mutex
@@ -43,6 +46,9 @@ type Manager struct {
 	filterInputChainIPv6  *nftables.Chain
 	filterOutputChainIPv6 *nftables.Chain
 
+	rulesetManager *rulesetManager
+	setRemovedIPs  map[string]struct{}
+
 	wgIface iFaceMapper
 }
 
@@ -55,7 +61,11 @@ type iFaceMapper interface {
 // Create nftables firewall manager
 func Create(wgIface iFaceMapper) (*Manager, error) {
 	m := &Manager{
-		conn:    &nftables.Conn{},
+		conn: &nftables.Conn{},
+
+		rulesetManager: newRuleManager(),
+		setRemovedIPs:  map[string]struct{}{},
+
 		wgIface: wgIface,
 	}
 
@@ -77,6 +87,7 @@ func (m *Manager) AddFiltering(
 	dPort *fw.Port,
 	direction fw.RuleDirection,
 	action fw.Action,
+	ipsetName string,
 	comment string,
 ) (fw.Rule, error) {
 	m.mutex.Lock()
@@ -84,6 +95,7 @@ func (m *Manager) AddFiltering(
 
 	var (
 		err   error
+		ipset *nftables.Set
 		table *nftables.Table
 		chain *nftables.Chain
 	)
@@ -105,6 +117,40 @@ func (m *Manager) AddFiltering(
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	rawIP := ip.To4()
+	if rawIP == nil {
+		rawIP = ip.To16()
+	}
+
+	if ipsetName != "" {
+		// if we already have set with given name, just add ip to the set
+		// and return rule with new ID in other case let's create rule
+		// with fresh created set and set element
+
+		var isSetNew bool
+		ipset, isSetNew, err = m.getOrCreateSet(table, rawIP, ipsetName)
+		if err != nil {
+			return nil, fmt.Errorf("get set name: %v", err)
+		}
+
+		if err := m.conn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
+			return nil, fmt.Errorf("add set element for the first time: %v", err)
+		}
+
+		if !isSetNew {
+			// if we already have nftables rules with set
+			// just add new rule to the ruleset and return new fw.Rule object
+
+			// check ruleset exists for that ipset
+			ruleset, ok := m.rulesetManager.getRulesetBySetID(ipset.ID)
+			if !ok {
+				return nil, fmt.Errorf("ipset exists in nftables but not in the manager, ipset is not synced")
+			}
+
+			return m.rulesetManager.addRule(ruleset, rawIP)
+		}
 	}
 
 	ifaceKey := expr.MetaKeyIIFNAME
@@ -146,25 +192,20 @@ func (m *Manager) AddFiltering(
 		})
 	}
 
-	// don't use IP matching if IP is ip 0.0.0.0
-	if s := ip.String(); s != "0.0.0.0" && s != "::" {
+	// check if rawIP contains zeroed IPv4 0.0.0.0 or same IVv6 value
+	// in that case not add IP match expression into the rule definition
+	if !bytes.HasPrefix(anyIPSecuence, rawIP) {
 		// source address position
-		var adrLen, adrOffset uint32
-		if ip.To4() == nil {
-			adrLen = 16
+		adrLen := uint32(len(rawIP))
+		adrOffset := uint32(12)
+		if adrLen == 16 {
 			adrOffset = 8
-		} else {
-			adrLen = 4
-			adrOffset = 12
 		}
 
 		// change to destination address position if need
 		if direction == fw.RuleDirectionOUT {
 			adrOffset += adrLen
 		}
-
-		ipToAdd, _ := netip.AddrFromSlice(ip)
-		add := ipToAdd.Unmap()
 
 		expressions = append(expressions,
 			&expr.Payload{
@@ -173,12 +214,25 @@ func (m *Manager) AddFiltering(
 				Offset:       adrOffset,
 				Len:          adrLen,
 			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     add.AsSlice(),
-			},
 		)
+		// add individual IP for match if no ipset defined
+		if ipset == nil {
+			expressions = append(expressions,
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     rawIP,
+				},
+			)
+		} else {
+			expressions = append(expressions,
+				&expr.Lookup{
+					SourceRegister: 1,
+					SetName:        ipsetName,
+					SetID:          ipset.ID,
+				},
+			)
+		}
 	}
 
 	if sPort != nil && len(sPort.Values) != 0 {
@@ -219,10 +273,10 @@ func (m *Manager) AddFiltering(
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictDrop})
 	}
 
-	id := uuid.New().String()
-	userData := []byte(strings.Join([]string{id, comment}, " "))
+	rulesetID := uuid.New().String()
+	userData := []byte(strings.Join([]string{rulesetID, comment}, " "))
 
-	_ = m.conn.InsertRule(&nftables.Rule{
+	rule := m.conn.InsertRule(&nftables.Rule{
 		Table:    table,
 		Chain:    chain,
 		Position: 0,
@@ -230,28 +284,49 @@ func (m *Manager) AddFiltering(
 		UserData: userData,
 	})
 
-	if err := m.conn.Flush(); err != nil {
-		return nil, err
-	}
+	ruleset := m.rulesetManager.createRuleset(rulesetID, rule, ipset)
+	return m.rulesetManager.addRule(ruleset, rawIP)
+}
 
-	list, err := m.conn.GetRules(table, chain)
+// getOrCreateSet in given table by name
+//
+// It tries to get set by name if fails creates new one by this name.
+// If new set need to be created it calls firewall flush method.
+// Second returned argument is a flag that indicates is set just created or not.
+func (m *Manager) getOrCreateSet(
+	table *nftables.Table,
+	rawIP []byte,
+	name string,
+) (*nftables.Set, bool, error) {
+	ipset, err := m.conn.GetSetByName(table, name)
 	if err != nil {
-		return nil, err
-	}
-
-	// Add the rule to the chain
-	rule := &Rule{id: id}
-	for _, r := range list {
-		if bytes.Equal(r.UserData, userData) {
-			rule.Rule = r
-			break
+		keyType := nftables.TypeIPAddr
+		if len(rawIP) == 16 {
+			keyType = nftables.TypeIP6Addr
 		}
-	}
-	if rule.Rule == nil {
-		return nil, fmt.Errorf("rule not found")
-	}
+		// // else we create new ipset and continue creating rule
+		ipset = &nftables.Set{
+			Name:    name,
+			Table:   table,
+			Dynamic: true,
+			KeyType: keyType,
+		}
 
-	return rule, nil
+		if err := m.conn.AddSet(ipset, nil); err != nil {
+			return nil, false, fmt.Errorf("create set: %v", err)
+		}
+
+		if err := m.conn.Flush(); err != nil {
+			return nil, false, fmt.Errorf("flush created set: %v", err)
+		}
+
+		ipset, err = m.conn.GetSetByName(table, name)
+		if err != nil {
+			return nil, false, fmt.Errorf("get created set: %v", err)
+		}
+		return ipset, true, nil
+	}
+	return ipset, false, nil
 }
 
 // chain returns the chain for the given IP address with specific settings
@@ -449,6 +524,7 @@ func (m *Manager) createChainIfNotExists(
 		Chain: chain,
 		Exprs: expressions,
 	})
+
 	if err := m.conn.Flush(); err != nil {
 		return nil, err
 	}
@@ -458,16 +534,42 @@ func (m *Manager) createChainIfNotExists(
 
 // DeleteRule from the firewall by rule definition
 func (m *Manager) DeleteRule(rule fw.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	nativeRule, ok := rule.(*Rule)
 	if !ok {
 		return fmt.Errorf("invalid rule type")
 	}
 
-	if err := m.conn.DelRule(nativeRule.Rule); err != nil {
-		return err
+	if nativeRule.nftRule == nil {
+		return nil
 	}
 
-	return m.conn.Flush()
+	if m.rulesetManager.deleteRule(nativeRule) {
+		if nativeRule.nftSet != nil {
+			key := fmt.Sprintf("%s:%v", nativeRule.nftSet.Name, nativeRule.ip)
+			if _, ok := m.setRemovedIPs[key]; !ok {
+				err := m.conn.SetDeleteElements(nativeRule.nftSet, []nftables.SetElement{{Key: nativeRule.ip}})
+				if err != nil {
+					log.Errorf("set delete elements for set, for set %q: %v", nativeRule.nftSet.Name, err)
+				}
+				m.setRemovedIPs[key] = struct{}{}
+			}
+		}
+		return nil
+	}
+
+	if err := m.conn.DelRule(nativeRule.nftRule); err != nil {
+		log.Errorf("failed to delete rule: %v", err)
+	}
+	nativeRule.nftRule = nil
+
+	if nativeRule.nftSet != nil {
+		m.conn.DelSet(nativeRule.nftSet)
+	}
+	nativeRule.nftSet = nil
+	return nil
 }
 
 // Reset firewall to the default state
@@ -496,6 +598,57 @@ func (m *Manager) Reset() error {
 	}
 
 	return m.conn.Flush()
+}
+
+// Flush doesn't need to be implemented for this manager
+func (m *Manager) Flush() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if err := m.conn.Flush(); err != nil {
+		return err
+	}
+
+	m.setRemovedIPs = map[string]struct{}{}
+
+	if err := m.refreshRuleHandles(m.tableIPv4, m.filterInputChainIPv4); err != nil {
+		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.tableIPv4, m.filterOutputChainIPv4); err != nil {
+		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.tableIPv6, m.filterInputChainIPv6); err != nil {
+		log.Errorf("failed to refresh rule handles IPv6 input chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.tableIPv6, m.filterOutputChainIPv6); err != nil {
+		log.Errorf("failed to refresh rule handles IPv6 output chain: %v", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) refreshRuleHandles(table *nftables.Table, chain *nftables.Chain) error {
+	if table == nil || chain == nil {
+		return nil
+	}
+
+	list, err := m.conn.GetRules(table, chain)
+	if err != nil {
+		return err
+	}
+
+	for _, rule := range list {
+		if len(rule.UserData) != 0 {
+			if err := m.rulesetManager.setNftRuleHandle(rule); err != nil {
+				log.Errorf("failed to set rule handle: %v", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func encodePort(port fw.Port) []byte {

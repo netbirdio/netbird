@@ -75,6 +75,7 @@ func TestNftablesManager(t *testing.T) {
 		fw.RuleDirectionIN,
 		fw.ActionDrop,
 		"",
+		"",
 	)
 	require.NoError(t, err, "failed to add rule")
 
@@ -181,9 +182,9 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []int{1000 + i}}
 				if i%2 == 0 {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "accept HTTP traffic")
+					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
 				} else {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "accept HTTP traffic")
+					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
 				}
 
 				require.NoError(t, err, "failed to add rule")
