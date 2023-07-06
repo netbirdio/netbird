@@ -213,7 +213,6 @@ func (s *DefaultServer) UpdateDNSServer(serial uint64, update nbdns.Config) erro
 }
 
 func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
-	// todo should it handle in case of permanent dns service?
 	// is the service should be disabled, we stop the listener or fake resolver
 	// and proceed with a regular update to clean up the handlers and records
 	if update.ServiceEnable {
