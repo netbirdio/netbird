@@ -57,9 +57,10 @@ NetBird uses [NAT traversal techniques](https://en.wikipedia.org/wiki/Interactiv
 - \[x] Network Routes.  
 - \[x] Private DNS.
 - \[x] Network Activity Monitoring.
-
+- \[x] Mobile clients (Android).
+- 
 **Coming soon:**
--  \[ ] Mobile clients.
+-  \[ ] Mobile clients (iOS).
 
 ### Secure peer-to-peer VPN with SSO and MFA in minutes
 
