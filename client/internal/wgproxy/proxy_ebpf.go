@@ -4,6 +4,7 @@ package wgproxy
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"sync"
@@ -129,7 +130,9 @@ func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
 	for {
 		n, err := remoteConn.Read(buf)
 		if err != nil {
-			log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
+			if err != io.EOF {
+				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
+			}
 			p.removeTurnConn(endpointPort)
 			return
 		}
