@@ -21,6 +21,11 @@ const (
 	// DefaultIPsCountForSet defines minimal count of IP's covered by rule type to use
 	// SET's in firewall manager (which supports it) for that type of rule.
 	DefaultIPsCountForSet = 3
+
+	// DefaultRuleParisFlushLimit defines default limit of rules pairs to flush to firewall manager
+	// this limit was chosen empirically, please refer to test in the nftables manager package
+	// it defines ~100 (50*2) rules per flush limit
+	DefaultRuleParisFlushLimit = 50
 )
 
 // IFaceMapper defines subset methods of interface required for manager
@@ -141,7 +146,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		ipsetByRuleSelectors[d.getRuleGroupingSelector(r)] = si
 	}
 
-	for _, r := range rules {
+	for i, r := range rules {
 		// if this rule is member of rule selection with more than DefaultIPsCountForSet
 		// it's IP address can be used in the ipset for firewall manager which supports it
 		ipset := ipsetByRuleSelectors[d.getRuleGroupingSelector(r)]
@@ -156,6 +161,13 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 			break
 		}
 		newRulePairs[pairID] = rulePair
+		if i%DefaultRuleParisFlushLimit == 0 {
+			if err := d.manager.Flush(); err != nil {
+				log.Errorf("failed to flush firewall rules: %v", err)
+				applyFailed = true
+				break
+			}
+		}
 	}
 	if applyFailed {
 		log.Error("failed to apply firewall rules, rollback ACL to previous state")
@@ -191,10 +203,6 @@ func (d *DefaultManager) Stop() {
 
 	if err := d.manager.Reset(); err != nil {
 		log.WithError(err).Error("reset firewall state")
-	}
-
-	if err := d.manager.Flush(); err != nil {
-		log.WithError(err).Error("flush firewall state")
 	}
 }
 

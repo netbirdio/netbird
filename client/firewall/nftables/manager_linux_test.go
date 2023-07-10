@@ -55,7 +55,7 @@ func TestNftablesManager(t *testing.T) {
 	// just check on the local interface
 	manager, err := Create(mock)
 	require.NoError(t, err)
-	time.Sleep(time.Second)
+	time.Sleep(time.Second * 3)
 
 	defer func() {
 		err = manager.Reset()
@@ -79,8 +79,12 @@ func TestNftablesManager(t *testing.T) {
 	)
 	require.NoError(t, err, "failed to add rule")
 
+	err = manager.Flush()
+	require.NoError(t, err, "failed to flush")
+
 	rules, err := testClient.GetRules(manager.tableIPv4, manager.filterInputChainIPv4)
 	require.NoError(t, err, "failed to get rules")
+
 	// test expectations:
 	// 1) regular rule
 	// 2) "accept extra routed traffic rule" for the interface
@@ -136,6 +140,9 @@ func TestNftablesManager(t *testing.T) {
 	err = manager.DeleteRule(rule)
 	require.NoError(t, err, "failed to delete rule")
 
+	err = manager.Flush()
+	require.NoError(t, err, "failed to flush")
+
 	rules, err = testClient.GetRules(manager.tableIPv4, manager.filterInputChainIPv4)
 	require.NoError(t, err, "failed to get rules")
 	// test expectations:
@@ -168,7 +175,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			// just check on the local interface
 			manager, err := Create(mock)
 			require.NoError(t, err)
-			time.Sleep(time.Second)
+			time.Sleep(time.Second * 3)
 
 			defer func() {
 				if err := manager.Reset(); err != nil {
@@ -188,7 +195,20 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 				}
 
 				require.NoError(t, err, "failed to add rule")
+
+				// please refer to client/acl/manager.go value DefaultRuleParisFlushLimit
+				// nftables has limited size of the buffer so we need to do flush periodically
+				// ACL manager only place where we know how much rules we have in the update
+				// that why we define this mimit in the ACL manager package.
+				if i%100 == 0 {
+					err = manager.Flush()
+					require.NoError(t, err, "failed to flush")
+				}
 			}
+
+			err = manager.Flush()
+			require.NoError(t, err, "failed to flush")
+
 			t.Logf("execution avg per rule: %s", time.Since(start)/time.Duration(testMax))
 		})
 	}
