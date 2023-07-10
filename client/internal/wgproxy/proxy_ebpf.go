@@ -25,9 +25,8 @@ type WGEBPFProxy struct {
 	turnConnStore map[uint16]net.Conn
 	turnConnMutex sync.Mutex
 
-	rawConn     net.PacketConn
-	conn        *net.UDPConn
-	layerBuffer gopacket.SerializeBuffer
+	rawConn net.PacketConn
+	conn    *net.UDPConn
 }
 
 // NewWGEBPFProxy create new WGEBPFProxy instance
@@ -38,7 +37,6 @@ func NewWGEBPFProxy(wgPort int) *WGEBPFProxy {
 		ebpf:              newEBPF(),
 		lastUsedPort:      0,
 		turnConnStore:     make(map[uint16]net.Conn),
-		layerBuffer:       gopacket.NewSerializeBuffer(),
 	}
 	return wgProxy
 }
@@ -236,13 +234,17 @@ func (p *WGEBPFProxy) sendPkg(data []byte, port uint16) error {
 		DstPort: layers.UDPPort(p.localWGListenPort),
 	}
 
-	if err := udpH.SetNetworkLayerForChecksum(ipH); err != nil {
-		return err
-	}
-	err := gopacket.SerializeLayers(p.layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
+	err := udpH.SetNetworkLayerForChecksum(ipH)
 	if err != nil {
 		return err
 	}
-	_, err = p.rawConn.WriteTo(p.layerBuffer.Bytes(), &net.IPAddr{IP: localhost})
+
+	layerBuffer := gopacket.NewSerializeBuffer()
+
+	err = gopacket.SerializeLayers(layerBuffer, gopacket.SerializeOptions{ComputeChecksums: true, FixLengths: true}, ipH, udpH, payload)
+	if err != nil {
+		return err
+	}
+	_, err = p.rawConn.WriteTo(layerBuffer.Bytes(), &net.IPAddr{IP: localhost})
 	return err
 }
