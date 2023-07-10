@@ -347,6 +347,10 @@ func (d *DefaultManager) squashAcceptRules(
 	in := protoMatch{}
 	out := protoMatch{}
 
+	// trace which type of protocols was squashed
+	squashedRules := []*mgmProto.FirewallRule{}
+	squashedProtocols := map[mgmProto.FirewallRuleProtocol]struct{}{}
+
 	// this function we use to do calculation, can we squash the rules by protocol or not.
 	// We summ amount of Peers IP for given protocol we found in original rules list.
 	// But we zeroed the IP's for protocol if:
@@ -363,12 +367,22 @@ func (d *DefaultManager) squashAcceptRules(
 		if _, ok := protocols[r.Protocol]; !ok {
 			protocols[r.Protocol] = map[string]int{}
 		}
-		match := protocols[r.Protocol]
 
-		if _, ok := match[r.PeerIP]; ok {
+		// special case, when we recieve this all network IP address
+		// it means that rules for that protocol was already optimized on the
+		// management side
+		if r.PeerIP == "0.0.0.0" {
+			squashedRules = append(squashedRules, r)
+			squashedProtocols[r.Protocol] = struct{}{}
 			return
 		}
-		match[r.PeerIP] = i
+
+		ipset := protocols[r.Protocol]
+
+		if _, ok := ipset[r.PeerIP]; ok {
+			return
+		}
+		ipset[r.PeerIP] = i
 	}
 
 	for i, r := range networkMap.FirewallRules {
@@ -389,9 +403,6 @@ func (d *DefaultManager) squashAcceptRules(
 		mgmProto.FirewallRule_UDP,
 	}
 
-	// trace which type of protocols was squashed
-	squashedRules := []*mgmProto.FirewallRule{}
-	squashedProtocols := map[mgmProto.FirewallRuleProtocol]struct{}{}
 	squash := func(matches protoMatch, direction mgmProto.FirewallRuleDirection) {
 		for _, protocol := range protocolOrders {
 			if ipset, ok := matches[protocol]; !ok || len(ipset) != totalIPs || len(ipset) < 2 {
