@@ -74,6 +74,8 @@ nfpms:
       - src: client/ui/disconnected.png
         dst: /usr/share/pixmaps/netbird.png
     dependencies:
+      - libappindicator-gtk3
+      - libappindicator
       - netbird
 
 uploads:
