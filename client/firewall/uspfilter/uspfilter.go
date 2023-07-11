@@ -241,20 +241,32 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isInco
 		}
 	}
 
-	if len(rules["0.0.0.0"]) > 0 || len(rules["::"]) > 0 {
-		return false
+	filter, ok := validateRule(ip, packetData, rules[ip.String()], d)
+	if ok {
+		return filter
+	}
+	filter, ok = validateRule(ip, packetData, rules["0.0.0.0"], d)
+	if ok {
+		return filter
+	}
+	filter, ok = validateRule(ip, packetData, rules["::"], d)
+	if ok {
+		return filter
 	}
 
-	payloadLayer := d.decoded[1]
+	// default policy is DROP ALL
+	return true
+}
 
-	// check if IP address match by IP
-	for _, rule := range rules[ip.String()] {
+func validateRule(ip net.IP, packetData []byte, rules map[string]Rule, d *decoder) (bool, bool) {
+	payloadLayer := d.decoded[1]
+	for _, rule := range rules {
 		if rule.matchByIP && !ip.Equal(rule.ip) {
 			continue
 		}
 
 		if rule.protoLayer == layerTypeAll {
-			return rule.drop
+			return rule.drop, true
 		}
 
 		if payloadLayer != rule.protoLayer {
@@ -264,38 +276,36 @@ func (m *Manager) dropFilter(packetData []byte, rules map[string]RuleSet, isInco
 		switch payloadLayer {
 		case layers.LayerTypeTCP:
 			if rule.sPort == 0 && rule.dPort == 0 {
-				return rule.drop
+				return rule.drop, true
 			}
 			if rule.sPort != 0 && rule.sPort == uint16(d.tcp.SrcPort) {
-				return rule.drop
+				return rule.drop, true
 			}
 			if rule.dPort != 0 && rule.dPort == uint16(d.tcp.DstPort) {
-				return rule.drop
+				return rule.drop, true
 			}
 		case layers.LayerTypeUDP:
 			// if rule has UDP hook (and if we are here we match this rule)
 			// we ignore rule.drop and call this hook
 			if rule.udpHook != nil {
-				return rule.udpHook(packetData)
+				return rule.udpHook(packetData), true
 			}
 
 			if rule.sPort == 0 && rule.dPort == 0 {
-				return rule.drop
+				return rule.drop, true
 			}
 			if rule.sPort != 0 && rule.sPort == uint16(d.udp.SrcPort) {
-				return rule.drop
+				return rule.drop, true
 			}
 			if rule.dPort != 0 && rule.dPort == uint16(d.udp.DstPort) {
-				return rule.drop
+				return rule.drop, true
 			}
-			return rule.drop
+			return rule.drop, true
 		case layers.LayerTypeICMPv4, layers.LayerTypeICMPv6:
-			return rule.drop
+			return rule.drop, true
 		}
 	}
-
-	// default policy is DROP ALL
-	return true
+	return false, false
 }
 
 // SetNetwork of the wireguard interface to which filtering applied
