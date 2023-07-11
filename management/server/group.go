@@ -1,10 +1,22 @@
 package server
 
 import (
+	"fmt"
+
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-	log "github.com/sirupsen/logrus"
 )
+
+type GroupLinkError struct {
+	Resource string
+	Name     string
+}
+
+func (e *GroupLinkError) Error() string {
+	return fmt.Sprintf("group has been linked to %s: %s", e.Resource, e.Name)
+}
 
 // Group of the peers for ACL
 type Group struct {
@@ -210,6 +222,79 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 	account, err := am.Store.GetAccount(accountID)
 	if err != nil {
 		return err
+	}
+
+	_, ok := account.Groups[groupID]
+	if !ok {
+		return nil
+	}
+
+	// check route links
+	for _, r := range account.Routes {
+		for _, g := range r.Groups {
+			if g == groupID {
+				return &GroupLinkError{"route", r.NetID}
+			}
+		}
+	}
+
+	// check DNS links
+	for _, dns := range account.NameServerGroups {
+		for _, g := range dns.Groups {
+			if g == groupID {
+				return &GroupLinkError{"DNS", dns.Name}
+			}
+		}
+	}
+
+	// check ACL links
+	for _, policy := range account.Policies {
+		for _, rule := range policy.Rules {
+			for _, src := range rule.Sources {
+				if src == groupID {
+					return &GroupLinkError{"policy", policy.Name}
+				}
+			}
+
+			for _, dst := range rule.Destinations {
+				if dst == groupID {
+					return &GroupLinkError{"policy", policy.Name}
+				}
+			}
+		}
+	}
+
+	// check rule links
+	for _, rule := range account.Rules {
+		for _, src := range rule.Source {
+			if src == groupID {
+				return &GroupLinkError{"rule", rule.Name}
+			}
+		}
+
+		for _, dst := range rule.Destination {
+			if dst == groupID {
+				return &GroupLinkError{"rule", rule.Name}
+			}
+		}
+	}
+
+	// check setup key links
+	for _, setupKey := range account.SetupKeys {
+		for _, grp := range setupKey.AutoGroups {
+			if grp == groupID {
+				return &GroupLinkError{"setup key", setupKey.Name}
+			}
+		}
+	}
+
+	// check user links
+	for _, user := range account.Users {
+		for _, grp := range user.AutoGroups {
+			if grp == groupID {
+				return &GroupLinkError{"user", user.Id}
+			}
+		}
 	}
 
 	delete(account.Groups, groupID)

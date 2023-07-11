@@ -194,6 +194,11 @@ func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 
 	err = h.accountManager.DeleteGroup(aID, groupID)
 	if err != nil {
+		_, ok := err.(*server.GroupLinkError)
+		if ok {
+			util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
+			return
+		}
 		util.WriteError(err, w)
 		return
 	}
