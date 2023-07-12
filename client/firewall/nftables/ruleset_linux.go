@@ -8,6 +8,7 @@ import (
 	"github.com/rs/xid"
 )
 
+// nftRuleset links native firewall rule and ipset to ACL generated rules
 type nftRuleset struct {
 	nftRule     *nftables.Rule
 	nftSet      *nftables.Set
@@ -96,6 +97,10 @@ func (r *rulesetManager) deleteRule(rule *Rule) bool {
 	return true
 }
 
+// setNftRuleHandle finds rule by userdata which contains rulesetID and updates it's handle number
+//
+// This is important to do, because after we add rule to the nftables we can't update it until
+// we set correct handle value to it.
 func (r *rulesetManager) setNftRuleHandle(nftRule *nftables.Rule) error {
 	split := bytes.Split(nftRule.UserData, []byte(" "))
 	ruleset, ok := r.rulesets[string(split[0])]

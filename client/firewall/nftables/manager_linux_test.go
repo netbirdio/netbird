@@ -196,18 +196,15 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 
 				require.NoError(t, err, "failed to add rule")
 
-				// please refer to client/acl/manager.go value DefaultRuleParisFlushLimit
+				// please refer to client/acl/manager.go value DefaultRulePairsFlushLimit
 				// nftables has limited size of the buffer so we need to do flush periodically
-				// ACL manager only place where we know how much rules we have in the update
-				// that why we define this mimit in the ACL manager package.
+				// ACL manager is only place where we know how much rules we have in the update
+				// that why we define this limit in the ACL manager package.
 				if i%100 == 0 {
 					err = manager.Flush()
 					require.NoError(t, err, "failed to flush")
 				}
 			}
-
-			err = manager.Flush()
-			require.NoError(t, err, "failed to flush")
 
 			t.Logf("execution avg per rule: %s", time.Since(start)/time.Duration(testMax))
 		})

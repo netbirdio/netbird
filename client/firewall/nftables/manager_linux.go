@@ -30,7 +30,7 @@ const (
 	FilterOutputChainName = "netbird-acl-output-filter"
 )
 
-var anyIPSecuence = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+var anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
 // Manager of iptables firewall
 type Manager struct {
@@ -194,7 +194,7 @@ func (m *Manager) AddFiltering(
 
 	// check if rawIP contains zeroed IPv4 0.0.0.0 or same IVv6 value
 	// in that case not add IP match expression into the rule definition
-	if !bytes.HasPrefix(anyIPSecuence, rawIP) {
+	if !bytes.HasPrefix(anyIP, rawIP) {
 		// source address position
 		adrLen := uint32(len(rawIP))
 		adrOffset := uint32(12)
@@ -304,7 +304,7 @@ func (m *Manager) getOrCreateSet(
 		if len(rawIP) == 16 {
 			keyType = nftables.TypeIP6Addr
 		}
-		// // else we create new ipset and continue creating rule
+		// else we create new ipset and continue creating rule
 		ipset = &nftables.Set{
 			Name:    name,
 			Table:   table,
@@ -547,12 +547,17 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 	}
 
 	if m.rulesetManager.deleteRule(nativeRule) {
+		// deleteRule indicates that we still have IP in the ruleset
+		// it means we should not remove the nftables rule but need to update set
+		// so we prepare IP to be removed from set on the next flush call
 		if nativeRule.nftSet != nil {
+			// call twice of delete set element raises error
+			// so we need to check if element is already removed
 			key := fmt.Sprintf("%s:%v", nativeRule.nftSet.Name, nativeRule.ip)
 			if _, ok := m.setRemovedIPs[key]; !ok {
 				err := m.conn.SetDeleteElements(nativeRule.nftSet, []nftables.SetElement{{Key: nativeRule.ip}})
 				if err != nil {
-					log.Errorf("set delete elements for set, for set %q: %v", nativeRule.nftSet.Name, err)
+					log.Errorf("delete elements for set %q: %v", nativeRule.nftSet.Name, err)
 				}
 				m.setRemovedIPs[key] = struct{}{}
 			}
@@ -560,6 +565,7 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		return nil
 	}
 
+	// ruleset doesn't contain IP anymore (or contains only one), remove nft rule
 	if err := m.conn.DelRule(nativeRule.nftRule); err != nil {
 		log.Errorf("failed to delete rule: %v", err)
 	}
@@ -567,8 +573,8 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 
 	if nativeRule.nftSet != nil {
 		m.conn.DelSet(nativeRule.nftSet)
+		nativeRule.nftSet = nil
 	}
-	nativeRule.nftSet = nil
 	return nil
 }
 

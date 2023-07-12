@@ -22,10 +22,10 @@ const (
 	// SET's in firewall manager (which supports it) for that type of rule.
 	DefaultIPsCountForSet = 3
 
-	// DefaultRuleParisFlushLimit defines default limit of rules pairs to flush to firewall manager
+	// DefaultRulePairsFlushLimit defines default limit of rules pairs to flush to firewall manager
 	// this limit was chosen empirically, please refer to test in the nftables manager package
 	// it defines ~100 (50*2) rules per flush limit
-	DefaultRuleParisFlushLimit = 50
+	DefaultRulePairsFlushLimit = 50
 )
 
 // IFaceMapper defines subset methods of interface required for manager
@@ -136,14 +136,14 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 	// to do that we use rule selector (which is just rule properties without IP's)
 	ipsetByRuleSelectors := make(map[string]ipsetInfo)
 	for _, r := range rules {
-		si := ipsetByRuleSelectors[d.getRuleGroupingSelector(r)]
-		if si.name == "" {
+		ipset := ipsetByRuleSelectors[d.getRuleGroupingSelector(r)]
+		if ipset.name == "" {
 			// nftables Set name has limitation up to 16 chars
 			d.ipsetCounter++
-			si.name = fmt.Sprintf("nb%07d", d.ipsetCounter)
+			ipset.name = fmt.Sprintf("nb%07d", d.ipsetCounter)
 		}
-		si.ipCount++
-		ipsetByRuleSelectors[d.getRuleGroupingSelector(r)] = si
+		ipset.ipCount++
+		ipsetByRuleSelectors[d.getRuleGroupingSelector(r)] = ipset
 	}
 
 	for i, r := range rules {
@@ -161,7 +161,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 			break
 		}
 		newRulePairs[pairID] = rulePair
-		if i%DefaultRuleParisFlushLimit == 0 {
+		if i%DefaultRulePairsFlushLimit == 0 {
 			if err := d.manager.Flush(); err != nil {
 				log.Errorf("failed to flush firewall rules: %v", err)
 				applyFailed = true
