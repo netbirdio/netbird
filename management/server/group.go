@@ -215,6 +215,7 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 }
 
 // DeleteGroup object of the peers
+// todo: what will be account.dnsSettings.DisabledManagementGroups
 func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
@@ -242,7 +243,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 	for _, dns := range account.NameServerGroups {
 		for _, g := range dns.Groups {
 			if g == groupID {
-				return &GroupLinkError{"DNS", dns.Name}
+				return &GroupLinkError{"name server groups", dns.Name}
 			}
 		}
 	}
