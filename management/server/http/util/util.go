@@ -13,6 +13,11 @@ import (
 	"github.com/netbirdio/netbird/management/server/status"
 )
 
+type ErrorResponse struct {
+	Message string `json:"message"`
+	Code    int    `json:"code"`
+}
+
 // WriteJSONObject simply writes object to the HTTP reponse in JSON format
 func WriteJSONObject(w http.ResponseWriter, obj interface{}) {
 	w.WriteHeader(http.StatusOK)
@@ -58,14 +63,9 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // WriteErrorResponse prepares and writes an error response i nJSON
 func WriteErrorResponse(errMsg string, httpStatus int, w http.ResponseWriter) {
-	type errorResponse struct {
-		Message string `json:"message"`
-		Code    int    `json:"code"`
-	}
-
 	w.WriteHeader(httpStatus)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	err := json.NewEncoder(w).Encode(&errorResponse{
+	err := json.NewEncoder(w).Encode(&ErrorResponse{
 		Message: errMsg,
 		Code:    httpStatus,
 	})
