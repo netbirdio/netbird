@@ -283,6 +283,13 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 		}
 	}
 
+	// check DisabledManagementGroups
+	for _, disabledMgmGrp := range account.DNSSettings.DisabledManagementGroups {
+		if disabledMgmGrp == groupID {
+			return &GroupLinkError{"disabled management groups", disabledMgmGrp}
+		}
+	}
+
 	delete(account.Groups, groupID)
 
 	account.Network.IncSerial()
