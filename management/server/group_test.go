@@ -43,11 +43,6 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 			"policy",
 		},
 		{
-			"rules",
-			"grp-for-rules",
-			"rule",
-		},
-		{
 			"setup keys",
 			"grp-for-keys",
 			"setup key",
@@ -104,13 +99,6 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 		make([]string, 0),
 	}
 
-	groupForRules := &Group{
-		"grp-for-rules",
-		"Group for rules",
-		GroupIssuedAPI,
-		make([]string, 0),
-	}
-
 	groupForSetupKeys := &Group{
 		"grp-for-keys",
 		"Group for setup keys",
@@ -145,11 +133,6 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 		},
 	}
 
-	rule := &Rule{
-		ID:          "example rule",
-		Destination: []string{groupForRules.ID},
-	}
-
 	setupKey := &SetupKey{
 		Id:         "example setup key",
 		AutoGroups: []string{groupForSetupKeys.ID},
@@ -163,7 +146,6 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	account.Routes[routeResource.ID] = routeResource
 	account.NameServerGroups[nameServerGroup.ID] = nameServerGroup
 	account.Policies = append(account.Policies, policy)
-	account.Rules[rule.ID] = rule
 	account.SetupKeys[setupKey.Id] = setupKey
 	account.Users[user.Id] = user
 
@@ -175,7 +157,6 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForRoute)
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForNameServerGroups)
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForPolicies)
-	_ = am.SaveGroup(accountID, groupAdminUserID, groupForRules)
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForSetupKeys)
 	_ = am.SaveGroup(accountID, groupAdminUserID, groupForUsers)
 

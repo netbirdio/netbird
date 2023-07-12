@@ -265,21 +265,6 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 		}
 	}
 
-	// check rule links
-	for _, rule := range account.Rules {
-		for _, src := range rule.Source {
-			if src == groupID {
-				return &GroupLinkError{"rule", rule.Name}
-			}
-		}
-
-		for _, dst := range rule.Destination {
-			if dst == groupID {
-				return &GroupLinkError{"rule", rule.Name}
-			}
-		}
-	}
-
 	// check setup key links
 	for _, setupKey := range account.SetupKeys {
 		for _, grp := range setupKey.AutoGroups {
