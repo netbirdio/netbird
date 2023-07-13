@@ -419,7 +419,6 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 	}
 
 	expectedFlowInfo := &proto.PKCEAuthorizationFlow{
-		Provider: "provider",
 		ProviderConfig: &proto.ProviderConfig{
 			ClientID:     "client",
 			ClientSecret: "secret",
@@ -444,7 +443,6 @@ func Test_GetPKCEAuthorizationFlow(t *testing.T) {
 		t.Error("error while retrieving pkce auth flow information")
 	}
 
-	assert.Equal(t, expectedFlowInfo.Provider, flowInfo.Provider, "provider should match")
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientID, flowInfo.ProviderConfig.ClientID, "provider configured client ID should match")
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientSecret, flowInfo.ProviderConfig.ClientSecret, "provider configured client secret should match")
 }

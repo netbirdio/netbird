@@ -562,19 +562,19 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 		return nil, status.Error(codes.InvalidArgument, errMSG)
 	}
 
-	if s.config.IdpManagerConfig == nil || s.config.IdpManagerConfig.ClientConfig == nil {
+	if s.config.PKCEAuthorizationFlow == nil {
 		return nil, status.Error(codes.NotFound, "no pkce authorization flow information available")
 	}
 
-	// TODO: load additional config from config once available. AuthEndpoint, scopes
 	flowInfoResp := &proto.PKCEAuthorizationFlow{
-		Provider: s.config.IdpManagerConfig.ManagerType,
 		ProviderConfig: &proto.ProviderConfig{
-			ClientID:      s.config.IdpManagerConfig.ClientConfig.ClientID,
-			ClientSecret:  s.config.IdpManagerConfig.ClientConfig.ClientSecret,
-			Audience:      s.config.IdpManagerConfig.ClientConfig.Issuer,
-			TokenEndpoint: s.config.IdpManagerConfig.ClientConfig.TokenEndpoint,
-			Scope:         "scopes",
+			Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
+			ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
+			ClientSecret:          s.config.PKCEAuthorizationFlow.ProviderConfig.ClientSecret,
+			TokenEndpoint:         s.config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint,
+			AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
+			Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
+			RedirectURL:           s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURL,
 		},
 	}
 

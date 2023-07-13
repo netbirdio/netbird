@@ -251,12 +251,10 @@ message PKCEAuthorizationFlowRequest {}
 // that can be used by the client to login initiate a Oauth 2.0 authorization code grant flow
 // with Proof Key for Code Exchange (PKCE). See https://datatracker.ietf.org/doc/html/rfc7636
 message PKCEAuthorizationFlow {
-  // An IDP provider , (eg. Auth0)
-  string Provider = 1;
-  ProviderConfig ProviderConfig = 2;
+  ProviderConfig ProviderConfig = 1;
 }
 
-// ProviderConfig has all attributes needed to initiate a device authorization flow
+// ProviderConfig has all attributes needed to initiate a device/pkce authorization flow
 message ProviderConfig {
   // An IDP application client id
   string ClientID = 1;
@@ -269,12 +267,16 @@ message ProviderConfig {
   string Audience = 4;
   // DeviceAuthEndpoint is an endpoint to request device authentication code.
   string DeviceAuthEndpoint = 5;
+  // AuthorizationEndpoint is the endpoint of an IDP manager where clients can obtain authorization code.
+  string AuthorizationEndpoint = 6;
   // TokenEndpoint is an endpoint to request auth token.
-  string TokenEndpoint = 6;
+  string TokenEndpoint = 7;
   // Scopes provides the scopes to be included in the token request
-  string Scope = 7;
+  string Scope = 8;
   // UseIDToken indicates if the id token should be used for authentication
-  bool UseIDToken = 8;
+  bool UseIDToken = 9;
+  // RedirectURL handles authorization code from IDP manager
+  string RedirectURL = 10;
 }
 
 // Route represents a route.Route object
