@@ -63,7 +63,22 @@ func TestGetConfig(t *testing.T) {
 	assert.Equal(t, config.ManagementURL.String(), managementURL)
 	assert.Equal(t, config.PreSharedKey, preSharedKey)
 
-	// case 4: existing config, but new managementURL has been provided -> update config
+	// case 4: new empty pre-shared key config -> fetch it
+	newPreSharedKey := ""
+	config, err = UpdateOrCreateConfig(ConfigInput{
+		ManagementURL: managementURL,
+		AdminURL:      adminURL,
+		ConfigPath:    path,
+		PreSharedKey:  &newPreSharedKey,
+	})
+	if err != nil {
+		return
+	}
+
+	assert.Equal(t, config.ManagementURL.String(), managementURL)
+	assert.Equal(t, config.PreSharedKey, preSharedKey)
+
+	// case 5: existing config, but new managementURL has been provided -> update config
 	newManagementURL := "https://test.newManagement.url:33071"
 	config, err = UpdateOrCreateConfig(ConfigInput{
 		ManagementURL: newManagementURL,
