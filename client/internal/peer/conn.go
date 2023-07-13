@@ -379,7 +379,9 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 
 	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
-		// todo remove from proxy
+		if conn.wgProxy != nil {
+			_ = conn.wgProxy.CloseConn()
+		}
 		return nil, err
 	}
 
