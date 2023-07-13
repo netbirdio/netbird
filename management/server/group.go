@@ -225,7 +225,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 		return err
 	}
 
-	_, ok := account.Groups[groupID]
+	g, ok := account.Groups[groupID]
 	if !ok {
 		return nil
 	}
@@ -286,7 +286,7 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 	// check DisabledManagementGroups
 	for _, disabledMgmGrp := range account.DNSSettings.DisabledManagementGroups {
 		if disabledMgmGrp == groupID {
-			return &GroupLinkError{"disabled management groups", disabledMgmGrp}
+			return &GroupLinkError{"disabled DNS management groups", g.Name}
 		}
 	}
 
