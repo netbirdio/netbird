@@ -92,7 +92,7 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandle
 					},
 				}, user, nil
 			},
-			DeleteGroupFunc: func(accountID, groupID string) error {
+			DeleteGroupFunc: func(accountID, userId, groupID string) error {
 				if groupID == "linked-grp" {
 					return &server.GroupLinkError{
 						Resource: "something",

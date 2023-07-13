@@ -32,7 +32,7 @@ type MockAccountManager struct {
 	GetGroupFunc                    func(accountID, groupID string) (*server.Group, error)
 	SaveGroupFunc                   func(accountID, userID string, group *server.Group) error
 	UpdateGroupFunc                 func(accountID string, groupID string, operations []server.GroupUpdateOperation) (*server.Group, error)
-	DeleteGroupFunc                 func(accountID, groupID string) error
+	DeleteGroupFunc                 func(accountID, userId, groupID string) error
 	ListGroupsFunc                  func(accountID string) ([]*server.Group, error)
 	GroupAddPeerFunc                func(accountID, groupID, peerKey string) error
 	GroupDeletePeerFunc             func(accountID, groupID, peerKey string) error
@@ -275,9 +275,9 @@ func (am *MockAccountManager) UpdateGroup(accountID string, groupID string, oper
 }
 
 // DeleteGroup mock implementation of DeleteGroup from server.AccountManager interface
-func (am *MockAccountManager) DeleteGroup(accountID, groupID string) error {
+func (am *MockAccountManager) DeleteGroup(accountId, userId, groupID string) error {
 	if am.DeleteGroupFunc != nil {
-		return am.DeleteGroupFunc(accountID, groupID)
+		return am.DeleteGroupFunc(accountId, userId, groupID)
 	}
 	return status.Errorf(codes.Unimplemented, "method DeleteGroup is not implemented")
 }

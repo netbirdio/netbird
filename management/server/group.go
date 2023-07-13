@@ -215,12 +215,11 @@ func (am *DefaultAccountManager) UpdateGroup(accountID string,
 }
 
 // DeleteGroup object of the peers
-// todo: what will be account.dnsSettings.DisabledManagementGroups
-func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
-	unlock := am.Store.AcquireAccountLock(accountID)
+func (am *DefaultAccountManager) DeleteGroup(accountId, userId, groupID string) error {
+	unlock := am.Store.AcquireAccountLock(accountId)
 	defer unlock()
 
-	account, err := am.Store.GetAccount(accountID)
+	account, err := am.Store.GetAccount(accountId)
 	if err != nil {
 		return err
 	}
@@ -296,6 +295,8 @@ func (am *DefaultAccountManager) DeleteGroup(accountID, groupID string) error {
 	if err = am.Store.SaveAccount(account); err != nil {
 		return err
 	}
+
+	am.storeEvent(userId, groupID, accountId, activity.GroupDeleted, g.EventMeta())
 
 	return am.updateAccountPeers(account)
 }

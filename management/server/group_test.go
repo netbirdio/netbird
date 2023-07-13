@@ -56,7 +56,7 @@ func TestDefaultAccountManager_DeleteGroup(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			err = am.DeleteGroup(account.Id, testCase.groupID)
+			err = am.DeleteGroup(account.Id, "", testCase.groupID)
 			if err == nil {
 				t.Errorf("delete %s group successfully", testCase.groupID)
 				return
