@@ -168,7 +168,7 @@ func (h *GroupsHandler) CreateGroup(w http.ResponseWriter, r *http.Request) {
 // DeleteGroup handles group deletion request
 func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 	claims := h.claimsExtractor.FromRequestContext(r)
-	account, _, err := h.accountManager.GetAccountFromToken(claims)
+	account, user, err := h.accountManager.GetAccountFromToken(claims)
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -192,8 +192,13 @@ func (h *GroupsHandler) DeleteGroup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.accountManager.DeleteGroup(aID, groupID)
+	err = h.accountManager.DeleteGroup(aID, user.Id, groupID)
 	if err != nil {
+		_, ok := err.(*server.GroupLinkError)
+		if ok {
+			util.WriteErrorResponse(err.Error(), http.StatusBadRequest, w)
+			return
+		}
 		util.WriteError(err, w)
 		return
 	}

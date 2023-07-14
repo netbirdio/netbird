@@ -95,6 +95,8 @@ const (
 	UserBlocked
 	// UserUnblocked indicates that a user unblocked another user
 	UserUnblocked
+	// GroupDeleted indicates that a user deleted group
+	GroupDeleted
 )
 
 const (
@@ -192,6 +194,8 @@ const (
 	UserBlockedMessage string = "User blocked"
 	// UserUnblockedMessage is a human-readable text message of the UserUnblocked activity
 	UserUnblockedMessage string = "User unblocked"
+	// GroupDeletedMessage is a human-readable text message of the GroupDeleted activity
+	GroupDeletedMessage string = "Group deleted"
 )
 
 // Activity that triggered an Event
@@ -294,6 +298,8 @@ func (a Activity) Message() string {
 		return UserBlockedMessage
 	case UserUnblocked:
 		return UserUnblockedMessage
+	case GroupDeleted:
+		return GroupDeletedMessage
 	default:
 		return "UNKNOWN_ACTIVITY"
 	}
@@ -342,6 +348,8 @@ func (a Activity) StringCode() string {
 		return "group.add"
 	case GroupUpdated:
 		return "group.update"
+	case GroupDeleted:
+		return "group.delete"
 	case GroupRemovedFromPeer:
 		return "peer.group.delete"
 	case GroupAddedToPeer:
