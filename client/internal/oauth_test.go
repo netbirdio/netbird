@@ -114,7 +114,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				providerConfig: ProviderConfig{
+				providerConfig: DeviceAuthProviderConfig{
 					Audience:           expectedAudience,
 					ClientID:           expectedClientID,
 					Scope:              expectedScope,
@@ -279,7 +279,7 @@ func TestHosted_WaitToken(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				providerConfig: ProviderConfig{
+				providerConfig: DeviceAuthProviderConfig{
 					Audience:           testCase.inputAudience,
 					ClientID:           clientID,
 					TokenEndpoint:      "test.hosted.com/token",

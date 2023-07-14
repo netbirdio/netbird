@@ -43,7 +43,7 @@ const (
 
 // Hosted client
 type Hosted struct {
-	providerConfig ProviderConfig
+	providerConfig DeviceAuthProviderConfig
 
 	HTTPClient HTTPClient
 }
@@ -94,7 +94,7 @@ func (t TokenInfo) GetTokenToUse() string {
 }
 
 // NewHostedDeviceFlow returns an Hosted OAuth client
-func NewHostedDeviceFlow(config ProviderConfig) *Hosted {
+func NewHostedDeviceFlow(config DeviceAuthProviderConfig) *Hosted {
 	httpTransport := http.DefaultTransport.(*http.Transport).Clone()
 	httpTransport.MaxIdleConns = 5
 
