@@ -34,6 +34,7 @@ func newTunDevice(address WGAddress, mtu int, tunAdapter TunAdapter, transportNe
 }
 
 func (t *tunDevice) Create(mIFaceArgs MobileIFaceArguments) error {
+	log.Info("create tun interface")
 	var err error
 	routesString := t.routesToString(mIFaceArgs.Routes)
 	t.fd, err = t.tunAdapter.ConfigureInterface(t.address.String(), t.mtu, mIFaceArgs.Dns, routesString)

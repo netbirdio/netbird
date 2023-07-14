@@ -31,6 +31,11 @@ func (m *MockServer) DnsIP() string {
 	return ""
 }
 
+func (m *MockServer) OnUpdatedHostDNSServer(strings []string) {
+	//TODO implement me
+	panic("implement me")
+}
+
 // UpdateDNSServer mock implementation of UpdateDNSServer from Server interface
 func (m *MockServer) UpdateDNSServer(serial uint64, update nbdns.Config) error {
 	if m.UpdateDNSServerFunc != nil {
