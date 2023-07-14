@@ -1,5 +1,7 @@
 package android
 
+import "fmt"
+
 // DNSList is a wrapper of []string
 type DNSList struct {
 	items []string
@@ -11,8 +13,11 @@ func (array *DNSList) Add(s string) {
 }
 
 // Get return an element of the collection
-func (array *DNSList) Get(i int) string {
-	return array.items[i]
+func (array *DNSList) Get(i int) (string, error) {
+	if i >= len(array.items) || i < 0 {
+		return "", fmt.Errorf("out of range")
+	}
+	return array.items[i], nil
 }
 
 // Size return with the size of the collection
