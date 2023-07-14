@@ -1083,7 +1083,10 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 			}
 		}()
 
-		if err := manager.DeleteGroup(account.Id, group.ID); err != nil {
+		// clean policy is pre requirement for delete group
+		_ = manager.DeletePolicy(account.Id, policy.ID, userID)
+
+		if err := manager.DeleteGroup(account.Id, "", group.ID); err != nil {
 			t.Errorf("delete group: %v", err)
 			return
 		}

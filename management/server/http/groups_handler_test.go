@@ -11,17 +11,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/netbirdio/netbird/management/server/http/api"
-	"github.com/netbirdio/netbird/management/server/status"
-
 	"github.com/gorilla/mux"
-
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-
 	"github.com/magiconair/properties/assert"
 
 	"github.com/netbirdio/netbird/management/server"
+	"github.com/netbirdio/netbird/management/server/http/api"
+	"github.com/netbirdio/netbird/management/server/http/util"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	"github.com/netbirdio/netbird/management/server/mock_server"
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 var TestPeers = map[string]*server.Peer{
@@ -93,6 +91,18 @@ func initGroupTestData(user *server.User, groups ...*server.Group) *GroupsHandle
 						"id-all":       {ID: "id-all", Name: "All", Issued: server.GroupIssuedAPI},
 					},
 				}, user, nil
+			},
+			DeleteGroupFunc: func(accountID, userId, groupID string) error {
+				if groupID == "linked-grp" {
+					return &server.GroupLinkError{
+						Resource: "something",
+						Name:     "linked-grp",
+					}
+				}
+				if groupID == "invalid-grp" {
+					return fmt.Errorf("internal error")
+				}
+				return nil
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -294,6 +304,82 @@ func TestWriteGroup(t *testing.T) {
 				t.Fatalf("Sent content is not in correct json format; %v", err)
 			}
 			assert.Equal(t, got, tc.expectedGroup)
+		})
+	}
+}
+
+func TestDeleteGroup(t *testing.T) {
+	tt := []struct {
+		name           string
+		expectedStatus int
+		expectedBody   bool
+		requestType    string
+		requestPath    string
+	}{
+		{
+			name:           "Try to delete linked group",
+			requestType:    http.MethodDelete,
+			requestPath:    "/api/groups/linked-grp",
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   true,
+		},
+		{
+			name:           "Try to cause internal error",
+			requestType:    http.MethodDelete,
+			requestPath:    "/api/groups/invalid-grp",
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   true,
+		},
+		{
+			name:           "Try to cause internal error",
+			requestType:    http.MethodDelete,
+			requestPath:    "/api/groups/invalid-grp",
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   true,
+		},
+		{
+			name:           "Delete group",
+			requestType:    http.MethodDelete,
+			requestPath:    "/api/groups/any-grp",
+			expectedStatus: http.StatusOK,
+			expectedBody:   false,
+		},
+	}
+
+	adminUser := server.NewAdminUser("test_user")
+	p := initGroupTestData(adminUser)
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			req := httptest.NewRequest(tc.requestType, tc.requestPath, nil)
+
+			router := mux.NewRouter()
+			router.HandleFunc("/api/groups/{groupId}", p.DeleteGroup).Methods("DELETE")
+			router.ServeHTTP(recorder, req)
+
+			res := recorder.Result()
+			defer res.Body.Close()
+
+			content, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatalf("I don't know what I expected; %v", err)
+			}
+
+			if status := recorder.Code; status != tc.expectedStatus {
+				t.Errorf("handler returned wrong status code: got %v want %v, content: %s",
+					status, tc.expectedStatus, string(content))
+				return
+			}
+
+			if tc.expectedBody {
+				got := &util.ErrorResponse{}
+
+				if err = json.Unmarshal(content, &got); err != nil {
+					t.Fatalf("Sent content is not in correct json format; %v", err)
+				}
+				assert.Equal(t, got.Code, tc.expectedStatus)
+			}
 		})
 	}
 }
