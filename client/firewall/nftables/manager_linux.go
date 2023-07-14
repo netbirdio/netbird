@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
@@ -642,18 +643,21 @@ func (m *Manager) Flush() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if err := m.conn.Flush(); err != nil {
+	if err := m.flushWithBackoff(); err != nil {
 		return err
 	}
 
 	// set must be removed after flush rule changes
 	// otherwise we will get error
 	for _, s := range m.setRemoved {
+		m.conn.FlushSet(s)
 		m.conn.DelSet(s)
 	}
 
-	if err := m.conn.Flush(); err != nil {
-		return err
+	if len(m.setRemoved) > 0 {
+		if err := m.flushWithBackoff(); err != nil {
+			return err
+		}
 	}
 
 	m.setRemovedIPs = map[string]struct{}{}
@@ -676,6 +680,28 @@ func (m *Manager) Flush() error {
 	}
 
 	return nil
+}
+
+func (m *Manager) flushWithBackoff() (err error) {
+	backoff := 4
+	backoffTime := 1000 * time.Millisecond
+	for i := 0; ; i++ {
+		err = m.conn.Flush()
+		if err != nil {
+			if !strings.Contains(err.Error(), "busy") {
+				return
+			}
+			log.Error("failed to flush nftables, retrying...")
+			if i == backoff-1 {
+				return err
+			}
+			time.Sleep(backoffTime)
+			backoffTime = backoffTime * 2
+			continue
+		}
+		break
+	}
+	return
 }
 
 func (m *Manager) refreshRuleHandles(table *nftables.Table, chain *nftables.Chain) error {

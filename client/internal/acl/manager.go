@@ -21,7 +21,7 @@ const (
 	// DefaultRulePairsFlushLimit defines default limit of rules pairs to flush to firewall manager
 	// this limit was chosen empirically, please refer to test in the nftables manager package
 	// it defines ~100 (50*2) rules per flush limit
-	DefaultRulePairsFlushLimit = 50
+	DefaultRulePairsFlushLimit = 100
 )
 
 // IFaceMapper defines subset methods of interface required for manager
