@@ -17,7 +17,7 @@ func TestDNSList_Get(t *testing.T) {
 		t.Errorf("expected error but got nil")
 	}
 
-	_, err = l.Get(-1)
+	_, err = l.Get(1)
 	if err == nil {
 		t.Errorf("expected error but got nil")
 	}
