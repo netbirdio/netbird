@@ -14,8 +14,6 @@ import (
 	"github.com/hashicorp/go-version"
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -72,7 +70,7 @@ func (s networkManagerConnSettings) cleanDeprecatedSettings() {
 	}
 }
 
-func newNetworkManagerDbusConfigurator(wgInterface *iface.WGIface) (hostManager, error) {
+func newNetworkManagerDbusConfigurator(wgInterface WGIface) (hostManager, error) {
 	obj, closeConn, err := getDbusObject(networkManagerDest, networkManagerDbusObjectNode)
 	if err != nil {
 		return nil, err

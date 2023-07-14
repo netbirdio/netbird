@@ -12,14 +12,14 @@ import (
 
 func (c *tunDevice) Create() error {
 	if WireGuardModuleIsLoaded() {
-		log.Info("using kernel WireGuard")
+		log.Infof("create tun interface with kernel WireGuard support: %s", c.DeviceName())
 		return c.createWithKernel()
 	}
 
 	if !tunModuleIsLoaded() {
 		return fmt.Errorf("couldn't check or load tun module")
 	}
-	log.Info("using userspace WireGuard")
+	log.Infof("create tun interface with userspace WireGuard support: %s", c.DeviceName())
 	var err error
 	c.netInterface, err = c.createWithUserspace()
 	if err != nil {
