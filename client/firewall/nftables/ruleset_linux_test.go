@@ -101,7 +101,7 @@ func TestRulesetManager_setNftRuleHandle(t *testing.T) {
 	require.Equal(t, nftRule.Handle, uint64(2), "nftRule.Handle is incorrect")
 }
 
-func TestRulesetManager_getRulesetBySetID(t *testing.T) {
+func TestRulesetManager_getRuleset(t *testing.T) {
 	// Create a ruleset manager.
 	rulesetManager := newRuleManager()
 	// Create a ruleset.
@@ -113,10 +113,10 @@ func TestRulesetManager_getRulesetBySetID(t *testing.T) {
 	ruleset := rulesetManager.createRuleset(rulesetID, &nftRule, &nftSet)
 	require.NotNil(t, ruleset, "createRuleset() failed")
 
-	find, ok := rulesetManager.getRulesetBySetID(nftSet.ID)
-	require.True(t, ok, "getRulesetBySetID() failed")
+	find, ok := rulesetManager.getRuleset(rulesetID)
+	require.True(t, ok, "getRuleset() failed")
 	require.Equal(t, ruleset, find, "getRulesetBySetID() failed")
 
-	_, ok = rulesetManager.getRulesetBySetID(3)
-	require.False(t, ok, "getRulesetBySetID() failed")
+	_, ok = rulesetManager.getRuleset("does-not-exist")
+	require.False(t, ok, "getRuleset() failed")
 }

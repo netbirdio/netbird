@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
@@ -48,6 +48,7 @@ type Manager struct {
 
 	rulesetManager *rulesetManager
 	setRemovedIPs  map[string]struct{}
+	setRemoved     map[string]*nftables.Set
 
 	wgIface iFaceMapper
 }
@@ -65,6 +66,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 
 		rulesetManager: newRuleManager(),
 		setRemovedIPs:  map[string]struct{}{},
+		setRemoved:     map[string]*nftables.Set{},
 
 		wgIface: wgIface,
 	}
@@ -124,6 +126,8 @@ func (m *Manager) AddFiltering(
 		rawIP = ip.To16()
 	}
 
+	rulesetID := m.getRulesetID(ip, proto, sPort, dPort, direction, action, ipsetName)
+
 	if ipsetName != "" {
 		// if we already have set with given name, just add ip to the set
 		// and return rule with new ID in other case let's create rule
@@ -140,16 +144,14 @@ func (m *Manager) AddFiltering(
 		}
 
 		if !isSetNew {
-			// if we already have nftables rules with set
+			// if we already have nftables rules with set for given direction
 			// just add new rule to the ruleset and return new fw.Rule object
 
-			// check ruleset exists for that ipset
-			ruleset, ok := m.rulesetManager.getRulesetBySetID(ipset.ID)
-			if !ok {
-				return nil, fmt.Errorf("ipset exists in nftables but not in the manager, ipset is not synced")
+			if ruleset, ok := m.rulesetManager.getRuleset(rulesetID); ok {
+				return m.rulesetManager.addRule(ruleset, rawIP)
 			}
-
-			return m.rulesetManager.addRule(ruleset, rawIP)
+			// if ipset exists but it is not linked to rule for given direction
+			// create new rule for direction and bind ipset to it later
 		}
 	}
 
@@ -273,7 +275,6 @@ func (m *Manager) AddFiltering(
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictDrop})
 	}
 
-	rulesetID := uuid.New().String()
 	userData := []byte(strings.Join([]string{rulesetID, comment}, " "))
 
 	rule := m.conn.InsertRule(&nftables.Rule{
@@ -286,6 +287,32 @@ func (m *Manager) AddFiltering(
 
 	ruleset := m.rulesetManager.createRuleset(rulesetID, rule, ipset)
 	return m.rulesetManager.addRule(ruleset, rawIP)
+}
+
+// getRulesetID returns ruleset ID based on given parameters
+func (m *Manager) getRulesetID(
+	ip net.IP,
+	proto fw.Protocol,
+	sPort *fw.Port,
+	dPort *fw.Port,
+	direction fw.RuleDirection,
+	action fw.Action,
+	ipsetName string,
+) string {
+	rulesetID := ":" + strconv.Itoa(int(direction)) + ":"
+	if sPort != nil {
+		rulesetID += sPort.String()
+	}
+	rulesetID += ":"
+	if dPort != nil {
+		rulesetID += dPort.String()
+	}
+	rulesetID += ":"
+	rulesetID += strconv.Itoa(int(action))
+	if ipsetName == "" {
+		return "ip:" + ip.String() + rulesetID
+	}
+	return "set:" + ipsetName + rulesetID
 }
 
 // getOrCreateSet in given table by name
@@ -546,22 +573,23 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		return nil
 	}
 
+	if nativeRule.nftSet != nil {
+		// call twice of delete set element raises error
+		// so we need to check if element is already removed
+		key := fmt.Sprintf("%s:%v", nativeRule.nftSet.Name, nativeRule.ip)
+		if _, ok := m.setRemovedIPs[key]; !ok {
+			err := m.conn.SetDeleteElements(nativeRule.nftSet, []nftables.SetElement{{Key: nativeRule.ip}})
+			if err != nil {
+				log.Errorf("delete elements for set %q: %v", nativeRule.nftSet.Name, err)
+			}
+			m.setRemovedIPs[key] = struct{}{}
+		}
+	}
+
 	if m.rulesetManager.deleteRule(nativeRule) {
 		// deleteRule indicates that we still have IP in the ruleset
 		// it means we should not remove the nftables rule but need to update set
 		// so we prepare IP to be removed from set on the next flush call
-		if nativeRule.nftSet != nil {
-			// call twice of delete set element raises error
-			// so we need to check if element is already removed
-			key := fmt.Sprintf("%s:%v", nativeRule.nftSet.Name, nativeRule.ip)
-			if _, ok := m.setRemovedIPs[key]; !ok {
-				err := m.conn.SetDeleteElements(nativeRule.nftSet, []nftables.SetElement{{Key: nativeRule.ip}})
-				if err != nil {
-					log.Errorf("delete elements for set %q: %v", nativeRule.nftSet.Name, err)
-				}
-				m.setRemovedIPs[key] = struct{}{}
-			}
-		}
 		return nil
 	}
 
@@ -572,9 +600,12 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 	nativeRule.nftRule = nil
 
 	if nativeRule.nftSet != nil {
-		m.conn.DelSet(nativeRule.nftSet)
+		if _, ok := m.setRemoved[nativeRule.nftSet.Name]; !ok {
+			m.setRemoved[nativeRule.nftSet.Name] = nativeRule.nftSet
+		}
 		nativeRule.nftSet = nil
 	}
+
 	return nil
 }
 
@@ -615,7 +646,18 @@ func (m *Manager) Flush() error {
 		return err
 	}
 
+	// set must be removed after flush rule changes
+	// otherwise we will get error
+	for _, s := range m.setRemoved {
+		m.conn.DelSet(s)
+	}
+
+	if err := m.conn.Flush(); err != nil {
+		return err
+	}
+
 	m.setRemovedIPs = map[string]struct{}{}
+	m.setRemoved = map[string]*nftables.Set{}
 
 	if err := m.refreshRuleHandles(m.tableIPv4, m.filterInputChainIPv4); err != nil {
 		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)

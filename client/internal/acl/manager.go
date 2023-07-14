@@ -18,10 +18,6 @@ import (
 )
 
 const (
-	// DefaultIPsCountForSet defines minimal count of IP's covered by rule type to use
-	// SET's in firewall manager (which supports it) for that type of rule.
-	DefaultIPsCountForSet = 3
-
 	// DefaultRulePairsFlushLimit defines default limit of rules pairs to flush to firewall manager
 	// this limit was chosen empirically, please refer to test in the nftables manager package
 	// it defines ~100 (50*2) rules per flush limit
@@ -53,6 +49,13 @@ type DefaultManager struct {
 type ipsetInfo struct {
 	name    string
 	ipCount int
+}
+
+func newDefaultManager(fm firewall.Manager) *DefaultManager {
+	return &DefaultManager{
+		manager:    fm,
+		rulesPairs: make(map[string][]firewall.Rule),
+	}
 }
 
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
@@ -131,19 +134,19 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 
 	applyFailed := false
 	newRulePairs := make(map[string][]firewall.Rule)
+	ipsetByRuleSelectors := make(map[string]*ipsetInfo)
 
 	// calculate which IP's can be grouped in by which ipset
 	// to do that we use rule selector (which is just rule properties without IP's)
-	ipsetByRuleSelectors := make(map[string]ipsetInfo)
 	for _, r := range rules {
-		ipset := ipsetByRuleSelectors[d.getRuleGroupingSelector(r)]
-		if ipset.name == "" {
-			// nftables Set name has limitation up to 16 chars
-			d.ipsetCounter++
-			ipset.name = fmt.Sprintf("nb%07d", d.ipsetCounter)
+		selector := d.getRuleGroupingSelector(r)
+		ipset, ok := ipsetByRuleSelectors[selector]
+		if !ok {
+			ipset = &ipsetInfo{}
 		}
+
 		ipset.ipCount++
-		ipsetByRuleSelectors[d.getRuleGroupingSelector(r)] = ipset
+		ipsetByRuleSelectors[selector] = ipset
 	}
 
 	for i, r := range rules {
@@ -151,9 +154,11 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		// it's IP address can be used in the ipset for firewall manager which supports it
 		ipset := ipsetByRuleSelectors[d.getRuleGroupingSelector(r)]
 		ipsetName := ""
-		if ipset.ipCount > DefaultIPsCountForSet {
-			ipsetName = ipset.name
+		if ipset.name == "" {
+			d.ipsetCounter++
+			ipset.name = fmt.Sprintf("nb%07d", d.ipsetCounter)
 		}
+		ipsetName = ipset.name
 		pairID, rulePair, err := d.protoRuleToFirewallRule(r, ipsetName)
 		if err != nil {
 			log.Errorf("failed to apply firewall rule: %+v, %v", r, err)
@@ -161,34 +166,36 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 			break
 		}
 		newRulePairs[pairID] = rulePair
-		if i%DefaultRulePairsFlushLimit == 0 {
-			if err := d.manager.Flush(); err != nil {
-				log.Errorf("failed to flush firewall rules: %v", err)
-				applyFailed = true
-				break
-			}
+		if applyFailed = d.periodicFlush(i + 1); applyFailed {
+			break
 		}
 	}
 	if applyFailed {
 		log.Error("failed to apply firewall rules, rollback ACL to previous state")
+		deletedRulesCount := 0
 		for _, rules := range newRulePairs {
 			for _, rule := range rules {
+				deletedRulesCount++
 				if err := d.manager.DeleteRule(rule); err != nil {
 					log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
 					continue
 				}
+				_ = d.periodicFlush(deletedRulesCount)
 			}
 		}
 		return
 	}
 
+	deletedRulesCount := 0
 	for pairID, rules := range d.rulesPairs {
 		if _, ok := newRulePairs[pairID]; !ok {
 			for _, rule := range rules {
+				deletedRulesCount++
 				if err := d.manager.DeleteRule(rule); err != nil {
 					log.Errorf("failed to delete firewall rule: %v", err)
 					continue
 				}
+				_ = d.periodicFlush(deletedRulesCount)
 			}
 			delete(d.rulesPairs, pairID)
 		}
@@ -204,6 +211,17 @@ func (d *DefaultManager) Stop() {
 	if err := d.manager.Reset(); err != nil {
 		log.WithError(err).Error("reset firewall state")
 	}
+}
+
+// periodicFlush returns true if it failed to flush rules
+func (d *DefaultManager) periodicFlush(counter int) bool {
+	if counter%DefaultRulePairsFlushLimit == 0 {
+		if err := d.manager.Flush(); err != nil {
+			log.Errorf("periodic flush: %v", err)
+			return true
+		}
+	}
+	return false
 }
 
 func (d *DefaultManager) protoRuleToFirewallRule(

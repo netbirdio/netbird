@@ -19,7 +19,7 @@ type nftRuleset struct {
 type rulesetManager struct {
 	rulesets map[string]*nftRuleset
 
-	nftSetID2rulesetID     map[uint32]string
+	nftSetName2rulesetID   map[string]string
 	issuedRuleID2rulesetID map[string]string
 }
 
@@ -27,13 +27,13 @@ func newRuleManager() *rulesetManager {
 	return &rulesetManager{
 		rulesets: map[string]*nftRuleset{},
 
-		nftSetID2rulesetID:     map[uint32]string{},
+		nftSetName2rulesetID:   map[string]string{},
 		issuedRuleID2rulesetID: map[string]string{},
 	}
 }
 
-func (r *rulesetManager) getRulesetBySetID(nftIpsetID uint32) (*nftRuleset, bool) {
-	ruleset, ok := r.rulesets[r.nftSetID2rulesetID[nftIpsetID]]
+func (r *rulesetManager) getRuleset(rulesetID string) (*nftRuleset, bool) {
+	ruleset, ok := r.rulesets[rulesetID]
 	return ruleset, ok
 }
 
@@ -50,12 +50,15 @@ func (r *rulesetManager) createRuleset(
 	}
 	r.rulesets[ruleset.rulesetID] = &ruleset
 	if nftSet != nil {
-		r.nftSetID2rulesetID[nftSet.ID] = ruleset.rulesetID
+		r.nftSetName2rulesetID[nftSet.Name] = ruleset.rulesetID
 	}
 	return &ruleset
 }
 
-func (r *rulesetManager) addRule(ruleset *nftRuleset, ip []byte) (*Rule, error) {
+func (r *rulesetManager) addRule(
+	ruleset *nftRuleset,
+	ip []byte,
+) (*Rule, error) {
 	if _, ok := r.rulesets[ruleset.rulesetID]; !ok {
 		return nil, fmt.Errorf("ruleset not found")
 	}
@@ -90,7 +93,7 @@ func (r *rulesetManager) deleteRule(rule *Rule) bool {
 	if len(ruleset.issuedRules) == 0 {
 		delete(r.rulesets, ruleset.rulesetID)
 		if rule.nftSet != nil {
-			delete(r.nftSetID2rulesetID, ruleset.nftSet.ID)
+			delete(r.nftSetName2rulesetID, rule.nftSet.Name)
 		}
 		return false
 	}
