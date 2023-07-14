@@ -61,24 +61,28 @@ func (i *iptablesManager) CleanRoutingRules() {
 
 	log.Debug("flushing tables")
 	errMSGFormat := "iptables: failed cleaning %s chain %s,error: %v"
-	err = i.ipv4Client.ClearAndDeleteChain(iptablesFilterTable, iptablesRoutingForwardingChain)
-	if err != nil {
-		log.Errorf(errMSGFormat, ipv4, iptablesRoutingForwardingChain, err)
+	if i.ipv4Client != nil {
+		err = i.ipv4Client.ClearAndDeleteChain(iptablesFilterTable, iptablesRoutingForwardingChain)
+		if err != nil {
+			log.Errorf(errMSGFormat, ipv4, iptablesRoutingForwardingChain, err)
+		}
+
+		err = i.ipv4Client.ClearAndDeleteChain(iptablesNatTable, iptablesRoutingNatChain)
+		if err != nil {
+			log.Errorf(errMSGFormat, ipv4, iptablesRoutingNatChain, err)
+		}
 	}
 
-	err = i.ipv4Client.ClearAndDeleteChain(iptablesNatTable, iptablesRoutingNatChain)
-	if err != nil {
-		log.Errorf(errMSGFormat, ipv4, iptablesRoutingNatChain, err)
-	}
+	if i.ipv6Client != nil {
+		err = i.ipv6Client.ClearAndDeleteChain(iptablesFilterTable, iptablesRoutingForwardingChain)
+		if err != nil {
+			log.Errorf(errMSGFormat, ipv6, iptablesRoutingForwardingChain, err)
+		}
 
-	err = i.ipv6Client.ClearAndDeleteChain(iptablesFilterTable, iptablesRoutingForwardingChain)
-	if err != nil {
-		log.Errorf(errMSGFormat, ipv6, iptablesRoutingForwardingChain, err)
-	}
-
-	err = i.ipv6Client.ClearAndDeleteChain(iptablesNatTable, iptablesRoutingNatChain)
-	if err != nil {
-		log.Errorf(errMSGFormat, ipv6, iptablesRoutingNatChain, err)
+		err = i.ipv6Client.ClearAndDeleteChain(iptablesNatTable, iptablesRoutingNatChain)
+		if err != nil {
+			log.Errorf(errMSGFormat, ipv6, iptablesRoutingNatChain, err)
+		}
 	}
 
 	log.Info("done cleaning up iptables rules")
@@ -96,37 +100,41 @@ func (i *iptablesManager) RestoreOrCreateContainers() error {
 
 	errMSGFormat := "iptables: failed creating %s chain %s,error: %v"
 
-	err := createChain(i.ipv4Client, iptablesFilterTable, iptablesRoutingForwardingChain)
-	if err != nil {
-		return fmt.Errorf(errMSGFormat, ipv4, iptablesRoutingForwardingChain, err)
+	if i.ipv4Client != nil {
+		err := createChain(i.ipv4Client, iptablesFilterTable, iptablesRoutingForwardingChain)
+		if err != nil {
+			return fmt.Errorf(errMSGFormat, ipv4, iptablesRoutingForwardingChain, err)
+		}
+
+		err = createChain(i.ipv4Client, iptablesNatTable, iptablesRoutingNatChain)
+		if err != nil {
+			return fmt.Errorf(errMSGFormat, ipv4, iptablesRoutingNatChain, err)
+		}
+
+		err = i.restoreRules(i.ipv4Client)
+		if err != nil {
+			return fmt.Errorf("iptables: error while restoring ipv4 rules: %v", err)
+		}
 	}
 
-	err = createChain(i.ipv4Client, iptablesNatTable, iptablesRoutingNatChain)
-	if err != nil {
-		return fmt.Errorf(errMSGFormat, ipv4, iptablesRoutingNatChain, err)
+	if i.ipv6Client != nil {
+		err := createChain(i.ipv6Client, iptablesFilterTable, iptablesRoutingForwardingChain)
+		if err != nil {
+			return fmt.Errorf(errMSGFormat, ipv6, iptablesRoutingForwardingChain, err)
+		}
+
+		err = createChain(i.ipv6Client, iptablesNatTable, iptablesRoutingNatChain)
+		if err != nil {
+			return fmt.Errorf(errMSGFormat, ipv6, iptablesRoutingNatChain, err)
+		}
+
+		err = i.restoreRules(i.ipv6Client)
+		if err != nil {
+			return fmt.Errorf("iptables: error while restoring ipv6 rules: %v", err)
+		}
 	}
 
-	err = createChain(i.ipv6Client, iptablesFilterTable, iptablesRoutingForwardingChain)
-	if err != nil {
-		return fmt.Errorf(errMSGFormat, ipv6, iptablesRoutingForwardingChain, err)
-	}
-
-	err = createChain(i.ipv6Client, iptablesNatTable, iptablesRoutingNatChain)
-	if err != nil {
-		return fmt.Errorf(errMSGFormat, ipv6, iptablesRoutingNatChain, err)
-	}
-
-	err = i.restoreRules(i.ipv4Client)
-	if err != nil {
-		return fmt.Errorf("iptables: error while restoring ipv4 rules: %v", err)
-	}
-
-	err = i.restoreRules(i.ipv6Client)
-	if err != nil {
-		return fmt.Errorf("iptables: error while restoring ipv6 rules: %v", err)
-	}
-
-	err = i.addJumpRules()
+	err := i.addJumpRules()
 	if err != nil {
 		return fmt.Errorf("iptables: error while creating jump rules: %v", err)
 	}
@@ -140,34 +148,38 @@ func (i *iptablesManager) addJumpRules() error {
 	if err != nil {
 		return err
 	}
-	rule := append(iptablesDefaultForwardingRule, ipv4Forwarding)
-	err = i.ipv4Client.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
-	if err != nil {
-		return err
+	if i.ipv4Client != nil {
+		rule := append(iptablesDefaultForwardingRule, ipv4Forwarding)
+
+		err = i.ipv4Client.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
+		if err != nil {
+			return err
+		}
+		i.rules[ipv4][ipv4Forwarding] = rule
+
+		rule = append(iptablesDefaultNatRule, ipv4Nat)
+		err = i.ipv4Client.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
+		if err != nil {
+			return err
+		}
+		i.rules[ipv4][ipv4Nat] = rule
 	}
 
-	i.rules[ipv4][ipv4Forwarding] = rule
+	if i.ipv6Client != nil {
+		rule := append(iptablesDefaultForwardingRule, ipv6Forwarding)
+		err = i.ipv6Client.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
+		if err != nil {
+			return err
+		}
+		i.rules[ipv6][ipv6Forwarding] = rule
 
-	rule = append(iptablesDefaultNatRule, ipv4Nat)
-	err = i.ipv4Client.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
-	if err != nil {
-		return err
+		rule = append(iptablesDefaultNatRule, ipv6Nat)
+		err = i.ipv6Client.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
+		if err != nil {
+			return err
+		}
+		i.rules[ipv6][ipv6Nat] = rule
 	}
-	i.rules[ipv4][ipv4Nat] = rule
-
-	rule = append(iptablesDefaultForwardingRule, ipv6Forwarding)
-	err = i.ipv6Client.Insert(iptablesFilterTable, iptablesForwardChain, 1, rule...)
-	if err != nil {
-		return err
-	}
-	i.rules[ipv6][ipv6Forwarding] = rule
-
-	rule = append(iptablesDefaultNatRule, ipv6Nat)
-	err = i.ipv6Client.Insert(iptablesNatTable, iptablesPostRoutingChain, 1, rule...)
-	if err != nil {
-		return err
-	}
-	i.rules[ipv6][ipv6Nat] = rule
 
 	return nil
 }
@@ -177,35 +189,39 @@ func (i *iptablesManager) cleanJumpRules() error {
 	var err error
 	errMSGFormat := "iptables: failed cleaning rule from %s chain %s,err: %v"
 	rule, found := i.rules[ipv4][ipv4Forwarding]
-	if found {
-		log.Debugf("iptables: removing %s rule: %s ", ipv4, ipv4Forwarding)
-		err = i.ipv4Client.DeleteIfExists(iptablesFilterTable, iptablesForwardChain, rule...)
-		if err != nil {
-			return fmt.Errorf(errMSGFormat, ipv4, iptablesForwardChain, err)
+	if i.ipv4Client != nil {
+		if found {
+			log.Debugf("iptables: removing %s rule: %s ", ipv4, ipv4Forwarding)
+			err = i.ipv4Client.DeleteIfExists(iptablesFilterTable, iptablesForwardChain, rule...)
+			if err != nil {
+				return fmt.Errorf(errMSGFormat, ipv4, iptablesForwardChain, err)
+			}
+		}
+		rule, found = i.rules[ipv4][ipv4Nat]
+		if found {
+			log.Debugf("iptables: removing %s rule: %s ", ipv4, ipv4Nat)
+			err = i.ipv4Client.DeleteIfExists(iptablesNatTable, iptablesPostRoutingChain, rule...)
+			if err != nil {
+				return fmt.Errorf(errMSGFormat, ipv4, iptablesPostRoutingChain, err)
+			}
 		}
 	}
-	rule, found = i.rules[ipv4][ipv4Nat]
-	if found {
-		log.Debugf("iptables: removing %s rule: %s ", ipv4, ipv4Nat)
-		err = i.ipv4Client.DeleteIfExists(iptablesNatTable, iptablesPostRoutingChain, rule...)
-		if err != nil {
-			return fmt.Errorf(errMSGFormat, ipv4, iptablesPostRoutingChain, err)
+	if i.ipv6Client == nil {
+		rule, found = i.rules[ipv6][ipv6Forwarding]
+		if found {
+			log.Debugf("iptables: removing %s rule: %s ", ipv6, ipv6Forwarding)
+			err = i.ipv6Client.DeleteIfExists(iptablesFilterTable, iptablesForwardChain, rule...)
+			if err != nil {
+				return fmt.Errorf(errMSGFormat, ipv6, iptablesForwardChain, err)
+			}
 		}
-	}
-	rule, found = i.rules[ipv6][ipv6Forwarding]
-	if found {
-		log.Debugf("iptables: removing %s rule: %s ", ipv6, ipv6Forwarding)
-		err = i.ipv6Client.DeleteIfExists(iptablesFilterTable, iptablesForwardChain, rule...)
-		if err != nil {
-			return fmt.Errorf(errMSGFormat, ipv6, iptablesForwardChain, err)
-		}
-	}
-	rule, found = i.rules[ipv6][ipv6Nat]
-	if found {
-		log.Debugf("iptables: removing %s rule: %s ", ipv6, ipv6Nat)
-		err = i.ipv6Client.DeleteIfExists(iptablesNatTable, iptablesPostRoutingChain, rule...)
-		if err != nil {
-			return fmt.Errorf(errMSGFormat, ipv6, iptablesPostRoutingChain, err)
+		rule, found = i.rules[ipv6][ipv6Nat]
+		if found {
+			log.Debugf("iptables: removing %s rule: %s ", ipv6, ipv6Nat)
+			err = i.ipv6Client.DeleteIfExists(iptablesNatTable, iptablesPostRoutingChain, rule...)
+			if err != nil {
+				return fmt.Errorf(errMSGFormat, ipv6, iptablesPostRoutingChain, err)
+			}
 		}
 	}
 	return nil

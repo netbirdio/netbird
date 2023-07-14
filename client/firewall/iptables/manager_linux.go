@@ -58,19 +58,28 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 	if err != nil {
 		return nil, fmt.Errorf("iptables is not installed in the system or not supported")
 	}
-	m.ipv4Client = ipv4Client
+	if isIptablesClientAvailable(ipv4Client) {
+		m.ipv4Client = ipv4Client
+	}
 
 	ipv6Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
 	if err != nil {
 		log.Errorf("ip6tables is not installed in the system or not supported: %v", err)
 	} else {
-		m.ipv6Client = ipv6Client
+		if isIptablesClientAvailable(ipv6Client) {
+			m.ipv6Client = ipv6Client
+		}
 	}
 
 	if err := m.Reset(); err != nil {
 		return nil, fmt.Errorf("failed to reset firewall: %v", err)
 	}
 	return m, nil
+}
+
+func isIptablesClientAvailable(client *iptables.IPTables) bool {
+	_, err := client.ListChains("filter")
+	return err == nil
 }
 
 // AddFiltering rule to the firewall
