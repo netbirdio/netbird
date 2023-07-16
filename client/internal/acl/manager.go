@@ -149,7 +149,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		ipsetByRuleSelectors[selector] = ipset
 	}
 
-	for i, r := range rules {
+	for _, r := range rules {
 		// if this rule is member of rule selection with more than DefaultIPsCountForSet
 		// it's IP address can be used in the ipset for firewall manager which supports it
 		ipset := ipsetByRuleSelectors[d.getRuleGroupingSelector(r)]
@@ -166,36 +166,27 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 			break
 		}
 		newRulePairs[pairID] = rulePair
-		if applyFailed = d.periodicFlush(i + 1); applyFailed {
-			break
-		}
 	}
 	if applyFailed {
 		log.Error("failed to apply firewall rules, rollback ACL to previous state")
-		deletedRulesCount := 0
 		for _, rules := range newRulePairs {
 			for _, rule := range rules {
-				deletedRulesCount++
 				if err := d.manager.DeleteRule(rule); err != nil {
 					log.Errorf("failed to delete new firewall rule (id: %v) during rollback: %v", rule.GetRuleID(), err)
 					continue
 				}
-				_ = d.periodicFlush(deletedRulesCount)
 			}
 		}
 		return
 	}
 
-	deletedRulesCount := 0
 	for pairID, rules := range d.rulesPairs {
 		if _, ok := newRulePairs[pairID]; !ok {
 			for _, rule := range rules {
-				deletedRulesCount++
 				if err := d.manager.DeleteRule(rule); err != nil {
 					log.Errorf("failed to delete firewall rule: %v", err)
 					continue
 				}
-				_ = d.periodicFlush(deletedRulesCount)
 			}
 			delete(d.rulesPairs, pairID)
 		}
@@ -211,17 +202,6 @@ func (d *DefaultManager) Stop() {
 	if err := d.manager.Reset(); err != nil {
 		log.WithError(err).Error("reset firewall state")
 	}
-}
-
-// periodicFlush returns true if it failed to flush rules
-func (d *DefaultManager) periodicFlush(counter int) bool {
-	if counter%DefaultRulePairsFlushLimit == 0 {
-		if err := d.manager.Flush(); err != nil {
-			log.Errorf("periodic flush: %v", err)
-			return true
-		}
-	}
-	return false
 }
 
 func (d *DefaultManager) protoRuleToFirewallRule(
