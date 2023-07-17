@@ -334,7 +334,7 @@ func (s *FileStore) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
 
 	delete(s.HashedPAT2TokenID, hashedToken)
 
-	return s.persist(s.storeFile)
+	return nil
 }
 
 // DeleteTokenID2UserIDIndex removes an entry from the indexing map TokenID2UserID
@@ -344,7 +344,7 @@ func (s *FileStore) DeleteTokenID2UserIDIndex(tokenID string) error {
 
 	delete(s.TokenID2UserID, tokenID)
 
-	return s.persist(s.storeFile)
+	return nil
 }
 
 // GetAccountByPrivateDomain returns account by private domain
