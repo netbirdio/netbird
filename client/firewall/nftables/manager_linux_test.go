@@ -193,6 +193,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 				} else {
 					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
 				}
+				require.NoError(t, err, "failed to add rule")
 
 				if i%100 == 0 {
 					err = manager.Flush()
