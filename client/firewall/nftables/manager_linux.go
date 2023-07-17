@@ -146,9 +146,12 @@ func (m *Manager) AddFiltering(
 		// with fresh created set and set element
 
 		var isSetNew bool
-		ipset, isSetNew, err = m.getOrCreateSet(table, rawIP, ipsetName)
+		ipset, err := m.rConn.GetSetByName(table, ipsetName)
 		if err != nil {
-			return nil, fmt.Errorf("get set name: %v", err)
+			if ipset, err = m.createSet(table, rawIP, ipsetName); err != nil {
+				return nil, fmt.Errorf("get set name: %v", err)
+			}
+			isSetNew = true
 		}
 
 		if err := m.sConn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
@@ -209,27 +212,27 @@ func (m *Manager) AddFiltering(
 		})
 	}
 
-	// check if rawIP contains zeroed IPv4 0.0.0.0 or same IVv6 value
+	// check if rawIP contains zeroed IPv4 0.0.0.0 or same IPv6 value
 	// in that case not add IP match expression into the rule definition
 	if !bytes.HasPrefix(anyIP, rawIP) {
 		// source address position
-		adrLen := uint32(len(rawIP))
-		adrOffset := uint32(12)
-		if adrLen == 16 {
-			adrOffset = 8
+		addrLen := uint32(len(rawIP))
+		addrOffset := uint32(12)
+		if addrLen == 16 {
+			addrOffset = 8
 		}
 
 		// change to destination address position if need
 		if direction == fw.RuleDirectionOUT {
-			adrOffset += adrLen
+			addrOffset += addrLen
 		}
 
 		expressions = append(expressions,
 			&expr.Payload{
 				DestRegister: 1,
 				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       adrOffset,
-				Len:          adrLen,
+				Offset:       addrOffset,
+				Len:          addrLen,
 			},
 		)
 		// add individual IP for match if no ipset defined
@@ -333,45 +336,33 @@ func (m *Manager) getRulesetID(
 	return "set:" + ipsetName + rulesetID
 }
 
-// getOrCreateSet in given table by name
-//
-// It tries to get set by name if fails creates new one by this name.
-// If new set need to be created it calls firewall flush method.
-// Second returned argument is a flag that indicates is set just created or not.
-func (m *Manager) getOrCreateSet(
+// createSet in given table by name
+func (m *Manager) createSet(
 	table *nftables.Table,
 	rawIP []byte,
 	name string,
-) (*nftables.Set, bool, error) {
-	ipset, err := m.rConn.GetSetByName(table, name)
-	if err != nil {
-		keyType := nftables.TypeIPAddr
-		if len(rawIP) == 16 {
-			keyType = nftables.TypeIP6Addr
-		}
-		// else we create new ipset and continue creating rule
-		ipset = &nftables.Set{
-			Name:    name,
-			Table:   table,
-			Dynamic: true,
-			KeyType: keyType,
-		}
-
-		if err := m.rConn.AddSet(ipset, nil); err != nil {
-			return nil, false, fmt.Errorf("create set: %v", err)
-		}
-
-		if err := m.rConn.Flush(); err != nil {
-			return nil, false, fmt.Errorf("flush created set: %v", err)
-		}
-
-		// ipset, err = m.conn.GetSetByName(table, name)
-		// if err != nil {
-		// 	return nil, false, fmt.Errorf("get created set: %v", err)
-		// }
-		return ipset, true, nil
+) (*nftables.Set, error) {
+	keyType := nftables.TypeIPAddr
+	if len(rawIP) == 16 {
+		keyType = nftables.TypeIP6Addr
 	}
-	return ipset, false, nil
+	// else we create new ipset and continue creating rule
+	ipset := &nftables.Set{
+		Name:    name,
+		Table:   table,
+		Dynamic: true,
+		KeyType: keyType,
+	}
+
+	if err := m.rConn.AddSet(ipset, nil); err != nil {
+		return nil, fmt.Errorf("create set: %v", err)
+	}
+
+	if err := m.rConn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush created set: %v", err)
+	}
+
+	return ipset, nil
 }
 
 // chain returns the chain for the given IP address with specific settings
@@ -665,7 +656,9 @@ func (m *Manager) Reset() error {
 	return m.rConn.Flush()
 }
 
-// Flush doesn't need to be implemented for this manager
+// Flush rule/chain/set operations from the buffer
+//
+// Method also get all rules after flush and refreshes handle values in the rulesets
 func (m *Manager) Flush() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()

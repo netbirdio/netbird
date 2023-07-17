@@ -194,12 +194,6 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
 				}
 
-				require.NoError(t, err, "failed to add rule")
-
-				// please refer to client/acl/manager.go value DefaultRulePairsFlushLimit
-				// nftables has limited size of the buffer so we need to do flush periodically
-				// ACL manager is only place where we know how much rules we have in the update
-				// that why we define this limit in the ACL manager package.
 				if i%100 == 0 {
 					err = manager.Flush()
 					require.NoError(t, err, "failed to flush")
