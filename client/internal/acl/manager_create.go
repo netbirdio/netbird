@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 )
 
