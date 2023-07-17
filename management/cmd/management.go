@@ -129,7 +129,7 @@ var (
 			if err != nil {
 				return err
 			}
-			store, err := server.NewFileStore(config.Datadir, appMetrics)
+			store, err := server.NewSqliteStore(config.Datadir, appMetrics)
 			if err != nil {
 				return fmt.Errorf("failed creating Store: %s: %v", config.Datadir, err)
 			}

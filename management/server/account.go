@@ -163,24 +163,25 @@ func (s *Settings) Copy() *Settings {
 
 // Account represents a unique account of the system
 type Account struct {
-	Id string
+	Id string `gorm:"primaryKey"`
+
 	// User.Id it was created by
 	CreatedBy              string
-	Domain                 string
+	Domain                 string `gorm:"index"`
 	DomainCategory         string
 	IsDomainPrimaryAccount bool
-	SetupKeys              map[string]*SetupKey
-	Network                *Network
-	Peers                  map[string]*Peer
-	Users                  map[string]*User
-	Groups                 map[string]*Group
-	Rules                  map[string]*Rule
-	Policies               []*Policy
-	Routes                 map[string]*route.Route
-	NameServerGroups       map[string]*nbdns.NameServerGroup
-	DNSSettings            *DNSSettings
+	SetupKeys              map[string]*SetupKey              `gorm:"serializer:json"`
+	Network                *Network                          `gorm:"embedded;embeddedPrefix:network_"`
+	Peers                  map[string]*Peer                  `gorm:"serializer:json"`
+	Users                  map[string]*User                  `gorm:"serializer:json"`
+	Groups                 map[string]*Group                 `gorm:"serializer:json"`
+	Rules                  map[string]*Rule                  `gorm:"serializer:json"`
+	Policies               []*Policy                         `gorm:"serializer:json"`
+	Routes                 map[string]*route.Route           `gorm:"serializer:json"`
+	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"serializer:json"`
+	DNSSettings            *DNSSettings                      `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	// Settings is a dictionary of Account settings
-	Settings *Settings
+	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`
 }
 
 type UserInfo struct {

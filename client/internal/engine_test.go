@@ -1039,10 +1039,15 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := server.NewFileStore(config.Datadir, nil)
+	fstore, err := server.NewFileStore(config.Datadir, nil)
 	if err != nil {
-		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
+		return nil, "", err
 	}
+	store, err := server.NewSqliteStoreFromFileStore(fstore, config.Datadir, nil)
+	if err != nil {
+		return nil, "", err
+	}
+
 	peersUpdateManager := server.NewPeersUpdateManager()
 	eventStore := &activity.InMemoryEventStore{}
 	if err != nil {
