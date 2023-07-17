@@ -65,7 +65,11 @@ func startManagement(t *testing.T, config *mgmt.Config) (*grpc.Server, net.Liste
 		t.Fatal(err)
 	}
 	s := grpc.NewServer()
-	store, err := mgmt.NewFileStore(config.Datadir, nil)
+	fstore, err := mgmt.NewFileStore(config.Datadir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := mgmt.NewSqliteStoreFromFileStore(fstore, config.Datadir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

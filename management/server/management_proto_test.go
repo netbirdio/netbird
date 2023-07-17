@@ -405,7 +405,11 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	store, err := NewFileStore(config.Datadir, nil)
+	fstore, err := NewFileStore(config.Datadir, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	store, err := NewSqliteStoreFromFileStore(fstore, config.Datadir, nil)
 	if err != nil {
 		return nil, "", err
 	}

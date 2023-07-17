@@ -2045,7 +2045,7 @@ func createManager(t *testing.T) (*DefaultAccountManager, error) {
 
 func createStore(t *testing.T) (Store, error) {
 	dataDir := t.TempDir()
-	store, err := NewFileStore(dataDir, nil)
+	store, err := NewSqliteStore(dataDir, nil)
 	if err != nil {
 		return nil, err
 	}

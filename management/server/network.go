@@ -35,13 +35,13 @@ type NetworkMap struct {
 
 type Network struct {
 	Id  string
-	Net net.IPNet
+	Net net.IPNet `gorm:"serializer:gob"`
 	Dns string
 	// Serial is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
 	// Used to synchronize state to the client apps.
 	Serial uint64
 
-	mu sync.Mutex `json:"-"`
+	mu sync.Mutex `json:"-" gorm:"-"`
 }
 
 // NewNetwork creates a new Network initializing it with a Serial=0
