@@ -65,10 +65,11 @@
             "Audience": "$NETBIRD_AUTH_AUDIENCE",
             "ClientID": "$NETBIRD_AUTH_CLIENT_ID",
             "ClientSecret": "$NETBIRD_AUTH_CLIENT_SECRET",
-            "AuthorizationEndpoint": "$NETBIRD_PKCE_AUTHORIZATION_ENDPOINT",
+            "AuthorizationEndpoint": "$NETBIRD_AUTH_PKCE_AUTHORIZATION_ENDPOINT",
             "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
             "Scope": "$NETBIRD_AUTH_SUPPORTED_SCOPES",
-            "RedirectURL": "0.0.0.0:$NETBIRD_PKCE_REDIRECT_URL_PORT"
+            "RedirectURL": "0.0.0.0:$NETBIRD_AUTH_PKCE_REDIRECT_URL_PORT",
+            "UseIDToken": $NETBIRD_AUTH_PKCE_USE_ID_TOKEN
         }
     }
 }
