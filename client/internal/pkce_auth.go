@@ -34,6 +34,8 @@ type PKCEAuthProviderConfig struct {
 	Scope string
 	// RedirectURL handles authorization code from IDP manager
 	RedirectURL string
+	// UseIDToken indicates if the id token should be used for authentication
+	UseIDToken bool
 }
 
 // GetPKCEAuthorizationFlowInfo initialize a PKCEAuthorizationFlow instance and return with it
@@ -90,6 +92,7 @@ func GetPKCEAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmURL
 			AuthorizationEndpoint: protoPKCEAuthorizationFlow.GetProviderConfig().GetAuthorizationEndpoint(),
 			Scope:                 protoPKCEAuthorizationFlow.GetProviderConfig().GetScope(),
 			RedirectURL:           protoPKCEAuthorizationFlow.GetProviderConfig().GetRedirectURL(),
+			UseIDToken:            protoPKCEAuthorizationFlow.GetProviderConfig().GetUseIDToken(),
 		},
 	}
 
