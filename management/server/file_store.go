@@ -289,6 +289,10 @@ func (s *FileStore) SaveAccount(account *Account) error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
+	if account.Id == "" {
+		return status.Errorf(status.InvalidArgument, "account id should not be empty")
+	}
+
 	accountCopy := account.Copy()
 
 	s.Accounts[accountCopy.Id] = accountCopy
