@@ -7,9 +7,11 @@ import (
 	"encoding/base64"
 	"fmt"
 	"github.com/netbirdio/netbird/client/internal"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -20,7 +22,8 @@ const (
 	queryCode  = "code"
 )
 
-// PKCEAuthorizationFlow implements the OAuthFlow interface for the Authorization Code Flow with PKCE
+// PKCEAuthorizationFlow implements the OAuthFlow interface for
+// the Authorization Code Flow with PKCE.
 type PKCEAuthorizationFlow struct {
 	providerConfig internal.PKCEAuthProviderConfig
 	state          string
@@ -28,7 +31,7 @@ type PKCEAuthorizationFlow struct {
 	oAuthConfig    *oauth2.Config
 }
 
-// NewPKCEAuthorizationFlow returns new PKCE authorization code flow
+// NewPKCEAuthorizationFlow returns new PKCE authorization code flow.
 func NewPKCEAuthorizationFlow(config internal.PKCEAuthProviderConfig) (*PKCEAuthorizationFlow, error) {
 	cfg := &oauth2.Config{
 		ClientID:     config.ClientID,
@@ -47,11 +50,19 @@ func NewPKCEAuthorizationFlow(config internal.PKCEAuthProviderConfig) (*PKCEAuth
 	}, nil
 }
 
+// GetClientID returns the provider client id
 func (p *PKCEAuthorizationFlow) GetClientID(_ context.Context) string {
 	return p.providerConfig.ClientID
 }
 
+// RequestAuthInfo requests a authorization code login flow information.
 func (p *PKCEAuthorizationFlow) RequestAuthInfo(_ context.Context) (AuthFlowInfo, error) {
+	state, err := randomBytesInHex(24)
+	if err != nil {
+		return AuthFlowInfo{}, fmt.Errorf("could not generate random state: %v", err)
+	}
+	p.state = state
+
 	codeVerifier, err := randomBytesInHex(64)
 	if err != nil {
 		return AuthFlowInfo{}, fmt.Errorf("could not create a code verifier: %v", err)
@@ -65,13 +76,6 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(_ context.Context) (AuthFlowInfo
 	}
 
 	codeChallenge := base64.RawURLEncoding.EncodeToString(sha2.Sum(nil))
-
-	state, err := randomBytesInHex(24)
-	if err != nil {
-		return AuthFlowInfo{}, fmt.Errorf("could not generate random state: %v", err)
-	}
-	p.state = state
-
 	authURL := p.oAuthConfig.AuthCodeURL(
 		state,
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
@@ -84,18 +88,43 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(_ context.Context) (AuthFlowInfo
 	}, nil
 }
 
+// WaitToken waits for the OAuth token in the PKCE Authorization Flow.
+// It starts an HTTP server to receive the OAuth token callback and waits for the token or an error.
+// Once the token is received, it is converted to TokenInfo and validated before returning.
 func (p *PKCEAuthorizationFlow) WaitToken(_ context.Context, _ AuthFlowInfo) (TokenInfo, error) {
 	tokenChan := make(chan *oauth2.Token, 1)
 	errChan := make(chan error, 1)
 
-	server := http.Server{Addr: p.providerConfig.RedirectURL}
-	defer server.Shutdown(context.Background())
+	go p.startServer(tokenChan, errChan)
 
-	http.HandleFunc("/", func(wr http.ResponseWriter, req *http.Request) {
+	select {
+	case token := <-tokenChan:
+		return p.handleOAuthToken(token)
+	case err := <-errChan:
+		return TokenInfo{}, err
+	}
+}
+
+func (p *PKCEAuthorizationFlow) startServer(tokenChan chan<- *oauth2.Token, errChan chan<- error) {
+	parsedURL, err := url.Parse(p.providerConfig.RedirectURL)
+	if err != nil {
+		errChan <- fmt.Errorf("failed to parse redirect URL: %v", err)
+		return
+	}
+	port := parsedURL.Port()
+
+	server := http.Server{Addr: fmt.Sprintf(":%s", port)}
+	defer func() {
+		if err := server.Shutdown(context.Background()); err != nil {
+			log.Errorf("error while shutting down pkce flow server: %v", err)
+		}
+	}()
+
+	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		query := req.URL.Query()
 
 		state := query.Get(queryState)
-		// prevent timing attacks on state
+		// Prevent timing attacks on state
 		if subtle.ConstantTimeCompare([]byte(p.state), []byte(state)) == 0 {
 			errChan <- fmt.Errorf("invalid state")
 			return
@@ -107,6 +136,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(_ context.Context, _ AuthFlowInfo) (To
 			return
 		}
 
+		// Exchange the authorization code for the OAuth token
 		token, err := p.oAuthConfig.Exchange(
 			req.Context(),
 			code,
@@ -120,34 +150,26 @@ func (p *PKCEAuthorizationFlow) WaitToken(_ context.Context, _ AuthFlowInfo) (To
 		tokenChan <- token
 	})
 
-	go func() {
-		if err := server.ListenAndServe(); err != nil {
-			errChan <- err
-		}
-	}()
-
-	select {
-	case token := <-tokenChan:
-		tokenInfo := TokenInfo{
-			AccessToken:  token.AccessToken,
-			RefreshToken: token.RefreshToken,
-			TokenType:    token.TokenType,
-			ExpiresIn:    token.Expiry.Second(),
-			UseIDToken:   p.providerConfig.UseIDToken,
-		}
-
-		idToken, ok := token.Extra("id_token").(string)
-		if ok {
-			tokenInfo.IDToken = idToken
-		}
-
-		err := isValidAccessToken(tokenInfo.GetTokenToUse(), p.providerConfig.Audience)
-		if err != nil {
-			return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
-		}
-
-		return tokenInfo, nil
-	case err := <-errChan:
-		return TokenInfo{}, err
+	if err := server.ListenAndServe(); err != nil {
+		errChan <- err
 	}
+}
+
+func (p *PKCEAuthorizationFlow) handleOAuthToken(token *oauth2.Token) (TokenInfo, error) {
+	tokenInfo := TokenInfo{
+		AccessToken:  token.AccessToken,
+		RefreshToken: token.RefreshToken,
+		TokenType:    token.TokenType,
+		ExpiresIn:    token.Expiry.Second(),
+		UseIDToken:   p.providerConfig.UseIDToken,
+	}
+	if idToken, ok := token.Extra("id_token").(string); ok {
+		tokenInfo.IDToken = idToken
+	}
+
+	if err := isValidAccessToken(tokenInfo.GetTokenToUse(), p.providerConfig.Audience); err != nil {
+		return TokenInfo{}, fmt.Errorf("validate access token failed with error: %v", err)
+	}
+
+	return tokenInfo, nil
 }
