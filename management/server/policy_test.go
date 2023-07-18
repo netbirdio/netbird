@@ -127,6 +127,20 @@ func TestAccount_getPeersByPolicy(t *testing.T) {
 
 		epectedFirewallRules := []*FirewallRule{
 			{
+				PeerIP:    "0.0.0.0",
+				Direction: firewallRuleDirectionIN,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
+				PeerIP:    "0.0.0.0",
+				Direction: firewallRuleDirectionOUT,
+				Action:    "accept",
+				Protocol:  "all",
+				Port:      "",
+			},
+			{
 				PeerIP:    "100.65.14.88",
 				Direction: firewallRuleDirectionIN,
 				Action:    "accept",

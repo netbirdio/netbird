@@ -84,6 +84,7 @@ func (m *Manager) AddFiltering(
 	dPort *fw.Port,
 	direction fw.RuleDirection,
 	action fw.Action,
+	ipsetName string,
 	comment string,
 ) (fw.Rule, error) {
 	r := Rule{
@@ -180,6 +181,9 @@ func (m *Manager) Reset() error {
 
 	return nil
 }
+
+// Flush doesn't need to be implemented for this manager
+func (m *Manager) Flush() error { return nil }
 
 // DropOutgoing filter outgoing packets
 func (m *Manager) DropOutgoing(packetData []byte) bool {

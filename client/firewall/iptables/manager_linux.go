@@ -92,6 +92,7 @@ func (m *Manager) AddFiltering(
 	dPort *fw.Port,
 	direction fw.RuleDirection,
 	action fw.Action,
+	ipsetName string,
 	comment string,
 ) (fw.Rule, error) {
 	m.mutex.Lock()
@@ -201,6 +202,9 @@ func (m *Manager) Reset() error {
 
 	return nil
 }
+
+// Flush doesn't need to be implemented for this manager
+func (m *Manager) Flush() error { return nil }
 
 // reset firewall chain, clear it and drop it
 func (m *Manager) reset(client *iptables.IPTables, table string) error {

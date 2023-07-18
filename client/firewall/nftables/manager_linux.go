@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/nftables"
 	"github.com/google/nftables/expr"
-	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
@@ -29,11 +31,14 @@ const (
 	FilterOutputChainName = "netbird-acl-output-filter"
 )
 
+var anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+
 // Manager of iptables firewall
 type Manager struct {
 	mutex sync.Mutex
 
-	conn      *nftables.Conn
+	rConn     *nftables.Conn
+	sConn     *nftables.Conn
 	tableIPv4 *nftables.Table
 	tableIPv6 *nftables.Table
 
@@ -42,6 +47,10 @@ type Manager struct {
 
 	filterInputChainIPv6  *nftables.Chain
 	filterOutputChainIPv6 *nftables.Chain
+
+	rulesetManager *rulesetManager
+	setRemovedIPs  map[string]struct{}
+	setRemoved     map[string]*nftables.Set
 
 	wgIface iFaceMapper
 }
@@ -54,8 +63,23 @@ type iFaceMapper interface {
 
 // Create nftables firewall manager
 func Create(wgIface iFaceMapper) (*Manager, error) {
+	// sConn is used for creating sets and adding/removing elements from them
+	// it's differ then rConn (which does create new conn for each flush operation)
+	// and is permanent. Using same connection for booth type of operations
+	// overloads netlink with high amount of rules ( > 10000)
+	sConn, err := nftables.New(nftables.AsLasting())
+	if err != nil {
+		return nil, err
+	}
+
 	m := &Manager{
-		conn:    &nftables.Conn{},
+		rConn: &nftables.Conn{},
+		sConn: sConn,
+
+		rulesetManager: newRuleManager(),
+		setRemovedIPs:  map[string]struct{}{},
+		setRemoved:     map[string]*nftables.Set{},
+
 		wgIface: wgIface,
 	}
 
@@ -77,6 +101,7 @@ func (m *Manager) AddFiltering(
 	dPort *fw.Port,
 	direction fw.RuleDirection,
 	action fw.Action,
+	ipsetName string,
 	comment string,
 ) (fw.Rule, error) {
 	m.mutex.Lock()
@@ -84,6 +109,7 @@ func (m *Manager) AddFiltering(
 
 	var (
 		err   error
+		ipset *nftables.Set
 		table *nftables.Table
 		chain *nftables.Chain
 	)
@@ -105,6 +131,46 @@ func (m *Manager) AddFiltering(
 	}
 	if err != nil {
 		return nil, err
+	}
+
+	rawIP := ip.To4()
+	if rawIP == nil {
+		rawIP = ip.To16()
+	}
+
+	rulesetID := m.getRulesetID(ip, proto, sPort, dPort, direction, action, ipsetName)
+
+	if ipsetName != "" {
+		// if we already have set with given name, just add ip to the set
+		// and return rule with new ID in other case let's create rule
+		// with fresh created set and set element
+
+		var isSetNew bool
+		ipset, err := m.rConn.GetSetByName(table, ipsetName)
+		if err != nil {
+			if ipset, err = m.createSet(table, rawIP, ipsetName); err != nil {
+				return nil, fmt.Errorf("get set name: %v", err)
+			}
+			isSetNew = true
+		}
+
+		if err := m.sConn.SetAddElements(ipset, []nftables.SetElement{{Key: rawIP}}); err != nil {
+			return nil, fmt.Errorf("add set element for the first time: %v", err)
+		}
+		if err := m.sConn.Flush(); err != nil {
+			return nil, fmt.Errorf("flush add elements: %v", err)
+		}
+
+		if !isSetNew {
+			// if we already have nftables rules with set for given direction
+			// just add new rule to the ruleset and return new fw.Rule object
+
+			if ruleset, ok := m.rulesetManager.getRuleset(rulesetID); ok {
+				return m.rulesetManager.addRule(ruleset, rawIP)
+			}
+			// if ipset exists but it is not linked to rule for given direction
+			// create new rule for direction and bind ipset to it later
+		}
 	}
 
 	ifaceKey := expr.MetaKeyIIFNAME
@@ -146,39 +212,47 @@ func (m *Manager) AddFiltering(
 		})
 	}
 
-	// don't use IP matching if IP is ip 0.0.0.0
-	if s := ip.String(); s != "0.0.0.0" && s != "::" {
+	// check if rawIP contains zeroed IPv4 0.0.0.0 or same IPv6 value
+	// in that case not add IP match expression into the rule definition
+	if !bytes.HasPrefix(anyIP, rawIP) {
 		// source address position
-		var adrLen, adrOffset uint32
-		if ip.To4() == nil {
-			adrLen = 16
-			adrOffset = 8
-		} else {
-			adrLen = 4
-			adrOffset = 12
+		addrLen := uint32(len(rawIP))
+		addrOffset := uint32(12)
+		if addrLen == 16 {
+			addrOffset = 8
 		}
 
 		// change to destination address position if need
 		if direction == fw.RuleDirectionOUT {
-			adrOffset += adrLen
+			addrOffset += addrLen
 		}
-
-		ipToAdd, _ := netip.AddrFromSlice(ip)
-		add := ipToAdd.Unmap()
 
 		expressions = append(expressions,
 			&expr.Payload{
 				DestRegister: 1,
 				Base:         expr.PayloadBaseNetworkHeader,
-				Offset:       adrOffset,
-				Len:          adrLen,
-			},
-			&expr.Cmp{
-				Op:       expr.CmpOpEq,
-				Register: 1,
-				Data:     add.AsSlice(),
+				Offset:       addrOffset,
+				Len:          addrLen,
 			},
 		)
+		// add individual IP for match if no ipset defined
+		if ipset == nil {
+			expressions = append(expressions,
+				&expr.Cmp{
+					Op:       expr.CmpOpEq,
+					Register: 1,
+					Data:     rawIP,
+				},
+			)
+		} else {
+			expressions = append(expressions,
+				&expr.Lookup{
+					SourceRegister: 1,
+					SetName:        ipsetName,
+					SetID:          ipset.ID,
+				},
+			)
+		}
 	}
 
 	if sPort != nil && len(sPort.Values) != 0 {
@@ -219,39 +293,76 @@ func (m *Manager) AddFiltering(
 		expressions = append(expressions, &expr.Verdict{Kind: expr.VerdictDrop})
 	}
 
-	id := uuid.New().String()
-	userData := []byte(strings.Join([]string{id, comment}, " "))
+	userData := []byte(strings.Join([]string{rulesetID, comment}, " "))
 
-	_ = m.conn.InsertRule(&nftables.Rule{
+	rule := m.rConn.InsertRule(&nftables.Rule{
 		Table:    table,
 		Chain:    chain,
 		Position: 0,
 		Exprs:    expressions,
 		UserData: userData,
 	})
-
-	if err := m.conn.Flush(); err != nil {
-		return nil, err
+	if err := m.rConn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush insert rule: %v", err)
 	}
 
-	list, err := m.conn.GetRules(table, chain)
-	if err != nil {
-		return nil, err
+	ruleset := m.rulesetManager.createRuleset(rulesetID, rule, ipset)
+	return m.rulesetManager.addRule(ruleset, rawIP)
+}
+
+// getRulesetID returns ruleset ID based on given parameters
+func (m *Manager) getRulesetID(
+	ip net.IP,
+	proto fw.Protocol,
+	sPort *fw.Port,
+	dPort *fw.Port,
+	direction fw.RuleDirection,
+	action fw.Action,
+	ipsetName string,
+) string {
+	rulesetID := ":" + strconv.Itoa(int(direction)) + ":"
+	if sPort != nil {
+		rulesetID += sPort.String()
+	}
+	rulesetID += ":"
+	if dPort != nil {
+		rulesetID += dPort.String()
+	}
+	rulesetID += ":"
+	rulesetID += strconv.Itoa(int(action))
+	if ipsetName == "" {
+		return "ip:" + ip.String() + rulesetID
+	}
+	return "set:" + ipsetName + rulesetID
+}
+
+// createSet in given table by name
+func (m *Manager) createSet(
+	table *nftables.Table,
+	rawIP []byte,
+	name string,
+) (*nftables.Set, error) {
+	keyType := nftables.TypeIPAddr
+	if len(rawIP) == 16 {
+		keyType = nftables.TypeIP6Addr
+	}
+	// else we create new ipset and continue creating rule
+	ipset := &nftables.Set{
+		Name:    name,
+		Table:   table,
+		Dynamic: true,
+		KeyType: keyType,
 	}
 
-	// Add the rule to the chain
-	rule := &Rule{id: id}
-	for _, r := range list {
-		if bytes.Equal(r.UserData, userData) {
-			rule.Rule = r
-			break
-		}
-	}
-	if rule.Rule == nil {
-		return nil, fmt.Errorf("rule not found")
+	if err := m.rConn.AddSet(ipset, nil); err != nil {
+		return nil, fmt.Errorf("create set: %v", err)
 	}
 
-	return rule, nil
+	if err := m.rConn.Flush(); err != nil {
+		return nil, fmt.Errorf("flush created set: %v", err)
+	}
+
+	return ipset, nil
 }
 
 // chain returns the chain for the given IP address with specific settings
@@ -315,7 +426,7 @@ func (m *Manager) table(family nftables.TableFamily) (*nftables.Table, error) {
 }
 
 func (m *Manager) createTableIfNotExists(family nftables.TableFamily) (*nftables.Table, error) {
-	tables, err := m.conn.ListTablesOfFamily(family)
+	tables, err := m.rConn.ListTablesOfFamily(family)
 	if err != nil {
 		return nil, fmt.Errorf("list of tables: %w", err)
 	}
@@ -326,7 +437,11 @@ func (m *Manager) createTableIfNotExists(family nftables.TableFamily) (*nftables
 		}
 	}
 
-	return m.conn.AddTable(&nftables.Table{Name: FilterTableName, Family: nftables.TableFamilyIPv4}), nil
+	table := m.rConn.AddTable(&nftables.Table{Name: FilterTableName, Family: nftables.TableFamilyIPv4})
+	if err := m.rConn.Flush(); err != nil {
+		return nil, err
+	}
+	return table, nil
 }
 
 func (m *Manager) createChainIfNotExists(
@@ -341,7 +456,7 @@ func (m *Manager) createChainIfNotExists(
 		return nil, err
 	}
 
-	chains, err := m.conn.ListChainsOfTableFamily(family)
+	chains, err := m.rConn.ListChainsOfTableFamily(family)
 	if err != nil {
 		return nil, fmt.Errorf("list of chains: %w", err)
 	}
@@ -362,7 +477,7 @@ func (m *Manager) createChainIfNotExists(
 		Policy:   &polAccept,
 	}
 
-	chain = m.conn.AddChain(chain)
+	chain = m.rConn.AddChain(chain)
 
 	ifaceKey := expr.MetaKeyIIFNAME
 	shiftDSTAddr := 0
@@ -429,7 +544,7 @@ func (m *Manager) createChainIfNotExists(
 		)
 	}
 
-	_ = m.conn.AddRule(&nftables.Rule{
+	_ = m.rConn.AddRule(&nftables.Rule{
 		Table: table,
 		Chain: chain,
 		Exprs: expressions,
@@ -444,12 +559,13 @@ func (m *Manager) createChainIfNotExists(
 		},
 		&expr.Verdict{Kind: expr.VerdictDrop},
 	}
-	_ = m.conn.AddRule(&nftables.Rule{
+	_ = m.rConn.AddRule(&nftables.Rule{
 		Table: table,
 		Chain: chain,
 		Exprs: expressions,
 	})
-	if err := m.conn.Flush(); err != nil {
+
+	if err := m.rConn.Flush(); err != nil {
 		return nil, err
 	}
 
@@ -458,16 +574,58 @@ func (m *Manager) createChainIfNotExists(
 
 // DeleteRule from the firewall by rule definition
 func (m *Manager) DeleteRule(rule fw.Rule) error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
 	nativeRule, ok := rule.(*Rule)
 	if !ok {
 		return fmt.Errorf("invalid rule type")
 	}
 
-	if err := m.conn.DelRule(nativeRule.Rule); err != nil {
-		return err
+	if nativeRule.nftRule == nil {
+		return nil
 	}
 
-	return m.conn.Flush()
+	if nativeRule.nftSet != nil {
+		// call twice of delete set element raises error
+		// so we need to check if element is already removed
+		key := fmt.Sprintf("%s:%v", nativeRule.nftSet.Name, nativeRule.ip)
+		if _, ok := m.setRemovedIPs[key]; !ok {
+			err := m.sConn.SetDeleteElements(nativeRule.nftSet, []nftables.SetElement{{Key: nativeRule.ip}})
+			if err != nil {
+				log.Errorf("delete elements for set %q: %v", nativeRule.nftSet.Name, err)
+			}
+			if err := m.sConn.Flush(); err != nil {
+				return err
+			}
+			m.setRemovedIPs[key] = struct{}{}
+		}
+	}
+
+	if m.rulesetManager.deleteRule(nativeRule) {
+		// deleteRule indicates that we still have IP in the ruleset
+		// it means we should not remove the nftables rule but need to update set
+		// so we prepare IP to be removed from set on the next flush call
+		return nil
+	}
+
+	// ruleset doesn't contain IP anymore (or contains only one), remove nft rule
+	if err := m.rConn.DelRule(nativeRule.nftRule); err != nil {
+		log.Errorf("failed to delete rule: %v", err)
+	}
+	if err := m.rConn.Flush(); err != nil {
+		return err
+	}
+	nativeRule.nftRule = nil
+
+	if nativeRule.nftSet != nil {
+		if _, ok := m.setRemoved[nativeRule.nftSet.Name]; !ok {
+			m.setRemoved[nativeRule.nftSet.Name] = nativeRule.nftSet
+		}
+		nativeRule.nftSet = nil
+	}
+
+	return nil
 }
 
 // Reset firewall to the default state
@@ -475,27 +633,116 @@ func (m *Manager) Reset() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	chains, err := m.conn.ListChains()
+	chains, err := m.rConn.ListChains()
 	if err != nil {
 		return fmt.Errorf("list of chains: %w", err)
 	}
 	for _, c := range chains {
 		if c.Name == FilterInputChainName || c.Name == FilterOutputChainName {
-			m.conn.DelChain(c)
+			m.rConn.DelChain(c)
 		}
 	}
 
-	tables, err := m.conn.ListTables()
+	tables, err := m.rConn.ListTables()
 	if err != nil {
 		return fmt.Errorf("list of tables: %w", err)
 	}
 	for _, t := range tables {
 		if t.Name == FilterTableName {
-			m.conn.DelTable(t)
+			m.rConn.DelTable(t)
 		}
 	}
 
-	return m.conn.Flush()
+	return m.rConn.Flush()
+}
+
+// Flush rule/chain/set operations from the buffer
+//
+// Method also get all rules after flush and refreshes handle values in the rulesets
+func (m *Manager) Flush() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	if err := m.flushWithBackoff(); err != nil {
+		return err
+	}
+
+	// set must be removed after flush rule changes
+	// otherwise we will get error
+	for _, s := range m.setRemoved {
+		m.rConn.FlushSet(s)
+		m.rConn.DelSet(s)
+	}
+
+	if len(m.setRemoved) > 0 {
+		if err := m.flushWithBackoff(); err != nil {
+			return err
+		}
+	}
+
+	m.setRemovedIPs = map[string]struct{}{}
+	m.setRemoved = map[string]*nftables.Set{}
+
+	if err := m.refreshRuleHandles(m.tableIPv4, m.filterInputChainIPv4); err != nil {
+		log.Errorf("failed to refresh rule handles ipv4 input chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.tableIPv4, m.filterOutputChainIPv4); err != nil {
+		log.Errorf("failed to refresh rule handles IPv4 output chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.tableIPv6, m.filterInputChainIPv6); err != nil {
+		log.Errorf("failed to refresh rule handles IPv6 input chain: %v", err)
+	}
+
+	if err := m.refreshRuleHandles(m.tableIPv6, m.filterOutputChainIPv6); err != nil {
+		log.Errorf("failed to refresh rule handles IPv6 output chain: %v", err)
+	}
+
+	return nil
+}
+
+func (m *Manager) flushWithBackoff() (err error) {
+	backoff := 4
+	backoffTime := 1000 * time.Millisecond
+	for i := 0; ; i++ {
+		err = m.rConn.Flush()
+		if err != nil {
+			if !strings.Contains(err.Error(), "busy") {
+				return
+			}
+			log.Error("failed to flush nftables, retrying...")
+			if i == backoff-1 {
+				return err
+			}
+			time.Sleep(backoffTime)
+			backoffTime = backoffTime * 2
+			continue
+		}
+		break
+	}
+	return
+}
+
+func (m *Manager) refreshRuleHandles(table *nftables.Table, chain *nftables.Chain) error {
+	if table == nil || chain == nil {
+		return nil
+	}
+
+	list, err := m.rConn.GetRules(table, chain)
+	if err != nil {
+		return err
+	}
+
+	for _, rule := range list {
+		if len(rule.UserData) != 0 {
+			if err := m.rulesetManager.setNftRuleHandle(rule); err != nil {
+				log.Errorf("failed to set rule handle: %v", err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func encodePort(port fw.Port) []byte {
