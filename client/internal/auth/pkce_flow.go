@@ -3,19 +3,21 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"github.com/netbirdio/netbird/client/internal"
 	"golang.org/x/oauth2"
 	"io"
+	"net/http"
 	"strings"
 )
 
 var _ OAuthFlow = &PKCEAuthorizationFlow{}
 
 const (
-	QUERY_STATE = "state"
-	QUERY_CODE  = "code"
+	queryState = "state"
+	queryCode  = "code"
 )
 
 // PKCEAuthorizationFlow implements the OAuthFlow interface for the Authorization Code Flow with PKCE
@@ -77,12 +79,70 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(_ context.Context) (AuthFlowInfo
 		oauth2.SetAuthURLParam("audience", p.ProviderConfig.Audience),
 	)
 
-	p.State = state
 	return AuthFlowInfo{
 		VerificationURIComplete: authURL,
 	}, nil
 }
 
 func (p *PKCEAuthorizationFlow) WaitToken(_ context.Context, _ AuthFlowInfo) (TokenInfo, error) {
-	return TokenInfo{}, nil
+	tokenChan := make(chan *oauth2.Token, 1)
+	errChan := make(chan error, 1)
+
+	server := http.Server{Addr: p.ProviderConfig.RedirectURL}
+	defer server.Shutdown(context.Background())
+
+	http.HandleFunc("/", func(wr http.ResponseWriter, req *http.Request) {
+		query := req.URL.Query()
+
+		state := query.Get(queryState)
+		// prevent timing attacks on state
+		if subtle.ConstantTimeCompare([]byte(p.State), []byte(state)) == 0 {
+			errChan <- fmt.Errorf("invalid state")
+			return
+		}
+
+		code := query.Get(queryCode)
+		if code == "" {
+			errChan <- fmt.Errorf("missing code")
+			return
+		}
+
+		token, err := p.OAuthConfig.Exchange(
+			req.Context(),
+			code,
+			oauth2.SetAuthURLParam("code_verifier", p.CodeVerifier),
+		)
+		if err != nil {
+			errChan <- fmt.Errorf("OAuth token exchange failed: %v", err)
+			return
+		}
+
+		tokenChan <- token
+	})
+
+	go func() {
+		if err := server.ListenAndServe(); err != nil {
+			errChan <- err
+		}
+	}()
+
+	select {
+	case token := <-tokenChan:
+		tokenInfo := TokenInfo{
+			AccessToken:  token.AccessToken,
+			RefreshToken: token.RefreshToken,
+			TokenType:    token.TokenType,
+			ExpiresIn:    token.Expiry.Second(),
+			UseIDToken:   false, // TODO: add useIDToken in configuration
+		}
+
+		idToken, ok := token.Extra("id_token").(string)
+		if ok {
+			tokenInfo.IDToken = idToken
+		}
+
+		return tokenInfo, nil
+	case err := <-errChan:
+		return TokenInfo{}, err
+	}
 }
