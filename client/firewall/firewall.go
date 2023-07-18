@@ -51,6 +51,7 @@ type Manager interface {
 		dPort *Port,
 		direction RuleDirection,
 		action Action,
+		ipsetName string,
 		comment string,
 	) (Rule, error)
 
@@ -59,6 +60,9 @@ type Manager interface {
 
 	// Reset firewall to the default state
 	Reset() error
+
+	// Flush the changes to firewall controller
+	Flush() error
 
 	// TODO: migrate routemanager firewal actions to this interface
 }

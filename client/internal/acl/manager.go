@@ -33,9 +33,22 @@ type Manager interface {
 
 // DefaultManager uses firewall manager to handle
 type DefaultManager struct {
-	manager    firewall.Manager
-	rulesPairs map[string][]firewall.Rule
-	mutex      sync.Mutex
+	manager      firewall.Manager
+	ipsetCounter int
+	rulesPairs   map[string][]firewall.Rule
+	mutex        sync.Mutex
+}
+
+type ipsetInfo struct {
+	name    string
+	ipCount int
+}
+
+func newDefaultManager(fm firewall.Manager) *DefaultManager {
+	return &DefaultManager{
+		manager:    fm,
+		rulesPairs: make(map[string][]firewall.Rule),
+	}
 }
 
 // ApplyFiltering firewall rules to the local firewall manager processed by ACL policy.
@@ -60,6 +73,12 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		log.Debug("firewall manager is not supported, skipping firewall rules")
 		return
 	}
+
+	defer func() {
+		if err := d.manager.Flush(); err != nil {
+			log.Error("failed to flush firewall rules: ", err)
+		}
+	}()
 
 	rules, squashedProtocols := d.squashAcceptRules(networkMap)
 
@@ -108,8 +127,32 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 
 	applyFailed := false
 	newRulePairs := make(map[string][]firewall.Rule)
+	ipsetByRuleSelectors := make(map[string]*ipsetInfo)
+
+	// calculate which IP's can be grouped in by which ipset
+	// to do that we use rule selector (which is just rule properties without IP's)
 	for _, r := range rules {
-		pairID, rulePair, err := d.protoRuleToFirewallRule(r)
+		selector := d.getRuleGroupingSelector(r)
+		ipset, ok := ipsetByRuleSelectors[selector]
+		if !ok {
+			ipset = &ipsetInfo{}
+		}
+
+		ipset.ipCount++
+		ipsetByRuleSelectors[selector] = ipset
+	}
+
+	for _, r := range rules {
+		// if this rule is member of rule selection with more than DefaultIPsCountForSet
+		// it's IP address can be used in the ipset for firewall manager which supports it
+		ipset := ipsetByRuleSelectors[d.getRuleGroupingSelector(r)]
+		ipsetName := ""
+		if ipset.name == "" {
+			d.ipsetCounter++
+			ipset.name = fmt.Sprintf("nb%07d", d.ipsetCounter)
+		}
+		ipsetName = ipset.name
+		pairID, rulePair, err := d.protoRuleToFirewallRule(r, ipsetName)
 		if err != nil {
 			log.Errorf("failed to apply firewall rule: %+v, %v", r, err)
 			applyFailed = true
@@ -154,7 +197,10 @@ func (d *DefaultManager) Stop() {
 	}
 }
 
-func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) (string, []firewall.Rule, error) {
+func (d *DefaultManager) protoRuleToFirewallRule(
+	r *mgmProto.FirewallRule,
+	ipsetName string,
+) (string, []firewall.Rule, error) {
 	ip := net.ParseIP(r.PeerIP)
 	if ip == nil {
 		return "", nil, fmt.Errorf("invalid IP address, skipping firewall rule")
@@ -190,9 +236,9 @@ func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) (stri
 	var err error
 	switch r.Direction {
 	case mgmProto.FirewallRule_IN:
-		rules, err = d.addInRules(ip, protocol, port, action, "")
+		rules, err = d.addInRules(ip, protocol, port, action, ipsetName, "")
 	case mgmProto.FirewallRule_OUT:
-		rules, err = d.addOutRules(ip, protocol, port, action, "")
+		rules, err = d.addOutRules(ip, protocol, port, action, ipsetName, "")
 	default:
 		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")
 	}
@@ -205,9 +251,17 @@ func (d *DefaultManager) protoRuleToFirewallRule(r *mgmProto.FirewallRule) (stri
 	return ruleID, rules, nil
 }
 
-func (d *DefaultManager) addInRules(ip net.IP, protocol firewall.Protocol, port *firewall.Port, action firewall.Action, comment string) ([]firewall.Rule, error) {
+func (d *DefaultManager) addInRules(
+	ip net.IP,
+	protocol firewall.Protocol,
+	port *firewall.Port,
+	action firewall.Action,
+	ipsetName string,
+	comment string,
+) ([]firewall.Rule, error) {
 	var rules []firewall.Rule
-	rule, err := d.manager.AddFiltering(ip, protocol, nil, port, firewall.RuleDirectionIN, action, comment)
+	rule, err := d.manager.AddFiltering(
+		ip, protocol, nil, port, firewall.RuleDirectionIN, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
@@ -217,7 +271,8 @@ func (d *DefaultManager) addInRules(ip net.IP, protocol firewall.Protocol, port 
 		return rules, nil
 	}
 
-	rule, err = d.manager.AddFiltering(ip, protocol, port, nil, firewall.RuleDirectionOUT, action, comment)
+	rule, err = d.manager.AddFiltering(
+		ip, protocol, port, nil, firewall.RuleDirectionOUT, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
@@ -225,9 +280,17 @@ func (d *DefaultManager) addInRules(ip net.IP, protocol firewall.Protocol, port 
 	return append(rules, rule), nil
 }
 
-func (d *DefaultManager) addOutRules(ip net.IP, protocol firewall.Protocol, port *firewall.Port, action firewall.Action, comment string) ([]firewall.Rule, error) {
+func (d *DefaultManager) addOutRules(
+	ip net.IP,
+	protocol firewall.Protocol,
+	port *firewall.Port,
+	action firewall.Action,
+	ipsetName string,
+	comment string,
+) ([]firewall.Rule, error) {
 	var rules []firewall.Rule
-	rule, err := d.manager.AddFiltering(ip, protocol, nil, port, firewall.RuleDirectionOUT, action, comment)
+	rule, err := d.manager.AddFiltering(
+		ip, protocol, nil, port, firewall.RuleDirectionOUT, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
@@ -237,7 +300,8 @@ func (d *DefaultManager) addOutRules(ip net.IP, protocol firewall.Protocol, port
 		return rules, nil
 	}
 
-	rule, err = d.manager.AddFiltering(ip, protocol, port, nil, firewall.RuleDirectionIN, action, comment)
+	rule, err = d.manager.AddFiltering(
+		ip, protocol, port, nil, firewall.RuleDirectionIN, action, ipsetName, comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
@@ -282,6 +346,10 @@ func (d *DefaultManager) squashAcceptRules(
 	in := protoMatch{}
 	out := protoMatch{}
 
+	// trace which type of protocols was squashed
+	squashedRules := []*mgmProto.FirewallRule{}
+	squashedProtocols := map[mgmProto.FirewallRuleProtocol]struct{}{}
+
 	// this function we use to do calculation, can we squash the rules by protocol or not.
 	// We summ amount of Peers IP for given protocol we found in original rules list.
 	// But we zeroed the IP's for protocol if:
@@ -298,12 +366,22 @@ func (d *DefaultManager) squashAcceptRules(
 		if _, ok := protocols[r.Protocol]; !ok {
 			protocols[r.Protocol] = map[string]int{}
 		}
-		match := protocols[r.Protocol]
 
-		if _, ok := match[r.PeerIP]; ok {
+		// special case, when we recieve this all network IP address
+		// it means that rules for that protocol was already optimized on the
+		// management side
+		if r.PeerIP == "0.0.0.0" {
+			squashedRules = append(squashedRules, r)
+			squashedProtocols[r.Protocol] = struct{}{}
 			return
 		}
-		match[r.PeerIP] = i
+
+		ipset := protocols[r.Protocol]
+
+		if _, ok := ipset[r.PeerIP]; ok {
+			return
+		}
+		ipset[r.PeerIP] = i
 	}
 
 	for i, r := range networkMap.FirewallRules {
@@ -324,9 +402,6 @@ func (d *DefaultManager) squashAcceptRules(
 		mgmProto.FirewallRule_UDP,
 	}
 
-	// trace which type of protocols was squashed
-	squashedRules := []*mgmProto.FirewallRule{}
-	squashedProtocols := map[mgmProto.FirewallRuleProtocol]struct{}{}
 	squash := func(matches protoMatch, direction mgmProto.FirewallRuleDirection) {
 		for _, protocol := range protocolOrders {
 			if ipset, ok := matches[protocol]; !ok || len(ipset) != totalIPs || len(ipset) < 2 {
@@ -380,6 +455,11 @@ func (d *DefaultManager) squashAcceptRules(
 	}
 
 	return append(rules, squashedRules...), squashedProtocols
+}
+
+// getRuleGroupingSelector takes all rule properties except IP address to build selector
+func (d *DefaultManager) getRuleGroupingSelector(rule *mgmProto.FirewallRule) string {
+	return fmt.Sprintf("%v:%v:%v:%s", strconv.Itoa(int(rule.Direction)), rule.Action, rule.Protocol, rule.Port)
 }
 
 func convertToFirewallProtocol(protocol mgmProto.FirewallRuleProtocol) firewall.Protocol {
