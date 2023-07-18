@@ -191,8 +191,10 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 
 func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 	var codeMsg string
-	if !strings.Contains(verificationURIComplete, userCode) {
-		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
+	if userCode != "" {
+		if !strings.Contains(verificationURIComplete, userCode) {
+			codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
+		}
 	}
 
 	err := open.Run(verificationURIComplete)
