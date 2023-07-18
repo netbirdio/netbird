@@ -3,16 +3,15 @@ package auth
 import (
 	"context"
 	"fmt"
+	"github.com/golang-jwt/jwt"
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/golang-jwt/jwt"
-	"github.com/stretchr/testify/require"
 )
 
 type mockHTTPClient struct {
@@ -114,8 +113,8 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 				err:     testCase.inputReqError,
 			}
 
-			config := &internal.Config{
-				deviceAuthProviderConfig: internal.DeviceAuthProviderConfig{
+			deviceFlow := &DeviceAuthorizationFlow{
+				providerConfig: internal.DeviceAuthProviderConfig{
 					Audience:           expectedAudience,
 					ClientID:           expectedClientID,
 					Scope:              expectedScope,
@@ -126,7 +125,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 				HTTPClient: &httpClient,
 			}
 
-			authInfo, err := hosted.RequestAuthInfo(context.TODO())
+			authInfo, err := deviceFlow.RequestAuthInfo(context.TODO())
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
 			require.EqualValues(t, expectPayload, httpClient.reqBody, "payload should match")
@@ -279,8 +278,8 @@ func TestHosted_WaitToken(t *testing.T) {
 				countResBody: testCase.inputCountResBody,
 			}
 
-			hosted := Hosted{
-				deviceAuthProviderConfig: internal.DeviceAuthProviderConfig{
+			deviceFlow := DeviceAuthorizationFlow{
+				providerConfig: internal.DeviceAuthProviderConfig{
 					Audience:           testCase.inputAudience,
 					ClientID:           clientID,
 					TokenEndpoint:      "test.hosted.com/token",
@@ -288,11 +287,12 @@ func TestHosted_WaitToken(t *testing.T) {
 					Scope:              "openid",
 					UseIDToken:         false,
 				},
-				HTTPClient: &httpClient}
+				HTTPClient: &httpClient,
+			}
 
 			ctx, cancel := context.WithTimeout(context.TODO(), testCase.inputTimeout)
 			defer cancel()
-			tokenInfo, err := hosted.WaitToken(ctx, testCase.inputInfo)
+			tokenInfo, err := deviceFlow.WaitToken(ctx, testCase.inputInfo)
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
 			require.EqualValues(t, testCase.expectPayload, httpClient.reqBody, "payload should match")
