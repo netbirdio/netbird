@@ -1,8 +1,9 @@
-package internal
+package auth
 
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal"
 	"io"
 	"net/http"
 	"net/url"
@@ -53,7 +54,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingErrFunc   require.ErrorAssertionFunc
 		expectedErrorMSG string
 		testingFunc      require.ComparisonAssertionFunc
-		expectedOut      DeviceAuthInfo
+		expectedOut      AuthFlowInfo
 		expectedMSG      string
 		expectPayload    string
 	}
@@ -92,7 +93,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingFunc:      require.EqualValues,
 		expectPayload:    expectPayload,
 	}
-	testCase4Out := DeviceAuthInfo{ExpiresIn: 10}
+	testCase4Out := AuthFlowInfo{ExpiresIn: 10}
 	testCase4 := test{
 		name:           "Got Device Code",
 		inputResBody:   fmt.Sprintf("{\"expires_in\":%d}", testCase4Out.ExpiresIn),
@@ -113,8 +114,8 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 				err:     testCase.inputReqError,
 			}
 
-			hosted := Hosted{
-				providerConfig: DeviceAuthProviderConfig{
+			config := &internal.Config{
+				deviceAuthProviderConfig: internal.DeviceAuthProviderConfig{
 					Audience:           expectedAudience,
 					ClientID:           expectedClientID,
 					Scope:              expectedScope,
@@ -125,7 +126,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 				HTTPClient: &httpClient,
 			}
 
-			authInfo, err := hosted.RequestDeviceCode(context.TODO())
+			authInfo, err := hosted.RequestAuthInfo(context.TODO())
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
 			require.EqualValues(t, expectPayload, httpClient.reqBody, "payload should match")
@@ -145,7 +146,7 @@ func TestHosted_WaitToken(t *testing.T) {
 		inputMaxReqs      int
 		inputCountResBody string
 		inputTimeout      time.Duration
-		inputInfo         DeviceAuthInfo
+		inputInfo         AuthFlowInfo
 		inputAudience     string
 		testingErrFunc    require.ErrorAssertionFunc
 		expectedErrorMSG  string
@@ -155,7 +156,7 @@ func TestHosted_WaitToken(t *testing.T) {
 		expectPayload     string
 	}
 
-	defaultInfo := DeviceAuthInfo{
+	defaultInfo := AuthFlowInfo{
 		DeviceCode: "test",
 		ExpiresIn:  10,
 		Interval:   1,
@@ -279,7 +280,7 @@ func TestHosted_WaitToken(t *testing.T) {
 			}
 
 			hosted := Hosted{
-				providerConfig: DeviceAuthProviderConfig{
+				deviceAuthProviderConfig: internal.DeviceAuthProviderConfig{
 					Audience:           testCase.inputAudience,
 					ClientID:           clientID,
 					TokenEndpoint:      "test.hosted.com/token",
