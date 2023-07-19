@@ -81,6 +81,25 @@ type nftablesManager struct {
 	mux       sync.Mutex
 }
 
+func newNFTablesManager(parentCtx context.Context) (*nftablesManager, error) {
+	ctx, cancel := context.WithCancel(parentCtx)
+
+	mgr := &nftablesManager{
+		ctx:    ctx,
+		stop:   cancel,
+		conn:   &nftables.Conn{},
+		chains: make(map[string]map[string]*nftables.Chain),
+		rules:  make(map[string]*nftables.Rule),
+	}
+
+	err := mgr.isSupported()
+	if err != nil {
+		return nil, err
+	}
+
+	return mgr, nil
+}
+
 // CleanRoutingRules cleans existing nftables rules from the system
 func (n *nftablesManager) CleanRoutingRules() {
 	n.mux.Lock()
@@ -382,6 +401,14 @@ func (n *nftablesManager) removeRoutingRule(format string, pair routerPair) erro
 		log.Debugf("nftables: removing %s rule for %s", ruleType, pair.destination)
 
 		delete(n.rules, ruleKey)
+	}
+	return nil
+}
+
+func (n *nftablesManager) isSupported() error {
+	_, err := n.conn.ListChains()
+	if err != nil {
+		return fmt.Errorf("nftables is not supported: %s", err)
 	}
 	return nil
 }
