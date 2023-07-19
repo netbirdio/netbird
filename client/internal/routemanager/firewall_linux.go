@@ -6,8 +6,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/coreos/go-iptables/iptables"
-	"github.com/google/nftables"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -30,46 +28,13 @@ func genKey(format string, input string) string {
 
 // NewFirewall if supported, returns an iptables manager, otherwise returns a nftables manager
 func NewFirewall(parentCTX context.Context) firewallManager {
-	ctx, cancel := context.WithCancel(parentCTX)
-
-	if isIptablesSupported() {
-		log.Debugf("iptables is supported")
-		ipv4Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-		if !isIptablesClientAvailable(ipv4Client) {
-			log.Infof("iptables is missing for ipv4")
-			ipv4Client = nil
-		}
-		ipv6Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-		if !isIptablesClientAvailable(ipv6Client) {
-			log.Infof("iptables is missing for ipv6")
-			ipv6Client = nil
-		}
-
-		return &iptablesManager{
-			ctx:        ctx,
-			stop:       cancel,
-			ipv4Client: ipv4Client,
-			ipv6Client: ipv6Client,
-			rules:      make(map[string]map[string][]string),
-		}
+	manager, err := newNFTablesManager(parentCTX)
+	if err == nil {
+		log.Debugf("nftables firewall manager will be used")
+		return manager
 	}
-
-	log.Debugf("iptables is not supported, using nftables")
-
-	manager := &nftablesManager{
-		ctx:    ctx,
-		stop:   cancel,
-		conn:   &nftables.Conn{},
-		chains: make(map[string]map[string]*nftables.Chain),
-		rules:  make(map[string]*nftables.Rule),
-	}
-
-	return manager
-}
-
-func isIptablesClientAvailable(client *iptables.IPTables) bool {
-	_, err := client.ListChains("filter")
-	return err == nil
+	log.Debugf("fallback to iptables firewall manager: %s", err)
+	return newIptablesManager(parentCTX)
 }
 
 func getInPair(pair routerPair) routerPair {
