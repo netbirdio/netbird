@@ -172,7 +172,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 
 	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
-		return nil, fmt.Errorf("getting a request oauth code failed: %v", err)
+		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
 	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode)

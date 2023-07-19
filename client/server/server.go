@@ -232,7 +232,7 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 
 		authInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 		if err != nil {
-			log.Errorf("getting a request oauth code failed: %v", err)
+			log.Errorf("getting a request OAuth flow failed: %v", err)
 			return nil, err
 		}
 

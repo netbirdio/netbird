@@ -192,7 +192,7 @@ func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*auth.TokenInfo, err
 
 	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
-		return nil, fmt.Errorf("getting a request device code failed: %v", err)
+		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
 	go urlOpener.Open(flowInfo.VerificationURIComplete)

@@ -9,7 +9,6 @@ import (
 	"github.com/netbirdio/netbird/client/internal"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -69,13 +68,7 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(_ context.Context) (AuthFlowInfo
 	}
 	p.codeVerifier = codeVerifier
 
-	sha2 := sha256.New()
-	_, err = io.WriteString(sha2, codeVerifier)
-	if err != nil {
-		return AuthFlowInfo{}, err
-	}
-
-	codeChallenge := base64.RawURLEncoding.EncodeToString(sha2.Sum(nil))
+	codeChallenge := createCodeChallenge(codeVerifier)
 	authURL := p.oAuthConfig.AuthCodeURL(
 		state,
 		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
@@ -172,4 +165,9 @@ func (p *PKCEAuthorizationFlow) handleOAuthToken(token *oauth2.Token) (TokenInfo
 	}
 
 	return tokenInfo, nil
+}
+
+func createCodeChallenge(codeVerifier string) string {
+	sha2 := sha256.Sum256([]byte(codeVerifier))
+	return base64.RawURLEncoding.EncodeToString(sha2[:])
 }
