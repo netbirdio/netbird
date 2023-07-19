@@ -575,6 +575,7 @@ func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.Encr
 			AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
 			Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
 			RedirectURL:           s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURL,
+			UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
 		},
 	}
 
