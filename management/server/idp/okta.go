@@ -311,7 +311,9 @@ func (om *OktaManager) InviteUserByID(_ string) error {
 // updateUserProfileSchema updates the Okta user schema to include custom fields,
 // wt_account_id and wt_pending_invite.
 func updateUserProfileSchema(client *okta.Client) error {
-	required := true
+	// Ensure Okta doesn't enforce user input for these fields, as they are solely used by Netbird
+	userPermissions := []*okta.UserSchemaAttributePermission{{Action: "HIDE", Principal: "SELF"}}
+
 	_, resp, err := client.UserSchema.UpdateUserProfile(
 		context.Background(),
 		"default",
@@ -322,18 +324,20 @@ func updateUserProfileSchema(client *okta.Client) error {
 					Type: "object",
 					Properties: map[string]*okta.UserSchemaAttribute{
 						wtAccountID: {
-							MaxLength: 100,
-							MinLength: 1,
-							Required:  &required,
-							Scope:     "NONE",
-							Title:     "Wt Account Id",
-							Type:      "string",
+							MaxLength:   100,
+							MinLength:   1,
+							Required:    new(bool),
+							Scope:       "NONE",
+							Title:       "Wt Account Id",
+							Type:        "string",
+							Permissions: userPermissions,
 						},
 						wtPendingInvite: {
-							Required: new(bool),
-							Scope:    "NONE",
-							Title:    "Wt Pending Invite",
-							Type:     "boolean",
+							Required:    new(bool),
+							Scope:       "NONE",
+							Title:       "Wt Pending Invite",
+							Type:        "boolean",
+							Permissions: userPermissions,
 						},
 					},
 				},
