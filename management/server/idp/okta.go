@@ -270,21 +270,32 @@ func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	var pendingInvite bool
-	if appMetadata.WTPendingInvite != nil {
-		pendingInvite = *appMetadata.WTPendingInvite
+	user, resp, err := om.client.User.GetUser(context.Background(), userID)
+	if err != nil {
+		return err
 	}
 
-	_, resp, err := om.client.User.UpdateUser(context.Background(), userID,
-		okta.User{
-			Profile: &okta.UserProfile{
-				wtAccountID:     appMetadata.WTAccountID,
-				wtPendingInvite: pendingInvite,
-			},
-		},
-		nil,
-	)
+	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to update user, statusCode %d", resp.StatusCode)
+	}
+
+	profile := *user.Profile
+
+	if appMetadata.WTPendingInvite != nil {
+		profile[wtPendingInvite] = *appMetadata.WTPendingInvite
+	}
+
+	if appMetadata.WTAccountID != "" {
+		profile[wtAccountID] = appMetadata.WTAccountID
+	}
+
+	user.Profile = &profile
+	_, resp, err = om.client.User.UpdateUser(context.Background(), userID, *user, nil)
 	if err != nil {
+		fmt.Println(err.Error())
 		return err
 	}
 
