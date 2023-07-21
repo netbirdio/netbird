@@ -131,8 +131,14 @@ func (m *Manager) AddFiltering(
 	}
 
 	if rs, ok := m.ipsetIndex[ipsetName]; ipsetName != "" && !ok {
+		if err := ipset.Flush(ipsetName); err != nil {
+			log.Errorf("fluse ipset %q before start to use it: %v", ipsetName, err)
+		}
 		if err := ipset.Create(ipsetName); err != nil {
 			return nil, fmt.Errorf("failed to create ipset: %w", err)
+		}
+		if err := ipset.Add(ipsetName, ip.String()); err != nil {
+			return nil, fmt.Errorf("failed to add ip to ipset: %w", err)
 		}
 		m.ipsetIndex[ipsetName] = ruleset{
 			ips: map[string]string{ip.String(): ruleID},
@@ -183,6 +189,8 @@ func (m *Manager) AddFiltering(
 	rule := &Rule{
 		id:    ruleID,
 		specs: specs,
+		ipset: ipsetName,
+		ip:    ip.String(),
 		dst:   direction == fw.RuleDirectionOUT,
 		v6:    ip.To4() == nil,
 	}
@@ -229,6 +237,10 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 			return nil
 		}
 		delete(m.ipsetIndex, r.ipset)
+
+		if err := ipset.Destroy(r.ipset); err != nil {
+			log.Errorf("delete empty ipset: %v", err)
+		}
 		r = rs.rule
 	}
 
@@ -296,6 +308,15 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 	if err := client.ClearAndDeleteChain(table, ChainOutputFilterName); err != nil {
 		log.Errorf("failed to clear and delete input chain: %v", err)
 		return nil
+	}
+
+	for ipsetName := range m.ipsetIndex {
+		err := ipset.Destroy(ipsetName)
+		if err != nil {
+			log.Errorf("delete ipset %q during reset: %v", ipsetName, err)
+		} else {
+			delete(m.ipsetIndex, ipsetName)
+		}
 	}
 
 	return nil

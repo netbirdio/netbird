@@ -3,6 +3,7 @@ package iptables
 import (
 	"fmt"
 	"net"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -55,12 +56,13 @@ func TestIptablesManager(t *testing.T) {
 	// just check on the local interface
 	manager, err := Create(mock)
 	require.NoError(t, err)
+
 	time.Sleep(time.Second)
 
 	defer func() {
-		if err := manager.Reset(); err != nil {
-			t.Errorf("clear the manager state: %v", err)
-		}
+		err := manager.Reset()
+		require.NoError(t, err, "clear the manager state")
+
 		time.Sleep(time.Second)
 	}()
 
@@ -88,19 +90,17 @@ func TestIptablesManager(t *testing.T) {
 	})
 
 	t.Run("delete first rule", func(t *testing.T) {
-		if err := manager.DeleteRule(rule1); err != nil {
-			require.NoError(t, err, "failed to delete rule")
-		}
+		err := manager.DeleteRule(rule1)
+		require.NoError(t, err, "failed to delete rule")
 
 		checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, false, rule1.(*Rule).specs...)
 	})
 
 	t.Run("delete second rule", func(t *testing.T) {
-		if err := manager.DeleteRule(rule2); err != nil {
-			require.NoError(t, err, "failed to delete rule")
-		}
+		err := manager.DeleteRule(rule2)
+		require.NoError(t, err, "failed to delete rule")
 
-		checkRuleSpecs(t, ipv4Client, ChainInputFilterName, false, rule2.(*Rule).specs...)
+		require.Empty(t, manager.ipsetIndex, "rulesets index after removed second rule must be empty")
 	})
 
 	t.Run("reset check", func(t *testing.T) {
@@ -119,6 +119,94 @@ func TestIptablesManager(t *testing.T) {
 		if ok {
 			require.NoErrorf(t, err, "chain '%v' still exists after Reset", ChainInputFilterName)
 		}
+	})
+}
+
+func TestIptablesManagerIPSet(t *testing.T) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	require.NoError(t, err)
+
+	mock := &iFaceMock{
+		NameFunc: func() string {
+			return "lo"
+		},
+		AddressFunc: func() iface.WGAddress {
+			return iface.WGAddress{
+				IP: net.ParseIP("10.20.0.1"),
+				Network: &net.IPNet{
+					IP:   net.ParseIP("10.20.0.0"),
+					Mask: net.IPv4Mask(255, 255, 255, 0),
+				},
+			}
+		},
+	}
+
+	// just check on the local interface
+	manager, err := Create(mock)
+	require.NoError(t, err)
+
+	time.Sleep(time.Second)
+
+	defer func() {
+		err := manager.Reset()
+		require.NoError(t, err, "clear the manager state")
+
+		time.Sleep(time.Second)
+	}()
+
+	var rule1 fw.Rule
+	t.Run("add first rule with set", func(t *testing.T) {
+		ip := net.ParseIP("10.20.0.2")
+		port := &fw.Port{Values: []int{8080}}
+		rule1, err = manager.AddFiltering(
+			ip, "tcp", nil, port, fw.RuleDirectionOUT,
+			fw.ActionAccept, "default", "accept HTTP traffic",
+		)
+		require.NoError(t, err, "failed to add rule")
+
+		checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, true, rule1.(*Rule).specs...)
+		require.Equal(t, rule1.(*Rule).ipset, "default", "ipset name must be set")
+		require.Equal(t, rule1.(*Rule).ip, "10.20.0.2", "ipset IP must be set")
+	})
+
+	var rule2 fw.Rule
+	t.Run("add second rule", func(t *testing.T) {
+		ip := net.ParseIP("10.20.0.3")
+		port := &fw.Port{
+			Values: []int{8043: 8046},
+		}
+		rule2, err = manager.AddFiltering(
+			ip, "tcp", port, nil, fw.RuleDirectionIN, fw.ActionAccept,
+			"default", "accept HTTPS traffic from ports range",
+		)
+		require.NoError(t, err, "failed to add rule")
+		require.Nil(t, rule2.(*Rule).specs, "second rule IP added to set, specs should be empty")
+		require.Equal(t, rule2.(*Rule).ipset, "default", "ipset name must be set")
+		require.Equal(t, rule2.(*Rule).ip, "10.20.0.3", "ipset IP must be set")
+	})
+
+	t.Run("delete first rule", func(t *testing.T) {
+		err := manager.DeleteRule(rule1)
+		require.NoError(t, err, "failed to delete rule")
+
+		require.NotContains(t, manager.ipsetIndex, rule1.(*Rule).id, "rule must be removed form the ruleset index")
+	})
+
+	t.Run("delete second rule", func(t *testing.T) {
+		err := manager.DeleteRule(rule2)
+		require.NoError(t, err, "failed to delete rule")
+
+		// print ipset list command output here
+		out, err := exec.Command("ipset", "list").CombinedOutput()
+		require.NoError(t, err, "no error expected")
+		println(string(out))
+
+		require.Empty(t, manager.ipsetIndex, "rulesets index after removed second rule must be empty")
+	})
+
+	t.Run("reset check", func(t *testing.T) {
+		err = manager.Reset()
+		require.NoError(t, err, "failed to reset")
 	})
 }
 
@@ -153,9 +241,9 @@ func TestIptablesCreatePerformance(t *testing.T) {
 			time.Sleep(time.Second)
 
 			defer func() {
-				if err := manager.Reset(); err != nil {
-					t.Errorf("clear the manager state: %v", err)
-				}
+				err := manager.Reset()
+				require.NoError(t, err, "clear the manager state")
+
 				time.Sleep(time.Second)
 			}()
 
