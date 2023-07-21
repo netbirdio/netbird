@@ -270,21 +270,32 @@ func (om *OktaManager) GetAllAccounts() (map[string][]*UserData, error) {
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	var pendingInvite bool
-	if appMetadata.WTPendingInvite != nil {
-		pendingInvite = *appMetadata.WTPendingInvite
+	user, resp, err := om.client.User.GetUser(context.Background(), userID)
+	if err != nil {
+		return err
 	}
 
-	_, resp, err := om.client.User.UpdateUser(context.Background(), userID,
-		okta.User{
-			Profile: &okta.UserProfile{
-				wtAccountID:     appMetadata.WTAccountID,
-				wtPendingInvite: pendingInvite,
-			},
-		},
-		nil,
-	)
+	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to update user, statusCode %d", resp.StatusCode)
+	}
+
+	profile := *user.Profile
+
+	if appMetadata.WTPendingInvite != nil {
+		profile[wtPendingInvite] = *appMetadata.WTPendingInvite
+	}
+
+	if appMetadata.WTAccountID != "" {
+		profile[wtAccountID] = appMetadata.WTAccountID
+	}
+
+	user.Profile = &profile
+	_, resp, err = om.client.User.UpdateUser(context.Background(), userID, *user, nil)
 	if err != nil {
+		fmt.Println(err.Error())
 		return err
 	}
 
@@ -311,7 +322,9 @@ func (om *OktaManager) InviteUserByID(_ string) error {
 // updateUserProfileSchema updates the Okta user schema to include custom fields,
 // wt_account_id and wt_pending_invite.
 func updateUserProfileSchema(client *okta.Client) error {
-	required := true
+	// Ensure Okta doesn't enforce user input for these fields, as they are solely used by Netbird
+	userPermissions := []*okta.UserSchemaAttributePermission{{Action: "HIDE", Principal: "SELF"}}
+
 	_, resp, err := client.UserSchema.UpdateUserProfile(
 		context.Background(),
 		"default",
@@ -322,18 +335,20 @@ func updateUserProfileSchema(client *okta.Client) error {
 					Type: "object",
 					Properties: map[string]*okta.UserSchemaAttribute{
 						wtAccountID: {
-							MaxLength: 100,
-							MinLength: 1,
-							Required:  &required,
-							Scope:     "NONE",
-							Title:     "Wt Account Id",
-							Type:      "string",
+							MaxLength:   100,
+							MinLength:   1,
+							Required:    new(bool),
+							Scope:       "NONE",
+							Title:       "Wt Account Id",
+							Type:        "string",
+							Permissions: userPermissions,
 						},
 						wtPendingInvite: {
-							Required: new(bool),
-							Scope:    "NONE",
-							Title:    "Wt Pending Invite",
-							Type:     "boolean",
+							Required:    new(bool),
+							Scope:       "NONE",
+							Title:       "Wt Pending Invite",
+							Type:        "boolean",
+							Permissions: userPermissions,
 						},
 					},
 				},
