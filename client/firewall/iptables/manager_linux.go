@@ -8,6 +8,7 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/uuid"
+	"github.com/nadoo/ipset"
 	log "github.com/sirupsen/logrus"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
@@ -35,12 +36,19 @@ type Manager struct {
 	inputDefaultRuleSpecs  []string
 	outputDefaultRuleSpecs []string
 	wgIface                iFaceMapper
+
+	ipsetIndex map[string]ruleset
 }
 
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
+}
+
+type ruleset struct {
+	rule *Rule
+	ips  map[string]string
 }
 
 // Create iptables firewall manager
@@ -51,6 +59,11 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 			"-i", wgIface.Name(), "-j", ChainInputFilterName, "-s", wgIface.Address().String()},
 		outputDefaultRuleSpecs: []string{
 			"-o", wgIface.Name(), "-j", ChainOutputFilterName, "-d", wgIface.Address().String()},
+		ipsetIndex: make(map[string]ruleset),
+	}
+
+	if err := ipset.Init(); err != nil {
+		return nil, fmt.Errorf("init ipset: %w", err)
 	}
 
 	// init clients for booth ipv4 and ipv6
@@ -117,16 +130,29 @@ func (m *Manager) AddFiltering(
 		comment = ruleID
 	}
 
-	specs := m.filterRuleSpecs(
-		"filter",
-		ip,
-		string(protocol),
-		sPortVal,
-		dPortVal,
-		direction,
-		action,
-		comment,
-	)
+	if rs, ok := m.ipsetIndex[ipsetName]; ipsetName != "" && !ok {
+		if err := ipset.Create(ipsetName); err != nil {
+			return nil, fmt.Errorf("failed to create ipset: %w", err)
+		}
+		m.ipsetIndex[ipsetName] = ruleset{
+			ips: map[string]string{ip.String(): ruleID},
+		}
+	} else if ipsetName != "" {
+		if err := ipset.Add(ipsetName, ip.String()); err != nil {
+			return nil, fmt.Errorf("failed to add ip to ipset: %w", err)
+		}
+		rs.ips[ip.String()] = ruleID
+		return &Rule{
+			id:    ruleID,
+			ipset: ipsetName,
+			ip:    ip.String(),
+			dst:   direction == fw.RuleDirectionOUT,
+			v6:    ip.To4() == nil,
+		}, nil
+	}
+
+	specs := m.filterRuleSpecs("filter", ip, string(protocol), sPortVal, dPortVal,
+		direction, action, comment, ipsetName)
 
 	if direction == fw.RuleDirectionOUT {
 		ok, err := client.Exists("filter", ChainOutputFilterName, specs...)
@@ -154,12 +180,20 @@ func (m *Manager) AddFiltering(
 		}
 	}
 
-	return &Rule{
+	rule := &Rule{
 		id:    ruleID,
 		specs: specs,
 		dst:   direction == fw.RuleDirectionOUT,
 		v6:    ip.To4() == nil,
-	}, nil
+	}
+	if ipsetName != "" {
+		m.ipsetIndex[ipsetName] = ruleset{
+			rule: rule,
+			ips:  map[string]string{ip.String(): ruleID},
+		}
+	}
+
+	return rule, nil
 }
 
 // DeleteRule from the firewall by rule definition
@@ -178,6 +212,24 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 			return fmt.Errorf("ipv6 is not supported")
 		}
 		client = m.ipv6Client
+	}
+
+	// if we have ipset, just remove IP address from
+	// ip set, and only if it is last item in the ruleset ips
+	// delete rule too
+	if rs, ok := m.ipsetIndex[r.ipset]; ok {
+		if _, ok := rs.ips[r.ip]; ok {
+			if err := ipset.Del(r.ipset, r.ip); err != nil {
+				return fmt.Errorf("failed to delete ip from ipset: %w", err)
+			}
+			delete(rs.ips, r.ip)
+		}
+		// if no more elements in the
+		if len(rs.ips) != 0 {
+			return nil
+		}
+		delete(m.ipsetIndex, r.ipset)
+		r = rs.rule
 	}
 
 	if r.dst {
@@ -253,6 +305,7 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 func (m *Manager) filterRuleSpecs(
 	table string, ip net.IP, protocol string, sPort, dPort string,
 	direction fw.RuleDirection, action fw.Action, comment string,
+	ipsetName string,
 ) (specs []string) {
 	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
@@ -261,11 +314,15 @@ func (m *Manager) filterRuleSpecs(
 	}
 	switch direction {
 	case fw.RuleDirectionIN:
-		if matchByIP {
+		if ipsetName != "" {
+			specs = append(specs, "-m", "set", "--set", ipsetName, "src")
+		} else if matchByIP {
 			specs = append(specs, "-s", ip.String())
 		}
 	case fw.RuleDirectionOUT:
-		if matchByIP {
+		if ipsetName != "" {
+			specs = append(specs, "-m", "set", "--set", ipsetName, "dst")
+		} else if matchByIP {
 			specs = append(specs, "-d", ip.String())
 		}
 	}

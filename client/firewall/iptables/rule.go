@@ -4,6 +4,8 @@ package iptables
 type Rule struct {
 	id    string
 	specs []string
+	ip    string
+	ipset string
 	dst   bool
 	v6    bool
 }
