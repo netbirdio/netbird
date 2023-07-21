@@ -146,7 +146,7 @@ func (m *Manager) AddFiltering(
 		// with fresh created set and set element
 
 		var isSetNew bool
-		ipset, err := m.rConn.GetSetByName(table, ipsetName)
+		ipset, err = m.rConn.GetSetByName(table, ipsetName)
 		if err != nil {
 			if ipset, err = m.createSet(table, rawIP, ipsetName); err != nil {
 				return nil, fmt.Errorf("get set name: %v", err)
