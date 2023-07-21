@@ -287,7 +287,7 @@ func (n *nftablesManager) eraseDefaultForwardRule() error {
 	for i, r := range n.defaultForwardRules {
 		err = n.conn.DelRule(r)
 		if err != nil {
-			return err
+			log.Errorf("failed to delete forward rule (%d): %s", i, err)
 		}
 		n.defaultForwardRules[i] = nil
 	}
@@ -300,8 +300,8 @@ func (n *nftablesManager) refreshDefaultForwardRule() error {
 		return fmt.Errorf("unable to list rules in forward chain: %s", err)
 	}
 
+	found := false
 	for i, r := range n.defaultForwardRules {
-		found := false
 		for _, rule := range rules {
 			if string(rule.UserData) == string(r.UserData) {
 				n.defaultForwardRules[i] = rule
@@ -309,10 +309,9 @@ func (n *nftablesManager) refreshDefaultForwardRule() error {
 				break
 			}
 		}
-
-		if !found {
-			return fmt.Errorf("unable to find forward accept rule")
-		}
+	}
+	if !found {
+		return fmt.Errorf("unable to find forward accept rule")
 	}
 
 	return nil
