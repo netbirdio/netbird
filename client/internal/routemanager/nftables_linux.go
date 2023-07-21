@@ -20,7 +20,8 @@ const (
 	nftablesRoutingForwardingChain = "netbird-rt-fwd"
 	nftablesRoutingNatChain        = "netbird-rt-nat"
 
-	userDataAcceptForwardRule = "frwaccept"
+	userDataAcceptForwardRuleSrc = "frwacceptsrc"
+	userDataAcceptForwardRuleDst = "frwacceptdst"
 )
 
 // constants needed to create nftable rules
@@ -73,27 +74,28 @@ var (
 )
 
 type nftablesManager struct {
-	ctx                context.Context
-	stop               context.CancelFunc
-	conn               *nftables.Conn
-	tableIPv4          *nftables.Table
-	tableIPv6          *nftables.Table
-	chains             map[string]map[string]*nftables.Chain
-	rules              map[string]*nftables.Rule
-	filterTable        *nftables.Table
-	defaultForwardRule *nftables.Rule
-	mux                sync.Mutex
+	ctx                 context.Context
+	stop                context.CancelFunc
+	conn                *nftables.Conn
+	tableIPv4           *nftables.Table
+	tableIPv6           *nftables.Table
+	chains              map[string]map[string]*nftables.Chain
+	rules               map[string]*nftables.Rule
+	filterTable         *nftables.Table
+	defaultForwardRules []*nftables.Rule
+	mux                 sync.Mutex
 }
 
 func newNFTablesManager(parentCtx context.Context) (*nftablesManager, error) {
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	mgr := &nftablesManager{
-		ctx:    ctx,
-		stop:   cancel,
-		conn:   &nftables.Conn{},
-		chains: make(map[string]map[string]*nftables.Chain),
-		rules:  make(map[string]*nftables.Rule),
+		ctx:                 ctx,
+		stop:                cancel,
+		conn:                &nftables.Conn{},
+		chains:              make(map[string]map[string]*nftables.Chain),
+		rules:               make(map[string]*nftables.Rule),
+		defaultForwardRules: make([]*nftables.Rule, 2),
 	}
 
 	err := mgr.isSupported()
@@ -119,7 +121,7 @@ func (n *nftablesManager) CleanRoutingRules() {
 		n.conn.FlushTable(n.tableIPv4)
 	}
 
-	if n.defaultForwardRule != nil {
+	if n.defaultForwardRules[0] != nil {
 		err := n.eraseDefaultForwardRule()
 		if err != nil {
 			log.Errorf("failed to delete forward rule: %s", err)
@@ -273,47 +275,57 @@ func (n *nftablesManager) readFilterTable() error {
 }
 
 func (n *nftablesManager) eraseDefaultForwardRule() error {
+	if n.defaultForwardRules[0] == nil {
+		return nil
+	}
+
 	err := n.refreshDefaultForwardRule()
 	if err != nil {
 		return err
 	}
 
-	err = n.conn.DelRule(n.defaultForwardRule)
-	if err != nil {
-		return err
+	for i, r := range n.defaultForwardRules {
+		err = n.conn.DelRule(r)
+		if err != nil {
+			return err
+		}
+		n.defaultForwardRules[i] = nil
 	}
-	n.defaultForwardRule = nil
 	return nil
 }
 
 func (n *nftablesManager) refreshDefaultForwardRule() error {
-	if n.defaultForwardRule == nil {
-		return nil
-	}
-	rules, err := n.conn.GetRules(n.defaultForwardRule.Table, n.defaultForwardRule.Chain)
+	rules, err := n.conn.GetRules(n.defaultForwardRules[0].Table, n.defaultForwardRules[0].Chain)
 	if err != nil {
 		return fmt.Errorf("unable to list rules in forward chain: %s", err)
 	}
 
-	found := false
-	for _, rule := range rules {
-		if string(rule.UserData) == string(n.defaultForwardRule.UserData) {
-			n.defaultForwardRule = rule
-			found = true
-			break
+	for i, r := range n.defaultForwardRules {
+		found := false
+		for _, rule := range rules {
+			if string(rule.UserData) == string(r.UserData) {
+				n.defaultForwardRules[i] = rule
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("unable to find forward accept rule")
 		}
 	}
 
-	if !found {
-		return fmt.Errorf("unable to find forward accept rule")
-	}
 	return nil
 }
 
 func (n *nftablesManager) acceptForwardRule(sourceNetwork string) error {
-	exprs := append(generateCIDRMatcherExpressions("source", sourceNetwork), &expr.Verdict{
+	src := generateCIDRMatcherExpressions("source", sourceNetwork)
+	dst := generateCIDRMatcherExpressions("destination", "0.0.0.0/0")
+
+	var exprs []expr.Any
+	exprs = append(src, append(dst, &expr.Verdict{
 		Kind: expr.VerdictAccept,
-	})
+	})...)
 
 	r := &nftables.Rule{
 		Table: n.filterTable,
@@ -325,10 +337,32 @@ func (n *nftablesManager) acceptForwardRule(sourceNetwork string) error {
 			Priority: nftables.ChainPriorityFilter,
 		},
 		Exprs:    exprs,
-		UserData: []byte(userDataAcceptForwardRule),
+		UserData: []byte(userDataAcceptForwardRuleSrc),
 	}
 
-	n.defaultForwardRule = n.conn.AddRule(r)
+	n.defaultForwardRules[0] = n.conn.AddRule(r)
+
+	src = generateCIDRMatcherExpressions("source", "0.0.0.0/0")
+	dst = generateCIDRMatcherExpressions("destination", sourceNetwork)
+
+	exprs = append(src, append(dst, &expr.Verdict{
+		Kind: expr.VerdictAccept,
+	})...)
+
+	r = &nftables.Rule{
+		Table: n.filterTable,
+		Chain: &nftables.Chain{
+			Name:     "FORWARD",
+			Table:    n.filterTable,
+			Type:     nftables.ChainTypeFilter,
+			Hooknum:  nftables.ChainHookForward,
+			Priority: nftables.ChainPriorityFilter,
+		},
+		Exprs:    exprs,
+		UserData: []byte(userDataAcceptForwardRuleDst),
+	}
+
+	n.defaultForwardRules[1] = n.conn.AddRule(r)
 	return nil
 }
 
@@ -385,7 +419,7 @@ func (n *nftablesManager) InsertRoutingRules(pair routerPair) error {
 		}
 	}
 
-	if n.defaultForwardRule == nil && n.filterTable != nil {
+	if n.defaultForwardRules[0] == nil && n.filterTable != nil {
 		err = n.acceptForwardRule(pair.source)
 		if err != nil {
 			log.Errorf("unable to create default forward rule: %s", err)
@@ -473,7 +507,7 @@ func (n *nftablesManager) RemoveRoutingRules(pair routerPair) error {
 		return err
 	}
 
-	if len(n.rules) == 2 && n.defaultForwardRule != nil {
+	if len(n.rules) == 2 && n.defaultForwardRules[0] != nil {
 		err := n.eraseDefaultForwardRule()
 		if err != nil {
 			log.Errorf("failed to delte default fwd rule: %s", err)
