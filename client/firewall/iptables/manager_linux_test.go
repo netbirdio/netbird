@@ -3,7 +3,6 @@ package iptables
 import (
 	"fmt"
 	"net"
-	"os/exec"
 	"testing"
 	"time"
 
@@ -195,11 +194,6 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	t.Run("delete second rule", func(t *testing.T) {
 		err := manager.DeleteRule(rule2)
 		require.NoError(t, err, "failed to delete rule")
-
-		// print ipset list command output here
-		out, err := exec.Command("ipset", "list").CombinedOutput()
-		require.NoError(t, err, "no error expected")
-		println(string(out))
 
 		require.Empty(t, manager.ipsetIndex, "rulesets index after removed second rule must be empty")
 	})
