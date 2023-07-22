@@ -470,11 +470,15 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	require.NoError(t, err, "unable to create account manager")
 
 	accountID := initAccount.Id
-	_, err = manager.GetAccountByUserOrAccountID(userId, accountID, domain)
+	acc, err := manager.GetAccountByUserOrAccountID(userId, accountID, domain)
 	require.NoError(t, err, "create init user failed")
+	// as initAccount was created without account id we have to take the id after account initialization
+	// that happens inside the GetAccountByUserOrAccountID where the id is getting generated
+	// it is important to set the id as it help to avoid creating additional account with empty Id and re-pointing indices to it
+	initAccount.Id = acc.Id
 
 	claims := jwtclaims.AuthorizationClaims{
-		AccountId:      accountID,
+		AccountId:      accountID, // is empty as it is based on accountID right after initialization of initAccount
 		Domain:         domain,
 		UserId:         userId,
 		DomainCategory: "test-category",
@@ -491,6 +495,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		initAccount.Settings.JWTGroupsEnabled = true
 		err := manager.Store.SaveAccount(initAccount)
 		require.NoError(t, err, "save account failed")
+		require.Len(t, manager.Store.GetAllAccounts(), 1, "only one account should exist")
 
 		account, _, err := manager.GetAccountFromToken(claims)
 		require.NoError(t, err, "get account by token failed")
@@ -502,6 +507,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 		initAccount.Settings.JWTGroupsClaimName = "idp-groups"
 		err := manager.Store.SaveAccount(initAccount)
 		require.NoError(t, err, "save account failed")
+		require.Len(t, manager.Store.GetAllAccounts(), 1, "only one account should exist")
 
 		account, _, err := manager.GetAccountFromToken(claims)
 		require.NoError(t, err, "get account by token failed")
