@@ -218,7 +218,11 @@ var (
 			if !disableMetrics {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
-				metricsWorker := metrics.NewWorker(ctx, installationID, store, peersUpdateManager)
+				idpManager := "disabled"
+				if config.IdpManagerConfig != nil && config.IdpManagerConfig.ManagerType != "" {
+					idpManager = config.IdpManagerConfig.ManagerType
+				}
+				metricsWorker := metrics.NewWorker(ctx, installationID, store, peersUpdateManager, idpManager)
 				go metricsWorker.Run()
 			}
 

@@ -59,6 +59,7 @@ type ConnManager interface {
 type Worker struct {
 	ctx         context.Context
 	id          string
+	idpManager  string
 	dataSource  DataSource
 	connManager ConnManager
 	startupTime time.Time
@@ -66,11 +67,12 @@ type Worker struct {
 }
 
 // NewWorker returns a metrics worker
-func NewWorker(ctx context.Context, id string, dataSource DataSource, connManager ConnManager) *Worker {
+func NewWorker(ctx context.Context, id string, dataSource DataSource, connManager ConnManager, idpManager string) *Worker {
 	currentTime := time.Now()
 	return &Worker{
 		ctx:         ctx,
 		id:          id,
+		idpManager:  idpManager,
 		dataSource:  dataSource,
 		connManager: connManager,
 		startupTime: currentTime,
@@ -277,6 +279,7 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["min_active_peer_version"] = minActivePeerVersion
 	metricsProperties["max_active_peer_version"] = maxActivePeerVersion
 	metricsProperties["ui_clients"] = uiClient
+	metricsProperties["idp_manager"] = w.idpManager
 
 	for protocol, count := range rulesProtocol {
 		metricsProperties["rules_protocol_"+protocol] = count
