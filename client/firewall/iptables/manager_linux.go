@@ -37,7 +37,7 @@ type Manager struct {
 	outputDefaultRuleSpecs []string
 	wgIface                iFaceMapper
 
-	ipsetIndex map[string]ruleset
+	rulesets map[string]ruleset
 }
 
 // iFaceMapper defines subset methods of interface required for manager
@@ -59,7 +59,7 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 			"-i", wgIface.Name(), "-j", ChainInputFilterName, "-s", wgIface.Address().String()},
 		outputDefaultRuleSpecs: []string{
 			"-o", wgIface.Name(), "-j", ChainOutputFilterName, "-d", wgIface.Address().String()},
-		ipsetIndex: make(map[string]ruleset),
+		rulesets: make(map[string]ruleset),
 	}
 
 	if err := ipset.Init(); err != nil {
@@ -124,37 +124,41 @@ func (m *Manager) AddFiltering(
 	if sPort != nil && sPort.Values != nil {
 		sPortVal = strconv.Itoa(sPort.Values[0])
 	}
+	ipsetName = m.transformIPsetName(ipsetName, sPortVal, dPortVal)
 
 	ruleID := uuid.New().String()
 	if comment == "" {
 		comment = ruleID
 	}
 
-	if rs, ok := m.ipsetIndex[ipsetName]; ipsetName != "" && !ok {
-		if err := ipset.Flush(ipsetName); err != nil {
-			log.Errorf("fluse ipset %q before start to use it: %v", ipsetName, err)
+	if ipsetName != "" {
+		rs, rsExists := m.rulesets[ipsetName]
+		if !rsExists {
+			if err := ipset.Flush(ipsetName); err != nil {
+				log.Errorf("fluse ipset %q before start to use it: %v", ipsetName, err)
+			}
+			if err := ipset.Create(ipsetName); err != nil {
+				return nil, fmt.Errorf("failed to create ipset: %w", err)
+			}
 		}
-		if err := ipset.Create(ipsetName); err != nil {
-			return nil, fmt.Errorf("failed to create ipset: %w", err)
-		}
+
 		if err := ipset.Add(ipsetName, ip.String()); err != nil {
 			return nil, fmt.Errorf("failed to add ip to ipset: %w", err)
 		}
-		m.ipsetIndex[ipsetName] = ruleset{
-			ips: map[string]string{ip.String(): ruleID},
+
+		if rsExists {
+			// if ruleset already exists it means we already have the firewall rule
+			// so we need to update IPs in the ruleset and return new fw.Rule object for ACL manager.
+			rs.ips[ip.String()] = ruleID
+			return &Rule{
+				ruleID:    ruleID,
+				ipsetName: ipsetName,
+				ip:        ip.String(),
+				dst:       direction == fw.RuleDirectionOUT,
+				v6:        ip.To4() == nil,
+			}, nil
 		}
-	} else if ipsetName != "" {
-		if err := ipset.Add(ipsetName, ip.String()); err != nil {
-			return nil, fmt.Errorf("failed to add ip to ipset: %w", err)
-		}
-		rs.ips[ip.String()] = ruleID
-		return &Rule{
-			id:    ruleID,
-			ipset: ipsetName,
-			ip:    ip.String(),
-			dst:   direction == fw.RuleDirectionOUT,
-			v6:    ip.To4() == nil,
-		}, nil
+		// this is new ipset so we need to create firewall rule for it
 	}
 
 	specs := m.filterRuleSpecs("filter", ip, string(protocol), sPortVal, dPortVal,
@@ -187,17 +191,19 @@ func (m *Manager) AddFiltering(
 	}
 
 	rule := &Rule{
-		id:    ruleID,
-		specs: specs,
-		ipset: ipsetName,
-		ip:    ip.String(),
-		dst:   direction == fw.RuleDirectionOUT,
-		v6:    ip.To4() == nil,
+		ruleID:    ruleID,
+		specs:     specs,
+		ipsetName: ipsetName,
+		ip:        ip.String(),
+		dst:       direction == fw.RuleDirectionOUT,
+		v6:        ip.To4() == nil,
 	}
 	if ipsetName != "" {
-		m.ipsetIndex[ipsetName] = ruleset{
+		// ipset name is defined and it means that this rule was created
+		// for it, let's assosiate it with ruleset
+		m.rulesets[ipsetName] = ruleset{
 			rule: rule,
-			ips:  map[string]string{ip.String(): ruleID},
+			ips:  map[string]string{rule.ip: ruleID},
 		}
 	}
 
@@ -222,23 +228,26 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		client = m.ipv6Client
 	}
 
-	// if we have ipset, just remove IP address from
-	// ip set, and only if it is last item in the ruleset ips
-	// delete rule too
-	if rs, ok := m.ipsetIndex[r.ipset]; ok {
+	if rs, ok := m.rulesets[r.ipsetName]; ok {
+		// delete IP from set
 		if _, ok := rs.ips[r.ip]; ok {
-			if err := ipset.Del(r.ipset, r.ip); err != nil {
+			if err := ipset.Del(r.ipsetName, r.ip); err != nil {
 				return fmt.Errorf("failed to delete ip from ipset: %w", err)
 			}
 			delete(rs.ips, r.ip)
 		}
-		// if no more elements in the
+
+		// if after delete, set still contains other IPs,
+		// no need to delete firewall rule and we can exit
 		if len(rs.ips) != 0 {
 			return nil
 		}
-		delete(m.ipsetIndex, r.ipset)
 
-		if err := ipset.Destroy(r.ipset); err != nil {
+		// we delete last IP from the set, that means that we need to delete
+		// set itself and assosiated firewall rule too
+		delete(m.rulesets, r.ipsetName)
+
+		if err := ipset.Destroy(r.ipsetName); err != nil {
 			log.Errorf("delete empty ipset: %v", err)
 		}
 		r = rs.rule
@@ -310,13 +319,14 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 		return nil
 	}
 
-	for ipsetName := range m.ipsetIndex {
-		err := ipset.Destroy(ipsetName)
-		if err != nil {
-			log.Errorf("delete ipset %q during reset: %v", ipsetName, err)
-		} else {
-			delete(m.ipsetIndex, ipsetName)
+	for ipsetName := range m.rulesets {
+		if err := ipset.Flush(ipsetName); err != nil {
+			log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
 		}
+		if err := ipset.Destroy(ipsetName); err != nil {
+			log.Errorf("delete ipset %q during reset: %v", ipsetName, err)
+		}
+		delete(m.rulesets, ipsetName)
 	}
 
 	return nil
@@ -425,4 +435,17 @@ func (m *Manager) actionToStr(action fw.Action) string {
 		return "ACCEPT"
 	}
 	return "DROP"
+}
+
+func (m *Manager) transformIPsetName(ipsetName string, sPort, dPort string) string {
+	if ipsetName == "" {
+		return ""
+	} else if sPort != "" && dPort != "" {
+		return ipsetName + "-sport-dport"
+	} else if sPort != "" {
+		return ipsetName + "-sport"
+	} else if dPort != "" {
+		return ipsetName + "-dport"
+	}
+	return ipsetName
 }

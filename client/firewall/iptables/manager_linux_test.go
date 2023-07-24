@@ -99,7 +99,7 @@ func TestIptablesManager(t *testing.T) {
 		err := manager.DeleteRule(rule2)
 		require.NoError(t, err, "failed to delete rule")
 
-		require.Empty(t, manager.ipsetIndex, "rulesets index after removed second rule must be empty")
+		require.Empty(t, manager.rulesets, "rulesets index after removed second rule must be empty")
 	})
 
 	t.Run("reset check", func(t *testing.T) {
@@ -164,7 +164,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		require.NoError(t, err, "failed to add rule")
 
 		checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, true, rule1.(*Rule).specs...)
-		require.Equal(t, rule1.(*Rule).ipset, "default", "ipset name must be set")
+		require.Equal(t, rule1.(*Rule).ipsetName, "default", "ipset name must be set")
 		require.Equal(t, rule1.(*Rule).ip, "10.20.0.2", "ipset IP must be set")
 	})
 
@@ -180,7 +180,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		)
 		require.NoError(t, err, "failed to add rule")
 		require.Nil(t, rule2.(*Rule).specs, "second rule IP added to set, specs should be empty")
-		require.Equal(t, rule2.(*Rule).ipset, "default", "ipset name must be set")
+		require.Equal(t, rule2.(*Rule).ipsetName, "default", "ipset name must be set")
 		require.Equal(t, rule2.(*Rule).ip, "10.20.0.3", "ipset IP must be set")
 	})
 
@@ -188,14 +188,14 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		err := manager.DeleteRule(rule1)
 		require.NoError(t, err, "failed to delete rule")
 
-		require.NotContains(t, manager.ipsetIndex, rule1.(*Rule).id, "rule must be removed form the ruleset index")
+		require.NotContains(t, manager.rulesets, rule1.(*Rule).ruleID, "rule must be removed form the ruleset index")
 	})
 
 	t.Run("delete second rule", func(t *testing.T) {
 		err := manager.DeleteRule(rule2)
 		require.NoError(t, err, "failed to delete rule")
 
-		require.Empty(t, manager.ipsetIndex, "rulesets index after removed second rule must be empty")
+		require.Empty(t, manager.rulesets, "rulesets index after removed second rule must be empty")
 	})
 
 	t.Run("reset check", func(t *testing.T) {
