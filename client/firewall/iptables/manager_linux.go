@@ -135,7 +135,7 @@ func (m *Manager) AddFiltering(
 		rs, rsExists := m.rulesets[ipsetName]
 		if !rsExists {
 			if err := ipset.Flush(ipsetName); err != nil {
-				log.Errorf("fluse ipset %q before start to use it: %v", ipsetName, err)
+				log.Errorf("flush ipset %q before use it: %v", ipsetName, err)
 			}
 			if err := ipset.Create(ipsetName); err != nil {
 				return nil, fmt.Errorf("failed to create ipset: %w", err)
@@ -143,7 +143,7 @@ func (m *Manager) AddFiltering(
 		}
 
 		if err := ipset.Add(ipsetName, ip.String()); err != nil {
-			return nil, fmt.Errorf("failed to add ip to ipset: %w", err)
+			return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
 		}
 
 		if rsExists {
@@ -200,7 +200,7 @@ func (m *Manager) AddFiltering(
 	}
 	if ipsetName != "" {
 		// ipset name is defined and it means that this rule was created
-		// for it, let's assosiate it with ruleset
+		// for it, need to assosiate it with ruleset
 		m.rulesets[ipsetName] = ruleset{
 			rule: rule,
 			ips:  map[string]string{rule.ip: ruleID},
@@ -229,7 +229,7 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 	}
 
 	if rs, ok := m.rulesets[r.ipsetName]; ok {
-		// delete IP from set
+		// delete IP from ruleset IPs list and ipset
 		if _, ok := rs.ips[r.ip]; ok {
 			if err := ipset.Del(r.ipsetName, r.ip); err != nil {
 				return fmt.Errorf("failed to delete ip from ipset: %w", err)
@@ -238,12 +238,12 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		}
 
 		// if after delete, set still contains other IPs,
-		// no need to delete firewall rule and we can exit
+		// no need to delete firewall rule and we should exit here
 		if len(rs.ips) != 0 {
 			return nil
 		}
 
-		// we delete last IP from the set, that means that we need to delete
+		// we delete last IP from the set, that means we need to delete
 		// set itself and assosiated firewall rule too
 		delete(m.rulesets, r.ipsetName)
 
@@ -345,16 +345,20 @@ func (m *Manager) filterRuleSpecs(
 	}
 	switch direction {
 	case fw.RuleDirectionIN:
-		if ipsetName != "" {
-			specs = append(specs, "-m", "set", "--set", ipsetName, "src")
-		} else if matchByIP {
-			specs = append(specs, "-s", ip.String())
+		if matchByIP {
+			if ipsetName != "" {
+				specs = append(specs, "-m", "set", "--set", ipsetName, "src")
+			} else {
+				specs = append(specs, "-s", ip.String())
+			}
 		}
 	case fw.RuleDirectionOUT:
-		if ipsetName != "" {
-			specs = append(specs, "-m", "set", "--set", ipsetName, "dst")
-		} else if matchByIP {
-			specs = append(specs, "-d", ip.String())
+		if matchByIP {
+			if ipsetName != "" {
+				specs = append(specs, "-m", "set", "--set", ipsetName, "dst")
+			} else {
+				specs = append(specs, "-d", ip.String())
+			}
 		}
 	}
 	if protocol != "all" {
