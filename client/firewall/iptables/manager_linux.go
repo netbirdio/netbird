@@ -8,6 +8,7 @@ import (
 
 	"github.com/coreos/go-iptables/iptables"
 	"github.com/google/uuid"
+	"github.com/nadoo/ipset"
 	log "github.com/sirupsen/logrus"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
@@ -35,12 +36,19 @@ type Manager struct {
 	inputDefaultRuleSpecs  []string
 	outputDefaultRuleSpecs []string
 	wgIface                iFaceMapper
+
+	rulesets map[string]ruleset
 }
 
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
+}
+
+type ruleset struct {
+	rule *Rule
+	ips  map[string]string
 }
 
 // Create iptables firewall manager
@@ -51,6 +59,11 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 			"-i", wgIface.Name(), "-j", ChainInputFilterName, "-s", wgIface.Address().String()},
 		outputDefaultRuleSpecs: []string{
 			"-o", wgIface.Name(), "-j", ChainOutputFilterName, "-d", wgIface.Address().String()},
+		rulesets: make(map[string]ruleset),
+	}
+
+	if err := ipset.Init(); err != nil {
+		return nil, fmt.Errorf("init ipset: %w", err)
 	}
 
 	// init clients for booth ipv4 and ipv6
@@ -111,22 +124,45 @@ func (m *Manager) AddFiltering(
 	if sPort != nil && sPort.Values != nil {
 		sPortVal = strconv.Itoa(sPort.Values[0])
 	}
+	ipsetName = m.transformIPsetName(ipsetName, sPortVal, dPortVal)
 
 	ruleID := uuid.New().String()
 	if comment == "" {
 		comment = ruleID
 	}
 
-	specs := m.filterRuleSpecs(
-		"filter",
-		ip,
-		string(protocol),
-		sPortVal,
-		dPortVal,
-		direction,
-		action,
-		comment,
-	)
+	if ipsetName != "" {
+		rs, rsExists := m.rulesets[ipsetName]
+		if !rsExists {
+			if err := ipset.Flush(ipsetName); err != nil {
+				log.Errorf("flush ipset %q before use it: %v", ipsetName, err)
+			}
+			if err := ipset.Create(ipsetName); err != nil {
+				return nil, fmt.Errorf("failed to create ipset: %w", err)
+			}
+		}
+
+		if err := ipset.Add(ipsetName, ip.String()); err != nil {
+			return nil, fmt.Errorf("failed to add IP to ipset: %w", err)
+		}
+
+		if rsExists {
+			// if ruleset already exists it means we already have the firewall rule
+			// so we need to update IPs in the ruleset and return new fw.Rule object for ACL manager.
+			rs.ips[ip.String()] = ruleID
+			return &Rule{
+				ruleID:    ruleID,
+				ipsetName: ipsetName,
+				ip:        ip.String(),
+				dst:       direction == fw.RuleDirectionOUT,
+				v6:        ip.To4() == nil,
+			}, nil
+		}
+		// this is new ipset so we need to create firewall rule for it
+	}
+
+	specs := m.filterRuleSpecs("filter", ip, string(protocol), sPortVal, dPortVal,
+		direction, action, comment, ipsetName)
 
 	if direction == fw.RuleDirectionOUT {
 		ok, err := client.Exists("filter", ChainOutputFilterName, specs...)
@@ -154,12 +190,24 @@ func (m *Manager) AddFiltering(
 		}
 	}
 
-	return &Rule{
-		id:    ruleID,
-		specs: specs,
-		dst:   direction == fw.RuleDirectionOUT,
-		v6:    ip.To4() == nil,
-	}, nil
+	rule := &Rule{
+		ruleID:    ruleID,
+		specs:     specs,
+		ipsetName: ipsetName,
+		ip:        ip.String(),
+		dst:       direction == fw.RuleDirectionOUT,
+		v6:        ip.To4() == nil,
+	}
+	if ipsetName != "" {
+		// ipset name is defined and it means that this rule was created
+		// for it, need to assosiate it with ruleset
+		m.rulesets[ipsetName] = ruleset{
+			rule: rule,
+			ips:  map[string]string{rule.ip: ruleID},
+		}
+	}
+
+	return rule, nil
 }
 
 // DeleteRule from the firewall by rule definition
@@ -178,6 +226,31 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 			return fmt.Errorf("ipv6 is not supported")
 		}
 		client = m.ipv6Client
+	}
+
+	if rs, ok := m.rulesets[r.ipsetName]; ok {
+		// delete IP from ruleset IPs list and ipset
+		if _, ok := rs.ips[r.ip]; ok {
+			if err := ipset.Del(r.ipsetName, r.ip); err != nil {
+				return fmt.Errorf("failed to delete ip from ipset: %w", err)
+			}
+			delete(rs.ips, r.ip)
+		}
+
+		// if after delete, set still contains other IPs,
+		// no need to delete firewall rule and we should exit here
+		if len(rs.ips) != 0 {
+			return nil
+		}
+
+		// we delete last IP from the set, that means we need to delete
+		// set itself and assosiated firewall rule too
+		delete(m.rulesets, r.ipsetName)
+
+		if err := ipset.Destroy(r.ipsetName); err != nil {
+			log.Errorf("delete empty ipset: %v", err)
+		}
+		r = rs.rule
 	}
 
 	if r.dst {
@@ -246,6 +319,16 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 		return nil
 	}
 
+	for ipsetName := range m.rulesets {
+		if err := ipset.Flush(ipsetName); err != nil {
+			log.Errorf("flush ipset %q during reset: %v", ipsetName, err)
+		}
+		if err := ipset.Destroy(ipsetName); err != nil {
+			log.Errorf("delete ipset %q during reset: %v", ipsetName, err)
+		}
+		delete(m.rulesets, ipsetName)
+	}
+
 	return nil
 }
 
@@ -253,6 +336,7 @@ func (m *Manager) reset(client *iptables.IPTables, table string) error {
 func (m *Manager) filterRuleSpecs(
 	table string, ip net.IP, protocol string, sPort, dPort string,
 	direction fw.RuleDirection, action fw.Action, comment string,
+	ipsetName string,
 ) (specs []string) {
 	matchByIP := true
 	// don't use IP matching if IP is ip 0.0.0.0
@@ -262,11 +346,19 @@ func (m *Manager) filterRuleSpecs(
 	switch direction {
 	case fw.RuleDirectionIN:
 		if matchByIP {
-			specs = append(specs, "-s", ip.String())
+			if ipsetName != "" {
+				specs = append(specs, "-m", "set", "--set", ipsetName, "src")
+			} else {
+				specs = append(specs, "-s", ip.String())
+			}
 		}
 	case fw.RuleDirectionOUT:
 		if matchByIP {
-			specs = append(specs, "-d", ip.String())
+			if ipsetName != "" {
+				specs = append(specs, "-m", "set", "--set", ipsetName, "dst")
+			} else {
+				specs = append(specs, "-d", ip.String())
+			}
 		}
 	}
 	if protocol != "all" {
@@ -347,4 +439,17 @@ func (m *Manager) actionToStr(action fw.Action) string {
 		return "ACCEPT"
 	}
 	return "DROP"
+}
+
+func (m *Manager) transformIPsetName(ipsetName string, sPort, dPort string) string {
+	if ipsetName == "" {
+		return ""
+	} else if sPort != "" && dPort != "" {
+		return ipsetName + "-sport-dport"
+	} else if sPort != "" {
+		return ipsetName + "-sport"
+	} else if dPort != "" {
+		return ipsetName + "-dport"
+	}
+	return ipsetName
 }
