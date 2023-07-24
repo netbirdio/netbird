@@ -132,7 +132,7 @@ type ProviderConfig struct {
 	// UseIDToken indicates if the id token should be used for authentication
 	UseIDToken bool
 	// RedirectURL handles authorization code from IDP manager
-	RedirectURL string
+	RedirectURLs []string
 }
 
 // validateURL validates input http url
