@@ -164,7 +164,7 @@ func TestIptablesManagerIPSet(t *testing.T) {
 		require.NoError(t, err, "failed to add rule")
 
 		checkRuleSpecs(t, ipv4Client, ChainOutputFilterName, true, rule1.(*Rule).specs...)
-		require.Equal(t, rule1.(*Rule).ipsetName, "default", "ipset name must be set")
+		require.Equal(t, rule1.(*Rule).ipsetName, "default-dport", "ipset name must be set")
 		require.Equal(t, rule1.(*Rule).ip, "10.20.0.2", "ipset IP must be set")
 	})
 
@@ -172,15 +172,14 @@ func TestIptablesManagerIPSet(t *testing.T) {
 	t.Run("add second rule", func(t *testing.T) {
 		ip := net.ParseIP("10.20.0.3")
 		port := &fw.Port{
-			Values: []int{8043: 8046},
+			Values: []int{443},
 		}
 		rule2, err = manager.AddFiltering(
 			ip, "tcp", port, nil, fw.RuleDirectionIN, fw.ActionAccept,
 			"default", "accept HTTPS traffic from ports range",
 		)
 		require.NoError(t, err, "failed to add rule")
-		require.Nil(t, rule2.(*Rule).specs, "second rule IP added to set, specs should be empty")
-		require.Equal(t, rule2.(*Rule).ipsetName, "default", "ipset name must be set")
+		require.Equal(t, rule2.(*Rule).ipsetName, "default-sport", "ipset name must be set")
 		require.Equal(t, rule2.(*Rule).ip, "10.20.0.3", "ipset IP must be set")
 	})
 
