@@ -48,6 +48,7 @@ require (
 	github.com/mdlayher/socket v0.4.0
 	github.com/miekg/dns v1.1.43
 	github.com/mitchellh/hashstructure/v2 v2.0.2
+	github.com/nadoo/ipset v0.5.0
 	github.com/okta/okta-sdk-golang/v2 v2.18.0
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/pion/logging v0.2.2
