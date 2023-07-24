@@ -156,6 +156,14 @@ if [ -n "$NETBIRD_MGMT_IDP" ]; then
   export NETBIRD_IDP_MGMT_EXTRA_CONFIG=$EXTRA_CONFIG
 fi
 
+IFS=',' read -r -a REDIRECT_URL_PORTS <<< "$NETBIRD_AUTH_PKCE_REDIRECT_URL_PORTS"
+REDIRECT_URLS=""
+for port in "${REDIRECT_URL_PORTS[@]}"; do
+    REDIRECT_URLS+="\"http://localhost:${port}\","
+done
+
+export NETBIRD_AUTH_PKCE_REDIRECT_URLS=${REDIRECT_URLS%,}
+
 env | grep NETBIRD
 
 envsubst <docker-compose.yml.tmpl >docker-compose.yml
