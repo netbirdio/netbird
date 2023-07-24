@@ -46,6 +46,10 @@ func NewPKCEAuthorizationFlow(config internal.PKCEAuthProviderConfig) (*PKCEAuth
 		}
 	}
 
+	if availableRedirectURL == "" {
+		return nil, fmt.Errorf("no available port found from configured redirect URLs: %q", config.RedirectURLs)
+	}
+
 	cfg := &oauth2.Config{
 		ClientID:     config.ClientID,
 		ClientSecret: config.ClientSecret,
