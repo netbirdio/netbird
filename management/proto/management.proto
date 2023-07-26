@@ -275,8 +275,8 @@ message ProviderConfig {
   bool UseIDToken = 8;
   // AuthorizationEndpoint is the endpoint of an IDP manager where clients can obtain authorization code.
   string AuthorizationEndpoint = 9;
-  // RedirectURL handles authorization code from IDP manager
-  string RedirectURL = 10;
+  // RedirectURLs handles authorization code from IDP manager
+  repeated string RedirectURLs = 10;
 }
 
 // Route represents a route.Route object

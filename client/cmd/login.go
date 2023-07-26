@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"strings"
 	"time"
 
@@ -163,31 +164,15 @@ func foregroundLogin(ctx context.Context, cmd *cobra.Command, config *internal.C
 	return nil
 }
 
-func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *internal.Config) (*internal.TokenInfo, error) {
-	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
+func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *internal.Config) (*auth.TokenInfo, error) {
+	oAuthFlow, err := auth.NewOAuthFlow(ctx, config)
 	if err != nil {
-		s, ok := gstatus.FromError(err)
-		if ok && s.Code() == codes.NotFound {
-			return nil, fmt.Errorf("no SSO provider returned from management. " +
-				"If you are using hosting Netbird see documentation at " +
-				"https://github.com/netbirdio/netbird/tree/main/management for details")
-		} else if ok && s.Code() == codes.Unimplemented {
-			mgmtURL := managementURL
-			if mgmtURL == "" {
-				mgmtURL = internal.DefaultManagementURL
-			}
-			return nil, fmt.Errorf("the management server, %s, does not support SSO providers, "+
-				"please update your servver or use Setup Keys to login", mgmtURL)
-		} else {
-			return nil, fmt.Errorf("getting device authorization flow info failed with error: %v", err)
-		}
+		return nil, err
 	}
 
-	hostedClient := internal.NewHostedDeviceFlow(providerConfig.ProviderConfig)
-
-	flowInfo, err := hostedClient.RequestDeviceCode(context.TODO())
+	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
-		return nil, fmt.Errorf("getting a request device code failed: %v", err)
+		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
 	openURL(cmd, flowInfo.VerificationURIComplete, flowInfo.UserCode)
@@ -196,7 +181,7 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 	waitCTX, c := context.WithTimeout(context.TODO(), waitTimeout*time.Second)
 	defer c()
 
-	tokenInfo, err := hostedClient.WaitToken(waitCTX, flowInfo)
+	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
 		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
 	}
@@ -206,8 +191,10 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 
 func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 	var codeMsg string
-	if !strings.Contains(verificationURIComplete, userCode) {
-		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
+	if userCode != "" {
+		if !strings.Contains(verificationURIComplete, userCode) {
+			codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
+		}
 	}
 
 	err := open.Run(verificationURIComplete)
