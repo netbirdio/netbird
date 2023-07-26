@@ -48,7 +48,7 @@ func (s *serviceViaMemory) Listen() error {
 	}
 	s.listenerIsRunning = true
 
-	log.Debugf("dns service listening on: %s", s.RuntimeIP())
+	log.Debugf("dns service listening on: %s", s.ListenIp())
 	return nil
 }
 
@@ -75,11 +75,11 @@ func (s *serviceViaMemory) DeregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
 }
 
-func (s *serviceViaMemory) RuntimePort() int {
+func (s *serviceViaMemory) ListenPort() int {
 	return s.runtimePort
 }
 
-func (s *serviceViaMemory) RuntimeIP() string {
+func (s *serviceViaMemory) ListenIp() string {
 	return s.runtimeIP
 }
 
