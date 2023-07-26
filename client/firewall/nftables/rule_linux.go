@@ -6,11 +6,14 @@ import (
 
 // Rule to handle management of rules
 type Rule struct {
-	*nftables.Rule
-	id string
+	nftRule *nftables.Rule
+	nftSet  *nftables.Set
+
+	ruleID string
+	ip     []byte
 }
 
 // GetRuleID returns the rule id
 func (r *Rule) GetRuleID() string {
-	return r.id
+	return r.ruleID
 }

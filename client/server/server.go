@@ -103,7 +103,7 @@ func (s *Server) Start() error {
 	}
 
 	go func() {
-		if err := internal.RunClient(ctx, config, s.statusRecorder, nil, nil, nil); err != nil {
+		if err := internal.RunClient(ctx, config, s.statusRecorder); err != nil {
 			log.Errorf("init connections: %v", err)
 		}
 	}()
@@ -379,8 +379,8 @@ func (s *Server) Up(callerCtx context.Context, _ *proto.UpRequest) (*proto.UpRes
 	}
 
 	go func() {
-		if err := internal.RunClient(ctx, s.config, s.statusRecorder, nil, nil, nil); err != nil {
-			log.Errorf("run flow connection: %v", err)
+		if err := internal.RunClient(ctx, s.config, s.statusRecorder); err != nil {
+			log.Errorf("run client connection: %v", err)
 			return
 		}
 	}()

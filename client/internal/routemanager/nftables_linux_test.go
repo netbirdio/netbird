@@ -14,21 +14,16 @@ import (
 
 func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 
-	ctx, cancel := context.WithCancel(context.TODO())
-
-	manager := &nftablesManager{
-		ctx:    ctx,
-		stop:   cancel,
-		conn:   &nftables.Conn{},
-		chains: make(map[string]map[string]*nftables.Chain),
-		rules:  make(map[string]*nftables.Rule),
+	manager, err := newNFTablesManager(context.TODO())
+	if err != nil {
+		t.Fatalf("failed to create nftables manager: %s", err)
 	}
 
 	nftablesTestingClient := &nftables.Conn{}
 
 	defer manager.CleanRoutingRules()
 
-	err := manager.RestoreOrCreateContainers()
+	err = manager.RestoreOrCreateContainers()
 	require.NoError(t, err, "shouldn't return error")
 
 	require.Len(t, manager.chains, 2, "should have created chains for ipv4 and ipv6")
@@ -134,21 +129,16 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 
 	for _, testCase := range insertRuleTestCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.TODO())
-
-			manager := &nftablesManager{
-				ctx:    ctx,
-				stop:   cancel,
-				conn:   &nftables.Conn{},
-				chains: make(map[string]map[string]*nftables.Chain),
-				rules:  make(map[string]*nftables.Rule),
+			manager, err := newNFTablesManager(context.TODO())
+			if err != nil {
+				t.Fatalf("failed to create nftables manager: %s", err)
 			}
 
 			nftablesTestingClient := &nftables.Conn{}
 
 			defer manager.CleanRoutingRules()
 
-			err := manager.RestoreOrCreateContainers()
+			err = manager.RestoreOrCreateContainers()
 			require.NoError(t, err, "shouldn't return error")
 
 			err = manager.InsertRoutingRules(testCase.inputPair)
@@ -239,21 +229,16 @@ func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
 
 	for _, testCase := range removeRuleTestCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.TODO())
-
-			manager := &nftablesManager{
-				ctx:    ctx,
-				stop:   cancel,
-				conn:   &nftables.Conn{},
-				chains: make(map[string]map[string]*nftables.Chain),
-				rules:  make(map[string]*nftables.Rule),
+			manager, err := newNFTablesManager(context.TODO())
+			if err != nil {
+				t.Fatalf("failed to create nftables manager: %s", err)
 			}
 
 			nftablesTestingClient := &nftables.Conn{}
 
 			defer manager.CleanRoutingRules()
 
-			err := manager.RestoreOrCreateContainers()
+			err = manager.RestoreOrCreateContainers()
 			require.NoError(t, err, "shouldn't return error")
 
 			table := manager.tableIPv4

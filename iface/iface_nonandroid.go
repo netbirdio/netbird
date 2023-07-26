@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/pion/transport/v2"
-	log "github.com/sirupsen/logrus"
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
@@ -38,6 +37,5 @@ func (w *WGIface) CreateOnMobile(mIFaceArgs MobileIFaceArguments) error {
 func (w *WGIface) Create() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	log.Debugf("create WireGuard interface %s", w.tun.DeviceName())
 	return w.tun.Create()
 }

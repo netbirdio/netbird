@@ -9,8 +9,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -34,7 +32,7 @@ type systemConfigurator struct {
 	createdKeys      map[string]struct{}
 }
 
-func newHostManager(_ *iface.WGIface) (hostManager, error) {
+func newHostManager(_ WGIface) (hostManager, error) {
 	return &systemConfigurator{
 		createdKeys: make(map[string]struct{}),
 	}, nil

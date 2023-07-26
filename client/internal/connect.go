@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
+	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
@@ -24,7 +25,24 @@ import (
 )
 
 // RunClient with main logic.
-func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener) error {
+func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status) error {
+	return runClient(ctx, config, statusRecorder, MobileDependency{})
+}
+
+// RunClientMobile with main logic on mobile system
+func RunClientMobile(ctx context.Context, config *Config, statusRecorder *peer.Status, tunAdapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover, routeListener routemanager.RouteListener, dnsAddresses []string, dnsReadyListener dns.ReadyListener) error {
+	// in case of non Android os these variables will be nil
+	mobileDependency := MobileDependency{
+		TunAdapter:       tunAdapter,
+		IFaceDiscover:    iFaceDiscover,
+		RouteListener:    routeListener,
+		HostDNSAddresses: dnsAddresses,
+		DnsReadyListener: dnsReadyListener,
+	}
+	return runClient(ctx, config, statusRecorder, mobileDependency)
+}
+
+func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status, mobileDependency MobileDependency) error {
 	backOff := &backoff.ExponentialBackOff{
 		InitialInterval:     time.Second,
 		RandomizationFactor: 1,
@@ -151,14 +169,7 @@ func RunClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 			return wrapErr(err)
 		}
 
-		// in case of non Android os these variables will be nil
-		md := MobileDependency{
-			TunAdapter:    tunAdapter,
-			IFaceDiscover: iFaceDiscover,
-			RouteListener: routeListener,
-		}
-
-		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, md, statusRecorder)
+		engine := NewEngine(engineCtx, cancel, signalClient, mgmClient, engineConfig, mobileDependency, statusRecorder)
 		err = engine.Start()
 		if err != nil {
 			log.Errorf("error while starting Netbird Connection Engine: %s", err)

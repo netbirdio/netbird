@@ -6,8 +6,6 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows/registry"
-
-	"github.com/netbirdio/netbird/iface"
 )
 
 const (
@@ -33,7 +31,7 @@ type registryConfigurator struct {
 	existingSearchDomains []string
 }
 
-func newHostManager(wgInterface *iface.WGIface) (hostManager, error) {
+func newHostManager(wgInterface WGIface) (hostManager, error) {
 	guid, err := wgInterface.GetInterfaceGUIDString()
 	if err != nil {
 		return nil, err
