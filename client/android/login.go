@@ -3,6 +3,7 @@ package android
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -183,27 +184,15 @@ func (a *Auth) login(urlOpener URLOpener) error {
 	return nil
 }
 
-func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*internal.TokenInfo, error) {
-	providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
+func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*auth.TokenInfo, error) {
+	oAuthFlow, err := auth.NewOAuthFlow(a.ctx, a.config)
 	if err != nil {
-		s, ok := gstatus.FromError(err)
-		if ok && s.Code() == codes.NotFound {
-			return nil, fmt.Errorf("no SSO provider returned from management. " +
-				"If you are using hosting Netbird see documentation at " +
-				"https://github.com/netbirdio/netbird/tree/main/management for details")
-		} else if ok && s.Code() == codes.Unimplemented {
-			return nil, fmt.Errorf("the management server, %s, does not support SSO providers, "+
-				"please update your servver or use Setup Keys to login", a.config.ManagementURL)
-		} else {
-			return nil, fmt.Errorf("getting device authorization flow info failed with error: %v", err)
-		}
+		return nil, err
 	}
 
-	hostedClient := internal.NewHostedDeviceFlow(providerConfig.ProviderConfig)
-
-	flowInfo, err := hostedClient.RequestDeviceCode(context.TODO())
+	flowInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 	if err != nil {
-		return nil, fmt.Errorf("getting a request device code failed: %v", err)
+		return nil, fmt.Errorf("getting a request OAuth flow info failed: %v", err)
 	}
 
 	go urlOpener.Open(flowInfo.VerificationURIComplete)
@@ -211,7 +200,7 @@ func (a *Auth) foregroundGetTokenInfo(urlOpener URLOpener) (*internal.TokenInfo,
 	waitTimeout := time.Duration(flowInfo.ExpiresIn)
 	waitCTX, cancel := context.WithTimeout(a.ctx, waitTimeout*time.Second)
 	defer cancel()
-	tokenInfo, err := hostedClient.WaitToken(waitCTX, flowInfo)
+	tokenInfo, err := oAuthFlow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
 		return nil, fmt.Errorf("waiting for browser login failed: %v", err)
 	}

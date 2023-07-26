@@ -366,6 +366,40 @@ func (c *GrpcClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 	return flowInfoResp, nil
 }
 
+// GetPKCEAuthorizationFlow returns a pkce authorization flow information.
+// It also takes care of encrypting and decrypting messages.
+func (c *GrpcClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error) {
+	if !c.ready() {
+		return nil, fmt.Errorf("no connection to management in order to get pkce authorization flow")
+	}
+	mgmCtx, cancel := context.WithTimeout(c.ctx, time.Second*2)
+	defer cancel()
+
+	message := &proto.PKCEAuthorizationFlowRequest{}
+	encryptedMSG, err := encryption.EncryptMessage(serverKey, c.key, message)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.realClient.GetPKCEAuthorizationFlow(mgmCtx, &proto.EncryptedMessage{
+		WgPubKey: c.key.PublicKey().String(),
+		Body:     encryptedMSG,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	flowInfoResp := &proto.PKCEAuthorizationFlow{}
+	err = encryption.DecryptMessage(serverKey, c.key, resp.Body, flowInfoResp)
+	if err != nil {
+		errWithMSG := fmt.Errorf("failed to decrypt pkce authorization flow message: %s", err)
+		log.Error(errWithMSG)
+		return nil, errWithMSG
+	}
+
+	return flowInfoResp, nil
+}
+
 func (c *GrpcClient) notifyDisconnected() {
 	c.connStateCallbackLock.RLock()
 	defer c.connStateCallbackLock.RUnlock()
