@@ -21,8 +21,9 @@ import (
 var _ OAuthFlow = &PKCEAuthorizationFlow{}
 
 const (
-	queryState = "state"
-	queryCode  = "code"
+	queryState                = "state"
+	queryCode                 = "code"
+	defaultPKCETimeoutSeconds = 300
 )
 
 // PKCEAuthorizationFlow implements the OAuthFlow interface for
@@ -96,19 +97,22 @@ func (p *PKCEAuthorizationFlow) RequestAuthInfo(_ context.Context) (AuthFlowInfo
 
 	return AuthFlowInfo{
 		VerificationURIComplete: authURL,
+		ExpiresIn:               defaultPKCETimeoutSeconds,
 	}, nil
 }
 
 // WaitToken waits for the OAuth token in the PKCE Authorization Flow.
 // It starts an HTTP server to receive the OAuth token callback and waits for the token or an error.
 // Once the token is received, it is converted to TokenInfo and validated before returning.
-func (p *PKCEAuthorizationFlow) WaitToken(_ context.Context, _ AuthFlowInfo) (TokenInfo, error) {
+func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (TokenInfo, error) {
 	tokenChan := make(chan *oauth2.Token, 1)
 	errChan := make(chan error, 1)
 
 	go p.startServer(tokenChan, errChan)
 
 	select {
+	case <-ctx.Done():
+		return TokenInfo{}, ctx.Err()
 	case token := <-tokenChan:
 		return p.handleOAuthToken(token)
 	case err := <-errChan:

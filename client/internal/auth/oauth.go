@@ -3,11 +3,13 @@ package auth
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal"
+	"net/http"
+
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
-	"net/http"
+
+	"github.com/netbirdio/netbird/client/internal"
 )
 
 // OAuthFlow represents an interface for authorization using different OAuth 2.0 flows
