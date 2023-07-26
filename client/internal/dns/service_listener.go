@@ -3,6 +3,7 @@ package dns
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/dns/forwarder"
 	"net"
 	"net/netip"
 	"runtime"
@@ -28,6 +29,7 @@ type serviceViaListener struct {
 	runtimePort       int
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
+	trafficForwarder  *forwarder.TrafficForwarder
 }
 
 func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *serviceViaListener {
@@ -42,6 +44,7 @@ func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *service
 			Handler: mux,
 			UDPSize: 65535,
 		},
+		trafficForwarder: forwarder.NewTrafficForwarder(wgIface.Name()),
 	}
 	return s
 }
@@ -72,6 +75,13 @@ func (s *serviceViaListener) Listen() error {
 			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.runtimePort, err)
 		}
 	}()
+
+	if s.runtimePort != defaultPort {
+		err = s.trafficForwarder.Start(s.runtimeIP, s.runtimePort)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -90,6 +100,11 @@ func (s *serviceViaListener) Stop() {
 	if err != nil {
 		log.Errorf("stopping dns server listener returned an error: %v", err)
 	}
+
+	err = s.trafficForwarder.Free()
+	if err != nil {
+		log.Errorf("stopping traffic forwarder returned an error: %v", err)
+	}
 }
 
 func (s *serviceViaListener) RegisterMux(pattern string, handler dns.Handler) {
@@ -100,11 +115,11 @@ func (s *serviceViaListener) DeregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
 }
 
-func (s *serviceViaListener) RuntimePort() int {
-	return s.runtimePort
+func (s *serviceViaListener) ListenPort() int {
+	return defaultPort
 }
 
-func (s *serviceViaListener) RuntimeIP() string {
+func (s *serviceViaListener) ListenIp() string {
 	return s.runtimeIP
 }
 
@@ -117,7 +132,8 @@ func (s *serviceViaListener) getFirstListenerAvailable() (string, int, error) {
 	if runtime.GOOS != "darwin" {
 		ips = append([]string{s.wgInterface.Address().IP.String()}, ips...)
 	}
-	ports := []int{defaultPort, customPort}
+	//todo change the order back
+	ports := []int{customPort, defaultPort}
 	for _, port := range ports {
 		for _, ip := range ips {
 			addrString := fmt.Sprintf("%s:%d", ip, port)

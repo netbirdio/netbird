@@ -132,7 +132,7 @@ func (s *DefaultServer) Initialize() (err error) {
 // When kernel space interface used it return real DNS server listener IP address
 // For bind interface, fake DNS resolver address returned (second last IP address from Nebird network)
 func (s *DefaultServer) DnsIP() string {
-	return s.service.RuntimeIP()
+	return s.service.ListenIp()
 }
 
 // Stop stops the server
@@ -233,16 +233,9 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 
 	s.updateMux(muxUpdates)
 	s.updateLocalResolver(localRecords)
-	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.RuntimeIP(), s.service.RuntimePort())
+	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.ListenIp(), s.service.ListenPort())
 
-	hostUpdate := s.currentConfig
-	if s.service.RuntimePort() != defaultPort && !s.hostManager.supportCustomPort() {
-		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
-			"Learn more at: https://netbird.io/docs/how-to-guides/nameservers#local-resolver")
-		hostUpdate.routeAll = false
-	}
-
-	if err = s.hostManager.applyDNSConfig(hostUpdate); err != nil {
+	if err = s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
 		log.Error(err)
 	}
 
