@@ -6,12 +6,16 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal"
-	log "github.com/sirupsen/logrus"
-	"golang.org/x/oauth2"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
+
+	log "github.com/sirupsen/logrus"
+	"golang.org/x/oauth2"
+
+	"github.com/netbirdio/netbird/client/internal"
 )
 
 var _ OAuthFlow = &PKCEAuthorizationFlow{}
@@ -32,6 +36,20 @@ type PKCEAuthorizationFlow struct {
 
 // NewPKCEAuthorizationFlow returns new PKCE authorization code flow.
 func NewPKCEAuthorizationFlow(config internal.PKCEAuthProviderConfig) (*PKCEAuthorizationFlow, error) {
+	var availableRedirectURL string
+
+	// find the first available redirect URL
+	for _, redirectURL := range config.RedirectURLs {
+		if !isRedirectURLPortUsed(redirectURL) {
+			availableRedirectURL = redirectURL
+			break
+		}
+	}
+
+	if availableRedirectURL == "" {
+		return nil, fmt.Errorf("no available port found from configured redirect URLs: %q", config.RedirectURLs)
+	}
+
 	cfg := &oauth2.Config{
 		ClientID:     config.ClientID,
 		ClientSecret: config.ClientSecret,
@@ -39,7 +57,7 @@ func NewPKCEAuthorizationFlow(config internal.PKCEAuthProviderConfig) (*PKCEAuth
 			AuthURL:  config.AuthorizationEndpoint,
 			TokenURL: config.TokenEndpoint,
 		},
-		RedirectURL: config.RedirectURL,
+		RedirectURL: availableRedirectURL,
 		Scopes:      strings.Split(config.Scope, " "),
 	}
 
@@ -99,7 +117,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(_ context.Context, _ AuthFlowInfo) (To
 }
 
 func (p *PKCEAuthorizationFlow) startServer(tokenChan chan<- *oauth2.Token, errChan chan<- error) {
-	parsedURL, err := url.Parse(p.providerConfig.RedirectURL)
+	parsedURL, err := url.Parse(p.oAuthConfig.RedirectURL)
 	if err != nil {
 		errChan <- fmt.Errorf("failed to parse redirect URL: %v", err)
 		return
@@ -170,4 +188,26 @@ func (p *PKCEAuthorizationFlow) handleOAuthToken(token *oauth2.Token) (TokenInfo
 func createCodeChallenge(codeVerifier string) string {
 	sha2 := sha256.Sum256([]byte(codeVerifier))
 	return base64.RawURLEncoding.EncodeToString(sha2[:])
+}
+
+// isRedirectURLPortUsed checks if the port used in the redirect URL is in use.
+func isRedirectURLPortUsed(redirectURL string) bool {
+	parsedURL, err := url.Parse(redirectURL)
+	if err != nil {
+		log.Errorf("failed to parse redirect URL: %v", err)
+		return true
+	}
+
+	addr := fmt.Sprintf(":%s", parsedURL.Port())
+	conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+	if err != nil {
+		return false
+	}
+	defer func() {
+		if err := conn.Close(); err != nil {
+			log.Errorf("error while closing the connection: %v", err)
+		}
+	}()
+
+	return true
 }
