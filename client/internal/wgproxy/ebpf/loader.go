@@ -17,14 +17,17 @@ const (
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf src/portreplace.c --
 
+// EBPF is a wrapper for eBPF program
 type EBPF struct {
 	link link.Link
 }
 
+// NewEBPF create new EBPF instance
 func NewEBPF() *EBPF {
 	return &EBPF{}
 }
 
+// Load load ebpf program
 func (l *EBPF) Load(proxyPort, wgPort int) error {
 	// it required for Docker
 	err := rlimit.RemoveMemlock()
@@ -72,6 +75,7 @@ func (l *EBPF) Load(proxyPort, wgPort int) error {
 	return err
 }
 
+// Free free ebpf program
 func (l *EBPF) Free() error {
 	if l.link != nil {
 		return l.link.Close()
