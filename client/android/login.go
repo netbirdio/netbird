@@ -3,19 +3,17 @@ package android
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/auth"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
 	"github.com/netbirdio/netbird/client/cmd"
-	"github.com/netbirdio/netbird/client/system"
-
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
+	"github.com/netbirdio/netbird/client/system"
 )
 
 // SSOListener is async listener for mobile framework
@@ -88,9 +86,15 @@ func (a *Auth) saveConfigIfSSOSupported() (bool, error) {
 	err := a.withBackOff(a.ctx, func() (err error) {
 		_, err = internal.GetDeviceAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
 		if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
-			supportsSSO = false
-			err = nil
+			_, err = internal.GetPKCEAuthorizationFlowInfo(a.ctx, a.config.PrivateKey, a.config.ManagementURL)
+			if s, ok := gstatus.FromError(err); ok && s.Code() == codes.NotFound {
+				supportsSSO = false
+				err = nil
+			}
+
+			return err
 		}
+
 		return err
 	})
 
