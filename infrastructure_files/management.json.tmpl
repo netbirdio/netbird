@@ -59,5 +59,17 @@
           "Scope": "$NETBIRD_AUTH_DEVICE_AUTH_SCOPE",
           "UseIDToken": $NETBIRD_AUTH_DEVICE_AUTH_USE_ID_TOKEN
          }
+    },
+    "PKCEAuthorizationFlow": {
+        "ProviderConfig": {
+            "Audience": "$NETBIRD_AUTH_AUDIENCE",
+            "ClientID": "$NETBIRD_AUTH_CLIENT_ID",
+            "ClientSecret": "$NETBIRD_AUTH_CLIENT_SECRET",
+            "AuthorizationEndpoint": "$NETBIRD_AUTH_PKCE_AUTHORIZATION_ENDPOINT",
+            "TokenEndpoint": "$NETBIRD_AUTH_TOKEN_ENDPOINT",
+            "Scope": "$NETBIRD_AUTH_SUPPORTED_SCOPES",
+            "RedirectURLs": [$NETBIRD_AUTH_PKCE_REDIRECT_URLS],
+            "UseIDToken": $NETBIRD_AUTH_PKCE_USE_ID_TOKEN
+        }
     }
 }

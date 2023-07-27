@@ -31,6 +31,13 @@ service ManagementService {
   // EncryptedMessage of the request has a body of DeviceAuthorizationFlowRequest.
   // EncryptedMessage of the response has a body of DeviceAuthorizationFlow.
   rpc GetDeviceAuthorizationFlow(EncryptedMessage) returns (EncryptedMessage) {}
+
+  // Exposes a PKCE authorization code flow information
+  // This is used for initiating a Oauth 2 authorization grant flow
+  // with Proof Key for Code Exchange (PKCE) which will be used by our clients to Login.
+  // EncryptedMessage of the request has a body of PKCEAuthorizationFlowRequest.
+  // EncryptedMessage of the response has a body of PKCEAuthorizationFlow.
+  rpc GetPKCEAuthorizationFlow(EncryptedMessage) returns (EncryptedMessage) {}
 }
 
 message EncryptedMessage {
@@ -237,7 +244,17 @@ message DeviceAuthorizationFlow {
   }
 }
 
-// ProviderConfig has all attributes needed to initiate a device authorization flow
+// PKCEAuthorizationFlowRequest empty struct for future expansion
+message PKCEAuthorizationFlowRequest {}
+
+// PKCEAuthorizationFlow represents Authorization Code Flow information
+// that can be used by the client to login initiate a Oauth 2.0 authorization code grant flow
+// with Proof Key for Code Exchange (PKCE). See https://datatracker.ietf.org/doc/html/rfc7636
+message PKCEAuthorizationFlow {
+  ProviderConfig ProviderConfig = 1;
+}
+
+// ProviderConfig has all attributes needed to initiate a device/pkce authorization flow
 message ProviderConfig {
   // An IDP application client id
   string ClientID = 1;
@@ -256,6 +273,10 @@ message ProviderConfig {
   string Scope = 7;
   // UseIDToken indicates if the id token should be used for authentication
   bool UseIDToken = 8;
+  // AuthorizationEndpoint is the endpoint of an IDP manager where clients can obtain authorization code.
+  string AuthorizationEndpoint = 9;
+  // RedirectURLs handles authorization code from IDP manager
+  repeated string RedirectURLs = 10;
 }
 
 // Route represents a route.Route object

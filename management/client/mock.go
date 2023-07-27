@@ -13,6 +13,7 @@ type MockClient struct {
 	RegisterFunc                   func(serverKey wgtypes.Key, setupKey string, jwtToken string, info *system.Info, sshKey []byte) (*proto.LoginResponse, error)
 	LoginFunc                      func(serverKey wgtypes.Key, info *system.Info, sshKey []byte) (*proto.LoginResponse, error)
 	GetDeviceAuthorizationFlowFunc func(serverKey wgtypes.Key) (*proto.DeviceAuthorizationFlow, error)
+	GetPKCEAuthorizationFlowFunc   func(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error)
 }
 
 func (m *MockClient) Close() error {
@@ -55,6 +56,13 @@ func (m *MockClient) GetDeviceAuthorizationFlow(serverKey wgtypes.Key) (*proto.D
 		return nil, nil
 	}
 	return m.GetDeviceAuthorizationFlowFunc(serverKey)
+}
+
+func (m *MockClient) GetPKCEAuthorizationFlow(serverKey wgtypes.Key) (*proto.PKCEAuthorizationFlow, error) {
+	if m.GetPKCEAuthorizationFlowFunc == nil {
+		return nil, nil
+	}
+	return m.GetPKCEAuthorizationFlow(serverKey)
 }
 
 // GetNetworkMap mock implementation of GetNetworkMap from mgm.Client interface
