@@ -426,6 +426,15 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 				config.DeviceAuthorizationFlow.ProviderConfig.Scope = server.DefaultDeviceAuthFlowScope
 			}
 		}
+
+		if config.PKCEAuthorizationFlow != nil {
+			log.Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
+				oidcConfig.TokenEndpoint, config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint)
+			config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
+			log.Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
+				oidcConfig.AuthorizationEndpoint, config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
+			config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
+		}
 	}
 
 	return config, err
@@ -433,10 +442,11 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 
 // OIDCConfigResponse used for parsing OIDC config response
 type OIDCConfigResponse struct {
-	Issuer             string `json:"issuer"`
-	TokenEndpoint      string `json:"token_endpoint"`
-	DeviceAuthEndpoint string `json:"device_authorization_endpoint"`
-	JwksURI            string `json:"jwks_uri"`
+	Issuer                string `json:"issuer"`
+	TokenEndpoint         string `json:"token_endpoint"`
+	DeviceAuthEndpoint    string `json:"device_authorization_endpoint"`
+	JwksURI               string `json:"jwks_uri"`
+	AuthorizationEndpoint string `json:"authorization_endpoint"`
 }
 
 // fetchOIDCConfig fetches OIDC configuration from the IDP

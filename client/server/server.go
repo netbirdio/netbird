@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"sync"
 	"time"
 
@@ -38,8 +39,8 @@ type Server struct {
 
 type oauthAuthFlow struct {
 	expiresAt  time.Time
-	client     internal.OAuthClient
-	info       internal.DeviceAuthInfo
+	flow       auth.OAuthFlow
+	info       auth.AuthFlowInfo
 	waitCancel context.CancelFunc
 }
 
@@ -206,28 +207,15 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 	state.Set(internal.StatusConnecting)
 
 	if msg.SetupKey == "" {
-		providerConfig, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
+		oAuthFlow, err := auth.NewOAuthFlow(ctx, config)
 		if err != nil {
 			state.Set(internal.StatusLoginFailed)
-			s, ok := gstatus.FromError(err)
-			if ok && s.Code() == codes.NotFound {
-				return nil, gstatus.Errorf(codes.NotFound, "no SSO provider returned from management. "+
-					"If you are using hosting Netbird see documentation at "+
-					"https://github.com/netbirdio/netbird/tree/main/management for details")
-			} else if ok && s.Code() == codes.Unimplemented {
-				return nil, gstatus.Errorf(codes.Unimplemented, "the management server, %s, does not support SSO providers, "+
-					"please update your server or use Setup Keys to login", config.ManagementURL)
-			} else {
-				log.Errorf("getting device authorization flow info failed with error: %v", err)
-				return nil, err
-			}
+			return nil, err
 		}
 
-		hostedClient := internal.NewHostedDeviceFlow(providerConfig.ProviderConfig)
-
-		if s.oauthAuthFlow.client != nil && s.oauthAuthFlow.client.GetClientID(ctx) == hostedClient.GetClientID(context.TODO()) {
+		if s.oauthAuthFlow.flow != nil && s.oauthAuthFlow.flow.GetClientID(ctx) == oAuthFlow.GetClientID(context.TODO()) {
 			if s.oauthAuthFlow.expiresAt.After(time.Now().Add(90 * time.Second)) {
-				log.Debugf("using previous device flow info")
+				log.Debugf("using previous oauth flow info")
 				return &proto.LoginResponse{
 					NeedsSSOLogin:           true,
 					VerificationURI:         s.oauthAuthFlow.info.VerificationURI,
@@ -242,25 +230,25 @@ func (s *Server) Login(callerCtx context.Context, msg *proto.LoginRequest) (*pro
 			}
 		}
 
-		deviceAuthInfo, err := hostedClient.RequestDeviceCode(context.TODO())
+		authInfo, err := oAuthFlow.RequestAuthInfo(context.TODO())
 		if err != nil {
-			log.Errorf("getting a request device code failed: %v", err)
+			log.Errorf("getting a request OAuth flow failed: %v", err)
 			return nil, err
 		}
 
 		s.mutex.Lock()
-		s.oauthAuthFlow.client = hostedClient
-		s.oauthAuthFlow.info = deviceAuthInfo
-		s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(deviceAuthInfo.ExpiresIn) * time.Second)
+		s.oauthAuthFlow.flow = oAuthFlow
+		s.oauthAuthFlow.info = authInfo
+		s.oauthAuthFlow.expiresAt = time.Now().Add(time.Duration(authInfo.ExpiresIn) * time.Second)
 		s.mutex.Unlock()
 
 		state.Set(internal.StatusNeedsLogin)
 
 		return &proto.LoginResponse{
 			NeedsSSOLogin:           true,
-			VerificationURI:         deviceAuthInfo.VerificationURI,
-			VerificationURIComplete: deviceAuthInfo.VerificationURIComplete,
-			UserCode:                deviceAuthInfo.UserCode,
+			VerificationURI:         authInfo.VerificationURI,
+			VerificationURIComplete: authInfo.VerificationURIComplete,
+			UserCode:                authInfo.UserCode,
 		}, nil
 	}
 
@@ -289,8 +277,8 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	s.actCancel = cancel
 	s.mutex.Unlock()
 
-	if s.oauthAuthFlow.client == nil {
-		return nil, gstatus.Errorf(codes.Internal, "oauth client is not initialized")
+	if s.oauthAuthFlow.flow == nil {
+		return nil, gstatus.Errorf(codes.Internal, "oauth flow is not initialized")
 	}
 
 	state := internal.CtxGetState(ctx)
@@ -304,10 +292,10 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	state.Set(internal.StatusConnecting)
 
 	s.mutex.Lock()
-	deviceAuthInfo := s.oauthAuthFlow.info
+	flowInfo := s.oauthAuthFlow.info
 	s.mutex.Unlock()
 
-	if deviceAuthInfo.UserCode != msg.UserCode {
+	if flowInfo.UserCode != msg.UserCode {
 		state.Set(internal.StatusLoginFailed)
 		return nil, gstatus.Errorf(codes.InvalidArgument, "sso user code is invalid")
 	}
@@ -324,7 +312,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	s.oauthAuthFlow.waitCancel = cancel
 	s.mutex.Unlock()
 
-	tokenInfo, err := s.oauthAuthFlow.client.WaitToken(waitCTX, deviceAuthInfo)
+	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
 		if err == context.Canceled {
 			return nil, nil
