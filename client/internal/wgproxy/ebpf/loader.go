@@ -15,7 +15,7 @@ const (
 	mapKeyWgPort    uint32 = 1
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf ./portreplace.c --
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf src/portreplace.c --
 
 type EBPF struct {
 	link link.Link
