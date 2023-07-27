@@ -1,6 +1,6 @@
 //go:build linux && !android
 
-package wgproxy
+package ebpf
 
 import (
 	_ "embed"
@@ -15,17 +15,17 @@ const (
 	mapKeyWgPort    uint32 = 1
 )
 
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf bpf/portreplace.c --
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf ./portreplace.c --
 
-type eBPF struct {
+type EBPF struct {
 	link link.Link
 }
 
-func newEBPF() *eBPF {
-	return &eBPF{}
+func NewEBPF() *EBPF {
+	return &EBPF{}
 }
 
-func (l *eBPF) load(proxyPort, wgPort int) error {
+func (l *EBPF) Load(proxyPort, wgPort int) error {
 	// it required for Docker
 	err := rlimit.RemoveMemlock()
 	if err != nil {
@@ -72,7 +72,7 @@ func (l *eBPF) load(proxyPort, wgPort int) error {
 	return err
 }
 
-func (l *eBPF) free() error {
+func (l *EBPF) Free() error {
 	if l.link != nil {
 		return l.link.Close()
 	}
