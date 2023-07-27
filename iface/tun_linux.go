@@ -114,6 +114,19 @@ func (c *tunDevice) assignAddr() error {
 	} else if err != nil {
 		return err
 	}
+
+	// Configure the optional additional IPv6 address if available.
+	if c.address6 != nil {
+		log.Debugf("adding IPv6 address %s to interface: %s", c.address6.String(), c.name)
+		addr6, _ := netlink.ParseAddr(c.address6.String())
+		err = netlink.AddrAdd(link, addr6)
+		if os.IsExist(err) {
+			log.Infof("interface %s already has the address: %s", c.name, c.address.String())
+		} else if err != nil {
+			return err
+		}
+	}
+
 	// On linux, the link must be brought up
 	err = netlink.LinkSetUp(link)
 	return err

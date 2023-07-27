@@ -46,6 +46,11 @@ func (w *WGIface) Address() WGAddress {
 	return w.tun.WgAddress()
 }
 
+// Address6 returns the IPv6 interface address
+func (w *WGIface) Address6() *WGAddress {
+	return w.tun.WgAddress6()
+}
+
 // Configure configures a Wireguard interface
 // The interface must exist before calling this method (e.g. call interface.Create() before)
 func (w *WGIface) Configure(privateKey string, port int) error {
@@ -61,6 +66,19 @@ func (w *WGIface) UpdateAddr(newAddr string) error {
 	defer w.mu.Unlock()
 
 	addr, err := parseWGAddress(newAddr)
+	if err != nil {
+		return err
+	}
+
+	return w.tun.UpdateAddr(addr)
+}
+
+// UpdateAddr6 updates the IPv6 address of the interface
+func (w *WGIface) UpdateAddr6(newAddr6 string) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	addr, err := parseWGAddress(newAddr6)
 	if err != nil {
 		return err
 	}

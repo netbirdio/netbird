@@ -167,6 +167,8 @@ message PeerConfig {
   SSHConfig sshConfig = 3;
   // Peer fully qualified domain name
   string fqdn = 4;
+  // Peer's virtual IPv6 address within the Wiretrustee VPN (a Wireguard address config)
+  string  address6 = 5;
 }
 
 // NetworkMap represents a network state of the peer with the corresponding configuration parameters to establish peer-to-peer connections

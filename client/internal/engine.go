@@ -52,7 +52,8 @@ type EngineConfig struct {
 	WgIfaceName string
 
 	// WgAddr is a Wireguard local address (Netbird Network IP)
-	WgAddr string
+	WgAddr  string
+	WgAddr6 string
 
 	// WgPrivateKey is a Wireguard private key of our peer (it MUST never leave the machine)
 	WgPrivateKey wgtypes.Key
@@ -179,6 +180,7 @@ func (e *Engine) Start() error {
 
 	wgIFaceName := e.config.WgIfaceName
 	wgAddr := e.config.WgAddr
+	wgAddr6 := e.config.WgAddr6
 	myPrivateKey := e.config.WgPrivateKey
 	var err error
 	transportNet, err := e.newStdNet()
@@ -186,7 +188,7 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
+	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, wgAddr6, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err
@@ -514,6 +516,16 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 		e.config.WgAddr = conf.Address
 		log.Infof("updated peer address from %s to %s", oldAddr, conf.Address)
 	}
+	if e.wgInterface.Address6() != nil && e.wgInterface.Address6().String() != conf.Address6 {
+		oldAddr := e.wgInterface.Address6().String()
+		log.Debugf("updating peer IPv6 address from %s to %s", oldAddr, conf.Address6)
+		err := e.wgInterface.UpdateAddr6(conf.Address)
+		if err != nil {
+			return err
+		}
+		e.config.WgAddr6 = conf.Address6
+		log.Infof("updated peer IPv6 address from %s to %s", oldAddr, conf.Address6)
+	}
 
 	if conf.GetSshConfig() != nil {
 		err := e.updateSSH(conf.GetSshConfig())
@@ -524,6 +536,7 @@ func (e *Engine) updateConfig(conf *mgmProto.PeerConfig) error {
 
 	e.statusRecorder.UpdateLocalPeerState(peer.LocalPeerState{
 		IP:              e.config.WgAddr,
+		IP6:             e.config.WgAddr6,
 		PubKey:          e.config.WgPrivateKey.PublicKey().String(),
 		KernelInterface: iface.WireGuardModuleIsLoaded(),
 		FQDN:            conf.GetFqdn(),

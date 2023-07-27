@@ -5,6 +5,7 @@ package iface
 import (
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -45,9 +46,13 @@ func (c *wGConfigurer) configureInterface(privateKey string, port int) error {
 
 func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive time.Duration, endpoint *net.UDPAddr, preSharedKey *wgtypes.Key) error {
 	//parse allowed ips
-	_, ipNet, err := net.ParseCIDR(allowedIps)
-	if err != nil {
-		return err
+	var allowedIpNets []net.IPNet
+	for _, allowedIp := range strings.Split(allowedIps, ",") {
+		_, ipNet, err := net.ParseCIDR(allowedIp)
+		allowedIpNets = append(allowedIpNets, *ipNet)
+		if err != nil {
+			return err
+		}
 	}
 
 	peerKeyParsed, err := wgtypes.ParseKey(peerKey)
@@ -57,7 +62,7 @@ func (c *wGConfigurer) updatePeer(peerKey string, allowedIps string, keepAlive t
 	peer := wgtypes.PeerConfig{
 		PublicKey:                   peerKeyParsed,
 		ReplaceAllowedIPs:           true,
-		AllowedIPs:                  []net.IPNet{*ipNet},
+		AllowedIPs:                  allowedIpNets,
 		PersistentKeepaliveInterval: &keepAlive,
 		PresharedKey:                preSharedKey,
 		Endpoint:                    endpoint,

@@ -10,7 +10,7 @@ import (
 )
 
 // NewWGIFace Creates a new WireGuard interface instance
-func NewWGIFace(iFaceName string, address string, mtu int, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
+func NewWGIFace(iFaceName string, address string, address6 string, mtu int, tunAdapter TunAdapter, transportNet transport.Net) (*WGIface, error) {
 	wgIFace := &WGIface{
 		mu: sync.Mutex{},
 	}
@@ -20,7 +20,16 @@ func NewWGIFace(iFaceName string, address string, mtu int, tunAdapter TunAdapter
 		return wgIFace, err
 	}
 
-	wgIFace.tun = newTunDevice(iFaceName, wgAddress, mtu, transportNet)
+	var wgAddress6 *WGAddress = nil
+	if address6 != "" {
+		tmpWgAddress6, err := parseWGAddress(address6)
+		wgAddress6 = &tmpWgAddress6
+		if err != nil {
+			return wgIFace, err
+		}
+	}
+
+	wgIFace.tun = newTunDevice(iFaceName, wgAddress, wgAddress6, mtu, transportNet)
 
 	wgIFace.configurer = newWGConfigurer(iFaceName)
 	wgIFace.userspaceBind = !WireGuardModuleIsLoaded()

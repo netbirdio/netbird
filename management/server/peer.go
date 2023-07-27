@@ -81,6 +81,8 @@ type Peer struct {
 	SetupKey string
 	// IP address of the Peer
 	IP net.IP `gorm:"uniqueIndex:idx_peers_account_id_ip"`
+	// IPv6 address of the Peer
+	IP6 *net.IP
 	// Meta is a Peer system meta data
 	Meta PeerSystemMeta `gorm:"embedded;embeddedPrefix:meta_"`
 	// Name is peer's name (machine name)
@@ -122,6 +124,7 @@ func (p *Peer) Copy() *Peer {
 		Key:                    p.Key,
 		SetupKey:               p.SetupKey,
 		IP:                     p.IP,
+		IP6:                    p.IP6,
 		Meta:                   p.Meta,
 		Name:                   p.Name,
 		DNSLabel:               p.DNSLabel,
@@ -535,12 +538,21 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 	if err != nil {
 		return nil, nil, err
 	}
+	var nextIp6 *net.IP = nil
+	if network.Net6 != nil {
+		nextIp6tmp, err := AllocatePeerIP6(*network.Net6, takenIps)
+		if err != nil {
+			return nil, nil, err
+		}
+		nextIp6 = &nextIp6tmp
+	}
 
 	newPeer := &Peer{
 		ID:                     xid.New().String(),
 		Key:                    peer.Key,
 		SetupKey:               upperKey,
 		IP:                     nextIp,
+		IP6:                    nextIp6,
 		Meta:                   peer.Meta,
 		Name:                   peer.Meta.Hostname,
 		DNSLabel:               newLabel,

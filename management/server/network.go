@@ -19,9 +19,14 @@ const (
 	SubnetSize = 16
 	// NetSize is a global network size 100.64.0.0/10
 	NetSize = 10
+	// Subnet6Size is the size of an IPv6 subnet (in Bytes, not Bits)
+	Subnet6Size = 8
 
 	// AllowedIPsFormat generates Wireguard AllowedIPs format (e.g. 100.64.30.1/32)
 	AllowedIPsFormat = "%s/32"
+
+	// AllowedIP6sFormat generates Wireguard AllowedIPs format (e.g. 2001:db8::dead:beef/128)
+	AllowedIP6sFormat = "%s/128"
 )
 
 type NetworkMap struct {
@@ -36,6 +41,7 @@ type NetworkMap struct {
 type Network struct {
 	Identifier string    `json:"id"`
 	Net        net.IPNet `gorm:"serializer:gob"`
+	Net6       *net.IPNet
 	Dns        string
 	// Serial is an ID that increments by 1 when any change to the network happened (e.g. new peer has been added).
 	// Used to synchronize state to the client apps.
@@ -46,7 +52,7 @@ type Network struct {
 
 // NewNetwork creates a new Network initializing it with a Serial=0
 // It takes a random /16 subnet from 100.64.0.0/10 (64 different subnets)
-func NewNetwork() *Network {
+func NewNetwork(enableV6 bool) *Network {
 
 	n := iplib.NewNet4(net.ParseIP("100.64.0.0"), NetSize)
 	sub, _ := n.Subnet(SubnetSize)
@@ -55,9 +61,21 @@ func NewNetwork() *Network {
 	r := rand.New(s)
 	intn := r.Intn(len(sub))
 
+	var n6 *net.IPNet = nil
+	if enableV6 {
+		addrbuf := make([]byte, 16)
+		addrbuf[0] = 0xfd
+		addrbuf[1] = 0x00
+		_, _ = r.Read(addrbuf[2:Subnet6Size])
+
+		n6tmp := iplib.NewNet6(addrbuf, Subnet6Size*8, 0).IPNet
+		n6 = &n6tmp
+	}
+
 	return &Network{
 		Identifier: xid.New().String(),
 		Net:        sub[intn].IPNet,
+		Net6:       n6,
 		Dns:        "",
 		Serial:     0}
 }
@@ -80,6 +98,7 @@ func (n *Network) Copy() *Network {
 	return &Network{
 		Identifier: n.Identifier,
 		Net:        n.Net,
+		Net6:       n.Net6,
 		Dns:        n.Dns,
 		Serial:     n.Serial,
 	}
@@ -107,6 +126,33 @@ func AllocatePeerIP(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
 	intn := r.Intn(len(ips))
 
 	return ips[intn], nil
+}
+
+// AllocatePeerIP6 pics an available IPv6 from an net.IPNet.
+// This method considers already taken IPs and reuses IPs if there are gaps in takenIps
+// E.g. if ipNet=100.30.0.0/16 and takenIps=[100.30.0.1, 100.30.0.4] then the result would be 100.30.0.2 or 100.30.0.3
+func AllocatePeerIP6(ipNet net.IPNet, takenIps []net.IP) (net.IP, error) {
+
+	takenIPMap := make(map[string]struct{})
+	takenIPMap[ipNet.IP.String()] = struct{}{}
+	for _, ip := range takenIps {
+		takenIPMap[ip.String()] = struct{}{}
+	}
+
+	maskSize, _ := ipNet.Mask.Size()
+
+	s := rand.NewSource(time.Now().Unix())
+	r := rand.New(s)
+
+	// TODO for small subnet sizes, randomly generating values until we don't get a duplicate is inefficient and could
+	// 		lead to many loop iterations, using a method similar to IPv4 would be preferable here.
+
+	addrbuf := ipNet.IP.To16()
+	for duplicate := true; duplicate; _, duplicate = takenIPMap[addrbuf.String()] {
+		_, _ = r.Read(addrbuf[(maskSize / 8):16])
+	}
+
+	return addrbuf, nil
 }
 
 // generateIPs generates a list of all possible IPs of the given network excluding IPs specified in the exclusion list

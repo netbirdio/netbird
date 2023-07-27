@@ -1618,7 +1618,7 @@ func addAllGroup(account *Account) error {
 func newAccountWithId(accountID, userID, domain string) *Account {
 	log.Debugf("creating new account")
 
-	network := NewNetwork()
+	network := NewNetwork(true)
 	peers := make(map[string]*Peer)
 	users := make(map[string]*User)
 	routes := make(map[string]*route.Route)

@@ -19,6 +19,7 @@ import (
 type tunDevice struct {
 	name         string
 	address      WGAddress
+	address6     *WGAddress
 	mtu          int
 	netInterface NetInterface
 	iceBind      *bind.ICEBind
@@ -27,13 +28,14 @@ type tunDevice struct {
 	close        chan struct{}
 }
 
-func newTunDevice(name string, address WGAddress, mtu int, transportNet transport.Net) *tunDevice {
+func newTunDevice(name string, address WGAddress, address6 *WGAddress, mtu int, transportNet transport.Net) *tunDevice {
 	return &tunDevice{
-		name:    name,
-		address: address,
-		mtu:     mtu,
-		iceBind: bind.NewICEBind(transportNet),
-		close:   make(chan struct{}),
+		name:     name,
+		address:  address,
+		address6: address6,
+		mtu:      mtu,
+		iceBind:  bind.NewICEBind(transportNet),
+		close:    make(chan struct{}),
 	}
 }
 
@@ -42,8 +44,17 @@ func (c *tunDevice) UpdateAddr(address WGAddress) error {
 	return c.assignAddr()
 }
 
+func (c *tunDevice) UpdateAddr6(address6 *WGAddress) error {
+	c.address6 = address6
+	return c.assignAddr()
+}
+
 func (c *tunDevice) WgAddress() WGAddress {
 	return c.address
+}
+
+func (c *tunDevice) WgAddress6() *WGAddress {
+	return c.address6
 }
 
 func (c *tunDevice) DeviceName() string {

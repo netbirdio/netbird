@@ -8,7 +8,7 @@ import (
 )
 
 func TestNewNetwork(t *testing.T) {
-	network := NewNetwork()
+	network := NewNetwork(false)
 
 	// generated net should be a subnet of a larger 100.64.0.0/10 net
 	ipNet := net.IPNet{IP: net.ParseIP("100.64.0.0"), Mask: net.IPMask{255, 192, 0, 0}}
