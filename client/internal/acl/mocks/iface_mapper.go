@@ -7,8 +7,8 @@ package mocks
 import (
 	reflect "reflect"
 
-	gomock "github.com/golang/mock/gomock"
 	iface "github.com/netbirdio/netbird/iface"
+	gomock "go.uber.org/mock/gomock"
 )
 
 // MockIFaceMapper is a mock of IFaceMapper interface.
@@ -46,6 +46,20 @@ func (m *MockIFaceMapper) Address() iface.WGAddress {
 func (mr *MockIFaceMapperMockRecorder) Address() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Address", reflect.TypeOf((*MockIFaceMapper)(nil).Address))
+}
+
+// Address6 mocks base method.
+func (m *MockIFaceMapper) Address6() *iface.WGAddress {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Address6")
+	ret0, _ := ret[0].(*iface.WGAddress)
+	return ret0
+}
+
+// Address6 indicates an expected call of Address6.
+func (mr *MockIFaceMapperMockRecorder) Address6() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Address6", reflect.TypeOf((*MockIFaceMapper)(nil).Address6))
 }
 
 // IsUserspaceBind mocks base method.

@@ -21,6 +21,7 @@ import (
 type IFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
+	Address6() *iface.WGAddress
 	IsUserspaceBind() bool
 	SetFilter(iface.PacketFilter) error
 }
@@ -98,6 +99,7 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 	if enableSSH {
 		rules = append(rules, &mgmProto.FirewallRule{
 			PeerIP:    "0.0.0.0",
+			PeerIP6:   "::",
 			Direction: mgmProto.FirewallRule_IN,
 			Action:    mgmProto.FirewallRule_ACCEPT,
 			Protocol:  mgmProto.FirewallRule_TCP,
@@ -112,12 +114,14 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		rules = append(rules,
 			&mgmProto.FirewallRule{
 				PeerIP:    "0.0.0.0",
+				PeerIP6:   "::",
 				Direction: mgmProto.FirewallRule_IN,
 				Action:    mgmProto.FirewallRule_ACCEPT,
 				Protocol:  mgmProto.FirewallRule_ALL,
 			},
 			&mgmProto.FirewallRule{
 				PeerIP:    "0.0.0.0",
+				PeerIP6:   "::",
 				Direction: mgmProto.FirewallRule_OUT,
 				Action:    mgmProto.FirewallRule_ACCEPT,
 				Protocol:  mgmProto.FirewallRule_ALL,
@@ -205,6 +209,15 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 		return "", nil, fmt.Errorf("invalid IP address, skipping firewall rule")
 	}
 
+	var ip6 *net.IP = nil
+	if r.PeerIP6 != "" {
+		ip6tmp := net.ParseIP(r.PeerIP6)
+		ip6 = &ip6tmp
+		if ip6 == nil {
+			return "", nil, fmt.Errorf("invalid IP address, skipping firewall rule")
+		}
+	}
+
 	protocol := convertToFirewallProtocol(r.Protocol)
 	if protocol == firewall.ProtocolUnknown {
 		return "", nil, fmt.Errorf("invalid protocol type: %d, skipping firewall rule", r.Protocol)
@@ -226,7 +239,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 		}
 	}
 
-	ruleID := d.getRuleID(ip, protocol, int(r.Direction), port, action, "")
+	ruleID := d.getRuleID(ip, ip6, protocol, int(r.Direction), port, action, "")
 	if rulesPair, ok := d.rulesPairs[ruleID]; ok {
 		return ruleID, rulesPair, nil
 	}
@@ -235,9 +248,9 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 	var err error
 	switch r.Direction {
 	case mgmProto.FirewallRule_IN:
-		rules, err = d.addInRules(ip, protocol, port, action, ipsetName, "")
+		rules, err = d.addInRules(ip, ip6, protocol, port, action, ipsetName, "")
 	case mgmProto.FirewallRule_OUT:
-		rules, err = d.addOutRules(ip, protocol, port, action, ipsetName, "")
+		rules, err = d.addOutRules(ip, ip6, protocol, port, action, ipsetName, "")
 	default:
 		return "", nil, fmt.Errorf("invalid direction, skipping firewall rule")
 	}
@@ -252,6 +265,7 @@ func (d *DefaultManager) protoRuleToFirewallRule(
 
 func (d *DefaultManager) addInRules(
 	ip net.IP,
+	ip6 *net.IP,
 	protocol firewall.Protocol,
 	port *firewall.Port,
 	action firewall.Action,
@@ -260,27 +274,47 @@ func (d *DefaultManager) addInRules(
 ) ([]firewall.Rule, error) {
 	var rules []firewall.Rule
 	rule, err := d.manager.AddFiltering(
-		ip, protocol, nil, port, firewall.RuleDirectionIN, action, ipsetName, comment)
+		ip, protocol, nil, port, firewall.RuleDirectionIN, action, ipsetName+"-v4", comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
 	rules = append(rules, rule)
+
+	if ip6 != nil {
+		rule, err := d.manager.AddFiltering(
+			*ip6, protocol, nil, port, firewall.RuleDirectionIN, action, ipsetName+"-v6", comment)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add firewall rule: %v", err)
+		}
+		rules = append(rules, rule)
+	}
 
 	if shouldSkipInvertedRule(protocol, port) {
 		return rules, nil
 	}
 
 	rule, err = d.manager.AddFiltering(
-		ip, protocol, port, nil, firewall.RuleDirectionOUT, action, ipsetName, comment)
+		ip, protocol, port, nil, firewall.RuleDirectionOUT, action, ipsetName+"-v4", comment)
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
+	rules = append(rules, rule)
 
-	return append(rules, rule), nil
+	if ip6 != nil {
+		rule, err = d.manager.AddFiltering(
+			*ip6, protocol, port, nil, firewall.RuleDirectionOUT, action, ipsetName+"-v6", comment)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add firewall rule: %v", err)
+		}
+		rules = append(rules, rule)
+	}
+
+	return rules, nil
 }
 
 func (d *DefaultManager) addOutRules(
 	ip net.IP,
+	ip6 *net.IP,
 	protocol firewall.Protocol,
 	port *firewall.Port,
 	action firewall.Action,
@@ -295,6 +329,15 @@ func (d *DefaultManager) addOutRules(
 	}
 	rules = append(rules, rule)
 
+	if ip6 != nil {
+		rule, err = d.manager.AddFiltering(
+			*ip6, protocol, nil, port, firewall.RuleDirectionOUT, action, ipsetName+"-v6", comment)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add firewall rule: %v", err)
+		}
+		rules = append(rules, rule)
+	}
+
 	if shouldSkipInvertedRule(protocol, port) {
 		return rules, nil
 	}
@@ -304,20 +347,35 @@ func (d *DefaultManager) addOutRules(
 	if err != nil {
 		return nil, fmt.Errorf("failed to add firewall rule: %v", err)
 	}
+	rules = append(rules, rule)
 
-	return append(rules, rule), nil
+	if ip6 != nil {
+		rule, err = d.manager.AddFiltering(
+			*ip6, protocol, port, nil, firewall.RuleDirectionIN, action, ipsetName+"-v6", comment)
+		rules = append(rules, rule)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add firewall rule: %v", err)
+		}
+	}
+
+	return rules, nil
 }
 
 // getRuleID() returns unique ID for the rule based on its parameters.
 func (d *DefaultManager) getRuleID(
 	ip net.IP,
+	ip6 *net.IP,
 	proto firewall.Protocol,
 	direction int,
 	port *firewall.Port,
 	action firewall.Action,
 	comment string,
 ) string {
-	idStr := ip.String() + string(proto) + strconv.Itoa(direction) + strconv.Itoa(int(action)) + comment
+	ip6Str := ""
+	if ip6 != nil {
+		ip6Str = ip6.String()
+	}
+	idStr := ip.String() + ip6Str + string(proto) + strconv.Itoa(direction) + strconv.Itoa(int(action)) + comment
 	if port != nil {
 		idStr += port.String()
 	}
@@ -370,6 +428,7 @@ func (d *DefaultManager) squashAcceptRules(
 		// it means that rules for that protocol was already optimized on the
 		// management side
 		if r.PeerIP == "0.0.0.0" {
+			// TODO IPv6?
 			squashedRules = append(squashedRules, r)
 			squashedProtocols[r.Protocol] = struct{}{}
 			return
@@ -413,6 +472,7 @@ func (d *DefaultManager) squashAcceptRules(
 			// add special rule 0.0.0.0 which allows all IP's in our firewall implementations
 			squashedRules = append(squashedRules, &mgmProto.FirewallRule{
 				PeerIP:    "0.0.0.0",
+				PeerIP6:   "::",
 				Direction: direction,
 				Action:    mgmProto.FirewallRule_ACCEPT,
 				Protocol:  protocol,

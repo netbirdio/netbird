@@ -61,6 +61,7 @@ type Manager struct {
 type iFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
+	Address6() *iface.WGAddress
 }
 
 // Create nftables firewall manager
@@ -189,11 +190,9 @@ func (m *Manager) AddFiltering(
 	}
 
 	if proto != "all" {
-		expressions = append(expressions, &expr.Payload{
-			DestRegister: 1,
-			Base:         expr.PayloadBaseNetworkHeader,
-			Offset:       uint32(9),
-			Len:          uint32(1),
+		expressions = append(expressions, &expr.Meta{
+			Key:      expr.MetaKeyL4PROTO,
+			Register: 1,
 		})
 
 		var protoData []byte
@@ -221,14 +220,13 @@ func (m *Manager) AddFiltering(
 		addrLen := uint32(len(rawIP))
 		addrOffset := uint32(12)
 		if addrLen == 16 {
-			addrOffset = 8
+			addrOffset = uint32(8)
 		}
 
 		// change to destination address position if need
 		if direction == fw.RuleDirectionOUT {
 			addrOffset += addrLen
 		}
-
 		expressions = append(expressions,
 			&expr.Payload{
 				DestRegister: 1,
@@ -394,10 +392,10 @@ func (m *Manager) chain(
 	}
 	if name == FilterInputChainName {
 		m.filterInputChainIPv6, err = getChain(m.filterInputChainIPv6, nftables.TableFamilyIPv6)
-		return m.tableIPv4, m.filterInputChainIPv6, err
+		return m.tableIPv6, m.filterInputChainIPv6, err
 	}
 	m.filterOutputChainIPv6, err = getChain(m.filterOutputChainIPv6, nftables.TableFamilyIPv6)
-	return m.tableIPv4, m.filterOutputChainIPv6, err
+	return m.tableIPv6, m.filterOutputChainIPv6, err
 }
 
 // table returns the table for the given family of the IP address
@@ -448,7 +446,7 @@ func (m *Manager) createTableIfNotExists(
 		}
 	}
 
-	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
+	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: family})
 	if err := m.rConn.Flush(); err != nil {
 		return nil, err
 	}
@@ -507,9 +505,8 @@ func (m *Manager) createChainIfNotExists(
 		},
 	}
 
-	mask, _ := netip.AddrFromSlice(m.wgIface.Address().Network.Mask)
-	if m.wgIface.Address().IP.To4() == nil {
-		ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To16())
+	if family == nftables.TableFamilyIPv6 && m.wgIface.Address6() != nil {
+		ip, _ := netip.AddrFromSlice(m.wgIface.Address6().Network.IP.To16())
 		expressions = append(expressions,
 			&expr.Payload{
 				DestRegister: 2,
@@ -521,8 +518,8 @@ func (m *Manager) createChainIfNotExists(
 				SourceRegister: 2,
 				DestRegister:   2,
 				Len:            16,
-				Xor:            []byte{0x0, 0x0, 0x0, 0x0},
-				Mask:           mask.Unmap().AsSlice(),
+				Xor:            []byte{0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
+				Mask:           m.wgIface.Address6().Network.Mask,
 			},
 			&expr.Cmp{
 				Op:       expr.CmpOpNeq,
@@ -531,7 +528,13 @@ func (m *Manager) createChainIfNotExists(
 			},
 			&expr.Verdict{Kind: expr.VerdictAccept},
 		)
-	} else {
+
+		_ = m.rConn.AddRule(&nftables.Rule{
+			Table: table,
+			Chain: chain,
+			Exprs: expressions,
+		})
+	} else if family == nftables.TableFamilyIPv4 && m.wgIface.Address().IP.To4() != nil {
 		ip, _ := netip.AddrFromSlice(m.wgIface.Address().Network.IP.To4())
 		expressions = append(expressions,
 			&expr.Payload{
@@ -554,13 +557,13 @@ func (m *Manager) createChainIfNotExists(
 			},
 			&expr.Verdict{Kind: expr.VerdictAccept},
 		)
-	}
 
-	_ = m.rConn.AddRule(&nftables.Rule{
-		Table: table,
-		Chain: chain,
-		Exprs: expressions,
-	})
+		_ = m.rConn.AddRule(&nftables.Rule{
+			Table: table,
+			Chain: chain,
+			Exprs: expressions,
+		})
+	}
 
 	expressions = []expr.Any{
 		&expr.Meta{Key: ifaceKey, Register: 1},

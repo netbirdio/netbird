@@ -36,6 +36,13 @@ func (w *mocWGIface) Address() iface.WGAddress {
 		Network: network,
 	}
 }
+func (w *mocWGIface) Address6() *iface.WGAddress {
+	ip, network, _ := net.ParseCIDR("fd00:1234:dead:beef::/64")
+	return &iface.WGAddress{
+		IP:      ip,
+		Network: network,
+	}
+}
 
 func (w *mocWGIface) GetFilter() iface.PacketFilter {
 	return w.filter
@@ -254,7 +261,7 @@ func TestUpdateDNSServer(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), iface.DefaultMTU, nil, newNet)
+			wgIface, err := iface.NewWGIFace(fmt.Sprintf("utun230%d", n), fmt.Sprintf("100.66.100.%d/32", n+1), fmt.Sprintf("fd00:1234:dead:beef::%d/128", n+1), iface.DefaultMTU, nil, newNet)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -331,7 +338,7 @@ func TestDNSFakeResolverHandleUpdates(t *testing.T) {
 		return
 	}
 
-	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.1/32", iface.DefaultMTU, nil, newNet)
+	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.1/32", "fd00:1234:dead:beef::1/128", iface.DefaultMTU, nil, newNet)
 	if err != nil {
 		t.Errorf("build interface wireguard: %v", err)
 		return
@@ -781,7 +788,7 @@ func createWgInterfaceWithBind(t *testing.T) (*iface.WGIface, error) {
 		return nil, err
 	}
 
-	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.2/24", iface.DefaultMTU, nil, newNet)
+	wgIface, err := iface.NewWGIFace("utun2301", "100.66.100.2/24", "fd00:1234:dead:beef::2/128", iface.DefaultMTU, nil, newNet)
 	if err != nil {
 		t.Fatalf("build interface wireguard: %v", err)
 		return nil, err

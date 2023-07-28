@@ -415,12 +415,15 @@ func toWiretrusteeConfig(config *Config, turnCredentials *TURNCredentials) *prot
 
 func toPeerConfig(peer *Peer, network *Network, dnsName string) *proto.PeerConfig {
 	netmask, _ := network.Net.Mask.Size()
-	netmask6, _ := network.Net6.Mask.Size()
-	// TODO handle case where there is no IPv6 address
+	address6 := ""
+	if network.Net6 != nil && peer.IP6 != nil {
+		netmask6, _ := network.Net6.Mask.Size()
+		address6 = fmt.Sprintf("%s/%d", peer.IP6.String(), netmask6)
+	}
 	fqdn := peer.FQDN(dnsName)
 	return &proto.PeerConfig{
 		Address:   fmt.Sprintf("%s/%d", peer.IP.String(), netmask), // take it from the network
-		Address6:  fmt.Sprintf("%s/%d", peer.IP6.String(), netmask6),
+		Address6:  address6,
 		SshConfig: &proto.SSHConfig{SshEnabled: peer.SSHEnabled},
 		Fqdn:      fqdn,
 	}

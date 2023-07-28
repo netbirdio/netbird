@@ -336,6 +336,7 @@ message FirewallRule {
   action Action = 3;
   protocol Protocol = 4;
   string Port = 5;
+  string PeerIP6 = 6;
 
   enum direction {
     IN = 0;

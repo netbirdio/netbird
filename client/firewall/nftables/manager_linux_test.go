@@ -18,8 +18,9 @@ import (
 
 // iFaceMapper defines subset methods of interface required for manager
 type iFaceMock struct {
-	NameFunc    func() string
-	AddressFunc func() iface.WGAddress
+	NameFunc     func() string
+	AddressFunc  func() iface.WGAddress
+	Address6Func func() *iface.WGAddress
 }
 
 func (i *iFaceMock) Name() string {
@@ -32,6 +33,13 @@ func (i *iFaceMock) Name() string {
 func (i *iFaceMock) Address() iface.WGAddress {
 	if i.AddressFunc != nil {
 		return i.AddressFunc()
+	}
+	panic("AddressFunc is not set")
+}
+
+func (i *iFaceMock) Address6() *iface.WGAddress {
+	if i.Address6Func != nil {
+		return i.Address6Func()
 	}
 	panic("AddressFunc is not set")
 }
@@ -165,6 +173,16 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 				Network: &net.IPNet{
 					IP:   net.ParseIP("100.96.0.0"),
 					Mask: net.IPv4Mask(255, 255, 255, 0),
+				},
+			}
+		},
+		Address6Func: func() *iface.WGAddress {
+			v6addr, v6net, _ := net.ParseCIDR("fd00:1234:dead:beef::1/64")
+			return &iface.WGAddress{
+				IP: v6addr,
+				Network: &net.IPNet{
+					IP:   v6net.IP,
+					Mask: v6net.Mask,
 				},
 			}
 		},
