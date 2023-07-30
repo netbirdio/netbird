@@ -645,7 +645,7 @@ services:
   zitadel:
     restart: 'always'
     networks: [netbird]
-    image: 'ghcr.io/zitadel/zitadel:latest'
+    image: 'ghcr.io/zitadel/zitadel:v2.31.3'
     command: 'start-from-init --masterkeyFromEnv --tlsMode $ZITADEL_TLS_MODE'
     env_file:
       - ./zitadel.env
