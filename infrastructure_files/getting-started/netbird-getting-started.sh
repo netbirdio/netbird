@@ -353,7 +353,7 @@ initEnvironment() {
     USING_DOMAIN="false"
   fi
 
-  if [ USING_DOMAIN == "true" ]; then
+  if [ $USING_DOMAIN == "true" ]; then
     ZITADEL_EXTERNALSECURE="true"
     NETBIRD_PORT=443
     CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
