@@ -287,3 +287,155 @@ configure_zitadel_instance() {
 }
 
 configure_zitadel_instance
+
+renderCaddyfile() {
+  cat <<EOF
+{
+    debug
+	servers :80,:8080,:443 {
+    		protocols h1 h2c
+    }
+}
+
+:80, :8080 {
+    # Signal
+    reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
+    # Management
+    reverse_proxy /api/* management:443
+    reverse_proxy /management.ManagementService/* h2c://management:443
+    # Zitadel
+    reverse_proxy /zitadel.admin.v1.AdminService/* h2c://zitadel:8080
+    reverse_proxy /admin/v1/* h2c://zitadel:8080
+    reverse_proxy /zitadel.auth.v1.AuthService/* h2c://zitadel:8080
+    reverse_proxy /auth/v1/* h2c://zitadel:8080
+    reverse_proxy /zitadel.management.v1.ManagementService/* h2c://zitadel:8080
+    reverse_proxy /management/v1/* h2c://zitadel:8080
+    reverse_proxy /zitadel.system.v1.SystemService/* h2c://zitadel:8080
+    reverse_proxy /system/v1/* h2c://zitadel:8080
+    reverse_proxy /assets/v1/* h2c://zitadel:8080
+    reverse_proxy /ui/* h2c://zitadel:8080
+    reverse_proxy /oidc/v1/* h2c://zitadel:8080
+    reverse_proxy /saml/v2/* h2c://zitadel:8080
+    reverse_proxy /oauth/v2/* h2c://zitadel:8080
+    reverse_proxy /.well-known/openid-configuration h2c://zitadel:8080
+    reverse_proxy /openapi/* h2c://zitadel:8080
+    # Dashboard
+    reverse_proxy /* 192.168.65.1:3000
+}
+EOF
+}
+
+renderDockerCompose() {
+  cat <<EOF
+version: "3.4"
+services:
+  # Caddy reverse proxy
+  caddy:
+    image: caddy
+    restart: unless-stopped
+    networks: [ netbird ]
+    ports:
+      - '443:443'
+      - '80:80'
+      - '8080:8080'
+    volumes:
+      - netbird_caddy_data:/data
+      - ./Caddyfile:/etc/caddy/Caddyfile
+  #UI dashboard
+  dashboard:
+    image: wiretrustee/dashboard:latest
+    restart: unless-stopped
+    networks: [netbird]
+    env_file:
+      - ./dashboard.env
+  # Signal
+  signal:
+    image: netbirdio/signal:latest
+    restart: unless-stopped
+    networks: [netbird]
+  # Management
+  management:
+    image: netbirdio/management:latest
+    restart: unless-stopped
+    networks: [netbird]
+    volumes:
+      - netbird_management:/var/lib/netbird
+      - ./management.json:/etc/netbird/management.json
+    command: [
+      "--port", "443",
+      "--log-file", "console",
+      "--disable-anonymous-metrics=$NETBIRD_DISABLE_ANONYMOUS_METRICS",
+      "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN",
+      "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"
+    ]
+  # Coturn, AKA relay server
+  coturn:
+    image: coturn/coturn
+    restart: unless-stopped
+    domainname: netbird.relay.selfhosted
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+    network_mode: host
+    command:
+      - -c /etc/turnserver.conf
+  # Zitadel - identity provider
+  zitadel:
+    restart: 'always'
+    networks: [netbird]
+    image: 'ghcr.io/zitadel/zitadel:latest'
+    command: 'start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled'
+    env_file:
+      - ./zitadel.env
+    depends_on:
+      crdb:
+        condition: 'service_healthy'
+    volumes:
+      - ./machinekey:/machinekey
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/debug/healthz" ]
+      interval: '10s'
+      timeout: '30s'
+      retries: 5
+      start_period: '20s'
+  # CockroachDB for zitadel
+  crdb:
+    restart: 'always'
+    networks: [netbird]
+    image: 'cockroachdb/cockroach:v22.2.2'
+    command: 'start-single-node --insecure'
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health?ready=1" ]
+      interval: '10s'
+      timeout: '30s'
+      retries: 5
+      start_period: '20s'
+
+volumes:
+  netbird_management:
+  netbird_caddy_data:
+  netbird_zitadel_key:
+
+networks:
+  netbird:
+EOF
+}
+
+renderTurnServerConf() {
+  cat <<EOF
+listening-port=3478
+tls-listening-port=5349
+min-port=$TURN_MIN_PORT
+max-port=$TURN_MAX_PORT
+fingerprint
+lt-cred-mech
+user=$TURN_USER:$TURN_PASSWORD
+realm=wiretrustee.com
+cert=/etc/coturn/certs/cert.pem
+pkey=/etc/coturn/private/privkey.pem
+log-file=stdout
+no-software-attribute
+pidfile="/var/tmp/turnserver.pid"
+no-cli
+EOF
+}
+
