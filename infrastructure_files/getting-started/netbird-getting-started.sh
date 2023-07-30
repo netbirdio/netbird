@@ -12,6 +12,48 @@ handle_request_command_status() {
   fi
 }
 
+get_main_ip_address() {
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    interface=$(route -n get default | grep 'interface:' | awk '{print $2}')
+    ip_address=$(ifconfig $interface | grep 'inet ' | awk '{print $2}')
+  else
+    interface=$(ip route | grep default | awk '{print $5}' | head -n 1)
+    ip_address=$(ip addr show $interface | grep 'inet ' | awk '{print $2}' | cut -d'/' -f1)
+  fi
+
+  echo $ip_address
+}
+
+wait_pat() {
+  PAT_PATH=$1
+  set +e
+  while true; do
+    if [[ -f "$PAT_PATH" ]]; then
+      break
+    fi
+    echo -n " ."
+    sleep 1
+  done
+  echo " done"
+  set -e
+}
+
+wait_api() {
+    INSTANCE_URL=$1
+    PAT=$2
+    set +e
+    while true; do
+      curl -s --fail-with-body -o /dev/null "$INSTANCE_URL/auth/v1/users/me" -H "Authorization: Bearer $PAT"
+      if [[ $? -eq 0 ]]; then
+        break
+      fi
+      echo -n " ."
+      sleep 1
+    done
+    echo " done"
+    set -e
+}
+
 create_new_project() {
   INSTANCE_URL=$1
   PAT=$2
@@ -39,7 +81,9 @@ create_new_application() {
       -d '{
     "name": "'"$APPLICATION_NAME"'",
     "redirectUris": [
-      "'"$BASE_REDIRECT_URL"'/auth"
+      "'"$BASE_REDIRECT_URL"'/auth",
+      "http://localhost:5300",
+      "http://localhost:5400"
     ],
     "RESPONSETypes": [
       "OIDC_RESPONSE_TYPE_CODE"
@@ -195,16 +239,25 @@ delete_auto_service_user() {
   echo "$RESPONSE" | jq -r '.details.changeDate'
 }
 
-configure_zitadel_instance() {
+init_zitadel() {
+  echo "initializing zitadel"
+  INSTANCE_URL="http://localhost:8080"
 
-  #INSTANCE_URL=$(echo "$NETBIRD_AUTH_OIDC_CONFIGURATION_ENDPOINT" | sed 's/\/\.well-known\/openid-configuration//')
+  TOKEN_PATH=./machinekey/zitadel-admin-sa.token
 
+  # shellcheck disable=SC2028
+  echo -n "\n waiting for zitadel's PAT to be created "
+  wait_pat "$TOKEN_PATH"
   echo "reading Zitadel PAT"
-  PAT=$(cat /Users/maycon/zitadel/machinekey/zitadel-admin-sa.token)
+  PAT=$(cat $TOKEN_PATH)
   if [ "$PAT" = "null" ]; then
     echo "failed requesting getting Zitadel PAT"
     exit 1
   fi
+
+  # shellcheck disable=SC2028
+  echo -n "\n waiting for zitadel to be ready "
+  wait_api "$INSTANCE_URL" "$PAT"
 
   #  create the zitadel project
   echo "creating new zitadel project"
@@ -275,34 +328,87 @@ configure_zitadel_instance() {
       echo "please remove it manually"
   fi
 
-  echo "ZITADEL_PROJECT_ID=$PROJECT_ID" >> .env
-  echo "ZITADEL_CLIENT_ID=$APPLICATION_CLIENT_ID" >> .env
-  echo "ZITADEL_MACHINE_USER_ID=$MACHINE_USER_ID" >> .env
-  echo "ZITADEL_MACHINE_USER_CLIENT_ID=$SERVICE_USER_CLIENT_ID" >> .env
-  echo "ZITADEL_MACHINE_USER_CLIENT_SECRET=$SERVICE_USER_CLIENT_SECRET" >> .env
-  echo "ZITADEL_ADMIN_USERNAME=$ZITADEL_ADMIN_USERNAME" >> .env
-  echo "ZITADEL_ADMIN_PASSWORD=$ZITADEL_ADMIN_PASSWORD" >> .env
-  echo "ZITADEL_DEV_MODE=$ZITADEL_DEV_MODE" >> .env
-
+  export NETBIRD_AUTH_CLIENT_ID=$APPLICATION_CLIENT_ID
+  export NETBIRD_IDP_MGMT_CLIENT_ID=$SERVICE_USER_CLIENT_ID
+  export NETBIRD_IDP_MGMT_CLIENT_SECRET=$SERVICE_USER_CLIENT_SECRET
+  export ZITADEL_ADMIN_USERNAME
+  export ZITADEL_ADMIN_PASSWORD
 }
 
-configure_zitadel_instance
+initEnvironment() {
+  CADDY_SECURE_DOMAIN=""
+  ZITADEL_EXTERNALSECURE="false"
+  USING_DOMAIN="true"
+  NETBIRD_PORT=80
+  NETBIRD_HTTP_PROTOCOL="http"
+  TURN_USER="self"
+  TURN_PASSWORD=$(openssl rand -base64 32 | sed 's/=//g')
+  TURN_MIN_PORT=49152
+  TURN_MAX_PORT=65535
+
+  NETBIRD_DOMAIN=$NETBIRD_DOMAIN
+  if [ "$NETBIRD_DOMAIN-x" == "-x" ] ; then
+    echo "NETBIRD_DOMAIN is not set, using the main IP address"
+    NETBIRD_DOMAIN=$(get_main_ip_address)
+    USING_DOMAIN="false"
+  fi
+
+  if [ "$NETBIRD_DOMAIN" == "localhost" ]; then
+    USING_DOMAIN="false"
+  fi
+
+  if [ USING_DOMAIN == "true" ]; then
+    ZITADEL_EXTERNALSECURE="true"
+    NETBIRD_PORT=443
+    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
+    NETBIRD_HTTP_PROTOCOL="https"
+  fi
+
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+      ZIDATE_TOKEN_EXPIRATION_DATE=$(date -u -v+30M "+%Y-%m-%dT%H:%M:%SZ")
+  else
+      ZIDATE_TOKEN_EXPIRATION_DATE=$(date -u -d "+30 minutes" "+%Y-%m-%dT%H:%M:%SZ")
+  fi
+
+  echo rendering initial files...
+  renderDockerCompose > docker-compose.yml
+  renderCaddyfile > Caddyfile
+  renderZitadelEnv > zitadel.env
+  echo "" > dashboard.env
+
+  echo starting zidatel
+  docker-compose up -d caddy zitadel crdb
+  init_zitadel
+
+  echo rendering remaingin files...
+  renderTurnServerConf > turnserver.conf
+  renderManagementJson > management.json
+  renderDashboardEnv > dashboard.env
+
+  echo starting remaining services
+  docker-compose up -d
+  echo "done"
+  echo "you can now access the dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
+  echo "login with the following credentials:"
+  echo "username: $ZITADEL_ADMIN_USERNAME"
+  echo "password: $ZITADEL_ADMIN_PASSWORD"
+}
 
 renderCaddyfile() {
   cat <<EOF
 {
-    debug
+  debug
 	servers :80,:8080,:443 {
-    		protocols h1 h2c
-    }
+    protocols h1 h2c
+  }
 }
 
-:80, :8080 {
+:80, :8080${CADDY_SECURE_DOMAIN} {
     # Signal
     reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
     # Management
-    reverse_proxy /api/* management:443
-    reverse_proxy /management.ManagementService/* h2c://management:443
+    reverse_proxy /api/* management:80
+    reverse_proxy /management.ManagementService/* h2c://management:80
     # Zitadel
     reverse_proxy /zitadel.admin.v1.AdminService/* h2c://zitadel:8080
     reverse_proxy /admin/v1/* h2c://zitadel:8080
@@ -319,9 +425,118 @@ renderCaddyfile() {
     reverse_proxy /oauth/v2/* h2c://zitadel:8080
     reverse_proxy /.well-known/openid-configuration h2c://zitadel:8080
     reverse_proxy /openapi/* h2c://zitadel:8080
+    reverse_proxy /debug/* h2c://zitadel:8080
     # Dashboard
     reverse_proxy /* 192.168.65.1:3000
 }
+EOF
+}
+
+renderTurnServerConf() {
+  cat <<EOF
+listening-port=3478
+tls-listening-port=5349
+min-port=$TURN_MIN_PORT
+max-port=$TURN_MAX_PORT
+fingerprint
+lt-cred-mech
+user=$TURN_USER:$TURN_PASSWORD
+realm=wiretrustee.com
+cert=/etc/coturn/certs/cert.pem
+pkey=/etc/coturn/private/privkey.pem
+log-file=stdout
+no-software-attribute
+pidfile="/var/tmp/turnserver.pid"
+no-cli
+EOF
+}
+
+renderManagementJson() {
+  cat <<EOF
+{
+    "Stuns": [
+        {
+            "Proto": "udp",
+            "URI": "stun:$NETBIRD_DOMAIN:3478"
+        }
+    ],
+    "TURNConfig": {
+        "Turns": [
+            {
+                "Proto": "udp",
+                "URI": "turn:$NETBIRD_DOMAIN:3478",
+                "Username": "$TURN_USER",
+                "Password": "$TURN_PASSWORD"
+            }
+        ],
+        "TimeBasedCredentials": false
+    },
+    "Signal": {
+        "Proto": "$NETBIRD_HTTP_PROTOCOL",
+        "URI": "$NETBIRD_DOMAIN:$NETBIRD_PORT"
+    },
+    "HttpConfig": {
+        "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT",
+        "AuthAudience": "$NETBIRD_AUTH_CLIENT_ID",
+        "OIDCConfigEndpoint":"$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/.well-known/openid-configuration"
+    },
+    "IdpManagerConfig": {
+        "ManagerType": "zitadel",
+        "ClientConfig": {
+            "Issuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT",
+            "TokenEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/oauth/v2/token",
+            "ClientID": "$NETBIRD_IDP_MGMT_CLIENT_ID",
+            "ClientSecret": "$NETBIRD_IDP_MGMT_CLIENT_SECRET",
+            "GrantType": "client_credentials"
+        },
+        "ExtraConfig": {
+            "ManagementEndpoint": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/management/v1"
+        }
+     },
+    "PKCEAuthorizationFlow": {
+        "ProviderConfig": {
+            "Audience": "$NETBIRD_AUTH_CLIENT_ID",
+            "ClientID": "$NETBIRD_AUTH_CLIENT_ID",
+            "Scope": "openid profile email offline_access api",
+            "RedirectURLs": ["http://localhost:5300","http://localhost:5400"]
+        }
+    }
+}
+EOF
+}
+
+renderDashboardEnv() {
+  cat <<EOF
+# Endpoints
+NETBIRD_MGMT_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
+NETBIRD_MGMT_GRPC_API_ENDPOINT=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
+# OIDC
+AUTH_AUDIENCE=$NETBIRD_AUTH_CLIENT_ID
+AUTH_CLIENT_ID=$NETBIRD_AUTH_CLIENT_ID
+AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
+USE_AUTH0=false
+AUTH_SUPPORTED_SCOPES="openid profile email offline_access api"
+AUTH_REDIRECT_URI=/auth
+AUTH_SILENT_REDIRECT_URI=/silent-auth
+# SSL
+NGINX_SSL_PORT=443
+# Letsencrypt
+LETSENCRYPT_DOMAIN=localhost
+EOF
+}
+
+renderZitadelEnv() {
+  cat <<EOF
+ZITADEL_DATABASE_COCKROACH_HOST=crdb
+ZITADEL_EXTERNALSECURE=$ZITADEL_EXTERNALSECURE
+ZITADEL_TLS_ENABLED="false"
+ZITADEL_EXTERNALPORT=$NETBIRD_PORT
+ZITADEL_EXTERNALDOMAIN=$NETBIRD_DOMAIN
+ZITADEL_FIRSTINSTANCE_PATPATH=/machinekey/zitadel-admin-sa.token
+ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_USERNAME=zitadel-admin-sa
+ZITADEL_FIRSTINSTANCE_ORG_MACHINE_MACHINE_NAME=Admin
+ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_SCOPES=openid
+ZITADEL_FIRSTINSTANCE_ORG_MACHINE_PAT_EXPIRATIONDATE=$ZIDATE_TOKEN_EXPIRATION_DATE
 EOF
 }
 
@@ -362,11 +577,12 @@ services:
       - netbird_management:/var/lib/netbird
       - ./management.json:/etc/netbird/management.json
     command: [
-      "--port", "443",
+      "--port", "80",
       "--log-file", "console",
-      "--disable-anonymous-metrics=$NETBIRD_DISABLE_ANONYMOUS_METRICS",
-      "--single-account-mode-domain=$NETBIRD_MGMT_SINGLE_ACCOUNT_MODE_DOMAIN",
-      "--dns-domain=$NETBIRD_MGMT_DNS_DOMAIN"
+      "--log-level", "debug",
+      "--disable-anonymous-metrics=false",
+      "--single-account-mode-domain=$NETBIRD_DOMAIN",
+      "--dns-domain=netbird.selfhosted",
     ]
   # Coturn, AKA relay server
   coturn:
@@ -420,22 +636,4 @@ networks:
 EOF
 }
 
-renderTurnServerConf() {
-  cat <<EOF
-listening-port=3478
-tls-listening-port=5349
-min-port=$TURN_MIN_PORT
-max-port=$TURN_MAX_PORT
-fingerprint
-lt-cred-mech
-user=$TURN_USER:$TURN_PASSWORD
-realm=wiretrustee.com
-cert=/etc/coturn/certs/cert.pem
-pkey=/etc/coturn/private/privkey.pem
-log-file=stdout
-no-software-attribute
-pidfile="/var/tmp/turnserver.pid"
-no-cli
-EOF
-}
-
+initEnvironment
