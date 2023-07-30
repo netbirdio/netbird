@@ -1977,7 +1977,7 @@ func TestAccount_AddJWTGroups(t *testing.T) {
 				group = g
 			}
 		}
-		assert.Equal(t, group.Peers, []string{"peer1", "peer2", "peer3"}, "group peers must be updated")
+		assert.ElementsMatch(t, group.Peers, []string{"peer1", "peer2", "peer3"}, "group peers must be updated")
 	})
 
 	t.Run("add new group", func(t *testing.T) {
@@ -1990,7 +1990,7 @@ func TestAccount_AddJWTGroups(t *testing.T) {
 				group = g
 			}
 		}
-		assert.Equal(t, group.Peers, []string{"peer4", "peer5"}, "group peers must be updated")
+		assert.ElementsMatch(t, group.Peers, []string{"peer4", "peer5"}, "group peers must be updated")
 	})
 }
 
