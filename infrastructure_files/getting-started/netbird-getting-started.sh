@@ -12,6 +12,35 @@ handle_request_command_status() {
   fi
 }
 
+check_docker_compose() {
+  if command -v docker-compose &> /dev/null
+  then
+      echo "docker-compose"
+  fi
+  if docker compose --help &> /dev/null
+  then
+      echo "docker compose"
+  fi
+
+  echo "docker-compose is not installed or not in PATH"
+  exit 1
+}
+
+check_jq() {
+  if ! command -v jq &> /dev/null
+  then
+    echo "jq is not installed or not in PATH"
+    exit 1
+  fi
+}
+
+init_crdb() {
+  echo "initializing crdb"
+  $DOCKER_COMPOSE_COMMAND up -d crdb --wait --wait-timeout 90
+  $DOCKER_COMPOSE_COMMAND exec -t crdb /bin/bash -c "cp -v /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -vR 1000:1000 /zitadel-certs/"
+  handle_request_command_status $? "init_crdb failed" ""
+}
+
 get_main_ip_address() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
     interface=$(route -n get default | grep 'interface:' | awk '{print $2}')
@@ -334,6 +363,8 @@ init_zitadel() {
 initEnvironment() {
   CADDY_SECURE_DOMAIN=""
   ZITADEL_EXTERNALSECURE="false"
+  ZITADEL_TLS_MODE="disabled"
+  ZITADEL_MASTERKEY="$(openssl rand -base64 32 | head -c 32)"
   USING_DOMAIN="true"
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
@@ -355,6 +386,7 @@ initEnvironment() {
 
   if [ $USING_DOMAIN == "true" ]; then
     ZITADEL_EXTERNALSECURE="true"
+    ZITADEL_TLS_MODE="external"
     NETBIRD_PORT=443
     CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
     NETBIRD_HTTP_PROTOCOL="https"
@@ -370,13 +402,18 @@ initEnvironment() {
   renderDockerCompose > docker-compose.yml
   renderCaddyfile > Caddyfile
   renderZitadelEnv > zitadel.env
+  renderCRDBEnv > crdb.env
   echo "" > dashboard.env
 
   mkdir -p machinekey
   chmod 777 machinekey
 
+  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+
+  init_crdb
+
   echo starting zidatel
-  docker-compose up -d caddy zitadel crdb
+  $DOCKER_COMPOSE_COMMAND up -d caddy zitadel crdb
   init_zitadel
 
   echo rendering remaingin files...
@@ -385,7 +422,7 @@ initEnvironment() {
   renderDashboardEnv > dashboard.env
 
   echo starting remaining services
-  docker-compose up -d
+  $DOCKER_COMPOSE_COMMAND up -d
   echo "done"
   echo "you can now access the dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
   echo "login with the following credentials:"
@@ -475,9 +512,9 @@ renderManagementJson() {
         "URI": "$NETBIRD_DOMAIN:$NETBIRD_PORT"
     },
     "HttpConfig": {
-        "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT",
+        "AuthIssuer": "$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN",
         "AuthAudience": "$NETBIRD_AUTH_CLIENT_ID",
-        "OIDCConfigEndpoint":"$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT/.well-known/openid-configuration"
+        "OIDCConfigEndpoint":"$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN/.well-known/openid-configuration"
     },
     "IdpManagerConfig": {
         "ManagerType": "zitadel",
@@ -526,7 +563,18 @@ EOF
 
 renderZitadelEnv() {
   cat <<EOF
+ZITADEL_LOG_LEVEL=debug
+ZITADEL_MASTERKEY=$ZITADEL_MASTERKEY
 ZITADEL_DATABASE_COCKROACH_HOST=crdb
+ZITADEL_DATABASE_COCKROACH_USER_USERNAME=zitadel_user
+ZITADEL_DATABASE_COCKROACH_USER_SSL_MODE=verify-full
+ZITADEL_DATABASE_COCKROACH_USER_SSL_ROOTCERT="/crdb-certs/ca.crt"
+ZITADEL_DATABASE_COCKROACH_USER_SSL_CERT="/crdb-certs/client.zitadel_user.crt"
+ZITADEL_DATABASE_COCKROACH_USER_SSL_KEY="/crdb-certs/client.zitadel_user.key"
+ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_MODE=verify-full
+ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_ROOTCERT="/crdb-certs/ca.crt"
+ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_CERT="/crdb-certs/client.root.crt"
+ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_KEY="/crdb-certs/client.root.key"
 ZITADEL_EXTERNALSECURE=$ZITADEL_EXTERNALSECURE
 ZITADEL_TLS_ENABLED="false"
 ZITADEL_EXTERNALPORT=$NETBIRD_PORT
@@ -598,7 +646,7 @@ services:
     restart: 'always'
     networks: [netbird]
     image: 'ghcr.io/zitadel/zitadel:latest'
-    command: 'start-from-init --masterkey "MasterkeyNeedsToHave32Characters" --tlsMode disabled'
+    command: 'start-from-init --masterkeyFromEnv --tlsMode $ZITADEL_TLS_MODE'
     env_file:
       - ./zitadel.env
     depends_on:
@@ -606,6 +654,7 @@ services:
         condition: 'service_healthy'
     volumes:
       - ./machinekey:/machinekey
+      - netbird_zitadel_certs:/crdb-certs:ro
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8080/debug/healthz" ]
       interval: '10s'
@@ -617,7 +666,11 @@ services:
     restart: 'always'
     networks: [netbird]
     image: 'cockroachdb/cockroach:v22.2.2'
-    command: 'start-single-node --insecure'
+    command: 'start-single-node --advertise-addr crdb'
+    volumes:
+      - netbird_crdb_data:/cockroach/cockroach-data
+      - netbird_crdb_certs:/cockroach/certs
+      - netbird_zitadel_certs:/zitadel-certs
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8080/health?ready=1" ]
       interval: '10s'
@@ -628,7 +681,9 @@ services:
 volumes:
   netbird_management:
   netbird_caddy_data:
-  netbird_zitadel_key:
+  netbird_crdb_data:
+  netbird_crdb_certs:
+  netbird_zitadel_certs:
 
 networks:
   netbird:
