@@ -372,6 +372,9 @@ initEnvironment() {
   renderZitadelEnv > zitadel.env
   echo "" > dashboard.env
 
+  mkdir -p machinekey
+  chmod 777 machinekey
+
   echo starting zidatel
   docker-compose up -d caddy zitadel crdb
   init_zitadel
