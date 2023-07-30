@@ -42,6 +42,8 @@ type Config struct {
 	IdpManagerConfig *idp.Config
 
 	DeviceAuthorizationFlow *DeviceAuthorizationFlow
+
+	PKCEAuthorizationFlow *PKCEAuthorizationFlow
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
@@ -101,7 +103,14 @@ type DeviceAuthorizationFlow struct {
 	ProviderConfig ProviderConfig
 }
 
-// ProviderConfig has all attributes needed to initiate a device authorization flow
+// PKCEAuthorizationFlow represents Authorization Code Flow information
+// that can be used by the client to login initiate a Oauth 2.0 authorization code grant flow
+// with Proof Key for Code Exchange (PKCE). See https://datatracker.ietf.org/doc/html/rfc7636
+type PKCEAuthorizationFlow struct {
+	ProviderConfig ProviderConfig
+}
+
+// ProviderConfig has all attributes needed to initiate a device/pkce authorization flow
 type ProviderConfig struct {
 	// ClientID An IDP application client id
 	ClientID string
@@ -116,10 +125,14 @@ type ProviderConfig struct {
 	TokenEndpoint string
 	// DeviceAuthEndpoint is the endpoint of an IDP manager where clients can obtain device authorization code
 	DeviceAuthEndpoint string
+	// AuthorizationEndpoint is the endpoint of an IDP manager where clients can obtain authorization code
+	AuthorizationEndpoint string
 	// Scopes provides the scopes to be included in the token request
 	Scope string
 	// UseIDToken indicates if the id token should be used for authentication
 	UseIDToken bool
+	// RedirectURL handles authorization code from IDP manager
+	RedirectURLs []string
 }
 
 // validateURL validates input http url

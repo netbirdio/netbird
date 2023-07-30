@@ -10,9 +10,10 @@ import (
 
 	"github.com/pion/ice/v2"
 	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
-	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/stdnet"
+	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	"github.com/netbirdio/netbird/iface"
 	"github.com/netbirdio/netbird/iface/bind"
 	signal "github.com/netbirdio/netbird/signal/client"
@@ -23,7 +24,17 @@ import (
 const (
 	iceKeepAliveDefault           = 4 * time.Second
 	iceDisconnectedTimeoutDefault = 6 * time.Second
+
+	defaultWgKeepAlive = 25 * time.Second
 )
+
+type WgConfig struct {
+	WgListenPort int
+	RemoteKey    string
+	WgInterface  *iface.WGIface
+	AllowedIps   string
+	PreSharedKey *wgtypes.Key
+}
 
 // ConnConfig is a peer Connection configuration
 type ConnConfig struct {
@@ -43,7 +54,7 @@ type ConnConfig struct {
 
 	Timeout time.Duration
 
-	ProxyConfig proxy.Config
+	WgConfig WgConfig
 
 	UDPMux      ice.UDPMux
 	UDPMuxSrflx ice.UniversalUDPMux
@@ -98,7 +109,9 @@ type Conn struct {
 
 	statusRecorder *Status
 
-	proxy        proxy.Proxy
+	wgProxyFactory *wgproxy.Factory
+	wgProxy        wgproxy.Proxy
+
 	remoteModeCh chan ModeMessage
 	meta         meta
 
@@ -122,14 +135,19 @@ func (conn *Conn) GetConf() ConnConfig {
 	return conn.config
 }
 
-// UpdateConf updates the connection config
-func (conn *Conn) UpdateConf(conf ConnConfig) {
-	conn.config = conf
+// WgConfig returns the WireGuard config
+func (conn *Conn) WgConfig() WgConfig {
+	return conn.config.WgConfig
+}
+
+// UpdateStunTurn update the turn and stun addresses
+func (conn *Conn) UpdateStunTurn(turnStun []*ice.URL) {
+	conn.config.StunTurn = turnStun
 }
 
 // NewConn creates a new not opened Conn to the remote peer.
 // To establish a connection run Conn.Open
-func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
+func NewConn(config ConnConfig, statusRecorder *Status, wgProxyFactory *wgproxy.Factory, adapter iface.TunAdapter, iFaceDiscover stdnet.ExternalIFaceDiscover) (*Conn, error) {
 	return &Conn{
 		config:         config,
 		mu:             sync.Mutex{},
@@ -139,6 +157,7 @@ func NewConn(config ConnConfig, statusRecorder *Status, adapter iface.TunAdapter
 		remoteAnswerCh: make(chan OfferAnswer),
 		statusRecorder: statusRecorder,
 		remoteModeCh:   make(chan ModeMessage, 1),
+		wgProxyFactory: wgProxyFactory,
 		adapter:        adapter,
 		iFaceDiscover:  iFaceDiscover,
 	}, nil
@@ -215,12 +234,12 @@ func (conn *Conn) candidateTypes() []ice.CandidateType {
 func (conn *Conn) Open() error {
 	log.Debugf("trying to connect to peer %s", conn.config.Key)
 
-	peerState := State{PubKey: conn.config.Key}
-
-	peerState.IP = strings.Split(conn.config.ProxyConfig.AllowedIps, "/")[0]
-	peerState.ConnStatusUpdate = time.Now()
-	peerState.ConnStatus = conn.status
-
+	peerState := State{
+		PubKey:           conn.config.Key,
+		IP:               strings.Split(conn.config.WgConfig.AllowedIps, "/")[0],
+		ConnStatusUpdate: time.Now(),
+		ConnStatus:       conn.status,
+	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		log.Warnf("erro while updating the state of peer %s,err: %v", conn.config.Key, err)
@@ -275,10 +294,11 @@ func (conn *Conn) Open() error {
 	defer conn.notifyDisconnected()
 	conn.mu.Unlock()
 
-	peerState = State{PubKey: conn.config.Key}
-
-	peerState.ConnStatus = conn.status
-	peerState.ConnStatusUpdate = time.Now()
+	peerState = State{
+		PubKey:           conn.config.Key,
+		ConnStatus:       conn.status,
+		ConnStatusUpdate: time.Now(),
+	}
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		log.Warnf("erro while updating the state of peer %s,err: %v", conn.config.Key, err)
@@ -309,19 +329,12 @@ func (conn *Conn) Open() error {
 		remoteWgPort = remoteOfferAnswer.WgListenPort
 	}
 	// the ice connection has been established successfully so we are ready to start the proxy
-	err = conn.startProxy(remoteConn, remoteWgPort)
+	remoteAddr, err := conn.configureConnection(remoteConn, remoteWgPort)
 	if err != nil {
 		return err
 	}
 
-	if conn.proxy.Type() == proxy.TypeDirectNoProxy {
-		host, _, _ := net.SplitHostPort(remoteConn.LocalAddr().String())
-		rhost, _, _ := net.SplitHostPort(remoteConn.RemoteAddr().String())
-		// direct Wireguard connection
-		log.Infof("directly connected to peer %s [laddr <-> raddr] [%s:%d <-> %s:%d]", conn.config.Key, host, conn.config.LocalWgPort, rhost, remoteWgPort)
-	} else {
-		log.Infof("connected to peer %s [laddr <-> raddr] [%s <-> %s]", conn.config.Key, remoteConn.LocalAddr().String(), remoteConn.RemoteAddr().String())
-	}
+	log.Infof("connected to peer %s, endpoint address: %s", conn.config.Key, remoteAddr.String())
 
 	// wait until connection disconnected or has been closed externally (upper layer, e.g. engine)
 	select {
@@ -338,54 +351,60 @@ func isRelayCandidate(candidate ice.Candidate) bool {
 	return candidate.Type() == ice.CandidateTypeRelay
 }
 
-// startProxy starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) startProxy(remoteConn net.Conn, remoteWgPort int) error {
+// configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
+func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (net.Addr, error) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
-	var pair *ice.CandidatePair
 	pair, err := conn.agent.GetSelectedCandidatePair()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	peerState := State{PubKey: conn.config.Key}
-	p := conn.getProxy(pair, remoteWgPort)
-	conn.proxy = p
-	err = p.Start(remoteConn)
+	var endpoint net.Addr
+	if isRelayCandidate(pair.Local) {
+		log.Debugf("setup relay connection")
+		conn.wgProxy = conn.wgProxyFactory.GetProxy()
+		endpoint, err = conn.wgProxy.AddTurnConn(remoteConn)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// To support old version's with direct mode we attempt to punch an additional role with the remote wireguard port
+		go conn.punchRemoteWGPort(pair, remoteWgPort)
+		endpoint = remoteConn.RemoteAddr()
+	}
+
+	endpointUdpAddr, _ := net.ResolveUDPAddr(endpoint.Network(), endpoint.String())
+
+	err = conn.config.WgConfig.WgInterface.UpdatePeer(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps, defaultWgKeepAlive, endpointUdpAddr, conn.config.WgConfig.PreSharedKey)
 	if err != nil {
-		return err
+		if conn.wgProxy != nil {
+			_ = conn.wgProxy.CloseConn()
+		}
+		return nil, err
 	}
 
 	conn.status = StatusConnected
 
-	peerState.ConnStatus = conn.status
-	peerState.ConnStatusUpdate = time.Now()
-	peerState.LocalIceCandidateType = pair.Local.Type().String()
-	peerState.RemoteIceCandidateType = pair.Remote.Type().String()
+	peerState := State{
+		PubKey:                 conn.config.Key,
+		ConnStatus:             conn.status,
+		ConnStatusUpdate:       time.Now(),
+		LocalIceCandidateType:  pair.Local.Type().String(),
+		RemoteIceCandidateType: pair.Remote.Type().String(),
+		Direct:                 !isRelayCandidate(pair.Local),
+	}
 	if pair.Local.Type() == ice.CandidateTypeRelay || pair.Remote.Type() == ice.CandidateTypeRelay {
 		peerState.Relayed = true
 	}
-	peerState.Direct = p.Type() == proxy.TypeDirectNoProxy || p.Type() == proxy.TypeNoProxy
 
 	err = conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		log.Warnf("unable to save peer's state, got error: %v", err)
 	}
 
-	return nil
-}
-
-// todo rename this method and the proxy package to something more appropriate
-func (conn *Conn) getProxy(pair *ice.CandidatePair, remoteWgPort int) proxy.Proxy {
-	if isRelayCandidate(pair.Local) {
-		return proxy.NewWireGuardProxy(conn.config.ProxyConfig)
-	}
-
-	// To support old version's with direct mode we attempt to punch an additional role with the remote wireguard port
-	go conn.punchRemoteWGPort(pair, remoteWgPort)
-
-	return proxy.NewNoProxy(conn.config.ProxyConfig)
+	return endpoint, nil
 }
 
 func (conn *Conn) punchRemoteWGPort(pair *ice.CandidatePair, remoteWgPort int) {
@@ -414,21 +433,21 @@ func (conn *Conn) cleanup() error {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
+	var err1, err2, err3 error
 	if conn.agent != nil {
-		err := conn.agent.Close()
-		if err != nil {
-			return err
+		err1 = conn.agent.Close()
+		if err1 == nil {
+			conn.agent = nil
 		}
-		conn.agent = nil
 	}
 
-	if conn.proxy != nil {
-		err := conn.proxy.Close()
-		if err != nil {
-			return err
-		}
-		conn.proxy = nil
+	if conn.wgProxy != nil {
+		err2 = conn.wgProxy.CloseConn()
+		conn.wgProxy = nil
 	}
+
+	// todo: is it problem if we try to remove a peer what is never existed?
+	err3 = conn.config.WgConfig.WgInterface.RemovePeer(conn.config.WgConfig.RemoteKey)
 
 	if conn.notifyDisconnected != nil {
 		conn.notifyDisconnected()
@@ -437,10 +456,11 @@ func (conn *Conn) cleanup() error {
 
 	conn.status = StatusDisconnected
 
-	peerState := State{PubKey: conn.config.Key}
-	peerState.ConnStatus = conn.status
-	peerState.ConnStatusUpdate = time.Now()
-
+	peerState := State{
+		PubKey:           conn.config.Key,
+		ConnStatus:       conn.status,
+		ConnStatusUpdate: time.Now(),
+	}
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		// pretty common error because by that time Engine can already remove the peer and status won't be available.
@@ -449,8 +469,13 @@ func (conn *Conn) cleanup() error {
 	}
 
 	log.Debugf("cleaned up connection to peer %s", conn.config.Key)
-
-	return nil
+	if err1 != nil {
+		return err1
+	}
+	if err2 != nil {
+		return err2
+	}
+	return err3
 }
 
 // SetSignalOffer sets a handler function to be triggered by Conn when a new connection offer has to be signalled to the remote peer

@@ -55,7 +55,7 @@ func TestNftablesManager(t *testing.T) {
 	// just check on the local interface
 	manager, err := Create(mock)
 	require.NoError(t, err)
-	time.Sleep(time.Second)
+	time.Sleep(time.Second * 3)
 
 	defer func() {
 		err = manager.Reset()
@@ -75,11 +75,16 @@ func TestNftablesManager(t *testing.T) {
 		fw.RuleDirectionIN,
 		fw.ActionDrop,
 		"",
+		"",
 	)
 	require.NoError(t, err, "failed to add rule")
 
+	err = manager.Flush()
+	require.NoError(t, err, "failed to flush")
+
 	rules, err := testClient.GetRules(manager.tableIPv4, manager.filterInputChainIPv4)
 	require.NoError(t, err, "failed to get rules")
+
 	// test expectations:
 	// 1) regular rule
 	// 2) "accept extra routed traffic rule" for the interface
@@ -135,6 +140,9 @@ func TestNftablesManager(t *testing.T) {
 	err = manager.DeleteRule(rule)
 	require.NoError(t, err, "failed to delete rule")
 
+	err = manager.Flush()
+	require.NoError(t, err, "failed to flush")
+
 	rules, err = testClient.GetRules(manager.tableIPv4, manager.filterInputChainIPv4)
 	require.NoError(t, err, "failed to get rules")
 	// test expectations:
@@ -167,7 +175,7 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			// just check on the local interface
 			manager, err := Create(mock)
 			require.NoError(t, err)
-			time.Sleep(time.Second)
+			time.Sleep(time.Second * 3)
 
 			defer func() {
 				if err := manager.Reset(); err != nil {
@@ -181,13 +189,18 @@ func TestNFtablesCreatePerformance(t *testing.T) {
 			for i := 0; i < testMax; i++ {
 				port := &fw.Port{Values: []int{1000 + i}}
 				if i%2 == 0 {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "accept HTTP traffic")
+					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionOUT, fw.ActionAccept, "", "accept HTTP traffic")
 				} else {
-					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "accept HTTP traffic")
+					_, err = manager.AddFiltering(ip, "tcp", nil, port, fw.RuleDirectionIN, fw.ActionAccept, "", "accept HTTP traffic")
 				}
-
 				require.NoError(t, err, "failed to add rule")
+
+				if i%100 == 0 {
+					err = manager.Flush()
+					require.NoError(t, err, "failed to flush")
+				}
 			}
+
 			t.Logf("execution avg per rule: %s", time.Since(start)/time.Duration(testMax))
 		})
 	}

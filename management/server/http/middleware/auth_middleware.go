@@ -57,7 +57,7 @@ func (m *AuthMiddleware) Handler(h http.Handler) http.Handler {
 		case "bearer":
 			err := m.CheckJWTFromRequest(w, r)
 			if err != nil {
-				log.Debugf("Error when validating JWT claims: %s", err.Error())
+				log.Errorf("Error when validating JWT claims: %s", err.Error())
 				util.WriteError(status.Errorf(status.Unauthorized, "token invalid"), w)
 				return
 			}

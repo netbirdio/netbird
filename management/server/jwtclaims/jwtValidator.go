@@ -155,7 +155,7 @@ func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 
 	// Check if there was an error in parsing...
 	if err != nil {
-		log.Debugf("error parsing token: %v", err)
+		log.Errorf("error parsing token: %v", err)
 		return nil, fmt.Errorf("Error parsing token: %w", err)
 	}
 

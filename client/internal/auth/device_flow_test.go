@@ -1,17 +1,17 @@
-package internal
+package auth
 
 import (
 	"context"
 	"fmt"
+	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/client/internal"
+	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/golang-jwt/jwt"
-	"github.com/stretchr/testify/require"
 )
 
 type mockHTTPClient struct {
@@ -53,7 +53,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingErrFunc   require.ErrorAssertionFunc
 		expectedErrorMSG string
 		testingFunc      require.ComparisonAssertionFunc
-		expectedOut      DeviceAuthInfo
+		expectedOut      AuthFlowInfo
 		expectedMSG      string
 		expectPayload    string
 	}
@@ -92,7 +92,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 		testingFunc:      require.EqualValues,
 		expectPayload:    expectPayload,
 	}
-	testCase4Out := DeviceAuthInfo{ExpiresIn: 10}
+	testCase4Out := AuthFlowInfo{ExpiresIn: 10}
 	testCase4 := test{
 		name:           "Got Device Code",
 		inputResBody:   fmt.Sprintf("{\"expires_in\":%d}", testCase4Out.ExpiresIn),
@@ -113,8 +113,8 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 				err:     testCase.inputReqError,
 			}
 
-			hosted := Hosted{
-				providerConfig: ProviderConfig{
+			deviceFlow := &DeviceAuthorizationFlow{
+				providerConfig: internal.DeviceAuthProviderConfig{
 					Audience:           expectedAudience,
 					ClientID:           expectedClientID,
 					Scope:              expectedScope,
@@ -125,7 +125,7 @@ func TestHosted_RequestDeviceCode(t *testing.T) {
 				HTTPClient: &httpClient,
 			}
 
-			authInfo, err := hosted.RequestDeviceCode(context.TODO())
+			authInfo, err := deviceFlow.RequestAuthInfo(context.TODO())
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
 			require.EqualValues(t, expectPayload, httpClient.reqBody, "payload should match")
@@ -145,7 +145,7 @@ func TestHosted_WaitToken(t *testing.T) {
 		inputMaxReqs      int
 		inputCountResBody string
 		inputTimeout      time.Duration
-		inputInfo         DeviceAuthInfo
+		inputInfo         AuthFlowInfo
 		inputAudience     string
 		testingErrFunc    require.ErrorAssertionFunc
 		expectedErrorMSG  string
@@ -155,7 +155,7 @@ func TestHosted_WaitToken(t *testing.T) {
 		expectPayload     string
 	}
 
-	defaultInfo := DeviceAuthInfo{
+	defaultInfo := AuthFlowInfo{
 		DeviceCode: "test",
 		ExpiresIn:  10,
 		Interval:   1,
@@ -278,8 +278,8 @@ func TestHosted_WaitToken(t *testing.T) {
 				countResBody: testCase.inputCountResBody,
 			}
 
-			hosted := Hosted{
-				providerConfig: ProviderConfig{
+			deviceFlow := DeviceAuthorizationFlow{
+				providerConfig: internal.DeviceAuthProviderConfig{
 					Audience:           testCase.inputAudience,
 					ClientID:           clientID,
 					TokenEndpoint:      "test.hosted.com/token",
@@ -287,11 +287,12 @@ func TestHosted_WaitToken(t *testing.T) {
 					Scope:              "openid",
 					UseIDToken:         false,
 				},
-				HTTPClient: &httpClient}
+				HTTPClient: &httpClient,
+			}
 
 			ctx, cancel := context.WithTimeout(context.TODO(), testCase.inputTimeout)
 			defer cancel()
-			tokenInfo, err := hosted.WaitToken(ctx, testCase.inputInfo)
+			tokenInfo, err := deviceFlow.WaitToken(ctx, testCase.inputInfo)
 			testCase.testingErrFunc(t, err, testCase.expectedErrorMSG)
 
 			require.EqualValues(t, testCase.expectPayload, httpClient.reqBody, "payload should match")

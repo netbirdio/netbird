@@ -215,10 +215,12 @@ func update(input ConfigInput) (*Config, error) {
 	}
 
 	if input.PreSharedKey != nil && config.PreSharedKey != *input.PreSharedKey {
-		log.Infof("new pre-shared key provided, updated to %s (old value %s)",
-			*input.PreSharedKey, config.PreSharedKey)
-		config.PreSharedKey = *input.PreSharedKey
-		refresh = true
+		if *input.PreSharedKey != "" {
+			log.Infof("new pre-shared key provides, updated to %s (old value %s)",
+				*input.PreSharedKey, config.PreSharedKey)
+			config.PreSharedKey = *input.PreSharedKey
+			refresh = true
+		}
 	}
 
 	if config.SSHKey == "" {

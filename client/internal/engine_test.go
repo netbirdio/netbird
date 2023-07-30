@@ -367,9 +367,9 @@ func TestEngine_UpdateNetworkMap(t *testing.T) {
 					t.Errorf("expecting Engine.peerConns to contain peer %s", p)
 				}
 				expectedAllowedIPs := strings.Join(p.AllowedIps, ",")
-				if conn.GetConf().ProxyConfig.AllowedIps != expectedAllowedIPs {
+				if conn.WgConfig().AllowedIps != expectedAllowedIPs {
 					t.Errorf("expecting peer %s to have AllowedIPs= %s, got %s", p.GetWgPubKey(),
-						expectedAllowedIPs, conn.GetConf().ProxyConfig.AllowedIps)
+						expectedAllowedIPs, conn.WgConfig().AllowedIps)
 				}
 			}
 		})

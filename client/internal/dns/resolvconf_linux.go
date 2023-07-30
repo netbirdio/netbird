@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/iface"
 )
 
 const resolvconfCommand = "resolvconf"
@@ -18,7 +16,7 @@ type resolvconf struct {
 	ifaceName string
 }
 
-func newResolvConfConfigurator(wgInterface *iface.WGIface) (hostManager, error) {
+func newResolvConfConfigurator(wgInterface WGIface) (hostManager, error) {
 	return &resolvconf{
 		ifaceName: wgInterface.Name(),
 	}, nil

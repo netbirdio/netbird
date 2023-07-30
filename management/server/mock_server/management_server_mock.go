@@ -16,6 +16,7 @@ type ManagementServiceServerMock struct {
 	GetServerKeyFunc               func(context.Context, *proto.Empty) (*proto.ServerKeyResponse, error)
 	IsHealthyFunc                  func(context.Context, *proto.Empty) (*proto.Empty, error)
 	GetDeviceAuthorizationFlowFunc func(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
+	GetPKCEAuthorizationFlowFunc   func(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error)
 }
 
 func (m ManagementServiceServerMock) Login(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
@@ -51,4 +52,11 @@ func (m ManagementServiceServerMock) GetDeviceAuthorizationFlow(ctx context.Cont
 		return m.GetDeviceAuthorizationFlowFunc(ctx, req)
 	}
 	return nil, status.Errorf(codes.Unimplemented, "method GetDeviceAuthorizationFlow not implemented")
+}
+
+func (m ManagementServiceServerMock) GetPKCEAuthorizationFlow(ctx context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	if m.GetPKCEAuthorizationFlowFunc != nil {
+		return m.GetPKCEAuthorizationFlowFunc(ctx, req)
+	}
+	return nil, status.Errorf(codes.Unimplemented, "method GetPKCEAuthorizationFlow not implemented")
 }
