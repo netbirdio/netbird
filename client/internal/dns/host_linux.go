@@ -5,10 +5,10 @@ package dns
 import (
 	"bufio"
 	"fmt"
-	"github.com/netbirdio/netbird/iface"
-	log "github.com/sirupsen/logrus"
 	"os"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -25,7 +25,7 @@ const (
 
 type osManagerType int
 
-func newHostManager(wgInterface *iface.WGIface) (hostManager, error) {
+func newHostManager(wgInterface WGIface) (hostManager, error) {
 	osManager, err := getOSDNSManagerType()
 	if err != nil {
 		return nil, err

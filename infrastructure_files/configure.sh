@@ -99,10 +99,15 @@ export NETBIRD_AUTH_AUTHORITY=$(jq -r '.issuer' openid-configuration.json)
 export NETBIRD_AUTH_JWT_CERTS=$(jq -r '.jwks_uri' openid-configuration.json)
 export NETBIRD_AUTH_TOKEN_ENDPOINT=$(jq -r '.token_endpoint' openid-configuration.json)
 export NETBIRD_AUTH_DEVICE_AUTH_ENDPOINT=$(jq -r '.device_authorization_endpoint' openid-configuration.json)
+export NETBIRD_AUTH_PKCE_AUTHORIZATION_ENDPOINT=$(jq -r '.authorization_endpoint' openid-configuration.json)
 
 if [[ ! -z "${NETBIRD_AUTH_DEVICE_AUTH_CLIENT_ID}" ]]; then
   # user enabled Device Authorization Grant feature
   export NETBIRD_AUTH_DEVICE_AUTH_PROVIDER="hosted"
+fi
+
+if [ "$NETBIRD_TOKEN_SOURCE" = "idToken" ]; then
+    export NETBIRD_AUTH_PKCE_USE_ID_TOKEN=true
 fi
 
 # Check if letsencrypt was disabled
@@ -150,6 +155,14 @@ if [ -n "$NETBIRD_MGMT_IDP" ]; then
   export NETBIRD_IDP_MGMT_CLIENT_SECRET
   export NETBIRD_IDP_MGMT_EXTRA_CONFIG=$EXTRA_CONFIG
 fi
+
+IFS=',' read -r -a REDIRECT_URL_PORTS <<< "$NETBIRD_AUTH_PKCE_REDIRECT_URL_PORTS"
+REDIRECT_URLS=""
+for port in "${REDIRECT_URL_PORTS[@]}"; do
+    REDIRECT_URLS+="\"http://localhost:${port}\","
+done
+
+export NETBIRD_AUTH_PKCE_REDIRECT_URLS=${REDIRECT_URLS%,}
 
 env | grep NETBIRD
 

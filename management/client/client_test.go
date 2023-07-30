@@ -400,3 +400,49 @@ func Test_GetDeviceAuthorizationFlow(t *testing.T) {
 	assert.Equal(t, expectedFlowInfo.Provider, flowInfo.Provider, "provider should match")
 	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientID, flowInfo.ProviderConfig.ClientID, "provider configured client ID should match")
 }
+
+func Test_GetPKCEAuthorizationFlow(t *testing.T) {
+	s, lis, mgmtMockServer, serverKey := startMockManagement(t)
+	defer s.GracefulStop()
+
+	testKey, err := wgtypes.GenerateKey()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	serverAddr := lis.Addr().String()
+	ctx := context.Background()
+
+	client, err := NewClient(ctx, serverAddr, testKey, false)
+	if err != nil {
+		log.Fatalf("error while creating testClient: %v", err)
+	}
+
+	expectedFlowInfo := &proto.PKCEAuthorizationFlow{
+		ProviderConfig: &proto.ProviderConfig{
+			ClientID:     "client",
+			ClientSecret: "secret",
+		},
+	}
+
+	mgmtMockServer.GetPKCEAuthorizationFlowFunc = func(ctx context.Context, req *mgmtProto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+		encryptedResp, err := encryption.EncryptMessage(serverKey, client.key, expectedFlowInfo)
+		if err != nil {
+			return nil, err
+		}
+
+		return &mgmtProto.EncryptedMessage{
+			WgPubKey: serverKey.PublicKey().String(),
+			Body:     encryptedResp,
+			Version:  0,
+		}, nil
+	}
+
+	flowInfo, err := client.GetPKCEAuthorizationFlow(serverKey)
+	if err != nil {
+		t.Error("error while retrieving pkce auth flow information")
+	}
+
+	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientID, flowInfo.ProviderConfig.ClientID, "provider configured client ID should match")
+	assert.Equal(t, expectedFlowInfo.ProviderConfig.ClientSecret, flowInfo.ProviderConfig.ClientSecret, "provider configured client secret should match")
+}

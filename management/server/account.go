@@ -81,7 +81,7 @@ type AccountManager interface {
 	GetGroup(accountId, groupID string) (*Group, error)
 	SaveGroup(accountID, userID string, group *Group) error
 	UpdateGroup(accountID string, groupID string, operations []GroupUpdateOperation) (*Group, error)
-	DeleteGroup(accountId, groupID string) error
+	DeleteGroup(accountId, userId, groupID string) error
 	ListGroups(accountId string) ([]*Group, error)
 	GroupAddPeer(accountId, groupID, peerID string) error
 	GroupDeletePeer(accountId, groupID, peerKey string) error

@@ -16,17 +16,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		t.SkipNow()
 	}
 
-	ctx, cancel := context.WithCancel(context.TODO())
-	ipv4Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-	ipv6Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-
-	manager := &iptablesManager{
-		ctx:        ctx,
-		stop:       cancel,
-		ipv4Client: ipv4Client,
-		ipv6Client: ipv6Client,
-		rules:      make(map[string]map[string][]string),
-	}
+	manager := newIptablesManager(context.TODO())
 
 	defer manager.CleanRoutingRules()
 
@@ -37,21 +27,21 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 
 	require.Len(t, manager.rules[ipv4], 2, "should have created minimal rules for ipv4")
 
-	exists, err := ipv4Client.Exists(iptablesFilterTable, iptablesForwardChain, manager.rules[ipv4][ipv4Forwarding]...)
+	exists, err := manager.ipv4Client.Exists(iptablesFilterTable, iptablesForwardChain, manager.rules[ipv4][ipv4Forwarding]...)
 	require.NoError(t, err, "should be able to query the iptables %s %s table and %s chain", ipv4, iptablesFilterTable, iptablesForwardChain)
 	require.True(t, exists, "forwarding rule should exist")
 
-	exists, err = ipv4Client.Exists(iptablesNatTable, iptablesPostRoutingChain, manager.rules[ipv4][ipv4Nat]...)
+	exists, err = manager.ipv4Client.Exists(iptablesNatTable, iptablesPostRoutingChain, manager.rules[ipv4][ipv4Nat]...)
 	require.NoError(t, err, "should be able to query the iptables %s %s table and %s chain", ipv4, iptablesNatTable, iptablesPostRoutingChain)
 	require.True(t, exists, "postrouting rule should exist")
 
 	require.Len(t, manager.rules[ipv6], 2, "should have created minimal rules for ipv6")
 
-	exists, err = ipv6Client.Exists(iptablesFilterTable, iptablesForwardChain, manager.rules[ipv6][ipv6Forwarding]...)
+	exists, err = manager.ipv6Client.Exists(iptablesFilterTable, iptablesForwardChain, manager.rules[ipv6][ipv6Forwarding]...)
 	require.NoError(t, err, "should be able to query the iptables %s %s table and %s chain", ipv6, iptablesFilterTable, iptablesForwardChain)
 	require.True(t, exists, "forwarding rule should exist")
 
-	exists, err = ipv6Client.Exists(iptablesNatTable, iptablesPostRoutingChain, manager.rules[ipv6][ipv6Nat]...)
+	exists, err = manager.ipv6Client.Exists(iptablesNatTable, iptablesPostRoutingChain, manager.rules[ipv6][ipv6Nat]...)
 	require.NoError(t, err, "should be able to query the iptables %s %s table and %s chain", ipv6, iptablesNatTable, iptablesPostRoutingChain)
 	require.True(t, exists, "postrouting rule should exist")
 
@@ -64,13 +54,13 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	forward4RuleKey := genKey(forwardingFormat, pair.ID)
 	forward4Rule := genRuleSpec(routingFinalForwardJump, forward4RuleKey, pair.source, pair.destination)
 
-	err = ipv4Client.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forward4Rule...)
+	err = manager.ipv4Client.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forward4Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
 
 	nat4RuleKey := genKey(natFormat, pair.ID)
 	nat4Rule := genRuleSpec(routingFinalNatJump, nat4RuleKey, pair.source, pair.destination)
 
-	err = ipv4Client.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, nat4Rule...)
+	err = manager.ipv4Client.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, nat4Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
 
 	pair = routerPair{
@@ -83,13 +73,13 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 	forward6RuleKey := genKey(forwardingFormat, pair.ID)
 	forward6Rule := genRuleSpec(routingFinalForwardJump, forward6RuleKey, pair.source, pair.destination)
 
-	err = ipv6Client.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forward6Rule...)
+	err = manager.ipv6Client.Insert(iptablesFilterTable, iptablesRoutingForwardingChain, 1, forward6Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
 
 	nat6RuleKey := genKey(natFormat, pair.ID)
 	nat6Rule := genRuleSpec(routingFinalNatJump, nat6RuleKey, pair.source, pair.destination)
 
-	err = ipv6Client.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, nat6Rule...)
+	err = manager.ipv6Client.Insert(iptablesNatTable, iptablesRoutingNatChain, 1, nat6Rule...)
 	require.NoError(t, err, "inserting rule should not return error")
 
 	delete(manager.rules, ipv4)

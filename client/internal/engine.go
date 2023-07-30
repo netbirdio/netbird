@@ -20,8 +20,8 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
-	"github.com/netbirdio/netbird/client/internal/proxy"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
+	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/iface"
@@ -101,7 +101,8 @@ type Engine struct {
 
 	ctx context.Context
 
-	wgInterface *iface.WGIface
+	wgInterface    *iface.WGIface
+	wgProxyFactory *wgproxy.Factory
 
 	udpMux     *bind.UniversalUDPMuxDefault
 	udpMuxConn io.Closer
@@ -132,6 +133,7 @@ func NewEngine(
 	signalClient signal.Client, mgmClient mgm.Client,
 	config *EngineConfig, mobileDep MobileDependency, statusRecorder *peer.Status,
 ) *Engine {
+
 	return &Engine{
 		ctx:            ctx,
 		cancel:         cancel,
@@ -146,6 +148,7 @@ func NewEngine(
 		networkSerial:  0,
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
+		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
 	}
 }
 
@@ -190,23 +193,25 @@ func (e *Engine) Start() error {
 	}
 
 	var routes []*route.Route
-	var dnsCfg *nbdns.Config
 
 	if runtime.GOOS == "android" {
-		routes, dnsCfg, err = e.readInitialSettings()
+		routes, err = e.readInitialSettings()
 		if err != nil {
 			return err
 		}
-	}
-
-	if e.dnsServer == nil {
+		if e.dnsServer == nil {
+			e.dnsServer = dns.NewDefaultServerPermanentUpstream(e.ctx, e.wgInterface, e.mobileDep.HostDNSAddresses)
+			go e.mobileDep.DnsReadyListener.OnReady()
+		}
+	} else {
 		// todo fix custom address
-		dnsServer, err := dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress, dnsCfg)
-		if err != nil {
-			e.close()
-			return err
+		if e.dnsServer == nil {
+			e.dnsServer, err = dns.NewDefaultServer(e.ctx, e.wgInterface, e.config.CustomDNSAddress)
+			if err != nil {
+				e.close()
+				return err
+			}
 		}
-		e.dnsServer = dnsServer
 	}
 
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
@@ -280,7 +285,7 @@ func (e *Engine) modifyPeers(peersUpdate []*mgmProto.RemotePeerConfig) error {
 	for _, p := range peersUpdate {
 		peerPubKey := p.GetWgPubKey()
 		if peerConn, ok := e.peerConns[peerPubKey]; ok {
-			if peerConn.GetConf().ProxyConfig.AllowedIps != strings.Join(p.AllowedIps, ",") {
+			if peerConn.WgConfig().AllowedIps != strings.Join(p.AllowedIps, ",") {
 				modified = append(modified, p)
 				continue
 			}
@@ -793,9 +798,7 @@ func (e *Engine) connWorker(conn *peer.Conn, peerKey string) {
 
 		// we might have received new STUN and TURN servers meanwhile, so update them
 		e.syncMsgMux.Lock()
-		conf := conn.GetConf()
-		conf.StunTurn = append(e.STUNs, e.TURNs...)
-		conn.UpdateConf(conf)
+		conn.UpdateStunTurn(append(e.STUNs, e.TURNs...))
 		e.syncMsgMux.Unlock()
 
 		err := conn.Open()
@@ -824,9 +827,9 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 	stunTurn = append(stunTurn, e.STUNs...)
 	stunTurn = append(stunTurn, e.TURNs...)
 
-	proxyConfig := proxy.Config{
+	wgConfig := peer.WgConfig{
 		RemoteKey:    pubKey,
-		WgListenAddr: fmt.Sprintf("127.0.0.1:%d", e.config.WgPort),
+		WgListenPort: e.config.WgPort,
 		WgInterface:  e.wgInterface,
 		AllowedIps:   allowedIPs,
 		PreSharedKey: e.config.PreSharedKey,
@@ -843,13 +846,13 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		Timeout:              timeout,
 		UDPMux:               e.udpMux.UDPMuxDefault,
 		UDPMuxSrflx:          e.udpMux,
-		ProxyConfig:          proxyConfig,
+		WgConfig:             wgConfig,
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
 	}
 
-	peerConn, err := peer.NewConn(config, e.statusRecorder, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
+	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
 	if err != nil {
 		return nil, err
 	}
@@ -1006,6 +1009,10 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 }
 
 func (e *Engine) close() {
+	if err := e.wgProxyFactory.Free(); err != nil {
+		log.Errorf("failed closing ebpf proxy: %s", err)
+	}
+
 	log.Debugf("removing Netbird interface %s", e.config.WgIfaceName)
 	if e.wgInterface != nil {
 		if err := e.wgInterface.Close(); err != nil {
@@ -1045,14 +1052,13 @@ func (e *Engine) close() {
 	}
 }
 
-func (e *Engine) readInitialSettings() ([]*route.Route, *nbdns.Config, error) {
+func (e *Engine) readInitialSettings() ([]*route.Route, error) {
 	netMap, err := e.mgmClient.GetNetworkMap()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	routes := toRoutes(netMap.GetRoutes())
-	dnsCfg := toDNSConfig(netMap.GetDNSConfig())
-	return routes, &dnsCfg, nil
+	return routes, nil
 }
 
 func findIPFromInterfaceName(ifaceName string) (net.IP, error) {

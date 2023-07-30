@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 )
 
@@ -18,10 +17,7 @@ func Create(iface IFaceMapper) (manager *DefaultManager, err error) {
 		if err != nil {
 			return nil, err
 		}
-		return &DefaultManager{
-			manager:    fm,
-			rulesPairs: make(map[string][]firewall.Rule),
-		}, nil
+		return newDefaultManager(fm), nil
 	}
 	return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
 }

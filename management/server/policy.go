@@ -2,8 +2,10 @@ package server
 
 import (
 	_ "embed"
-	"fmt"
+	"strconv"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
@@ -240,7 +242,15 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, int), fun
 	peersExists := make(map[string]struct{})
 	rules := make([]*FirewallRule, 0)
 	peers := make([]*Peer, 0)
+
+	all, err := a.GetGroupAll()
+	if err != nil {
+		log.Errorf("failed to get group all: %v", err)
+		all = &Group{}
+	}
+
 	return func(rule *PolicyRule, groupPeers []*Peer, direction int) {
+			isAll := (len(all.Peers) - 1) == len(groupPeers)
 			for _, peer := range groupPeers {
 				if peer == nil {
 					continue
@@ -250,29 +260,33 @@ func (a *Account) connResourcesGenerator() (func(*PolicyRule, []*Peer, int), fun
 					peersExists[peer.ID] = struct{}{}
 				}
 
-				fwRule := FirewallRule{
+				fr := FirewallRule{
 					PeerIP:    peer.IP.String(),
 					Direction: direction,
 					Action:    string(rule.Action),
 					Protocol:  string(rule.Protocol),
 				}
 
-				ruleID := fmt.Sprintf("%s%d", peer.ID+peer.IP.String(), direction)
-				ruleID += string(rule.Protocol) + string(rule.Action) + strings.Join(rule.Ports, ",")
+				if isAll {
+					fr.PeerIP = "0.0.0.0"
+				}
+
+				ruleID := (rule.ID + fr.PeerIP + strconv.Itoa(direction) +
+					fr.Protocol + fr.Action + strings.Join(rule.Ports, ","))
 				if _, ok := rulesExists[ruleID]; ok {
 					continue
 				}
 				rulesExists[ruleID] = struct{}{}
 
 				if len(rule.Ports) == 0 {
-					rules = append(rules, &fwRule)
+					rules = append(rules, &fr)
 					continue
 				}
 
 				for _, port := range rule.Ports {
-					addRule := fwRule
-					addRule.Port = port
-					rules = append(rules, &addRule)
+					pr := fr // clone rule and add set new port
+					pr.Port = port
+					rules = append(rules, &pr)
 				}
 			}
 		}, func() ([]*Peer, []*FirewallRule) {

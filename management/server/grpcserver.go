@@ -543,3 +543,49 @@ func (s *GRPCServer) GetDeviceAuthorizationFlow(ctx context.Context, req *proto.
 		Body:     encryptedResp,
 	}, nil
 }
+
+// GetPKCEAuthorizationFlow returns a pkce authorization flow information
+// This is used for initiating an Oauth 2 pkce authorization grant flow
+// which will be used by our clients to Login
+func (s *GRPCServer) GetPKCEAuthorizationFlow(_ context.Context, req *proto.EncryptedMessage) (*proto.EncryptedMessage, error) {
+	peerKey, err := wgtypes.ParseKey(req.GetWgPubKey())
+	if err != nil {
+		errMSG := fmt.Sprintf("error while parsing peer's Wireguard public key %s on GetPKCEAuthorizationFlow request.", req.WgPubKey)
+		log.Warn(errMSG)
+		return nil, status.Error(codes.InvalidArgument, errMSG)
+	}
+
+	err = encryption.DecryptMessage(peerKey, s.wgKey, req.Body, &proto.PKCEAuthorizationFlowRequest{})
+	if err != nil {
+		errMSG := fmt.Sprintf("error while decrypting peer's message with Wireguard public key %s.", req.WgPubKey)
+		log.Warn(errMSG)
+		return nil, status.Error(codes.InvalidArgument, errMSG)
+	}
+
+	if s.config.PKCEAuthorizationFlow == nil {
+		return nil, status.Error(codes.NotFound, "no pkce authorization flow information available")
+	}
+
+	flowInfoResp := &proto.PKCEAuthorizationFlow{
+		ProviderConfig: &proto.ProviderConfig{
+			Audience:              s.config.PKCEAuthorizationFlow.ProviderConfig.Audience,
+			ClientID:              s.config.PKCEAuthorizationFlow.ProviderConfig.ClientID,
+			ClientSecret:          s.config.PKCEAuthorizationFlow.ProviderConfig.ClientSecret,
+			TokenEndpoint:         s.config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint,
+			AuthorizationEndpoint: s.config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint,
+			Scope:                 s.config.PKCEAuthorizationFlow.ProviderConfig.Scope,
+			RedirectURLs:          s.config.PKCEAuthorizationFlow.ProviderConfig.RedirectURLs,
+			UseIDToken:            s.config.PKCEAuthorizationFlow.ProviderConfig.UseIDToken,
+		},
+	}
+
+	encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, flowInfoResp)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to encrypt no pkce authorization flow information")
+	}
+
+	return &proto.EncryptedMessage{
+		WgPubKey: s.wgKey.PublicKey().String(),
+		Body:     encryptedResp,
+	}, nil
+}

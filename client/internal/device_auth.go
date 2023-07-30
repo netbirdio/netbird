@@ -16,11 +16,11 @@ import (
 // DeviceAuthorizationFlow represents Device Authorization Flow information
 type DeviceAuthorizationFlow struct {
 	Provider       string
-	ProviderConfig ProviderConfig
+	ProviderConfig DeviceAuthProviderConfig
 }
 
-// ProviderConfig has all attributes needed to initiate a device authorization flow
-type ProviderConfig struct {
+// DeviceAuthProviderConfig has all attributes needed to initiate a device authorization flow
+type DeviceAuthProviderConfig struct {
 	// ClientID An IDP application client id
 	ClientID string
 	// ClientSecret An IDP application client secret
@@ -88,7 +88,7 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 	deviceAuthorizationFlow := DeviceAuthorizationFlow{
 		Provider: protoDeviceAuthorizationFlow.Provider.String(),
 
-		ProviderConfig: ProviderConfig{
+		ProviderConfig: DeviceAuthProviderConfig{
 			Audience:           protoDeviceAuthorizationFlow.GetProviderConfig().GetAudience(),
 			ClientID:           protoDeviceAuthorizationFlow.GetProviderConfig().GetClientID(),
 			ClientSecret:       protoDeviceAuthorizationFlow.GetProviderConfig().GetClientSecret(),
@@ -105,7 +105,7 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 		deviceAuthorizationFlow.ProviderConfig.Scope = "openid"
 	}
 
-	err = isProviderConfigValid(deviceAuthorizationFlow.ProviderConfig)
+	err = isDeviceAuthProviderConfigValid(deviceAuthorizationFlow.ProviderConfig)
 	if err != nil {
 		return DeviceAuthorizationFlow{}, err
 	}
@@ -113,7 +113,7 @@ func GetDeviceAuthorizationFlowInfo(ctx context.Context, privateKey string, mgmU
 	return deviceAuthorizationFlow, nil
 }
 
-func isProviderConfigValid(config ProviderConfig) error {
+func isDeviceAuthProviderConfigValid(config DeviceAuthProviderConfig) error {
 	errorMSGFormat := "invalid provider configuration received from management: %s value is empty. Contact your NetBird administrator"
 	if config.Audience == "" {
 		return fmt.Errorf(errorMSGFormat, "Audience")
