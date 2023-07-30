@@ -58,6 +58,10 @@ components:
           description: Allows extract groups from JWT claim and add it to account groups.
           type: boolean
           example: true
+        jwt_groups_propagation_enabled:
+          description: Allows propagate the new user groups to peers that belongs to the user
+          type: boolean
+          example: true
         jwt_groups_claim_name:
           description: Name of the claim from which we extract groups names to add it to account groups.
           type: string

@@ -216,7 +216,6 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 		assert.Len(t, networkMap.Peers, len(testCase.expectedPeers))
 		assert.Len(t, networkMap.OfflinePeers, len(testCase.expectedOfflinePeers))
 	}
-
 }
 
 func TestNewAccount(t *testing.T) {
@@ -1929,6 +1928,70 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAccount_AddJWTGroups(t *testing.T) {
+	// create a new account
+	account := &Account{
+		Peers: map[string]*Peer{
+			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
+			"peer2": {ID: "peer2", Key: "key2", UserID: "user1"},
+			"peer3": {ID: "peer3", Key: "key3", UserID: "user1"},
+			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
+			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
+		},
+		Groups: map[string]*Group{
+			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{}},
+		},
+		Settings: &Settings{JWTGroupsPropagationEnabled: true},
+	}
+
+	t.Run("don't add peers if no groups", func(t *testing.T) {
+		updated := account.AddJWTGroups("user1", []string{"group1"})
+		assert.False(t, updated, "account should not be updated")
+		assert.Empty(t, account.Groups["group1"].Peers, "group should not have any peers")
+	})
+
+	t.Run("add group without propagation", func(t *testing.T) {
+		account.Settings.JWTGroupsPropagationEnabled = false
+		updated := account.AddJWTGroups("user1", []string{"group1", "group2"})
+		assert.True(t, updated, "account should be updated")
+		assert.Len(t, account.Groups, 2, "new group should be added")
+		var group *Group
+		for _, g := range account.Groups {
+			if g.Name == "group2" {
+				group = g
+			}
+		}
+		assert.Empty(t, group.Peers, "group should not have any peers")
+	})
+
+	t.Run("existed group update", func(t *testing.T) {
+		account.Settings.JWTGroupsPropagationEnabled = true
+		updated := account.AddJWTGroups("user1", []string{"group2"})
+		assert.True(t, updated, "account should be updated")
+		assert.Len(t, account.Groups, 2, "groups count should not be changed")
+		var group *Group
+		for _, g := range account.Groups {
+			if g.Name == "group2" {
+				group = g
+			}
+		}
+		assert.Equal(t, group.Peers, []string{"peer1", "peer2", "peer3"}, "group peers must be updated")
+	})
+
+	t.Run("add new group", func(t *testing.T) {
+		updated := account.AddJWTGroups("user2", []string{"group1", "group3"})
+		assert.True(t, updated, "account should be updated")
+		assert.Len(t, account.Groups, 3, "new group should be added")
+		var group *Group
+		for _, g := range account.Groups {
+			if g.Name == "group3" {
+				group = g
+			}
+		}
+		assert.Equal(t, group.Peers, []string{"peer4", "peer5"}, "group peers must be updated")
+	})
 }
 
 func createManager(t *testing.T) (*DefaultAccountManager, error) {

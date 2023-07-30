@@ -135,6 +135,9 @@ type AccountSettings struct {
 	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
 	JwtGroupsEnabled *bool `json:"jwt_groups_enabled,omitempty"`
 
+	// JwtGroupsPropagationEnabled Allows propagate the new user groups to peers that belongs to the user
+	JwtGroupsPropagationEnabled *bool `json:"jwt_groups_propagation_enabled,omitempty"`
+
 	// PeerLoginExpiration Period of time after which peer login expires (seconds).
 	PeerLoginExpiration int `json:"peer_login_expiration"`
 

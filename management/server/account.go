@@ -139,6 +139,7 @@ type DefaultAccountManager struct {
 type Settings struct {
 	// PeerLoginExpirationEnabled globally enables or disables peer login expiration
 	PeerLoginExpirationEnabled bool
+
 	// PeerLoginExpiration is a setting that indicates when peer login expires.
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
@@ -147,6 +148,9 @@ type Settings struct {
 	// and add it to account groups.
 	JWTGroupsEnabled bool
 
+	// JWTGroupsPropagationEnabled propagate the new user groups to peers that belongs to the user
+	JWTGroupsPropagationEnabled bool
+
 	// JWTGroupsClaimName from which we extract groups name to add it to account groups
 	JWTGroupsClaimName string
 }
@@ -154,10 +158,11 @@ type Settings struct {
 // Copy copies the Settings struct
 func (s *Settings) Copy() *Settings {
 	return &Settings{
-		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
-		PeerLoginExpiration:        s.PeerLoginExpiration,
-		JWTGroupsEnabled:           s.JWTGroupsEnabled,
-		JWTGroupsClaimName:         s.JWTGroupsClaimName,
+		PeerLoginExpirationEnabled:  s.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:         s.PeerLoginExpiration,
+		JWTGroupsEnabled:            s.JWTGroupsEnabled,
+		JWTGroupsClaimName:          s.JWTGroupsClaimName,
+		JWTGroupsPropagationEnabled: s.JWTGroupsPropagationEnabled,
 	}
 }
 
@@ -625,25 +630,58 @@ func (a *Account) GetPeer(peerID string) *Peer {
 }
 
 // AddJWTGroups to existed groups if they does not exists
-func (a *Account) AddJWTGroups(groups []string) (int, error) {
+//
+// Returns number of added groups. This function also adds peer to groups
+// if groups propagation is enabled.
+func (a *Account) AddJWTGroups(userID string, groups []string) bool {
+	// collect existed groups
 	existedGroups := make(map[string]*Group)
+
+	// collect peers from existed groups
+	existedGroupsPeers := make(map[string]struct{})
 	for _, g := range a.Groups {
 		existedGroups[g.Name] = g
+		for _, p := range g.Peers {
+			existedGroupsPeers[g.ID+p] = struct{}{}
+		}
 	}
 
-	var count int
+	// coolect existed peers by userID
+	propagatePeers := make(map[string]struct{})
+	if a.Settings.JWTGroupsPropagationEnabled {
+		for _, p := range a.Peers {
+			if p.UserID == userID {
+				propagatePeers[p.ID] = struct{}{}
+			}
+		}
+	}
+
+	var modified bool
 	for _, name := range groups {
-		if _, ok := existedGroups[name]; !ok {
+		g, ok := existedGroups[name]
+		if !ok {
 			id := xid.New().String()
-			a.Groups[id] = &Group{
+			g = &Group{
 				ID:     id,
 				Name:   name,
 				Issued: GroupIssuedJWT,
 			}
-			count++
+			a.Groups[id] = g
+			modified = true
+		}
+
+		if a.Settings.JWTGroupsPropagationEnabled && g.Issued == GroupIssuedJWT {
+			// add collected peers by user ID to the gorup
+			for p := range propagatePeers {
+				if _, ok := existedGroupsPeers[g.ID+p]; !ok {
+					g.Peers = append(g.Peers, p)
+					modified = true
+				}
+			}
 		}
 	}
-	return count, nil
+
+	return modified
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1290,11 +1328,8 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 						log.Errorf("JWT claim %q is not a string: %v", account.Settings.JWTGroupsClaimName, item)
 					}
 				}
-				n, err := account.AddJWTGroups(groups)
-				if err != nil {
-					log.Errorf("failed to add JWT groups: %v", err)
-				}
-				if n > 0 {
+				// if groups were added or modified, save the account
+				if account.AddJWTGroups(claims.UserId, groups) {
 					if err := am.Store.SaveAccount(account); err != nil {
 						log.Errorf("failed to save account: %v", err)
 					}

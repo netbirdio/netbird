@@ -38,7 +38,6 @@ func initAccountsTestData(account *server.Account, admin *server.User) *Accounts
 				accCopy := account.Copy()
 				accCopy.UpdateSettings(newSettings)
 				return accCopy, nil
-
 			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
@@ -54,7 +53,6 @@ func initAccountsTestData(account *server.Account, admin *server.User) *Accounts
 }
 
 func TestAccounts_AccountsHandler(t *testing.T) {
-
 	accountID := "test_account"
 	adminUser := server.NewAdminUser("test_user")
 
@@ -92,10 +90,11 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			requestPath:    "/api/accounts",
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
-				PeerLoginExpiration:        int(time.Hour.Seconds()),
-				PeerLoginExpirationEnabled: false,
-				JwtGroupsClaimName:         sr(""),
-				JwtGroupsEnabled:           br(false),
+				PeerLoginExpiration:         int(time.Hour.Seconds()),
+				PeerLoginExpirationEnabled:  false,
+				JwtGroupsClaimName:          sr(""),
+				JwtGroupsEnabled:            br(false),
+				JwtGroupsPropagationEnabled: br(false),
 			},
 			expectedArray: true,
 			expectedID:    accountID,
@@ -108,10 +107,11 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": true}}"),
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
-				PeerLoginExpiration:        15552000,
-				PeerLoginExpirationEnabled: true,
-				JwtGroupsClaimName:         sr(""),
-				JwtGroupsEnabled:           br(false),
+				PeerLoginExpiration:         15552000,
+				PeerLoginExpirationEnabled:  true,
+				JwtGroupsClaimName:          sr(""),
+				JwtGroupsEnabled:            br(false),
+				JwtGroupsPropagationEnabled: br(false),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
@@ -124,10 +124,28 @@ func TestAccounts_AccountsHandler(t *testing.T) {
 			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 15552000,\"peer_login_expiration_enabled\": false,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"roles\"}}"),
 			expectedStatus: http.StatusOK,
 			expectedSettings: api.AccountSettings{
-				PeerLoginExpiration:        15552000,
-				PeerLoginExpirationEnabled: false,
-				JwtGroupsClaimName:         sr("roles"),
-				JwtGroupsEnabled:           br(true),
+				PeerLoginExpiration:         15552000,
+				PeerLoginExpirationEnabled:  false,
+				JwtGroupsClaimName:          sr("roles"),
+				JwtGroupsEnabled:            br(true),
+				JwtGroupsPropagationEnabled: br(false),
+			},
+			expectedArray: false,
+			expectedID:    accountID,
+		},
+		{
+			name:           "PutAccount OK wiht JWT Propagation",
+			expectedBody:   true,
+			requestType:    http.MethodPut,
+			requestPath:    "/api/accounts/" + accountID,
+			requestBody:    bytes.NewBufferString("{\"settings\": {\"peer_login_expiration\": 554400,\"peer_login_expiration_enabled\": true,\"jwt_groups_enabled\":true,\"jwt_groups_claim_name\":\"groups\",\"jwt_groups_propagation_enabled\":true}}"),
+			expectedStatus: http.StatusOK,
+			expectedSettings: api.AccountSettings{
+				PeerLoginExpiration:         554400,
+				PeerLoginExpirationEnabled:  true,
+				JwtGroupsClaimName:          sr("groups"),
+				JwtGroupsEnabled:            br(true),
+				JwtGroupsPropagationEnabled: br(true),
 			},
 			expectedArray: false,
 			expectedID:    accountID,
