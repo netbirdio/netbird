@@ -81,7 +81,8 @@ create_new_application() {
       -d '{
     "name": "'"$APPLICATION_NAME"'",
     "redirectUris": [
-      "'"$BASE_REDIRECT_URL"'/auth",
+      "'"$BASE_REDIRECT_URL"'/nb-auth",
+      "'"$BASE_REDIRECT_URL"'/nb-silent-auth",
       "http://localhost:5300",
       "http://localhost:5400"
     ],
@@ -94,9 +95,6 @@ create_new_application() {
     ],
     "appType": "OIDC_APP_TYPE_USER_AGENT",
     "authMethodType": "OIDC_AUTH_METHOD_TYPE_NONE",
-    "postLogoutRedirectUris": [
-      "'"$BASE_REDIRECT_URL"'/silent-auth"
-    ],
     "version": "OIDC_VERSION_1_0",
     "devMode": '"$ZITADEL_DEV_MODE"',
     "accessTokenType": "OIDC_TOKEN_TYPE_JWT",
@@ -241,12 +239,12 @@ delete_auto_service_user() {
 
 init_zitadel() {
   echo "initializing zitadel"
-  INSTANCE_URL="http://localhost:8080"
+  INSTANCE_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
 
   TOKEN_PATH=./machinekey/zitadel-admin-sa.token
 
   # shellcheck disable=SC2028
-  echo -n "\n waiting for zitadel's PAT to be created "
+  echo -n "waiting for zitadel's PAT to be created "
   wait_pat "$TOKEN_PATH"
   echo "reading Zitadel PAT"
   PAT=$(cat $TOKEN_PATH)
@@ -256,7 +254,7 @@ init_zitadel() {
   fi
 
   # shellcheck disable=SC2028
-  echo -n "\n waiting for zitadel to be ready "
+  echo -n "waiting for zitadel to be ready "
   wait_api "$INSTANCE_URL" "$PAT"
 
   #  create the zitadel project
@@ -268,11 +266,9 @@ init_zitadel() {
   fi
 
   ZITADEL_DEV_MODE=false
-  if [[ $NETBIRD_DOMAIN == *"localhost"* ]]; then
-    BASE_REDIRECT_URL="http://$NETBIRD_DOMAIN"
+  BASE_REDIRECT_URL=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
+  if [[ $NETBIRD_HTTP_PROTOCOL == "http" ]]; then
     ZITADEL_DEV_MODE=true
-  else
-    BASE_REDIRECT_URL="https://$NETBIRD_DOMAIN"
   fi
 
   # create zitadel spa application
@@ -398,12 +394,12 @@ renderCaddyfile() {
   cat <<EOF
 {
   debug
-	servers :80,:8080,:443 {
+	servers :80,:443 {
     protocols h1 h2c
   }
 }
 
-:80, :8080${CADDY_SECURE_DOMAIN} {
+:80${CADDY_SECURE_DOMAIN} {
     # Signal
     reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
     # Management
@@ -427,7 +423,7 @@ renderCaddyfile() {
     reverse_proxy /openapi/* h2c://zitadel:8080
     reverse_proxy /debug/* h2c://zitadel:8080
     # Dashboard
-    reverse_proxy /* 192.168.65.1:3000
+    reverse_proxy /* dashboard:80
 }
 EOF
 }
@@ -497,7 +493,7 @@ renderManagementJson() {
         "ProviderConfig": {
             "Audience": "$NETBIRD_AUTH_CLIENT_ID",
             "ClientID": "$NETBIRD_AUTH_CLIENT_ID",
-            "Scope": "openid profile email offline_access api",
+            "Scope": "openid profile email offline_access",
             "RedirectURLs": ["http://localhost:5300","http://localhost:5400"]
         }
     }
@@ -515,13 +511,13 @@ AUTH_AUDIENCE=$NETBIRD_AUTH_CLIENT_ID
 AUTH_CLIENT_ID=$NETBIRD_AUTH_CLIENT_ID
 AUTH_AUTHORITY=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT
 USE_AUTH0=false
-AUTH_SUPPORTED_SCOPES="openid profile email offline_access api"
-AUTH_REDIRECT_URI=/auth
-AUTH_SILENT_REDIRECT_URI=/silent-auth
+AUTH_SUPPORTED_SCOPES="openid profile email offline_access"
+AUTH_REDIRECT_URI=/nb-auth
+AUTH_SILENT_REDIRECT_URI=/nb-silent-auth
 # SSL
 NGINX_SSL_PORT=443
 # Letsencrypt
-LETSENCRYPT_DOMAIN=localhost
+LETSENCRYPT_DOMAIN=none
 EOF
 }
 
@@ -581,7 +577,7 @@ services:
       "--log-file", "console",
       "--log-level", "debug",
       "--disable-anonymous-metrics=false",
-      "--single-account-mode-domain=$NETBIRD_DOMAIN",
+      "--single-account-mode-domain=netbird.selfhosted",
       "--dns-domain=netbird.selfhosted",
     ]
   # Coturn, AKA relay server
