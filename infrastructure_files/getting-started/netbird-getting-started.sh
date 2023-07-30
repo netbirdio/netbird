@@ -43,7 +43,7 @@ wait_api() {
     PAT=$2
     set +e
     while true; do
-      curl -s --fail-with-body -o /dev/null "$INSTANCE_URL/auth/v1/users/me" -H "Authorization: Bearer $PAT"
+      curl -s --fail -o /dev/null "$INSTANCE_URL/auth/v1/users/me" -H "Authorization: Bearer $PAT"
       if [[ $? -eq 0 ]]; then
         break
       fi
@@ -60,7 +60,7 @@ create_new_project() {
   PROJECT_NAME="NETBIRD"
 
   RESPONSE=$(
-    curl -X POST --fail-with-body "$INSTANCE_URL/management/v1/projects" \
+    curl -X POST --fail "$INSTANCE_URL/management/v1/projects" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{"name": "'"$PROJECT_NAME"'"}'
@@ -75,7 +75,7 @@ create_new_application() {
   APPLICATION_NAME="netbird"
 
   RESPONSE=$(
-    curl -X POST --fail-with-body "$INSTANCE_URL/management/v1/projects/$PROJECT_ID/apps/oidc" \
+    curl -X POST --fail "$INSTANCE_URL/management/v1/projects/$PROJECT_ID/apps/oidc" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
@@ -111,7 +111,7 @@ create_service_user() {
   PAT=$2
 
   RESPONSE=$(
-    curl -X POST --fail-with-body "$INSTANCE_URL/management/v1/users/machine" \
+    curl -X POST --fail "$INSTANCE_URL/management/v1/users/machine" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
@@ -131,7 +131,7 @@ create_service_user_secret() {
   USER_ID=$3
 
   RESPONSE=$(
-    curl -X PUT --fail-with-body "$INSTANCE_URL/management/v1/users/$USER_ID/secret" \
+    curl -X PUT --fail "$INSTANCE_URL/management/v1/users/$USER_ID/secret" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{}'
@@ -147,7 +147,7 @@ add_organization_user_manager() {
   USER_ID=$3
 
   RESPONSE=$(
-    curl -X POST --fail-with-body "$INSTANCE_URL/management/v1/orgs/me/members" \
+    curl -X POST --fail "$INSTANCE_URL/management/v1/orgs/me/members" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
@@ -167,7 +167,7 @@ create_admin_user() {
     USERNAME=$3
     PASSWORD=$4
     RESPONSE=$(
-        curl -X POST --fail-with-body "$INSTANCE_URL/management/v1/users/human/_import" \
+        curl -X POST --fail "$INSTANCE_URL/management/v1/users/human/_import" \
           -H "Authorization: Bearer $PAT" \
           -H "Content-Type: application/json" \
           -d '{
@@ -194,7 +194,7 @@ add_instance_admin() {
   USER_ID=$3
 
   RESPONSE=$(
-    curl -X POST --fail-with-body "$INSTANCE_URL/admin/v1/members" \
+    curl -X POST --fail "$INSTANCE_URL/admin/v1/members" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
@@ -213,7 +213,7 @@ delete_auto_service_user() {
   PAT=$2
 
   RESPONSE=$(
-    curl -X GET --fail-with-body "$INSTANCE_URL/auth/v1/users/me" \
+    curl -X GET --fail "$INSTANCE_URL/auth/v1/users/me" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
   )
@@ -221,7 +221,7 @@ delete_auto_service_user() {
   USER_ID=$(echo "$RESPONSE" | jq -r '.user.id')
 
   RESPONSE=$(
-      curl -X DELETE --fail-with-body "$INSTANCE_URL/admin/v1/members/$USER_ID" \
+      curl -X DELETE --fail "$INSTANCE_URL/admin/v1/members/$USER_ID" \
         -H "Authorization: Bearer $PAT" \
         -H "Content-Type: application/json" \
   )
@@ -229,7 +229,7 @@ delete_auto_service_user() {
   echo "$RESPONSE" | jq -r '.details.changeDate'
 
   RESPONSE=$(
-      curl -X DELETE --fail-with-body "$INSTANCE_URL/management/v1/orgs/me/members/$USER_ID" \
+      curl -X DELETE --fail "$INSTANCE_URL/management/v1/orgs/me/members/$USER_ID" \
         -H "Authorization: Bearer $PAT" \
         -H "Content-Type: application/json" \
   )
