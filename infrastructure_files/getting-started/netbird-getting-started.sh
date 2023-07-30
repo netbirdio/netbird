@@ -16,10 +16,12 @@ check_docker_compose() {
   if command -v docker-compose &> /dev/null
   then
       echo "docker-compose"
+      return
   fi
   if docker compose --help &> /dev/null
   then
       echo "docker compose"
+      return
   fi
 
   echo "docker-compose is not installed or not in PATH"
