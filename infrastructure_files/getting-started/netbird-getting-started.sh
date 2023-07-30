@@ -402,7 +402,6 @@ initEnvironment() {
   renderDockerCompose > docker-compose.yml
   renderCaddyfile > Caddyfile
   renderZitadelEnv > zitadel.env
-  renderCRDBEnv > crdb.env
   echo "" > dashboard.env
 
   mkdir -p machinekey
