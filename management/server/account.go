@@ -629,10 +629,15 @@ func (a *Account) GetPeer(peerID string) *Peer {
 	return a.Peers[peerID]
 }
 
-// AddJWTGroups to existed groups if they does not exists
+// AddJWTGroups to account and to user autoassigned groups
 //
-// Returns number of added groups. This function also adds peer to groups
-// if groups propagation is enabled.
+// Extracts groups from JWT token and adds them to account and user autoassigned groups.
+// Also if it is enabled, adds all peers with the same userID to all JWT groups.
+// How it works:
+//  1. Add groups to account if they doesn't exists yet
+//  2. If jwt_groups_propagation_enabled is true (for all JWT groups only):
+//     a) add this groups to user auto assign groups
+//     b) add all peers with the same userID to all JWT groups (propagation)
 func (a *Account) AddJWTGroups(userID string, groups []string) bool {
 	// collect existed groups
 	existedGroups := make(map[string]*Group)
@@ -667,6 +672,9 @@ func (a *Account) AddJWTGroups(userID string, groups []string) bool {
 				Issued: GroupIssuedJWT,
 			}
 			a.Groups[id] = g
+			if u, ok := a.Users[userID]; a.Settings.JWTGroupsPropagationEnabled && ok {
+				u.AutoGroups = append(u.AutoGroups, id)
+			}
 			modified = true
 		}
 

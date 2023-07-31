@@ -1944,6 +1944,10 @@ func TestAccount_AddJWTGroups(t *testing.T) {
 			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{}},
 		},
 		Settings: &Settings{JWTGroupsPropagationEnabled: true},
+		Users: map[string]*User{
+			"user1": {Id: "user1"},
+			"user2": {Id: "user2"},
+		},
 	}
 
 	t.Run("don't add peers if no groups", func(t *testing.T) {
@@ -1991,6 +1995,20 @@ func TestAccount_AddJWTGroups(t *testing.T) {
 			}
 		}
 		assert.ElementsMatch(t, group.Peers, []string{"peer4", "peer5"}, "group peers must be updated")
+	})
+
+	t.Run("check updated user autoassigned group", func(t *testing.T) {
+		user, ok := account.Users["user2"]
+		assert.True(t, ok, "autoassigned group should be set")
+		assert.Len(t, user.AutoGroups, 1, "only one group we expect in autogroups")
+		var group *Group
+		for _, g := range account.Groups {
+			if g.ID == user.AutoGroups[0] {
+				group = g
+				break
+			}
+		}
+		assert.Contains(t, group.Name, "group3", "only one group we expect")
 	})
 }
 
