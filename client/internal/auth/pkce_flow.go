@@ -25,6 +25,8 @@ var _ OAuthFlow = &PKCEAuthorizationFlow{}
 const (
 	queryState                = "state"
 	queryCode                 = "code"
+	queryError                = "error"
+	queryErrorDesc            = "error_description"
 	defaultPKCETimeoutSeconds = 300
 )
 
@@ -141,9 +143,13 @@ func (p *PKCEAuthorizationFlow) startServer(tokenChan chan<- *oauth2.Token, errC
 		tokenValidatorFunc := func() (*oauth2.Token, error) {
 			query := req.URL.Query()
 
-			state := query.Get(queryState)
+			if authError := query.Get(queryError); authError != "" {
+				authErrorDesc := query.Get(queryErrorDesc)
+				return nil, fmt.Errorf("%s.%s", authError, authErrorDesc)
+			}
+
 			// Prevent timing attacks on state
-			if subtle.ConstantTimeCompare([]byte(p.state), []byte(state)) == 0 {
+			if state := query.Get(queryState); subtle.ConstantTimeCompare([]byte(p.state), []byte(state)) == 0 {
 				return nil, fmt.Errorf("invalid state")
 			}
 
@@ -161,12 +167,13 @@ func (p *PKCEAuthorizationFlow) startServer(tokenChan chan<- *oauth2.Token, errC
 
 		token, err := tokenValidatorFunc()
 		if err != nil {
-			errChan <- fmt.Errorf("PKCE authorization flow failed: %v", err)
 			renderPKCEFlowTmpl(w, err)
+			errChan <- fmt.Errorf("PKCE authorization flow failed: %v", err)
+			return
 		}
 
-		tokenChan <- token
 		renderPKCEFlowTmpl(w, nil)
+		tokenChan <- token
 	})
 
 	if err := server.ListenAndServe(); err != nil {
