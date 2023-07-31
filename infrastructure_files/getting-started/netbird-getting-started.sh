@@ -3,11 +3,21 @@
 set -e
 
 handle_request_command_status() {
-  COMMAND_EXEC_STATUS=$1
+  PARSED_RESPONSE=$1
   FUNCTION_NAME=$2
   RESPONSE=$3
-  if [[ $COMMAND_EXEC_STATUS -ne 0 ]]; then
-    echo "ERROR calling $FUNCTION_NAME: $(echo $RESPONSE | jq -r '.message')"
+  if [[ $PARSED_RESPONSE -ne 0 ]]; then
+    echo "ERROR calling $FUNCTION_NAME: $(echo $RESPONSE | jq -r '.message')" > /dev/stderr
+    exit 1
+  fi
+}
+
+handle_zitadel_request_response() {
+  PARSED_RESPONSE=$1
+  FUNCTION_NAME=$2
+  RESPONSE=$3
+  if [[ $PARSED_RESPONSE == "null" ]]; then
+    echo "ERROR calling $FUNCTION_NAME: $(echo $RESPONSE | jq -r '.message')" > /dev/stderr
     exit 1
   fi
 }
@@ -24,22 +34,22 @@ check_docker_compose() {
       return
   fi
 
-  echo "docker-compose is not installed or not in PATH"
+  echo "docker-compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/"
   exit 1
 }
 
 check_jq() {
   if ! command -v jq &> /dev/null
   then
-    echo "jq is not installed or not in PATH"
+    echo "jq is not installed or not in PATH, please install with your package manager. e.g. sudo apt install jq"
     exit 1
   fi
 }
 
 init_crdb() {
-  echo "initializing crdb"
+  echo "Initializing crdb"
   $DOCKER_COMPOSE_COMMAND up -d crdb --wait --wait-timeout 90
-  $DOCKER_COMPOSE_COMMAND exec -t crdb /bin/bash -c "cp -v /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -vR 1000:1000 /zitadel-certs/"
+  $DOCKER_COMPOSE_COMMAND exec -t crdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
   handle_request_command_status $? "init_crdb failed" ""
 }
 
@@ -91,13 +101,14 @@ create_new_project() {
   PROJECT_NAME="NETBIRD"
 
   RESPONSE=$(
-    curl -X POST --fail "$INSTANCE_URL/management/v1/projects" \
+    curl -sS -X POST "$INSTANCE_URL/management/v1/projects" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{"name": "'"$PROJECT_NAME"'"}'
   )
-  handle_request_command_status $? "create_new_project" "$RESPONSE"
-  echo "$RESPONSE" | jq -r '.id'
+  PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.id')
+  handle_zitadel_request_response $PARSED_RESPONSE "create_new_project" "$RESPONSE"
+  echo "$PARSED_RESPONSE"
 }
 
 create_new_application() {
@@ -106,7 +117,7 @@ create_new_application() {
   APPLICATION_NAME="netbird"
 
   RESPONSE=$(
-    curl -X POST --fail "$INSTANCE_URL/management/v1/projects/$PROJECT_ID/apps/oidc" \
+    curl -sS -X POST "$INSTANCE_URL/management/v1/projects/$PROJECT_ID/apps/oidc" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
@@ -114,8 +125,11 @@ create_new_application() {
     "redirectUris": [
       "'"$BASE_REDIRECT_URL"'/nb-auth",
       "'"$BASE_REDIRECT_URL"'/nb-silent-auth",
-      "http://localhost:5300",
-      "http://localhost:5400"
+      "http://localhost:53000/",
+      "http://localhost:54000/"
+    ],
+    "postLogoutRedirectUris": [
+       "'"$BASE_REDIRECT_URL"'/nb-auth"
     ],
     "RESPONSETypes": [
       "OIDC_RESPONSE_TYPE_CODE"
@@ -133,8 +147,10 @@ create_new_application() {
     "skipNativeAppSuccessPage": true
   }'
   )
-  handle_request_command_status $? "create_new_application" "$RESPONSE"
-  echo "$RESPONSE" | jq -r '.clientId'
+
+  PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.clientId')
+  handle_zitadel_request_response $PARSED_RESPONSE "create_new_application" "$RESPONSE"
+  echo "$PARSED_RESPONSE"
 }
 
 create_service_user() {
@@ -142,7 +158,7 @@ create_service_user() {
   PAT=$2
 
   RESPONSE=$(
-    curl -X POST --fail "$INSTANCE_URL/management/v1/users/machine" \
+    curl -sS -X POST "$INSTANCE_URL/management/v1/users/machine" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
@@ -152,8 +168,9 @@ create_service_user() {
             "accessTokenType": "ACCESS_TOKEN_TYPE_JWT"
       }'
   )
-  handle_request_command_status $? "create_service_user" "$RESPONSE"
-  echo "$RESPONSE" | jq -r '.userId'
+  PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.userId')
+  handle_zitadel_request_response $PARSED_RESPONSE "create_service_user" "$RESPONSE"
+  echo "$PARSED_RESPONSE"
 }
 
 create_service_user_secret() {
@@ -162,14 +179,15 @@ create_service_user_secret() {
   USER_ID=$3
 
   RESPONSE=$(
-    curl -X PUT --fail "$INSTANCE_URL/management/v1/users/$USER_ID/secret" \
+    curl -sS -X PUT "$INSTANCE_URL/management/v1/users/$USER_ID/secret" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{}'
   )
-  handle_request_command_status $? "create_service_user_secret" "$RESPONSE"
   SERVICE_USER_CLIENT_ID=$(echo "$RESPONSE" | jq -r '.clientId')
+  handle_zitadel_request_response $SERVICE_USER_CLIENT_ID "create_service_user_secret" "$RESPONSE"
   SERVICE_USER_CLIENT_SECRET=$(echo "$RESPONSE" | jq -r '.clientSecret')
+  handle_zitadel_request_response $SERVICE_USER_CLIENT_SECRET "create_service_user_secret" "$RESPONSE"
 }
 
 add_organization_user_manager() {
@@ -178,7 +196,7 @@ add_organization_user_manager() {
   USER_ID=$3
 
   RESPONSE=$(
-    curl -X POST --fail "$INSTANCE_URL/management/v1/orgs/me/members" \
+    curl -sS -X POST "$INSTANCE_URL/management/v1/orgs/me/members" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
@@ -188,8 +206,9 @@ add_organization_user_manager() {
             ]
       }'
   )
-  handle_request_command_status $? "add_organization_user_manager" "$RESPONSE"
-  echo "$RESPONSE" | jq -r '.details.creationDate'
+  PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.details.creationDate')
+  handle_zitadel_request_response $PARSED_RESPONSE "add_organization_user_manager" "$RESPONSE"
+  echo "$PARSED_RESPONSE"
 }
 
 create_admin_user() {
@@ -198,7 +217,7 @@ create_admin_user() {
     USERNAME=$3
     PASSWORD=$4
     RESPONSE=$(
-        curl -X POST --fail "$INSTANCE_URL/management/v1/users/human/_import" \
+        curl -sS -X POST "$INSTANCE_URL/management/v1/users/human/_import" \
           -H "Authorization: Bearer $PAT" \
           -H "Content-Type: application/json" \
           -d '{
@@ -215,8 +234,9 @@ create_admin_user() {
                 "passwordChangeRequired": true
           }'
       )
-      handle_request_command_status $? "create_admin_user" "$RESPONSE"
-      echo "$RESPONSE" | jq -r '.userId'
+      PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.userId')
+      handle_zitadel_request_response $PARSED_RESPONSE "create_admin_user" "$RESPONSE"
+      echo "$PARSED_RESPONSE"
 }
 
 add_instance_admin() {
@@ -225,7 +245,7 @@ add_instance_admin() {
   USER_ID=$3
 
   RESPONSE=$(
-    curl -X POST --fail "$INSTANCE_URL/admin/v1/members" \
+    curl -sS -X POST --fail "$INSTANCE_URL/admin/v1/members" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
@@ -235,8 +255,9 @@ add_instance_admin() {
             ]
       }'
   )
-  handle_request_command_status $? "add_instance_admin" "$RESPONSE"
-  echo "$RESPONSE" | jq -r '.details.creationDate'
+  PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.details.creationDate')
+  handle_zitadel_request_response $PARSED_RESPONSE "add_instance_admin" "$RESPONSE"
+  echo "$PARSED_RESPONSE"
 }
 
 delete_auto_service_user() {
@@ -244,57 +265,54 @@ delete_auto_service_user() {
   PAT=$2
 
   RESPONSE=$(
-    curl -X GET --fail "$INSTANCE_URL/auth/v1/users/me" \
+    curl -sS -X GET "$INSTANCE_URL/auth/v1/users/me" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
   )
-  handle_request_command_status $? "delete_auto_service_user_get_user" "$RESPONSE"
   USER_ID=$(echo "$RESPONSE" | jq -r '.user.id')
+  handle_zitadel_request_response $USER_ID "delete_auto_service_user_get_user" "$RESPONSE"
 
   RESPONSE=$(
-      curl -X DELETE --fail "$INSTANCE_URL/admin/v1/members/$USER_ID" \
+      curl -sS -X DELETE "$INSTANCE_URL/admin/v1/members/$USER_ID" \
         -H "Authorization: Bearer $PAT" \
         -H "Content-Type: application/json" \
   )
-  handle_request_command_status $? "delete_auto_service_user_remove_instance_permissions" "$RESPONSE"
-  echo "$RESPONSE" | jq -r '.details.changeDate'
+  PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.details.changeDate')
+  handle_zitadel_request_response $PARSED_RESPONSE "delete_auto_service_user_remove_instance_permissions" "$RESPONSE"
 
   RESPONSE=$(
-      curl -X DELETE --fail "$INSTANCE_URL/management/v1/orgs/me/members/$USER_ID" \
+      curl -sS -X DELETE "$INSTANCE_URL/management/v1/orgs/me/members/$USER_ID" \
         -H "Authorization: Bearer $PAT" \
         -H "Content-Type: application/json" \
   )
-  handle_request_command_status $? "delete_auto_service_user_remove_org_permissions" "$RESPONSE"
-  echo "$RESPONSE" | jq -r '.details.changeDate'
+  PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.details.changeDate')
+  handle_zitadel_request_response $PARSED_RESPONSE "delete_auto_service_user_remove_org_permissions" "$RESPONSE"
+  echo "$PARSED_RESPONSE"
 }
 
 init_zitadel() {
-  echo "initializing zitadel"
+  echo "Initializing Zitadel IDP"
   INSTANCE_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
 
   TOKEN_PATH=./machinekey/zitadel-admin-sa.token
 
   # shellcheck disable=SC2028
-  echo -n "waiting for zitadel's PAT to be created "
+  echo -n "Waiting for Zitadel's PAT to be created "
   wait_pat "$TOKEN_PATH"
-  echo "reading Zitadel PAT"
+  echo "Reading Zitadel PAT"
   PAT=$(cat $TOKEN_PATH)
   if [ "$PAT" = "null" ]; then
-    echo "failed requesting getting Zitadel PAT"
+    echo "Failed requesting getting Zitadel PAT"
     exit 1
   fi
 
   # shellcheck disable=SC2028
-  echo -n "waiting for zitadel to be ready "
+  echo -n "Waiting for Zitadel to become ready "
   wait_api "$INSTANCE_URL" "$PAT"
 
   #  create the zitadel project
-  echo "creating new zitadel project"
+  echo "Creating new zitadel project"
   PROJECT_ID=$(create_new_project "$INSTANCE_URL" "$PAT")
-  if [ "$PROJECT_ID" = "null" ]; then
-    echo "failed creating new zitadel project"
-    exit 1
-  fi
 
   ZITADEL_DEV_MODE=false
   BASE_REDIRECT_URL=$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN
@@ -303,56 +321,32 @@ init_zitadel() {
   fi
 
   # create zitadel spa application
-  echo "creating new zitadel spa application"
+  echo "Creating new zitadel spa application"
   APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT")
-  if [ "$APPLICATION_CLIENT_ID" = "null" ]; then
-    echo "failed creating new zitadel spa application"
-    exit 1
-  fi
 
   MACHINE_USER_ID=$(create_service_user "$INSTANCE_URL" "$PAT")
-  if [ "$MACHINE_USER_ID" = "null" ]; then
-    echo "failed creating new zitadel service user"
-    exit 1
-  fi
 
   SERVICE_USER_CLIENT_ID="null"
   SERVICE_USER_CLIENT_SECRET="null"
 
   create_service_user_secret "$INSTANCE_URL" "$PAT" "$MACHINE_USER_ID"
-  if [ "$SERVICE_USER_CLIENT_ID" = "null" ] || [ "$SERVICE_USER_CLIENT_SECRET" = "null" ]; then
-    echo "failed creating new zitadel service user secret"
-    exit 1
-  fi
 
   DATE=$(add_organization_user_manager "$INSTANCE_URL" "$PAT" "$MACHINE_USER_ID")
-  if [ "$DATE" = "null" ]; then
-    echo "failed adding service user to organization"
-    exit 1
-  fi
 
   ZITADEL_ADMIN_USERNAME="admin@$NETBIRD_DOMAIN"
   ZITADEL_ADMIN_PASSWORD="$(openssl rand -base64 32 | sed 's/=//g')@"
 
   HUMAN_USER_ID=$(create_admin_user "$INSTANCE_URL" "$PAT" "$ZITADEL_ADMIN_USERNAME" "$ZITADEL_ADMIN_PASSWORD")
-  if [ "$HUMAN_USER_ID" = "null" ]; then
-    echo "failed creating new zitadel admin user"
-    exit 1
-  fi
 
   DATE="null"
 
   DATE=$(add_instance_admin "$INSTANCE_URL" "$PAT" "$HUMAN_USER_ID")
-  if [ "$DATE" = "null" ]; then
-      echo "failed adding service user to organization"
-      exit 1
-  fi
 
   DATE="null"
   DATE=$(delete_auto_service_user "$INSTANCE_URL" "$PAT")
   if [ "$DATE" = "null" ]; then
-      echo "failed deleting auto service user"
-      echo "please remove it manually"
+      echo "Failed deleting auto service user"
+      echo "Please remove it manually"
   fi
 
   export NETBIRD_AUTH_CLIENT_ID=$APPLICATION_CLIENT_ID
@@ -400,7 +394,18 @@ initEnvironment() {
       ZIDATE_TOKEN_EXPIRATION_DATE=$(date -u -d "+30 minutes" "+%Y-%m-%dT%H:%M:%SZ")
   fi
 
-  echo rendering initial files...
+  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
+
+  if [ -f zitadel.env ]; then
+    echo "Generated files already exists, if you want to reinitialize the environment, please remove them first."
+    echo "You can use the following commands:"
+    echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
+    echo "  rm -f docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token"
+    echo "Be aware that this will remove all data from the database and you will have to reconfigure the dashboard."
+    exit 1
+  fi
+
+  echo Rendering initial files...
   renderDockerCompose > docker-compose.yml
   renderCaddyfile > Caddyfile
   renderZitadelEnv > zitadel.env
@@ -409,26 +414,24 @@ initEnvironment() {
   mkdir -p machinekey
   chmod 777 machinekey
 
-  DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
-
   init_crdb
 
-  echo starting zidatel
+  echo Starting zidatel
   $DOCKER_COMPOSE_COMMAND up -d caddy zitadel crdb
   init_zitadel
 
-  echo rendering remaingin files...
+  echo Rendering NetBird files...
   renderTurnServerConf > turnserver.conf
   renderManagementJson > management.json
   renderDashboardEnv > dashboard.env
 
-  echo starting remaining services
+  echo Starting NetBird services
   $DOCKER_COMPOSE_COMMAND up -d
-  echo "done"
-  echo "you can now access the dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
-  echo "login with the following credentials:"
-  echo "username: $ZITADEL_ADMIN_USERNAME"
-  echo "password: $ZITADEL_ADMIN_PASSWORD"
+  echo "Done!"
+  echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
+  echo "Login with the following credentials:"
+  echo "Username: $ZITADEL_ADMIN_USERNAME" | tee .env
+  echo "Password: $ZITADEL_ADMIN_PASSWORD" | tee -a .env
 }
 
 renderCaddyfile() {
@@ -535,7 +538,7 @@ renderManagementJson() {
             "Audience": "$NETBIRD_AUTH_CLIENT_ID",
             "ClientID": "$NETBIRD_AUTH_CLIENT_ID",
             "Scope": "openid profile email offline_access",
-            "RedirectURLs": ["http://localhost:5300","http://localhost:5400"]
+            "RedirectURLs": ["http://localhost:53000/","http://localhost:54000/"]
         }
     }
 }
