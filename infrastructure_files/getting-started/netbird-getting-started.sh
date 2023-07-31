@@ -20,6 +20,7 @@ handle_zitadel_request_response() {
     echo "ERROR calling $FUNCTION_NAME: $(echo $RESPONSE | jq -r '.message')" > /dev/stderr
     exit 1
   fi
+  sleep 1
 }
 
 check_docker_compose() {
@@ -114,7 +115,10 @@ create_new_project() {
 create_new_application() {
   INSTANCE_URL=$1
   PAT=$2
-  APPLICATION_NAME="netbird"
+  APPLICATION_NAME=$3
+  BASE_REDIRECT_URL1=$4
+  BASE_REDIRECT_URL2=$5
+  ZITADEL_DEV_MODE=$6
 
   RESPONSE=$(
     curl -sS -X POST "$INSTANCE_URL/management/v1/projects/$PROJECT_ID/apps/oidc" \
@@ -123,13 +127,11 @@ create_new_application() {
       -d '{
     "name": "'"$APPLICATION_NAME"'",
     "redirectUris": [
-      "'"$BASE_REDIRECT_URL"'/nb-auth",
-      "'"$BASE_REDIRECT_URL"'/nb-silent-auth",
-      "http://localhost:53000/",
-      "http://localhost:54000/"
+      "'"$BASE_REDIRECT_URL1"'",
+      "'"$BASE_REDIRECT_URL2"'"
     ],
     "postLogoutRedirectUris": [
-       "'"$BASE_REDIRECT_URL"'/nb-auth"
+       "'"$BASE_REDIRECT_URL1"'"
     ],
     "RESPONSETypes": [
       "OIDC_RESPONSE_TYPE_CODE"
@@ -185,7 +187,7 @@ create_service_user_secret() {
       -d '{}'
   )
   SERVICE_USER_CLIENT_ID=$(echo "$RESPONSE" | jq -r '.clientId')
-  handle_zitadel_request_response $SERVICE_USER_CLIENT_ID "create_service_user_secret" "$RESPONSE"
+  handle_zitadel_request_response $SERVICE_USER_CLIENT_ID "create_service_user_secret_id" "$RESPONSE"
   SERVICE_USER_CLIENT_SECRET=$(echo "$RESPONSE" | jq -r '.clientSecret')
   handle_zitadel_request_response $SERVICE_USER_CLIENT_SECRET "create_service_user_secret" "$RESPONSE"
 }
@@ -320,9 +322,12 @@ init_zitadel() {
     ZITADEL_DEV_MODE=true
   fi
 
-  # create zitadel spa application
-  echo "Creating new zitadel spa application"
-  APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT")
+  # create zitadel spa applications
+  echo "Creating new Zitadel SPA Dashboard application"
+  DASHBOARD_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Dashboard" "$BASE_REDIRECT_URL/nb-auth" "$BASE_REDIRECT_URL/nb-silent-auth" "$ZITADEL_DEV_MODE")
+
+  echo "Creating new Zitadel SPA Cli application"
+  CLI_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Cli" "http://localhost:53000/" "http://localhost:54000/" "true")
 
   MACHINE_USER_ID=$(create_service_user "$INSTANCE_URL" "$PAT")
 
@@ -349,7 +354,8 @@ init_zitadel() {
       echo "Please remove it manually"
   fi
 
-  export NETBIRD_AUTH_CLIENT_ID=$APPLICATION_CLIENT_ID
+  export NETBIRD_AUTH_CLIENT_ID=$DASHBOARD_APPLICATION_CLIENT_ID
+  export NETBIRD_AUTH_CLIENT_ID_CLI=$CLI_APPLICATION_CLIENT_ID
   export NETBIRD_IDP_MGMT_CLIENT_ID=$SERVICE_USER_CLIENT_ID
   export NETBIRD_IDP_MGMT_CLIENT_SECRET=$SERVICE_USER_CLIENT_SECRET
   export ZITADEL_ADMIN_USERNAME
@@ -535,8 +541,8 @@ renderManagementJson() {
      },
     "PKCEAuthorizationFlow": {
         "ProviderConfig": {
-            "Audience": "$NETBIRD_AUTH_CLIENT_ID",
-            "ClientID": "$NETBIRD_AUTH_CLIENT_ID",
+            "Audience": "$NETBIRD_AUTH_CLIENT_ID_CLI",
+            "ClientID": "$NETBIRD_AUTH_CLIENT_ID_CLI",
             "Scope": "openid profile email offline_access",
             "RedirectURLs": ["http://localhost:53000/","http://localhost:54000/"]
         }
