@@ -371,24 +371,24 @@ func handlerFunc(gRPCHandler *grpc.Server, httpHandler http.Handler) http.Handle
 }
 
 func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
-	config := &server.Config{}
-	_, err := util.ReadJson(mgmtConfigPath, config)
+	loadedConfig := &server.Config{}
+	_, err := util.ReadJson(mgmtConfigPath, loadedConfig)
 	if err != nil {
 		return nil, err
 	}
 	if mgmtLetsencryptDomain != "" {
-		config.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
+		loadedConfig.HttpConfig.LetsEncryptDomain = mgmtLetsencryptDomain
 	}
 	if mgmtDataDir != "" {
-		config.Datadir = mgmtDataDir
+		loadedConfig.Datadir = mgmtDataDir
 	}
 
 	if certKey != "" && certFile != "" {
-		config.HttpConfig.CertFile = certFile
-		config.HttpConfig.CertKey = certKey
+		loadedConfig.HttpConfig.CertFile = certFile
+		loadedConfig.HttpConfig.CertKey = certKey
 	}
 
-	oidcEndpoint := config.HttpConfig.OIDCConfigEndpoint
+	oidcEndpoint := loadedConfig.HttpConfig.OIDCConfigEndpoint
 	if oidcEndpoint != "" {
 		// if OIDCConfigEndpoint is specified, we can load DeviceAuthEndpoint and TokenEndpoint automatically
 		log.Infof("loading OIDC configuration from the provided IDP configuration endpoint %s", oidcEndpoint)
@@ -399,45 +399,45 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 		log.Infof("loaded OIDC configuration from the provided IDP configuration endpoint: %s", oidcEndpoint)
 
 		log.Infof("overriding HttpConfig.AuthIssuer with a new value %s, previously configured value: %s",
-			oidcConfig.Issuer, config.HttpConfig.AuthIssuer)
-		config.HttpConfig.AuthIssuer = oidcConfig.Issuer
+			oidcConfig.Issuer, loadedConfig.HttpConfig.AuthIssuer)
+		loadedConfig.HttpConfig.AuthIssuer = oidcConfig.Issuer
 
 		log.Infof("overriding HttpConfig.AuthKeysLocation (JWT certs) with a new value %s, previously configured value: %s",
-			oidcConfig.JwksURI, config.HttpConfig.AuthKeysLocation)
-		config.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
+			oidcConfig.JwksURI, loadedConfig.HttpConfig.AuthKeysLocation)
+		loadedConfig.HttpConfig.AuthKeysLocation = oidcConfig.JwksURI
 
-		if !(config.DeviceAuthorizationFlow == nil || strings.ToLower(config.DeviceAuthorizationFlow.Provider) == string(server.NONE)) {
+		if !(loadedConfig.DeviceAuthorizationFlow == nil || strings.ToLower(loadedConfig.DeviceAuthorizationFlow.Provider) == string(server.NONE)) {
 			log.Infof("overriding DeviceAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.TokenEndpoint, config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
-			config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
+				oidcConfig.TokenEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint)
+			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
 			log.Infof("overriding DeviceAuthorizationFlow.DeviceAuthEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.DeviceAuthEndpoint, config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint)
-			config.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint = oidcConfig.DeviceAuthEndpoint
+				oidcConfig.DeviceAuthEndpoint, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint)
+			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.DeviceAuthEndpoint = oidcConfig.DeviceAuthEndpoint
 
 			u, err := url.Parse(oidcEndpoint)
 			if err != nil {
 				return nil, err
 			}
 			log.Infof("overriding DeviceAuthorizationFlow.ProviderConfig.Domain with a new value: %s, previously configured value: %s",
-				u.Host, config.DeviceAuthorizationFlow.ProviderConfig.Domain)
-			config.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
+				u.Host, loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain)
+			loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Domain = u.Host
 
-			if config.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
-				config.DeviceAuthorizationFlow.ProviderConfig.Scope = server.DefaultDeviceAuthFlowScope
+			if loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope == "" {
+				loadedConfig.DeviceAuthorizationFlow.ProviderConfig.Scope = server.DefaultDeviceAuthFlowScope
 			}
 		}
 
-		if config.PKCEAuthorizationFlow != nil {
+		if loadedConfig.PKCEAuthorizationFlow != nil {
 			log.Infof("overriding PKCEAuthorizationFlow.TokenEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.TokenEndpoint, config.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint)
-			config.DeviceAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
+				oidcConfig.TokenEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint)
+			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.TokenEndpoint = oidcConfig.TokenEndpoint
 			log.Infof("overriding PKCEAuthorizationFlow.AuthorizationEndpoint with a new value: %s, previously configured value: %s",
-				oidcConfig.AuthorizationEndpoint, config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
-			config.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
+				oidcConfig.AuthorizationEndpoint, loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint)
+			loadedConfig.PKCEAuthorizationFlow.ProviderConfig.AuthorizationEndpoint = oidcConfig.AuthorizationEndpoint
 		}
 	}
 
-	return config, err
+	return loadedConfig, err
 }
 
 // OIDCConfigResponse used for parsing OIDC config response
