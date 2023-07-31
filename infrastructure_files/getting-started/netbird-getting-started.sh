@@ -245,7 +245,7 @@ add_instance_admin() {
   USER_ID=$3
 
   RESPONSE=$(
-    curl -sS -X POST --fail "$INSTANCE_URL/admin/v1/members" \
+    curl -sS -X POST "$INSTANCE_URL/admin/v1/members" \
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
