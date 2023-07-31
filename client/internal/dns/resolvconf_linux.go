@@ -4,6 +4,7 @@ package dns
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
