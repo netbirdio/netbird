@@ -135,7 +135,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: run script
-        run: bash -x infrastructure_files/getting-started/getting-started.sh
+        run: bash -x infrastructure_files/getting-started/netbird-getting-started.sh
 
       - name: test Caddy file gen
         run: test -f Caddyfile
