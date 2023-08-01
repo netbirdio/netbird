@@ -1943,72 +1943,104 @@ func TestAccount_AddJWTGroups(t *testing.T) {
 		Groups: map[string]*Group{
 			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{}},
 		},
-		Settings: &Settings{JWTGroupsPropagationEnabled: true},
+		Settings: &Settings{GroupsPropagationEnabled: true},
 		Users: map[string]*User{
 			"user1": {Id: "user1"},
 			"user2": {Id: "user2"},
 		},
 	}
 
-	t.Run("don't add peers if no groups", func(t *testing.T) {
+	t.Run("api group already exists", func(t *testing.T) {
 		updated := account.AddJWTGroups("user1", []string{"group1"})
 		assert.False(t, updated, "account should not be updated")
-		assert.Empty(t, account.Groups["group1"].Peers, "group should not have any peers")
+		assert.Empty(t, account.Users["user1"].AutoGroups, "auto groups must be empty")
 	})
 
-	t.Run("add group without propagation", func(t *testing.T) {
-		account.Settings.JWTGroupsPropagationEnabled = false
+	t.Run("add jwt group", func(t *testing.T) {
 		updated := account.AddJWTGroups("user1", []string{"group1", "group2"})
 		assert.True(t, updated, "account should be updated")
 		assert.Len(t, account.Groups, 2, "new group should be added")
-		var group *Group
-		for _, g := range account.Groups {
-			if g.Name == "group2" {
-				group = g
-			}
-		}
-		assert.Empty(t, group.Peers, "group should not have any peers")
+		assert.Len(t, account.Users["user1"].AutoGroups, 1, "new group should be added")
+		assert.Contains(t, account.Groups, account.Users["user1"].AutoGroups[0], "groups must contain group2 from user groups")
 	})
 
-	t.Run("existed group update", func(t *testing.T) {
-		account.Settings.JWTGroupsPropagationEnabled = true
+	t.Run("existed group not update", func(t *testing.T) {
 		updated := account.AddJWTGroups("user1", []string{"group2"})
-		assert.True(t, updated, "account should be updated")
+		assert.False(t, updated, "account should not be updated")
 		assert.Len(t, account.Groups, 2, "groups count should not be changed")
-		var group *Group
-		for _, g := range account.Groups {
-			if g.Name == "group2" {
-				group = g
-			}
-		}
-		assert.ElementsMatch(t, group.Peers, []string{"peer1", "peer2", "peer3"}, "group peers must be updated")
 	})
 
 	t.Run("add new group", func(t *testing.T) {
 		updated := account.AddJWTGroups("user2", []string{"group1", "group3"})
 		assert.True(t, updated, "account should be updated")
 		assert.Len(t, account.Groups, 3, "new group should be added")
-		var group *Group
-		for _, g := range account.Groups {
-			if g.Name == "group3" {
-				group = g
-			}
-		}
-		assert.ElementsMatch(t, group.Peers, []string{"peer4", "peer5"}, "group peers must be updated")
+		assert.Len(t, account.Users["user2"].AutoGroups, 1, "new group should be added")
+		assert.Contains(t, account.Groups, account.Users["user2"].AutoGroups[0], "groups must contain group3 from user groups")
+	})
+}
+
+func TestAccount_UserGroupsAddToPeers(t *testing.T) {
+	account := &Account{
+		Peers: map[string]*Peer{
+			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
+			"peer2": {ID: "peer2", Key: "key2", UserID: "user1"},
+			"peer3": {ID: "peer3", Key: "key3", UserID: "user1"},
+			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
+			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
+		},
+		Groups: map[string]*Group{
+			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{}},
+			"group2": {ID: "group2", Name: "group2", Issued: GroupIssuedAPI, Peers: []string{}},
+			"group3": {ID: "group3", Name: "group3", Issued: GroupIssuedAPI, Peers: []string{}},
+		},
+		Users: map[string]*User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
+	}
+
+	t.Run("add groups", func(t *testing.T) {
+		account.UserGroupsAddToPeers("user1", "group1", "group2")
+		assert.ElementsMatch(t, account.Groups["group1"].Peers, []string{"peer1", "peer2", "peer3"}, "group1 contains users peers")
+		assert.ElementsMatch(t, account.Groups["group2"].Peers, []string{"peer1", "peer2", "peer3"}, "group2 contains users peers")
 	})
 
-	t.Run("check updated user autoassigned group", func(t *testing.T) {
-		user, ok := account.Users["user2"]
-		assert.True(t, ok, "autoassigned group should be set")
-		assert.Len(t, user.AutoGroups, 1, "only one group we expect in autogroups")
-		var group *Group
-		for _, g := range account.Groups {
-			if g.ID == user.AutoGroups[0] {
-				group = g
-				break
-			}
-		}
-		assert.Contains(t, group.Name, "group3", "only one group we expect")
+	t.Run("add same groups", func(t *testing.T) {
+		account.UserGroupsAddToPeers("user1", "group1", "group2")
+		assert.Len(t, account.Groups["group1"].Peers, 3, "peers amount in group1 didn't change")
+		assert.Len(t, account.Groups["group2"].Peers, 3, "peers amount in group2 didn't change")
+	})
+
+	t.Run("add second user peers", func(t *testing.T) {
+		account.UserGroupsAddToPeers("user2", "group2")
+		assert.ElementsMatch(t, account.Groups["group2"].Peers,
+			[]string{"peer1", "peer2", "peer3", "peer4", "peer5"}, "group2 contains first and second user peers")
+	})
+}
+
+func TestAccount_UserGroupsRemoveFromPeers(t *testing.T) {
+	account := &Account{
+		Peers: map[string]*Peer{
+			"peer1": {ID: "peer1", Key: "key1", UserID: "user1"},
+			"peer2": {ID: "peer2", Key: "key2", UserID: "user1"},
+			"peer3": {ID: "peer3", Key: "key3", UserID: "user1"},
+			"peer4": {ID: "peer4", Key: "key4", UserID: "user2"},
+			"peer5": {ID: "peer5", Key: "key5", UserID: "user2"},
+		},
+		Groups: map[string]*Group{
+			"group1": {ID: "group1", Name: "group1", Issued: GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3"}},
+			"group2": {ID: "group2", Name: "group2", Issued: GroupIssuedAPI, Peers: []string{"peer1", "peer2", "peer3", "peer4", "peer5"}},
+			"group3": {ID: "group3", Name: "group3", Issued: GroupIssuedAPI, Peers: []string{"peer4", "peer5"}},
+		},
+		Users: map[string]*User{"user1": {Id: "user1"}, "user2": {Id: "user2"}},
+	}
+
+	t.Run("remove groups", func(t *testing.T) {
+		account.UserGroupsRemoveFromPeers("user1", "group1", "group2")
+		assert.Empty(t, account.Groups["group1"].Peers, "remove all peers from group1")
+		assert.ElementsMatch(t, account.Groups["group2"].Peers, []string{"peer4", "peer5"}, "group2 contains only second users peers")
+	})
+
+	t.Run("remove group with no peers", func(t *testing.T) {
+		account.UserGroupsRemoveFromPeers("user1", "group3")
+		assert.Len(t, account.Groups["group3"].Peers, 2, "peers amount should not change")
 	})
 }
 

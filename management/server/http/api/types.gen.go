@@ -129,14 +129,14 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
+	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
+
 	// JwtGroupsClaimName Name of the claim from which we extract groups names to add it to account groups.
 	JwtGroupsClaimName *string `json:"jwt_groups_claim_name,omitempty"`
 
 	// JwtGroupsEnabled Allows extract groups from JWT claim and add it to account groups.
 	JwtGroupsEnabled *bool `json:"jwt_groups_enabled,omitempty"`
-
-	// JwtGroupsPropagationEnabled Allows propagate the new user groups to peers that belongs to the user
-	JwtGroupsPropagationEnabled *bool `json:"jwt_groups_propagation_enabled,omitempty"`
 
 	// PeerLoginExpiration Period of time after which peer login expires (seconds).
 	PeerLoginExpiration int `json:"peer_login_expiration"`

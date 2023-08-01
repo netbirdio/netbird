@@ -144,12 +144,12 @@ type Settings struct {
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
 
+	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
+	GroupsPropagationEnabled bool
+
 	// JWTGroupsEnabled allows extract groups from JWT claim, which name defined in the JWTGroupsClaimName
 	// and add it to account groups.
 	JWTGroupsEnabled bool
-
-	// JWTGroupsPropagationEnabled propagate the new user groups to peers that belongs to the user
-	JWTGroupsPropagationEnabled bool
 
 	// JWTGroupsClaimName from which we extract groups name to add it to account groups
 	JWTGroupsClaimName string
@@ -158,11 +158,11 @@ type Settings struct {
 // Copy copies the Settings struct
 func (s *Settings) Copy() *Settings {
 	return &Settings{
-		PeerLoginExpirationEnabled:  s.PeerLoginExpirationEnabled,
-		PeerLoginExpiration:         s.PeerLoginExpiration,
-		JWTGroupsEnabled:            s.JWTGroupsEnabled,
-		JWTGroupsClaimName:          s.JWTGroupsClaimName,
-		JWTGroupsPropagationEnabled: s.JWTGroupsPropagationEnabled,
+		PeerLoginExpirationEnabled: s.PeerLoginExpirationEnabled,
+		PeerLoginExpiration:        s.PeerLoginExpiration,
+		JWTGroupsEnabled:           s.JWTGroupsEnabled,
+		JWTGroupsClaimName:         s.JWTGroupsClaimName,
+		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
 	}
 }
 
@@ -630,66 +630,82 @@ func (a *Account) GetPeer(peerID string) *Peer {
 }
 
 // AddJWTGroups to account and to user autoassigned groups
-//
-// Extracts groups from JWT token and adds them to account and user autoassigned groups.
-// Also if it is enabled, adds all peers with the same userID to all JWT groups.
-// How it works:
-//  1. Add groups to account if they doesn't exists yet
-//  2. If jwt_groups_propagation_enabled is true (for all JWT groups only):
-//     a) add this groups to user auto assign groups
-//     b) add all peers with the same userID to all JWT groups (propagation)
 func (a *Account) AddJWTGroups(userID string, groups []string) bool {
 	// collect existed groups
 	existedGroups := make(map[string]*Group)
-
-	// collect peers from existed groups
-	existedGroupsPeers := make(map[string]struct{})
 	for _, g := range a.Groups {
 		existedGroups[g.Name] = g
-		for _, p := range g.Peers {
-			existedGroupsPeers[g.ID+p] = struct{}{}
-		}
-	}
-
-	// coolect existed peers by userID
-	propagatePeers := make(map[string]struct{})
-	if a.Settings.JWTGroupsPropagationEnabled {
-		for _, p := range a.Peers {
-			if p.UserID == userID {
-				propagatePeers[p.ID] = struct{}{}
-			}
-		}
 	}
 
 	var modified bool
 	for _, name := range groups {
-		g, ok := existedGroups[name]
-		if !ok {
-			id := xid.New().String()
-			g = &Group{
-				ID:     id,
+		if _, ok := existedGroups[name]; !ok {
+			g := &Group{
+				ID:     xid.New().String(),
 				Name:   name,
 				Issued: GroupIssuedJWT,
 			}
-			a.Groups[id] = g
-			if u, ok := a.Users[userID]; a.Settings.JWTGroupsPropagationEnabled && ok {
-				u.AutoGroups = append(u.AutoGroups, id)
+			a.Groups[g.ID] = g
+			if u, ok := a.Users[userID]; ok {
+				u.AutoGroups = append(u.AutoGroups, g.ID)
 			}
 			modified = true
-		}
-
-		if a.Settings.JWTGroupsPropagationEnabled && g.Issued == GroupIssuedJWT {
-			// add collected peers by user ID to the gorup
-			for p := range propagatePeers {
-				if _, ok := existedGroupsPeers[g.ID+p]; !ok {
-					g.Peers = append(g.Peers, p)
-					modified = true
-				}
-			}
 		}
 	}
 
 	return modified
+}
+
+// UserGroupsAddToPeers adds groups to all peers of user
+func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
+	userPeers := make(map[string]struct{})
+	for pid, peer := range a.Peers {
+		if peer.UserID == userID {
+			userPeers[pid] = struct{}{}
+		}
+	}
+
+	for _, gid := range groups {
+		group, ok := a.Groups[gid]
+		if !ok {
+			continue
+		}
+
+		groupPeers := make(map[string]struct{})
+		for _, pid := range group.Peers {
+			groupPeers[pid] = struct{}{}
+		}
+
+		for pid := range userPeers {
+			groupPeers[pid] = struct{}{}
+		}
+
+		group.Peers = group.Peers[:0]
+		for pid := range groupPeers {
+			group.Peers = append(group.Peers, pid)
+		}
+	}
+}
+
+// UserGroupsRemoveFromPeers removes groups from all peers of user
+func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
+	for _, gid := range groups {
+		group, ok := a.Groups[gid]
+		if !ok {
+			continue
+		}
+		update := make([]string, 0, len(group.Peers))
+		for _, pid := range group.Peers {
+			peer, ok := a.Peers[pid]
+			if !ok {
+				continue
+			}
+			if peer.UserID != userID {
+				update = append(update, pid)
+			}
+		}
+		group.Peers = update
+	}
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1338,6 +1354,11 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 				}
 				// if groups were added or modified, save the account
 				if account.AddJWTGroups(claims.UserId, groups) {
+					if account.Settings.GroupsPropagationEnabled {
+						if user, err := account.FindUser(claims.UserId); err == nil {
+							account.UserGroupsAddToPeers(claims.UserId, append(user.AutoGroups, groups...)...)
+						}
+					}
 					if err := am.Store.SaveAccount(account); err != nil {
 						log.Errorf("failed to save account: %v", err)
 					}
