@@ -134,6 +134,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - run: docker-compose up --help
+
       - name: run script
         run: bash -x infrastructure_files/getting-started/netbird-getting-started.sh
 
