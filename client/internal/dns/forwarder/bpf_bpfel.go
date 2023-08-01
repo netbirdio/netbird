@@ -115,5 +115,6 @@ func _BpfClose(closers ...io.Closer) error {
 }
 
 // Do not access this directly.
+//
 //go:embed bpf_bpfel.o
 var _BpfBytes []byte

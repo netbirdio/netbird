@@ -3,11 +3,11 @@ package forwarder
 import (
 	_ "embed"
 	"encoding/binary"
-	log "github.com/sirupsen/logrus"
 	"net"
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -17,7 +17,7 @@ const (
 
 // libbpf-dev, libc6-dev-i386-amd64-cross
 //
-//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf port_fwd.c -- -I /usr/x86_64-linux-gnu/include
+//go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf src/port_fwd.c -- -I /usr/x86_64-linux-gnu/include
 type TrafficForwarder struct {
 	link      link.Link
 	iFaceName string
