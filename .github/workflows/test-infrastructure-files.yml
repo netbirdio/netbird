@@ -137,7 +137,7 @@ jobs:
       - run: docker-compose up --help
 
       - name: run script
-        run: bash -x infrastructure_files/getting-started/netbird-getting-started.sh
+        run: bash -x infrastructure_files/getting-started-with-zitadel.sh
 
       - name: test Caddy file gen
         run: test -f Caddyfile
