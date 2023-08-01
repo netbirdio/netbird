@@ -50,7 +50,7 @@ check_jq() {
 wait_crdb() {
   set +e
   while true; do
-    if $DOCKER_COMPOSE_COMMAND exec crdb curl -sf 'http://localhost:8080/health?ready=1'; then
+    if $DOCKER_COMPOSE_COMMAND exec -T crdb curl -sf 'http://localhost:8080/health?ready=1'; then
       break
     fi
     echo -n " ."
@@ -64,7 +64,7 @@ init_crdb() {
   echo -n "Initializing crdb "
   $DOCKER_COMPOSE_COMMAND up -d crdb
   wait_crdb
-  $DOCKER_COMPOSE_COMMAND exec -t crdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
+  $DOCKER_COMPOSE_COMMAND exec -T crdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
   handle_request_command_status $? "init_crdb failed" ""
 }
 
