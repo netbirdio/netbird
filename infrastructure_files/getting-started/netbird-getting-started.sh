@@ -7,7 +7,7 @@ handle_request_command_status() {
   FUNCTION_NAME=$2
   RESPONSE=$3
   if [[ $PARSED_RESPONSE -ne 0 ]]; then
-    echo "ERROR calling $FUNCTION_NAME: $(echo $RESPONSE | jq -r '.message')" > /dev/stderr
+    echo "ERROR calling $FUNCTION_NAME:" $(echo "$RESPONSE" | jq -r '.message') > /dev/stderr
     exit 1
   fi
 }
@@ -17,7 +17,7 @@ handle_zitadel_request_response() {
   FUNCTION_NAME=$2
   RESPONSE=$3
   if [[ $PARSED_RESPONSE == "null" ]]; then
-    echo "ERROR calling $FUNCTION_NAME: $(echo $RESPONSE | jq -r '.message')" > /dev/stderr
+    echo "ERROR calling $FUNCTION_NAME:" $(echo "$RESPONSE" | jq -r '.message') > /dev/stderr
     exit 1
   fi
   sleep 1
@@ -57,13 +57,13 @@ init_crdb() {
 get_main_ip_address() {
   if [[ "$OSTYPE" == "darwin"* ]]; then
     interface=$(route -n get default | grep 'interface:' | awk '{print $2}')
-    ip_address=$(ifconfig $interface | grep 'inet ' | awk '{print $2}')
+    ip_address=$(ifconfig "$interface" | grep 'inet ' | awk '{print $2}')
   else
     interface=$(ip route | grep default | awk '{print $5}' | head -n 1)
-    ip_address=$(ip addr show $interface | grep 'inet ' | awk '{print $2}' | cut -d'/' -f1)
+    ip_address=$(ip addr show "$interface" | grep 'inet ' | awk '{print $2}' | cut -d'/' -f1)
   fi
 
-  echo $ip_address
+  echo "$ip_address"
 }
 
 wait_pat() {
@@ -108,7 +108,7 @@ create_new_project() {
       -d '{"name": "'"$PROJECT_NAME"'"}'
   )
   PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.id')
-  handle_zitadel_request_response $PARSED_RESPONSE "create_new_project" "$RESPONSE"
+  handle_zitadel_request_response "$PARSED_RESPONSE" "create_new_project" "$RESPONSE"
   echo "$PARSED_RESPONSE"
 }
 
@@ -151,7 +151,7 @@ create_new_application() {
   )
 
   PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.clientId')
-  handle_zitadel_request_response $PARSED_RESPONSE "create_new_application" "$RESPONSE"
+  handle_zitadel_request_response "$PARSED_RESPONSE" "create_new_application" "$RESPONSE"
   echo "$PARSED_RESPONSE"
 }
 
@@ -171,7 +171,7 @@ create_service_user() {
       }'
   )
   PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.userId')
-  handle_zitadel_request_response $PARSED_RESPONSE "create_service_user" "$RESPONSE"
+  handle_zitadel_request_response "$PARSED_RESPONSE" "create_service_user" "$RESPONSE"
   echo "$PARSED_RESPONSE"
 }
 
@@ -187,9 +187,9 @@ create_service_user_secret() {
       -d '{}'
   )
   SERVICE_USER_CLIENT_ID=$(echo "$RESPONSE" | jq -r '.clientId')
-  handle_zitadel_request_response $SERVICE_USER_CLIENT_ID "create_service_user_secret_id" "$RESPONSE"
+  handle_zitadel_request_response "$SERVICE_USER_CLIENT_ID" "create_service_user_secret_id" "$RESPONSE"
   SERVICE_USER_CLIENT_SECRET=$(echo "$RESPONSE" | jq -r '.clientSecret')
-  handle_zitadel_request_response $SERVICE_USER_CLIENT_SECRET "create_service_user_secret" "$RESPONSE"
+  handle_zitadel_request_response "$SERVICE_USER_CLIENT_SECRET" "create_service_user_secret" "$RESPONSE"
 }
 
 add_organization_user_manager() {
@@ -202,14 +202,14 @@ add_organization_user_manager() {
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
-            "userId": "'$USER_ID'",
+            "userId": "'"$USER_ID"'",
             "roles": [
               "ORG_USER_MANAGER"
             ]
       }'
   )
   PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.details.creationDate')
-  handle_zitadel_request_response $PARSED_RESPONSE "add_organization_user_manager" "$RESPONSE"
+  handle_zitadel_request_response "$PARSED_RESPONSE" "add_organization_user_manager" "$RESPONSE"
   echo "$PARSED_RESPONSE"
 }
 
@@ -223,21 +223,21 @@ create_admin_user() {
           -H "Authorization: Bearer $PAT" \
           -H "Content-Type: application/json" \
           -d '{
-                "userName": "'$USERNAME'",
+                "userName": "'"$USERNAME"'",
                 "profile": {
                   "firstName": "Zitadel",
                   "lastName": "Admin"
                 },
                 "email": {
-                  "email": "'$USERNAME'",
+                  "email": "'"$USERNAME"'",
                   "isEmailVerified": true
                 },
-                "password": "'$PASSWORD'",
+                "password": "'"$PASSWORD"'",
                 "passwordChangeRequired": true
           }'
       )
       PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.userId')
-      handle_zitadel_request_response $PARSED_RESPONSE "create_admin_user" "$RESPONSE"
+      handle_zitadel_request_response "$PARSED_RESPONSE" "create_admin_user" "$RESPONSE"
       echo "$PARSED_RESPONSE"
 }
 
@@ -258,7 +258,7 @@ add_instance_admin() {
       }'
   )
   PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.details.creationDate')
-  handle_zitadel_request_response $PARSED_RESPONSE "add_instance_admin" "$RESPONSE"
+  handle_zitadel_request_response "$PARSED_RESPONSE" "add_instance_admin" "$RESPONSE"
   echo "$PARSED_RESPONSE"
 }
 
@@ -272,7 +272,7 @@ delete_auto_service_user() {
       -H "Content-Type: application/json" \
   )
   USER_ID=$(echo "$RESPONSE" | jq -r '.user.id')
-  handle_zitadel_request_response $USER_ID "delete_auto_service_user_get_user" "$RESPONSE"
+  handle_zitadel_request_response "$USER_ID" "delete_auto_service_user_get_user" "$RESPONSE"
 
   RESPONSE=$(
       curl -sS -X DELETE "$INSTANCE_URL/admin/v1/members/$USER_ID" \
@@ -280,7 +280,7 @@ delete_auto_service_user() {
         -H "Content-Type: application/json" \
   )
   PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.details.changeDate')
-  handle_zitadel_request_response $PARSED_RESPONSE "delete_auto_service_user_remove_instance_permissions" "$RESPONSE"
+  handle_zitadel_request_response "$PARSED_RESPONSE" "delete_auto_service_user_remove_instance_permissions" "$RESPONSE"
 
   RESPONSE=$(
       curl -sS -X DELETE "$INSTANCE_URL/management/v1/orgs/me/members/$USER_ID" \
@@ -288,7 +288,7 @@ delete_auto_service_user() {
         -H "Content-Type: application/json" \
   )
   PARSED_RESPONSE=$(echo "$RESPONSE" | jq -r '.details.changeDate')
-  handle_zitadel_request_response $PARSED_RESPONSE "delete_auto_service_user_remove_org_permissions" "$RESPONSE"
+  handle_zitadel_request_response "$PARSED_RESPONSE" "delete_auto_service_user_remove_org_permissions" "$RESPONSE"
   echo "$PARSED_RESPONSE"
 }
 
