@@ -251,7 +251,7 @@ add_instance_admin() {
       -H "Authorization: Bearer $PAT" \
       -H "Content-Type: application/json" \
       -d '{
-            "userId": "'$USER_ID'",
+            "userId": "'"$USER_ID"'",
             "roles": [
               "IAM_OWNER"
             ]
