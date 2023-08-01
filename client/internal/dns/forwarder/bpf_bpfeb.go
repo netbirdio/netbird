@@ -61,6 +61,7 @@ type bpfProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
+	XdpIpMap   *ebpf.MapSpec `ebpf:"xdp_ip_map"`
 	XdpPortMap *ebpf.MapSpec `ebpf:"xdp_port_map"`
 }
 
@@ -83,11 +84,13 @@ func (o *bpfObjects) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
+	XdpIpMap   *ebpf.Map `ebpf:"xdp_ip_map"`
 	XdpPortMap *ebpf.Map `ebpf:"xdp_port_map"`
 }
 
 func (m *bpfMaps) Close() error {
 	return _BpfClose(
+		m.XdpIpMap,
 		m.XdpPortMap,
 	)
 }
