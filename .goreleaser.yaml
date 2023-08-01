@@ -377,3 +377,8 @@ uploads:
     target: https://pkgs.wiretrustee.com/yum/{{ .Arch }}{{ if .Arm }}{{ .Arm }}{{ end }}
     username: dev@wiretrustee.com
     method: PUT
+
+release:
+  extra_files:
+    - glob: ./infrastructure_files/getting-started-with-zitadel.sh
+    - glob: ./release_files/install.sh
