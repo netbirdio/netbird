@@ -15,7 +15,8 @@ const (
 	fileGeneratedResolvConfSearchBeginContent = "search "
 	fileGeneratedResolvConfContentFormat      = fileGeneratedResolvConfContentHeader +
 		"\n# If needed you can restore the original file by copying back %s\n\nnameserver %s\n" +
-		fileGeneratedResolvConfSearchBeginContent + "%s\n"
+		fileGeneratedResolvConfSearchBeginContent + "%s\n\n" +
+		"%s\n"
 )
 
 const (
@@ -91,7 +92,12 @@ func (f *fileConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		searchDomains += " " + dConf.domain
 		appendedDomains++
 	}
-	content := fmt.Sprintf(fileGeneratedResolvConfContentFormat, fileDefaultResolvConfBackupLocation, config.serverIP, searchDomains)
+
+	originalContent, err := os.ReadFile(fileDefaultResolvConfBackupLocation)
+	if err != nil {
+		log.Errorf("Could not read existing resolv.conf")
+	}
+	content := fmt.Sprintf(fileGeneratedResolvConfContentFormat, fileDefaultResolvConfBackupLocation, config.serverIP, searchDomains, string(originalContent))
 	err = writeDNSConfig(content, defaultResolvConfPath, f.originalPerms)
 	if err != nil {
 		err = f.restore()
