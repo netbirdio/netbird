@@ -52,7 +52,7 @@ func (tf *TrafficForwarder) Start(ip string, dnsPort int) error {
 		_ = objs.Close()
 	}()
 
-	err = objs.XdpPortMap.Put(mapKeyDNSIP, tf.ip2int(ip))
+	err = objs.XdpIpMap.Put(mapKeyDNSIP, tf.ip2int(ip))
 	if err != nil {
 		return err
 	}
