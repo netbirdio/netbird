@@ -4,6 +4,7 @@ package dns
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -59,7 +60,11 @@ func (r *resolvconf) applyDNSConfig(config hostDNSConfig) error {
 		appendedDomains++
 	}
 
-	content := fmt.Sprintf(fileGeneratedResolvConfContentFormat, fileDefaultResolvConfBackupLocation, config.serverIP, searchDomains)
+	originalContent, err := os.ReadFile(fileDefaultResolvConfBackupLocation)
+	if err != nil {
+		log.Errorf("Could not read existing resolv.conf")
+	}
+	content := fmt.Sprintf(fileGeneratedResolvConfContentFormat, fileDefaultResolvConfBackupLocation, config.serverIP, searchDomains, string(originalContent))
 
 	err = r.applyConfig(content)
 	if err != nil {

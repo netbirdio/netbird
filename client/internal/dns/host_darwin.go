@@ -182,12 +182,11 @@ func (s *systemConfigurator) addDNSState(state, domains, dnsServer string, port 
 }
 
 func (s *systemConfigurator) addDNSSetupForAll(dnsServer string, port int) error {
-	primaryServiceKey := s.getPrimaryService()
+	primaryServiceKey, existingNameserver := s.getPrimaryService()
 	if primaryServiceKey == "" {
 		return fmt.Errorf("couldn't find the primary service key")
 	}
-
-	err := s.addDNSSetup(getKeyWithInput(primaryServiceSetupKeyFormat, primaryServiceKey), dnsServer, port)
+	err := s.addDNSSetup(getKeyWithInput(primaryServiceSetupKeyFormat, primaryServiceKey), dnsServer, port, existingNameserver)
 	if err != nil {
 		return err
 	}
@@ -196,27 +195,32 @@ func (s *systemConfigurator) addDNSSetupForAll(dnsServer string, port int) error
 	return nil
 }
 
-func (s *systemConfigurator) getPrimaryService() string {
+func (s *systemConfigurator) getPrimaryService() (string, string) {
 	line := buildCommandLine("show", globalIPv4State, "")
 	stdinCommands := wrapCommand(line)
 	b, err := runSystemConfigCommand(stdinCommands)
 	if err != nil {
 		log.Error("got error while sending the command: ", err)
-		return ""
+		return "", ""
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(b))
+	primaryService := ""
+	router := ""
 	for scanner.Scan() {
 		text := scanner.Text()
 		if strings.Contains(text, "PrimaryService") {
-			return strings.TrimSpace(strings.Split(text, ":")[1])
+			primaryService = strings.TrimSpace(strings.Split(text, ":")[1])
+		}
+		if strings.Contains(text, "Router") {
+			router = strings.TrimSpace(strings.Split(text, ":")[1])
 		}
 	}
-	return ""
+	return primaryService, router
 }
 
-func (s *systemConfigurator) addDNSSetup(setupKey, dnsServer string, port int) error {
+func (s *systemConfigurator) addDNSSetup(setupKey, dnsServer string, port int, existingDNSServer string) error {
 	lines := buildAddCommandLine(keySupplementalMatchDomainsNoSearch, digitSymbol+strconv.Itoa(0))
-	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer)
+	lines += buildAddCommandLine(keyServerAddresses, arraySymbol+dnsServer+" "+existingDNSServer)
 	lines += buildAddCommandLine(keyServerPort, digitSymbol+strconv.Itoa(port))
 	addDomainCommand := buildCreateStateWithOperation(setupKey, lines)
 	stdinCommands := wrapCommand(addDomainCommand)
