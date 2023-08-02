@@ -47,10 +47,10 @@ check_jq() {
   fi
 }
 
-wait_crdb() {
+wait_pgdb() {
   set +e
   while true; do
-    if $DOCKER_COMPOSE_COMMAND exec -T crdb curl -sf -o /dev/null 'http://localhost:8080/health?ready=1'; then
+    if $DOCKER_COMPOSE_COMMAND exec -T pgdb pg_isready -U postgres; then
       break
     fi
     echo -n " ."
@@ -60,15 +60,15 @@ wait_crdb() {
   set -e
 }
 
-init_crdb() {
+init_pgdb() {
   echo -e "\nInitializing Zitadel's CockroachDB\n\n"
-  $DOCKER_COMPOSE_COMMAND up -d crdb
+  $DOCKER_COMPOSE_COMMAND up -d pgdb
   echo ""
   # shellcheck disable=SC2028
   echo -n "Waiting cockroachDB  to become ready "
-  wait_crdb
-  $DOCKER_COMPOSE_COMMAND exec -T crdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
-  handle_request_command_status $? "init_crdb failed" ""
+  wait_pgdb
+  #$DOCKER_COMPOSE_COMMAND exec -T pgdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
+  handle_request_command_status $? "init_pgdb failed" ""
 }
 
 get_main_ip_address() {
@@ -439,7 +439,7 @@ initEnvironment() {
   mkdir -p machinekey
   chmod 777 machinekey
 
-  init_crdb
+  init_pgdb
 
   echo -e "\nStarting Zidatel IDP for user management\n\n"
   $DOCKER_COMPOSE_COMMAND up -d caddy zitadel
@@ -594,16 +594,25 @@ renderZitadelEnv() {
   cat <<EOF
 ZITADEL_LOG_LEVEL=debug
 ZITADEL_MASTERKEY=$ZITADEL_MASTERKEY
-ZITADEL_DATABASE_COCKROACH_HOST=crdb
-ZITADEL_DATABASE_COCKROACH_USER_USERNAME=zitadel_user
-ZITADEL_DATABASE_COCKROACH_USER_SSL_MODE=verify-full
-ZITADEL_DATABASE_COCKROACH_USER_SSL_ROOTCERT="/crdb-certs/ca.crt"
-ZITADEL_DATABASE_COCKROACH_USER_SSL_CERT="/crdb-certs/client.zitadel_user.crt"
-ZITADEL_DATABASE_COCKROACH_USER_SSL_KEY="/crdb-certs/client.zitadel_user.key"
-ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_MODE=verify-full
-ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_ROOTCERT="/crdb-certs/ca.crt"
-ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_CERT="/crdb-certs/client.root.crt"
-ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_KEY="/crdb-certs/client.root.key"
+#ZITADEL_DATABASE_COCKROACH_HOST=pgdb
+#ZITADEL_DATABASE_COCKROACH_USER_USERNAME=zitadel_user
+#ZITADEL_DATABASE_COCKROACH_USER_SSL_MODE=verify-full
+#ZITADEL_DATABASE_COCKROACH_USER_SSL_ROOTCERT="/pgdb-certs/ca.crt"
+#ZITADEL_DATABASE_COCKROACH_USER_SSL_CERT="/pgdb-certs/client.zitadel_user.crt"
+#ZITADEL_DATABASE_COCKROACH_USER_SSL_KEY="/pgdb-certs/client.zitadel_user.key"
+#ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_MODE=verify-full
+#ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_ROOTCERT="/pgdb-certs/ca.crt"
+#ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_CERT="/pgdb-certs/client.root.crt"
+#ZITADEL_DATABASE_COCKROACH_ADMIN_SSL_KEY="/pgdb-certs/client.root.key"
+ZITADEL_DATABASE_POSTGRES_HOST=pgdb
+ZITADEL_DATABASE_POSTGRES_PORT=5432
+ZITADEL_DATABASE_POSTGRES_DATABASE=zitadeldb
+ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=zitadeladmin
+ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD=zitadeladmin
+ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE=disable
+ZITADEL_DATABASE_POSTGRES_USER_USERNAME=zitadeluser
+ZITADEL_DATABASE_POSTGRES_USER_PASSWORD=zitadeluser
+ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE=disable
 ZITADEL_EXTERNALSECURE=$ZITADEL_EXTERNALSECURE
 ZITADEL_TLS_ENABLED="false"
 ZITADEL_EXTERNALPORT=$NETBIRD_PORT
@@ -679,11 +688,11 @@ services:
     env_file:
       - ./zitadel.env
     depends_on:
-      crdb:
+      pgdb:
         condition: 'service_healthy'
     volumes:
       - ./machinekey:/machinekey
-      - netbird_zitadel_certs:/crdb-certs:ro
+      - netbird_zitadel_certs:/pgdb-certs:ro
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8080/debug/healthz" ]
       interval: '10s'
@@ -691,17 +700,21 @@ services:
       retries: 5
       start_period: '20s'
   # CockroachDB for zitadel
-  crdb:
+  pgdb:
     restart: 'always'
     networks: [netbird]
-    image: 'cockroachdb/cockroach:v22.2.2'
-    command: 'start-single-node --advertise-addr crdb'
+    image: 'postgres:15'
+    environment:
+      - POSTGRES_USER=zitadeladmin
+      - POSTGRES_PASSWORD=zitadeladmin
+      - POSTGRES_DB=zitadeldb
+    #command: 'start-single-node --advertise-addr pgdb'
     volumes:
-      - netbird_crdb_data:/cockroach/cockroach-data
-      - netbird_crdb_certs:/cockroach/certs
+      - netbird_pgdb_data:/cockroach/cockroach-data
+      - netbird_pgdb_certs:/cockroach/certs
       - netbird_zitadel_certs:/zitadel-certs
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/health?ready=1" ]
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: '10s'
       timeout: '30s'
       retries: 5
@@ -710,8 +723,8 @@ services:
 volumes:
   netbird_management:
   netbird_caddy_data:
-  netbird_crdb_data:
-  netbird_crdb_certs:
+  netbird_pgdb_data:
+  netbird_pgdb_certs:
   netbird_zitadel_certs:
 
 networks:
