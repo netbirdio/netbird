@@ -415,6 +415,8 @@ initEnvironment() {
       ZIDATE_TOKEN_EXPIRATION_DATE=$(date -u -d "+30 minutes" "+%Y-%m-%dT%H:%M:%SZ")
   fi
 
+  check_jq
+
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   if [ -f zitadel.env ]; then
