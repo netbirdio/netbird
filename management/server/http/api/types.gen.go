@@ -681,7 +681,7 @@ type RuleRequest struct {
 
 // SetupKey defines model for SetupKey.
 type SetupKey struct {
-	// AutoGroups Setup key groups to auto-assign to peers registered with this key
+	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
 	// Expires Setup Key expiration date
@@ -723,7 +723,7 @@ type SetupKey struct {
 
 // SetupKeyRequest defines model for SetupKeyRequest.
 type SetupKeyRequest struct {
-	// AutoGroups Setup key groups to auto-assign to peers registered with this key
+	// AutoGroups List of group IDs to auto-assign to peers registered with this key
 	AutoGroups []string `json:"auto_groups"`
 
 	// ExpiresIn Expiration time in seconds

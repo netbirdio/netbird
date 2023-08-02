@@ -327,7 +327,7 @@ components:
           type: string
           example: valid
         auto_groups:
-          description: Setup key groups to auto-assign to peers registered with this key
+          description: List of group IDs to auto-assign to peers registered with this key
           type: array
           items:
             type: string
@@ -375,7 +375,7 @@ components:
           type: boolean
           example: false
         auto_groups:
-          description: Setup key groups to auto-assign to peers registered with this key
+          description: List of group IDs to auto-assign to peers registered with this key
           type: array
           items:
             type: string
