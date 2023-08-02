@@ -13,6 +13,8 @@ import (
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/sys/unix"
+
+	nbdns "github.com/netbirdio/netbird/dns"
 )
 
 const (
@@ -121,6 +123,10 @@ func (s *systemdDbusConfigurator) applyDNSConfig(config hostDNSConfig) error {
 		if err != nil {
 			return fmt.Errorf("setting link as default dns router, failed with error: %s", err)
 		}
+		domainsInput = append(domainsInput, systemdDbusLinkDomainsInput{
+			Domain:    nbdns.RootZone,
+			MatchOnly: true,
+		})
 		s.routingAll = true
 	} else if s.routingAll {
 		log.Infof("removing %s:%d as main DNS forwarder for this peer", config.serverIP, config.serverPort)
