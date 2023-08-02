@@ -631,25 +631,38 @@ func (a *Account) GetPeer(peerID string) *Peer {
 
 // AddJWTGroups to account and to user autoassigned groups
 func (a *Account) AddJWTGroups(userID string, groups []string) bool {
-	// collect existed groups
-	existedGroups := make(map[string]*Group)
-	for _, g := range a.Groups {
-		existedGroups[g.Name] = g
+	user, ok := a.Users[userID]
+	if !ok {
+		return false
+	}
+
+	existedGroupsByName := make(map[string]*Group)
+	for _, group := range a.Groups {
+		existedGroupsByName[group.Name] = group
+	}
+
+	autoGroups := make(map[string]struct{})
+	for _, groupID := range user.AutoGroups {
+		autoGroups[groupID] = struct{}{}
 	}
 
 	var modified bool
 	for _, name := range groups {
-		if _, ok := existedGroups[name]; !ok {
-			g := &Group{
+		group, ok := existedGroupsByName[name]
+		if !ok {
+			group = &Group{
 				ID:     xid.New().String(),
 				Name:   name,
 				Issued: GroupIssuedJWT,
 			}
-			a.Groups[g.ID] = g
-			if u, ok := a.Users[userID]; ok {
-				u.AutoGroups = append(u.AutoGroups, g.ID)
-			}
+			a.Groups[group.ID] = group
 			modified = true
+		}
+		if _, ok := autoGroups[group.ID]; !ok {
+			if group.Issued == GroupIssuedJWT {
+				user.AutoGroups = append(user.AutoGroups, group.ID)
+				modified = true
+			}
 		}
 	}
 
