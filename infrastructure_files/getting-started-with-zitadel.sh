@@ -420,11 +420,11 @@ initEnvironment() {
   DOCKER_COMPOSE_COMMAND=$(check_docker_compose)
 
   if [ -f zitadel.env ]; then
-    echo "Generated files already exists, if you want to reinitialize the environment, please remove them first."
+    echo "Generated files already exist, if you want to reinitialize the environment, please remove them first."
     echo "You can use the following commands:"
     echo "  $DOCKER_COMPOSE_COMMAND down --volumes # to remove all containers and volumes"
-    echo "  rm -f docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token"
-    echo "Be aware that this will remove all data from the database and you will have to reconfigure the dashboard."
+    echo "  rm -f docker-compose.yml Caddyfile zitadel.env dashboard.env machinekey/zitadel-admin-sa.token turnserver.conf management.json"
+    echo "Be aware that this will remove all data from the database, and you will have to reconfigure the dashboard."
     exit 1
   fi
 
@@ -433,6 +433,8 @@ initEnvironment() {
   renderCaddyfile > Caddyfile
   renderZitadelEnv > zitadel.env
   echo "" > dashboard.env
+  echo "" > turnserver.conf
+  echo "" > management.json
 
   mkdir -p machinekey
   chmod 777 machinekey
@@ -440,7 +442,7 @@ initEnvironment() {
   init_crdb
 
   echo -e "\nStarting Zidatel IDP for user management\n\n"
-  $DOCKER_COMPOSE_COMMAND up -d caddy zitadel crdb
+  $DOCKER_COMPOSE_COMMAND up -d caddy zitadel
   init_zitadel
 
   echo -e "\nRendering NetBird files...\n"
