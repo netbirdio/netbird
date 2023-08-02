@@ -35,14 +35,14 @@ check_docker_compose() {
       return
   fi
 
-  echo "docker-compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/"
+  echo "docker-compose is not installed or not in PATH. Please follow the steps from the official guide: https://docs.docker.com/engine/install/" > /dev/stderr
   exit 1
 }
 
 check_jq() {
   if ! command -v jq &> /dev/null
   then
-    echo "jq is not installed or not in PATH, please install with your package manager. e.g. sudo apt install jq"
+    echo "jq is not installed or not in PATH, please install with your package manager. e.g. sudo apt install jq" > /dev/stderr
     exit 1
   fi
 }
@@ -50,7 +50,7 @@ check_jq() {
 wait_crdb() {
   set +e
   while true; do
-    if $DOCKER_COMPOSE_COMMAND exec -T crdb curl -sf 'http://localhost:8080/health?ready=1'; then
+    if $DOCKER_COMPOSE_COMMAND exec -T crdb curl -sf -o /dev/null 'http://localhost:8080/health?ready=1'; then
       break
     fi
     echo -n " ."
@@ -61,8 +61,11 @@ wait_crdb() {
 }
 
 init_crdb() {
-  echo -n "Initializing crdb "
+  echo -e "\nInitializing Zitadel's CockroachDB\n\n"
   $DOCKER_COMPOSE_COMMAND up -d crdb
+  echo ""
+  # shellcheck disable=SC2028
+  echo -n "Waiting cockroachDB  to become ready "
   wait_crdb
   $DOCKER_COMPOSE_COMMAND exec -T crdb /bin/bash -c "cp /cockroach/certs/* /zitadel-certs/ && cockroach cert create-client --overwrite --certs-dir /zitadel-certs/ --ca-key /zitadel-certs/ca.key zitadel_user && chown -R 1000:1000 /zitadel-certs/"
   handle_request_command_status $? "init_crdb failed" ""
@@ -307,12 +310,11 @@ delete_auto_service_user() {
 }
 
 init_zitadel() {
-  echo "Initializing Zitadel IDP"
+  echo -e "\nInitializing Zitadel with NetBird's applications\n"
   INSTANCE_URL="$NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
 
   TOKEN_PATH=./machinekey/zitadel-admin-sa.token
 
-  # shellcheck disable=SC2028
   echo -n "Waiting for Zitadel's PAT to be created "
   wait_pat "$TOKEN_PATH"
   echo "Reading Zitadel PAT"
@@ -322,7 +324,6 @@ init_zitadel() {
     exit 1
   fi
 
-  # shellcheck disable=SC2028
   echo -n "Waiting for Zitadel to become ready "
   wait_api "$INSTANCE_URL" "$PAT"
 
@@ -436,18 +437,18 @@ initEnvironment() {
 
   init_crdb
 
-  echo Starting zidatel
+  echo -e "\nStarting Zidatel IDP for user management\n\n"
   $DOCKER_COMPOSE_COMMAND up -d caddy zitadel crdb
   init_zitadel
 
-  echo Rendering NetBird files...
+  echo -e "\nRendering NetBird files...\n"
   renderTurnServerConf > turnserver.conf
   renderManagementJson > management.json
   renderDashboardEnv > dashboard.env
 
-  echo Starting NetBird services
+  echo -e "\nStarting NetBird services\n"
   $DOCKER_COMPOSE_COMMAND up -d
-  echo "Done!"
+  echo -e "\nDone!\n"
   echo "You can access the NetBird dashboard at $NETBIRD_HTTP_PROTOCOL://$NETBIRD_DOMAIN:$NETBIRD_PORT"
   echo "Login with the following credentials:"
   echo "Username: $ZITADEL_ADMIN_USERNAME" | tee .env
