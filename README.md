@@ -72,9 +72,9 @@ https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a4
 > The guide is for a single VM deployment. Follow the advanced guide for custom installations.
 
 **Infrastructure requirements:**
-- A VM with at least *1CPU* and *2GB* of memory
-- The VM should be public accessible on TCP Ports 80 and 443 and UDP ports: 3478, 49152-65535
-- Public domain name pointing to the VM to be used with the variable `NETBIRD_DOMAIN`
+- A VM with at least **1CPU** and **2GB** of memory.
+- The VM should be public accessible on TCP ports **80 and 443** and UDP ports: **3478, 49152-65535**.
+- **Public domain** name pointing to the VM.
 
 **Software requirements:**
 - Docker installed on the VM with the Docker compose plugin ([Docker installation guide](https://docs.docker.com/engine/install/))
