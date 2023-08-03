@@ -44,36 +44,17 @@ NetBird uses [NAT traversal techniques](https://en.wikipedia.org/wiki/Interactiv
 
 **Key features:**
 
-| Connectivity                             	                        | Management                                 	                            | Automation                                    	                            | Platforms    	                        |
-|-------------------------------------------------------------------|-------------------------------------------------------------------------|----------------------------------------------------------------------------|---------------------------------------|
-| <ul><li> - \[x] Kernel WireGuard </ul></li>                   	   | <ul><li> - \[x] Admin Web UI </ul></li>                           	     | <ul><li> - \[x] Public API </ul></li>                                	     | <ul><li> - \[x] Linux </ul></li>    	 |
-| <ul><li> - \[x] Peer-to-peer connections </ul></li>             	 | <ul><li> - \[x] Auto peer discovery and configuration </ul></li>  	     | <ul><li> - \[x] Setup keys for bulk network provisioning </ul></li>  	     | <ul><li> - \[x] Mac </ul></li>      	 |
-| <ul><li> - \[x] Peer-to-peer encryption </ul></li>              	 | <ul><li> - \[x] IdP integrations </ul></li>                       	     | <ul><li> - \[x] Self-hosting installation script </ul></li>              	 | <ul><li> - \[x] Windows </ul></li>  	 |
-| <ul><li> - \[x] Connection relay fallback </ul></li>            	 | <ul><li> - \[x] SSO & MFA support </ul></li>                      	     | 	                                                                          | <ul><li> - \[x] Android </ul></li>  	 |
-| <ul><li> - \[x] Routes to external networks </ul></li>  	         | <ul><li> - \[x] Access control - groups & rules </ul></li>      	       | 	                                                                          | <ul><li> - \[ ] iOS </ul></li>      	 |
-| <ul><li> - \[x] NAT traversal with BPF </ul></li>                 | <ul><li> - \[x] Private DNS </ul></li>                            	     | 	                                                                          | <ul><li> - \[x] Docker </ul></li>   	 |
-|                     | <ul><li> - \[x] Multiuser support </ul></li>                      	     | 	                                                                          | <ul><li> - \[x] OpenWRT </ul></li>  	 |
-| 	                                                                 | <ul><li> - \[x] Activity logging </ul></li>                       	     | 	                                                                          | 	                                     |
+| Connectivity                             	                        | Management                                 	                             | Automation                                    	                            | Platforms    	                        |
+|-------------------------------------------------------------------|--------------------------------------------------------------------------|----------------------------------------------------------------------------|---------------------------------------|
+| <ul><li> - \[x] Kernel WireGuard </ul></li>                   	   | <ul><li> - \[x] Admin Web UI </ul></li>                           	      | <ul><li> - \[x] Public API </ul></li>                                	     | <ul><li> - \[x] Linux </ul></li>    	 |
+| <ul><li> - \[x] Peer-to-peer connections </ul></li>             	 | <ul><li> - \[x] Auto peer discovery and configuration </ul></li>  	      | <ul><li> - \[x] Setup keys for bulk network provisioning </ul></li>  	     | <ul><li> - \[x] Mac </ul></li>      	 |
+| <ul><li> - \[x] Peer-to-peer encryption </ul></li>              	 | <ul><li> - \[x] IdP integrations </ul></li>                       	      | <ul><li> - \[x] Self-hosting installation script </ul></li>              	 | <ul><li> - \[x] Windows </ul></li>  	 |
+| <ul><li> - \[x] Connection relay fallback </ul></li>            	 | <ul><li> - \[x] SSO & MFA support </ul></li>                      	      | <ul><li> - \[x] IdP groups sync with JWT </ul></li> 	                      | <ul><li> - \[x] Android </ul></li>  	 |
+| <ul><li> - \[x] Routes to external networks </ul></li>  	         | <ul><li> - \[x] Access control - groups & rules </ul></li>      	        | 	                                                                          | <ul><li> - \[ ] iOS </ul></li>      	 |
+| <ul><li> - \[x] NAT traversal with BPF </ul></li>                 | <ul><li> - \[x] Private DNS </ul></li>                            	      | 	                                                                          | <ul><li> - \[x] Docker </ul></li>   	 |
+|                                                                   | <ul><li> - \[x] Multiuser support </ul></li>                      	      | 	                                                                          | <ul><li> - \[x] OpenWRT </ul></li>  	 |
+| 	                                                                 | <ul><li> - \[x] Activity logging </ul></li>                       	      | 	                                                                          | 	                                     |
 | 	                                                                 | <ul><li> - \[x] SSH access management </ul></li>                       	 | 	                                                                          | 	                                     |
-
-**Key features:**
-- \[x] Automatic IP allocation and network management with a Web UI ([separate repo](https://github.com/netbirdio/dashboard))
-- \[x] Automatic WireGuard peer (machine) discovery and configuration.
-- \[x] Encrypted peer-to-peer connections without a central VPN gateway.
-- \[x] Connection relay fallback in case a peer-to-peer connection is not possible.
-- \[x] Desktop client applications for Linux, MacOS, and Windows (systray).
-- \[x] Multiuser support - sharing network between multiple users.
-- \[x] SSO and MFA support. 
-- \[x] Multicloud and hybrid-cloud support.
-- \[x] Kernel WireGuard usage when possible.
-- \[x] Access Controls - groups & rules.
-- \[x] Remote SSH access without managing SSH keys.
-- \[x] Network Routes.  
-- \[x] Private DNS.
-- \[x] Network Activity Monitoring.
-
-**Coming soon:**
--  \[ ] Mobile clients.
 
 ### Secure peer-to-peer VPN with SSO and MFA in minutes
 
