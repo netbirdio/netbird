@@ -73,18 +73,18 @@ https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a4
 
 **Infrastructure requirements:**
 - A VM with at least **1CPU** and **2GB** of memory.
-- The VM should be public accessible on TCP ports **80 and 443** and UDP ports: **3478, 49152-65535**.
+- The VM should be publicly accessible on TCP ports **80 and 443** and UDP ports: **3478, 49152-65535**.
 - **Public domain** name pointing to the VM.
 
 **Software requirements:**
 - Docker installed on the VM with the Docker compose plugin ([Docker installation guide](https://docs.docker.com/engine/install/))
 - [jq](https://jqlang.github.io/jq/) installed.
   Usually available in the official repositories and can be installed with `sudo apt install jq` or `sudo yum install jq`
-- [curl](https://curl.se/) installed; 
+- [curl](https://curl.se/) installed. 
   Usually available in the official repositories and can be installed with `sudo apt install curl` or `sudo yum install curl`
 
 **Steps**
-- Download and run installation script.
+- Download and run the installation script:
 ```bash
 export NETBIRD_DOMAIN=netbird.example.com; curl -sSLO https://raw.githubusercontent.com/netbirdio/netbird/update-getting-started-flow/infrastructure_files/getting-started-with-zitadel.sh | bash
 ```
