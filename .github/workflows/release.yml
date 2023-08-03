@@ -7,6 +7,16 @@ on:
     branches:
       - main
   pull_request:
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - '.goreleaser.yml'
+      - '.goreleaser_ui.yaml'
+      - '.goreleaser_ui_darwin.yaml'
+      - '.github/workflows/release.yml'
+      - 'release_files/**'
+      - '**/Dockerfile'
+      - '**/Dockerfile.*'
 
 env:
   SIGN_PIPE_VER: "v0.0.8"
