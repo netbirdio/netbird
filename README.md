@@ -69,24 +69,25 @@ https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a4
 
 ### Quickstart with self-hosted NetBird
 
-> The guide is for a single VM deployment. Follow the [advanced guide](https://docs.netbird.io/selfhosted/selfhosted-guide) for custom installations.
+> This is the quickest way to try self-hosted NetBird. It should take around 5 minutes to get started if you already have a public domain and a VM.
+Follow the [Advanced guide with a custom identity provider](https://docs.netbird.io/selfhosted/selfhosted-guide#advanced-guide-with-a-custom-identity-provider) for installations with different IDPs.
 
 **Infrastructure requirements:**
-- A VM with at least **1CPU** and **2GB** of memory.
-- The VM should be publicly accessible on TCP ports **80 and 443** and UDP ports: **3478, 49152-65535**.
+- A Linux VM with at least **1CPU** and **2GB** of memory.
+- The VM should be publicly accessible on TCP ports **80** and **443** and UDP ports: **3478**, **49152-65535**.
 - **Public domain** name pointing to the VM.
 
 **Software requirements:**
-- Docker installed on the VM with the Docker compose plugin ([Docker installation guide](https://docs.docker.com/engine/install/))
-- [jq](https://jqlang.github.io/jq/) installed.
+- Docker installed on the VM with the docker compose plugin ([Docker installation guide](https://docs.docker.com/engine/install/)) or docker with docker-compose in version 2 or higher.
+- [jq](https://jqlang.github.io/jq/) installed. In most distributions
   Usually available in the official repositories and can be installed with `sudo apt install jq` or `sudo yum install jq`
-- [curl](https://curl.se/) installed. 
+- [curl](https://curl.se/) installed.
   Usually available in the official repositories and can be installed with `sudo apt install curl` or `sudo yum install curl`
 
 **Steps**
 - Download and run the installation script:
 ```bash
-export NETBIRD_DOMAIN=netbird.example.com; curl -sSLO https://raw.githubusercontent.com/netbirdio/netbird/update-getting-started-flow/infrastructure_files/getting-started-with-zitadel.sh | bash
+export NETBIRD_DOMAIN=netbird.example.com; curl -fsSL https://github.com/netbirdio/netbird/releases/latest/download/getting-started-with-zitadel.sh | bash
 ```
 - Once finished, you can manage the resources via `docker-compose`
 
