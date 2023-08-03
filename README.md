@@ -43,6 +43,19 @@ It requires zero configuration effort leaving behind the hassle of opening ports
 NetBird uses [NAT traversal techniques](https://en.wikipedia.org/wiki/Interactive_Connectivity_Establishment) to automatically create an overlay peer-to-peer network connecting machines regardless of location (home, office, data center, container, cloud, or edge environments), unifying virtual private network management experience.
 
 **Key features:**
+
+| Connectivity                             	| Management                                 	| Automation                                    	| Platforms    	|
+|------------------------------------------	|--------------------------------------------	|-----------------------------------------------	|--------------	|
+| \[x] Kernel WireGuard                    	| \[x] Admin Web UI                          	| \[x] Public API                               	| \[x] Linux   	|
+| \[x] Peer-to-peer connections            	| \[x] Auto peer discovery and configuration 	| \[x] Setup keys for bulk network provisioning 	| \[x] Mac     	|
+| \[x] Peer-to-peer encryption             	| \[x] IdP integrations                      	| \[x] One-line installation script             	| \[x] Windows 	|
+| \[x] Connection relay fallback           	| \[x] SSO & MFA support                     	|                                               	| \[x] Android 	|
+| \[x] Network Routes to external networks 	| \[x] Access Controls - groups & rules.     	|                                               	| \[ ] iOS     	|
+|                                          	| \[x] Private DNS                           	|                                               	| \[x] Docker  	|
+|                                          	| \[x] Multiuser support                     	|                                               	| \[x] OpenWRT 	|
+|                                          	| \[x] Activity logging                      	|                                               	|              	|
+
+**Key features:**
 - \[x] Automatic IP allocation and network management with a Web UI ([separate repo](https://github.com/netbirdio/dashboard))
 - \[x] Automatic WireGuard peer (machine) discovery and configuration.
 - \[x] Encrypted peer-to-peer connections without a central VPN gateway.
