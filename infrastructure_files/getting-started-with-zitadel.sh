@@ -418,12 +418,15 @@ initEnvironment() {
     NETBIRD_DOMAIN=$(read_nb_domain)
   fi
 
-
-  ZITADEL_EXTERNALSECURE="true"
-  ZITADEL_TLS_MODE="external"
-  NETBIRD_PORT=443
-  CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
-  NETBIRD_HTTP_PROTOCOL="https"
+  if [ "$NETBIRD_DOMAIN" == "use-ip" ]; then
+    NETBIRD_DOMAIN=$(get_main_ip_address)
+  else
+    ZITADEL_EXTERNALSECURE="true"
+    ZITADEL_TLS_MODE="external"
+    NETBIRD_PORT=443
+    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
+    NETBIRD_HTTP_PROTOCOL="https"
+  fi
 
   if [[ "$OSTYPE" == "darwin"* ]]; then
       ZIDATE_TOKEN_EXPIRATION_DATE=$(date -u -v+30M "+%Y-%m-%dT%H:%M:%SZ")

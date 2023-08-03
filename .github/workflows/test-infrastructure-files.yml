@@ -135,7 +135,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: run script
-        run: bash -x infrastructure_files/getting-started-with-zitadel.sh
+        run: NETBIRD_DOMAIN=use-ip bash -x infrastructure_files/getting-started-with-zitadel.sh
 
       - name: test Caddy file gen
         run: test -f Caddyfile
