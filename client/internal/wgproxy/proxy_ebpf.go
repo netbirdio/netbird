@@ -153,7 +153,9 @@ func (p *WGEBPFProxy) proxyToRemote() {
 			return
 		}
 
+		p.turnConnMutex.Lock()
 		conn, ok := p.turnConnStore[uint16(addr.Port)]
+		p.turnConnMutex.Unlock()
 		if !ok {
 			log.Errorf("turn conn not found by port: %d", addr.Port)
 			continue
