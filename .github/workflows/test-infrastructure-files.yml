@@ -1,10 +1,13 @@
-name: Test Docker Compose Linux
+name: Test Infrastructure files
 
 on:
   push:
     branches:
       - main
   pull_request:
+    paths:
+      - 'infrastructure_files/**'
+      - '.github/workflows/test-infrastructure-files.yml'
 
 
 concurrency:
@@ -12,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  test-docker-compose:
     runs-on: ubuntu-latest
     steps:
       - name: Install jq
@@ -35,7 +38,7 @@ jobs:
             ${{ runner.os }}-go-
 
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: cp setup.env
         run: cp infrastructure_files/tests/setup.env infrastructure_files/
@@ -121,3 +124,28 @@ jobs:
           count=$(docker compose ps --format json | jq '.[] | select(.Project | contains("infrastructure_files")) | .State' | grep -c running)
           test $count -eq 4
         working-directory: infrastructure_files
+
+  test-getting-started-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: run script
+        run: NETBIRD_DOMAIN=use-ip bash -x infrastructure_files/getting-started-with-zitadel.sh
+
+      - name: test Caddy file gen
+        run: test -f Caddyfile
+      - name: test docker-compose file gen
+        run: test -f docker-compose.yml
+      - name: test management.json file gen
+        run: test -f management.json
+      - name: test turnserver.conf file gen
+        run: test -f turnserver.conf
+      - name: test zitadel.env file gen
+        run: test -f zitadel.env
+      - name: test dashboard.env file gen
+        run: test -f dashboard.env
