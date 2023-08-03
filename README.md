@@ -86,7 +86,7 @@ https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a4
 **Steps**
 - Download and run installation script.
 ```bash
-export NETBIRD_DOMAIN=netbird.example.com; curl -sSLO https://raw.githubusercontent.com/netbirdio/netbird/update-getting-started-flow/infrastructure_files/getting-started-with-zitadel.sh | bash```
+export NETBIRD_DOMAIN=netbird.example.com; curl -sSLO https://raw.githubusercontent.com/netbirdio/netbird/update-getting-started-flow/infrastructure_files/getting-started-with-zitadel.sh | bash
 ```
 - Once finished, you can manage the resources via `docker-compose`
 
@@ -101,7 +101,7 @@ export NETBIRD_DOMAIN=netbird.example.com; curl -sSLO https://raw.githubusercont
 [Coturn](https://github.com/coturn/coturn) is the one that has been successfully used for STUN and TURN in NetBird setups.
 
 <p float="left" align="middle">
-  <img src="https://netbird.io/docs/img/architecture/high-level-dia.png" width="700"/>
+  <img src="https://docs.netbird.io/docs-static/img/architecture/high-level-dia.png" width="700"/>
 </p>
 
 See a complete [architecture overview](https://docs.netbird.io/about-netbird/how-netbird-works#architecture) for details.
