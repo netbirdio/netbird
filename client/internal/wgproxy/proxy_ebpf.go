@@ -69,7 +69,7 @@ func (p *WGEBPFProxy) Listen() error {
 	p.conn, err = net.ListenUDP("udp", &addr)
 	if err != nil {
 		cErr := p.Free()
-		if err != nil {
+		if cErr != nil {
 			log.Errorf("failed to close the wgproxy: %s", cErr)
 		}
 		return err
