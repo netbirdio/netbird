@@ -63,7 +63,37 @@ https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a4
 **Note**: The `main` branch may be in an *unstable or even broken state* during development. 
 For stable versions, see [releases](https://github.com/netbirdio/netbird/releases).
 
-### Start using NetBird
+### Quickstart with NetBird Cloud
+
+- Download and install NetBird at [https://app.netbird.io/install](https://app.netbird.io/install)
+- Follow the steps to sign-up with Google, Microsoft, GitHub or your email address.
+- Check NetBird [admin UI]([https://app.netbird.io/).
+- Add more machines.
+
+### Quickstart with self-hosted NetBird
+
+> The guide is for a single VM deployment. Follow the advanced guide for custom installations.
+
+**Infrastructure requirements:**
+- A VM with at least *1CPU* and *2GB* of memory
+- The VM should be public accessible on TCP Ports 80 and 443 and UDP ports: 3478, 49152-65535
+- Public domain name pointing to the VM to be used with the variable `NETBIRD_DOMAIN`
+
+**Software requirements:**
+- Docker installed on the VM with the Docker compose plugin ([Docker installation guide](https://docs.docker.com/engine/install/))
+- [jq](https://jqlang.github.io/jq/) installed.
+  Usually available in the official repositories and can be installed with `sudo apt install jq` or `sudo yum install jq`
+- [curl](https://curl.se/) installed; 
+  Usually available in the official repositories and can be installed with `sudo apt install curl` or `sudo yum install curl`
+
+**Steps**
+- Download and run installation script.
+```bash
+export NETBIRD_DOMAIN=netbird.example.com; curl -sSLO https://raw.githubusercontent.com/netbirdio/netbird/update-getting-started-flow/infrastructure_files/getting-started-with-zitadel.sh | bash```
+```
+- Once finished, you can manage the resources via `docker-compose`
+
+### Helpful links
 -  Hosted version: [https://app.netbird.io/](https://app.netbird.io/).
 -  See our documentation for [Quickstart Guide](https://docs.netbird.io/how-to/getting-started).
 -  If you are looking to self-host NetBird, check our [Self-Hosting Guide](https://docs.netbird.io/selfhosted/selfhosted-guide).
