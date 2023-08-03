@@ -38,7 +38,7 @@
 
 **NetBird combines a configuration-free peer-to-peer private network and a centralized access control system in a single platform, making it easy to create secure private networks for your organization or home.**
 
-**Connect.** NetBird creates a WireGuard®-based overlay network that automatically connects your machines over an encrypted tunnel, leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
+**Connect.** NetBird creates a WireGuard-based overlay network that automatically connects your machines over an encrypted tunnel, leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
 **Secure.** NetBird agent isolates every machine and device by applying granular access policies, while allowing you to manage them intuitively from a single place.
 
