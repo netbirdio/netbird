@@ -69,7 +69,7 @@ https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a4
 
 ### Quickstart with self-hosted NetBird
 
-> The guide is for a single VM deployment. Follow the advanced guide for custom installations.
+> The guide is for a single VM deployment. Follow the [advanced guide](https://docs.netbird.io/selfhosted/selfhosted-guide) for custom installations.
 
 **Infrastructure requirements:**
 - A VM with at least **1CPU** and **2GB** of memory.
