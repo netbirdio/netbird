@@ -44,16 +44,16 @@ NetBird uses [NAT traversal techniques](https://en.wikipedia.org/wiki/Interactiv
 
 **Key features:**
 
-| Connectivity                             	                      | Management                                 	   | Automation                                    	   | Platforms    	   |
-|-----------------------------------------------------------------|------------------------------------------------|---------------------------------------------------|------------------|
-| <ul><li> - \[x] Kernel WireGuard </ul></li>                   	 | &#9745; Admin Web UI                          	 | &#9745; Public API                               	 | &#9745; Linux   	 |
-| &#9745; Peer-to-peer connections            	                   | &#9745; Auto peer discovery and configuration 	 | &#9745; Setup keys for bulk network provisioning 	 | &#9745; Mac     	 |
-| &#9745; Peer-to-peer encryption             	                   | &#9745; IdP integrations                      	 | &#9745; One-line installation script             	 | &#9745; Windows 	 |
-| &#9745; Connection relay fallback           	                   | &#9745; SSO & MFA support                     	 | 	                                                 | &#9745; Android 	 |
-| &#9745; Network Routes to external networks 	                   | &#9745; Access Controls - groups & rules.     	 | 	                                                 | &#9744; iOS     	 |
-| 	                                                               | &#9745; Private DNS                           	 | 	                                                 | &#9745; Docker  	 |
-| 	                                                               | &#9745; Multiuser support                     	 | 	                                                 | &#9745; OpenWRT 	 |
-| 	                                                               | &#9745; Activity logging                      	 | 	                                                 | 	                |
+| Connectivity                             	                        | Management                                 	                        | Automation                                    	                        | Platforms    	                        |
+|-------------------------------------------------------------------|---------------------------------------------------------------------|------------------------------------------------------------------------|---------------------------------------|
+| <ul><li> - \[x] Kernel WireGuard </ul></li>                   	   | <ul><li> - \[x] Admin Web UI </ul></li>                           	 | <ul><li> - \[x] Public API </ul></li>                                	 | <ul><li> - \[x] Linux </ul></li>    	 |
+| <ul><li> - \[x] Peer-to-peer connections </ul></li>             	 | <ul><li> - \[x] Auto peer discovery and configuration </ul></li>  	 | <ul><li> - \[x] Setup keys for bulk network provisioning </ul></li>  	 | <ul><li> - \[x] Mac </ul></li>      	 |
+| <ul><li> - \[x] Peer-to-peer encryption </ul></li>              	 | <ul><li> - \[x] IdP integrations </ul></li>                       	 | <ul><li> - \[x] One-line installation script </ul></li>              	 | <ul><li> - \[x] Windows </ul></li>  	 |
+| <ul><li> - \[x] Connection relay fallback </ul></li>            	 | <ul><li> - \[x] SSO & MFA support </ul></li>                      	 | 	                                                                      | <ul><li> - \[x] Android </ul></li>  	 |
+| <ul><li> - \[x] Network Routes to external networks </ul></li>  	 | <ul><li> - \[x] Access Controls - groups & rules. </ul></li>      	 | 	                                                                      | <ul><li> - \[x] iOS </ul></li>      	         |
+| 	                                                                 | <ul><li> - \[x] Private DNS </ul></li>                            	 | 	                                                                      | <ul><li> - \[x] Docker </ul></li>   	 |
+| 	                                                                 | <ul><li> - \[x] Multiuser support </ul></li>                      	 | 	                                                                      | <ul><li> - \[x] OpenWRT </ul></li>  	 |
+| 	                                                                 | <ul><li> - \[x] Activity logging </ul></li>                       	 | 	                                                                      | 	                                     |
 
 **Key features:**
 - \[x] Automatic IP allocation and network management with a Web UI ([separate repo](https://github.com/netbirdio/dashboard))
