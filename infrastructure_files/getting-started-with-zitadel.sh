@@ -394,7 +394,7 @@ check_nb_domain() {
 
 read_nb_domain() {
   READ_NETBIRD_DOMAIN=""
-  echo -n "Enter the domain you want to use for NetBird (e.g. netbird.my-domain.com): " > /dev/stdout
+  echo -n "Enter the domain you want to use for NetBird (e.g. netbird.my-domain.com): " > /dev/stderr
   read -r READ_NETBIRD_DOMAIN
   if ! check_nb_domain "$READ_NETBIRD_DOMAIN"; then
     read_nb_domain
