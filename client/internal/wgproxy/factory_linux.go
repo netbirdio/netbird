@@ -12,7 +12,7 @@ func NewFactory(wgPort int) *Factory {
 	ebpfProxy := NewWGEBPFProxy(wgPort)
 	err := ebpfProxy.Listen()
 	if err != nil {
-		log.Errorf("failed to initialize ebpf proxy: %s", err)
+		log.Warnf("failed to initialize ebpf proxy, fallback to user space proxy: %s", err)
 		return f
 	}
 
