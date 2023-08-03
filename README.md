@@ -40,7 +40,7 @@
 
 **Connect.** NetBird creates a WireGuard-based overlay network that automatically connects your machines over an encrypted tunnel, leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
-**Secure.** NetBird agent isolates every machine and device by applying granular access policies, while allowing you to manage them intuitively from a single place.
+**Secure.** NetBird isolates every machine and device by applying granular access policies, while allowing you to manage them intuitively from a single place.
 
 **Key features:**
 
