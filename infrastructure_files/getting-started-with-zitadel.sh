@@ -381,12 +381,12 @@ init_zitadel() {
 check_nb_domain() {
   DOMAIN=$1
   if [ "$DOMAIN-x" == "-x" ]; then
-    echo "Domain cannot be empty"
+    echo "Domain cannot be empty" > /dev/stderr
     return 1
   fi
 
   if [ "$DOMAIN" == "netbird.example.com" ]; then
-    echo "Domain cannot be netbird.example.com"
+    echo "Domain cannot be netbird.example.com" > /dev/stderr
     retrun 1
   fi
   return 0
@@ -394,7 +394,7 @@ check_nb_domain() {
 
 read_nb_domain() {
   READ_NETBIRD_DOMAIN=""
-  echo -n "Enter the domain you want to use for NetBird (e.g. netbird.my-domain.com): "
+  echo -n "Enter the domain you want to use for NetBird (e.g. netbird.my-domain.com): " > /dev/stdout
   read -r READ_NETBIRD_DOMAIN
   if ! check_nb_domain "$READ_NETBIRD_DOMAIN"; then
     read_nb_domain
