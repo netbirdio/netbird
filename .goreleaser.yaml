@@ -378,6 +378,11 @@ uploads:
     username: dev@wiretrustee.com
     method: PUT
 
+checksum:
+  extra_files:
+    - glob: ./infrastructure_files/getting-started-with-zitadel.sh
+    - glob: ./release_files/install.sh
+
 release:
   extra_files:
     - glob: ./infrastructure_files/getting-started-with-zitadel.sh
