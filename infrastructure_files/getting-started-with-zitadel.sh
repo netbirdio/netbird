@@ -135,7 +135,8 @@ create_new_application() {
   APPLICATION_NAME=$3
   BASE_REDIRECT_URL1=$4
   BASE_REDIRECT_URL2=$5
-  ZITADEL_DEV_MODE=$6
+  LOGOUT_URL=$6
+  ZITADEL_DEV_MODE=$7
 
   RESPONSE=$(
     curl -sS -X POST "$INSTANCE_URL/management/v1/projects/$PROJECT_ID/apps/oidc" \
@@ -148,7 +149,7 @@ create_new_application() {
       "'"$BASE_REDIRECT_URL2"'"
     ],
     "postLogoutRedirectUris": [
-       "'"$BASE_REDIRECT_URL1"'"
+       "'"$LOGOUT_URL"'"
     ],
     "RESPONSETypes": [
       "OIDC_RESPONSE_TYPE_CODE"
@@ -339,10 +340,10 @@ init_zitadel() {
 
   # create zitadel spa applications
   echo "Creating new Zitadel SPA Dashboard application"
-  DASHBOARD_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Dashboard" "$BASE_REDIRECT_URL/nb-auth" "$BASE_REDIRECT_URL/nb-silent-auth" "$ZITADEL_DEV_MODE")
+  DASHBOARD_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Dashboard" "$BASE_REDIRECT_URL/nb-auth" "$BASE_REDIRECT_URL/nb-silent-auth" "$BASE_REDIRECT_URL/" "$ZITADEL_DEV_MODE")
 
   echo "Creating new Zitadel SPA Cli application"
-  CLI_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Cli" "http://localhost:53000/" "http://localhost:54000/" "true")
+  CLI_APPLICATION_CLIENT_ID=$(create_new_application "$INSTANCE_URL" "$PAT" "Cli" "http://localhost:53000/" "http://localhost:54000/" "http://localhost:53000/" "true")
 
   MACHINE_USER_ID=$(create_service_user "$INSTANCE_URL" "$PAT")
 
@@ -377,12 +378,35 @@ init_zitadel() {
   export ZITADEL_ADMIN_PASSWORD
 }
 
+check_nb_domain() {
+  DOMAIN=$1
+  if [ "$DOMAIN-x" == "-x" ]; then
+    echo "Domain cannot be empty"
+    return 1
+  fi
+
+  if [ "$DOMAIN" == "netbird.example.com" ]; then
+    echo "Domain cannot be netbird.example.com"
+    retrun 1
+  fi
+  return 0
+}
+
+read_nb_domain() {
+  READ_NETBIRD_DOMAIN=""
+  echo -n "Enter the domain you want to use for NetBird (e.g. netbird.my-domain.com): "
+  read -r READ_NETBIRD_DOMAIN
+  if ! check_nb_domain "$READ_NETBIRD_DOMAIN"; then
+    read_nb_domain
+  fi
+  echo "$READ_NETBIRD_DOMAIN"
+}
+
 initEnvironment() {
   CADDY_SECURE_DOMAIN=""
   ZITADEL_EXTERNALSECURE="false"
   ZITADEL_TLS_MODE="disabled"
   ZITADEL_MASTERKEY="$(openssl rand -base64 32 | head -c 32)"
-  USING_DOMAIN="true"
   NETBIRD_PORT=80
   NETBIRD_HTTP_PROTOCOL="http"
   TURN_USER="self"
@@ -390,24 +414,16 @@ initEnvironment() {
   TURN_MIN_PORT=49152
   TURN_MAX_PORT=65535
 
-  NETBIRD_DOMAIN=$NETBIRD_DOMAIN
-  if [ "$NETBIRD_DOMAIN-x" == "-x" ] ; then
-    echo "NETBIRD_DOMAIN is not set, using the main IP address"
-    NETBIRD_DOMAIN=$(get_main_ip_address)
-    USING_DOMAIN="false"
+  if ! check_nb_domain "$NETBIRD_DOMAIN"; then
+    NETBIRD_DOMAIN=$(read_nb_domain)
   fi
 
-  if [ "$NETBIRD_DOMAIN" == "localhost" ]; then
-    USING_DOMAIN="false"
-  fi
 
-  if [ $USING_DOMAIN == "true" ]; then
-    ZITADEL_EXTERNALSECURE="true"
-    ZITADEL_TLS_MODE="external"
-    NETBIRD_PORT=443
-    CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
-    NETBIRD_HTTP_PROTOCOL="https"
-  fi
+  ZITADEL_EXTERNALSECURE="true"
+  ZITADEL_TLS_MODE="external"
+  NETBIRD_PORT=443
+  CADDY_SECURE_DOMAIN=", $NETBIRD_DOMAIN:$NETBIRD_PORT"
+  NETBIRD_HTTP_PROTOCOL="https"
 
   if [[ "$OSTYPE" == "darwin"* ]]; then
       ZIDATE_TOKEN_EXPIRATION_DATE=$(date -u -v+30M "+%Y-%m-%dT%H:%M:%SZ")
@@ -655,10 +671,11 @@ services:
     command: [
       "--port", "80",
       "--log-file", "console",
-      "--log-level", "debug",
+      "--log-level", "info",
       "--disable-anonymous-metrics=false",
       "--single-account-mode-domain=netbird.selfhosted",
       "--dns-domain=netbird.selfhosted",
+      "--idp-sign-key-refresh-enabled",
     ]
   # Coturn, AKA relay server
   coturn:
@@ -684,12 +701,6 @@ services:
     volumes:
       - ./machinekey:/machinekey
       - netbird_zitadel_certs:/crdb-certs:ro
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/debug/healthz" ]
-      interval: '10s'
-      timeout: '30s'
-      retries: 5
-      start_period: '20s'
   # CockroachDB for zitadel
   crdb:
     restart: 'always'
