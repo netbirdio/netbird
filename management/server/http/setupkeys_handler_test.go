@@ -143,7 +143,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/setup-keys",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"%s\"}", newSetupKey.Name, newSetupKey.Type))),
+				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"%s\",\"expires_in\":86400}", newSetupKey.Name, newSetupKey.Type))),
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
 			expectedSetupKey: toResponseBody(newSetupKey),
