@@ -369,6 +369,8 @@ components:
         expires_in:
           description: Expiration time in seconds
           type: integer
+          minimum: 86400
+          maximum: 31536000
           example: 43200
         revoked:
           description: Setup key revocation status
