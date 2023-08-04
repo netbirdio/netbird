@@ -17,6 +17,7 @@ type notifier struct {
 	listener           Listener
 	currentClientState bool
 	lastNotification   int
+	lastNumberOfPeers  int
 }
 
 func newNotifier() *notifier {
@@ -29,6 +30,7 @@ func (n *notifier) setListener(listener Listener) {
 
 	n.serverStateLock.Lock()
 	n.notifyListener(listener, n.lastNotification)
+	listener.OnPeersListChanged(n.lastNumberOfPeers)
 	n.serverStateLock.Unlock()
 
 	n.listener = listener
@@ -124,6 +126,7 @@ func (n *notifier) calculateState(managementConn, signalConn bool) int {
 }
 
 func (n *notifier) peerListChanged(numOfPeers int) {
+	n.lastNumberOfPeers = numOfPeers
 	n.listenersLock.Lock()
 	defer n.listenersLock.Unlock()
 	if n.listener == nil {
