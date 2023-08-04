@@ -60,6 +60,13 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 
 	expiresIn := time.Duration(req.ExpiresIn) * time.Second
 
+	day := time.Hour * 24
+	year := day * 365
+	if expiresIn < day || expiresIn > year {
+		util.WriteError(status.Errorf(status.InvalidArgument, "expiresIn should be between 1 day and 365 days"), w)
+		return
+	}
+
 	if req.AutoGroups == nil {
 		req.AutoGroups = []string{}
 	}
