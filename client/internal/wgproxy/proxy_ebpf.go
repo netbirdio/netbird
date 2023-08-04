@@ -69,7 +69,7 @@ func (p *WGEBPFProxy) Listen() error {
 	p.conn, err = net.ListenUDP("udp", &addr)
 	if err != nil {
 		cErr := p.Free()
-		if err != nil {
+		if cErr != nil {
 			log.Errorf("failed to close the wgproxy: %s", cErr)
 		}
 		return err
@@ -153,7 +153,9 @@ func (p *WGEBPFProxy) proxyToRemote() {
 			return
 		}
 
+		p.turnConnMutex.Lock()
 		conn, ok := p.turnConnStore[uint16(addr.Port)]
+		p.turnConnMutex.Unlock()
 		if !ok {
 			log.Errorf("turn conn not found by port: %d", addr.Port)
 			continue

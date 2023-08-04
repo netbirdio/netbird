@@ -51,13 +51,17 @@ type iptablesManager struct {
 
 func newIptablesManager(parentCtx context.Context) *iptablesManager {
 	ctx, cancel := context.WithCancel(parentCtx)
-	ipv4Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv4)
-	if !isIptablesClientAvailable(ipv4Client) {
+	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	if err != nil {
+		log.Debugf("failed to initialize iptables for ipv4: %s", err)
+	} else if !isIptablesClientAvailable(ipv4Client) {
 		log.Infof("iptables is missing for ipv4")
 		ipv4Client = nil
 	}
-	ipv6Client, _ := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-	if !isIptablesClientAvailable(ipv6Client) {
+	ipv6Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
+	if err != nil {
+		log.Debugf("failed to initialize iptables for ipv6: %s", err)
+	} else if !isIptablesClientAvailable(ipv6Client) {
 		log.Infof("iptables is missing for ipv6")
 		ipv6Client = nil
 	}
