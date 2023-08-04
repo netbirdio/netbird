@@ -104,6 +104,7 @@ func (p *WGEBPFProxy) CloseConn() error {
 
 // Free resources
 func (p *WGEBPFProxy) Free() error {
+	log.Debugf("free up ebpf wg proxy")
 	var err1, err2, err3 error
 	if p.conn != nil {
 		err1 = p.conn.Close()
@@ -155,9 +156,11 @@ func (p *WGEBPFProxy) proxyToRemote() {
 
 		p.turnConnMutex.Lock()
 		conn, ok := p.turnConnStore[uint16(addr.Port)]
+		size := len(p.turnConnStore)
 		p.turnConnMutex.Unlock()
 		if !ok {
 			log.Errorf("turn conn not found by port: %d", addr.Port)
+			log.Debugf("conn store size: %d", size)
 			continue
 		}
 

@@ -20,6 +20,7 @@ type WGUserSpaceProxy struct {
 
 // NewWGUserSpaceProxy instantiate a user space WireGuard proxy
 func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
+	log.Debugf("instantiate new userspace proxy")
 	p := &WGUserSpaceProxy{
 		localWGListenPort: wgPort,
 	}
@@ -37,6 +38,7 @@ func (p *WGUserSpaceProxy) AddTurnConn(remoteConn net.Conn) (net.Addr, error) {
 		log.Errorf("failed dialing to local Wireguard port %s", err)
 		return nil, err
 	}
+	log.Debugf("add turn conn: %s", remoteConn.RemoteAddr())
 
 	go p.proxyToRemote()
 	go p.proxyToLocal()
