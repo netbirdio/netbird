@@ -371,7 +371,7 @@ components:
           type: integer
           minimum: 86400
           maximum: 31536000
-          example: 43200
+          example: 86400
         revoked:
           description: Setup key revocation status
           type: boolean
