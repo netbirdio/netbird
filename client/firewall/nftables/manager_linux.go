@@ -702,6 +702,11 @@ func (m *Manager) Flush() error {
 	return nil
 }
 
+// AllowNetbird allows netbird interface traffic
+func (m *Manager) AllowNetbird() error {
+	return nil
+}
+
 func (m *Manager) flushWithBackoff() (err error) {
 	backoff := 4
 	backoffTime := 1000 * time.Millisecond

@@ -276,6 +276,11 @@ func (m *Manager) Reset() error {
 	return nil
 }
 
+// AllowNetbird allows netbird interface traffic
+func (m *Manager) AllowNetbird() error {
+	return nil
+}
+
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 
