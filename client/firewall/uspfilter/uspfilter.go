@@ -9,6 +9,7 @@ import (
 	"github.com/google/gopacket/layers"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
+	"inet.af/wf"
 
 	fw "github.com/netbirdio/netbird/client/firewall"
 	"github.com/netbirdio/netbird/iface"
@@ -30,6 +31,10 @@ type Manager struct {
 	incomingRules map[string]RuleSet
 	wgNetwork     *net.IPNet
 	decoders      sync.Pool
+
+	providerID wf.ProviderID
+	sublayerID wf.SublayerID
+	session    *wf.Session
 
 	mutex sync.RWMutex
 }
