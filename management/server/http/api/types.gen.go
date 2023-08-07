@@ -129,6 +129,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
+	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
+
 	// JwtGroupsClaimName Name of the claim from which we extract groups names to add it to account groups.
 	JwtGroupsClaimName *string `json:"jwt_groups_claim_name,omitempty"`
 

@@ -54,6 +54,10 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
+        groups_propagation_enabled:
+          description: Allows propagate the new user auto groups to peers that belongs to the user
+          type: boolean
+          example: true
         jwt_groups_enabled:
           description: Allows extract groups from JWT claim and add it to account groups.
           type: boolean
