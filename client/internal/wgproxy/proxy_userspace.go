@@ -20,6 +20,7 @@ type WGUserSpaceProxy struct {
 
 // NewWGUserSpaceProxy instantiate a user space WireGuard proxy
 func NewWGUserSpaceProxy(wgPort int) *WGUserSpaceProxy {
+	log.Debugf("instantiate new userspace proxy")
 	p := &WGUserSpaceProxy{
 		localWGListenPort: wgPort,
 	}

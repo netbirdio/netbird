@@ -75,7 +75,7 @@ func (l *EBPF) Load(proxyPort, wgPort int) error {
 	return err
 }
 
-// Free free ebpf program
+// Free ebpf program
 func (l *EBPF) Free() error {
 	if l.link != nil {
 		return l.link.Close()
