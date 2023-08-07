@@ -1,9 +1,15 @@
 package uspfilter
 
 import (
-	"golang.org/x/sys/windows"
+	"fmt"
 
+	"golang.org/x/sys/windows"
+	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
 	"inet.af/wf"
+)
+
+const (
+	netbirdTrafficWeight = 12
 )
 
 // AllowNetbird allows netbird interface traffic
@@ -33,18 +39,20 @@ func (m *Manager) AllowNetbird() error {
 }
 
 func (m *Manager) allowNetbird() error {
-	return nil
+	return m.permitWgInterface()
 }
 
-func (m *Manager) permitWt0Interface() error {
-	// TODO: find the interface luid
-	luid := uint64(0)
+func (m *Manager) permitWgInterface() error {
+	luid, err := m.getWgInterfaceLUID()
+	if err != nil {
+		return err
+	}
 
 	conditions := []*wf.Match{
 		{
 			Field: wf.FieldIPLocalInterface,
 			Op:    wf.MatchTypeEqual,
-			Value: luid,
+			Value: uint64(luid),
 		},
 	}
 
@@ -71,12 +79,12 @@ func (m *Manager) addRule(layer wf.LayerID, conditions []*wf.Match) error {
 	}
 
 	r := &wf.Rule{
-		Name:       ruleName(layer),
+		Name:       ruleName(m.wgIface.Name(), layer),
 		ID:         wf.RuleID(id),
 		Provider:   m.providerID,
 		Sublayer:   m.sublayerID,
 		Layer:      layer,
-		Weight:     12, // TODO: verify the traffic weight for netbird
+		Weight:     netbirdTrafficWeight,
 		Conditions: conditions,
 		Action:     wf.ActionPermit,
 	}
@@ -84,16 +92,37 @@ func (m *Manager) addRule(layer wf.LayerID, conditions []*wf.Match) error {
 	return m.session.AddRule(r)
 }
 
-func ruleName(l wf.LayerID) string {
+// getWgInterfaceLUID retrieves the tunnel interface locally unique identifier (LUID)
+// from globally unique identifier (GUID) of the Manager's wireguard interface.
+func (m *Manager) getWgInterfaceLUID() (winipcfg.LUID, error) {
+	guidString, err := m.wgIface.GetInterfaceGUIDString()
+	if err != nil {
+		return 0, err
+	}
+
+	guid, err := windows.GUIDFromString(guidString)
+	if err != nil {
+		return 0, fmt.Errorf("invalid GUID %q: %v", guidString, err)
+	}
+
+	luid, err := winipcfg.LUIDFromGUID(&guid)
+	if err != nil {
+		return luid, fmt.Errorf("no interface with GUID %q: %v", guid, err)
+	}
+
+	return luid, nil
+}
+
+func ruleName(ifaceName string, l wf.LayerID) string {
 	switch l {
 	case wf.LayerALEAuthConnectV4:
-		return "Permit outbound IPv4 traffic on wt0"
+		return fmt.Sprintf("Permit outbound IPv4 traffic on %s", ifaceName)
 	case wf.LayerALEAuthConnectV6:
-		return "Permit outbound IPv6 traffic on wt0"
+		return fmt.Sprintf("Permit outbound IPv6 traffic on %s", ifaceName)
 	case wf.LayerALEAuthRecvAcceptV4:
-		return "Permit inbound IPv4 traffic on wt0"
+		return fmt.Sprintf("Permit inbound IPv4 traffic on %s", ifaceName)
 	case wf.LayerALEAuthRecvAcceptV6:
-		return "Permit inbound IPv6 traffic on wt0"
+		return fmt.Sprintf("Permit inbound IPv6 traffic on %s", ifaceName)
 	}
 	return ""
 }
