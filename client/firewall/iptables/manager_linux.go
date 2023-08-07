@@ -278,6 +278,9 @@ func (m *Manager) Reset() error {
 
 // AllowNetbird allows netbird interface traffic
 func (m *Manager) AllowNetbird() error {
+	// as we work with predefined FILTER table and INPUT chain
+	// jump rule for Netbird chain is part of the firewall
+	// initialization proccess
 	return nil
 }
 
@@ -411,7 +414,7 @@ func (m *Manager) client(ip net.IP) (*iptables.IPTables, error) {
 			return nil, fmt.Errorf("failed to create default drop all in netbird input chain: %w", err)
 		}
 
-		if err := client.AppendUnique("filter", "INPUT", m.inputDefaultRuleSpecs...); err != nil {
+		if err := client.Insert("filter", "INPUT", 1, m.inputDefaultRuleSpecs...); err != nil {
 			return nil, fmt.Errorf("failed to create input chain jump rule: %w", err)
 		}
 

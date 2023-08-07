@@ -828,7 +828,7 @@ func (m *Manager) detectAllowNetbirdRule(existedRules []*nftables.Rule) *nftable
 				if e, ok := rule.Exprs[0].(*expr.Meta); !ok || e.Key != expr.MetaKeyIIFNAME {
 					continue
 				}
-				if e, ok := rule.Exprs[1].(*expr.Cmp); !ok || e.Op != expr.CmpOpNeq || bytes.Compare(e.Data, ifName) != 0 {
+				if e, ok := rule.Exprs[1].(*expr.Cmp); !ok || e.Op != expr.CmpOpEq || !bytes.Equal(e.Data, ifName) {
 					continue
 				}
 				return rule
