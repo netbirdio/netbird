@@ -29,6 +29,8 @@ const (
 
 	// FilterOutputChainName is the name of the chain that is used for filtering outgoing packets
 	FilterOutputChainName = "netbird-acl-output-filter"
+
+	AllowNetbirdInputRuleID = "allow Netbird incoming traffic"
 )
 
 var anyIP = []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -379,7 +381,7 @@ func (m *Manager) chain(
 		if c != nil {
 			return c, nil
 		}
-		return m.createChainIfNotExists(tf, name, hook, priority, cType)
+		return m.createChainIfNotExists(tf, FilterTableName, name, hook, priority, cType)
 	}
 
 	if ip.To4() != nil {
@@ -399,13 +401,20 @@ func (m *Manager) chain(
 }
 
 // table returns the table for the given family of the IP address
-func (m *Manager) table(family nftables.TableFamily) (*nftables.Table, error) {
+func (m *Manager) table(
+	family nftables.TableFamily, tableName string,
+) (*nftables.Table, error) {
+	// we cache access to Netbird ACL table only
+	if tableName != FilterTableName {
+		return m.createTableIfNotExists(nftables.TableFamilyIPv4, tableName)
+	}
+
 	if family == nftables.TableFamilyIPv4 {
 		if m.tableIPv4 != nil {
 			return m.tableIPv4, nil
 		}
 
-		table, err := m.createTableIfNotExists(nftables.TableFamilyIPv4)
+		table, err := m.createTableIfNotExists(nftables.TableFamilyIPv4, tableName)
 		if err != nil {
 			return nil, err
 		}
@@ -417,7 +426,7 @@ func (m *Manager) table(family nftables.TableFamily) (*nftables.Table, error) {
 		return m.tableIPv6, nil
 	}
 
-	table, err := m.createTableIfNotExists(nftables.TableFamilyIPv6)
+	table, err := m.createTableIfNotExists(nftables.TableFamilyIPv6, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -425,19 +434,21 @@ func (m *Manager) table(family nftables.TableFamily) (*nftables.Table, error) {
 	return m.tableIPv6, nil
 }
 
-func (m *Manager) createTableIfNotExists(family nftables.TableFamily) (*nftables.Table, error) {
+func (m *Manager) createTableIfNotExists(
+	family nftables.TableFamily, tableName string,
+) (*nftables.Table, error) {
 	tables, err := m.rConn.ListTablesOfFamily(family)
 	if err != nil {
 		return nil, fmt.Errorf("list of tables: %w", err)
 	}
 
 	for _, t := range tables {
-		if t.Name == FilterTableName {
+		if t.Name == tableName {
 			return t, nil
 		}
 	}
 
-	table := m.rConn.AddTable(&nftables.Table{Name: FilterTableName, Family: nftables.TableFamilyIPv4})
+	table := m.rConn.AddTable(&nftables.Table{Name: tableName, Family: nftables.TableFamilyIPv4})
 	if err := m.rConn.Flush(); err != nil {
 		return nil, err
 	}
@@ -446,12 +457,13 @@ func (m *Manager) createTableIfNotExists(family nftables.TableFamily) (*nftables
 
 func (m *Manager) createChainIfNotExists(
 	family nftables.TableFamily,
+	tableName string,
 	name string,
 	hooknum nftables.ChainHook,
 	priority nftables.ChainPriority,
 	chainType nftables.ChainType,
 ) (*nftables.Chain, error) {
-	table, err := m.table(family)
+	table, err := m.table(family, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +716,40 @@ func (m *Manager) Flush() error {
 
 // AllowNetbird allows netbird interface traffic
 func (m *Manager) AllowNetbird() error {
-	return nil
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	tf := nftables.TableFamilyIPv4
+	if m.wgIface.Address().IP.To4() == nil {
+		tf = nftables.TableFamilyIPv6
+	}
+
+	chain, err := m.createChainIfNotExists(
+		tf,
+		"filter",
+		"INPUT",
+		nftables.ChainHookInput,
+		nftables.ChainPriorityFilter-1,
+		nftables.ChainTypeFilter,
+	)
+	if err != nil {
+		return err
+	}
+
+	rules, err := m.rConn.GetRules(chain.Table, chain)
+	if err != nil {
+		return err
+	}
+
+	if rule := m.detectAllowNetbirdRule(rules); rule != nil {
+		return nil
+	}
+
+	if err := m.applyAllowNetbirdRules(chain); err != nil {
+		log.Errorf("failed to apply allow input netbird rules: %v", err)
+	}
+
+	return m.rConn.Flush()
 }
 
 func (m *Manager) flushWithBackoff() (err error) {
@@ -747,6 +792,49 @@ func (m *Manager) refreshRuleHandles(table *nftables.Table, chain *nftables.Chai
 		}
 	}
 
+	return nil
+}
+
+func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) error {
+	if chain == nil {
+		return fmt.Errorf("chain is not defined")
+	}
+
+	rule := &nftables.Rule{
+		Table: chain.Table,
+		Chain: chain,
+		Exprs: []expr.Any{
+			&expr.Meta{Key: expr.MetaKeyIIFNAME, Register: 1},
+			&expr.Cmp{
+				Op:       expr.CmpOpEq,
+				Register: 1,
+				Data:     ifname(m.wgIface.Name()),
+			},
+			&expr.Verdict{
+				Kind: expr.VerdictAccept,
+			},
+		},
+		UserData: []byte(AllowNetbirdInputRuleID),
+	}
+	_ = m.rConn.InsertRule(rule)
+	return nil
+}
+
+func (m *Manager) detectAllowNetbirdRule(existedRules []*nftables.Rule) *nftables.Rule {
+	ifName := ifname(m.wgIface.Name())
+	for _, rule := range existedRules {
+		if rule.Table.Name == "filter" && rule.Chain.Name == "INPUT" {
+			if len(rule.Exprs) < 4 {
+				if e, ok := rule.Exprs[0].(*expr.Meta); !ok || e.Key != expr.MetaKeyIIFNAME {
+					continue
+				}
+				if e, ok := rule.Exprs[1].(*expr.Cmp); !ok || e.Op != expr.CmpOpNeq || bytes.Compare(e.Data, ifName) != 0 {
+					continue
+				}
+				return rule
+			}
+		}
+	}
 	return nil
 }
 
