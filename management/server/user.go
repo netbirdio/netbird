@@ -260,7 +260,6 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 	am.storeEvent(userID, newUser.Id, accountID, activity.UserInvited, nil)
 
 	return newUser.ToUserInfo(idpUser)
-
 }
 
 // GetUser looks up a user by provided authorization claims.
@@ -600,6 +599,13 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 		}
 	}
 
+	if update.AutoGroups != nil && account.Settings.GroupsPropagationEnabled {
+		removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
+		// need force update all auto groups in any case they will not be dublicated
+		account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
+		account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
+	}
+
 	if err = am.Store.SaveAccount(account); err != nil {
 		return nil, err
 	}
@@ -640,7 +646,6 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 				}
 			}
 		}
-
 	}()
 
 	if !isNil(am.idpManager) && !newUser.IsServiceUser {

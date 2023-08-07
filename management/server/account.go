@@ -139,9 +139,13 @@ type DefaultAccountManager struct {
 type Settings struct {
 	// PeerLoginExpirationEnabled globally enables or disables peer login expiration
 	PeerLoginExpirationEnabled bool
+
 	// PeerLoginExpiration is a setting that indicates when peer login expires.
 	// Applies to all peers that have Peer.LoginExpirationEnabled set to true.
 	PeerLoginExpiration time.Duration
+
+	// GroupsPropagationEnabled allows to propagate auto groups from the user to the peer
+	GroupsPropagationEnabled bool
 
 	// JWTGroupsEnabled allows extract groups from JWT claim, which name defined in the JWTGroupsClaimName
 	// and add it to account groups.
@@ -158,6 +162,7 @@ func (s *Settings) Copy() *Settings {
 		PeerLoginExpiration:        s.PeerLoginExpiration,
 		JWTGroupsEnabled:           s.JWTGroupsEnabled,
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
+		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
 	}
 }
 
@@ -624,26 +629,96 @@ func (a *Account) GetPeer(peerID string) *Peer {
 	return a.Peers[peerID]
 }
 
-// AddJWTGroups to existed groups if they does not exists
-func (a *Account) AddJWTGroups(groups []string) (int, error) {
-	existedGroups := make(map[string]*Group)
-	for _, g := range a.Groups {
-		existedGroups[g.Name] = g
+// AddJWTGroups to account and to user autoassigned groups
+func (a *Account) AddJWTGroups(userID string, groups []string) bool {
+	user, ok := a.Users[userID]
+	if !ok {
+		return false
 	}
 
-	var count int
+	existedGroupsByName := make(map[string]*Group)
+	for _, group := range a.Groups {
+		existedGroupsByName[group.Name] = group
+	}
+
+	autoGroups := make(map[string]struct{})
+	for _, groupID := range user.AutoGroups {
+		autoGroups[groupID] = struct{}{}
+	}
+
+	var modified bool
 	for _, name := range groups {
-		if _, ok := existedGroups[name]; !ok {
-			id := xid.New().String()
-			a.Groups[id] = &Group{
-				ID:     id,
+		group, ok := existedGroupsByName[name]
+		if !ok {
+			group = &Group{
+				ID:     xid.New().String(),
 				Name:   name,
 				Issued: GroupIssuedJWT,
 			}
-			count++
+			a.Groups[group.ID] = group
+			modified = true
+		}
+		if _, ok := autoGroups[group.ID]; !ok {
+			if group.Issued == GroupIssuedJWT {
+				user.AutoGroups = append(user.AutoGroups, group.ID)
+				modified = true
+			}
 		}
 	}
-	return count, nil
+
+	return modified
+}
+
+// UserGroupsAddToPeers adds groups to all peers of user
+func (a *Account) UserGroupsAddToPeers(userID string, groups ...string) {
+	userPeers := make(map[string]struct{})
+	for pid, peer := range a.Peers {
+		if peer.UserID == userID {
+			userPeers[pid] = struct{}{}
+		}
+	}
+
+	for _, gid := range groups {
+		group, ok := a.Groups[gid]
+		if !ok {
+			continue
+		}
+
+		groupPeers := make(map[string]struct{})
+		for _, pid := range group.Peers {
+			groupPeers[pid] = struct{}{}
+		}
+
+		for pid := range userPeers {
+			groupPeers[pid] = struct{}{}
+		}
+
+		group.Peers = group.Peers[:0]
+		for pid := range groupPeers {
+			group.Peers = append(group.Peers, pid)
+		}
+	}
+}
+
+// UserGroupsRemoveFromPeers removes groups from all peers of user
+func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
+	for _, gid := range groups {
+		group, ok := a.Groups[gid]
+		if !ok {
+			continue
+		}
+		update := make([]string, 0, len(group.Peers))
+		for _, pid := range group.Peers {
+			peer, ok := a.Peers[pid]
+			if !ok {
+				continue
+			}
+			if peer.UserID != userID {
+				update = append(update, pid)
+			}
+		}
+		group.Peers = update
+	}
 }
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
@@ -1290,11 +1365,13 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 						log.Errorf("JWT claim %q is not a string: %v", account.Settings.JWTGroupsClaimName, item)
 					}
 				}
-				n, err := account.AddJWTGroups(groups)
-				if err != nil {
-					log.Errorf("failed to add JWT groups: %v", err)
-				}
-				if n > 0 {
+				// if groups were added or modified, save the account
+				if account.AddJWTGroups(claims.UserId, groups) {
+					if account.Settings.GroupsPropagationEnabled {
+						if user, err := account.FindUser(claims.UserId); err == nil {
+							account.UserGroupsAddToPeers(claims.UserId, append(user.AutoGroups, groups...)...)
+						}
+					}
 					if err := am.Store.SaveAccount(account); err != nil {
 						log.Errorf("failed to save account: %v", err)
 					}
