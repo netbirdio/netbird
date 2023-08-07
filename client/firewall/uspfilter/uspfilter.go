@@ -34,11 +34,10 @@ type Manager struct {
 	wgNetwork     *net.IPNet
 	decoders      sync.Pool
 
+	wgIface    IFaceMapper
 	providerID wf.ProviderID
 	sublayerID wf.SublayerID
 	session    *wf.Session
-
-	wgIface IFaceMapper
 
 	mutex sync.RWMutex
 }
