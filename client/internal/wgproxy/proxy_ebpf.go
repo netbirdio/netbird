@@ -104,6 +104,7 @@ func (p *WGEBPFProxy) CloseConn() error {
 
 // Free resources
 func (p *WGEBPFProxy) Free() error {
+	log.Debugf("free up ebpf wg proxy")
 	var err1, err2, err3 error
 	if p.conn != nil {
 		err1 = p.conn.Close()
