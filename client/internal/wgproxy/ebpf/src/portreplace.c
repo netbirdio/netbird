@@ -15,7 +15,7 @@
 const __u32 map_key_proxy_port = 0;
 const __u32 map_key_wg_port = 1;
 
-struct bpf_map_def SEC("maps") xdp_port_map = {
+struct bpf_map_def SEC("maps") nb_wg_proxy_settings_map = {
 	.type = BPF_MAP_TYPE_ARRAY,
 	.key_size = sizeof(__u32),
 	.value_size = sizeof(__u16),
@@ -27,14 +27,14 @@ __u16 wg_port = 0;
 
 bool read_port_settings() {
     __u16 *value;
-    value = bpf_map_lookup_elem(&xdp_port_map, &map_key_proxy_port);
+    value = bpf_map_lookup_elem(&nb_wg_proxy_settings_map, &map_key_proxy_port);
     if(!value) {
         return false;
     }
 
     proxy_port = *value;
 
-    value = bpf_map_lookup_elem(&xdp_port_map, &map_key_wg_port);
+    value = bpf_map_lookup_elem(&nb_wg_proxy_settings_map, &map_key_wg_port);
     if(!value) {
         return false;
     }
@@ -44,7 +44,7 @@ bool read_port_settings() {
 }
 
 SEC("xdp")
-int xdp_prog_func(struct xdp_md *ctx) {
+int nb_wg_proxy(struct xdp_md *ctx) {
     if(proxy_port == 0 || wg_port == 0) {
         if(!read_port_settings()){
             return XDP_PASS;
