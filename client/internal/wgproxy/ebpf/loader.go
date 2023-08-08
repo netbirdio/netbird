@@ -50,22 +50,22 @@ func (l *EBPF) Load(proxyPort, wgPort int) error {
 		_ = objs.Close()
 	}()
 
-	err = objs.XdpPortMap.Put(mapKeyProxyPort, uint16(proxyPort))
+	err = objs.NbWgProxySettingsMap.Put(mapKeyProxyPort, uint16(proxyPort))
 	if err != nil {
 		return err
 	}
 
-	err = objs.XdpPortMap.Put(mapKeyWgPort, uint16(wgPort))
+	err = objs.NbWgProxySettingsMap.Put(mapKeyWgPort, uint16(wgPort))
 	if err != nil {
 		return err
 	}
 
 	defer func() {
-		_ = objs.XdpPortMap.Close()
+		_ = objs.NbWgProxySettingsMap.Close()
 	}()
 
 	l.link, err = link.AttachXDP(link.XDPOptions{
-		Program:   objs.XdpProgFunc,
+		Program:   objs.NbWgProxy,
 		Interface: ifce.Index,
 	})
 	if err != nil {
