@@ -1,15 +1,16 @@
 package server
 
 import (
-	"fmt"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/netbirdio/netbird/route"
 	log "github.com/sirupsen/logrus"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -22,7 +23,7 @@ type SqliteStore struct {
 	db             *gorm.DB
 	storeFile      string
 	accountLocks   sync.Map
-	InstallationPK int
+	installationPK int
 }
 
 type installation struct {
@@ -30,21 +31,12 @@ type installation struct {
 	InstallationIDValue string
 }
 
-type accountIndex struct {
-	ID          string `gorm:"primaryKey"`
-	Type        string `gorm:"primaryKey"`
-	SecondaryID string
-	AccountID   string  `gorm:"index"`
-	Account     Account `gorm:"foreignKey:account_id;references:id"`
-}
-
 // NewSqliteStore restores a store from the file located in the datadir
 func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore, error) {
 	file := filepath.Join(dataDir, "store.db?cache=shared")
 	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
-		Logger:                 logger.Default.LogMode(logger.Silent),
-		SkipDefaultTransaction: true,
-		PrepareStmt:            true,
+		Logger:      logger.Default.LogMode(logger.Silent),
+		PrepareStmt: true,
 	})
 	if err != nil {
 		return nil, err
@@ -56,58 +48,19 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	}
 	sql.SetMaxOpenConns(runtime.NumCPU()) // TODO: make it configurable
 
-	err = db.AutoMigrate(&Account{})
+	err = db.AutoMigrate(
+		&SetupKey{}, &Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
+		&Account{}, &Policy{}, &PolicyRule{}, &route.Route{}, &nbdns.NameServerGroup{},
+		&installation{},
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	err = db.AutoMigrate(&accountIndex{})
-	if err != nil {
-		return nil, err
-	}
-
-	err = db.AutoMigrate(&installation{})
-	if err != nil {
-		return nil, err
-	}
-
-	for _, name := range []string{"account_indices_add", "account_indices_update", "account_indices_delete"} {
-		db.Exec("DROP TRIGGER IF EXISTS " + name)
-	}
-
-	indicesStatements := `
-	DELETE FROM account_indices where account_id = new.id;
-
-	INSERT INTO account_indices(account_id, type, id) SELECT new.id, 'user-id', j.key from json_each(new.users) as j
-		WHERE true ON CONFLICT(id, type) DO UPDATE SET account_id=excluded.account_id, type=excluded.type, id=excluded.id, secondary_id=excluded.secondary_id;
-	INSERT INTO account_indices(account_id, type, id) SELECT new.id, 'peer-id', j.key from json_each(new.peers) as j
-		WHERE true ON CONFLICT(id, type) DO UPDATE SET account_id=excluded.account_id, type=excluded.type, id=excluded.id, secondary_id=excluded.secondary_id;
-	INSERT INTO account_indices(account_id, type, id) SELECT new.id, 'setup-key', upper(j.key) from json_each(new.setup_keys) as j
-		WHERE true ON CONFLICT(id, type) DO UPDATE SET account_id=excluded.account_id, type=excluded.type, id=excluded.id, secondary_id=excluded.secondary_id;
-	INSERT INTO account_indices(account_id, type, id) SELECT new.id, 'peer-key', json_extract(j.value, '$.Key') from json_each(new.peers) as j
-		WHERE true ON CONFLICT(id, type) DO UPDATE SET account_id=excluded.account_id, type=excluded.type, id=excluded.id, secondary_id=excluded.secondary_id;
-
-	INSERT INTO account_indices(account_id, type, id, secondary_id) SELECT new.id, 'token-id', json_extract(j.value, '$.ID'), k
-		FROM (SELECT json_extract(u.value, '$.PATs') pats, t.id, u.key k 
-				FROM accounts t, json_each(t.users) u) t, json_each(t.pats) j
-		WHERE true ON CONFLICT(id, type) DO UPDATE SET account_id=excluded.account_id, type=excluded.type, id=excluded.id, secondary_id=excluded.secondary_id;
-
-	INSERT INTO account_indices(account_id, type, id, secondary_id) 
-		SELECT new.id, 'hashed-token', json_extract(j.value, '$.HashedToken'), json_extract(j.value, '$.ID')
-		FROM (SELECT json_extract(u.value, '$.PATs') pats, t.id 
-				FROM accounts t, json_each(t.users) u) t, json_each(t.pats) j
-		WHERE true ON CONFLICT(id, type) DO UPDATE SET account_id=excluded.account_id, type=excluded.type, id=excluded.id, secondary_id=excluded.secondary_id;
-	`
-	db.Exec(fmt.Sprintf("CREATE TRIGGER account_indices_add AFTER INSERT ON accounts BEGIN %s END", indicesStatements))
-	db.Exec(fmt.Sprintf("CREATE TRIGGER account_indices_update AFTER UPDATE ON accounts BEGIN %s END", indicesStatements))
-	db.Exec(`CREATE TRIGGER account_indices_delete AFTER DELETE ON accounts BEGIN
-		DELETE FROM account_indices where account_id = old.id;
-  	END;`)
-
-	return &SqliteStore{db: db, storeFile: file, InstallationPK: 1}, nil
+	return &SqliteStore{db: db, storeFile: file, installationPK: 1}, nil
 }
 
-// NewSqliteStoreFromFileStor restores a store from FileStore and stored SQLite DB in the file located in datadir
+// NewSqliteStoreFromFileStor restores a store from FileStore and stores SQLite DB in the file located in datadir
 func NewSqliteStoreFromFileStore(filestore *FileStore, dataDir string, metrics telemetry.AppMetrics) (*SqliteStore, error) {
 	store, err := NewSqliteStore(dataDir, metrics)
 	if err != nil {
@@ -122,21 +75,6 @@ func NewSqliteStoreFromFileStore(filestore *FileStore, dataDir string, metrics t
 	}
 
 	return store, nil
-}
-
-// lookupIndex fetched account though lookup table using provided index
-func (s *SqliteStore) lookupIndex(t, id string) (*Account, error) {
-	var account accountIndex
-	result := s.db.Preload(clause.Associations).First(&account, "type = ? and id = ?", t, id)
-	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
-	}
-
-	if account.Account.Id == "" {
-		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
-	}
-
-	return &account.Account, nil
 }
 
 // AcquireGlobalLock is noop in SqliteStore
@@ -161,25 +99,74 @@ func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
 }
 
 func (s *SqliteStore) SaveAccount(account *Account) error {
-	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(account)
+	for id, key := range account.SetupKeys {
+		key.Id = id
+		account.SetupKeysG = append(account.SetupKeysG, *key)
+	}
 
-	return result.Error
+	for id, peer := range account.Peers {
+		peer.ID = id
+		account.PeersG = append(account.PeersG, *peer)
+	}
+
+	for id, user := range account.Users {
+		user.Id = id
+		for id, pat := range user.PATs {
+			pat.ID = id
+			user.PATsG = append(user.PATsG, *pat)
+		}
+		account.UsersG = append(account.UsersG, *user)
+	}
+
+	for id, group := range account.Groups {
+		group.ID = id
+		account.GroupsG = append(account.GroupsG, *group)
+	}
+
+	for id, rule := range account.Rules {
+		rule.ID = id
+		account.RulesG = append(account.RulesG, *rule)
+	}
+
+	for id, route := range account.Routes {
+		route.ID = id
+		account.RoutesG = append(account.RoutesG, *route)
+	}
+
+	for id, ns := range account.NameServerGroups {
+		ns.ID = id
+		account.NameServerGroupsG = append(account.NameServerGroupsG, *ns)
+	}
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Select(clause.Associations).Delete(account)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.
+			Session(&gorm.Session{FullSaveAssociations: true}).
+			Clauses(clause.OnConflict{UpdateAll: true}).Create(account)
+		if result.Error != nil {
+			return result.Error
+		}
+		return nil
+	})
+
+	return err
 }
 
 func (s *SqliteStore) SaveInstallationID(ID string) error {
 	installation := installation{InstallationIDValue: ID}
-	installation.ID = uint(s.InstallationPK)
+	installation.ID = uint(s.installationPK)
 
-	result := s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&installation)
-
-	return result.Error
+	return s.db.Clauses(clause.OnConflict{UpdateAll: true}).Create(&installation).Error
 }
 
 func (s *SqliteStore) GetInstallationID() string {
 	var installation installation
 
-	result := s.db.First(&installation, "id = ?", s.InstallationPK)
-	if result.Error != nil {
+	if result := s.db.First(&installation, "id = ?", s.installationPK); result.Error != nil {
 		return ""
 	}
 
@@ -187,19 +174,16 @@ func (s *SqliteStore) GetInstallationID() string {
 }
 
 func (s *SqliteStore) SavePeerStatus(accountID, peerID string, peerStatus PeerStatus) error {
-	account, err := s.GetAccount(accountID)
-	if err != nil {
-		return err
-	}
+	var peer Peer
 
-	peer := account.Peers[peerID]
-	if peer == nil {
+	result := s.db.First(&peer, "account_id = ? and id = ?", accountID, peerID)
+	if result.Error != nil {
 		return status.Errorf(status.NotFound, "peer %s not found", peerID)
 	}
 
 	peer.Status = &peerStatus
 
-	return s.SaveAccount(account)
+	return s.db.Save(peer).Error
 }
 
 // DeleteHashedPAT2TokenIDIndex is noop in Sqlite
@@ -220,37 +204,57 @@ func (s *SqliteStore) GetAccountByPrivateDomain(domain string) (*Account, error)
 		return nil, status.Errorf(status.NotFound, "account not found: provided domain is not registered or is not private")
 	}
 
-	return &account, nil
+	// TODO:  rework to not call GetAccount
+	return s.GetAccount(account.Id)
 }
 
 func (s *SqliteStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
-	return s.lookupIndex("setup-key", strings.ToUpper(setupKey))
-}
-
-func (s *SqliteStore) GetTokenIDByHashedToken(token string) (string, error) {
-	var account accountIndex
-	result := s.db.First(&account, "type = ? and id = ?", "hashed-token", token)
+	var key SetupKey
+	result := s.db.Select("account_id").First(&key, "key = ?", setupKey)
 	if result.Error != nil {
-		return "", status.Errorf(status.NotFound, "tokenID not found: provided token doesn't exists")
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
 
-	return account.SecondaryID, nil
+	if key.AccountID == "" {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	return s.GetAccount(key.AccountID)
+}
+
+func (s *SqliteStore) GetTokenIDByHashedToken(hashedToken string) (string, error) {
+	var token PersonalAccessToken
+	result := s.db.First(&token, "hashed_token = ?", hashedToken)
+	if result.Error != nil {
+		return "", status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	return token.ID, nil
 }
 
 func (s *SqliteStore) GetUserByTokenID(tokenID string) (*User, error) {
-	var account accountIndex
-	result := s.db.Preload(clause.Associations).First(&account, "id = ?", tokenID)
+	var token PersonalAccessToken
+	result := s.db.First(&token, "id = ?", tokenID)
 	if result.Error != nil {
-		return nil, status.Errorf(status.NotFound, "user not found: provided token id is not found")
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
 
-	for _, user := range account.Account.Users {
-		if user.Id == account.SecondaryID {
-			return user, nil
-		}
+	if token.UserID == "" {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
 
-	return nil, status.Errorf(status.NotFound, "user not found: provided token id is not found")
+	var user User
+	result = s.db.Preload("PATsG").First(&user, "id = ?", token.UserID)
+	if result.Error != nil {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	user.PATs = make(map[string]*PersonalAccessToken, len(user.PATsG))
+	for _, pat := range user.PATsG {
+		user.PATs[pat.ID] = &pat
+	}
+
+	return &user, nil
 }
 
 func (s *SqliteStore) GetAllAccounts() (all []*Account) {
@@ -261,7 +265,7 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 	}
 
 	for _, account := range accounts {
-		all = append(all, account.Copy())
+		all = append(all, account.Copy()) // TODO: copy and delete gorm models
 	}
 
 	return all
@@ -270,24 +274,112 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	var account Account
 
-	result := s.db.First(&account, "id = ?", accountID)
+	result := s.db.Model(&account).
+		Preload("SetupKeysG").
+		Preload("PeersG").
+		Preload("UsersG").
+		Preload("UsersG.PATsG").
+		Preload("GroupsG").
+		Preload("RulesG").
+		Preload("Policies").
+		Preload("Policies.Rules").
+		Preload("RoutesG").
+		Preload("NameServerGroupsG").
+		First(&account, "aid = ?", accountID)
 	if result.Error != nil {
 		return nil, status.Errorf(status.NotFound, "account not found")
 	}
+
+	account.SetupKeys = make(map[string]*SetupKey, len(account.SetupKeysG))
+	for _, key := range account.SetupKeysG {
+		account.SetupKeys[key.Id] = key.Copy()
+	}
+	account.SetupKeysG = nil
+
+	account.Peers = make(map[string]*Peer, len(account.PeersG))
+	for _, peer := range account.PeersG {
+		account.Peers[peer.ID] = peer.Copy()
+	}
+	account.PeersG = nil
+
+	account.Users = make(map[string]*User, len(account.UsersG))
+	for _, user := range account.UsersG {
+		user.PATs = make(map[string]*PersonalAccessToken, len(user.PATs))
+		for _, pat := range user.PATsG {
+			user.PATs[pat.ID] = &pat
+		}
+		account.Users[user.Id] = user.Copy()
+	}
+	account.UsersG = nil
+
+	account.Groups = make(map[string]*Group, len(account.GroupsG))
+	for _, group := range account.GroupsG {
+		account.Groups[group.ID] = group.Copy()
+	}
+	account.GroupsG = nil
+
+	account.Rules = make(map[string]*Rule, len(account.RulesG))
+	for _, rule := range account.RulesG {
+		account.Rules[rule.ID] = rule.Copy()
+	}
+	account.RulesG = nil
+
+	account.Routes = make(map[string]*route.Route, len(account.RoutesG))
+	for _, route := range account.RoutesG {
+		account.Routes[route.ID] = route.Copy()
+	}
+	account.RoutesG = nil
+
+	account.NameServerGroups = make(map[string]*nbdns.NameServerGroup, len(account.NameServerGroupsG))
+	for _, ns := range account.NameServerGroupsG {
+		account.NameServerGroups[ns.ID] = ns.Copy()
+	}
+	account.NameServerGroupsG = nil
 
 	return &account, nil
 }
 
 func (s *SqliteStore) GetAccountByUser(userID string) (*Account, error) {
-	return s.lookupIndex("user-id", userID)
+	var user User
+	result := s.db.Select("account_id").First(&user, "id = ?", userID)
+	if result.Error != nil {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	if user.AccountID == "" {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	return s.GetAccount(user.AccountID)
 }
 
 func (s *SqliteStore) GetAccountByPeerID(peerID string) (*Account, error) {
-	return s.lookupIndex("peer-id", peerID)
+	var peer Peer
+	result := s.db.Select("account_id").First(&peer, "id = ?", peerID)
+	if result.Error != nil {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	if peer.AccountID == "" {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	return s.GetAccount(peer.AccountID)
 }
 
 func (s *SqliteStore) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
-	return s.lookupIndex("peer-key", peerKey)
+	var peer Peer
+
+	result := s.db.Select("account_id").First(&peer, "key = ?", peerKey)
+	if result.Error != nil {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	if peer.AccountID == "" {
+		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
+	}
+
+	return s.GetAccount(peer.AccountID)
 }
 
 // Close is noop in Sqlite

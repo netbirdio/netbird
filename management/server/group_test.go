@@ -80,6 +80,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 
 	groupForRoute := &Group{
 		"grp-for-route",
+		"account-id",
 		"Group for route",
 		GroupIssuedAPI,
 		make([]string, 0),
@@ -87,6 +88,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 
 	groupForNameServerGroups := &Group{
 		"grp-for-name-server-grp",
+		"account-id",
 		"Group for name server groups",
 		GroupIssuedAPI,
 		make([]string, 0),
@@ -94,6 +96,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 
 	groupForPolicies := &Group{
 		"grp-for-policies",
+		"account-id",
 		"Group for policies",
 		GroupIssuedAPI,
 		make([]string, 0),
@@ -101,6 +104,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 
 	groupForSetupKeys := &Group{
 		"grp-for-keys",
+		"account-id",
 		"Group for setup keys",
 		GroupIssuedAPI,
 		make([]string, 0),
@@ -108,6 +112,7 @@ func initTestGroupAccount(am *DefaultAccountManager) (*Account, error) {
 
 	groupForUsers := &Group{
 		"grp-for-users",
+		"account-id",
 		"Group for users",
 		GroupIssuedAPI,
 		make([]string, 0),

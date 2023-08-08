@@ -476,7 +476,7 @@ func TestDefaultAccountManager_GetGroupsFromTheToken(t *testing.T) {
 	// as initAccount was created without account id we have to take the id after account initialization
 	// that happens inside the GetAccountByUserOrAccountID where the id is getting generated
 	// it is important to set the id as it help to avoid creating additional account with empty Id and re-pointing indices to it
-	initAccount.Id = acc.Id
+	initAccount = acc
 
 	claims := jwtclaims.AuthorizationClaims{
 		AccountId:      accountID, // is empty as it is based on accountID right after initialization of initAccount

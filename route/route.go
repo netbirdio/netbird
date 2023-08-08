@@ -65,8 +65,10 @@ func ToPrefixType(prefix string) NetworkType {
 
 // Route represents a route
 type Route struct {
-	ID          string
-	Network     netip.Prefix
+	ID string `gorm:"primaryKey"`
+	// AccountID is a reference to Account that this object belongs
+	AccountID   string       `gorm:"index"`
+	Network     netip.Prefix `gorm:"serializer:gob"`
 	NetID       string
 	Description string
 	Peer        string
@@ -75,7 +77,7 @@ type Route struct {
 	Masquerade  bool
 	Metric      int
 	Enabled     bool
-	Groups      []string
+	Groups      []string `gorm:"serializer:json"`
 }
 
 // EventMeta returns activity event meta related to the route

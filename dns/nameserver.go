@@ -50,19 +50,21 @@ func ToNameServerType(typeString string) NameServerType {
 // NameServerGroup group of nameservers and with group ids
 type NameServerGroup struct {
 	// ID identifier of group
-	ID string
+	ID string `gorm:"primaryKey"`
+	// AccountID is a reference to Account that this object belongs
+	AccountID string `gorm:"index"`
 	// Name group name
 	Name string
 	// Description group description
 	Description string
 	// NameServers list of nameservers
-	NameServers []NameServer
+	NameServers []NameServer `gorm:"serializer:json"`
 	// Groups list of peer group IDs to distribute the nameservers information
-	Groups []string
+	Groups []string `gorm:"serializer:json"`
 	// Primary indicates that the nameserver group is the primary resolver for any dns query
 	Primary bool
 	// Domains indicate the dns query domains to use with this nameserver group
-	Domains []string
+	Domains []string `gorm:"serializer:json"`
 	// Enabled group status
 	Enabled bool
 }
