@@ -19,6 +19,8 @@ const layerTypeAll = 0
 // IFaceMapper defines subset methods of interface required for manager
 type IFaceMapper interface {
 	SetFilter(iface.PacketFilter) error
+	Name() string
+	GetInterfaceGUIDString() (string, error)
 }
 
 // RuleSet is a set of rules grouped by a string key
@@ -30,6 +32,7 @@ type Manager struct {
 	incomingRules map[string]RuleSet
 	wgNetwork     *net.IPNet
 	decoders      sync.Pool
+	wgIface       IFaceMapper
 
 	mutex sync.RWMutex
 }
@@ -65,6 +68,7 @@ func Create(iface IFaceMapper) (*Manager, error) {
 		},
 		outgoingRules: make(map[string]RuleSet),
 		incomingRules: make(map[string]RuleSet),
+		wgIface:       iface,
 	}
 
 	if err := iface.SetFilter(m); err != nil {

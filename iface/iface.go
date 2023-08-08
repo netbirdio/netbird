@@ -143,3 +143,8 @@ func (w *WGIface) GetDevice() *DeviceWrapper {
 
 	return w.tun.wrapper
 }
+
+// GetInterfaceGUIDString returns an interface GUID.
+func (w *WGIface) GetInterfaceGUIDString() (string, error) {
+	return "", nil
+}
