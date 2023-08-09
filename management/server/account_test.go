@@ -1400,6 +1400,10 @@ func hasNilField(x interface{}) error {
 	rv := reflect.ValueOf(x)
 	rv = rv.Elem()
 	for i := 0; i < rv.NumField(); i++ {
+		// skip gorm internal fields
+		if json, ok := rv.Type().Field(i).Tag.Lookup("json"); ok && json == "-" {
+			continue
+		}
 		if f := rv.Field(i); f.IsValid() {
 			k := f.Kind()
 			switch k {

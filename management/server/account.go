@@ -186,9 +186,9 @@ type Account struct {
 	RulesG                 []Rule                            `json:"-" gorm:"foreignKey:AccountID;references:aid"`
 	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:aid"`
 	Routes                 map[string]*route.Route           `gorm:"-"`
-	RoutesG                []route.Route                     `gorm:"foreignKey:AccountID;references:aid"`
+	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:aid"`
 	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
-	NameServerGroupsG      []nbdns.NameServerGroup           `gorm:"foreignKey:AccountID;references:aid"`
+	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:aid"`
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`

@@ -127,6 +127,7 @@ func (u *User) Copy() *User {
 	}
 	return &User{
 		Id:              u.Id,
+		AccountID:       u.AccountID,
 		Role:            u.Role,
 		AutoGroups:      autoGroups,
 		IsServiceUser:   u.IsServiceUser,

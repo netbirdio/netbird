@@ -99,8 +99,7 @@ func (s *SqliteStore) AcquireAccountLock(accountID string) (unlock func()) {
 }
 
 func (s *SqliteStore) SaveAccount(account *Account) error {
-	for id, key := range account.SetupKeys {
-		key.Id = id
+	for _, key := range account.SetupKeys {
 		account.SetupKeysG = append(account.SetupKeysG, *key)
 	}
 
@@ -139,7 +138,17 @@ func (s *SqliteStore) SaveAccount(account *Account) error {
 	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Select(clause.Associations).Delete(account)
+		result := tx.Select(clause.Associations).Delete(account.Policies, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account.UsersG, "account_id = ?", account.Id)
+		if result.Error != nil {
+			return result.Error
+		}
+
+		result = tx.Select(clause.Associations).Delete(account)
 		if result.Error != nil {
 			return result.Error
 		}
@@ -210,7 +219,7 @@ func (s *SqliteStore) GetAccountByPrivateDomain(domain string) (*Account, error)
 
 func (s *SqliteStore) GetAccountBySetupKey(setupKey string) (*Account, error) {
 	var key SetupKey
-	result := s.db.Select("account_id").First(&key, "key = ?", setupKey)
+	result := s.db.Select("account_id").First(&key, "key = ?", strings.ToUpper(setupKey))
 	if result.Error != nil {
 		return nil, status.Errorf(status.NotFound, "account not found: index lookup failed")
 	}
@@ -265,7 +274,10 @@ func (s *SqliteStore) GetAllAccounts() (all []*Account) {
 	}
 
 	for _, account := range accounts {
-		all = append(all, account.Copy()) // TODO: copy and delete gorm models
+		//all = append(all, account.Copy()) // TODO: copy and delete gorm models
+		if acc, err := s.GetAccount(account.Id); err == nil {
+			all = append(all, acc)
+		}
 	}
 
 	return all
@@ -292,7 +304,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 
 	account.SetupKeys = make(map[string]*SetupKey, len(account.SetupKeysG))
 	for _, key := range account.SetupKeysG {
-		account.SetupKeys[key.Id] = key.Copy()
+		account.SetupKeys[key.Key] = key.Copy()
 	}
 	account.SetupKeysG = nil
 
