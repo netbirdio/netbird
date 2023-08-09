@@ -108,6 +108,10 @@ func (p *Peer) AddedWithSSOLogin() bool {
 
 // Copy copies Peer object
 func (p *Peer) Copy() *Peer {
+	peerStatus := p.Status
+	if peerStatus != nil {
+		peerStatus = p.Status.Copy()
+	}
 	return &Peer{
 		ID:                     p.ID,
 		Key:                    p.Key,
@@ -115,11 +119,11 @@ func (p *Peer) Copy() *Peer {
 		IP:                     p.IP,
 		Meta:                   p.Meta,
 		Name:                   p.Name,
-		Status:                 p.Status,
+		DNSLabel:               p.DNSLabel,
+		Status:                 peerStatus,
 		UserID:                 p.UserID,
 		SSHKey:                 p.SSHKey,
 		SSHEnabled:             p.SSHEnabled,
-		DNSLabel:               p.DNSLabel,
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
 	}

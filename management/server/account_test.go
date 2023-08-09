@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net"
 	"reflect"
@@ -1348,6 +1349,11 @@ func TestAccount_Copy(t *testing.T) {
 		Peers: map[string]*Peer{
 			"peer1": {
 				Key: "key1",
+				Status: &PeerStatus{
+					LastSeen:     time.Now(),
+					Connected:    true,
+					LoginExpired: false,
+				},
 			},
 		},
 		Users: map[string]*User{
@@ -1370,28 +1376,36 @@ func TestAccount_Copy(t *testing.T) {
 		},
 		Groups: map[string]*Group{
 			"group1": {
-				ID: "group1",
+				ID:    "group1",
+				Peers: []string{"peer1"},
 			},
 		},
 		Rules: map[string]*Rule{
 			"rule1": {
-				ID: "rule1",
+				ID:          "rule1",
+				Destination: []string{},
+				Source:      []string{},
 			},
 		},
 		Policies: []*Policy{
 			{
 				ID:      "policy1",
 				Enabled: true,
+				Rules:   make([]*PolicyRule, 0),
 			},
 		},
 		Routes: map[string]*route.Route{
 			"route1": {
-				ID: "route1",
+				ID:     "route1",
+				Groups: []string{"group1"},
 			},
 		},
 		NameServerGroups: map[string]*nbdns.NameServerGroup{
 			"nsGroup1": {
-				ID: "nsGroup1",
+				ID:          "nsGroup1",
+				Domains:     []string{},
+				Groups:      []string{},
+				NameServers: []nbdns.NameServer{},
 			},
 		},
 		DNSSettings: &DNSSettings{DisabledManagementGroups: []string{}},
@@ -1402,10 +1416,20 @@ func TestAccount_Copy(t *testing.T) {
 		t.Fatal(err)
 	}
 	accountCopy := account.Copy()
-	assert.Equal(t, account, accountCopy, "account copy returned a different value than expected")
+	accBytes, err := json.Marshal(account)
+	if err != nil {
+		t.Fatal(err)
+	}
+	account.Peers["peer1"].Status.Connected = false // we change original object to confirm that copy wont change
+	accCopyBytes, err := json.Marshal(accountCopy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, string(accBytes), string(accCopyBytes), "account copy returned a different value than expected")
 }
 
 // hasNilField validates pointers, maps and slices if they are nil
+// TODO: make it check nested fields too
 func hasNilField(x interface{}) error {
 	rv := reflect.ValueOf(x)
 	rv = rv.Elem()

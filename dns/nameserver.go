@@ -130,16 +130,22 @@ func ParseNameServerURL(nsURL string) (NameServer, error) {
 
 // Copy copies a nameserver group object
 func (g *NameServerGroup) Copy() *NameServerGroup {
-	return &NameServerGroup{
+	nsGroup := &NameServerGroup{
 		ID:          g.ID,
 		Name:        g.Name,
 		Description: g.Description,
-		NameServers: g.NameServers,
-		Groups:      g.Groups,
+		NameServers: make([]NameServer, len(g.NameServers)),
+		Groups:      make([]string, len(g.Groups)),
 		Enabled:     g.Enabled,
 		Primary:     g.Primary,
-		Domains:     g.Domains,
+		Domains:     make([]string, len(g.Domains)),
 	}
+
+	copy(nsGroup.NameServers, g.NameServers)
+	copy(nsGroup.Groups, g.Groups)
+	copy(nsGroup.Domains, g.Domains)
+
+	return nsGroup
 }
 
 // IsEqual compares one nameserver group with the other
