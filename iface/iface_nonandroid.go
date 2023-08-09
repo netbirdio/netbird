@@ -1,4 +1,5 @@
-//go:build !android
+//go:build !android && !ios
+// +build !android,!ios
 
 package iface
 
@@ -27,8 +28,13 @@ func NewWGIFace(iFaceName string, address string, mtu int, tunAdapter TunAdapter
 	return wgIFace, nil
 }
 
-// CreateOnMobile this function make sense on mobile only
-func (w *WGIface) CreateOnMobile(mIFaceArgs MobileIFaceArguments) error {
+// CreateOnAndroid this function make sense on mobile only
+func (w *WGIface) CreateOnAndroid(mIFaceArgs MobileIFaceArguments) error {
+	return fmt.Errorf("this function has not implemented on non mobile")
+}
+
+// CreateOniOS this function make sense on mobile only
+func (w *WGIface) CreateOniOS(tunFd int32) error {
 	return fmt.Errorf("this function has not implemented on non mobile")
 }
 

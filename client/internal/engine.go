@@ -217,13 +217,16 @@ func (e *Engine) Start() error {
 	e.routeManager = routemanager.NewManager(e.ctx, e.config.WgPrivateKey.PublicKey().String(), e.wgInterface, e.statusRecorder, routes)
 	e.routeManager.SetRouteChangeListener(e.mobileDep.RouteListener)
 
-	if runtime.GOOS != "android" {
-		err = e.wgInterface.Create()
-	} else {
-		err = e.wgInterface.CreateOnMobile(iface.MobileIFaceArguments{
+	switch runtime.GOOS {
+	case "android":
+		err = e.wgInterface.CreateOnAndroid(iface.MobileIFaceArguments{
 			Routes: e.routeManager.InitialRouteRange(),
 			Dns:    e.dnsServer.DnsIP(),
 		})
+	case "ios":
+		err = e.wgInterface.CreateOniOS(e.mobileDep.FileDescriptor)
+	default:
+		err = e.wgInterface.Create()
 	}
 	if err != nil {
 		log.Errorf("failed creating tunnel interface %s: [%s]", wgIFaceName, err.Error())
@@ -466,7 +469,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		}
 		// start SSH server if it wasn't running
 		if isNil(e.sshServer) {
-			//nil sshServer means it has not yet been started
+			// nil sshServer means it has not yet been started
 			var err error
 			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
 				fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))

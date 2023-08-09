@@ -1,3 +1,6 @@
+//go:build ios
+// +build ios
+
 package iface
 
 import (
@@ -21,24 +24,24 @@ func NewWGIFace(ifaceName string, address string, mtu int, tunAdapter TunAdapter
 	tun := newTunDevice(wgAddress, mtu, tunAdapter, transportNet)
 	wgIFace.tun = tun
 
-	wgIFace.configurer = newWGConfigurer(tun)
+	wgIFace.configurer = newWGConfigurer(tun.name)
 
 	wgIFace.userspaceBind = !WireGuardModuleIsLoaded()
 
 	return wgIFace, nil
 }
 
-// CreateOnAndroid creates a new Wireguard interface, sets a given IP and brings it up.
-// Will reuse an existing one.
-func (w *WGIface) CreateOnAndroid(mIFaceArgs MobileIFaceArguments) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.tun.Create(mIFaceArgs)
-}
-
 // CreateOniOS creates a new Wireguard interface, sets a given IP and brings it up.
 // Will reuse an existing one.
 func (w *WGIface) CreateOniOS(tunFd int32) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.tun.Create(tunFd)
+}
+
+// CreateOnAndroid creates a new Wireguard interface, sets a given IP and brings it up.
+// Will reuse an existing one.
+func (w *WGIface) CreateOnAndroid(mIFaceArgs MobileIFaceArguments) error {
 	return fmt.Errorf("this function has not implemented on mobile")
 }
 

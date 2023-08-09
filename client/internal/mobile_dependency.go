@@ -14,4 +14,5 @@ type MobileDependency struct {
 	RouteListener    routemanager.RouteListener
 	HostDNSAddresses []string
 	DnsReadyListener dns.ReadyListener
+	FileDescriptor   int32
 }
