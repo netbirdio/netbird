@@ -394,6 +394,10 @@ func (i *iptablesManager) insertRoutingRule(keyFormat, table, chain, jump string
 		ipVersion = ipv6
 	}
 
+	if iptablesClient == nil {
+		return fmt.Errorf("unable to insert iptables routing rules. Iptables client is not initialized")
+	}
+
 	ruleKey := genKey(keyFormat, pair.ID)
 	rule := genRuleSpec(jump, ruleKey, pair.source, pair.destination)
 	existingRule, found := i.rules[ipVersion][ruleKey]
@@ -456,6 +460,10 @@ func (i *iptablesManager) removeRoutingRule(keyFormat, table, chain string, pair
 	if prefix.Addr().Unmap().Is6() {
 		iptablesClient = i.ipv6Client
 		ipVersion = ipv6
+	}
+
+	if iptablesClient == nil {
+		return fmt.Errorf("unable to remove iptables routing rules. Iptables client is not initialized")
 	}
 
 	ruleKey := genKey(keyFormat, pair.ID)
