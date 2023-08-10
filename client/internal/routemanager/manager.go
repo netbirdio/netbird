@@ -27,7 +27,7 @@ type DefaultManager struct {
 	stop           context.CancelFunc
 	mux            sync.Mutex
 	clientNetworks map[string]*clientNetwork
-	serverRouter   *serverRouter
+	serverRouter   serverRouter
 	statusRecorder *peer.Status
 	wgInterface    *iface.WGIface
 	pubKey         string
@@ -40,6 +40,7 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 	if err != nil {
 		log.Errorf("server router is not supported: %s", err)
 	}
+
 	mCTX, cancel := context.WithCancel(ctx)
 	dm := &DefaultManager{
 		ctx:            mCTX,
