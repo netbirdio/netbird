@@ -420,7 +420,8 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			require.Len(t, routeManager.clientNetworks, testCase.clientNetworkWatchersExpected, "client networks size should match")
 
 			if testCase.shouldCheckServerRoutes {
-				require.Len(t, routeManager.serverRouter.routes, testCase.serverRoutesExpected, "server networks size should match")
+				sr := routeManager.serverRouter.(*defaultServerRouter)
+				require.Len(t, sr.routes, testCase.serverRoutesExpected, "server networks size should match")
 			}
 		})
 	}
