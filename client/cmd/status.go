@@ -133,7 +133,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 
 	outputInformationHolder := convertToStatusOutputOverview(resp)
 
-	statusOutputString := ""
+	var statusOutputString string
 	switch {
 	case detailFlag:
 		statusOutputString = parseToFullDetailSummary(outputInformationHolder)

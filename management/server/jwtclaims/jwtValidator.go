@@ -219,7 +219,7 @@ func getPemCert(token *jwt.Token, jwks *Jwks) (string, error) {
 		return generatePemFromJWK(jwks.Keys[k])
 	}
 
-	return "", errors.New("unable to find appropriate key")
+	return cert, errors.New("unable to find appropriate key")
 }
 
 func generatePemFromJWK(jwk JSONWebKey) (string, error) {
