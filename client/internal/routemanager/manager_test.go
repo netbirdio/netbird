@@ -30,7 +30,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 		inputInitRoutes               []*route.Route
 		inputRoutes                   []*route.Route
 		inputSerial                   uint64
-		shouldCheckServerRoutes       bool
 		serverRoutesExpected          int
 		clientNetworkWatchersExpected int
 	}{
@@ -87,7 +86,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				},
 			},
 			inputSerial:                   1,
-			shouldCheckServerRoutes:       runtime.GOOS == "linux",
 			serverRoutesExpected:          2,
 			clientNetworkWatchersExpected: 0,
 		},
@@ -116,7 +114,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				},
 			},
 			inputSerial:                   1,
-			shouldCheckServerRoutes:       runtime.GOOS == "linux",
 			serverRoutesExpected:          1,
 			clientNetworkWatchersExpected: 1,
 		},
@@ -189,7 +186,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				},
 			},
 			inputSerial:                   1,
-			shouldCheckServerRoutes:       runtime.GOOS != "linux",
 			serverRoutesExpected:          0,
 			clientNetworkWatchersExpected: 0,
 		},
@@ -335,7 +331,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			},
 			inputRoutes:                   []*route.Route{},
 			inputSerial:                   1,
-			shouldCheckServerRoutes:       true,
 			serverRoutesExpected:          0,
 			clientNetworkWatchersExpected: 0,
 		},
@@ -384,7 +379,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				},
 			},
 			inputSerial:                   1,
-			shouldCheckServerRoutes:       runtime.GOOS == "linux",
 			serverRoutesExpected:          2,
 			clientNetworkWatchersExpected: 1,
 		},
@@ -419,7 +413,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 
 			require.Len(t, routeManager.clientNetworks, testCase.clientNetworkWatchersExpected, "client networks size should match")
 
-			if testCase.shouldCheckServerRoutes {
+			if runtime.GOOS == "linux" {
 				sr := routeManager.serverRouter.(*defaultServerRouter)
 				require.Len(t, sr.routes, testCase.serverRoutesExpected, "server networks size should match")
 			}
