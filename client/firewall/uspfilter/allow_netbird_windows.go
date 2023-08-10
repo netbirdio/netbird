@@ -1,40 +1,66 @@
 package uspfilter
 
 import (
-	"fmt"
-
-	"golang.org/x/sys/windows"
-	"golang.zx2c4.com/wireguard/windows/tunnel/firewall"
-	"golang.zx2c4.com/wireguard/windows/tunnel/winipcfg"
+	"errors"
+	"os/exec"
+	"strings"
+	"syscall"
 )
+
+const noRulesMatchCriteria = "No rules match the specified criteria"
 
 // AllowNetbird allows netbird interface traffic
 func (m *Manager) AllowNetbird() error {
-	luid, err := m.getWgInterfaceLUID()
+	return addFirewallRule("Netbird",
+		"dir=in",
+		"enable=yes",
+		"action=allow",
+		"profile=any",
+		"localip="+m.wgIface.Address().IP.String(),
+	)
+}
+
+func addFirewallRule(ruleName string, args ...string) error {
+	active, err := isFirewallRuleActive(ruleName)
 	if err != nil {
 		return err
 	}
 
-	return firewall.EnableFirewall(uint64(luid), true, nil)
+	if !active {
+		baseArgs := []string{"advfirewall", "firewall", "add", "rule", "name=" + ruleName}
+		args = append(baseArgs, args...)
+
+		cmd := exec.Command("netsh", args...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+		return cmd.Run()
+	}
+
+	return nil
 }
 
-// getWgInterfaceLUID retrieves the tunnel interface locally unique identifier (LUID)
-// from globally unique identifier (GUID) of the Manager's wireguard interface.
-func (m *Manager) getWgInterfaceLUID() (winipcfg.LUID, error) {
-	guidString, err := m.wgIface.GetInterfaceGUIDString()
+func isFirewallRuleActive(ruleName string) (bool, error) {
+	args := []string{"advfirewall", "firewall", "show", "rule", "name=" + ruleName}
+
+	cmd := exec.Command("netsh", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	output, err := cmd.Output()
 	if err != nil {
-		return 0, err
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
+			// if firewall rule is not active, we expect last exit code to be 1
+			exitStatus := exitError.Sys().(syscall.WaitStatus).ExitStatus()
+			if exitStatus == 1 {
+				if strings.Contains(string(output), noRulesMatchCriteria) {
+					return false, nil
+				}
+			}
+		}
+		return false, err
 	}
 
-	guid, err := windows.GUIDFromString(guidString)
-	if err != nil {
-		return 0, fmt.Errorf("invalid GUID %q: %v", guidString, err)
+	if strings.Contains(string(output), noRulesMatchCriteria) {
+		return false, nil
 	}
 
-	luid, err := winipcfg.LUIDFromGUID(&guid)
-	if err != nil {
-		return luid, fmt.Errorf("no interface with GUID %q: %v", guid, err)
-	}
-
-	return luid, nil
+	return true, nil
 }

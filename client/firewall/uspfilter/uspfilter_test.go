@@ -15,9 +15,8 @@ import (
 )
 
 type IFaceMock struct {
-	SetFilterFunc              func(iface.PacketFilter) error
-	NameFunc                   func() string
-	GetInterfaceGUIDStringFunc func() (string, error)
+	SetFilterFunc func(iface.PacketFilter) error
+	AddressFunc   func() iface.WGAddress
 }
 
 func (i *IFaceMock) SetFilter(iface iface.PacketFilter) error {
@@ -27,18 +26,11 @@ func (i *IFaceMock) SetFilter(iface iface.PacketFilter) error {
 	return i.SetFilterFunc(iface)
 }
 
-func (i *IFaceMock) Name() string {
-	if i.NameFunc == nil {
-		return ""
+func (i *IFaceMock) Address() iface.WGAddress {
+	if i.AddressFunc == nil {
+		return iface.WGAddress{}
 	}
-	return i.NameFunc()
-}
-
-func (i *IFaceMock) GetInterfaceGUIDString() (string, error) {
-	if i.GetInterfaceGUIDStringFunc == nil {
-		return "", fmt.Errorf("not implemented")
-	}
-	return i.GetInterfaceGUIDStringFunc()
+	return i.AddressFunc()
 }
 
 func TestManagerCreate(t *testing.T) {
