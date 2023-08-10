@@ -28,7 +28,12 @@ linters:
     - staticcheck # is a go vet on steroids, applying a ton of static analysis checks
     - typecheck # like the front-end of a Go compiler, parses and type-checks Go code
     - unused # checks for unused constants, variables, functions and types
-
+    ## disable by default but the have interesting results so lets add them
+    - bodyclose # checks whether HTTP response body is closed successfully
+    - nilerr # finds the code that returns nil even if it checks that the error is not nil
+    - nilnil # checks that there is no simultaneous return of nil error and an invalid value
+    - sqlclosecheck # checks that sql.Rows and sql.Stmt are closed
+    - wastedassign # wastedassign finds wasted assignment statements
 issues:
   # Maximum count of issues with the same text.
   # Set to 0 to disable.
