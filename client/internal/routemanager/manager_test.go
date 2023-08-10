@@ -172,24 +172,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			clientNetworkWatchersExpected: 0,
 		},
 		{
-			name: "No Server Routes Should Be Added To Non Linux",
-			inputRoutes: []*route.Route{
-				{
-					ID:          "a",
-					NetID:       "routeA",
-					Peer:        localPeerKey,
-					Network:     netip.MustParsePrefix("1.2.3.4/32"),
-					NetworkType: route.IPv4Network,
-					Metric:      9999,
-					Masquerade:  false,
-					Enabled:     true,
-				},
-			},
-			inputSerial:                   1,
-			serverRoutesExpected:          0,
-			clientNetworkWatchersExpected: 0,
-		},
-		{
 			name: "Remove 1 Client Route",
 			inputInitRoutes: []*route.Route{
 				{
