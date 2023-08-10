@@ -32,17 +32,17 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
       -
         name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
         with:
           go-version: "1.20"
       -
         name: Cache Go modules
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
@@ -56,10 +56,10 @@ jobs:
         run: git --no-pager diff --exit-code
       -
         name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v2
       -
         name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v2
       -
         name: Login to Docker hub
         if: github.event_name != 'pull_request'
@@ -82,7 +82,7 @@ jobs:
         run: rsrc -arch 386 -ico client/ui/netbird.ico -manifest client/manifest.xml -o client/resources_windows_386.syso
       -
         name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v2
+        uses: goreleaser/goreleaser-action@v4
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --rm-dist
@@ -93,7 +93,7 @@ jobs:
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
       -
         name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: release
           path: dist/
@@ -103,16 +103,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
 
       - name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
         with:
           go-version: "1.20"
       - name: Cache Go modules
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-ui-go-${{ hashFiles('**/go.sum') }}
@@ -132,7 +132,7 @@ jobs:
       - name: Generate windows rsrc
         run: rsrc -arch amd64 -ico client/ui/netbird.ico -manifest client/ui/manifest.xml -o client/ui/resources_windows_amd64.syso
       - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v2
+        uses: goreleaser/goreleaser-action@v4
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --config .goreleaser_ui.yaml --rm-dist
@@ -142,7 +142,7 @@ jobs:
           UPLOAD_DEBIAN_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
           UPLOAD_YUM_SECRET: ${{ secrets.PKG_UPLOAD_SECRET }}
       - name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: release-ui
           path: dist/
@@ -153,17 +153,17 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0 # It is required for GoReleaser to work properly
       -
         name: Set up Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v4
         with:
           go-version: "1.20"
       -
         name: Cache Go modules
-        uses: actions/cache@v1
+        uses: actions/cache@v3
         with:
           path: ~/go/pkg/mod
           key: ${{ runner.os }}-ui-go-${{ hashFiles('**/go.sum') }}
@@ -175,7 +175,7 @@ jobs:
       -
         name: Run GoReleaser
         id: goreleaser
-        uses: goreleaser/goreleaser-action@v2
+        uses: goreleaser/goreleaser-action@v4
         with:
           version: ${{ env.GORELEASER_VER }}
           args: release --config .goreleaser_ui_darwin.yaml --rm-dist
@@ -183,7 +183,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       -
         name: upload non tags for debug purposes
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: release-ui-darwin
           path: dist/
