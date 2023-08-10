@@ -21,13 +21,18 @@ type serverRouter struct {
 	wgInterface *iface.WGIface
 }
 
-func newServerRouter(ctx context.Context, wgInterface *iface.WGIface) *serverRouter {
+func newServerRouter(ctx context.Context, wgInterface *iface.WGIface) (*serverRouter, error) {
+	firewall, err := NewFirewall(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	return &serverRouter{
 		ctx:         ctx,
 		routes:      make(map[string]*route.Route),
-		firewall:    NewFirewall(ctx),
+		firewall:    firewall,
 		wgInterface: wgInterface,
-	}
+	}, nil
 }
 
 func (m *serverRouter) updateRoutes(routesMap map[string]*route.Route) error {

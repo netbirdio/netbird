@@ -36,13 +36,16 @@ type DefaultManager struct {
 
 // NewManager returns a new route manager
 func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, statusRecorder *peer.Status, initialRoutes []*route.Route) *DefaultManager {
+	serverRouter, err := newServerRouter(ctx, wgInterface)
+	if err != nil {
+		log.Errorf("server router is not supported: %s", err)
+	}
 	mCTX, cancel := context.WithCancel(ctx)
-
 	dm := &DefaultManager{
 		ctx:            mCTX,
 		stop:           cancel,
 		clientNetworks: make(map[string]*clientNetwork),
-		serverRouter:   newServerRouter(ctx, wgInterface),
+		serverRouter:   serverRouter,
 		statusRecorder: statusRecorder,
 		wgInterface:    wgInterface,
 		pubKey:         pubKey,
@@ -59,7 +62,9 @@ func NewManager(ctx context.Context, pubKey string, wgInterface *iface.WGIface, 
 // Stop stops the manager watchers and clean firewall rules
 func (m *DefaultManager) Stop() {
 	m.stop()
-	m.serverRouter.cleanUp()
+	if m.serverRouter != nil {
+		m.serverRouter.cleanUp()
+	}
 	m.ctx = nil
 }
 
@@ -77,9 +82,12 @@ func (m *DefaultManager) UpdateRoutes(updateSerial uint64, newRoutes []*route.Ro
 
 		m.updateClientNetworks(updateSerial, newClientRoutesIDMap)
 		m.notifier.onNewRoutes(newClientRoutesIDMap)
-		err := m.serverRouter.updateRoutes(newServerRoutesMap)
-		if err != nil {
-			return err
+
+		if m.serverRouter != nil {
+			err := m.serverRouter.updateRoutes(newServerRoutesMap)
+			if err != nil {
+				return err
+			}
 		}
 
 		return nil
