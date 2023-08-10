@@ -1,6 +1,6 @@
 <p align="center">
- <strong>:hatching_chick: New Release! Peer expiration.</strong>
-  <a href="https://github.com/netbirdio/netbird/releases">
+ <strong>:hatching_chick: New Release! Self-hosting in under 5 min.</strong>
+  <a href="https://github.com/netbirdio/netbird#quickstart-with-self-hosted-netbird">
        Learn more
      </a>   
 </p>
@@ -40,9 +40,9 @@
 
 **Connect.** NetBird creates a WireGuard-based overlay network that automatically connects your machines over an encrypted tunnel, leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
-**Secure.** NetBird isolates every machine and device by applying granular access policies, while allowing you to manage them intuitively from a single place.
+**Secure.** NetBird enables secure remote access by applying granular access policies, while allowing you to manage them intuitively from a single place. Works universally on any infrastructure.
 
-**Key features:**
+### Key features
 
 | Connectivity                             	                        | Management                                 	                             | Automation                                    	                            | Platforms    	                        |
 |-------------------------------------------------------------------|--------------------------------------------------------------------------|----------------------------------------------------------------------------|---------------------------------------|
