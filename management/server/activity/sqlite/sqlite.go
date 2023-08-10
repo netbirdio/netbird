@@ -3,13 +3,14 @@ package sqlite
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
+
 	"github.com/netbirdio/netbird/management/server/activity"
 
 	// sqlite driver
-	_ "github.com/mattn/go-sqlite3"
 	"path/filepath"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
 )
 
 const (
@@ -24,15 +25,20 @@ const (
 		"meta TEXT," +
 		" target_id TEXT);"
 
-	selectStatement = "SELECT id, activity, timestamp, initiator_id, target_id, account_id, meta" +
-		" FROM events WHERE account_id = ? ORDER BY timestamp %s LIMIT ? OFFSET ?;"
-	insertStatement = "INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) " +
+	selectDescQuery = "SELECT id, activity, timestamp, initiator_id, target_id, account_id, meta" +
+		" FROM events WHERE account_id = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?;"
+	selectAscQuery = "SELECT id, activity, timestamp, initiator_id, target_id, account_id, meta" +
+		" FROM events WHERE account_id = ? ORDER BY timestamp ASC LIMIT ? OFFSET ?;"
+	insertQuery = "INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) " +
 		"VALUES(?, ?, ?, ?, ?, ?)"
 )
 
 // Store is the implementation of the activity.Store interface backed by SQLite
 type Store struct {
-	db *sql.DB
+	db                  *sql.DB
+	insertStatement     *sql.Stmt
+	selectAscStatement  *sql.Stmt
+	selectDescStatement *sql.Stmt
 }
 
 // NewSQLiteStore creates a new Store with an event table if not exists.
@@ -48,7 +54,27 @@ func NewSQLiteStore(dataDir string) (*Store, error) {
 		return nil, err
 	}
 
-	return &Store{db: db}, nil
+	insertStmt, err := db.Prepare(insertQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	selectDescStmt, err := db.Prepare(selectDescQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	selectAscStmt, err := db.Prepare(selectAscQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Store{
+		db:                  db,
+		insertStatement:     insertStmt,
+		selectDescStatement: selectDescStmt,
+		selectAscStatement:  selectAscStmt,
+	}, nil
 }
 
 func processResult(result *sql.Rows) ([]*activity.Event, error) {
@@ -90,13 +116,9 @@ func processResult(result *sql.Rows) ([]*activity.Event, error) {
 
 // Get returns "limit" number of events from index ordered descending or ascending by a timestamp
 func (store *Store) Get(accountID string, offset, limit int, descending bool) ([]*activity.Event, error) {
-	order := "DESC"
+	stmt := store.selectDescStatement
 	if !descending {
-		order = "ASC"
-	}
-	stmt, err := store.db.Prepare(fmt.Sprintf(selectStatement, order))
-	if err != nil {
-		return nil, err
+		stmt = store.selectAscStatement
 	}
 
 	result, err := stmt.Query(accountID, limit, offset)
@@ -110,12 +132,6 @@ func (store *Store) Get(accountID string, offset, limit int, descending bool) ([
 
 // Save an event in the SQLite events table
 func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
-
-	stmt, err := store.db.Prepare(insertStatement)
-	if err != nil {
-		return nil, err
-	}
-
 	var jsonMeta string
 	if event.Meta != nil {
 		metaBytes, err := json.Marshal(event.Meta)
@@ -125,7 +141,7 @@ func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 		jsonMeta = string(metaBytes)
 	}
 
-	result, err := stmt.Exec(event.Activity, event.Timestamp, event.InitiatorID, event.TargetID, event.AccountID, jsonMeta)
+	result, err := store.insertStatement.Exec(event.Activity, event.Timestamp, event.InitiatorID, event.TargetID, event.AccountID, jsonMeta)
 	if err != nil {
 		return nil, err
 	}
