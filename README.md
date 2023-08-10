@@ -1,6 +1,6 @@
 <p align="center">
- <strong>:hatching_chick: New Release! Peer expiration.</strong>
-  <a href="https://github.com/netbirdio/netbird/releases">
+ <strong>:hatching_chick: New Release! Self-hosting in under 5 min.</strong>
+  <a href="https://github.com/netbirdio/netbird#quickstart-with-self-hosted-netbird">
        Learn more
      </a>   
 </p>
@@ -40,9 +40,13 @@
 
 **Connect.** NetBird creates a WireGuard-based overlay network that automatically connects your machines over an encrypted tunnel, leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
-**Secure.** NetBird isolates every machine and device by applying granular access policies, while allowing you to manage them intuitively from a single place.
+**Secure.** NetBird enables secure remote access by applying granular access policies, while allowing you to manage them intuitively from a single place. Works universally on any infrastructure.
 
-**Key features:**
+### Secure peer-to-peer VPN with SSO and MFA in minutes
+
+https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a444-94e80dd24f46.mov
+
+### Key features
 
 | Connectivity                             	                        | Management                                 	                             | Automation                                    	                            | Platforms    	                        |
 |-------------------------------------------------------------------|--------------------------------------------------------------------------|----------------------------------------------------------------------------|---------------------------------------|
@@ -56,10 +60,6 @@
 | 	                                                                 | <ul><li> - \[x] [Activity logging](https://docs.netbird.io/how-to/monitor-system-and-network-activity) </ul></li>                       	      | 	                                                                          | 	                                     |
 | 	                                                                 | <ul><li> - \[x] SSH access management </ul></li>                       	 | 	                                                                          | 	                                     |
 
-
-### Secure peer-to-peer VPN with SSO and MFA in minutes
-
-https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a444-94e80dd24f46.mov
 
 ### Quickstart with NetBird Cloud
 
