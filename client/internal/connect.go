@@ -179,8 +179,6 @@ func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		log.Print("Netbird engine started, my IP is: ", peerConfig.Address)
 		state.Set(StatusConnected)
 
-		statusRecorder.ClientStart()
-
 		<-engineCtx.Done()
 		statusRecorder.ClientTeardown()
 
@@ -201,6 +199,7 @@ func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 		return nil
 	}
 
+	statusRecorder.ClientStart()
 	err = backoff.Retry(operation, backOff)
 	if err != nil {
 		log.Debugf("exiting client retry loop due to unrecoverable error: %s", err)
