@@ -55,7 +55,6 @@ type Client struct {
 	ctxCancelLock *sync.Mutex
 	deviceName    string
 	routeListener routemanager.RouteListener
-	onHostDnsFn   func([]string)
 }
 
 // NewClient instantiate a new Client
@@ -97,7 +96,30 @@ func (c *Client) Run(urlOpener URLOpener, dns *DNSList, dnsReadyListener DnsRead
 
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
-	c.onHostDnsFn = func([]string) {}
+	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener, dns.items, dnsReadyListener)
+}
+
+// RunWithoutLogin we apply this type of run function when the backed has been started without UI (i.e. after reboot).
+// In this case make no sense handle registration steps.
+func (c *Client) RunWithoutLogin(dns *DNSList, dnsReadyListener DnsReadyListener) error {
+	cfg, err := internal.UpdateOrCreateConfig(internal.ConfigInput{
+		ConfigPath: c.cfgFile,
+	})
+	if err != nil {
+		return err
+	}
+	c.recorder.UpdateManagementAddress(cfg.ManagementURL.String())
+
+	var ctx context.Context
+	//nolint
+	ctxWithValues := context.WithValue(context.Background(), system.DeviceNameCtxKey, c.deviceName)
+	c.ctxCancelLock.Lock()
+	ctx, c.ctxCancel = context.WithCancel(ctxWithValues)
+	defer c.ctxCancel()
+	c.ctxCancelLock.Unlock()
+
+	// todo do not throw error in case of cancelled context
+	ctx = internal.CtxInitState(ctx)
 	return internal.RunClientMobile(ctx, cfg, c.recorder, c.tunAdapter, c.iFaceDiscover, c.routeListener, dns.items, dnsReadyListener)
 }
 
