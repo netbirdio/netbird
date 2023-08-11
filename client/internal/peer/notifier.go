@@ -114,7 +114,7 @@ func (n *notifier) calculateState(managementConn, signalConn bool) int {
 		return stateConnected
 	}
 
-	if !managementConn && !signalConn && n.currentClientState == false {
+	if !managementConn && !signalConn && !n.currentClientState {
 		return stateDisconnected
 	}
 
