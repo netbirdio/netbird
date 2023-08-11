@@ -141,7 +141,7 @@ func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 		if m.options.CredentialsOptional {
 			log.Debugf("no credentials found (CredentialsOptional=true)")
 			// No error, just no token (and that is ok given that CredentialsOptional is true)
-			return nil, nil
+			return nil, nil //nolint:nilnil
 		}
 
 		// If we get here, the required token is missing

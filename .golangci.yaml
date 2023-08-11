@@ -47,3 +47,6 @@ issues:
     - path: client/firewall/iptables/rule.go
       linters:
       - unused
+    - path: mock.go
+      linters:
+      - nilnil
