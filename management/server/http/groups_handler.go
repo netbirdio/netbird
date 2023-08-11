@@ -231,10 +231,8 @@ func (h *GroupsHandler) GetGroup(w http.ResponseWriter, r *http.Request) {
 
 		util.WriteJSONObject(w, toGroupResponse(account, group))
 	default:
-		if err != nil {
-			util.WriteError(status.Errorf(status.NotFound, "HTTP method not found"), w)
-			return
-		}
+		util.WriteError(status.Errorf(status.NotFound, "HTTP method not found"), w)
+		return
 	}
 }
 

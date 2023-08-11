@@ -1,15 +1,16 @@
 package server
 
 import (
+	"net/netip"
+	"strconv"
+	"unicode/utf8"
+
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"net/netip"
-	"strconv"
-	"unicode/utf8"
 )
 
 const (
@@ -104,7 +105,9 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peerID string,
 
 	routesWithPrefix := account.GetRoutesByPrefix(prefix)
 
-	if err != nil {
+	// TODO: This place is not clear. We've already checked the error above but there is additional logic.
+	//       Lets temporary disable the linter warning until we have clear understating
+	if err != nil { //nolint:govet
 		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
 			return nil
 		}

@@ -16,6 +16,8 @@ linters-settings:
     # Enable all analyzers.
     # Default: false
     enable-all: false
+    enable:
+      - nilness
 
 linters:
   disable-all: true

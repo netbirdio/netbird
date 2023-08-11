@@ -146,9 +146,6 @@ func (c *wGConfigurer) removeAllowedIP(peerKey string, allowedIP string) error {
 		}
 	}
 
-	if err != nil {
-		return err
-	}
 	peer := wgtypes.PeerConfig{
 		PublicKey:         peerKeyParsed,
 		UpdateOnly:        true,
