@@ -29,7 +29,11 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      flags: ""
     steps:
+      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "flags=--snapshot" >> $GITHUB_ENV
       -
         name: Checkout
         uses: actions/checkout@v3
@@ -85,7 +89,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v4
         with:
           version: ${{ env.GORELEASER_VER }}
-          args: release --rm-dist
+          args: release --rm-dist ${{ env.flags }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
@@ -102,6 +106,8 @@ jobs:
   release_ui:
     runs-on: ubuntu-latest
     steps:
+      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "flags=--snapshot" >> $GITHUB_ENV
       - name: Checkout
         uses: actions/checkout@v3
         with:
@@ -135,7 +141,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v4
         with:
           version: ${{ env.GORELEASER_VER }}
-          args: release --config .goreleaser_ui.yaml --rm-dist
+          args: release --config .goreleaser_ui.yaml --rm-dist ${{ env.flags }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
@@ -151,6 +157,8 @@ jobs:
   release_ui_darwin:
     runs-on: macos-11
     steps:
+      - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: echo "flags=--snapshot" >> $GITHUB_ENV
       -
         name: Checkout
         uses: actions/checkout@v3
@@ -178,7 +186,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v4
         with:
           version: ${{ env.GORELEASER_VER }}
-          args: release --config .goreleaser_ui_darwin.yaml --rm-dist
+          args: release --config .goreleaser_ui_darwin.yaml --rm-dist ${{ env.flags }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       -
