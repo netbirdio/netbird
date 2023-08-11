@@ -1,14 +1,19 @@
 package server
 
 import (
-	"github.com/miekg/dns"
+	"errors"
+	"fmt"
+	"regexp"
+	"strconv"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-	"strconv"
-	"unicode/utf8"
 )
 
 const (
@@ -26,6 +31,8 @@ const (
 	UpdateNameServerGroupPrimary
 	// UpdateNameServerGroupDomains indicates a nameserver group' domains update operation
 	UpdateNameServerGroupDomains
+
+	domainPattern = `^[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
 )
 
 // NameServerGroupUpdateOperationType operation type
@@ -364,9 +371,8 @@ func validateDomainInput(primary bool, domains []string) error {
 			" you should set either primary or domain")
 	}
 	for _, domain := range domains {
-		_, valid := dns.IsDomainName(domain)
-		if !valid {
-			return status.Errorf(status.InvalidArgument, "nameserver group got an invalid domain: %s", domain)
+		if err := validateDomain(domain); err != nil {
+			return status.Errorf(status.InvalidArgument, "nameserver group got an invalid domain: %s %q", domain, err)
 		}
 	}
 	return nil
@@ -412,6 +418,26 @@ func validateGroups(list []string, groups map[string]*Group) error {
 		}
 		if !found {
 			return status.Errorf(status.InvalidArgument, "group id %s not found", id)
+		}
+	}
+
+	return nil
+}
+
+func validateDomain(domain string) error {
+	domainMatcher := regexp.MustCompile(domainPattern)
+	if !domainMatcher.MatchString(domain) {
+		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
+	}
+
+	labels := strings.Split(domain, ".")
+	if len(labels) < 2 {
+		return errors.New("domain should consists of a minimum of two labels")
+	}
+
+	for _, label := range labels {
+		if len(label) < 2 || len(label) > 63 {
+			return fmt.Errorf("domain label: %s length should be ranging from 2 to 63 characters", label)
 		}
 	}
 
