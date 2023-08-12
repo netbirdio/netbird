@@ -13,7 +13,7 @@ import (
 	"github.com/netbirdio/netbird/route"
 )
 
-type serverRouter struct {
+type defaultServerRouter struct {
 	mux         sync.Mutex
 	ctx         context.Context
 	routes      map[string]*route.Route
@@ -21,16 +21,21 @@ type serverRouter struct {
 	wgInterface *iface.WGIface
 }
 
-func newServerRouter(ctx context.Context, wgInterface *iface.WGIface) *serverRouter {
-	return &serverRouter{
+func newServerRouter(ctx context.Context, wgInterface *iface.WGIface) (serverRouter, error) {
+	firewall, err := NewFirewall(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &defaultServerRouter{
 		ctx:         ctx,
 		routes:      make(map[string]*route.Route),
-		firewall:    NewFirewall(ctx),
+		firewall:    firewall,
 		wgInterface: wgInterface,
-	}
+	}, nil
 }
 
-func (m *serverRouter) updateRoutes(routesMap map[string]*route.Route) error {
+func (m *defaultServerRouter) updateRoutes(routesMap map[string]*route.Route) error {
 	serverRoutesToRemove := make([]string, 0)
 
 	if len(routesMap) > 0 {
@@ -81,7 +86,7 @@ func (m *serverRouter) updateRoutes(routesMap map[string]*route.Route) error {
 	return nil
 }
 
-func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
+func (m *defaultServerRouter) removeFromServerNetwork(route *route.Route) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not removing from server network because context is done")
@@ -98,7 +103,7 @@ func (m *serverRouter) removeFromServerNetwork(route *route.Route) error {
 	}
 }
 
-func (m *serverRouter) addToServerNetwork(route *route.Route) error {
+func (m *defaultServerRouter) addToServerNetwork(route *route.Route) error {
 	select {
 	case <-m.ctx.Done():
 		log.Infof("not adding to server network because context is done")
@@ -115,6 +120,6 @@ func (m *serverRouter) addToServerNetwork(route *route.Route) error {
 	}
 }
 
-func (m *serverRouter) cleanUp() {
+func (m *defaultServerRouter) cleanUp() {
 	m.firewall.CleanRoutingRules()
 }

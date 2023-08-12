@@ -27,14 +27,19 @@ func genKey(format string, input string) string {
 }
 
 // NewFirewall if supported, returns an iptables manager, otherwise returns a nftables manager
-func NewFirewall(parentCTX context.Context) firewallManager {
+func NewFirewall(parentCTX context.Context) (firewallManager, error) {
 	manager, err := newNFTablesManager(parentCTX)
 	if err == nil {
 		log.Debugf("nftables firewall manager will be used")
-		return manager
+		return manager, nil
 	}
-	log.Debugf("fallback to iptables firewall manager: %s", err)
-	return newIptablesManager(parentCTX)
+	fMgr, err := newIptablesManager(parentCTX)
+	if err != nil {
+		log.Debugf("failed to initialize iptables for root mgr: %s", err)
+		return nil, err
+	}
+	log.Debugf("iptables firewall manager will be used")
+	return fMgr, nil
 }
 
 func getInPair(pair routerPair) routerPair {

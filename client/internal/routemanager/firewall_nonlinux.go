@@ -3,24 +3,12 @@
 
 package routemanager
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
-type unimplementedFirewall struct{}
-
-func (unimplementedFirewall) RestoreOrCreateContainers() error {
-	return nil
-}
-func (unimplementedFirewall) InsertRoutingRules(pair routerPair) error {
-	return nil
-}
-func (unimplementedFirewall) RemoveRoutingRules(pair routerPair) error {
-	return nil
-}
-
-func (unimplementedFirewall) CleanRoutingRules() {
-}
-
-// NewFirewall returns an unimplemented Firewall manager
-func NewFirewall(parentCtx context.Context) firewallManager {
-	return unimplementedFirewall{}
+// NewFirewall returns a nil manager
+func NewFirewall(context.Context) (firewallManager, error) {
+	return nil, fmt.Errorf("firewall not supported on this OS")
 }

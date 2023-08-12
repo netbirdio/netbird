@@ -16,7 +16,7 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		t.SkipNow()
 	}
 
-	manager := newIptablesManager(context.TODO())
+	manager, _ := newIptablesManager(context.TODO())
 
 	defer manager.CleanRoutingRules()
 
