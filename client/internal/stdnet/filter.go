@@ -20,7 +20,7 @@ func InterfaceFilter(disallowList []string) func(string) bool {
 
 		for _, s := range disallowList {
 			if strings.HasPrefix(iFace, s) {
-				log.Debugf("ignoring interface %s - it is not allowed", iFace)
+				log.Tracef("ignoring interface %s - it is not allowed", iFace)
 				return false
 			}
 		}
