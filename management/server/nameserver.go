@@ -32,7 +32,7 @@ const (
 	// UpdateNameServerGroupDomains indicates a nameserver group' domains update operation
 	UpdateNameServerGroupDomains
 
-	domainPattern = `^[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
+	domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
 )
 
 // NameServerGroupUpdateOperationType operation type
