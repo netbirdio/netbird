@@ -3,7 +3,6 @@ package dns
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/dns/forwarder"
 	"net"
 	"net/netip"
 	"runtime"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/miekg/dns"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/ebpf"
 )
 
 const (
@@ -29,7 +30,7 @@ type serviceViaListener struct {
 	runtimePort       int
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
-	trafficForwarder  *forwarder.TrafficForwarder
+	ebpfService       *ebpf.Manager
 }
 
 func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *serviceViaListener {
@@ -44,7 +45,7 @@ func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *service
 			Handler: mux,
 			UDPSize: 65535,
 		},
-		trafficForwarder: forwarder.NewTrafficForwarder(wgIface.Name()),
+		ebpfService: ebpf.GetEbpfManagerInstance(),
 	}
 	return s
 }
@@ -77,7 +78,7 @@ func (s *serviceViaListener) Listen() error {
 	}()
 
 	if s.runtimePort != defaultPort {
-		err = s.trafficForwarder.Start(s.runtimeIP, s.runtimePort)
+		err = s.ebpfService.LoadDNSFwd(s.runtimeIP, s.runtimePort)
 		if err != nil {
 			return err
 		}
@@ -101,7 +102,7 @@ func (s *serviceViaListener) Stop() {
 		log.Errorf("stopping dns server listener returned an error: %v", err)
 	}
 
-	err = s.trafficForwarder.Free()
+	err = s.ebpfService.FreeDNSFwd()
 	if err != nil {
 		log.Errorf("stopping traffic forwarder returned an error: %v", err)
 	}

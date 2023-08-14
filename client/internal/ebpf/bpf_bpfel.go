@@ -54,13 +54,16 @@ type bpfSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfProgramSpecs struct {
-	NbWgProxy *ebpf.ProgramSpec `ebpf:"nb_wg_proxy"`
+	NbXdpProg *ebpf.ProgramSpec `ebpf:"nb_xdp_prog"`
 }
 
 // bpfMapSpecs contains maps before they are loaded into the kernel.
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type bpfMapSpecs struct {
+	NbFeatures           *ebpf.MapSpec `ebpf:"nb_features"`
+	NbMapDnsIp           *ebpf.MapSpec `ebpf:"nb_map_dns_ip"`
+	NbMapDnsPort         *ebpf.MapSpec `ebpf:"nb_map_dns_port"`
 	NbWgProxySettingsMap *ebpf.MapSpec `ebpf:"nb_wg_proxy_settings_map"`
 }
 
@@ -83,11 +86,17 @@ func (o *bpfObjects) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfMaps struct {
+	NbFeatures           *ebpf.Map `ebpf:"nb_features"`
+	NbMapDnsIp           *ebpf.Map `ebpf:"nb_map_dns_ip"`
+	NbMapDnsPort         *ebpf.Map `ebpf:"nb_map_dns_port"`
 	NbWgProxySettingsMap *ebpf.Map `ebpf:"nb_wg_proxy_settings_map"`
 }
 
 func (m *bpfMaps) Close() error {
 	return _BpfClose(
+		m.NbFeatures,
+		m.NbMapDnsIp,
+		m.NbMapDnsPort,
 		m.NbWgProxySettingsMap,
 	)
 }
@@ -96,12 +105,12 @@ func (m *bpfMaps) Close() error {
 //
 // It can be passed to loadBpfObjects or ebpf.CollectionSpec.LoadAndAssign.
 type bpfPrograms struct {
-	NbWgProxy *ebpf.Program `ebpf:"nb_wg_proxy"`
+	NbXdpProg *ebpf.Program `ebpf:"nb_xdp_prog"`
 }
 
 func (p *bpfPrograms) Close() error {
 	return _BpfClose(
-		p.NbWgProxy,
+		p.NbXdpProg,
 	)
 }
 

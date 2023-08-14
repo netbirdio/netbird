@@ -12,15 +12,14 @@ import (
 
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
-
 	log "github.com/sirupsen/logrus"
 
-	ebpf2 "github.com/netbirdio/netbird/client/internal/wgproxy/ebpf"
+	"github.com/netbirdio/netbird/client/internal/ebpf"
 )
 
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
-	ebpf              *ebpf2.EBPF
+	ebpfManager       *ebpf.Manager
 	lastUsedPort      uint16
 	localWGListenPort int
 
@@ -36,7 +35,7 @@ func NewWGEBPFProxy(wgPort int) *WGEBPFProxy {
 	log.Debugf("instantiate ebpf proxy")
 	wgProxy := &WGEBPFProxy{
 		localWGListenPort: wgPort,
-		ebpf:              ebpf2.NewEBPF(),
+		ebpfManager:       ebpf.GetEbpfManagerInstance(),
 		lastUsedPort:      0,
 		turnConnStore:     make(map[uint16]net.Conn),
 	}
@@ -56,7 +55,7 @@ func (p *WGEBPFProxy) Listen() error {
 		return err
 	}
 
-	err = p.ebpf.Load(wgPorxyPort, p.localWGListenPort)
+	err = p.ebpfManager.LoadWgProxy(wgPorxyPort, p.localWGListenPort)
 	if err != nil {
 		return err
 	}
@@ -110,7 +109,7 @@ func (p *WGEBPFProxy) Free() error {
 		err1 = p.conn.Close()
 	}
 
-	err2 = p.ebpf.Free()
+	err2 = p.ebpfManager.FreeWGProxy()
 	if p.rawConn != nil {
 		err3 = p.rawConn.Close()
 	}
