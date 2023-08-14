@@ -8,6 +8,7 @@ on:
     paths:
       - 'infrastructure_files/**'
       - '.github/workflows/test-infrastructure-files.yml'
+      - 'release_files/install.sh'
 
 
 concurrency:
@@ -167,7 +168,7 @@ jobs:
           USE_BIN_INSTALL: ${{ matrix.install_binary }}
         run: |
           [ "$SKIP_UI_APP" == "false" ] && export XDG_CURRENT_DESKTOP="none"
-          cat infrastructure_files/install.sh | sh -x
+          cat release_files/install.sh | sh -x
 
       - name: check cli binary
         run: test -f netbird
