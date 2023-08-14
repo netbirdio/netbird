@@ -2,12 +2,11 @@ package server
 
 import (
 	"errors"
-	"fmt"
 	"regexp"
 	"strconv"
-	"strings"
 	"unicode/utf8"
 
+	"github.com/miekg/dns"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
 
@@ -430,15 +429,13 @@ func validateDomain(domain string) error {
 		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
 	}
 
-	labels := strings.Split(domain, ".")
-	if len(labels) < 2 {
-		return errors.New("domain should consists of a minimum of two labels")
+	labels, valid := dns.IsDomainName(domain)
+	if !valid {
+		return errors.New("invalid domain name")
 	}
 
-	for _, label := range labels {
-		if len(label) < 2 || len(label) > 63 {
-			return fmt.Errorf("domain label: %s length should be ranging from 2 to 63 characters", label)
-		}
+	if labels < 2 {
+		return errors.New("domain should consists of a minimum of two labels")
 	}
 
 	return nil
