@@ -171,4 +171,4 @@ jobs:
           cat release_files/install.sh | sh -x
 
       - name: check cli binary
-        run: test -f netbird
+        run: command -v netbird
