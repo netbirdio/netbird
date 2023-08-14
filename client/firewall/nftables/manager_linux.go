@@ -650,6 +650,22 @@ func (m *Manager) Reset() error {
 		return fmt.Errorf("list of chains: %w", err)
 	}
 	for _, c := range chains {
+		// delete Netbird allow input traffic rule if it exists
+		if c.Table.Name == "filter" && c.Name == "INPUT" {
+			rules, err := m.rConn.GetRules(c.Table, c)
+			if err != nil {
+				log.Errorf("get rules for chain %q: %v", c.Name, err)
+				continue
+			}
+			for _, r := range rules {
+				if bytes.Equal(r.UserData, []byte(AllowNetbirdInputRuleID)) {
+					if err := m.rConn.DelRule(r); err != nil {
+						log.Errorf("delete rule: %v", err)
+					}
+				}
+			}
+		}
+
 		if c.Name == FilterInputChainName || c.Name == FilterOutputChainName {
 			m.rConn.DelChain(c)
 		}
@@ -724,16 +740,49 @@ func (m *Manager) AllowNetbird() error {
 		tf = nftables.TableFamilyIPv6
 	}
 
-	chain, err := m.createChainIfNotExists(
-		tf,
-		"filter",
-		"INPUT",
-		nftables.ChainHookInput,
-		nftables.ChainPriorityFilter-1,
-		nftables.ChainTypeFilter,
-	)
+	chains, err := m.rConn.ListChainsOfTableFamily(tf)
 	if err != nil {
-		return err
+		return fmt.Errorf("list of chains: %w", err)
+	}
+
+	var chain *nftables.Chain
+	for _, c := range chains {
+		if c.Name == "filter" && c.Table.Name == "INPUT" {
+			chain = c
+			break
+		}
+	}
+
+	if chain == nil {
+		tables, err := m.rConn.ListTables()
+		if err != nil {
+			return fmt.Errorf("list of tables: %w", err)
+		}
+
+		var table *nftables.Table
+		for _, t := range tables {
+			if t.Name == "filter" {
+				table = t
+				break
+			}
+		}
+
+		if table == nil {
+			table = m.rConn.AddTable(&nftables.Table{
+				Name:   "filter",
+				Family: tf,
+			})
+		}
+
+		polAccept := nftables.ChainPolicyAccept
+		chain = m.rConn.AddChain(&nftables.Chain{
+			Name:     "INPUT",
+			Table:    table,
+			Hooknum:  nftables.ChainHookInput,
+			Priority: nftables.ChainPriorityFilter - 1,
+			Type:     nftables.ChainTypeFilter,
+			Policy:   &polAccept,
+		})
 	}
 
 	rules, err := m.rConn.GetRules(chain.Table, chain)
