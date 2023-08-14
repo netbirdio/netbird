@@ -158,6 +158,9 @@ jobs:
           install_binary: [true, false]
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
       - name: run install script
         env:
           SKIP_UI_APP: ${{ matrix.skip_ui_mode }}
