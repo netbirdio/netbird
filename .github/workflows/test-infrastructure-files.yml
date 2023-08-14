@@ -149,3 +149,22 @@ jobs:
         run: test -f zitadel.env
       - name: test dashboard.env file gen
         run: test -f dashboard.env
+
+  test-install-script:
+    strategy:
+      matrix:
+          os: [ubuntu-latest, macos-latest]
+          skip_ui_mode: [true, false]
+          install_binary: [true, false]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: run install script
+        env:
+          SKIP_UI_APP: ${{ matrix.skip_ui_mode }}
+          USE_BIN_INSTALL: ${{ matrix.install_binary }}
+        run: |
+          [ "$SKIP_UI_APP" == "false" ] && export XDG_CURRENT_DESKTOP="none"
+          cat infrastructure_files/install.sh | sh -x
+
+      - name: check cli binary
+        run: test -f netbird
