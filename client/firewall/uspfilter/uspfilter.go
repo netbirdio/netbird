@@ -3,7 +3,6 @@ package uspfilter
 import (
 	"fmt"
 	"net"
-	"runtime"
 	"sync"
 
 	"github.com/google/gopacket"
@@ -170,23 +169,6 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 			return fmt.Errorf("delete rule: no rule with such id: %v", r.id)
 		}
 		delete(m.outgoingRules[r.ip.String()], r.id)
-	}
-
-	return nil
-}
-
-// Reset firewall to the default state
-func (m *Manager) Reset() error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	m.outgoingRules = make(map[string]RuleSet)
-	m.incomingRules = make(map[string]RuleSet)
-
-	if runtime.GOOS == "windows" {
-		if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
-			return fmt.Errorf("couldn't remove windows firewall: %w", err)
-		}
 	}
 
 	return nil

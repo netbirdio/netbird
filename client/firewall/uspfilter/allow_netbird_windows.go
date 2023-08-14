@@ -2,6 +2,7 @@ package uspfilter
 
 import (
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -16,6 +17,21 @@ const (
 	firewallRuleName     = "Netbird"
 	noRulesMatchCriteria = "No rules match the specified criteria"
 )
+
+// Reset firewall to the default state
+func (m *Manager) Reset() error {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	m.outgoingRules = make(map[string]RuleSet)
+	m.incomingRules = make(map[string]RuleSet)
+
+	if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
+		return fmt.Errorf("couldn't remove windows firewall: %w", err)
+	}
+
+	return nil
+}
 
 // AllowNetbird allows netbird interface traffic
 func (m *Manager) AllowNetbird() error {
