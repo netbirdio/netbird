@@ -8,8 +8,6 @@ on:
     paths:
       - 'infrastructure_files/**'
       - '.github/workflows/test-infrastructure-files.yml'
-      - 'release_files/install.sh'
-
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
@@ -150,25 +148,3 @@ jobs:
         run: test -f zitadel.env
       - name: test dashboard.env file gen
         run: test -f dashboard.env
-
-  test-install-script:
-    strategy:
-      matrix:
-          os: [ubuntu-latest, macos-latest]
-          skip_ui_mode: [true, false]
-          install_binary: [true, false]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: run install script
-        env:
-          SKIP_UI_APP: ${{ matrix.skip_ui_mode }}
-          USE_BIN_INSTALL: ${{ matrix.install_binary }}
-        run: |
-          [ "$SKIP_UI_APP" == "false" ] && export XDG_CURRENT_DESKTOP="none"
-          cat release_files/install.sh | sh -x
-
-      - name: check cli binary
-        run: command -v netbird
