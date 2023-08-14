@@ -24,13 +24,21 @@ download_release_binary() {
     VERSION=$(get_latest_release)
     BASE_URL="https://github.com/${OWNER}/${REPO}/releases/download"
     BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}.tar.gz"
-    
+
     # for Darwin, download the signed Netbird-UI
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
         BINARY_BASE_NAME="${VERSION#v}_${OS_TYPE}_${ARCH}_signed.zip"
     fi
 
-    BINARY_NAME="$1_${BINARY_BASE_NAME}"
+    if [ "$1" = "$UI_APP" ]; then
+       BINARY_NAME="$1-${OS_TYPE}_${BINARY_BASE_NAME}"
+       if [ "$OS_TYPE" = "darwin" ]; then
+         BINARY_NAME="$1_${BINARY_BASE_NAME}"
+       fi
+    else
+       BINARY_NAME="$1_${BINARY_BASE_NAME}"
+    fi
+
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
     echo "Installing $1 from $DOWNLOAD_URL"
