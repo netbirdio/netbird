@@ -13,6 +13,7 @@ concurrency:
 jobs:
   test-install-script:
     strategy:
+      max-parallel: 2
       matrix:
         os: [ubuntu-latest, macos-latest]
         skip_ui_mode: [true, false]
