@@ -7,11 +7,20 @@ import (
 	"syscall"
 )
 
-const noRulesMatchCriteria = "No rules match the specified criteria"
+type action string
+
+const (
+	addRule    action = "add"
+	deleteRule action = "delete"
+
+	firewallRuleName     = "Netbird"
+	noRulesMatchCriteria = "No rules match the specified criteria"
+)
 
 // AllowNetbird allows netbird interface traffic
 func (m *Manager) AllowNetbird() error {
-	return addFirewallRule("Netbird",
+	return manageFirewallRule(firewallRuleName,
+		addRule,
 		"dir=in",
 		"enable=yes",
 		"action=allow",
@@ -20,15 +29,15 @@ func (m *Manager) AllowNetbird() error {
 	)
 }
 
-func addFirewallRule(ruleName string, args ...string) error {
+func manageFirewallRule(ruleName string, action action, args ...string) error {
 	active, err := isFirewallRuleActive(ruleName)
 	if err != nil {
 		return err
 	}
 
-	if !active {
-		baseArgs := []string{"advfirewall", "firewall", "add", "rule", "name=" + ruleName}
-		args = append(baseArgs, args...)
+	if (action == addRule && !active) || (action == deleteRule && active) {
+		baseArgs := []string{"advfirewall", "firewall", string(action), "rule", "name=" + ruleName}
+		args := append(baseArgs, args...)
 
 		cmd := exec.Command("netsh", args...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
@@ -47,7 +56,7 @@ func isFirewallRuleActive(ruleName string) (bool, error) {
 	if err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
-			// if firewall rule is not active, we expect last exit code to be 1
+			// if the firewall rule is not active, we expect last exit code to be 1
 			exitStatus := exitError.Sys().(syscall.WaitStatus).ExitStatus()
 			if exitStatus == 1 {
 				if strings.Contains(string(output), noRulesMatchCriteria) {

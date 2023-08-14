@@ -3,6 +3,7 @@ package uspfilter
 import (
 	"fmt"
 	"net"
+	"runtime"
 	"sync"
 
 	"github.com/google/gopacket"
@@ -181,6 +182,12 @@ func (m *Manager) Reset() error {
 
 	m.outgoingRules = make(map[string]RuleSet)
 	m.incomingRules = make(map[string]RuleSet)
+
+	if runtime.GOOS == "windows" {
+		if err := manageFirewallRule(firewallRuleName, deleteRule); err != nil {
+			return fmt.Errorf("couldn't remove windows firewall: %w", err)
+		}
+	}
 
 	return nil
 }
