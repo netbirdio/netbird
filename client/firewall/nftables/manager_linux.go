@@ -753,6 +753,7 @@ func (m *Manager) AllowNetbird() error {
 		}
 	}
 
+	var rules []*nftables.Rule
 	if chain == nil {
 		tables, err := m.rConn.ListTables()
 		if err != nil {
@@ -783,15 +784,13 @@ func (m *Manager) AllowNetbird() error {
 			Type:     nftables.ChainTypeFilter,
 			Policy:   &polAccept,
 		})
-	}
-
-	rules, err := m.rConn.GetRules(chain.Table, chain)
-	if err != nil {
-		return err
-	}
-
-	if rule := m.detectAllowNetbirdRule(rules); rule != nil {
-		return nil
+	} else {
+		if rules, err = m.rConn.GetRules(chain.Table, chain); err != nil {
+			return err
+		}
+		if rule := m.detectAllowNetbirdRule(rules); rule != nil {
+			return nil
+		}
 	}
 
 	if err := m.applyAllowNetbirdRules(chain); err != nil {
