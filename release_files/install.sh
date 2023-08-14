@@ -128,6 +128,14 @@ install_native_binaries() {
     fi  
 }
 
+check_use_bin_variable() {
+    if [ "${USE_BIN_INSTALL}-x" = "true-x" ]; then
+      echo "The installation will be performed using binary files"
+      return 0
+    fi
+    return 1
+}
+
 install_netbird() {
     # Check if netbird CLI is installed
     if [ -x "$(command -v netbird)" ]; then
@@ -170,8 +178,10 @@ install_netbird() {
                     echo "Netbird UI installation will be omitted as Linux does not run desktop environment"
             fi
 
-            # Check the availability of a compactible package manager
-            if [ -x "$(command -v apt)" ]; then
+            # Check the availability of a compatible package manager
+            if check_use_bin_variable; then
+                PACKAGE_MANAGER="bin"
+            elif [ -x "$(command -v apt)" ]; then
                 PACKAGE_MANAGER="apt"
                 echo "The installation will be performed using apt package manager"
             elif [ -x "$(command -v dnf)" ]; then
@@ -191,7 +201,9 @@ install_netbird() {
             INSTALL_DIR="/usr/local/bin"
             
             # Check the availability of a compatible package manager
-            if [ -x "$(command -v brew)" ]; then 
+            if check_use_bin_variable; then
+                PACKAGE_MANAGER="bin"
+            elif [ -x "$(command -v brew)" ]; then
                 PACKAGE_MANAGER="brew"
                 echo "The installation will be performed using brew package manager"
             fi
