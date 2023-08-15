@@ -604,10 +604,19 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 		// need force update all auto groups in any case they will not be dublicated
 		account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
 		account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
-	}
 
-	if err = am.Store.SaveAccount(account); err != nil {
-		return nil, err
+		account.Network.IncSerial()
+		if err = am.Store.SaveAccount(account); err != nil {
+			return nil, err
+		}
+
+		if err := am.updateAccountPeers(account); err != nil {
+			log.Errorf("failed updating account peers while updating user %s", accountID)
+		}
+	} else {
+		if err = am.Store.SaveAccount(account); err != nil {
+			return nil, err
+		}
 	}
 
 	defer func() {
@@ -635,7 +644,6 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 				} else {
 					log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 				}
-
 			}
 
 			for _, g := range addedGroups {

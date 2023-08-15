@@ -1357,23 +1357,45 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		}
 		if claim, ok := claims.Raw[account.Settings.JWTGroupsClaimName]; ok {
 			if slice, ok := claim.([]interface{}); ok {
-				var groups []string
+				var groupsNames []string
 				for _, item := range slice {
 					if g, ok := item.(string); ok {
-						groups = append(groups, g)
+						groupsNames = append(groupsNames, g)
 					} else {
 						log.Errorf("JWT claim %q is not a string: %v", account.Settings.JWTGroupsClaimName, item)
 					}
 				}
+
+				oldGroups := user.AutoGroups[:]
 				// if groups were added or modified, save the account
-				if account.AddJWTGroups(claims.UserId, groups) {
+				if account.AddJWTGroups(claims.UserId, groupsNames) {
 					if account.Settings.GroupsPropagationEnabled {
 						if user, err := account.FindUser(claims.UserId); err == nil {
-							account.UserGroupsAddToPeers(claims.UserId, append(user.AutoGroups, groups...)...)
+							account.UserGroupsAddToPeers(claims.UserId, user.AutoGroups...)
+							account.Network.IncSerial()
+							if err := am.Store.SaveAccount(account); err != nil {
+								log.Errorf("failed to save account: %v", err)
+							} else {
+								if err := am.updateAccountPeers(account); err != nil {
+									log.Errorf("failed updating account peers while updating user %s", account.Id)
+								}
+								for _, g := range difference(user.AutoGroups, oldGroups) {
+									group := account.GetGroup(g)
+									if group != nil {
+										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
+											map[string]any{
+												"group":           group.Name,
+												"group_id":        group.ID,
+												"is_service_user": user.IsServiceUser,
+												"user_name":       user.ServiceUserName})
+									}
+								}
+							}
 						}
-					}
-					if err := am.Store.SaveAccount(account); err != nil {
-						log.Errorf("failed to save account: %v", err)
+					} else {
+						if err := am.Store.SaveAccount(account); err != nil {
+							log.Errorf("failed to save account: %v", err)
+						}
 					}
 				}
 			} else {
