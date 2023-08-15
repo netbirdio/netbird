@@ -45,7 +45,10 @@ func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *service
 			Handler: mux,
 			UDPSize: 65535,
 		},
-		ebpfService: ebpf.GetEbpfManagerInstance(),
+	}
+
+	if runtime.GOOS == "linux" {
+		s.ebpfService = ebpf.GetEbpfManagerInstance()
 	}
 	return s
 }
@@ -77,7 +80,7 @@ func (s *serviceViaListener) Listen() error {
 		}
 	}()
 
-	if s.runtimePort != defaultPort {
+	if s.ebpfService != nil && s.runtimePort != defaultPort {
 		err = s.ebpfService.LoadDNSFwd(s.runtimeIP, s.runtimePort)
 		if err != nil {
 			return err
@@ -102,9 +105,11 @@ func (s *serviceViaListener) Stop() {
 		log.Errorf("stopping dns server listener returned an error: %v", err)
 	}
 
-	err = s.ebpfService.FreeDNSFwd()
-	if err != nil {
-		log.Errorf("stopping traffic forwarder returned an error: %v", err)
+	if s.ebpfService != nil {
+		err = s.ebpfService.FreeDNSFwd()
+		if err != nil {
+			log.Errorf("stopping traffic forwarder returned an error: %v", err)
+		}
 	}
 }
 
@@ -117,7 +122,11 @@ func (s *serviceViaListener) DeregisterMux(pattern string) {
 }
 
 func (s *serviceViaListener) ListenPort() int {
-	return defaultPort
+	if s.ebpfService != nil {
+		return defaultPort
+	} else {
+		return s.runtimePort
+	}
 }
 
 func (s *serviceViaListener) ListenIp() string {

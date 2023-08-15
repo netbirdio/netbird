@@ -235,6 +235,12 @@ func (s *DefaultServer) applyConfiguration(update nbdns.Config) error {
 	s.updateLocalResolver(localRecords)
 	s.currentConfig = dnsConfigToHostDNSConfig(update, s.service.ListenIp(), s.service.ListenPort())
 
+	if s.service.ListenPort() != defaultPort && !s.hostManager.supportCustomPort() {
+		log.Warnf("the DNS manager of this peer doesn't support custom port. Disabling primary DNS setup. " +
+			"Learn more at: https://netbird.io/docs/how-to-guides/nameservers#local-resolver")
+		s.currentConfig.routeAll = false
+	}
+
 	if err = s.hostManager.applyDNSConfig(s.currentConfig); err != nil {
 		log.Error(err)
 	}
