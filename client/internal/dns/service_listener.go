@@ -133,8 +133,7 @@ func (s *serviceViaListener) getFirstListenerAvailable() (string, int, error) {
 	if runtime.GOOS != "darwin" {
 		ips = append([]string{s.wgInterface.Address().IP.String()}, ips...)
 	}
-	//todo change the order back
-	ports := []int{customPort, defaultPort}
+	ports := []int{defaultPort, customPort}
 	for _, port := range ports {
 		for _, ip := range ips {
 			addrString := fmt.Sprintf("%s:%d", ip, port)
