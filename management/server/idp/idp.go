@@ -15,7 +15,7 @@ type Manager interface {
 	GetUserDataByID(userId string, appMetadata AppMetadata) (*UserData, error)
 	GetAccount(accountId string) ([]*UserData, error)
 	GetAllAccounts() (map[string][]*UserData, error)
-	CreateUser(email string, name string, accountID string) (*UserData, error)
+	CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error)
 	GetUserByEmail(email string) ([]*UserData, error)
 	InviteUserByID(userID string) error
 }
@@ -72,6 +72,7 @@ type AppMetadata struct {
 	// maps to wt_account_id when json.marshal
 	WTAccountID     string `json:"wt_account_id,omitempty"`
 	WTPendingInvite *bool  `json:"wt_pending_invite"`
+	WTInvitedBy     string `json:"wt_invited_by_email"`
 }
 
 // JWTToken a JWT object that holds information of a token

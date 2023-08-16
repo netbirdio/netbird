@@ -236,7 +236,7 @@ func (ac *AzureCredentials) Authenticate() (JWTToken, error) {
 }
 
 // CreateUser creates a new user in azure AD Idp.
-func (am *AzureManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (am *AzureManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	payload, err := buildAzureCreateUserRequestPayload(email, name, accountID, am.ClientID)
 	if err != nil {
 		return nil, err

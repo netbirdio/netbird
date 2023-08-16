@@ -234,7 +234,7 @@ func (zc *ZitadelCredentials) Authenticate() (JWTToken, error) {
 }
 
 // CreateUser creates a new user in zitadel Idp and sends an invite.
-func (zm *ZitadelManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (zm *ZitadelManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	payload, err := buildZitadelCreateUserRequestPayload(email, name)
 	if err != nil {
 		return nil, err
