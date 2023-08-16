@@ -13,6 +13,6 @@ type service interface {
 	Stop()
 	RegisterMux(domain string, handler dns.Handler)
 	DeregisterMux(key string)
-	ListenPort() int
-	ListenIp() string
+	RuntimePort() int
+	RuntimeIP() string
 }

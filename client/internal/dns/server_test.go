@@ -487,7 +487,7 @@ func TestDNSServerStartStop(t *testing.T) {
 					d := net.Dialer{
 						Timeout: time.Second * 5,
 					}
-					addr := fmt.Sprintf("%s:%d", dnsServer.service.ListenIp(), dnsServer.service.ListenPort())
+					addr := fmt.Sprintf("%s:%d", dnsServer.service.RuntimeIP(), dnsServer.service.RuntimePort())
 					conn, err := d.DialContext(ctx, network, addr)
 					if err != nil {
 						t.Log(err)
@@ -603,7 +603,7 @@ func TestDNSPermanent_updateHostDNS_emptyUpstream(t *testing.T) {
 
 	dnsServer.OnUpdatedHostDNSServer([]string{"8.8.8.8"})
 
-	resolver := newDnsResolver(dnsServer.service.ListenIp(), dnsServer.service.ListenPort())
+	resolver := newDnsResolver(dnsServer.service.RuntimeIP(), dnsServer.service.RuntimePort())
 	_, err = resolver.LookupHost(context.Background(), "netbird.io")
 	if err != nil {
 		t.Errorf("failed to resolve: %s", err)
@@ -626,7 +626,7 @@ func TestDNSPermanent_updateUpstream(t *testing.T) {
 	defer dnsServer.Stop()
 
 	// check initial state
-	resolver := newDnsResolver(dnsServer.service.ListenIp(), dnsServer.service.ListenPort())
+	resolver := newDnsResolver(dnsServer.service.RuntimeIP(), dnsServer.service.RuntimePort())
 	_, err = resolver.LookupHost(context.Background(), "netbird.io")
 	if err != nil {
 		t.Errorf("failed to resolve: %s", err)
@@ -718,7 +718,7 @@ func TestDNSPermanent_matchOnly(t *testing.T) {
 	defer dnsServer.Stop()
 
 	// check initial state
-	resolver := newDnsResolver(dnsServer.service.ListenIp(), dnsServer.service.ListenPort())
+	resolver := newDnsResolver(dnsServer.service.RuntimeIP(), dnsServer.service.RuntimePort())
 	_, err = resolver.LookupHost(context.Background(), "netbird.io")
 	if err != nil {
 		t.Errorf("failed to resolve: %s", err)

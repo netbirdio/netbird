@@ -26,8 +26,8 @@ type serviceViaListener struct {
 	dnsMux            *dns.ServeMux
 	customAddr        *netip.AddrPort
 	server            *dns.Server
-	runtimeIP         string
-	runtimePort       int
+	listenIP          string
+	listenPort        int
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
 	ebpfService       *ebpf.Manager
@@ -47,7 +47,7 @@ func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *service
 		},
 	}
 
-	if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" && customAddr != nil {
 		s.ebpfService = ebpf.GetEbpfManagerInstance()
 	}
 	return s
@@ -62,12 +62,12 @@ func (s *serviceViaListener) Listen() error {
 	}
 
 	var err error
-	s.runtimeIP, s.runtimePort, err = s.evalRuntimeAddress()
+	s.listenIP, s.listenPort, err = s.evalRuntimeAddress()
 	if err != nil {
 		log.Errorf("failed to eval runtime address: %s", err)
 		return err
 	}
-	s.server.Addr = fmt.Sprintf("%s:%d", s.runtimeIP, s.runtimePort)
+	s.server.Addr = fmt.Sprintf("%s:%d", s.listenIP, s.listenPort)
 
 	log.Debugf("starting dns on %s", s.server.Addr)
 	go func() {
@@ -76,12 +76,12 @@ func (s *serviceViaListener) Listen() error {
 
 		err := s.server.ListenAndServe()
 		if err != nil {
-			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.runtimePort, err)
+			log.Errorf("dns server running with %d port returned an error: %v. Will not retry", s.listenPort, err)
 		}
 	}()
 
-	if s.ebpfService != nil && s.runtimePort != defaultPort {
-		err = s.ebpfService.LoadDNSFwd(s.runtimeIP, s.runtimePort)
+	if s.ebpfService != nil && s.listenPort != defaultPort {
+		err = s.ebpfService.LoadDNSFwd(s.listenIP, s.listenPort)
 		if err != nil {
 			return err
 		}
@@ -121,16 +121,16 @@ func (s *serviceViaListener) DeregisterMux(pattern string) {
 	s.dnsMux.HandleRemove(pattern)
 }
 
-func (s *serviceViaListener) ListenPort() int {
+func (s *serviceViaListener) RuntimePort() int {
 	if s.ebpfService != nil {
 		return defaultPort
 	} else {
-		return s.runtimePort
+		return s.listenPort
 	}
 }
 
-func (s *serviceViaListener) ListenIp() string {
-	return s.runtimeIP
+func (s *serviceViaListener) RuntimeIP() string {
+	return s.listenIP
 }
 
 func (s *serviceViaListener) setListenerStatus(running bool) {
