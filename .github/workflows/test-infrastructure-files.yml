@@ -9,7 +9,6 @@ on:
       - 'infrastructure_files/**'
       - '.github/workflows/test-infrastructure-files.yml'
 
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.head_ref || github.actor_id }}
   cancel-in-progress: true
