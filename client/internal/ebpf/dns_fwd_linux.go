@@ -1,3 +1,5 @@
+//go:build !android
+
 package ebpf
 
 import (
@@ -12,7 +14,7 @@ const (
 	mapKeyDNSPort uint32 = 1
 )
 
-func (tf *Manager) LoadDNSFwd(ip string, dnsPort int) error {
+func (tf *GeneralManager) LoadDNSFwd(ip string, dnsPort int) error {
 	log.Debugf("load ebpf DNS forwarder: address: %s:%d", ip, dnsPort)
 	tf.lock.Lock()
 	defer tf.lock.Unlock()
@@ -40,7 +42,7 @@ func (tf *Manager) LoadDNSFwd(ip string, dnsPort int) error {
 	return nil
 }
 
-func (tf *Manager) FreeDNSFwd() error {
+func (tf *GeneralManager) FreeDNSFwd() error {
 	log.Debugf("free ebpf DNS forwarder")
 	return tf.unsetFeatureFlag(featureFlagDnsForwarder)
 }

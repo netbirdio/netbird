@@ -1,3 +1,5 @@
+//go:build !android
+
 package ebpf
 
 import (
@@ -18,14 +20,14 @@ const (
 )
 
 var (
-	singleton     *Manager
+	singleton     Manager
 	singletonLock = &sync.Mutex{}
 )
 
-// libbpf-dev, libc6-dev-i386-amd64-cross
+// required packages libbpf-dev, libc6-dev-i386-amd64-cross
 
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf src/prog.c -- -I /usr/x86_64-linux-gnu/include
-type Manager struct {
+type GeneralManager struct {
 	lock         sync.Mutex
 	link         link.Link
 	featureFlags uint16
@@ -33,21 +35,21 @@ type Manager struct {
 }
 
 // GetEbpfManagerInstance return a static eBpf Manager instance
-func GetEbpfManagerInstance() *Manager {
+func GetEbpfManagerInstance() Manager {
 	singletonLock.Lock()
 	defer singletonLock.Unlock()
 	if singleton != nil {
 		return singleton
 	}
-	singleton = &Manager{}
+	singleton = &GeneralManager{}
 	return singleton
 }
 
-func (tf *Manager) setFeatureFlag(feature uint16) {
+func (tf *GeneralManager) setFeatureFlag(feature uint16) {
 	tf.featureFlags = tf.featureFlags | feature
 }
 
-func (tf *Manager) loadXdp() error {
+func (tf *GeneralManager) loadXdp() error {
 	if tf.link != nil {
 		return nil
 	}
@@ -75,7 +77,7 @@ func (tf *Manager) loadXdp() error {
 	return err
 }
 
-func (tf *Manager) unsetFeatureFlag(feature uint16) error {
+func (tf *GeneralManager) unsetFeatureFlag(feature uint16) error {
 	tf.lock.Lock()
 	defer tf.lock.Unlock()
 	tf.featureFlags &^= feature
@@ -91,7 +93,7 @@ func (tf *Manager) unsetFeatureFlag(feature uint16) error {
 	return tf.bpfObjs.NbFeatures.Put(mapKeyFeatures, tf.featureFlags)
 }
 
-func (tf *Manager) close() error {
+func (tf *GeneralManager) close() error {
 	log.Debugf("detach ebpf program ")
 	err := tf.bpfObjs.Close()
 	if err != nil {

@@ -5,7 +5,7 @@ import (
 )
 
 func TestManager_setFeatureFlag(t *testing.T) {
-	mgr := Manager{}
+	mgr := GeneralManager{}
 	mgr.setFeatureFlag(featureFlagWGProxy)
 	if mgr.featureFlags != 1 {
 		t.Errorf("invalid faeture state")
@@ -18,7 +18,7 @@ func TestManager_setFeatureFlag(t *testing.T) {
 }
 
 func TestManager_unsetFeatureFlag(t *testing.T) {
-	mgr := Manager{}
+	mgr := GeneralManager{}
 	mgr.setFeatureFlag(featureFlagWGProxy)
 	mgr.setFeatureFlag(featureFlagDnsForwarder)
 

@@ -30,7 +30,7 @@ type serviceViaListener struct {
 	listenPort        int
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
-	ebpfService       *ebpf.Manager
+	ebpfService       ebpf.Manager
 }
 
 func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *serviceViaListener {
@@ -59,7 +59,7 @@ func (s *serviceViaListener) Listen() error {
 	}
 
 	var err error
-	s.listenIP, s.listenPort, err = s.evalRuntimeAddress()
+	s.listenIP, s.listenPort, err = s.evalListenAddress()
 	if err != nil {
 		log.Errorf("failed to eval runtime address: %s", err)
 		return err
@@ -163,7 +163,7 @@ func (s *serviceViaListener) getFirstListenerAvailable() (string, int, error) {
 	return "", 0, fmt.Errorf("unable to find an unused ip and port combination. IPs tested: %v and ports %v", ips, ports)
 }
 
-func (s *serviceViaListener) evalRuntimeAddress() (string, int, error) {
+func (s *serviceViaListener) evalListenAddress() (string, int, error) {
 	if s.customAddr != nil {
 		return s.customAddr.Addr().String(), int(s.customAddr.Port()), nil
 	}

@@ -19,7 +19,7 @@ import (
 
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
-	ebpfManager       *ebpf.Manager
+	ebpfManager       ebpf.Manager
 	lastUsedPort      uint16
 	localWGListenPort int
 

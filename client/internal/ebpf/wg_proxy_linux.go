@@ -1,3 +1,5 @@
+//go:build !android
+
 package ebpf
 
 import log "github.com/sirupsen/logrus"
@@ -7,7 +9,7 @@ const (
 	mapKeyWgPort    uint32 = 1
 )
 
-func (tf *Manager) LoadWgProxy(proxyPort, wgPort int) error {
+func (tf *GeneralManager) LoadWgProxy(proxyPort, wgPort int) error {
 	log.Debugf("load ebpf WG proxy")
 	tf.lock.Lock()
 	defer tf.lock.Unlock()
@@ -35,7 +37,7 @@ func (tf *Manager) LoadWgProxy(proxyPort, wgPort int) error {
 	return nil
 }
 
-func (tf *Manager) FreeWGProxy() error {
+func (tf *GeneralManager) FreeWGProxy() error {
 	log.Debugf("free ebpf WG proxy")
 	return tf.unsetFeatureFlag(featureFlagWGProxy)
 }
