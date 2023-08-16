@@ -47,9 +47,6 @@ func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *service
 		},
 	}
 
-	if runtime.GOOS == "linux" && customAddr != nil {
-		s.ebpfService = ebpf.GetEbpfManagerInstance()
-	}
 	return s
 }
 
@@ -69,6 +66,14 @@ func (s *serviceViaListener) Listen() error {
 	}
 	s.server.Addr = fmt.Sprintf("%s:%d", s.listenIP, s.listenPort)
 
+	if s.shouldApplyPortFwd() {
+		s.ebpfService = ebpf.GetEbpfManagerInstance()
+		err = s.ebpfService.LoadDNSFwd(s.listenIP, s.listenPort)
+		if err != nil {
+			log.Warnf("failed to load DNS port fwd, custom port may not support well: %s", err)
+			s.ebpfService = nil
+		}
+	}
 	log.Debugf("starting dns on %s", s.server.Addr)
 	go func() {
 		s.setListenerStatus(true)
@@ -80,12 +85,6 @@ func (s *serviceViaListener) Listen() error {
 		}
 	}()
 
-	if s.ebpfService != nil && s.listenPort != defaultPort {
-		err = s.ebpfService.LoadDNSFwd(s.listenIP, s.listenPort)
-		if err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -122,6 +121,9 @@ func (s *serviceViaListener) DeregisterMux(pattern string) {
 }
 
 func (s *serviceViaListener) RuntimePort() int {
+	s.listenerFlagLock.Lock()
+	defer s.listenerFlagLock.Unlock()
+
 	if s.ebpfService != nil {
 		return defaultPort
 	} else {
@@ -167,4 +169,19 @@ func (s *serviceViaListener) evalRuntimeAddress() (string, int, error) {
 	}
 
 	return s.getFirstListenerAvailable()
+}
+
+func (s *serviceViaListener) shouldApplyPortFwd() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+
+	if s.customAddr != nil {
+		return false
+	}
+
+	if s.listenPort == defaultPort {
+		return false
+	}
+	return true
 }
