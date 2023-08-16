@@ -629,8 +629,8 @@ func (a *Account) GetPeer(peerID string) *Peer {
 	return a.Peers[peerID]
 }
 
-// AddJWTGroups to account and to user autoassigned groups
-func (a *Account) AddJWTGroups(userID string, groups []string) bool {
+// SetJWTGroups to account and to user autoassigned groups
+func (a *Account) SetJWTGroups(userID string, groupsNames []string) bool {
 	user, ok := a.Users[userID]
 	if !ok {
 		return false
@@ -641,13 +641,21 @@ func (a *Account) AddJWTGroups(userID string, groups []string) bool {
 		existedGroupsByName[group.Name] = group
 	}
 
-	autoGroups := make(map[string]struct{})
-	for _, groupID := range user.AutoGroups {
-		autoGroups[groupID] = struct{}{}
+	// remove JWT groups from the autogroups, to sync them again
+	removed := 0
+	jwtAutoGroups := make(map[string]struct{})
+	for i, id := range user.AutoGroups {
+		if group, ok := a.Groups[id]; ok && group.Issued == GroupIssuedJWT {
+			jwtAutoGroups[group.Name] = struct{}{}
+			user.AutoGroups = append(user.AutoGroups[:i-removed], user.AutoGroups[i-removed+1:]...)
+			removed++
+		}
 	}
 
+	// create JWT groups if they doesn't exist
+	// and all of them to the autogroups
 	var modified bool
-	for _, name := range groups {
+	for _, name := range groupsNames {
 		group, ok := existedGroupsByName[name]
 		if !ok {
 			group = &Group{
@@ -656,14 +664,20 @@ func (a *Account) AddJWTGroups(userID string, groups []string) bool {
 				Issued: GroupIssuedJWT,
 			}
 			a.Groups[group.ID] = group
-			modified = true
 		}
-		if _, ok := autoGroups[group.ID]; !ok {
-			if group.Issued == GroupIssuedJWT {
-				user.AutoGroups = append(user.AutoGroups, group.ID)
+		// only JWT groups will be synced
+		if group.Issued == GroupIssuedJWT {
+			user.AutoGroups = append(user.AutoGroups, group.ID)
+			if _, ok := jwtAutoGroups[name]; !ok {
 				modified = true
 			}
+			delete(jwtAutoGroups, name)
 		}
+	}
+
+	// if not empty it means we removed some groups
+	if len(jwtAutoGroups) > 0 {
+		modified = true
 	}
 
 	return modified
@@ -1366,12 +1380,16 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 					}
 				}
 
-				oldGroups := user.AutoGroups[:]
+				oldGroups := make([]string, len(user.AutoGroups))
+				copy(oldGroups, user.AutoGroups)
 				// if groups were added or modified, save the account
-				if account.AddJWTGroups(claims.UserId, groupsNames) {
+				if account.SetJWTGroups(claims.UserId, groupsNames) {
 					if account.Settings.GroupsPropagationEnabled {
 						if user, err := account.FindUser(claims.UserId); err == nil {
-							account.UserGroupsAddToPeers(claims.UserId, user.AutoGroups...)
+							addNewGroups := difference(user.AutoGroups, oldGroups)
+							removeOldGroups := difference(oldGroups, user.AutoGroups)
+							account.UserGroupsAddToPeers(claims.UserId, addNewGroups...)
+							account.UserGroupsRemoveFromPeers(claims.UserId, removeOldGroups...)
 							account.Network.IncSerial()
 							if err := am.Store.SaveAccount(account); err != nil {
 								log.Errorf("failed to save account: %v", err)
@@ -1379,10 +1397,19 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 								if err := am.updateAccountPeers(account); err != nil {
 									log.Errorf("failed updating account peers while updating user %s", account.Id)
 								}
-								for _, g := range difference(user.AutoGroups, oldGroups) {
-									group := account.GetGroup(g)
-									if group != nil {
+								for _, g := range addNewGroups {
+									if group := account.GetGroup(g); group != nil {
 										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupAddedToUser,
+											map[string]any{
+												"group":           group.Name,
+												"group_id":        group.ID,
+												"is_service_user": user.IsServiceUser,
+												"user_name":       user.ServiceUserName})
+									}
+								}
+								for _, g := range removeOldGroups {
+									if group := account.GetGroup(g); group != nil {
+										am.storeEvent(user.Id, user.Id, account.Id, activity.GroupRemovedFromUser,
 											map[string]any{
 												"group":           group.Name,
 												"group_id":        group.ID,
