@@ -343,7 +343,7 @@ func TestAuth0_UpdateUserAppMetadata(t *testing.T) {
 	updateUserAppMetadataTestCase2 := updateUserAppMetadataTest{
 		name:            "Bad Status Code",
 		inputReqBody:    fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
-		expectedReqBody: fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":null}}", appMetadata.WTAccountID),
+		expectedReqBody: fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":null,\"wt_invited_by_email\":\"\"}}", appMetadata.WTAccountID),
 		appMetadata:     appMetadata,
 		statusCode:      400,
 		helper:          JsonParser{},
@@ -366,7 +366,7 @@ func TestAuth0_UpdateUserAppMetadata(t *testing.T) {
 	updateUserAppMetadataTestCase4 := updateUserAppMetadataTest{
 		name:                 "Good request",
 		inputReqBody:         fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
-		expectedReqBody:      fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":null}}", appMetadata.WTAccountID),
+		expectedReqBody:      fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":null,\"wt_invited_by_email\":\"\"}}", appMetadata.WTAccountID),
 		appMetadata:          appMetadata,
 		statusCode:           200,
 		helper:               JsonParser{},
@@ -378,7 +378,7 @@ func TestAuth0_UpdateUserAppMetadata(t *testing.T) {
 	updateUserAppMetadataTestCase5 := updateUserAppMetadataTest{
 		name:            "Update Pending Invite",
 		inputReqBody:    fmt.Sprintf("{\"access_token\":\"%s\",\"scope\":\"read:users\",\"expires_in\":%d,\"token_type\":\"Bearer\"}", token, exp),
-		expectedReqBody: fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":true}}", appMetadata.WTAccountID),
+		expectedReqBody: fmt.Sprintf("{\"app_metadata\":{\"wt_account_id\":\"%s\",\"wt_pending_invite\":true,\"wt_invited_by_email\":\"\"}}", appMetadata.WTAccountID),
 		appMetadata: AppMetadata{
 			WTAccountID:     "ok",
 			WTPendingInvite: &invite,
