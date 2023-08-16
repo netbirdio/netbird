@@ -461,7 +461,7 @@ func (am *Auth0Manager) UpdateUserAppMetadata(userID string, appMetadata AppMeta
 	return nil
 }
 
-func buildCreateUserRequestPayload(email string, name string, accountID string) (string, error) {
+func buildCreateUserRequestPayload(email, name, accountID, invitedByEmail string) (string, error) {
 	invite := true
 	req := &createUserRequest{
 		Email: email,
@@ -469,6 +469,7 @@ func buildCreateUserRequestPayload(email string, name string, accountID string) 
 		AppMeta: AppMetadata{
 			WTAccountID:     accountID,
 			WTPendingInvite: &invite,
+			WTInvitedBy:     invitedByEmail,
 		},
 		Connection:  "Username-Password-Authentication",
 		Password:    GeneratePassword(8, 1, 1, 1),
@@ -634,9 +635,9 @@ func (am *Auth0Manager) GetUserByEmail(email string) ([]*UserData, error) {
 }
 
 // CreateUser creates a new user in Auth0 Idp and sends an invite
-func (am *Auth0Manager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (am *Auth0Manager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 
-	payloadString, err := buildCreateUserRequestPayload(email, name, accountID)
+	payloadString, err := buildCreateUserRequestPayload(email, name, accountID, invitedByEmail)
 	if err != nil {
 		return nil, err
 	}
