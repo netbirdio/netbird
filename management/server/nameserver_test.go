@@ -1160,3 +1160,69 @@ func initTestNSAccount(t *testing.T, am *DefaultAccountManager) (*Account, error
 
 	return account, nil
 }
+
+func TestValidateDomain(t *testing.T) {
+	testCases := []struct {
+		name    string
+		domain  string
+		errFunc require.ErrorAssertionFunc
+	}{
+		{
+			name:    "Valid domain name with multiple labels",
+			domain:  "123.example.com",
+			errFunc: require.NoError,
+		},
+		{
+			name:    "Valid domain name with hyphen",
+			domain:  "test-example.com",
+			errFunc: require.NoError,
+		},
+		{
+			name:    "Invalid domain name with double hyphen",
+			domain:  "test--example.com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain name with only one label",
+			domain:  "com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain name with a label exceeding 63 characters",
+			domain:  "dnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdnsdns.com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain name starting with a hyphen",
+			domain:  "-example.com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain name ending with a hyphen",
+			domain:  "example.com-",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain with unicode",
+			domain:  "example?,.com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain with space before top-level domain",
+			domain:  "space .example.com",
+			errFunc: require.Error,
+		},
+		{
+			name:    "Invalid domain with trailing space",
+			domain:  "example.com ",
+			errFunc: require.Error,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			testCase.errFunc(t, validateDomain(testCase.domain))
+		})
+	}
+
+}
