@@ -1420,7 +1420,7 @@ func (am *DefaultAccountManager) getAccountWithAuthorizationClaims(claims jwtcla
 		if _, ok := accountFromID.Users[claims.UserId]; !ok {
 			return nil, fmt.Errorf("user %s is not part of the account id %s", claims.UserId, claims.AccountId)
 		}
-		if accountFromID.DomainCategory == PrivateCategory || claims.DomainCategory != PrivateCategory {
+		if accountFromID.DomainCategory == PrivateCategory || claims.DomainCategory != PrivateCategory || accountFromID.Domain != claims.Domain {
 			return accountFromID, nil
 		}
 	}
