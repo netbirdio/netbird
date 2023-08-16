@@ -103,7 +103,7 @@ func (oc *OktaCredentials) Authenticate() (JWTToken, error) {
 }
 
 // CreateUser creates a new user in okta Idp and sends an invitation.
-func (om *OktaManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (om *OktaManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	var (
 		sendEmail   = true
 		activate    = true

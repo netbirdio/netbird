@@ -230,7 +230,7 @@ func (kc *KeycloakCredentials) Authenticate() (JWTToken, error) {
 }
 
 // CreateUser creates a new user in keycloak Idp and sends an invite.
-func (km *KeycloakManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (km *KeycloakManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	jwtToken, err := km.credentials.Authenticate()
 	if err != nil {
 		return nil, err
