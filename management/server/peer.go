@@ -729,11 +729,9 @@ func checkIfPeerOwnerIsBlocked(peer *Peer, account *Account) error {
 	if peer.AddedWithSSOLogin() {
 		user, err := account.FindUser(peer.UserID)
 		if err != nil {
-			// todo event
 			return status.Errorf(status.PermissionDenied, "user doesn't exist")
 		}
 		if user.IsBlocked() {
-			// todo event
 			return status.Errorf(status.PermissionDenied, "user is blocked")
 		}
 	}
