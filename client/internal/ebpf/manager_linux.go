@@ -74,7 +74,13 @@ func (tf *GeneralManager) loadXdp() error {
 		Program:   tf.bpfObjs.NbXdpProg,
 		Interface: iFace.Index,
 	})
-	return err
+
+	if err != nil {
+		_ = tf.bpfObjs.Close()
+		tf.link = nil
+		return err
+	}
+	return nil
 }
 
 func (tf *GeneralManager) unsetFeatureFlag(feature uint16) error {
