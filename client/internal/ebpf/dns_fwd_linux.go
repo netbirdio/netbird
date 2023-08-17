@@ -10,12 +10,13 @@ import (
 )
 
 const (
-	mapKeyDNSIP   uint32 = 0
-	mapKeyDNSPort uint32 = 1
+	mapKeyFakeIP  uint32 = 0
+	mapKeyDNSIP   uint32 = 1
+	mapKeyDNSPort uint32 = 2
 )
 
-func (tf *GeneralManager) LoadDNSFwd(ip string, dnsPort int) error {
-	log.Debugf("load ebpf DNS forwarder: address: %s:%d", ip, dnsPort)
+func (tf *GeneralManager) LoadDNSFwd(fakeIp, dnsIp string, dnsPort int) error {
+	log.Debugf("load ebpf DNS forwarder: address: %s:%d", dnsIp, dnsPort)
 	tf.lock.Lock()
 	defer tf.lock.Unlock()
 
@@ -24,7 +25,12 @@ func (tf *GeneralManager) LoadDNSFwd(ip string, dnsPort int) error {
 		return err
 	}
 
-	err = tf.bpfObjs.NbMapDnsIp.Put(mapKeyDNSIP, ip2int(ip))
+	err = tf.bpfObjs.NbMapDnsIp.Put(mapKeyFakeIP, ip2int(fakeIp))
+	if err != nil {
+		return err
+	}
+
+	err = tf.bpfObjs.NbMapDnsIp.Put(mapKeyDNSIP, ip2int(dnsIp))
 	if err != nil {
 		return err
 	}

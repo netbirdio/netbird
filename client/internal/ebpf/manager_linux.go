@@ -74,6 +74,7 @@ func (tf *GeneralManager) loadXdp() error {
 		Program:   tf.bpfObjs.NbXdpProg,
 		Interface: iFace.Index,
 	})
+
 	return err
 }
 

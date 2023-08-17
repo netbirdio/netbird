@@ -26,6 +26,7 @@ type serviceViaListener struct {
 	dnsMux            *dns.ServeMux
 	customAddr        *netip.AddrPort
 	server            *dns.Server
+	fakeIP            string
 	listenIP          string
 	listenPort        int
 	listenerIsRunning bool
@@ -67,8 +68,9 @@ func (s *serviceViaListener) Listen() error {
 	s.server.Addr = fmt.Sprintf("%s:%d", s.listenIP, s.listenPort)
 
 	if s.shouldApplyPortFwd() {
+		s.fakeIP = getLastIPFromNetwork(s.wgInterface.Address().Network, 1)
 		s.ebpfService = ebpf.GetEbpfManagerInstance()
-		err = s.ebpfService.LoadDNSFwd(s.listenIP, s.listenPort)
+		err = s.ebpfService.LoadDNSFwd(s.fakeIP, s.listenIP, s.listenPort)
 		if err != nil {
 			log.Warnf("failed to load DNS port fwd, custom port may not support well: %s", err)
 			s.ebpfService = nil
@@ -132,7 +134,14 @@ func (s *serviceViaListener) RuntimePort() int {
 }
 
 func (s *serviceViaListener) RuntimeIP() string {
-	return s.listenIP
+	s.listenerFlagLock.Lock()
+	defer s.listenerFlagLock.Unlock()
+
+	if s.ebpfService != nil {
+		return s.fakeIP
+	} else {
+		return s.listenIP
+	}
 }
 
 func (s *serviceViaListener) setListenerStatus(running bool) {

@@ -2,7 +2,9 @@
 
 package ebpf
 
-import log "github.com/sirupsen/logrus"
+import (
+	log "github.com/sirupsen/logrus"
+)
 
 const (
 	mapKeyProxyPort uint32 = 0
@@ -35,6 +37,7 @@ func (tf *GeneralManager) LoadWgProxy(proxyPort, wgPort int) error {
 		return err
 	}
 	return nil
+
 }
 
 func (tf *GeneralManager) FreeWGProxy() error {

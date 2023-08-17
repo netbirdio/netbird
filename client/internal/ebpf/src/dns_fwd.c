@@ -1,5 +1,7 @@
-const __u32 map_key_dns_ip = 0;
-const __u32 map_key_dns_port = 1;
+
+const __u32 map_key_fake_ip = 0;
+const __u32 map_key_dns_ip = 1;
+const __u32 map_key_dns_port = 2;
 
 struct bpf_map_def SEC("maps") nb_map_dns_ip = {
 	.type = BPF_MAP_TYPE_ARRAY,
@@ -15,6 +17,7 @@ struct bpf_map_def SEC("maps") nb_map_dns_port = {
 	.max_entries = 10,
 };
 
+__be32 fake_ip = 0;
 __be32 dns_ip = 0;
 __be16 dns_port = 0;
 
@@ -22,8 +25,16 @@ __be16 dns_port = 0;
 __be16 GENERAL_DNS_PORT = 13568;
 
 bool read_settings() {
-    __u16 *port_value;
+    __u32 *fake_ip_value;
     __u32 *ip_value;
+    __u16 *port_value;
+
+    // read fake ip
+    fake_ip_value = bpf_map_lookup_elem(&nb_map_dns_ip, &map_key_fake_ip);
+    if(!fake_ip_value) {
+        return false;
+    }
+    fake_ip = htonl(*fake_ip_value);
 
     // read dns ip
     ip_value = bpf_map_lookup_elem(&nb_map_dns_ip, &map_key_dns_ip);
@@ -46,17 +57,17 @@ int xdp_dns_fwd(struct iphdr  *ip, struct udphdr *udp) {
         if(!read_settings()){
             return XDP_PASS;
         }
-        bpf_printk("dns port: %d", ntohs(dns_port));
-        bpf_printk("dns ip: %d", ntohl(dns_ip));
     }
 
-    if (udp->dest == GENERAL_DNS_PORT && ip->daddr == dns_ip) {
+    if (udp->dest == GENERAL_DNS_PORT && ip->daddr == fake_ip) {
         udp->dest = dns_port;
+        ip->daddr = dns_ip;
         return XDP_PASS;
     }
 
     if (udp->source == dns_port && ip->saddr == dns_ip) {
         udp->source = GENERAL_DNS_PORT;
+        ip->saddr = fake_ip;
         return XDP_PASS;
     }
 
