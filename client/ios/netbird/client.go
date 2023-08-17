@@ -105,6 +105,7 @@ func (c *Client) Run(fd int32, dns *DNSList, dnsReadyListener DnsReadyListener) 
 		return err
 	}
 
+	c.logger.Info("Auth successful")
 	// todo do not throw error in case of cancelled context
 	ctx = internal.CtxInitState(ctx)
 	c.onHostDnsFn = func([]string) {}
