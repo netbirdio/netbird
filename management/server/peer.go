@@ -695,6 +695,8 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		updatePeerLastLogin(peer, account)
 		updateRemotePeers = true
 		shouldStoreAccount = true
+
+		am.storeEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	peer, updated := updatePeerMeta(peer, login.Meta, account)
