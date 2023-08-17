@@ -695,6 +695,8 @@ func (am *DefaultAccountManager) LoginPeer(login PeerLogin) (*Peer, *NetworkMap,
 		updatePeerLastLogin(peer, account)
 		updateRemotePeers = true
 		shouldStoreAccount = true
+
+		am.storeEvent(login.UserID, peer.ID, account.Id, activity.UserLoggedInPeer, peer.EventMeta(am.GetDNSDomain()))
 	}
 
 	peer, updated := updatePeerMeta(peer, login.Meta, account)
@@ -727,9 +729,11 @@ func checkIfPeerOwnerIsBlocked(peer *Peer, account *Account) error {
 	if peer.AddedWithSSOLogin() {
 		user, err := account.FindUser(peer.UserID)
 		if err != nil {
+			// todo event
 			return status.Errorf(status.PermissionDenied, "user doesn't exist")
 		}
 		if user.IsBlocked() {
+			// todo event
 			return status.Errorf(status.PermissionDenied, "user is blocked")
 		}
 	}

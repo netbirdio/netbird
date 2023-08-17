@@ -892,7 +892,7 @@ components:
           description: The string code of the activity that occurred during the event
           type: string
           enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add", "user.group.add", "user.group.delete",
-                  "user.role.update", "user.block", "user.unblock",
+                  "user.role.update", "user.block", "user.unblock", "user.peer.login",
                   "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
                   "setupkey.group.delete", "setupkey.group.add",
                   "rule.add", "rule.delete", "rule.update",
@@ -901,7 +901,7 @@ components:
                   "account.create", "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.disable", "account.setting.peer.login.expiration.enable",
                   "route.add", "route.delete", "route.update",
                   "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
-                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable",
+                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable", "peer.login.expire",
                   "service.user.create", "personal.access.token.create", "service.user.delete", "personal.access.token.delete" ]
           example: route.add
         initiator_id:

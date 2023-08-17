@@ -27,6 +27,7 @@ const (
 	EventActivityCodeNameserverGroupUpdate                    EventActivityCode = "nameserver.group.update"
 	EventActivityCodePeerLoginExpirationDisable               EventActivityCode = "peer.login.expiration.disable"
 	EventActivityCodePeerLoginExpirationEnable                EventActivityCode = "peer.login.expiration.enable"
+	EventActivityCodePeerLoginExpire                          EventActivityCode = "peer.login.expire"
 	EventActivityCodePeerRename                               EventActivityCode = "peer.rename"
 	EventActivityCodePeerSshDisable                           EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                            EventActivityCode = "peer.ssh.enable"
@@ -57,6 +58,7 @@ const (
 	EventActivityCodeUserJoin                                 EventActivityCode = "user.join"
 	EventActivityCodeUserPeerAdd                              EventActivityCode = "user.peer.add"
 	EventActivityCodeUserPeerDelete                           EventActivityCode = "user.peer.delete"
+	EventActivityCodeUserPeerLogin                            EventActivityCode = "user.peer.login"
 	EventActivityCodeUserRoleUpdate                           EventActivityCode = "user.role.update"
 	EventActivityCodeUserUnblock                              EventActivityCode = "user.unblock"
 )

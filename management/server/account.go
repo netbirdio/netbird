@@ -872,6 +872,7 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
 				return account.GetNextPeerExpiration()
 			}
+			am.storeEvent(peer.UserID, peer.ID, account.Id, activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()))
 		}
 
 		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
