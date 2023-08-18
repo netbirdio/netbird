@@ -2,6 +2,7 @@ package acl
 
 import (
 	"net"
+	"runtime"
 	"testing"
 
 	"github.com/golang/mock/gomock"
@@ -31,19 +32,24 @@ func TestDefaultManager(t *testing.T) {
 		},
 	}
 
-	ip, network, err := net.ParseCIDR("172.0.0.1/32")
-	if err != nil {
-		t.Fatalf("failed to parse IP address: %v", err)
-	}
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
 
 	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
-	ifaceMock.EXPECT().Name().Return("lo")
 	ifaceMock.EXPECT().IsUserspaceBind().Return(true)
 	ifaceMock.EXPECT().SetFilter(gomock.Any())
-	ifaceMock.EXPECT().Address().Return(iface.WGAddress{
-		IP:      ip,
-		Network: network,
-	})
+	if runtime.GOOS == "linux" {
+		ip, network, err := net.ParseCIDR("172.0.0.1/32")
+		if err != nil {
+			t.Fatalf("failed to parse IP address: %v", err)
+		}
+
+		ifaceMock.EXPECT().Name().Return("lo")
+		ifaceMock.EXPECT().Address().Return(iface.WGAddress{
+			IP:      ip,
+			Network: network,
+		})
+	}
 
 	// we receive one rule from the management so for testing purposes ignore it
 	acl, err := Create(ifaceMock)
@@ -316,22 +322,24 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 		},
 	}
 
-	ip, network, err := net.ParseCIDR("172.0.0.1/32")
-	if err != nil {
-		t.Fatalf("failed to parse IP address: %v", err)
-	}
-
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	ifaceMock := mocks.NewMockIFaceMapper(ctrl)
 	ifaceMock.EXPECT().IsUserspaceBind().Return(true)
-	ifaceMock.EXPECT().Name().Return("lo")
 	ifaceMock.EXPECT().SetFilter(gomock.Any())
-	ifaceMock.EXPECT().Address().Return(iface.WGAddress{
-		IP:      ip,
-		Network: network,
-	})
+	if runtime.GOOS == "linux" {
+		ip, network, err := net.ParseCIDR("172.0.0.1/32")
+		if err != nil {
+			t.Fatalf("failed to parse IP address: %v", err)
+		}
+
+		ifaceMock.EXPECT().Name().Return("lo")
+		ifaceMock.EXPECT().Address().Return(iface.WGAddress{
+			IP:      ip,
+			Network: network,
+		})
+	}
 
 	// we receive one rule from the management so for testing purposes ignore it
 	acl, err := Create(ifaceMock)
