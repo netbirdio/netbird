@@ -1350,7 +1350,8 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
 	unlock()
 	if newLogin {
-		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, nil)
+		meta := map[string]any{"timestamp": claims.LastLogin}
+		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
 		if err != nil {
 			log.Errorf("failed saving user last login: %v", err)
 		}
