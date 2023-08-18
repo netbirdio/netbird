@@ -66,7 +66,7 @@ type ConnConfig struct {
 	// UsesBind indicates whether the WireGuard interface is userspace and uses bind.ICEBind
 	UserspaceBind bool
 
-	RpPubKey string
+	RpPubKey []byte
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -79,7 +79,7 @@ type OfferAnswer struct {
 
 	// Version of NetBird Agent
 	Version         string
-	RosenpassPubKey string
+	RosenpassPubKey []byte
 }
 
 // IceCredentials ICE protocol credentials struct
@@ -98,7 +98,7 @@ type Conn struct {
 	signalOffer       func(OfferAnswer) error
 	signalAnswer      func(OfferAnswer) error
 	sendSignalMessage func(message *sProto.Message) error
-	onConnected       func(remotePeer, remoteRpPubKey, wgIP string)
+	onConnected       func(remotePeer string, remoteRpPubKey []byte, wgIP string)
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -356,7 +356,7 @@ func isRelayCandidate(candidate ice.Candidate) bool {
 }
 
 // configureConnection starts proxying traffic from/to local Wireguard and sets connection status to StatusConnected
-func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, remoteRpPubKey string) (net.Addr, error) {
+func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, remoteRpPubKey []byte) (net.Addr, error) {
 	conn.mu.Lock()
 	defer conn.mu.Unlock()
 
@@ -494,7 +494,7 @@ func (conn *Conn) SetSignalOffer(handler func(offer OfferAnswer) error) {
 }
 
 // SetOnConnected sets a handler function to be triggered by Conn when a new connection to a remote peer established
-func (conn *Conn) SetOnConnected(handler func(remotePeer, remoteRpPubKey, wgIP string)) {
+func (conn *Conn) SetOnConnected(handler func(remotePeer string, remoteRpPubKey []byte, wgIP string)) {
 	conn.onConnected = handler
 }
 

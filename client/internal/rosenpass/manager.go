@@ -11,7 +11,7 @@ import (
 )
 
 type rpConn struct {
-	key     string
+	key     []byte
 	wgIP    string
 	peerKey string
 }
@@ -32,8 +32,8 @@ func NewManager() (*Manager, error) {
 	return &Manager{spk: public, ssk: secret, rpConnections: make(map[string]*rpConn), lock: sync.Mutex{}}, nil
 }
 
-func (m *Manager) GetPubKey() string {
-	return string(m.spk)
+func (m *Manager) GetPubKey() []byte {
+	return m.spk
 }
 
 func (m *Manager) GenerateKeyPair() error {
@@ -66,7 +66,7 @@ func (m *Manager) generateConfig() (*rp.Config, error) {
 
 	for _, peer := range m.rpConnections {
 		var pc config.PeerSection
-		pc.PublicKey = peer.key
+		pc.PublicKey = "peer.key"
 		endpoint := fmt.Sprintf("%s:%d", peer.wgIP, 9999)
 		pc.Endpoint = &endpoint
 		outFile := fmt.Sprintf("/tmp/%s", peer.wgIP)
@@ -80,7 +80,7 @@ func (m *Manager) generateConfig() (*rp.Config, error) {
 	return &toConfig, nil
 }
 
-func (m *Manager) OnConnected(peerKey, rpPubKey, wgIP string) {
+func (m *Manager) OnConnected(peerKey string, rpPubKey []byte, wgIP string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
 	// lookup rp PubKey
@@ -88,7 +88,7 @@ func (m *Manager) OnConnected(peerKey, rpPubKey, wgIP string) {
 	// pass file or channel for pre shared key to update p2p wireguard connection
 	// generate new RP config
 	// update rosenpass server with new config (or restart)
-	m.rpConnections[rpPubKey] = &rpConn{
+	m.rpConnections[peerKey] = &rpConn{
 		key:     rpPubKey,
 		wgIP:    wgIP,
 		peerKey: peerKey,
