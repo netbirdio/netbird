@@ -32,6 +32,7 @@ type Manager struct {
 	wgNetwork     *net.IPNet
 	decoders      sync.Pool
 	wgIface       IFaceMapper
+	resetHook func() error
 
 	mutex sync.RWMutex
 }
@@ -366,4 +367,9 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 		}
 	}
 	return fmt.Errorf("hook with given id not found")
+}
+
+// SetResetHook which will be executed in the end of Reset method
+func (m *Manager) SetResetHook(hook func() error) {
+	m.resetHook = hook
 }

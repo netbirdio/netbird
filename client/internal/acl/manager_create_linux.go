@@ -23,24 +23,35 @@ func Create(iface IFaceMapper) (manager *DefaultManager, err error) {
 			log.Debugf("failed to create iptables manager: %s", err)
 		}
 	}
+	var resetHookForUserspace func() error
 	if fm != nil && err == nil {
 		// err shadowing is used here, to ignore this error
 		if err := fm.AllowNetbird(); err != nil {
 			log.Errorf("failed to allow netbird interface traffic: %v", err)
 		}
+		resetHookForUserspace = fm.Reset
 	}
 
 	if iface.IsUserspaceBind() {
 		// use userspace packet filtering firewall
-		if fm, err = uspfilter.Create(iface); err != nil {
+		usfm, err := uspfilter.Create(iface)
+		if err != nil {
 			log.Debugf("failed to create userspace filtering firewall: %s", err)
 			return nil, err
 		}
+
+		// set kernel space firewall Reset as hook for userspace firewall
+		// manager Reset method, to clean up
+		if resetHookForUserspace != nil {
+			usfm.SetResetHook(resetHookForUserspace)
+		}
+
 		// to be consistent for any future extensions.
 		// ignore this error
-		if err := fm.AllowNetbird(); err != nil {
+		if err := usfm.AllowNetbird(); err != nil {
 			log.Errorf("failed to allow netbird interface traffic: %v", err)
 		}
+		fm = usfm
 	}
 
 	if fm == nil || err != nil {

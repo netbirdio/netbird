@@ -45,9 +45,6 @@ type ipsetInfo struct {
 }
 
 func newDefaultManager(fm firewall.Manager) *DefaultManager {
-	if err := fm.AllowNetbird(); err != nil {
-		log.Errorf("failed to allow netbird interface traffic: %v", err)
-	}
 	return &DefaultManager{
 		manager:    fm,
 		rulesPairs: make(map[string][]firewall.Rule),
