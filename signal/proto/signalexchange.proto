@@ -58,7 +58,7 @@ message Body {
   // featuresSupported list of supported features by the client of this protocol
   repeated uint32 featuresSupported = 6;
 
-  string rosenpassPubKey = 7;
+  bytes rosenpassPubKey = 7;
 }
 
 // Mode indicates a connection mode
