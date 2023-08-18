@@ -1345,18 +1345,6 @@ func (am *DefaultAccountManager) GetAccountFromToken(claims jwtclaims.Authorizat
 		return nil, nil, status.Errorf(status.NotFound, "user %s not found", claims.UserId)
 	}
 
-	unlock := am.Store.AcquireAccountLock(account.Id)
-	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
-	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
-	unlock()
-	if newLogin {
-		meta := map[string]any{"timestamp": claims.LastLogin}
-		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
-		if err != nil {
-			log.Errorf("failed saving user last login: %v", err)
-		}
-	}
-
 	if !user.IsServiceUser {
 		err = am.redeemInvite(account, claims.UserId)
 		if err != nil {

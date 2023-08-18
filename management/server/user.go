@@ -291,6 +291,21 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
+
+	// this code should be outside of the am.GetAccountFromToken(claims) because this method is called also by the gRPC
+	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
+	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
+	unlock()
+	if newLogin {
+		meta := map[string]any{"timestamp": claims.LastLogin}
+		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
+		if err != nil {
+			log.Errorf("failed saving user last login: %v", err)
+		}
+	}
+
 	return user, nil
 }
 
