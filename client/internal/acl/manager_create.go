@@ -17,6 +17,9 @@ func Create(iface IFaceMapper) (manager *DefaultManager, err error) {
 		if err != nil {
 			return nil, err
 		}
+		if err := fm.AllowNetbird(); err != nil {
+			log.Errorf("failed to allow netbird interface traffic: %v", err)
+		}
 		return newDefaultManager(fm), nil
 	}
 	return nil, fmt.Errorf("not implemented for this OS: %s", runtime.GOOS)
