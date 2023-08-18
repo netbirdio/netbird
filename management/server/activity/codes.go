@@ -110,6 +110,8 @@ const (
 	UserLoggedInPeer
 	// PeerLoginExpired indicates that the user peer login has been expired and peer disconnected
 	PeerLoginExpired
+	// DashboardLogin indicates that the user logged in to the dashboard
+	DashboardLogin
 )
 
 var activityMap = map[Activity]Code{
@@ -163,6 +165,7 @@ var activityMap = map[Activity]Code{
 	GroupDeleted:                              {"Group deleted", "group.delete"},
 	UserLoggedInPeer:                          {"User logged in peer", "user.peer.login"},
 	PeerLoginExpired:                          {"Peer login expired", "peer.login.expire"},
+	DashboardLogin:                            {"Dashboard login", "dashboard.login"},
 }
 
 // StringCode returns a string code of the activity

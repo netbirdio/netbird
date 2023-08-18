@@ -4,12 +4,15 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audiance string) *http.Request {
+	const layout = "2006-01-02T15:04:05.999Z"
+
 	claimMaps := jwt.MapClaims{}
 	if claims.UserId != "" {
 		claimMaps[UserIDClaim] = claims.UserId
@@ -22,6 +25,9 @@ func newTestRequestWithJWT(t *testing.T, claims AuthorizationClaims, audiance st
 	}
 	if claims.DomainCategory != "" {
 		claimMaps[audiance+DomainCategorySuffix] = claims.DomainCategory
+	}
+	if claims.LastLogin != (time.Time{}) {
+		claimMaps[audiance+LastLoginSuffix] = claims.LastLogin.Format(layout)
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claimMaps)
 	r, err := http.NewRequest(http.MethodGet, "http://localhost", nil)
@@ -40,6 +46,9 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 		expectedMSG              string
 	}
 
+	const layout = "2006-01-02T15:04:05.999Z"
+	lastLogin, _ := time.Parse(layout, "2023-08-17T09:30:40.465Z")
+
 	testCase1 := test{
 		name:          "All Claim Fields",
 		inputAudiance: "https://login/",
@@ -47,11 +56,13 @@ func TestExtractClaimsFromRequestContext(t *testing.T) {
 			UserId:         "test",
 			Domain:         "test.com",
 			AccountId:      "testAcc",
+			LastLogin:      lastLogin,
 			DomainCategory: "public",
 			Raw: jwt.MapClaims{
 				"https://login/wt_account_domain":          "test.com",
 				"https://login/wt_account_domain_category": "public",
 				"https://login/wt_account_id":              "testAcc",
+				"https://login/nb_last_login":              lastLogin.Format(layout),
 				"sub":                                      "test",
 			},
 		},
