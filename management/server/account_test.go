@@ -1930,7 +1930,7 @@ func TestAccount_GetNextPeerExpiration(t *testing.T) {
 	}
 }
 
-func TestAccount_AddJWTGroups(t *testing.T) {
+func TestAccount_SetJWTGroups(t *testing.T) {
 	// create a new account
 	account := &Account{
 		Peers: map[string]*Peer{
@@ -1951,13 +1951,13 @@ func TestAccount_AddJWTGroups(t *testing.T) {
 	}
 
 	t.Run("api group already exists", func(t *testing.T) {
-		updated := account.AddJWTGroups("user1", []string{"group1"})
+		updated := account.SetJWTGroups("user1", []string{"group1"})
 		assert.False(t, updated, "account should not be updated")
 		assert.Empty(t, account.Users["user1"].AutoGroups, "auto groups must be empty")
 	})
 
 	t.Run("add jwt group", func(t *testing.T) {
-		updated := account.AddJWTGroups("user1", []string{"group1", "group2"})
+		updated := account.SetJWTGroups("user1", []string{"group1", "group2"})
 		assert.True(t, updated, "account should be updated")
 		assert.Len(t, account.Groups, 2, "new group should be added")
 		assert.Len(t, account.Users["user1"].AutoGroups, 1, "new group should be added")
@@ -1965,13 +1965,13 @@ func TestAccount_AddJWTGroups(t *testing.T) {
 	})
 
 	t.Run("existed group not update", func(t *testing.T) {
-		updated := account.AddJWTGroups("user1", []string{"group2"})
+		updated := account.SetJWTGroups("user1", []string{"group2"})
 		assert.False(t, updated, "account should not be updated")
 		assert.Len(t, account.Groups, 2, "groups count should not be changed")
 	})
 
 	t.Run("add new group", func(t *testing.T) {
-		updated := account.AddJWTGroups("user2", []string{"group1", "group3"})
+		updated := account.SetJWTGroups("user2", []string{"group1", "group3"})
 		assert.True(t, updated, "account should be updated")
 		assert.Len(t, account.Groups, 3, "new group should be added")
 		assert.Len(t, account.Users["user2"].AutoGroups, 1, "new group should be added")
