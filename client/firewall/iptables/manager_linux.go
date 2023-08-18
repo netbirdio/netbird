@@ -84,6 +84,10 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		}
 	}
 
+	if m.ipv4Client == nil && m.ipv6Client == nil {
+		return nil, fmt.Errorf("iptables is not installed in the system or not enough permissions to use it")
+	}
+
 	if err := m.Reset(); err != nil {
 		return nil, fmt.Errorf("failed to reset firewall: %v", err)
 	}

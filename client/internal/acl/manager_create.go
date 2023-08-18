@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"runtime"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 )
 
