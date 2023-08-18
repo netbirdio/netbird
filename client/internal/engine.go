@@ -20,6 +20,7 @@ import (
 	"github.com/netbirdio/netbird/client/internal/acl"
 	"github.com/netbirdio/netbird/client/internal/dns"
 	"github.com/netbirdio/netbird/client/internal/peer"
+	"github.com/netbirdio/netbird/client/internal/rosenpass"
 	"github.com/netbirdio/netbird/client/internal/routemanager"
 	"github.com/netbirdio/netbird/client/internal/wgproxy"
 	nbssh "github.com/netbirdio/netbird/client/ssh"
@@ -85,6 +86,8 @@ type Engine struct {
 	mgmClient mgm.Client
 	// peerConns is a map that holds all the peers that are known to this peer
 	peerConns map[string]*peer.Conn
+	// rpManager is a Rosenpass manager
+	rpManager *rosenpass.Manager
 
 	// syncMsgMux is used to guarantee sequential Management Service message processing
 	syncMsgMux *sync.Mutex
@@ -149,6 +152,7 @@ func NewEngine(
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
 		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
+		rpManager:      rosenpass.NewManager(),
 	}
 }
 
@@ -267,6 +271,11 @@ func (e *Engine) Start() error {
 	err = e.dnsServer.Initialize()
 	if err != nil {
 		e.close()
+		return err
+	}
+
+	err = e.rpManager.GenerateKeyPair()
+	if err != nil {
 		return err
 	}
 
@@ -466,7 +475,7 @@ func (e *Engine) updateSSH(sshConf *mgmProto.SSHConfig) error {
 		}
 		// start SSH server if it wasn't running
 		if isNil(e.sshServer) {
-			//nil sshServer means it has not yet been started
+			// nil sshServer means it has not yet been started
 			var err error
 			e.sshServer, err = e.sshServerFunc(e.config.SSHKey,
 				fmt.Sprintf("%s:%d", e.wgInterface.Address().IP.String(), nbssh.DefaultSSHPort))
@@ -667,6 +676,9 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 		e.acl.ApplyFiltering(networkMap)
 	}
 	e.networkSerial = serial
+
+	e.rpManager.GenerateKeyPair()
+
 	return nil
 }
 
