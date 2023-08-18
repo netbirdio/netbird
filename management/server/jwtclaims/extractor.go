@@ -27,9 +27,8 @@ type ExtractClaims func(r *http.Request) AuthorizationClaims
 
 // ClaimsExtractor struct that holds the extract function
 type ClaimsExtractor struct {
-	authAudience   string
-	userIDClaim    string
-	lastLoginClaim time.Time
+	authAudience string
+	userIDClaim  string
 
 	FromRequestContext ExtractClaims
 }
