@@ -6,17 +6,26 @@ import (
 
 	rp "cunicu.li/go-rosenpass"
 	"cunicu.li/go-rosenpass/config"
-
-	"github.com/netbirdio/netbird/management/proto"
 )
 
+type rpConn struct {
+	key     string
+	wgIP    string
+	peerKey string
+}
+
 type Manager struct {
-	spk []byte
-	ssk []byte
+	spk           []byte
+	ssk           []byte
+	rpConnections map[string]*rpConn
 }
 
 func NewManager() *Manager {
 	return &Manager{}
+}
+
+func (m *Manager) GetPubKey() string {
+	return string(m.spk)
 }
 
 func (m *Manager) GenerateKeyPair() error {
@@ -31,9 +40,9 @@ func (m *Manager) GenerateKeyPair() error {
 	return nil
 }
 
-func (m *Manager) generateConfig(peers []*proto.RemotePeerConfig) (cfg config.File, err error) {
+func (m *Manager) generateConfig() (cfg config.File, err error) {
 
-	cfg := config.File{}
+	cfg = config.File{}
 	cfg.SecretKey = string(m.ssk)
 	cfg.PublicKey = string(m.spk)
 
@@ -47,24 +56,33 @@ func (m *Manager) generateConfig(peers []*proto.RemotePeerConfig) (cfg config.Fi
 		return cfg, errors.New("missing secret key for rosenpass")
 	}
 
-	for _, peer := range peers {
+	for _, peer := range m.rpConnections {
 		var pc config.PeerSection
-		allowedIP := peer.GetAllowedIps()
-		pc.PublicKey =
-		// pc.PresharedKey =
-		pc.Endpoint = &allowedIP[0]
-		pc.KeyOut =
-
-		cfg.Peers = append(cfg.Peers, pc)
+		pc.PublicKey = peer.key
+		endpoint := fmt.Sprintf("%s:%d", peer.wgIP, 9999)
+		pc.Endpoint = &endpoint
+		outFile := fmt.Sprintf("/tmp/%s", peer.wgIP)
+		pc.KeyOut = &outFile
 	}
 
 	return cfg, nil
 }
 
-func (m *Manager) onConnected(peerID string) {
+func (m *Manager) OnConnected(peerKey, rpPubKey, wgIP string) {
 	// lookup rp PubKey
 	// lookup rp Endpoint (== wireguard endpoint)
 	// pass file or channel for pre shared key to update p2p wireguard connection
 	// generate new RP config
 	// update rosenpass server with new config (or restart)
+	m.rpConnections[rpPubKey] = &rpConn{
+		key:     rpPubKey,
+		wgIP:    wgIP,
+		peerKey: peerKey,
+	}
+
+	conf, err := m.generateConfig()
+	if err != nil {
+		return
+	}
+
 }
