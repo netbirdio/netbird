@@ -65,6 +65,8 @@ type ConnConfig struct {
 
 	// UsesBind indicates whether the WireGuard interface is userspace and uses bind.ICEBind
 	UserspaceBind bool
+
+	RpPubKey string
 }
 
 // OfferAnswer represents a session establishment offer or answer
@@ -550,9 +552,10 @@ func (conn *Conn) sendAnswer() error {
 
 	log.Debugf("sending answer to %s", conn.config.Key)
 	err = conn.signalAnswer(OfferAnswer{
-		IceCredentials: IceCredentials{localUFrag, localPwd},
-		WgListenPort:   conn.config.LocalWgPort,
-		Version:        version.NetbirdVersion(),
+		IceCredentials:  IceCredentials{localUFrag, localPwd},
+		WgListenPort:    conn.config.LocalWgPort,
+		Version:         version.NetbirdVersion(),
+		RosenpassPubKey: conn.config.RpPubKey,
 	})
 	if err != nil {
 		return err
@@ -571,9 +574,10 @@ func (conn *Conn) sendOffer() error {
 		return err
 	}
 	err = conn.signalOffer(OfferAnswer{
-		IceCredentials: IceCredentials{localUFrag, localPwd},
-		WgListenPort:   conn.config.LocalWgPort,
-		Version:        version.NetbirdVersion(),
+		IceCredentials:  IceCredentials{localUFrag, localPwd},
+		WgListenPort:    conn.config.LocalWgPort,
+		Version:         version.NetbirdVersion(),
+		RosenpassPubKey: conn.config.RpPubKey,
 	})
 	if err != nil {
 		return err

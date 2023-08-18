@@ -415,7 +415,7 @@ func sendSignal(message *sProto.Message, s signal.Client) error {
 
 // SignalOfferAnswer signals either an offer or an answer to remote peer
 func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKey wgtypes.Key, s signal.Client,
-	isAnswer bool, rosenpassPubKey string) error {
+	isAnswer bool) error {
 	var t sProto.Body_Type
 	if isAnswer {
 		t = sProto.Body_ANSWER
@@ -426,7 +426,7 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	msg, err := signal.MarshalCredential(myKey, offerAnswer.WgListenPort, remoteKey, &signal.Credential{
 		UFrag: offerAnswer.IceCredentials.UFrag,
 		Pwd:   offerAnswer.IceCredentials.Pwd,
-	}, t, rosenpassPubKey)
+	}, t, offerAnswer.RosenpassPubKey)
 	if err != nil {
 		return err
 	}
@@ -867,6 +867,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
+		RpPubKey:             e.rpManager.GetPubKey(),
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
@@ -880,7 +881,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 	}
 
 	signalOffer := func(offerAnswer peer.OfferAnswer) error {
-		return SignalOfferAnswer(offerAnswer, e.config.WgPrivateKey, wgPubKey, e.signal, false, e.rpManager.GetPubKey())
+		return SignalOfferAnswer(offerAnswer, e.config.WgPrivateKey, wgPubKey, e.signal, false)
 	}
 
 	signalCandidate := func(candidate ice.Candidate) error {
@@ -888,7 +889,7 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 	}
 
 	signalAnswer := func(offerAnswer peer.OfferAnswer) error {
-		return SignalOfferAnswer(offerAnswer, e.config.WgPrivateKey, wgPubKey, e.signal, true, e.rpManager.GetPubKey())
+		return SignalOfferAnswer(offerAnswer, e.config.WgPrivateKey, wgPubKey, e.signal, true)
 	}
 
 	peerConn.SetSignalCandidate(signalCandidate)
