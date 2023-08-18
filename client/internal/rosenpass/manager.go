@@ -53,10 +53,18 @@ func (m *Manager) generateConfig(peers []*proto.RemotePeerConfig) (cfg config.Fi
 		pc.PublicKey =
 		// pc.PresharedKey =
 		pc.Endpoint = &allowedIP[0]
-		pc.KeyOut = "bal"
+		pc.KeyOut =
 
 		cfg.Peers = append(cfg.Peers, pc)
 	}
 
 	return cfg, nil
+}
+
+func (m *Manager) onConnected(peerID string) {
+	// lookup rp PubKey
+	// lookup rp Endpoint (== wireguard endpoint)
+	// generate new RP config
+	// pass file or channel for pre shared key to update p2p wireguard connection
+	// update rosenpass server with new config (or restart)
 }

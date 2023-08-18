@@ -404,6 +404,8 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int) (ne
 		log.Warnf("unable to save peer's state, got error: %v", err)
 	}
 
+	// TODO trigger on connected event so that engine can handle it (rosenpass config update)
+
 	return endpoint, nil
 }
 
@@ -464,7 +466,7 @@ func (conn *Conn) cleanup() error {
 	err := conn.statusRecorder.UpdatePeerState(peerState)
 	if err != nil {
 		// pretty common error because by that time Engine can already remove the peer and status won't be available.
-		//todo rethink status updates
+		// todo rethink status updates
 		log.Debugf("error while updating peer's %s state, err: %v", conn.config.Key, err)
 	}
 
