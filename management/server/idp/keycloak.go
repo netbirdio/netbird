@@ -78,6 +78,8 @@ type keycloakProfile struct {
 	CreatedTimestamp int64                  `json:"createdTimestamp"`
 	Username         string                 `json:"username"`
 	Email            string                 `json:"email"`
+	FirstName        string                 `json:"firstName"`
+	LastName         string                 `json:"lastName"`
 	Attributes       keycloakUserAttributes `json:"attributes"`
 }
 
@@ -415,18 +417,26 @@ func (km *KeycloakManager) UpdateUserAppMetadata(userID string, appMetadata AppM
 		return err
 	}
 
-	attrs := keycloakUserAttributes{}
-	attrs.Set(wtAccountID, appMetadata.WTAccountID)
+	body, err := km.get("users/" + userID, nil)
+	if err != nil {
+		return err
+	}
+
+	var kp keycloakProfile
+	err = km.helper.Unmarshal(body, &kp)
+	if err != nil {
+		return err
+	}
+
+	kp.Attributes.Set(wtAccountID, appMetadata.WTAccountID)
 	if appMetadata.WTPendingInvite != nil {
-		attrs.Set(wtPendingInvite, strconv.FormatBool(*appMetadata.WTPendingInvite))
+		kp.Attributes.Set(wtPendingInvite, strconv.FormatBool(*appMetadata.WTPendingInvite))
 	} else {
-		attrs.Set(wtPendingInvite, "false")
+		kp.Attributes.Set(wtPendingInvite, "false")
 	}
 
 	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userID)
-	data, err := km.helper.Marshal(map[string]any{
-		"attributes": attrs,
-	})
+	data, err := km.helper.Marshal(kp)
 	if err != nil {
 		return err
 	}
