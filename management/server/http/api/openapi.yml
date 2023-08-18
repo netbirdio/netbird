@@ -100,6 +100,11 @@ components:
           type: string
           enum: [ "active","invited","blocked" ]
           example: active
+        last_login:
+          description: Last time this user performed a login to the dashboard
+          type: string
+          format: date-time
+          example: 2023-05-05T09:00:35.477782Z
         auto_groups:
           description: Groups to auto-assign to peers registered by this user
           type: array

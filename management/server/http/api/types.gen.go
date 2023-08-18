@@ -767,6 +767,9 @@ type User struct {
 	// IsServiceUser Is true if this user is a service user
 	IsServiceUser *bool `json:"is_service_user,omitempty"`
 
+	// LastLogin Last time this user performed a login to the dashboard
+	LastLogin *time.Time `json:"last_login,omitempty"`
+
 	// Name User's name from idp provider
 	Name string `json:"name"`
 

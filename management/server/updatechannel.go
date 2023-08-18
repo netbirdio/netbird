@@ -1,9 +1,11 @@
 package server
 
 import (
-	"github.com/netbirdio/netbird/management/proto"
-	log "github.com/sirupsen/logrus"
 	"sync"
+
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/proto"
 )
 
 const channelBufferSize = 100
@@ -33,7 +35,7 @@ func (p *PeersUpdateManager) SendUpdate(peerID string, update *UpdateMessage) er
 	if channel, ok := p.peerChannels[peerID]; ok {
 		select {
 		case channel <- update:
-			log.Infof("update was sent to channel for peer %s", peerID)
+			log.Debugf("update was sent to channel for peer %s", peerID)
 		default:
 			log.Warnf("channel for peer %s is %d full", peerID, len(channel))
 		}
@@ -52,7 +54,7 @@ func (p *PeersUpdateManager) CreateChannel(peerID string) chan *UpdateMessage {
 		delete(p.peerChannels, peerID)
 		close(channel)
 	}
-	//mbragin: todo shouldn't it be more? or configurable?
+	// mbragin: todo shouldn't it be more? or configurable?
 	channel := make(chan *UpdateMessage, channelBufferSize)
 	p.peerChannels[peerID] = channel
 

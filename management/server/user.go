@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -53,11 +54,17 @@ type User struct {
 	PATs       map[string]*PersonalAccessToken
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
+	// LastLogin is the last time the user logged in to IdP
+	LastLogin time.Time
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
 func (u *User) IsBlocked() bool {
 	return u.Blocked
+}
+
+func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
+	return LastLogin.After(u.LastLogin) && !u.LastLogin.IsZero()
 }
 
 // IsAdmin returns true if the user is an admin, false otherwise
@@ -82,6 +89,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			Status:        string(UserStatusActive),
 			IsServiceUser: u.IsServiceUser,
 			IsBlocked:     u.Blocked,
+			LastLogin:     u.LastLogin,
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -102,6 +110,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		Status:        string(userStatus),
 		IsServiceUser: u.IsServiceUser,
 		IsBlocked:     u.Blocked,
+		LastLogin:     u.LastLogin,
 	}, nil
 }
 
@@ -123,6 +132,7 @@ func (u *User) Copy() *User {
 		ServiceUserName: u.ServiceUserName,
 		PATs:            pats,
 		Blocked:         u.Blocked,
+		LastLogin:       u.LastLogin,
 	}
 }
 
@@ -186,6 +196,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 		AutoGroups:    newUser.AutoGroups,
 		Status:        string(UserStatusActive),
 		IsServiceUser: true,
+		LastLogin:     time.Time{},
 	}, nil
 }
 
@@ -280,6 +291,21 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
+
+	// this code should be outside of the am.GetAccountFromToken(claims) because this method is called also by the gRPC
+	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
+	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
+	unlock()
+	if newLogin {
+		meta := map[string]any{"timestamp": claims.LastLogin}
+		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
+		if err != nil {
+			log.Errorf("failed saving user last login: %v", err)
+		}
+	}
+
 	return user, nil
 }
 
