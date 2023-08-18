@@ -152,7 +152,6 @@ func NewEngine(
 		sshServerFunc:  nbssh.DefaultSSHServer,
 		statusRecorder: statusRecorder,
 		wgProxyFactory: wgproxy.NewFactory(config.WgPort),
-		rpManager:      rosenpass.NewManager(),
 	}
 }
 
@@ -188,6 +187,11 @@ func (e *Engine) Start() error {
 	transportNet, err := e.newStdNet()
 	if err != nil {
 		log.Errorf("failed to create pion's stdnet: %s", err)
+	}
+
+	e.rpManager, err = rosenpass.NewManager()
+	if err != nil {
+		return err
 	}
 
 	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
