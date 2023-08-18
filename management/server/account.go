@@ -189,14 +189,15 @@ type Account struct {
 }
 
 type UserInfo struct {
-	ID            string   `json:"id"`
-	Email         string   `json:"email"`
-	Name          string   `json:"name"`
-	Role          string   `json:"role"`
-	AutoGroups    []string `json:"auto_groups"`
-	Status        string   `json:"-"`
-	IsServiceUser bool     `json:"is_service_user"`
-	IsBlocked     bool     `json:"is_blocked"`
+	ID            string    `json:"id"`
+	Email         string    `json:"email"`
+	Name          string    `json:"name"`
+	Role          string    `json:"role"`
+	AutoGroups    []string  `json:"auto_groups"`
+	Status        string    `json:"-"`
+	IsServiceUser bool      `json:"is_service_user"`
+	IsBlocked     bool      `json:"is_blocked"`
+	LastLogin     time.Time `json:"last_login"`
 }
 
 // getRoutesToSync returns the enabled routes for the peer ID and the routes
