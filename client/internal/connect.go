@@ -215,6 +215,7 @@ func runClient(ctx context.Context, config *Config, statusRecorder *peer.Status,
 func createEngineConfig(key wgtypes.Key, config *Config, peerConfig *mgmProto.PeerConfig) (*EngineConfig, error) {
 	engineConf := &EngineConfig{
 		WgIfaceName:          config.WgIface,
+		WgIfaceMtu:           config.WgIfaceMtu,
 		WgAddr:               peerConfig.Address,
 		IFaceBlackList:       config.IFaceBlackList,
 		DisableIPv6Discovery: config.DisableIPv6Discovery,

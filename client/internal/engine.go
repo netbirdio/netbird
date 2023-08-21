@@ -50,6 +50,7 @@ var ErrResetConnection = fmt.Errorf("reset connection")
 type EngineConfig struct {
 	WgPort      int
 	WgIfaceName string
+	WgIfaceMtu  int
 
 	// WgAddr is a Wireguard local address (Netbird Network IP)
 	WgAddr string
@@ -178,6 +179,7 @@ func (e *Engine) Start() error {
 	defer e.syncMsgMux.Unlock()
 
 	wgIFaceName := e.config.WgIfaceName
+	wgIFaceMtu := e.config.WgIfaceMtu
 	wgAddr := e.config.WgAddr
 	myPrivateKey := e.config.WgPrivateKey
 	var err error
@@ -186,7 +188,7 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
+	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, wgIFaceMtu, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
 		log.Errorf("failed creating wireguard interface instance %s: [%s]", wgIFaceName, err.Error())
 		return err

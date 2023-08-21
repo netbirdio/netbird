@@ -47,6 +47,7 @@ type Config struct {
 	ManagementURL        *url.URL
 	AdminURL             *url.URL
 	WgIface              string
+	WgIfaceMtu           int
 	WgPort               int
 	IFaceBlackList       []string
 	DisableIPv6Discovery bool
@@ -140,6 +141,7 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		SSHKey:               string(pem),
 		PrivateKey:           wgKey,
 		WgIface:              iface.WgInterfaceDefault,
+		WgIfaceMtu:           iface.DefaultMTU,
 		WgPort:               iface.DefaultWgPort,
 		IFaceBlackList:       []string{},
 		DisableIPv6Discovery: false,
