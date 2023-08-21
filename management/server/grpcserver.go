@@ -7,11 +7,6 @@ import (
 	"time"
 
 	pb "github.com/golang/protobuf/proto" // nolint
-
-	"github.com/netbirdio/netbird/management/server/telemetry"
-
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -21,7 +16,10 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/ephemeral"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	internalStatus "github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 // GRPCServer an instance of a Management gRPC API server
@@ -35,12 +33,11 @@ type GRPCServer struct {
 	jwtValidator           *jwtclaims.JWTValidator
 	jwtClaimsExtractor     *jwtclaims.ClaimsExtractor
 	appMetrics             telemetry.AppMetrics
+	ephemeralManager       *ephemeral.Manager
 }
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager,
-	turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics,
-) (*GRPCServer, error) {
+func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics, ephemeralManager *ephemeral.Manager) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -92,6 +89,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		jwtValidator:           jwtValidator,
 		jwtClaimsExtractor:     jwtClaimsExtractor,
 		appMetrics:             appMetrics,
+		ephemeralManager:       ephemeralManager,
 	}, nil
 }
 
@@ -141,6 +139,9 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 
 	updates := s.peersUpdateManager.CreateChannel(peer.ID)
+
+	s.ephemeralManager.OnPeerConnected(peer)
+
 	err = s.accountManager.MarkPeerConnected(peerKey.String(), true)
 	if err != nil {
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)

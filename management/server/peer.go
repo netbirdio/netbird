@@ -99,6 +99,8 @@ type Peer struct {
 	LoginExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
+	// Indicate ephemeral peer attribute
+	Ephemeral bool
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
