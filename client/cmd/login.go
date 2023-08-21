@@ -3,6 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -189,17 +191,37 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 
 func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 	var codeMsg string
-	if userCode != "" {
-		if !strings.Contains(verificationURIComplete, userCode) {
-			codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
+	if userCode != "" && !strings.Contains(verificationURIComplete, userCode) {
+		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
+	}
+
+	browserAuthMsg := "Please do the SSO login in your browser. \n" +
+		"If your browser didn't open automatically, use this URL to log in:\n\n" +
+		verificationURIComplete + " " + codeMsg
+
+	setupKeyAuthMsg := "Please proceed with setting up this device using setup keys, see:\n\n" +
+		"https://docs.netbird.io/how-to/register-machines-using-setup-keys"
+
+	openURL := func() {
+		cmd.Println(browserAuthMsg)
+		err := open.Run(verificationURIComplete)
+		if err != nil {
+			cmd.Println(setupKeyAuthMsg)
 		}
 	}
 
-	err := open.Run(verificationURIComplete)
-	cmd.Println("Please do the SSO login in your browser. \n" +
-		"If your browser didn't open automatically, use this URL to log in:\n\n" +
-		" " + verificationURIComplete + " " + codeMsg + " \n\n")
-	if err != nil {
-		cmd.Println("Alternatively, you may want to use a setup key, see:\n\n https://docs.netbird.io/how-to/register-machines-using-setup-keys\n")
+	switch runtime.GOOS {
+	case "windows", "darwin":
+		openURL()
+	case "linux":
+		if os.Getenv("XDG_CURRENT_DESKTOP") != "" {
+			openURL()
+		} else {
+			if strings.Contains(verificationURIComplete, "redirect_uri") {
+				cmd.Println(setupKeyAuthMsg)
+			} else {
+				cmd.Println(browserAuthMsg)
+			}
+		}
 	}
 }
