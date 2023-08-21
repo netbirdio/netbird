@@ -36,6 +36,7 @@ func TestDefaultManager(t *testing.T) {
 	iface.EXPECT().IsUserspaceBind().Return(true)
 	// iface.EXPECT().Name().Return("lo")
 	iface.EXPECT().SetFilter(gomock.Any())
+	iface.EXPECT().Address().AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
 	acl, err := Create(iface)
@@ -315,6 +316,7 @@ func TestDefaultManagerEnableSSHRules(t *testing.T) {
 	iface.EXPECT().IsUserspaceBind().Return(true)
 	// iface.EXPECT().Name().Return("lo")
 	iface.EXPECT().SetFilter(gomock.Any())
+	iface.EXPECT().Address().AnyTimes()
 
 	// we receive one rule from the management so for testing purposes ignore it
 	acl, err := Create(iface)
