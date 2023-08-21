@@ -24,7 +24,7 @@
 
 <p align="center">
 <strong>
-  Start using NetBird at <a href="https://app.netbird.io/">app.netbird.io</a>
+  Start using NetBird at <a href="https://netbird.io/pricing">netbird.io</a>
   <br/>
   See <a href="https://netbird.io/docs/">Documentation</a>
   <br/>
