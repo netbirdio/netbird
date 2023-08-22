@@ -54,6 +54,7 @@ var baseExistingNSGroup = &nbdns.NameServerGroup{
 		},
 	},
 	Groups:  []string{"testing"},
+	Domains: []string{"domain"},
 	Enabled: true,
 }
 

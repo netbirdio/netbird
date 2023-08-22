@@ -45,15 +45,18 @@ type Rule struct {
 }
 
 func (r *Rule) Copy() *Rule {
-	return &Rule{
+	rule := &Rule{
 		ID:          r.ID,
 		Name:        r.Name,
 		Description: r.Description,
 		Disabled:    r.Disabled,
-		Source:      r.Source[:],
-		Destination: r.Destination[:],
+		Source:      make([]string, len(r.Source)),
+		Destination: make([]string, len(r.Destination)),
 		Flow:        r.Flow,
 	}
+	copy(rule.Source, r.Source)
+	copy(rule.Destination, r.Destination)
+	return rule
 }
 
 // EventMeta returns activity event meta related to this rule
