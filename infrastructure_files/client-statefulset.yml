@@ -25,6 +25,8 @@ spec:
               value: "/etc/netbird/config.json"
             - name: NB_HOSTNAME
               value: "netbird-k8s-reg1" # name that will appear in the management UI
+            - name: NB_LOG_LEVEL
+              value: "info"
           securityContext:
             capabilities:
               add:
