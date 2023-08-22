@@ -878,33 +878,19 @@ func (am *DefaultAccountManager) peerLoginExpirationJob(accountID string) func()
 			return account.GetNextPeerExpiration()
 		}
 
+		expiredPeers := account.GetExpiredPeers()
 		var peerIDs []string
-		for _, peer := range account.GetExpiredPeers() {
-			if peer.Status.LoginExpired {
-				continue
-			}
+		for _, peer := range expiredPeers {
 			peerIDs = append(peerIDs, peer.ID)
-			peer.MarkLoginExpired(true)
-			account.UpdatePeer(peer)
-			err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
-			if err != nil {
-				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
-				return account.GetNextPeerExpiration()
-			}
-			am.storeEvent(peer.UserID, peer.ID, account.Id, activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()))
 		}
 
 		log.Debugf("discovered %d peers to expire for account %s", len(peerIDs), account.Id)
 
-		if len(peerIDs) != 0 {
-			// this will trigger peer disconnect from the management service
-			am.peersUpdateManager.CloseChannels(peerIDs)
-			err = am.updateAccountPeers(account)
-			if err != nil {
-				log.Errorf("failed updating account peers while expiring peers for account %s", accountID)
-				return account.GetNextPeerExpiration()
-			}
+		if err := am.expireAndUpdatePeers(account, expiredPeers); err != nil {
+			log.Errorf("failed updating account peers while expiring peers for account %s", account.Id)
+			return account.GetNextPeerExpiration()
 		}
+
 		return account.GetNextPeerExpiration()
 	}
 }
