@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"runtime"
 
+	log "github.com/sirupsen/logrus"
+
 	"github.com/netbirdio/netbird/client/firewall/uspfilter"
 )
 
@@ -16,6 +18,9 @@ func Create(iface IFaceMapper) (manager *DefaultManager, err error) {
 		fm, err := uspfilter.Create(iface)
 		if err != nil {
 			return nil, err
+		}
+		if err := fm.AllowNetbird(); err != nil {
+			log.Errorf("failed to allow netbird interface traffic: %v", err)
 		}
 		return newDefaultManager(fm), nil
 	}

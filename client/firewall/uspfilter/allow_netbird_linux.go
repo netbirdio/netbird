@@ -1,6 +1,9 @@
-//go:build !windows && !linux
-
 package uspfilter
+
+// AllowNetbird allows netbird interface traffic
+func (m *Manager) AllowNetbird() error {
+	return nil
+}
 
 // Reset firewall to the default state
 func (m *Manager) Reset() error {
@@ -10,10 +13,9 @@ func (m *Manager) Reset() error {
 	m.outgoingRules = make(map[string]RuleSet)
 	m.incomingRules = make(map[string]RuleSet)
 
-	return nil
-}
+	if m.resetHook != nil {
+		return m.resetHook()
+	}
 
-// AllowNetbird allows netbird interface traffic
-func (m *Manager) AllowNetbird() error {
 	return nil
 }
