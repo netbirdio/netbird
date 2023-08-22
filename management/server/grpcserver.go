@@ -16,7 +16,6 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
-	"github.com/netbirdio/netbird/management/server/ephemeral"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	internalStatus "github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/management/server/telemetry"
@@ -33,11 +32,11 @@ type GRPCServer struct {
 	jwtValidator           *jwtclaims.JWTValidator
 	jwtClaimsExtractor     *jwtclaims.ClaimsExtractor
 	appMetrics             telemetry.AppMetrics
-	ephemeralManager       *ephemeral.Manager
+	ephemeralManager       *EphemeralManager
 }
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics, ephemeralManager *ephemeral.Manager) (*GRPCServer, error) {
+func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics, ephemeralManager *EphemeralManager) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -196,6 +195,7 @@ func (s *GRPCServer) cancelPeerRoutines(peer *Peer) {
 	s.peersUpdateManager.CloseChannel(peer.ID)
 	s.turnCredentialsManager.CancelRefresh(peer.ID)
 	_ = s.accountManager.MarkPeerConnected(peer.Key, false)
+	s.ephemeralManager.OnPeerDisconnected(peer)
 }
 
 func (s *GRPCServer) validateToken(jwtToken string) (string, error) {

@@ -422,7 +422,9 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 		return nil, "", err
 	}
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager, nil)
+
+	ephemeralMgr := NewEphemeralManager(store, accountManager)
+	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager, nil, ephemeralMgr)
 	if err != nil {
 		return nil, "", err
 	}

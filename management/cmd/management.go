@@ -32,7 +32,6 @@ import (
 	mgmtProto "github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server"
 	"github.com/netbirdio/netbird/management/server/activity/sqlite"
-	"github.com/netbirdio/netbird/management/server/ephemeral"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/idp"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -199,7 +198,9 @@ var (
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
 
-			ephemeralManager := ephemeral.NewManager(store)
+			ephemeralManager := server.NewEphemeralManager(store, accountManager)
+			ephemeralManager.Start()
+
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
 			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, appMetrics, ephemeralManager)
 			if err != nil {

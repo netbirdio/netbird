@@ -128,6 +128,7 @@ func (p *Peer) Copy() *Peer {
 		SSHEnabled:             p.SSHEnabled,
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
+		Ephemeral:              p.Ephemeral,
 	}
 }
 
