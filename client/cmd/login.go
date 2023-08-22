@@ -199,26 +199,37 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 		"If your browser didn't open automatically, use this URL to log in:\n\n" +
 		verificationURIComplete + " " + codeMsg
 
-	setupKeyAuthMsg := "Please proceed with setting up this device using setup keys, see:\n\n" +
+	setupKeyAuthMsg := "\nAlternatively, you may want to use a setup key, see:\n\n" +
 		"https://docs.netbird.io/how-to/register-machines-using-setup-keys"
 
-	openURL := func() {
+	authenticateUsingBrowser := func() {
 		cmd.Println(browserAuthMsg)
-		err := open.Run(verificationURIComplete)
-		if err != nil {
+		if err := open.Run(verificationURIComplete); err != nil {
 			cmd.Println(setupKeyAuthMsg)
 		}
 	}
 
 	switch runtime.GOOS {
 	case "windows", "darwin":
-		openURL()
+		authenticateUsingBrowser()
 	case "linux":
-		if os.Getenv("XDG_CURRENT_DESKTOP") != "" {
-			openURL()
+		var isRunningDesktop bool
+		for _, env := range os.Environ() {
+			values := strings.Split(env, "=")
+			if len(values) == 2 {
+				key, value := values[0], values[1]
+				if key == "XDG_CURRENT_DESKTOP" && value != "" {
+					isRunningDesktop = true
+				}
+			}
+		}
+
+		if isRunningDesktop {
+			authenticateUsingBrowser()
 		} else {
 			if strings.Contains(verificationURIComplete, "redirect_uri") {
-				cmd.Println(setupKeyAuthMsg)
+				cmd.Println("Please proceed with setting up this device using setup keys, see:\n\n" +
+					"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 			} else {
 				cmd.Println(browserAuthMsg)
 			}
