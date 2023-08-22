@@ -1,8 +1,9 @@
 package route
 
 import (
-	"github.com/netbirdio/netbird/management/server/status"
 	"net/netip"
+
+	"github.com/netbirdio/netbird/management/server/status"
 )
 
 // Windows has some limitation regarding metric size that differ from Unix-like systems.
@@ -83,7 +84,7 @@ func (r *Route) EventMeta() map[string]any {
 
 // Copy copies a route object
 func (r *Route) Copy() *Route {
-	return &Route{
+	route := &Route{
 		ID:          r.ID,
 		Description: r.Description,
 		NetID:       r.NetID,
@@ -93,8 +94,10 @@ func (r *Route) Copy() *Route {
 		Metric:      r.Metric,
 		Masquerade:  r.Masquerade,
 		Enabled:     r.Enabled,
-		Groups:      r.Groups,
+		Groups:      make([]string, len(r.Groups)),
 	}
+	copy(route.Groups, r.Groups)
+	return route
 }
 
 // IsEqual compares one route with the other

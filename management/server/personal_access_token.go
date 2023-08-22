@@ -36,6 +36,18 @@ type PersonalAccessToken struct {
 	LastUsed  time.Time
 }
 
+func (t *PersonalAccessToken) Copy() *PersonalAccessToken {
+	return &PersonalAccessToken{
+		ID:             t.ID,
+		Name:           t.Name,
+		HashedToken:    t.HashedToken,
+		ExpirationDate: t.ExpirationDate,
+		CreatedBy:      t.CreatedBy,
+		CreatedAt:      t.CreatedAt,
+		LastUsed:       t.LastUsed,
+	}
+}
+
 // PersonalAccessTokenGenerated holds the new PersonalAccessToken and the plain text version of it
 type PersonalAccessTokenGenerated struct {
 	PlainToken string

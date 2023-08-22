@@ -120,9 +120,7 @@ func (u *User) Copy() *User {
 	copy(autoGroups, u.AutoGroups)
 	pats := make(map[string]*PersonalAccessToken, len(u.PATs))
 	for k, v := range u.PATs {
-		patCopy := new(PersonalAccessToken)
-		*patCopy = *v
-		pats[k] = patCopy
+		pats[k] = v.Copy()
 	}
 	return &User{
 		Id:              u.Id,

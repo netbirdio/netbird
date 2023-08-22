@@ -90,8 +90,8 @@ type SetupKey struct {
 
 // Copy copies SetupKey to a new object
 func (key *SetupKey) Copy() *SetupKey {
-	autoGroups := make([]string, 0)
-	autoGroups = append(autoGroups, key.AutoGroups...)
+	autoGroups := make([]string, len(key.AutoGroups))
+	copy(autoGroups, key.AutoGroups)
 	if key.UpdatedAt.IsZero() {
 		key.UpdatedAt = key.CreatedAt
 	}
