@@ -332,8 +332,14 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return status.Errorf(status.PermissionDenied, "only admins can delete service users")
 	}
 
-	if !targetUser.IsServiceUser {
-		return status.Errorf(status.PermissionDenied, "regular users can not be deleted")
+	peers, err := account.FindUserPeers(targetUserID)
+	if err != nil {
+		return status.Errorf(status.Internal, "failed to find user peers")
+	}
+
+	if err := am.expireAndUpdatePeers(account, peers); err != nil {
+		log.Errorf("failed update deleted peers expiration: %s", err)
+		return err
 	}
 
 	meta := map[string]any{"name": targetUser.ServiceUserName}
@@ -611,23 +617,10 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 		if err != nil {
 			return nil, err
 		}
-		var peerIDs []string
-		for _, peer := range blockedPeers {
-			peerIDs = append(peerIDs, peer.ID)
-			peer.MarkLoginExpired(true)
-			account.UpdatePeer(peer)
-			err = am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status)
-			if err != nil {
-				log.Errorf("failed saving peer status while expiring peer %s", peer.ID)
-				return nil, err
-			}
-		}
-		am.peersUpdateManager.CloseChannels(peerIDs)
-		err = am.updateAccountPeers(account)
-		if err != nil {
-			log.Errorf("failed updating account peers while expiring peers of a blocked user %s", accountID)
-			return nil, err
 
+		if err := am.expireAndUpdatePeers(account, blockedPeers); err != nil {
+			log.Errorf("failed update expired peers: %s", err)
+			return nil, err
 		}
 	}
 
@@ -814,6 +807,32 @@ func (am *DefaultAccountManager) GetUsersFromAccount(accountID, userID string) (
 	}
 
 	return userInfos, nil
+}
+
+// expireAndUpdatePeers expires all peers of the given user and updates them in the account
+func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []*Peer) error {
+	var peerIDs []string
+	for _, peer := range peers {
+		peerIDs = append(peerIDs, peer.ID)
+		peer.MarkLoginExpired(true)
+		account.UpdatePeer(peer)
+		if err := am.Store.SavePeerStatus(account.Id, peer.ID, *peer.Status); err != nil {
+			return err
+		}
+		am.storeEvent(
+			peer.UserID, peer.ID, account.Id,
+			activity.PeerLoginExpired, peer.EventMeta(am.GetDNSDomain()),
+		)
+	}
+
+	if len(peerIDs) != 0 {
+		// this will trigger peer disconnect from the management service
+		am.peersUpdateManager.CloseChannels(peerIDs)
+		if err := am.updateAccountPeers(account); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {
