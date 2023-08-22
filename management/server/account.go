@@ -153,6 +153,9 @@ type Settings struct {
 
 	// JWTGroupsClaimName from which we extract groups name to add it to account groups
 	JWTGroupsClaimName string
+
+	// UserDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
+	UserDeleteFromIDPEnabled bool
 }
 
 // Copy copies the Settings struct
@@ -163,6 +166,7 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsEnabled:           s.JWTGroupsEnabled,
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
+		UserDeleteFromIDPEnabled:   s.UserDeleteFromIDPEnabled,
 	}
 }
 

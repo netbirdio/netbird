@@ -66,6 +66,10 @@ components:
           description: Name of the claim from which we extract groups names to add it to account groups.
           type: string
           example: "roles"
+        user_deleteFrom_idp_enabled:
+          description: allows to delete user from IDP when user is deleted from account
+          type: boolean
+          example: false
       required:
         - peer_login_expiration_enabled
         - peer_login_expiration
