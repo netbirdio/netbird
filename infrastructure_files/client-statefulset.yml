@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: netbird
+  namespace: default
+  labels:
+    app: netbird
+spec:
+  selector:
+    matchLabels:
+      app: netbird
+  template:
+    metadata:
+      labels:
+        app: netbird
+    spec:
+      containers:
+        - name: netbird
+          image: netbirdio/netbird:latest
+          args: [ '-c /etc/netbird/config.json' ]
+          env:
+            - name: NB_SETUP_KEY
+              value: "0000000000-0000-0000-0000-0000000000" # replace with your setup key
+            - name: NB_CONFIG
+              value: "/etc/netbird/config.json"
+            - name: NB_HOSTNAME
+              value: "netbird-k8s-reg1" # name that will appear in the management UI
+          securityContext:
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_RESOURCE
+                - SYS_ADMIN
+          volumeMounts:
+            - name: client-config-volume
+              mountPath: /etc/netbird/config.json
+              subPath: config.json
+              readOnly: true
+      volumes:
+        - name: client-config-volume
+          configMap:
+            name: netbird-client-config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: netbird-client-config
+  namespace: default
+data: # replace with data from your config.json, you can get it from a command like: netbird login -c Downloads/nb.config.json --log-file console --hostname k8s-client
+  config.json: |
+    {
+      "PrivateKey": "00000000000000000000000000000000000=",
+      "PreSharedKey": "",
+      "ManagementURL": {
+        "Scheme": "https",
+        "Opaque": "",
+        "User": null,
+        "Host": "api.wiretrustee.com:443",
+        "Path": "",
+        "RawPath": "",
+        "OmitHost": false,
+        "ForceQuery": false,
+        "RawQuery": "",
+        "Fragment": "",
+        "RawFragment": ""
+      },
+      "AdminURL": {
+        "Scheme": "https",
+        "Opaque": "",
+        "User": null,
+        "Host": "app.netbird.io:443",
+        "Path": "",
+        "RawPath": "",
+        "OmitHost": false,
+        "ForceQuery": false,
+        "RawQuery": "",
+        "Fragment": "",
+        "RawFragment": ""
+      },
+      "WgIface": "wt0",
+      "WgPort": 51820,
+      "IFaceBlackList": [
+        "wt0",
+        "wt",
+        "utun",
+        "tun0",
+        "zt",
+        "ZeroTier",
+        "wg",
+        "ts",
+        "Tailscale",
+        "tailscale",
+        "docker",
+        "veth",
+        "br-",
+        "lo"
+      ],
+      "DisableIPv6Discovery": false,
+      "SSHKey": "-----BEGIN PRIVATE KEY-----\00000000000000000000000000000000000000000000000000\n-----END PRIVATE KEY-----\n",
+      "NATExternalIPs": null,
+      "CustomDNSAddress": ""
+    }
