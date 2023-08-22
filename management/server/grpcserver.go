@@ -169,6 +169,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 			encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
 			if err != nil {
+				s.cancelPeerRoutines(peer)
 				return status.Errorf(codes.Internal, "failed processing update message")
 			}
 
@@ -177,6 +178,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 				Body:     encryptedResp,
 			})
 			if err != nil {
+				s.cancelPeerRoutines(peer)
 				return status.Errorf(codes.Internal, "failed sending update message")
 			}
 			log.Debugf("sent an update to peer %s", peerKey.String())
