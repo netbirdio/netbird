@@ -12,13 +12,14 @@ const (
 )
 
 var (
-	timeNow      = time.Now
-	tickerPeriod = 1 * time.Minute
+	timeNow = time.Now
 )
 
-type prop struct {
+type ephemeralPeer struct {
+	id       string
 	account  *Account
 	deadline time.Time
+	next     *ephemeralPeer
 }
 
 // todo: consider to remove peer from ephemeral list when the peer has been deleted via API
@@ -27,10 +28,10 @@ type EphemeralManager struct {
 	store          Store
 	accountManager AccountManager
 
-	peers        map[string]prop
-	peersLock    sync.Mutex
-	uptimeTicker *time.Ticker
-	doneTicker   chan struct{}
+	headPeer  *ephemeralPeer
+	tailPeer  *ephemeralPeer
+	peersLock sync.Mutex
+	timer     *time.Timer
 }
 
 // NewEphemeralManager instantiate new EphemeralManager
@@ -38,28 +39,29 @@ func NewEphemeralManager(store Store, accountManager AccountManager) *EphemeralM
 	return &EphemeralManager{
 		store:          store,
 		accountManager: accountManager,
-		peers:          make(map[string]prop),
-		doneTicker:     make(chan struct{}),
 	}
 }
 
 // Start the ephemeral cleanup loop. Periodically check the list of inactive peers.
 // After the peer reach the timeout period it will be deleted from the system.
 func (e *EphemeralManager) Start() {
-	if e.uptimeTicker != nil {
-		return
-	}
-
 	log.Debugf("start ephemeral peer manager")
+	e.peersLock.Lock()
+	defer e.peersLock.Unlock()
+
 	e.loadEphemeralPeers()
-	e.startCleanupLoop()
+	if e.headPeer != nil {
+		e.timer = time.AfterFunc(ephemeralLifeTime, e.cleanup)
+	}
 }
 
 // Stop the cleanup loop
 func (e *EphemeralManager) Stop() {
-	select {
-	case e.doneTicker <- struct{}{}:
-	default:
+	e.peersLock.Lock()
+	defer e.peersLock.Unlock()
+
+	if e.timer != nil {
+		e.timer.Stop()
 	}
 }
 
@@ -72,7 +74,8 @@ func (e *EphemeralManager) OnPeerConnected(peer *Peer) {
 
 	e.peersLock.Lock()
 	defer e.peersLock.Unlock()
-	delete(e.peers, peer.ID)
+
+	e.removePeer(peer.ID)
 }
 
 // OnPeerDisconnected add the peer to the list of ephemeral peers. Because of the peer
@@ -88,52 +91,48 @@ func (e *EphemeralManager) OnPeerDisconnected(peer *Peer) {
 		return
 	}
 
-	e.addPeer(peer.ID, a)
+	e.peersLock.Lock()
+	defer e.peersLock.Unlock()
+
+	e.addPeer(peer.ID, a, newDeadLine())
 }
 
 func (e *EphemeralManager) loadEphemeralPeers() {
 	accounts := e.store.GetAllAccounts()
 	t := newDeadLine()
+	count := 0
 	for _, a := range accounts {
 		for id, p := range a.Peers {
 			if p.Ephemeral {
-				e.peers[id] = prop{
-					a, t,
-				}
+				count++
+				e.addPeer(id, a, t)
 			}
 		}
 	}
-	log.Debugf("loaded %d ephemeral peers", len(e.peers))
-}
-
-func (e *EphemeralManager) startCleanupLoop() {
-	e.uptimeTicker = time.NewTicker(tickerPeriod)
-	go func() {
-		for {
-			select {
-			case <-e.uptimeTicker.C:
-				e.cleanup()
-			case <-e.doneTicker:
-				e.uptimeTicker.Stop()
-				return
-			}
-		}
-	}()
+	log.Debugf("loaded %d ephemeral peers", count)
 }
 
 func (e *EphemeralManager) cleanup() {
-	now := timeNow()
-	deletePeers := make(map[string]prop)
+	deletePeers := make(map[string]*ephemeralPeer)
 
 	e.peersLock.Lock()
-	for id, p := range e.peers {
+	now := timeNow()
+	for p := e.headPeer; p != nil; p = p.next {
 		if now.Before(p.deadline) {
-			continue
+			break
 		}
 
-		deletePeers[id] = p
-		delete(e.peers, id)
+		deletePeers[p.id] = p
+		e.headPeer = p.next
+		if e.headPeer == nil {
+			e.tailPeer = nil
+		}
 	}
+
+	if e.headPeer != nil {
+		e.timer = time.AfterFunc(e.headPeer.deadline.Sub(timeNow()), e.cleanup)
+	}
+
 	e.peersLock.Unlock()
 
 	for id, p := range deletePeers {
@@ -146,13 +145,40 @@ func (e *EphemeralManager) cleanup() {
 	}
 }
 
-func (e *EphemeralManager) addPeer(peerId string, account *Account) {
-	e.peersLock.Lock()
-	defer e.peersLock.Unlock()
+func (e *EphemeralManager) addPeer(id string, account *Account, deadline time.Time) {
+	ep := &ephemeralPeer{
+		id:       id,
+		account:  account,
+		deadline: deadline,
+	}
 
-	e.peers[peerId] = prop{
-		account,
-		newDeadLine(),
+	if e.headPeer == nil {
+		e.headPeer = ep
+	}
+	if e.tailPeer != nil {
+		e.tailPeer.next = ep
+	}
+	e.tailPeer = ep
+}
+
+func (e *EphemeralManager) removePeer(id string) {
+	if e.headPeer == nil {
+		return
+	}
+
+	if e.headPeer.id == id {
+		e.headPeer = e.headPeer.next
+		return
+	}
+
+	for p := e.headPeer; p.next != nil; p = p.next {
+		if p.next == nil {
+			return
+		}
+
+		if p.next.id == id {
+			p.next = p.next.next
+		}
 	}
 }
 
