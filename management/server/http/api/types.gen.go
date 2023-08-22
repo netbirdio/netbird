@@ -145,6 +145,9 @@ type AccountSettings struct {
 
 	// PeerLoginExpirationEnabled Enables or disables peer login expiration globally. After peer's login has expired the user has to log in (authenticate). Applies only to peers that were added by a user (interactive SSO login).
 	PeerLoginExpirationEnabled bool `json:"peer_login_expiration_enabled"`
+
+	// UserDeleteFromIdpEnabled allows to delete user from IDP when user is deleted from account
+	UserDeleteFromIdpEnabled *bool `json:"user_deleteFrom_idp_enabled,omitempty"`
 }
 
 // DNSSettings defines model for DNSSettings.
