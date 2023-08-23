@@ -74,10 +74,18 @@ func (e *EphemeralManager) OnPeerConnected(peer *Peer) {
 		return
 	}
 
+	log.Tracef("remove peer from ephemeral list: %s", peer.ID)
+
 	e.peersLock.Lock()
 	defer e.peersLock.Unlock()
 
 	e.removePeer(peer.ID)
+
+	// stop the unnecessary timer
+	if e.headPeer == nil && e.timer != nil {
+		e.timer.Stop()
+		e.timer = nil
+	}
 }
 
 // OnPeerDisconnected add the peer to the linked list of ephemeral peers. Because of the peer
@@ -86,6 +94,8 @@ func (e *EphemeralManager) OnPeerDisconnected(peer *Peer) {
 	if !peer.Ephemeral {
 		return
 	}
+
+	log.Tracef("add peer to ephemeral list: %s", peer.ID)
 
 	a, err := e.store.GetAccountByPeerID(peer.ID)
 	if err != nil {
@@ -114,10 +124,11 @@ func (e *EphemeralManager) loadEphemeralPeers() {
 			}
 		}
 	}
-	log.Debugf("loaded %d ephemeral peers", count)
+	log.Debugf("loaded %d ephemeral peer(s)", count)
 }
 
 func (e *EphemeralManager) cleanup() {
+	log.Tracef("on ephemeral cleanup")
 	deletePeers := make(map[string]*ephemeralPeer)
 
 	e.peersLock.Lock()
@@ -129,13 +140,15 @@ func (e *EphemeralManager) cleanup() {
 
 		deletePeers[p.id] = p
 		e.headPeer = p.next
-		if e.headPeer == nil {
+		if p.next == nil {
 			e.tailPeer = nil
 		}
 	}
 
 	if e.headPeer != nil {
 		e.timer = time.AfterFunc(e.headPeer.deadline.Sub(timeNow()), e.cleanup)
+	} else {
+		e.timer = nil
 	}
 
 	e.peersLock.Unlock()
@@ -177,12 +190,9 @@ func (e *EphemeralManager) removePeer(id string) {
 	}
 
 	for p := e.headPeer; p.next != nil; p = p.next {
-		if p.next == nil {
-			return
-		}
-
 		if p.next.id == id {
 			p.next = p.next.next
+			return
 		}
 	}
 }

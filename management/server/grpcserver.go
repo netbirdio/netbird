@@ -321,9 +321,15 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
 	})
+
 	if err != nil {
 		log.Warnf("failed logging in peer %s", peerKey)
 		return nil, mapError(err)
+	}
+
+	// if the login request contains setup key then it is a registration request
+	if loginReq.GetSetupKey() != "" {
+		s.ephemeralManager.OnPeerDisconnected(peer)
 	}
 
 	// if peer has reached this point then it has logged in
