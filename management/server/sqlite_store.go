@@ -46,7 +46,11 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 	if err != nil {
 		return nil, err
 	}
-	sql.SetMaxOpenConns(runtime.NumCPU()) // TODO: make it configurable
+	conns := runtime.NumCPU()
+	if runtime.GOOS == "windows" {
+		conns = 1
+	}
+	sql.SetMaxOpenConns(conns) // TODO: make it configurable
 
 	err = db.AutoMigrate(
 		&SetupKey{}, &Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
