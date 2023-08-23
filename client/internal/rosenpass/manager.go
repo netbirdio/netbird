@@ -1,13 +1,12 @@
 package rosenpass
 
 import (
-	"errors"
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"net"
 	"sync"
 
 	rp "cunicu.li/go-rosenpass"
-	"cunicu.li/go-rosenpass/config"
 )
 
 type rpConn struct {
@@ -48,36 +47,29 @@ func (m *Manager) GenerateKeyPair() error {
 	return nil
 }
 
-func (m *Manager) generateConfig() (*rp.Config, error) {
-
-	cfg := config.File{}
-	cfg.SecretKey = string(m.ssk)
-	cfg.PublicKey = string(m.spk)
-
-	// own local host and port to listen for handshake
-	cfg.ListenAddrs = []string{"0.0.0.0:9999"}
-
-	// Checks
-	if cfg.PublicKey == "" {
-		return nil, errors.New("missing public key for rosenpass")
-	} else if cfg.SecretKey == "" {
-		return nil, errors.New("missing secret key for rosenpass")
+func (m *Manager) generateConfig() (rp.Config, error) {
+	cfg := rp.Config{}
+	udpAddr := &net.UDPAddr{}
+	var err error
+	if udpAddr, err = net.ResolveUDPAddr("udp", "0.0.0.0:9999"); err != nil {
+		return cfg, fmt.Errorf("failed to resolve listen address: %w", err)
 	}
+
+	cfg.ListenAddrs = []*net.UDPAddr{udpAddr}
+	cfg.PublicKey = m.spk
+	cfg.SecretKey = m.ssk
+
+	cfg.Peers = []rp.PeerConfig{}
 
 	for _, peer := range m.rpConnections {
-		var pc config.PeerSection
-		pc.PublicKey = "peer.key"
-		endpoint := fmt.Sprintf("%s:%d", peer.wgIP, 9999)
-		pc.Endpoint = &endpoint
-		outFile := fmt.Sprintf("/tmp/%s", peer.wgIP)
-		pc.KeyOut = &outFile
+		pcfg := rp.PeerConfig{PublicKey: peer.key}
+		peerAddr := fmt.Sprintf("%s:%d", peer.wgIP, 9999)
+		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
+			return cfg, fmt.Errorf("failed to resolve peer endpoint address: %w", err)
+		}
+		cfg.Peers = append(cfg.Peers, pcfg)
 	}
-
-	toConfig, err := cfg.ToConfig()
-	if err != nil {
-		return nil, err
-	}
-	return &toConfig, nil
+	return cfg, nil
 }
 
 func (m *Manager) OnConnected(peerKey string, rpPubKey []byte, wgIP string) {
@@ -106,9 +98,14 @@ func (m *Manager) OnConnected(peerKey string, rpPubKey []byte, wgIP string) {
 		}
 	}
 
-	m.server, err = rp.NewUDPServer(*conf)
+	m.server, err = rp.NewUDPServer(conf)
 	if err != nil {
 		log.Errorf("failed starting rosenpass sever")
+	}
+
+	err = m.server.Run()
+	if err != nil {
+		return
 	}
 
 	return
