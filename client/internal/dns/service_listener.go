@@ -70,7 +70,7 @@ func (s *serviceViaListener) Listen() error {
 		s.ebpfService = ebpf.GetEbpfManagerInstance()
 		err = s.ebpfService.LoadDNSFwd(s.listenIP, s.listenPort)
 		if err != nil {
-			log.Warnf("failed to load DNS port fwd, custom port may not support well: %s", err)
+			log.Warnf("failed to load DNS port forwarder, custom port may not work well on some Linux operating systems: %s", err)
 			s.ebpfService = nil
 		}
 	}
@@ -171,6 +171,11 @@ func (s *serviceViaListener) evalListenAddress() (string, int, error) {
 	return s.getFirstListenerAvailable()
 }
 
+// shouldApplyPortFwd decides whether to apply eBPF program to capture DNS traffic on port 53.
+// This is needed because on some operating systems if we start a DNS server not on a default port 53, the domain name
+// resolution won't work.
+// So, in case we are running on Linux and picked a non-default port (53) we should fall back to the eBPF solution that will capture
+// traffic on port 53 and forward it to a local DNS server running on 5053.
 func (s *serviceViaListener) shouldApplyPortFwd() bool {
 	if runtime.GOOS != "linux" {
 		return false
