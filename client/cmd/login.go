@@ -3,21 +3,21 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/auth"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/skratchdot/open-golang/open"
+	"github.com/spf13/cobra"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
-	"github.com/netbirdio/netbird/util"
-
-	"github.com/spf13/cobra"
-
 	"github.com/netbirdio/netbird/client/internal"
+	"github.com/netbirdio/netbird/client/internal/auth"
 	"github.com/netbirdio/netbird/client/proto"
 	"github.com/netbirdio/netbird/client/system"
+	"github.com/netbirdio/netbird/util"
 )
 
 var loginCmd = &cobra.Command{
@@ -191,17 +191,63 @@ func foregroundGetTokenInfo(ctx context.Context, cmd *cobra.Command, config *int
 
 func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 	var codeMsg string
-	if userCode != "" {
-		if !strings.Contains(verificationURIComplete, userCode) {
-			codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
+	if userCode != "" && !strings.Contains(verificationURIComplete, userCode) {
+		codeMsg = fmt.Sprintf("and enter the code %s to authenticate.", userCode)
+	}
+
+	browserAuthMsg := "Please do the SSO login in your browser. \n" +
+		"If your browser didn't open automatically, use this URL to log in:\n\n" +
+		verificationURIComplete + " " + codeMsg
+
+	setupKeyAuthMsg := "\nAlternatively, you may want to use a setup key, see:\n\n" +
+		"https://docs.netbird.io/how-to/register-machines-using-setup-keys"
+
+	authenticateUsingBrowser := func() {
+		cmd.Println(browserAuthMsg)
+		if err := open.Run(verificationURIComplete); err != nil {
+			cmd.Println(setupKeyAuthMsg)
 		}
 	}
 
-	err := open.Run(verificationURIComplete)
-	cmd.Printf("Please do the SSO login in your browser. \n" +
-		"If your browser didn't open automatically, use this URL to log in:\n\n" +
-		" " + verificationURIComplete + " " + codeMsg + " \n\n")
-	if err != nil {
-		cmd.Printf("Alternatively, you may want to use a setup key, see:\n\n https://docs.netbird.io/how-to/register-machines-using-setup-keys\n")
+	switch runtime.GOOS {
+	case "windows", "darwin":
+		authenticateUsingBrowser()
+	case "linux":
+		if isLinuxRunningDesktop() {
+			authenticateUsingBrowser()
+		} else {
+			// If current flow is PKCE, it implies the server is anticipating the redirect to localhost.
+			// Devices lacking browser support are incompatible with this flow.Therefore,
+			// these devices will need to resort to setup keys instead.
+			if isPKCEFlow(verificationURIComplete) {
+				cmd.Println("Please proceed with setting up this device using setup keys, see:\n\n" +
+					"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
+			} else {
+				cmd.Println(browserAuthMsg)
+			}
+		}
 	}
+}
+
+// isLinuxRunningDesktop checks if a Linux OS is running desktop environment.
+func isLinuxRunningDesktop() bool {
+	for _, env := range os.Environ() {
+		values := strings.Split(env, "=")
+		if len(values) == 2 {
+			key, value := values[0], values[1]
+			if key == "XDG_CURRENT_DESKTOP" && value != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isPKCEFlow determines if the PKCE flow is active or not,
+// by checking the existence of redirect_uri inside the verification URL.
+func isPKCEFlow(verificationURL string) bool {
+	if verificationURL == "" {
+		return false
+	}
+	return strings.Contains(verificationURL, "redirect_uri")
 }
