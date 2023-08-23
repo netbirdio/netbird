@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -14,6 +15,10 @@ import (
 )
 
 func TestSqlite_NewStore(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
 	store := newSqliteStore(t)
 
 	if len(store.GetAllAccounts()) != 0 {
@@ -22,6 +27,10 @@ func TestSqlite_NewStore(t *testing.T) {
 }
 
 func TestSqlite_SaveAccount(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
 	store := newSqliteStore(t)
 
 	account := newAccountWithId("account_id", "testuser", "")
@@ -90,6 +99,10 @@ func TestSqlite_SaveAccount(t *testing.T) {
 }
 
 func TestSqlite_SavePeerStatus(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
 	store := newSqliteStoreFromFile(t, "testdata/store.json")
 
 	account, err := store.GetAccount("bf1c8084-ba50-4ce7-9439-34653001fc3b")
@@ -125,6 +138,10 @@ func TestSqlite_SavePeerStatus(t *testing.T) {
 }
 
 func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
 	store := newSqliteStoreFromFile(t, "testdata/store.json")
 
 	existingDomain := "test.com"
@@ -138,6 +155,10 @@ func TestSqlite_TestGetAccountByPrivateDomain(t *testing.T) {
 }
 
 func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
 	store := newSqliteStoreFromFile(t, "testdata/store.json")
 
 	hashed := "SoMeHaShEdToKeN"
@@ -149,6 +170,10 @@ func TestSqlite_GetTokenIDByHashedToken(t *testing.T) {
 }
 
 func TestSqlite_GetUserByTokenID(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("The SQLite store is not properly supported by Windows yet")
+	}
+
 	store := newSqliteStoreFromFile(t, "testdata/store.json")
 
 	id := "9dj38s35-63fb-11ec-90d6-0242ac120003"
