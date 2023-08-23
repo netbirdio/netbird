@@ -24,6 +24,8 @@ type ephemeralPeer struct {
 
 // todo: consider to remove peer from ephemeral list when the peer has been deleted via API
 
+// EphemeralManager keep a list of ephemeral peers. After ephemeralLifeTime inactivity the peer will be deleted
+// automatically. Inactivity means the peer disconnected from the Management server.
 type EphemeralManager struct {
 	store          Store
 	accountManager AccountManager
@@ -65,7 +67,7 @@ func (e *EphemeralManager) Stop() {
 	}
 }
 
-// OnPeerConnected remove the peer from the list of ephemeral peers. Because of the peer
+// OnPeerConnected remove the peer from the linked list of ephemeral peers. Because of the peer
 // is active the system will not delete it while it is active.
 func (e *EphemeralManager) OnPeerConnected(peer *Peer) {
 	if !peer.Ephemeral {
@@ -78,8 +80,8 @@ func (e *EphemeralManager) OnPeerConnected(peer *Peer) {
 	e.removePeer(peer.ID)
 }
 
-// OnPeerDisconnected add the peer to the list of ephemeral peers. Because of the peer
-// is inactive it will be deleted after the timeout period.
+// OnPeerDisconnected add the peer to the linked list of ephemeral peers. Because of the peer
+// is inactive it will be deleted after the ephemeralLifeTime period.
 func (e *EphemeralManager) OnPeerDisconnected(peer *Peer) {
 	if !peer.Ephemeral {
 		return
@@ -95,6 +97,9 @@ func (e *EphemeralManager) OnPeerDisconnected(peer *Peer) {
 	defer e.peersLock.Unlock()
 
 	e.addPeer(peer.ID, a, newDeadLine())
+	if e.timer == nil {
+		e.timer = time.AfterFunc(e.headPeer.deadline.Sub(timeNow()), e.cleanup)
+	}
 }
 
 func (e *EphemeralManager) loadEphemeralPeers() {
