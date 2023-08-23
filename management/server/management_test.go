@@ -497,13 +497,9 @@ func startServer(config *server.Config) (*grpc.Server, net.Listener) {
 	Expect(err).NotTo(HaveOccurred())
 	s := grpc.NewServer()
 
-	fstore, err := server.NewFileStore(config.Datadir, nil)
+	store, err := server.NewStoreFromJson(config.Datadir, nil)
 	if err != nil {
-		log.Fatalf("failed creating a filestore: %s: %v", config.Datadir, err)
-	}
-	store, err := server.NewSqliteStoreFromFileStore(fstore, config.Datadir, nil)
-	if err != nil {
-		log.Fatalf("failed creating a sqlstore: %s: %v", config.Datadir, err)
+		log.Fatalf("failed creating a store: %s: %v", config.Datadir, err)
 	}
 	peersUpdateManager := server.NewPeersUpdateManager()
 	eventStore := &activity.InMemoryEventStore{}

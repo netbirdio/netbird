@@ -1039,11 +1039,7 @@ func startManagement(dataDir string) (*grpc.Server, string, error) {
 		return nil, "", err
 	}
 	s := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
-	fstore, err := server.NewFileStore(config.Datadir, nil)
-	if err != nil {
-		return nil, "", err
-	}
-	store, err := server.NewSqliteStoreFromFileStore(fstore, config.Datadir, nil)
+	store, err := server.NewStoreFromJson(config.Datadir, nil)
 	if err != nil {
 		return nil, "", err
 	}

@@ -45,6 +45,8 @@ type Config struct {
 	DeviceAuthorizationFlow *DeviceAuthorizationFlow
 
 	PKCEAuthorizationFlow *PKCEAuthorizationFlow
+
+	StoreKind StoreKind
 }
 
 // GetAuthAudiences returns the audience from the http config and device authorization flow config
