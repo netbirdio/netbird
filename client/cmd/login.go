@@ -213,21 +213,13 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 	case "windows", "darwin":
 		authenticateUsingBrowser()
 	case "linux":
-		var isRunningDesktop bool
-		for _, env := range os.Environ() {
-			values := strings.Split(env, "=")
-			if len(values) == 2 {
-				key, value := values[0], values[1]
-				if key == "XDG_CURRENT_DESKTOP" && value != "" {
-					isRunningDesktop = true
-				}
-			}
-		}
-
-		if isRunningDesktop {
+		if isLinuxRunningDesktop() {
 			authenticateUsingBrowser()
 		} else {
-			if strings.Contains(verificationURIComplete, "redirect_uri") {
+			// If current flow is PKCE, it implies the server is anticipating the redirect to localhost.
+			// Devices lacking browser support are incompatible with this flow.Therefore,
+			// these devices will need to resort to setup keys instead.
+			if isPKCEFlow(verificationURIComplete) {
 				cmd.Println("Please proceed with setting up this device using setup keys, see:\n\n" +
 					"https://docs.netbird.io/how-to/register-machines-using-setup-keys")
 			} else {
@@ -235,4 +227,27 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 			}
 		}
 	}
+}
+
+// isLinuxRunningDesktop checks if a Linux OS is running desktop environment.
+func isLinuxRunningDesktop() bool {
+	for _, env := range os.Environ() {
+		values := strings.Split(env, "=")
+		if len(values) == 2 {
+			key, value := values[0], values[1]
+			if key == "XDG_CURRENT_DESKTOP" && value != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isPKCEFlow determines if the PKCE flow is active or not,
+// by checking the existence of redirect_uri inside the verification URL.
+func isPKCEFlow(verificationURL string) bool {
+	if verificationURL == "" {
+		return false
+	}
+	return strings.Contains(verificationURL, "redirect_uri")
 }
