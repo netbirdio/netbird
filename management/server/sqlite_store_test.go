@@ -58,8 +58,18 @@ func TestSqlite_SaveAccount(t *testing.T) {
 		t.Errorf("expecting 2 Accounts to be stored after SaveAccount()")
 	}
 
-	if a, err := store.GetAccount(account.Id); a == nil {
+	a, err := store.GetAccount(account.Id)
+	if a == nil {
 		t.Errorf("expecting Account to be stored after SaveAccount(): %v", err)
+	}
+
+	if a != nil && len(a.Policies) != 1 {
+		t.Errorf("expecting Account to have one policy stored after SaveAccount(), got %d", len(a.Policies))
+	}
+
+	if a != nil && len(a.Policies[0].Rules) != 1 {
+		t.Errorf("expecting Account to have one policy rule stored after SaveAccount(), got %d", len(a.Policies[0].Rules))
+		return
 	}
 
 	if a, err := store.GetAccountByPeerPubKey("peerkey"); a == nil {

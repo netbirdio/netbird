@@ -63,7 +63,7 @@ type PolicyUpdateOperation struct {
 // PolicyRule is the metadata of the policy
 type PolicyRule struct {
 	// ID of the policy rule
-	ID string
+	ID string `gorm:"primaryKey"`
 
 	// PolicyID is a reference to Policy that this object belongs
 	PolicyID string `gorm:"index"`
@@ -207,7 +207,6 @@ type FirewallRule struct {
 // This function returns the list of peers and firewall rules that are applicable to a given peer.
 func (a *Account) getPeerConnectionResources(peerID string) ([]*Peer, []*FirewallRule) {
 	generateResources, getAccumulatedResources := a.connResourcesGenerator()
-
 	for _, policy := range a.Policies {
 		if !policy.Enabled {
 			continue

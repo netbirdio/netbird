@@ -1025,7 +1025,6 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 
 		wg.Wait()
 	})
-
 	t.Run("delete peer update", func(t *testing.T) {
 		wg.Add(1)
 		go func() {

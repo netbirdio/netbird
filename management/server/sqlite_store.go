@@ -287,19 +287,21 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	var account Account
 
 	result := s.db.Model(&account).
-		Preload("SetupKeysG").
-		Preload("PeersG").
-		Preload("UsersG").
-		Preload("UsersG.PATsG").
-		Preload("GroupsG").
-		Preload("RulesG").
-		Preload("Policies").
-		Preload("Policies.Rules").
-		Preload("RoutesG").
-		Preload("NameServerGroupsG").
+		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
+		Preload(clause.Associations).
 		First(&account, "aid = ?", accountID)
 	if result.Error != nil {
 		return nil, status.Errorf(status.NotFound, "account not found")
+	}
+
+	// we have to manually preload policy rules as it seems that gorm preloading doesn't do it for us
+	for i, policy := range account.Policies {
+		var rules []*PolicyRule
+		err := s.db.Model(&PolicyRule{}).Find(&rules, "policy_id = ?", policy.ID).Error
+		if err != nil {
+			return nil, status.Errorf(status.NotFound, "account not found")
+		}
+		account.Policies[i].Rules = rules
 	}
 
 	account.SetupKeys = make(map[string]*SetupKey, len(account.SetupKeysG))
