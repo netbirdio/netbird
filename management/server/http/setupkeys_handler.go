@@ -71,8 +71,12 @@ func (h *SetupKeysHandler) CreateSetupKey(w http.ResponseWriter, r *http.Request
 		req.AutoGroups = []string{}
 	}
 
+	var ephemeral bool
+	if req.Ephemeral != nil {
+		ephemeral = *req.Ephemeral
+	}
 	setupKey, err := h.accountManager.CreateSetupKey(account.Id, req.Name, server.SetupKeyType(req.Type), expiresIn,
-		req.AutoGroups, req.UsageLimit, user.Id)
+		req.AutoGroups, req.UsageLimit, user.Id, ephemeral)
 	if err != nil {
 		util.WriteError(err, w)
 		return

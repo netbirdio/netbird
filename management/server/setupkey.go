@@ -86,6 +86,8 @@ type SetupKey struct {
 	// UsageLimit indicates the number of times this key can be used to enroll a machine.
 	// The value of 0 indicates the unlimited usage.
 	UsageLimit int
+	// Ephemeral indicate if the peers will be ephemeral or not
+	Ephemeral bool
 }
 
 // Copy copies SetupKey to a new object
@@ -108,6 +110,7 @@ func (key *SetupKey) Copy() *SetupKey {
 		LastUsed:   key.LastUsed,
 		AutoGroups: autoGroups,
 		UsageLimit: key.UsageLimit,
+		Ephemeral:  key.Ephemeral,
 	}
 }
 
@@ -162,7 +165,7 @@ func (key *SetupKey) IsOverUsed() bool {
 
 // GenerateSetupKey generates a new setup key
 func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoGroups []string,
-	usageLimit int) *SetupKey {
+	usageLimit int, ephemeral bool) *SetupKey {
 	key := strings.ToUpper(uuid.New().String())
 	limit := usageLimit
 	if t == SetupKeyOneOff {
@@ -180,13 +183,14 @@ func GenerateSetupKey(name string, t SetupKeyType, validFor time.Duration, autoG
 		UsedTimes:  0,
 		AutoGroups: autoGroups,
 		UsageLimit: limit,
+		Ephemeral:  ephemeral,
 	}
 }
 
 // GenerateDefaultSetupKey generates a default reusable setup key with an unlimited usage and 30 days expiration
 func GenerateDefaultSetupKey() *SetupKey {
 	return GenerateSetupKey(DefaultSetupKeyName, SetupKeyReusable, DefaultSetupKeyDuration, []string{},
-		SetupKeyUnlimitedUsage)
+		SetupKeyUnlimitedUsage, false)
 }
 
 func Hash(s string) uint32 {
@@ -201,7 +205,7 @@ func Hash(s string) uint32 {
 // CreateSetupKey generates a new setup key with a given name, type, list of groups IDs to auto-assign to peers registered with this key,
 // and adds it to the specified account. A list of autoGroups IDs can be empty.
 func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string, keyType SetupKeyType,
-	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string) (*SetupKey, error) {
+	expiresIn time.Duration, autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error) {
 	unlock := am.Store.AcquireAccountLock(accountID)
 	defer unlock()
 
@@ -221,7 +225,7 @@ func (am *DefaultAccountManager) CreateSetupKey(accountID string, keyName string
 		}
 	}
 
-	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit)
+	setupKey := GenerateSetupKey(keyName, keyType, keyDuration, autoGroups, usageLimit, ephemeral)
 	account.SetupKeys[setupKey.Key] = setupKey
 	err = am.Store.SaveAccount(account)
 	if err != nil {
