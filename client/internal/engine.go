@@ -278,11 +278,6 @@ func (e *Engine) Start() error {
 		return err
 	}
 
-	err = e.rpManager.GenerateKeyPair()
-	if err != nil {
-		return err
-	}
-
 	e.receiveSignalEvents()
 	e.receiveManagementEvents()
 
@@ -682,8 +677,6 @@ func (e *Engine) updateNetworkMap(networkMap *mgmProto.NetworkMap) error {
 	}
 	e.networkSerial = serial
 
-	e.rpManager.GenerateKeyPair()
-
 	return nil
 }
 
@@ -852,6 +845,9 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
+	e.rpManager.GetPubKey()
+	e.rpManager.GetPubKey()
+	e.rpManager.GetPubKey()
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{

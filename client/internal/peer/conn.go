@@ -2,7 +2,7 @@ package peer
 
 import (
 	"context"
-	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"net"
@@ -552,7 +552,7 @@ func (conn *Conn) sendAnswer() error {
 		return err
 	}
 
-	hasher := md5.New()
+	hasher := sha256.New()
 	hasher.Write(conn.config.RpPubKey)
 	log.Debugf("sending my rosenpass key %s", hex.EncodeToString(hasher.Sum(nil)))
 	log.Debugf("sending answer to %s", conn.config.Key)
@@ -578,7 +578,7 @@ func (conn *Conn) sendOffer() error {
 	if err != nil {
 		return err
 	}
-	hasher := md5.New()
+	hasher := sha256.New()
 	hasher.Write(conn.config.RpPubKey)
 	log.Debugf("sending my rosenpass key %s", hex.EncodeToString(hasher.Sum(nil)))
 	err = conn.signalOffer(OfferAnswer{
