@@ -1,6 +1,8 @@
 package rosenpass
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	log "github.com/sirupsen/logrus"
 	"net"
@@ -75,11 +77,9 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 func (m *Manager) OnConnected(peerKey string, rpPubKey []byte, wgIP string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	// lookup rp PubKey
-	// lookup rp Endpoint (== wireguard endpoint)
-	// pass file or channel for pre shared key to update p2p wireguard connection
-	// generate new RP config
-	// update rosenpass server with new config (or restart)
+	hasher := md5.New()
+	hasher.Write(rpPubKey)
+	log.Debugf("received remote rosenpass key %s", hex.EncodeToString(hasher.Sum(nil)))
 	m.rpConnections[peerKey] = &rpConn{
 		key:     rpPubKey,
 		wgIP:    wgIP,
