@@ -303,4 +303,39 @@ install_netbird() {
     echo "sudo netbird up"
 }
 
-install_netbird
+version_greater_equal() {
+    printf '%s\n%s\n' "$2" "$1" | sort -V -C
+}
+
+update_netbird() {
+  if check_use_bin_variable; then
+    latest_release=$(get_latest_release)
+    latest_version=${latest_release#v}
+    installed_version=$(netbird version)
+
+    if [ "$latest_version" = "$installed_version" ]; then
+            echo "Installed netbird version ($installed_version) is up-to-date"
+            exit 0
+    fi
+
+    if version_greater_equal "$latest_version" "$installed_version"; then
+      echo "Netbird new version ($latest_version) available. Updating..."
+      echo ""
+      echo "Initiating Netbird update. This will stop the netbird service and restart it after the update"
+
+      sudo netbird service stop
+      install_native_binaries
+    fi
+  else
+     echo "Netbird installation was done using a package manager. please use package to update"
+  fi
+}
+
+
+case "$1" in
+    --update)
+      update_netbird
+    ;;
+    *)
+      install_netbird
+esac
