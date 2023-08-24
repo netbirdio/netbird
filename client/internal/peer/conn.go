@@ -2,6 +2,8 @@ package peer
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"strings"
@@ -412,7 +414,7 @@ func (conn *Conn) configureConnection(remoteConn net.Conn, remoteWgPort int, rem
 	if err != nil {
 		return nil, err
 	}
-	// TODO trigger on connected event so that engine can handle it (rosenpass config update)
+
 	conn.onConnected(conn.config.Key, remoteRpPubKey, ipNet.IP.String())
 	return endpoint, nil
 }
@@ -550,6 +552,9 @@ func (conn *Conn) sendAnswer() error {
 		return err
 	}
 
+	hasher := md5.New()
+	hasher.Write(conn.config.RpPubKey)
+	log.Debugf("sending my rosenpass key %s", hex.EncodeToString(hasher.Sum(nil)))
 	log.Debugf("sending answer to %s", conn.config.Key)
 	err = conn.signalAnswer(OfferAnswer{
 		IceCredentials:  IceCredentials{localUFrag, localPwd},
@@ -573,6 +578,9 @@ func (conn *Conn) sendOffer() error {
 	if err != nil {
 		return err
 	}
+	hasher := md5.New()
+	hasher.Write(conn.config.RpPubKey)
+	log.Debugf("sending my rosenpass key %s", hex.EncodeToString(hasher.Sum(nil)))
 	err = conn.signalOffer(OfferAnswer{
 		IceCredentials:  IceCredentials{localUFrag, localPwd},
 		WgListenPort:    conn.config.LocalWgPort,
