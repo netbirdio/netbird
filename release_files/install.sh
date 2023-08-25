@@ -3,6 +3,9 @@
 # Source: https://github.com/physk/netbird-installer
 set -e
 
+CONFIG_FOLDER="/etc/netbird"
+CONFIG_FILE="$CONFIG_FOLDER/install.conf"
+
 OWNER="netbirdio"
 REPO="netbird"
 CLI_APP="netbird"
@@ -289,6 +292,10 @@ install_netbird() {
     ;;
     esac
 
+    # Add package manager to config
+    sudo mkdir -p "$CONFIG_FOLDER"
+    echo "package_manager=$PACKAGE_MANAGER" | sudo tee "$CONFIG_FILE" > /dev/null
+
     # Load and start netbird service
     if  ! sudo netbird service install 2>&1; then 
         echo "Netbird service has already been loaded"
@@ -307,15 +314,23 @@ version_greater_equal() {
     printf '%s\n%s\n' "$2" "$1" | sort -V -C
 }
 
+is_bin_package_manager() {
+  if sudo test -f "$1" && sudo grep -q "package_manager=bin" "$1" ; then
+    return 0
+  else
+    return 1
+  fi
+}
+
 update_netbird() {
-  if check_use_bin_variable; then
+  if is_bin_package_manager "$CONFIG_FILE"; then
     latest_release=$(get_latest_release)
     latest_version=${latest_release#v}
     installed_version=$(netbird version)
 
     if [ "$latest_version" = "$installed_version" ]; then
-            echo "Installed netbird version ($installed_version) is up-to-date"
-            exit 0
+      echo "Installed netbird version ($installed_version) is up-to-date"
+      exit 0
     fi
 
     if version_greater_equal "$latest_version" "$installed_version"; then
@@ -331,7 +346,7 @@ update_netbird() {
       sudo netbird service start
     fi
   else
-     echo "Netbird installation was done using a package manager. please use package to update"
+     echo "Netbird installation was done using a package manager. Please use your system's package manager to update"
   fi
 }
 
