@@ -2,8 +2,6 @@ package peer
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"strings"
@@ -101,6 +99,7 @@ type Conn struct {
 	signalAnswer      func(OfferAnswer) error
 	sendSignalMessage func(message *sProto.Message) error
 	onConnected       func(remotePeer string, remoteRpPubKey []byte, wgIP string)
+	onDisconnected    func(remotePeer string, wgIP string)
 
 	// remoteOffersCh is a channel used to wait for remote credentials to proceed with the connection
 	remoteOffersCh chan OfferAnswer
@@ -500,6 +499,11 @@ func (conn *Conn) SetOnConnected(handler func(remotePeer string, remoteRpPubKey 
 	conn.onConnected = handler
 }
 
+// SetOnDisconnected sets a handler function to be triggered by Conn when a connection to a remote disconnected
+func (conn *Conn) SetOnDisconnected(handler func(remotePeer string, wgIP string)) {
+	conn.onDisconnected = handler
+}
+
 // SetSignalAnswer sets a handler function to be triggered by Conn when a new connection answer has to be signalled to the remote peer
 func (conn *Conn) SetSignalAnswer(handler func(answer OfferAnswer) error) {
 	conn.signalAnswer = handler
@@ -552,9 +556,6 @@ func (conn *Conn) sendAnswer() error {
 		return err
 	}
 
-	hasher := sha256.New()
-	hasher.Write(conn.config.RpPubKey)
-	log.Debugf("sending my rosenpass key %s", hex.EncodeToString(hasher.Sum(nil)))
 	log.Debugf("sending answer to %s", conn.config.Key)
 	err = conn.signalAnswer(OfferAnswer{
 		IceCredentials:  IceCredentials{localUFrag, localPwd},
@@ -578,9 +579,6 @@ func (conn *Conn) sendOffer() error {
 	if err != nil {
 		return err
 	}
-	hasher := sha256.New()
-	hasher.Write(conn.config.RpPubKey)
-	log.Debugf("sending my rosenpass key %s", hex.EncodeToString(hasher.Sum(nil)))
 	err = conn.signalOffer(OfferAnswer{
 		IceCredentials:  IceCredentials{localUFrag, localPwd},
 		WgListenPort:    conn.config.LocalWgPort,
