@@ -324,7 +324,11 @@ update_netbird() {
       echo "Initiating Netbird update. This will stop the netbird service and restart it after the update"
 
       sudo netbird service stop
+      sudo netbird service uninstall
       install_native_binaries
+
+      sudo netbird service install
+      sudo netbird service start
     fi
   else
      echo "Netbird installation was done using a package manager. please use package to update"
