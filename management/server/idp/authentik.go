@@ -453,6 +453,12 @@ func (am *AuthentikManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from Authentik
+func (am *AuthentikManager) DeleteUser(userID string) error {
+	log.Errorf("deleting user %s from Authentik: not implemented", userID)
+	return nil
+}
+
 func (am *AuthentikManager) authenticationContext() (context.Context, error) {
 	jwtToken, err := am.credentials.Authenticate()
 	if err != nil {

@@ -254,6 +254,12 @@ func (gm *GoogleWorkspaceManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from GoogleWorkspace.
+func (gm *GoogleWorkspaceManager) DeleteUser(userID string) error {
+	log.Errorf("deleting user %s from GoogleWorkspace: not implemented", userID)
+	return nil
+}
+
 // getGoogleCredentials retrieves Google credentials based on the provided serviceAccountKey.
 // It decodes the base64-encoded serviceAccountKey and attempts to obtain credentials using it.
 // If that fails, it falls back to using the default Google credentials path.

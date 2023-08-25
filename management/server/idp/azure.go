@@ -454,6 +454,12 @@ func (am *AzureManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from Azure
+func (am *AzureManager) DeleteUser(userID string) error {
+	log.Errorf("deleting user %s from Azure: not implemented", userID)
+	return nil
+}
+
 func (am *AzureManager) getUserExtensions() ([]azureExtension, error) {
 	q := url.Values{}
 	q.Add("$select", extensionFields)

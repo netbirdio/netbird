@@ -340,8 +340,12 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return err
 	}
 
-	meta := map[string]any{"name": targetUser.ServiceUserName}
-	am.storeEvent(initiatorUserID, targetUserID, accountID, activity.ServiceUserDeleted, meta)
+	if targetUser.IsServiceUser {
+		meta := map[string]any{"name": targetUser.ServiceUserName}
+		am.storeEvent(initiatorUserID, targetUserID, accountID, activity.ServiceUserDeleted, meta)
+	} else {
+		am.storeEvent(initiatorUserID, targetUserID, accountID, activity.UserDeleted, nil)
+	}
 
 	delete(account.Users, targetUserID)
 
@@ -349,6 +353,24 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 	if err != nil {
 		return err
 	}
+
+	go func() {
+		if isNil(am.idpManager) {
+			return
+		}
+
+		if account.Settings.UserDeleteFromIDPEnabled {
+			if err := am.idpManager.DeleteUser(targetUserID); err != nil {
+				log.Errorf("failed to delete user %s from IdP: %s", targetUserID, err)
+			}
+			log.Debugf("user %s deleted from IdP", targetUserID)
+			return
+		}
+
+		if err := am.idpManager.UpdateUserAppMetadata(targetUserID, idp.AppMetadata{}); err != nil {
+			log.Errorf("failed to remove user %s app metadata in IdP: %s", targetUserID, err)
+		}
+	}()
 
 	return nil
 }
