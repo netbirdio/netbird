@@ -13,6 +13,12 @@ import (
 	rp "cunicu.li/go-rosenpass"
 )
 
+func HashRosenpassKey(key []byte) string {
+	hasher := sha256.New()
+	hasher.Write(key)
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
 type rpConn struct {
 	key       []byte
 	wgIP      string
@@ -34,18 +40,13 @@ func NewManager() (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	hasher := sha256.New()
-	hasher.Write(public)
-	rpKeyHash := hex.EncodeToString(hasher.Sum(nil))
+
+	rpKeyHash := HashRosenpassKey(public)
 	log.Infof("generated new rosenpass key pair with public key %s", rpKeyHash)
 	return &Manager{rpKeyHash: rpKeyHash, spk: public, ssk: secret, rpConnections: make(map[string]*rpConn), lock: sync.Mutex{}}, nil
 }
 
 func (m *Manager) GetPubKey() []byte {
-	hasher := sha256.New()
-	hasher.Write(m.spk)
-	rpKeyHash := hex.EncodeToString(hasher.Sum(nil))
-	log.Infof("getting my rosenpass key %s", rpKeyHash)
 	return m.spk
 }
 
@@ -78,12 +79,52 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	return cfg, nil
 }
 
+func (m *Manager) OnDisconnected(peerKey string, wgIP string) {
+	m.lock.Lock()
+	defer m.lock.Unlock()
+	delete(m.rpConnections, peerKey)
+
+	if len(m.rpConnections) == 0 {
+		if m.server != nil {
+			err := m.server.Close()
+			if err != nil {
+				log.Errorf("failed closing local rosenpass server")
+			}
+		}
+		return
+	}
+
+	err := m.restartServer()
+	if err != nil {
+		log.Error("failed restarting rosenpass server", err)
+	}
+}
+
+func (m *Manager) restartServer() error {
+	conf, err := m.generateConfig()
+	if err != nil {
+		return err
+	}
+
+	if m.server != nil {
+		err = m.server.Close()
+		if err != nil {
+			return err
+		}
+	}
+
+	m.server, err = rp.NewUDPServer(conf)
+	if err != nil {
+		return err
+	}
+
+	return m.server.Run()
+}
+
 func (m *Manager) OnConnected(peerKey string, rpPubKey []byte, wgIP string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	hasher := sha256.New()
-	hasher.Write(rpPubKey)
-	rpKeyHash := hex.EncodeToString(hasher.Sum(nil))
+	rpKeyHash := HashRosenpassKey(rpPubKey)
 	log.Debugf("received remote rosenpass key %s, my key %s", rpKeyHash, m.rpKeyHash)
 	m.rpConnections[peerKey] = &rpConn{
 		key:       rpPubKey,
@@ -92,25 +133,9 @@ func (m *Manager) OnConnected(peerKey string, rpPubKey []byte, wgIP string) {
 		rpKeyHash: rpKeyHash,
 	}
 
-	conf, err := m.generateConfig()
+	err := m.restartServer()
 	if err != nil {
-		return
-	}
-
-	if m.server != nil {
-		err := m.server.Close()
-		if err != nil {
-			log.Warn("failed rosenpass server")
-		}
-	}
-
-	m.server, err = rp.NewUDPServer(conf)
-	if err != nil {
-		log.Errorf("failed starting rosenpass sever")
-	}
-
-	err = m.server.Run()
-	if err != nil {
+		log.Error("failed restarting rosenpass server", err)
 		return
 	}
 
