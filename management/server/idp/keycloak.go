@@ -467,6 +467,12 @@ func (km *KeycloakManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from Keycloack
+func (km *KeycloakManager) DeleteUser(userID string) error {
+	log.Errorf("deleting user %s from Keycloack: not implemented", userID)
+	return nil
+}
+
 func buildKeycloakCreateUserRequestPayload(email string, name string, appMetadata AppMetadata) (string, error) {
 	attrs := keycloakUserAttributes{}
 	attrs.Set(wtAccountID, appMetadata.WTAccountID)

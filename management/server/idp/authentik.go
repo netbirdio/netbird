@@ -3,10 +3,6 @@ package idp
 import (
 	"context"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	log "github.com/sirupsen/logrus"
-	"goauthentik.io/api/v3"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +10,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	log "github.com/sirupsen/logrus"
+	"goauthentik.io/api/v3"
 )
 
 // AuthentikManager authentik manager client instance.
@@ -444,6 +445,12 @@ func (am *AuthentikManager) GetUserByEmail(email string) ([]*UserData, error) {
 // their accounts prior to the expiration period.
 func (am *AuthentikManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
+// DeleteUser from Authentik
+func (am *AuthentikManager) DeleteUser(userID string) error {
+	log.Errorf("deleting user %s from Authentik: not implemented", userID)
+	return nil
 }
 
 func (am *AuthentikManager) authenticationContext() (context.Context, error) {

@@ -447,6 +447,12 @@ func (zm *ZitadelManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
 }
 
+// DeleteUser from Zitadel
+func (zm *ZitadelManager) DeleteUser(userID string) error {
+	log.Errorf("deleting user %s from Zitadel: not implemented", userID)
+	return nil
+}
+
 // getUserMetadata requests user metadata from zitadel via ID.
 func (zm *ZitadelManager) getUserMetadata(userID string) ([]zitadelMetadata, error) {
 	resource := fmt.Sprintf("users/%s/metadata/_search", userID)

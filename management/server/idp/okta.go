@@ -11,6 +11,7 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/okta/okta-sdk-golang/v2/okta"
 	"github.com/okta/okta-sdk-golang/v2/okta/query"
+	log "github.com/sirupsen/logrus"
 )
 
 // OktaManager okta manager client instance.
@@ -317,6 +318,12 @@ func (om *OktaManager) UpdateUserAppMetadata(userID string, appMetadata AppMetad
 // their accounts prior to the expiration period.
 func (om *OktaManager) InviteUserByID(_ string) error {
 	return fmt.Errorf("method InviteUserByID not implemented")
+}
+
+// DeleteUser from Okta
+func (om *OktaManager) DeleteUser(userID string) error {
+	log.Errorf("deleting user %s from Okta: not implemented", userID)
+	return nil
 }
 
 // updateUserProfileSchema updates the Okta user schema to include custom fields,
