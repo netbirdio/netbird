@@ -15,7 +15,7 @@ UI_APP="netbird-ui"
 OS_NAME=""
 OS_TYPE=""
 ARCH="$(uname -m)"
-PACKAGE_MANAGER=""
+PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
 
 get_latest_release() {
