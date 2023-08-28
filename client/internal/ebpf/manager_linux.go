@@ -27,7 +27,7 @@ var (
 // required packages libbpf-dev, libc6-dev-i386-amd64-cross
 
 // GeneralManager is used to load multiple eBPF programs with a custom check (if then) done in prog.c
-// The manager simply adds a feature (byte) of each program t oa map that is shared between the userspace and kernel.
+// The manager simply adds a feature (byte) of each program to a map that is shared between the userspace and kernel.
 // When packet arrives, the C code checks for each feature (if it is set) and executes each enabled program (e.g., dns_fwd.c and wg_proxy.c).
 //
 //go:generate go run github.com/cilium/ebpf/cmd/bpf2go -cc clang-14 bpf src/prog.c -- -I /usr/x86_64-linux-gnu/include
