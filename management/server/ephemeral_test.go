@@ -6,80 +6,32 @@ import (
 	"time"
 )
 
-type storeMock struct {
-	accounts []*Account
+type MockStore struct {
+	Store
+	account *Account
 }
 
-func (s storeMock) GetAllAccounts() []*Account {
-	return s.accounts
+func (s *MockStore) GetAllAccounts() []*Account {
+	return []*Account{s.account}
 }
 
-func (s storeMock) GetAccount(accountID string) (*Account, error) {
-	panic("implement me")
+func (s *MockStore) GetAccountByPeerID(peerId string) (*Account, error) {
+	_, ok := s.account.Peers[peerId]
+	if ok {
+		return s.account, nil
+	}
+
+	return nil, fmt.Errorf("account not found")
 }
 
-func (s storeMock) GetAccountByUser(userID string) (*Account, error) {
-	panic("implement me")
+type MocAccountManager struct {
+	AccountManager
+	store *MockStore
 }
 
-func (s storeMock) GetAccountByPeerPubKey(peerKey string) (*Account, error) {
-	panic("implement me")
-}
-
-func (s storeMock) GetAccountByPeerID(peerID string) (*Account, error) {
-	panic("implement me")
-}
-
-func (s storeMock) GetAccountBySetupKey(setupKey string) (*Account, error) {
-	panic("implement me")
-}
-
-func (s storeMock) GetAccountByPrivateDomain(domain string) (*Account, error) {
-	panic("implement me")
-}
-
-func (s storeMock) GetTokenIDByHashedToken(secret string) (string, error) {
-	panic("implement me")
-}
-
-func (s storeMock) GetUserByTokenID(tokenID string) (*User, error) {
-	panic("implement me")
-}
-
-func (s storeMock) SaveAccount(account *Account) error {
-	panic("implement me")
-}
-
-func (s storeMock) DeleteHashedPAT2TokenIDIndex(hashedToken string) error {
-	panic("implement me")
-}
-
-func (s storeMock) DeleteTokenID2UserIDIndex(tokenID string) error {
-	panic("implement me")
-}
-
-func (s storeMock) GetInstallationID() string {
-	panic("implement me")
-}
-
-func (s storeMock) SaveInstallationID(ID string) error {
-	panic("implement me")
-}
-
-func (s storeMock) AcquireAccountLock(accountID string) func() {
-	panic("implement me")
-}
-
-func (s storeMock) AcquireGlobalLock() func() {
-	panic("implement me")
-}
-
-func (s storeMock) SavePeerStatus(accountID, peerID string, status PeerStatus) error {
-	panic("implement me")
-}
-
-func (s storeMock) Close() error {
-	panic("implement me")
+func (a MocAccountManager) DeletePeer(accountID, peerID, userID string) (*Peer, error) {
+	delete(a.store.account.Peers, peerID)
+	return nil, nil
 }
 
 func TestNewManager(t *testing.T) {
@@ -88,36 +40,103 @@ func TestNewManager(t *testing.T) {
 		return startTime
 	}
 
-	store := &storeMock{}
-	numberOfPeers := 5
-	seedPeers(store, true, numberOfPeers)
-	seedPeers(store, false, numberOfPeers)
-
-	tickerPeriod = 300 * time.Millisecond
-	mgr := NewEphemeralManager(store)
-	mgr.Start()
-	if len(mgr.peers) != numberOfPeers {
-		t.Errorf("failed to fill well the peer store, expected peers: %d, actual peers: %d", numberOfPeers, len(mgr.peers))
+	store := &MockStore{}
+	am := MocAccountManager{
+		store: store,
 	}
 
+	numberOfPeers := 5
+	numberOfEphemeralPeers := 3
+	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
+
+	mgr := NewEphemeralManager(store, am)
+	mgr.loadEphemeralPeers()
 	startTime = startTime.Add(ephemeralLifeTime + 1)
+	mgr.cleanup()
 
-	// ugly way to manipulate internal ticker
-	time.Sleep(tickerPeriod + 300*time.Millisecond)
-
-	if len(mgr.peers) != 0 {
-		t.Errorf("failed to cleanup ephemeral peers: %d", len(mgr.peers))
+	if len(store.account.Peers) != numberOfPeers {
+		t.Errorf("failed to cleanup ephemeral peers, expected: %d, result: %d", numberOfPeers, len(store.account.Peers))
 	}
 }
 
-func seedPeers(store *storeMock, ephemeral bool, numberOfPeers int) {
+func TestNewManagerPeerConnected(t *testing.T) {
+	startTime := time.Now()
+	timeNow = func() time.Time {
+		return startTime
+	}
+
+	store := &MockStore{}
+	am := MocAccountManager{
+		store: store,
+	}
+
+	numberOfPeers := 5
+	numberOfEphemeralPeers := 3
+	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
+
+	mgr := NewEphemeralManager(store, am)
+	mgr.loadEphemeralPeers()
+	mgr.OnPeerConnected(store.account.Peers["ephemeral_peer_0"])
+
+	startTime = startTime.Add(ephemeralLifeTime + 1)
+	mgr.cleanup()
+
+	expected := numberOfPeers + 1
+	if len(store.account.Peers) != expected {
+		t.Errorf("failed to cleanup ephemeral peers, expected: %d, result: %d", expected, len(store.account.Peers))
+	}
+}
+
+func TestNewManagerPeerDisconnected(t *testing.T) {
+	startTime := time.Now()
+	timeNow = func() time.Time {
+		return startTime
+	}
+
+	store := &MockStore{}
+	am := MocAccountManager{
+		store: store,
+	}
+
+	numberOfPeers := 5
+	numberOfEphemeralPeers := 3
+	seedPeers(store, numberOfPeers, numberOfEphemeralPeers)
+
+	mgr := NewEphemeralManager(store, am)
+	mgr.loadEphemeralPeers()
+	for _, v := range store.account.Peers {
+		mgr.OnPeerConnected(v)
+
+	}
+	mgr.OnPeerDisconnected(store.account.Peers["ephemeral_peer_0"])
+
+	startTime = startTime.Add(ephemeralLifeTime + 1)
+	mgr.cleanup()
+
+	expected := numberOfPeers + numberOfEphemeralPeers - 1
+	if len(store.account.Peers) != expected {
+		t.Errorf("failed to cleanup ephemeral peers, expected: %d, result: %d", expected, len(store.account.Peers))
+	}
+}
+
+func seedPeers(store *MockStore, numberOfPeers int, numberOfEphemeralPeers int) {
+	store.account = newAccountWithId("my account", "", "")
+
 	for i := 0; i < numberOfPeers; i++ {
+		peerId := fmt.Sprintf("peer_%d", i)
 		p := &Peer{
-			ID:        fmt.Sprintf("%d", i),
-			Ephemeral: ephemeral,
+			ID:        peerId,
+			Ephemeral: false,
 		}
-		a := newAccountWithId(fmt.Sprintf("account_%d", i), fmt.Sprintf("user_%d", i), "example.com")
-		a.Peers[p.ID] = p
-		store.accounts = append(store.accounts, a)
+		store.account.Peers[p.ID] = p
+	}
+
+	for i := 0; i < numberOfEphemeralPeers; i++ {
+		peerId := fmt.Sprintf("ephemeral_peer_%d", i)
+		p := &Peer{
+			ID:        peerId,
+			Ephemeral: true,
+		}
+		store.account.Peers[p.ID] = p
 	}
 }
