@@ -271,6 +271,7 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
+			ephemeralManager.Stop()
 			_ = appMetrics.Close()
 			_ = listener.Close()
 			if certManager != nil {
