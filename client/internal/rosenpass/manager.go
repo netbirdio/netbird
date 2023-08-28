@@ -2,6 +2,7 @@ package rosenpass
 
 import (
 	"crypto/sha256"
+	"cunicu.li/go-rosenpass/handlers"
 	"encoding/hex"
 	"fmt"
 	log "github.com/sirupsen/logrus"
@@ -70,7 +71,8 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
-
+	handler := handlers.NewkeyoutHandler()
+	cfg.Handlers = []rp.Handler{handler}
 	var err error
 	for _, peer := range m.rpConnections {
 		pcfg := rp.PeerConfig{PublicKey: peer.rosenpassPubKey}
@@ -80,6 +82,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 			return cfg, fmt.Errorf("failed to resolve peer endpoint address: %w", err)
 		}
 		cfg.Peers = append(cfg.Peers, pcfg)
+		_ = handler.AddPeerKeyoutFile(pcfg.PID(), fmt.Sprintf("/tmp/rosenpass/%s", pcfg.PID()))
 	}
 	return cfg, nil
 }
