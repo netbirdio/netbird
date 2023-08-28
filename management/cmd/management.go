@@ -199,7 +199,7 @@ var (
 			}
 
 			ephemeralManager := server.NewEphemeralManager(store, accountManager)
-			ephemeralManager.Start()
+			ephemeralManager.LoadInitialPeers()
 
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
 			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, appMetrics, ephemeralManager)
