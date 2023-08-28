@@ -82,7 +82,7 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 			return cfg, fmt.Errorf("failed to resolve peer endpoint address: %w", err)
 		}
 		cfg.Peers = append(cfg.Peers, pcfg)
-		_ = handler.AddPeerKeyoutFile(pcfg.PID(), fmt.Sprintf("/tmp/rosenpass/%s", pcfg.PID()))
+		_ = handler.AddPeerKeyoutFile(pcfg.PID(), fmt.Sprintf("/tmp/rosenpass/%s", peerAddr))
 	}
 	return cfg, nil
 }
