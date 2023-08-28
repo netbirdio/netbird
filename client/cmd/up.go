@@ -149,6 +149,7 @@ func runInDaemonMode(ctx context.Context, cmd *cobra.Command) error {
 		CleanNATExternalIPs:  natExternalIPs != nil && len(natExternalIPs) == 0,
 		CustomDNSAddress:     customDNSAddressConverted,
 		IsLinuxDesktopClient: isLinuxRunningDesktop(),
+		WgIfaceMtu:           int32(wgIfaceMtu),
 	}
 
 	var loginErr error

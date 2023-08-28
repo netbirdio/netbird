@@ -37,6 +37,7 @@ type ConfigInput struct {
 	PreSharedKey     *string
 	NATExternalIPs   []string
 	CustomDNSAddress []byte
+	WgIfaceMtu       int
 }
 
 // Config Configuration type
@@ -141,7 +142,6 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 		SSHKey:               string(pem),
 		PrivateKey:           wgKey,
 		WgIface:              iface.WgInterfaceDefault,
-		WgIfaceMtu:           iface.DefaultMTU,
 		WgPort:               iface.DefaultWgPort,
 		IFaceBlackList:       []string{},
 		DisableIPv6Discovery: false,
@@ -179,6 +179,12 @@ func createNewConfig(input ConfigInput) (*Config, error) {
 			return nil, err
 		}
 		config.AdminURL = newURL
+	}
+
+	if input.WgIfaceMtu == 0 {
+		config.WgIfaceMtu = iface.DefaultMTU
+	} else {
+		config.WgIfaceMtu = input.WgIfaceMtu
 	}
 
 	config.IFaceBlackList = defaultInterfaceBlacklist
@@ -238,6 +244,18 @@ func update(input ConfigInput) (*Config, error) {
 		config.WgPort = iface.DefaultWgPort
 		refresh = true
 	}
+
+	if input.WgIfaceMtu != 0 && config.WgIfaceMtu != input.WgIfaceMtu {
+		log.Infof("new MTU provided, updated to %d (old value %d)", input.WgIfaceMtu, config.WgIfaceMtu)
+		config.WgIfaceMtu = input.WgIfaceMtu
+		refresh = true
+	}
+	if config.WgIfaceMtu <= 0 {
+		log.Infof("invalid MTU provided, updated to %d (old value %d)", iface.DefaultMTU, config.WgIfaceMtu)
+		config.WgIfaceMtu = iface.DefaultMTU
+		refresh = true
+	}
+
 	if input.NATExternalIPs != nil && len(config.NATExternalIPs) != len(input.NATExternalIPs) {
 		config.NATExternalIPs = input.NATExternalIPs
 		refresh = true

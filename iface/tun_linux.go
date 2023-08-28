@@ -70,12 +70,21 @@ func (c *tunDevice) createWithKernel() error {
 		return err
 	}
 
-	// todo do a discovery
-	log.Debugf("setting MTU: %d interface: %s", c.mtu, c.name)
-	err = netlink.LinkSetMTU(link, c.mtu)
-	if err != nil {
-		log.Errorf("error setting MTU on interface: %s", c.name)
-		return err
+	// discover current wireguard interface MTU
+	currentLinkMtu, err2 := c.readNetlinkInterfaceMtu()
+	if err2 != nil {
+		return err2
+	}
+
+	if currentLinkMtu == c.mtu {
+		log.Debugf("Interface MTU: %d interface: %s", c.mtu, c.name)
+	} else {
+		log.Debugf("Setting MTU: %d interface: %s, previous MTU value: %d", c.mtu, c.name, currentLinkMtu)
+		err = netlink.LinkSetMTU(link, c.mtu)
+		if err != nil {
+			log.Errorf("error setting MTU on interface: %s", c.name)
+			return err
+		}
 	}
 
 	log.Debugf("bringing up interface: %s", c.name)
@@ -86,6 +95,15 @@ func (c *tunDevice) createWithKernel() error {
 	}
 
 	return nil
+}
+
+func (c *tunDevice) readNetlinkInterfaceMtu() (int, error) {
+	tunDevice, err := netlink.LinkByName(c.name)
+	if err != nil {
+		return 0, err
+	}
+	currentLinkMtu := tunDevice.Attrs().MTU
+	return currentLinkMtu, nil
 }
 
 // assignAddr Adds IP address to the tunnel interface

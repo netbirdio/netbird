@@ -43,6 +43,7 @@ type LoginRequest struct {
 	CleanNATExternalIPs  bool   `protobuf:"varint,6,opt,name=cleanNATExternalIPs,proto3" json:"cleanNATExternalIPs,omitempty"`
 	CustomDNSAddress     []byte `protobuf:"bytes,7,opt,name=customDNSAddress,proto3" json:"customDNSAddress,omitempty"`
 	IsLinuxDesktopClient bool   `protobuf:"varint,8,opt,name=isLinuxDesktopClient,proto3" json:"isLinuxDesktopClient,omitempty"`
+	WgIfaceMtu           int32  `protobuf:"varint,9,opt,name=wgIfaceMtu,proto3" json:"wgIfaceMtu,omitempty"`
 }
 
 func (x *LoginRequest) Reset() {
@@ -131,6 +132,13 @@ func (x *LoginRequest) GetIsLinuxDesktopClient() bool {
 		return x.IsLinuxDesktopClient
 	}
 	return false
+}
+
+func (x *LoginRequest) GetWgIfaceMtu() int32 {
+	if x != nil {
+		return x.WgIfaceMtu
+	}
+	return 0
 }
 
 type LoginResponse struct {

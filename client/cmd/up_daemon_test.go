@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"context"
+	"github.com/netbirdio/netbird/iface"
+	"github.com/netbirdio/netbird/util"
 	"testing"
 	"time"
 
@@ -53,6 +55,16 @@ func TestUpDaemon(t *testing.T) {
 	if status, err := state.Status(); err != nil && status != internal.StatusConnected {
 		t.Errorf("wrong status after connect: %s, %v", status, err)
 		return
+	}
+
+	// validate generated config
+	actualConf := &internal.Config{}
+	_, err := util.ReadJson(confPath, actualConf)
+	if err != nil {
+		t.Errorf("expected proper config file written, got broken %v", err)
+	}
+	if actualConf.WgIfaceMtu != iface.DefaultMTU {
+		t.Errorf("expected WgIfaceMtu %d got %d", iface.DefaultMTU, actualConf.WgIfaceMtu)
 	}
 
 	rootCmd.SetArgs([]string{

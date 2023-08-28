@@ -50,4 +50,44 @@ func TestLogin(t *testing.T) {
 	if len(actualConf.PrivateKey) == 0 {
 		t.Errorf("expected non empty Private key, got empty")
 	}
+	if actualConf.WgIfaceMtu != iface.DefaultMTU {
+		t.Errorf("expected WgIfaceMtu %d got %d", iface.DefaultMTU, actualConf.WgIfaceMtu)
+	}
+
+}
+
+func TestLoginPassingCustomMtu(t *testing.T) {
+	mgmAddr := startTestingServices(t)
+
+	tempDir := t.TempDir()
+	confPath := tempDir + "/config.json"
+	mgmtURL := fmt.Sprintf("http://%s", mgmAddr)
+	customMtu := 1400
+	rootCmd.SetArgs([]string{
+		"login",
+		"--config",
+		confPath,
+		"--log-file",
+		"console",
+		"--setup-key",
+		strings.ToUpper("a2c8e62b-38f5-4553-b31e-dd66c696cebb"),
+		"--mtu", fmt.Sprintf("%d", customMtu),
+		"--management-url",
+		mgmtURL,
+	})
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// validate generated config
+	actualConf := &internal.Config{}
+	_, err = util.ReadJson(confPath, actualConf)
+	if err != nil {
+		t.Errorf("expected proper config file written, got broken %v", err)
+	}
+	if actualConf.WgIfaceMtu != customMtu {
+		t.Errorf("expected WgIfaceMtu %d got %d", customMtu, actualConf.WgIfaceMtu)
+	}
+
 }
