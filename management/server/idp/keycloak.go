@@ -469,7 +469,40 @@ func (km *KeycloakManager) InviteUserByID(_ string) error {
 
 // DeleteUser from Keycloack
 func (km *KeycloakManager) DeleteUser(userID string) error {
-	log.Errorf("deleting user %s from Keycloack: not implemented", userID)
+	jwtToken, err := km.credentials.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userID)
+
+	req, err := http.NewRequest(http.MethodDelete, reqURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("authorization", "Bearer "+jwtToken.AccessToken)
+	req.Header.Add("content-type", "application/json")
+
+	if km.appMetrics != nil {
+		km.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	resp, err := km.httpClient.Do(req)
+	if err != nil {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestError()
+		}
+		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if km.appMetrics != nil {
+			km.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+
+		return fmt.Errorf("unable to delete user, statusCode %d", resp.StatusCode)
+	}
+
 	return nil
 }
 
