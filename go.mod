@@ -30,7 +30,7 @@ require (
 )
 
 require (
-	cunicu.li/go-rosenpass v0.3.0
+	cunicu.li/go-rosenpass v0.3.1-0.20230824140237-0ba6fd5e422a
 	fyne.io/fyne/v2 v2.1.4
 	github.com/c-robinson/iplib v1.0.3
 	github.com/cilium/ebpf v0.10.0
