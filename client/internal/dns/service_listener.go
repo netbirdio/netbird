@@ -13,6 +13,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/ebpf"
+	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
 )
 
 const (
@@ -30,7 +31,7 @@ type serviceViaListener struct {
 	listenPort        int
 	listenerIsRunning bool
 	listenerFlagLock  sync.Mutex
-	ebpfService       ebpf.Manager
+	ebpfService       ebpfMgr.Manager
 }
 
 func newServiceViaListener(wgIface WGIface, customAddr *netip.AddrPort) *serviceViaListener {

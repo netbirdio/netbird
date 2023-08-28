@@ -1,5 +1,3 @@
-//go:build !android
-
 package ebpf
 
 import (
@@ -10,6 +8,8 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/ebpf/manager"
 )
 
 const (
@@ -20,7 +20,7 @@ const (
 )
 
 var (
-	singleton     Manager
+	singleton     manager.Manager
 	singletonLock = &sync.Mutex{}
 )
 
@@ -39,7 +39,7 @@ type GeneralManager struct {
 }
 
 // GetEbpfManagerInstance return a static eBpf Manager instance
-func GetEbpfManagerInstance() Manager {
+func GetEbpfManagerInstance() manager.Manager {
 	singletonLock.Lock()
 	defer singletonLock.Unlock()
 	if singleton != nil {

@@ -15,11 +15,12 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/netbirdio/netbird/client/internal/ebpf"
+	ebpfMgr "github.com/netbirdio/netbird/client/internal/ebpf/manager"
 )
 
 // WGEBPFProxy definition for proxy with EBPF support
 type WGEBPFProxy struct {
-	ebpfManager       ebpf.Manager
+	ebpfManager       ebpfMgr.Manager
 	lastUsedPort      uint16
 	localWGListenPort int
 
