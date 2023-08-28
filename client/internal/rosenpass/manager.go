@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
 	rp "cunicu.li/go-rosenpass"
@@ -19,18 +20,20 @@ func HashRosenpassKey(key []byte) string {
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
-type rpConn struct {
-	key       []byte
-	wgIP      string
-	peerKey   string
-	rpKeyHash string
+// remotePeer is a representation of a remote Rosenpass peer
+type remotePeer struct {
+	wireGuardPubKey  string
+	wireGuardIP      string
+	rosenpassPubKey  []byte
+	rosenpassKeyHash string
+	rosenpassAddr    string
 }
 
 type Manager struct {
 	spk           []byte
 	ssk           []byte
 	rpKeyHash     string
-	rpConnections map[string]*rpConn
+	rpConnections map[string]*remotePeer
 	server        *rp.Server
 	lock          sync.Mutex
 }
@@ -43,11 +46,16 @@ func NewManager() (*Manager, error) {
 
 	rpKeyHash := HashRosenpassKey(public)
 	log.Infof("generated new rosenpass key pair with public key %s", rpKeyHash)
-	return &Manager{rpKeyHash: rpKeyHash, spk: public, ssk: secret, rpConnections: make(map[string]*rpConn), lock: sync.Mutex{}}, nil
+	return &Manager{rpKeyHash: rpKeyHash, spk: public, ssk: secret, rpConnections: make(map[string]*remotePeer), lock: sync.Mutex{}}, nil
 }
 
 func (m *Manager) GetPubKey() []byte {
 	return m.spk
+}
+
+// GetAddress returns the address of the Rosenpass server
+func (m *Manager) GetAddress() *net.UDPAddr {
+	return &net.UDPAddr{IP: []byte{0, 0, 0, 0}, Port: 9999}
 }
 
 func (m *Manager) generateConfig() (rp.Config, error) {
@@ -56,21 +64,18 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stdout, opts))
 	cfg := rp.Config{Logger: logger}
-	udpAddr := &net.UDPAddr{}
-	var err error
-	if udpAddr, err = net.ResolveUDPAddr("udp", "0.0.0.0:9999"); err != nil {
-		return cfg, fmt.Errorf("failed to resolve listen address: %w", err)
-	}
 
-	cfg.ListenAddrs = []*net.UDPAddr{udpAddr}
+	cfg.ListenAddrs = []*net.UDPAddr{m.GetAddress()}
 	cfg.PublicKey = m.spk
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
 
+	var err error
 	for _, peer := range m.rpConnections {
-		pcfg := rp.PeerConfig{PublicKey: peer.key}
-		peerAddr := fmt.Sprintf("%s:%d", peer.wgIP, 9999)
+		pcfg := rp.PeerConfig{PublicKey: peer.rosenpassPubKey}
+		strPort := strings.Split(peer.rosenpassAddr, ":")[1]
+		peerAddr := fmt.Sprintf("%s:%s", peer.wireGuardIP, strPort)
 		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
 			return cfg, fmt.Errorf("failed to resolve peer endpoint address: %w", err)
 		}
@@ -90,6 +95,7 @@ func (m *Manager) OnDisconnected(peerKey string, wgIP string) {
 			if err != nil {
 				log.Errorf("failed closing local rosenpass server")
 			}
+			m.server = nil
 		}
 		return
 	}
@@ -121,16 +127,18 @@ func (m *Manager) restartServer() error {
 	return m.server.Run()
 }
 
-func (m *Manager) OnConnected(peerKey string, rpPubKey []byte, wgIP string) {
+// OnConnected is a handler function that is triggered when a connection to a remote peer establishes
+func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
-	rpKeyHash := HashRosenpassKey(rpPubKey)
+	rpKeyHash := HashRosenpassKey(remoteRosenpassPubKey)
 	log.Debugf("received remote rosenpass key %s, my key %s", rpKeyHash, m.rpKeyHash)
-	m.rpConnections[peerKey] = &rpConn{
-		key:       rpPubKey,
-		wgIP:      wgIP,
-		peerKey:   peerKey,
-		rpKeyHash: rpKeyHash,
+	m.rpConnections[remoteWireGuardKey] = &remotePeer{
+		wireGuardPubKey:  remoteWireGuardKey,
+		wireGuardIP:      wireGuardIP,
+		rosenpassPubKey:  remoteRosenpassPubKey,
+		rosenpassKeyHash: rpKeyHash,
+		rosenpassAddr:    remoteRosenpassAddr,
 	}
 
 	err := m.restartServer()

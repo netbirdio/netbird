@@ -421,7 +421,7 @@ func SignalOfferAnswer(offerAnswer peer.OfferAnswer, myKey wgtypes.Key, remoteKe
 	msg, err := signal.MarshalCredential(myKey, offerAnswer.WgListenPort, remoteKey, &signal.Credential{
 		UFrag: offerAnswer.IceCredentials.UFrag,
 		Pwd:   offerAnswer.IceCredentials.Pwd,
-	}, t, offerAnswer.RosenpassPubKey)
+	}, t, offerAnswer.RosenpassPubKey, offerAnswer.RosenpassAddr)
 	if err != nil {
 		return err
 	}
@@ -863,7 +863,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
-		RpPubKey:             e.rpManager.GetPubKey(),
+		RosenpassPubKey:      e.rpManager.GetPubKey(),
+		RosenpassAddr:        e.rpManager.GetAddress().String(),
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
@@ -928,7 +929,8 @@ func (e *Engine) receiveSignalEvents() {
 					},
 					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
 					Version:         msg.GetBody().GetNetBirdVersion(),
-					RosenpassPubKey: msg.GetBody().RosenpassPubKey,
+					RosenpassPubKey: msg.GetBody().RosenpassConfig.RosenpassPubKey,
+					RosenpassAddr:   msg.GetBody().RosenpassConfig.GetRosenpassServerAddr(),
 				})
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
@@ -944,7 +946,8 @@ func (e *Engine) receiveSignalEvents() {
 					},
 					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
 					Version:         msg.GetBody().GetNetBirdVersion(),
-					RosenpassPubKey: msg.GetBody().RosenpassPubKey,
+					RosenpassPubKey: msg.GetBody().RosenpassConfig.RosenpassPubKey,
+					RosenpassAddr:   msg.GetBody().RosenpassConfig.GetRosenpassServerAddr(),
 				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)

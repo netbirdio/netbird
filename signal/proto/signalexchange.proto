@@ -58,10 +58,17 @@ message Body {
   // featuresSupported list of supported features by the client of this protocol
   repeated uint32 featuresSupported = 6;
 
-  bytes rosenpassPubKey = 7;
+  // RosenpassConfig is a Rosenpass config of the remote peer our peer tries to connect to
+  RosenpassConfig rosenpassConfig = 7;
 }
 
 // Mode indicates a connection mode
 message Mode {
   optional bool direct = 1;
+}
+
+message RosenpassConfig {
+  bytes rosenpassPubKey = 1;
+  // rosenpassServerAddr is an IP:port of the rosenpass service
+  string rosenpassServerAddr = 2;
 }
