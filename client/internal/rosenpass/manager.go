@@ -87,6 +87,12 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 func (m *Manager) OnDisconnected(peerKey string, wgIP string) {
 	m.lock.Lock()
 	defer m.lock.Unlock()
+
+	if _, ok := m.rpConnections[peerKey]; !ok {
+		// if we didn't have this peer yet, just skip
+		return
+	}
+
 	delete(m.rpConnections, peerKey)
 
 	if len(m.rpConnections) == 0 {

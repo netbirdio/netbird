@@ -474,6 +474,10 @@ func (conn *Conn) cleanup() error {
 		conn.notifyDisconnected = nil
 	}
 
+	if conn.status == StatusConnected {
+		conn.onDisconnected(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps)
+	}
+
 	conn.status = StatusDisconnected
 
 	peerState := State{
@@ -487,8 +491,6 @@ func (conn *Conn) cleanup() error {
 		// todo rethink status updates
 		log.Debugf("error while updating peer's %s state, err: %v", conn.config.Key, err)
 	}
-
-	conn.onDisconnected(conn.config.WgConfig.RemoteKey, conn.config.WgConfig.AllowedIps)
 
 	log.Debugf("cleaned up connection to peer %s", conn.config.Key)
 	if err1 != nil {
