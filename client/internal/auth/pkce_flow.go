@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"html/template"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -125,21 +127,25 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 }
 
 func (p *PKCEAuthorizationFlow) startServer(tokenChan chan<- *oauth2.Token, errChan chan<- error) {
+	var wg sync.WaitGroup
+
 	parsedURL, err := url.Parse(p.oAuthConfig.RedirectURL)
 	if err != nil {
 		errChan <- fmt.Errorf("failed to parse redirect URL: %v", err)
 		return
 	}
-	port := parsedURL.Port()
 
-	server := http.Server{Addr: fmt.Sprintf(":%s", port)}
-	defer func() {
-		if err := server.Shutdown(context.Background()); err != nil {
-			log.Errorf("error while shutting down pkce flow server: %v", err)
+	server := http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
+	go func() {
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errChan <- err
 		}
 	}()
 
+	wg.Add(1)
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+		defer wg.Done()
+
 		tokenValidatorFunc := func() (*oauth2.Token, error) {
 			query := req.URL.Query()
 
@@ -176,8 +182,9 @@ func (p *PKCEAuthorizationFlow) startServer(tokenChan chan<- *oauth2.Token, errC
 		tokenChan <- token
 	})
 
-	if err := server.ListenAndServe(); err != nil {
-		errChan <- err
+	wg.Wait()
+	if err := server.Shutdown(context.Background()); err != nil {
+		log.Errorf("error while shutting down pkce flow server: %v", err)
 	}
 }
 

@@ -204,6 +204,7 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 
 	authenticateUsingBrowser := func() {
 		cmd.Println(browserAuthMsg)
+		cmd.Println("")
 		if err := open.Run(verificationURIComplete); err != nil {
 			cmd.Println(setupKeyAuthMsg)
 		}
