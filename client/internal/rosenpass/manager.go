@@ -1,17 +1,19 @@
 package rosenpass
 
 import (
+	"bytes"
 	"crypto/sha256"
-	"cunicu.li/go-rosenpass/handlers"
 	"encoding/hex"
 	"fmt"
-	log "github.com/sirupsen/logrus"
-	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 	"log/slog"
 	"net"
 	"os"
 	"strings"
 	"sync"
+
+	"cunicu.li/go-rosenpass/handlers"
+	log "github.com/sirupsen/logrus"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 
 	rp "cunicu.li/go-rosenpass"
 )
@@ -29,6 +31,7 @@ type remotePeer struct {
 	rosenpassPubKey  []byte
 	rosenpassKeyHash string
 	rosenpassAddr    string
+	rosenpassPeerID  string
 }
 
 type Manager struct {
@@ -36,6 +39,7 @@ type Manager struct {
 	ssk           []byte
 	rpKeyHash     string
 	rpConnections map[string]*remotePeer
+	rpWgHandler   *handlers.WireGuardHandler
 	server        *rp.Server
 	lock          sync.Mutex
 }
@@ -57,7 +61,23 @@ func (m *Manager) GetPubKey() []byte {
 
 // GetAddress returns the address of the Rosenpass server
 func (m *Manager) GetAddress() *net.UDPAddr {
-	return &net.UDPAddr{IP: []byte{0, 0, 0, 0}, Port: 9999}
+	return &net.UDPAddr{Port: 9999}
+}
+
+// AddPeer adds a new peer to the Rosenpass server
+func (m *Manager) AddPeer() error {
+	// m.rpWgHandler.AddPeer(pcfg.PID(), "wt0", rp.Key(key))
+	return nil
+}
+
+// RemovePeer removes a peer from the Rosenpass server
+func (m *Manager) RemovePeer() error {
+	return nil
+}
+
+// UpdatePeer updates a peer in the Rosenpass server
+func (m *Manager) UpdatePeer() error {
+	return nil
 }
 
 func (m *Manager) generateConfig() (rp.Config, error) {
@@ -79,11 +99,14 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	var err error
 	for _, peer := range m.rpConnections {
 		pcfg := rp.PeerConfig{PublicKey: peer.rosenpassPubKey}
-		strPort := strings.Split(peer.rosenpassAddr, ":")[1]
-		peerAddr := fmt.Sprintf("%s:%s", peer.wireGuardIP, strPort)
-		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
-			return cfg, fmt.Errorf("failed to resolve peer endpoint address: %w", err)
+		if bytes.Compare(m.spk, peer.rosenpassPubKey) == 1 {
+			strPort := strings.Split(peer.rosenpassAddr, ":")[1]
+			peerAddr := fmt.Sprintf("%s:%s", peer.wireGuardIP, strPort)
+			if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
+				return cfg, fmt.Errorf("failed to resolve peer endpoint address: %w", err)
+			}
 		}
+
 		cfg.Peers = append(cfg.Peers, pcfg)
 		_ = keyOutHandler.AddPeerKeyoutFile(pcfg.PID(), fmt.Sprintf("/tmp/rosenpass/%s", peer.wireGuardIP))
 		key, err := wgtypes.ParseKey(peer.wireGuardPubKey)
