@@ -474,7 +474,7 @@ func (km *KeycloakManager) DeleteUser(userID string) error {
 		return err
 	}
 
-	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, userID)
+	reqURL := fmt.Sprintf("%s/users/%s", km.adminEndpoint, url.QueryEscape(userID))
 
 	req, err := http.NewRequest(http.MethodDelete, reqURL, nil)
 	if err != nil {

@@ -256,7 +256,14 @@ func (gm *GoogleWorkspaceManager) InviteUserByID(_ string) error {
 
 // DeleteUser from GoogleWorkspace.
 func (gm *GoogleWorkspaceManager) DeleteUser(userID string) error {
-	log.Errorf("deleting user %s from GoogleWorkspace: not implemented", userID)
+	if err := gm.usersService.Delete(userID).Do(); err != nil {
+		return err
+	}
+
+	if gm.appMetrics != nil {
+		gm.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
 	return nil
 }
 

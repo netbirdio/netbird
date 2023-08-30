@@ -11,7 +11,6 @@ import (
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	"github.com/okta/okta-sdk-golang/v2/okta"
 	"github.com/okta/okta-sdk-golang/v2/okta/query"
-	log "github.com/sirupsen/logrus"
 )
 
 // OktaManager okta manager client instance.
@@ -322,7 +321,23 @@ func (om *OktaManager) InviteUserByID(_ string) error {
 
 // DeleteUser from Okta
 func (om *OktaManager) DeleteUser(userID string) error {
-	log.Errorf("deleting user %s from Okta: not implemented", userID)
+	resp, err := om.client.User.DeactivateOrDeleteUser(context.Background(), userID, nil)
+	if err != nil {
+		fmt.Println(err.Error())
+		return err
+	}
+
+	if om.appMetrics != nil {
+		om.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		if om.appMetrics != nil {
+			om.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to delete user, statusCode %d", resp.StatusCode)
+	}
+
 	return nil
 }
 
