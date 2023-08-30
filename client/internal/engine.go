@@ -193,6 +193,10 @@ func (e *Engine) Start() error {
 	if err != nil {
 		return err
 	}
+	e.rpManager.Run()
+	if err != nil {
+		return err
+	}
 
 	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
 	if err != nil {
