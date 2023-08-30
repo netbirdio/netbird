@@ -747,7 +747,7 @@ func (am *Auth0Manager) InviteUserByID(userID string) error {
 
 // DeleteUser from Auth0
 func (am *Auth0Manager) DeleteUser(userID string) error {
-	req, err := am.createRequest(http.MethodDelete, "/api/v2/users/", nil)
+	req, err := am.createRequest(http.MethodDelete, "/api/v2/users/"+url.QueryEscape(userID), nil)
 	if err != nil {
 		return err
 	}

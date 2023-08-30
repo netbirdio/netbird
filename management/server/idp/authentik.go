@@ -449,7 +449,33 @@ func (am *AuthentikManager) InviteUserByID(_ string) error {
 
 // DeleteUser from Authentik
 func (am *AuthentikManager) DeleteUser(userID string) error {
-	log.Errorf("deleting user %s from Authentik: not implemented", userID)
+	ctx, err := am.authenticationContext()
+	if err != nil {
+		return err
+	}
+
+	userPk, err := strconv.ParseInt(userID, 10, 32)
+	if err != nil {
+		return err
+	}
+
+	resp, err := am.apiClient.CoreApi.CoreUsersDestroy(ctx, int32(userPk)).
+		Execute()
+	if err != nil {
+		return err
+	}
+
+	if am.appMetrics != nil {
+		am.appMetrics.IDPMetrics().CountDeleteUser()
+	}
+
+	if resp.StatusCode != http.StatusNoContent {
+		if am.appMetrics != nil {
+			am.appMetrics.IDPMetrics().CountRequestStatusError()
+		}
+		return fmt.Errorf("unable to delete user %s, statusCode %d", userID, resp.StatusCode)
+	}
+
 	return nil
 }
 

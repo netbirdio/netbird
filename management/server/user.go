@@ -372,6 +372,10 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		if err := am.idpManager.UpdateUserAppMetadata(targetUserID, idp.AppMetadata{}); err != nil {
 			log.Errorf("failed to remove user %s app metadata in IdP: %s", targetUserID, err)
 		}
+
+		if _, err := am.refreshCache(accountID); err != nil {
+			log.Errorf("refresh account (%q) cache: %v", accountID, err)
+		}
 	}()
 
 	return nil
