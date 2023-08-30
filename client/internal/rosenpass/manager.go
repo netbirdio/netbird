@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -92,10 +93,9 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 	cfg.SecretKey = m.ssk
 
 	cfg.Peers = []rp.PeerConfig{}
-	keyOutHandler := handlers.NewkeyoutHandler()
 	wireGuardHandler, _ := handlers.NewWireGuardHandler()
 
-	cfg.Handlers = []rp.Handler{keyOutHandler, wireGuardHandler}
+	cfg.Handlers = []rp.Handler{wireGuardHandler}
 	var err error
 	for _, peer := range m.rpConnections {
 		pcfg := rp.PeerConfig{PublicKey: peer.rosenpassPubKey}
@@ -108,12 +108,18 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 		}
 
 		cfg.Peers = append(cfg.Peers, pcfg)
-		_ = keyOutHandler.AddPeerKeyoutFile(pcfg.PID(), fmt.Sprintf("/tmp/rosenpass/%s", peer.wireGuardIP))
 		key, err := wgtypes.ParseKey(peer.wireGuardPubKey)
 		if err != nil {
 			continue
 		}
-		wireGuardHandler.AddPeer(pcfg.PID(), "wt0", rp.Key(key))
+		var ifaceName string
+		switch runtime.GOOS {
+		case "darwin":
+			ifaceName = "utun100"
+		default:
+			ifaceName = "wt0"
+		}
+		wireGuardHandler.AddPeer(pcfg.PID(), ifaceName, rp.Key(key))
 	}
 	return cfg, nil
 }
