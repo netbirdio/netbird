@@ -19,7 +19,7 @@ on:
       - '**/Dockerfile.*'
 
 env:
-  SIGN_PIPE_VER: "v0.0.8"
+  SIGN_PIPE_VER: "v0.0.9"
   GORELEASER_VER: "v1.14.1"
 
 concurrency:
