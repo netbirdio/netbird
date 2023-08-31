@@ -67,17 +67,17 @@ func Listen(port int, filter BPFFilter) (net.PacketConn, error) {
 
 	rawSock.router, err = netroute.New()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create router: %rawSock", err)
+		return nil, fmt.Errorf("failed to create raw socket router: %v", err)
 	}
 
 	rawSock.conn4, err = socket.Socket(unix.AF_INET, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp4", nil)
 	if err != nil {
-		return nil, fmt.Errorf("socket.Socket for ipv4 failed with: %rawSock", err)
+		return nil, fmt.Errorf("failed to create ipv4 raw socket: %v", err)
 	}
 
 	rawSock.conn6, err = socket.Socket(unix.AF_INET6, unix.SOCK_RAW, unix.IPPROTO_UDP, "raw_udp6", nil)
 	if err != nil {
-		log.Errorf("socket.Socket for ipv6 failed with: %rawSock", err)
+		log.Errorf("failed to create ipv6 raw socket: %v", err)
 	}
 
 	ipv4Instructions, ipv6Instructions, err := filter.GetInstructions(uint32(rawSock.port))
