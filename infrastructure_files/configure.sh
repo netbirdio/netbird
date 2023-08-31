@@ -169,7 +169,3 @@ env | grep NETBIRD
 envsubst <docker-compose.yml.tmpl >docker-compose.yml
 envsubst <management.json.tmpl >management.json
 envsubst <turnserver.conf.tmpl >turnserver.conf
-
-
-# this command will send the STUN magic cookie (0x2112A442) to a udp socket on localhost:1234 using netcat:
-# echo -ne '\x21\x12\xa4\x42' | nc -u localhost 1234
