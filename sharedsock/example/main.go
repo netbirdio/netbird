@@ -9,10 +9,13 @@ import (
 )
 
 func main() {
-	rawSock, err := sharedsock.Listen(51820, sharedsock.NewIncomingSTUNFilter())
+	port := 51820
+	rawSock, err := sharedsock.Listen(port, sharedsock.NewIncomingSTUNFilter())
 	if err != nil {
 		panic(err)
 	}
+
+	log.Infof("attached to to the raw socket on port %d", port)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// read packets
@@ -41,6 +44,10 @@ func main() {
 		for range c {
 			log.Infof("received ^C signal, stopping the program")
 			cancel()
+			err = rawSock.Close()
+			if err != nil {
+				log.Errorf("failed closing raw socket")
+			}
 		}
 	}()
 
