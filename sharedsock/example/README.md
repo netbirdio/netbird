@@ -20,7 +20,7 @@ STUN_PACKET="000100002112A4425454"
 echo -n $STUN_PACKET | xxd -r -p | nc -u -w 1 localhost 51820
 ```
 
-4. You should see a similar output of the Go program:
+4. You should see a similar output of the Go program. Note that you'll see some binary output in the netcat server too. This is due to the fact that kernel copies packets to both processes.
 
 ```bash 
  read a STUN packet of size 18 from ...
@@ -32,4 +32,4 @@ echo -n $STUN_PACKET | xxd -r -p | nc -u -w 1 localhost 51820
 echo -n 'hello' |  nc -u -w 1 localhost 51820
 ```
 
-6. The go program won't print anything.
+6. The Go program won't print anything.
