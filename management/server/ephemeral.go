@@ -200,6 +200,10 @@ func (e *EphemeralManager) removePeer(id string) {
 
 	for p := e.headPeer; p.next != nil; p = p.next {
 		if p.next.id == id {
+			// if we remove the last element from the chain then set the last-1 as tail
+			if e.tailPeer.id == id {
+				e.tailPeer = p
+			}
 			p.next = p.next.next
 			return
 		}
