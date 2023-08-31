@@ -192,6 +192,9 @@ func (e *EphemeralManager) removePeer(id string) {
 
 	if e.headPeer.id == id {
 		e.headPeer = e.headPeer.next
+		if e.tailPeer.id == id {
+			e.tailPeer = nil
+		}
 		return
 	}
 
