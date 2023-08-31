@@ -4,7 +4,7 @@ This will only work on Linux
 
 1. Run netcat listening on the UDP port 51820. This is going to be our external process:
 ```bash
-nc -u -l 51820
+nc -kluvw 1 51820
 ```
 
 2. Build and run the example Go code:
@@ -20,3 +20,16 @@ STUN_PACKET="000100002112A4425454"
 echo -n $STUN_PACKET | xxd -r -p | nc -u -w 1 localhost 51820
 ```
 
+4. You should see a similar output of the Go program:
+
+```bash 
+ read a STUN packet of size 18 from ...
+```
+
+5. Send a non-STUN packet
+
+```bash
+echo -n 'hello' |  nc -u -w 1 localhost 51820
+```
+
+6. The go program won't print anything.
