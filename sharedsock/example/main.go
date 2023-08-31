@@ -9,6 +9,7 @@ import (
 )
 
 func main() {
+
 	port := 51820
 	rawSock, err := sharedsock.Listen(port, sharedsock.NewIncomingSTUNFilter())
 	if err != nil {
