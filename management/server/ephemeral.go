@@ -109,6 +109,10 @@ func (e *EphemeralManager) OnPeerDisconnected(peer *Peer) {
 	e.peersLock.Lock()
 	defer e.peersLock.Unlock()
 
+	if e.isPeerOnList(peer.ID) {
+		return
+	}
+
 	e.addPeer(peer.ID, a, newDeadLine())
 	if e.timer == nil {
 		e.timer = time.AfterFunc(e.headPeer.deadline.Sub(timeNow()), e.cleanup)
@@ -160,7 +164,7 @@ func (e *EphemeralManager) cleanup() {
 		log.Debugf("delete ephemeral peer: %s", id)
 		_, err := e.accountManager.DeletePeer(p.account.Id, id, activity.SystemInitiator)
 		if err != nil {
-			log.Errorf("failed to delete ephemeral peer: %s", err)
+			log.Tracef("failed to delete ephemeral peer: %s", err)
 		}
 	}
 }
@@ -197,6 +201,15 @@ func (e *EphemeralManager) removePeer(id string) {
 			return
 		}
 	}
+}
+
+func (e *EphemeralManager) isPeerOnList(id string) bool {
+	for p := e.headPeer; p != nil; p = p.next {
+		if p.id == id {
+			return true
+		}
+	}
+	return false
 }
 
 func newDeadLine() time.Time {
