@@ -17,6 +17,7 @@
 					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\netbird.exe" KeyPath="yes" />
 					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\netbird-ui.exe">
 						<Shortcut Id="NetbirdDesktopShortcut" Directory="DesktopFolder" Name="Netbird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
+						<Shortcut Id="NetbirdStartMenuShortcut" Directory="StartMenuFolder" Name="Netbird" WorkingDirectory="NetbirdInstallDir" Icon="NetbirdIcon" />
 					</File>
 					<File ProcessorArchitecture="x64" Source=".\dist\netbird_windows_amd64\wintun.dll" />
 
@@ -69,7 +70,8 @@
 		</InstallExecuteSequence>
 
 		<!-- Icons -->
-		<Icon Id="NetbirdIcon" SourceFile=".\ui\netbird.ico" />
+		<Icon Id="NetbirdIcon" SourceFile=".\client\ui\netbird.ico" />
+		<Property Id="ARPPRODUCTICON" Value="NetbirdIcon" />
 
 	</Package>
 </Wix>
