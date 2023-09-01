@@ -32,6 +32,7 @@ type AuthMiddleware struct {
 	validateAndParseToken ValidateAndParseTokenFunc
 	markPATUsed           MarkPATUsedFunc
 	audience              string
+	userIDClaim           string
 }
 
 const (
@@ -39,12 +40,16 @@ const (
 )
 
 // NewAuthMiddleware instance constructor
-func NewAuthMiddleware(getAccountFromPAT GetAccountFromPATFunc, validateAndParseToken ValidateAndParseTokenFunc, markPATUsed MarkPATUsedFunc, audience string) *AuthMiddleware {
+func NewAuthMiddleware(getAccountFromPAT GetAccountFromPATFunc, validateAndParseToken ValidateAndParseTokenFunc, markPATUsed MarkPATUsedFunc, audience string, userIdClaim string) *AuthMiddleware {
+	if userIdClaim == "" {
+		userIdClaim = jwtclaims.UserIDClaim
+	}
 	return &AuthMiddleware{
 		getAccountFromPAT:     getAccountFromPAT,
 		validateAndParseToken: validateAndParseToken,
 		markPATUsed:           markPATUsed,
 		audience:              audience,
+		userIDClaim:           userIdClaim,
 	}
 }
 
@@ -127,7 +132,7 @@ func (m *AuthMiddleware) CheckPATFromRequest(w http.ResponseWriter, r *http.Requ
 	}
 
 	claimMaps := jwt.MapClaims{}
-	claimMaps[jwtclaims.UserIDClaim] = user.Id
+	claimMaps[m.userIDClaim] = user.Id
 	claimMaps[m.audience+jwtclaims.AccountIDSuffix] = account.Id
 	claimMaps[m.audience+jwtclaims.DomainIDSuffix] = account.Domain
 	claimMaps[m.audience+jwtclaims.DomainCategorySuffix] = account.DomainCategory
