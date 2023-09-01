@@ -117,6 +117,9 @@ func (m *Manager) generateConfig() (rp.Config, error) {
 }
 
 func (m *Manager) OnDisconnected(peerKey string, wgIP string) {
+	if m == nil {
+		return
+	}
 	m.lock.Lock()
 	defer m.lock.Unlock()
 
@@ -162,8 +165,17 @@ func (m *Manager) Close() error {
 
 // OnConnected is a handler function that is triggered when a connection to a remote peer establishes
 func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey []byte, wireGuardIP string, remoteRosenpassAddr string) {
+	if m == nil {
+		return
+	}
 	m.lock.Lock()
 	defer m.lock.Unlock()
+
+	if remoteRosenpassPubKey == nil {
+		log.Debugf("remote peer does not support rosenpass")
+		return
+	}
+
 	rpKeyHash := HashRosenpassKey(remoteRosenpassPubKey)
 	log.Debugf("received remote rosenpass key %s, my key %s", rpKeyHash, m.rpKeyHash)
 

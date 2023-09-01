@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
+	"os"
 	"reflect"
 	"runtime"
 	"strings"
@@ -43,6 +44,7 @@ import (
 const (
 	PeerConnectionTimeoutMax = 45000 // ms
 	PeerConnectionTimeoutMin = 30000 // ms
+	envEnableRosenpass       = "NB_RP_ENABLED"
 )
 
 var ErrResetConnection = fmt.Errorf("reset connection")
@@ -189,13 +191,16 @@ func (e *Engine) Start() error {
 		log.Errorf("failed to create pion's stdnet: %s", err)
 	}
 
-	e.rpManager, err = rosenpass.NewManager()
-	if err != nil {
-		return err
-	}
-	e.rpManager.Run()
-	if err != nil {
-		return err
+	if os.Getenv(envEnableRosenpass) == "true" {
+		e.rpManager, err = rosenpass.NewManager()
+		if err != nil {
+			return err
+		}
+		log.Infof("Rosenpass is enabled because the %s variable was set", envEnableRosenpass)
+		e.rpManager.Run()
+		if err != nil {
+			return err
+		}
 	}
 
 	e.wgInterface, err = iface.NewWGIFace(wgIFaceName, wgAddr, iface.DefaultMTU, e.mobileDep.TunAdapter, transportNet)
@@ -849,9 +854,6 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		PreSharedKey: e.config.PreSharedKey,
 	}
 
-	e.rpManager.GetPubKey()
-	e.rpManager.GetPubKey()
-	e.rpManager.GetPubKey()
 	// randomize connection timeout
 	timeout := time.Duration(rand.Intn(PeerConnectionTimeoutMax-PeerConnectionTimeoutMin)+PeerConnectionTimeoutMin) * time.Millisecond
 	config := peer.ConnConfig{
@@ -867,8 +869,8 @@ func (e *Engine) createPeerConn(pubKey string, allowedIPs string) (*peer.Conn, e
 		LocalWgPort:          e.config.WgPort,
 		NATExternalIPs:       e.parseNATExternalIPMappings(),
 		UserspaceBind:        e.wgInterface.IsUserspaceBind(),
-		RosenpassPubKey:      e.rpManager.GetPubKey(),
-		RosenpassAddr:        e.rpManager.GetAddress().String(),
+		RosenpassPubKey:      e.getRosenpassPubKey(),
+		RosenpassAddr:        e.getRosenpassAddr(),
 	}
 
 	peerConn, err := peer.NewConn(config, e.statusRecorder, e.wgProxyFactory, e.mobileDep.TunAdapter, e.mobileDep.IFaceDiscover)
@@ -1103,4 +1105,18 @@ func findIPFromInterface(iface *net.Interface) (net.IP, error) {
 		}
 	}
 	return nil, fmt.Errorf("interface %s don't have an ipv4 address", iface.Name)
+}
+
+func (e *Engine) getRosenpassPubKey() []byte {
+	if e.rpManager != nil {
+		return e.rpManager.GetPubKey()
+	}
+	return nil
+}
+
+func (e *Engine) getRosenpassAddr() string {
+	if e.rpManager != nil {
+		return e.rpManager.GetAddress().String()
+	}
+	return ""
 }
