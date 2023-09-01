@@ -197,7 +197,7 @@ func (e *Engine) Start() error {
 			return err
 		}
 		log.Infof("Rosenpass is enabled because the %s variable was set", envEnableRosenpass)
-		e.rpManager.Run()
+		err := e.rpManager.Run()
 		if err != nil {
 			return err
 		}
