@@ -121,7 +121,6 @@ require (
 	github.com/nxadm/tail v1.4.8 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	github.com/pegasus-kv/thrift v0.13.0 // indirect
-	github.com/pelletier/go-toml/v2 v2.0.9 // indirect
 	github.com/pion/dtls/v2 v2.2.6 // indirect
 	github.com/pion/mdns v0.0.7 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
