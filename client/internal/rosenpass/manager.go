@@ -9,7 +9,6 @@ import (
 	"net"
 	"os"
 	"runtime"
-	"strings"
 	"sync"
 
 	rp "cunicu.li/go-rosenpass"
@@ -34,6 +33,7 @@ type Manager struct {
 	lock        sync.Mutex
 }
 
+// NewManager creates a new Rosenpass manager
 func NewManager() (*Manager, error) {
 	public, secret, err := rp.GenerateKeyPair()
 	if err != nil {
@@ -59,7 +59,10 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 	var err error
 	pcfg := rp.PeerConfig{PublicKey: rosenpassPubKey}
 	if bytes.Compare(m.spk, rosenpassPubKey) == 1 {
-		strPort := strings.Split(rosenpassAddr, ":")[1]
+		_, strPort, err := net.SplitHostPort(rosenpassAddr)
+		if err != nil {
+			return fmt.Errorf("failed to parse rosenpass address: %w", err)
+		}
 		peerAddr := fmt.Sprintf("%s:%s", wireGuardIP, strPort)
 		if pcfg.Endpoint, err = net.ResolveUDPAddr("udp", peerAddr); err != nil {
 			return fmt.Errorf("failed to resolve peer endpoint address: %w", err)
@@ -87,13 +90,11 @@ func (m *Manager) addPeer(rosenpassPubKey []byte, rosenpassAddr string, wireGuar
 
 // removePeer removes a peer from the Rosenpass server
 func (m *Manager) removePeer(wireGuardPubKey string) error {
-	m.server.RemovePeer(*m.rpPeerIDs[wireGuardPubKey])
+	err := m.server.RemovePeer(*m.rpPeerIDs[wireGuardPubKey])
+	if err != nil {
+		return err
+	}
 	m.rpWgHandler.RemovePeer(*m.rpPeerIDs[wireGuardPubKey])
-	return nil
-}
-
-// updatePeer updates a peer in the Rosenpass server
-func (m *Manager) updatePeer() error {
 	return nil
 }
 
@@ -184,6 +185,4 @@ func (m *Manager) OnConnected(remoteWireGuardKey string, remoteRosenpassPubKey [
 		log.Errorf("failed to add rosenpass peer: %s", err)
 		return
 	}
-
-	return
 }
