@@ -928,6 +928,13 @@ func (e *Engine) receiveSignalEvents() {
 				}
 
 				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
+
+				var rosenpassPubKey []byte
+				rosenpassAddr := ""
+				if msg.GetBody().RosenpassConfig != nil {
+					rosenpassPubKey = msg.GetBody().RosenpassConfig.RosenpassPubKey
+					rosenpassAddr = msg.GetBody().RosenpassConfig.GetRosenpassServerAddr()
+				}
 				conn.OnRemoteOffer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
@@ -935,8 +942,8 @@ func (e *Engine) receiveSignalEvents() {
 					},
 					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
 					Version:         msg.GetBody().GetNetBirdVersion(),
-					RosenpassPubKey: msg.GetBody().RosenpassConfig.RosenpassPubKey,
-					RosenpassAddr:   msg.GetBody().RosenpassConfig.GetRosenpassServerAddr(),
+					RosenpassPubKey: rosenpassPubKey,
+					RosenpassAddr:   rosenpassAddr,
 				})
 			case sProto.Body_ANSWER:
 				remoteCred, err := signal.UnMarshalCredential(msg)
@@ -945,6 +952,13 @@ func (e *Engine) receiveSignalEvents() {
 				}
 
 				conn.RegisterProtoSupportMeta(msg.Body.GetFeaturesSupported())
+
+				var rosenpassPubKey []byte
+				rosenpassAddr := ""
+				if msg.GetBody().RosenpassConfig != nil {
+					rosenpassPubKey = msg.GetBody().RosenpassConfig.RosenpassPubKey
+					rosenpassAddr = msg.GetBody().RosenpassConfig.GetRosenpassServerAddr()
+				}
 				conn.OnRemoteAnswer(peer.OfferAnswer{
 					IceCredentials: peer.IceCredentials{
 						UFrag: remoteCred.UFrag,
@@ -952,8 +966,8 @@ func (e *Engine) receiveSignalEvents() {
 					},
 					WgListenPort:    int(msg.GetBody().GetWgListenPort()),
 					Version:         msg.GetBody().GetNetBirdVersion(),
-					RosenpassPubKey: msg.GetBody().RosenpassConfig.RosenpassPubKey,
-					RosenpassAddr:   msg.GetBody().RosenpassConfig.GetRosenpassServerAddr(),
+					RosenpassPubKey: rosenpassPubKey,
+					RosenpassAddr:   rosenpassAddr,
 				})
 			case sProto.Body_CANDIDATE:
 				candidate, err := ice.UnmarshalCandidate(msg.GetBody().Payload)
