@@ -36,7 +36,8 @@ func APIHandler(accountManager s.AccountManager, jwtValidator jwtclaims.JWTValid
 		accountManager.GetAccountFromPAT,
 		jwtValidator.ValidateAndParse,
 		accountManager.MarkPATUsed,
-		authCfg.Audience)
+		authCfg.Audience,
+		authCfg.UserIDClaim)
 
 	corsMiddleware := cors.AllowAll()
 

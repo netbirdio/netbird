@@ -13,14 +13,15 @@ import (
 )
 
 const (
-	audience   = "audience"
-	accountID  = "accountID"
-	domain     = "domain"
-	userID     = "userID"
-	tokenID    = "tokenID"
-	PAT        = "PAT"
-	JWT        = "JWT"
-	wrongToken = "wrongToken"
+	audience    = "audience"
+	userIDClaim = "userIDClaim"
+	accountID   = "accountID"
+	domain      = "domain"
+	userID      = "userID"
+	tokenID     = "tokenID"
+	PAT         = "PAT"
+	JWT         = "JWT"
+	wrongToken  = "wrongToken"
 )
 
 var testAccount = &server.Account{
@@ -102,7 +103,7 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 		// do nothing
 	})
 
-	authMiddleware := NewAuthMiddleware(mockGetAccountFromPAT, mockValidateAndParseToken, mockMarkPATUsed, audience)
+	authMiddleware := NewAuthMiddleware(mockGetAccountFromPAT, mockValidateAndParseToken, mockMarkPATUsed, audience, userIDClaim)
 
 	handlerToTest := authMiddleware.Handler(nextHandler)
 
