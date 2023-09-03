@@ -10,20 +10,23 @@ import (
 	"github.com/google/nftables/expr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/netbirdio/netbird/client/internal/checkfw"
 )
 
 func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 
-	manager, err := newNFTablesManager(context.TODO())
-	if err != nil {
-		t.Fatalf("failed to create nftables manager: %s", err)
+	if checkfw.Check() != checkfw.NFTABLES {
+		t.Skip("nftables not supported on this OS")
 	}
+
+	manager := newNFTablesManager(context.TODO())
 
 	nftablesTestingClient := &nftables.Conn{}
 
 	defer manager.CleanRoutingRules()
 
-	err = manager.RestoreOrCreateContainers()
+	err := manager.RestoreOrCreateContainers()
 	require.NoError(t, err, "shouldn't return error")
 
 	require.Len(t, manager.chains, 2, "should have created chains for ipv4 and ipv6")
@@ -126,19 +129,19 @@ func TestNftablesManager_RestoreOrCreateContainers(t *testing.T) {
 }
 
 func TestNftablesManager_InsertRoutingRules(t *testing.T) {
+	if checkfw.Check() != checkfw.NFTABLES {
+		t.Skip("nftables not supported on this OS")
+	}
 
 	for _, testCase := range insertRuleTestCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manager, err := newNFTablesManager(context.TODO())
-			if err != nil {
-				t.Fatalf("failed to create nftables manager: %s", err)
-			}
+			manager := newNFTablesManager(context.TODO())
 
 			nftablesTestingClient := &nftables.Conn{}
 
 			defer manager.CleanRoutingRules()
 
-			err = manager.RestoreOrCreateContainers()
+			err := manager.RestoreOrCreateContainers()
 			require.NoError(t, err, "shouldn't return error")
 
 			err = manager.InsertRoutingRules(testCase.inputPair)
@@ -226,19 +229,19 @@ func TestNftablesManager_InsertRoutingRules(t *testing.T) {
 }
 
 func TestNftablesManager_RemoveRoutingRules(t *testing.T) {
+	if checkfw.Check() != checkfw.NFTABLES {
+		t.Skip("nftables not supported on this OS")
+	}
 
 	for _, testCase := range removeRuleTestCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			manager, err := newNFTablesManager(context.TODO())
-			if err != nil {
-				t.Fatalf("failed to create nftables manager: %s", err)
-			}
+			manager := newNFTablesManager(context.TODO())
 
 			nftablesTestingClient := &nftables.Conn{}
 
 			defer manager.CleanRoutingRules()
 
-			err = manager.RestoreOrCreateContainers()
+			err := manager.RestoreOrCreateContainers()
 			require.NoError(t, err, "shouldn't return error")
 
 			table := manager.tableIPv4
