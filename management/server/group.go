@@ -59,12 +59,14 @@ func (g *Group) EventMeta() map[string]any {
 }
 
 func (g *Group) Copy() *Group {
-	return &Group{
+	group := &Group{
 		ID:     g.ID,
 		Name:   g.Name,
 		Issued: g.Issued,
-		Peers:  g.Peers[:],
+		Peers:  make([]string, len(g.Peers)),
 	}
+	copy(group.Peers, g.Peers)
+	return group
 }
 
 // GetGroup object of the peers

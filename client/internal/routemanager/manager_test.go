@@ -30,7 +30,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 		inputInitRoutes               []*route.Route
 		inputRoutes                   []*route.Route
 		inputSerial                   uint64
-		shouldCheckServerRoutes       bool
 		serverRoutesExpected          int
 		clientNetworkWatchersExpected int
 	}{
@@ -87,7 +86,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				},
 			},
 			inputSerial:                   1,
-			shouldCheckServerRoutes:       runtime.GOOS == "linux",
 			serverRoutesExpected:          2,
 			clientNetworkWatchersExpected: 0,
 		},
@@ -116,7 +114,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				},
 			},
 			inputSerial:                   1,
-			shouldCheckServerRoutes:       runtime.GOOS == "linux",
 			serverRoutesExpected:          1,
 			clientNetworkWatchersExpected: 1,
 		},
@@ -172,25 +169,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				},
 			},
 			inputSerial:                   1,
-			clientNetworkWatchersExpected: 0,
-		},
-		{
-			name: "No Server Routes Should Be Added To Non Linux",
-			inputRoutes: []*route.Route{
-				{
-					ID:          "a",
-					NetID:       "routeA",
-					Peer:        localPeerKey,
-					Network:     netip.MustParsePrefix("1.2.3.4/32"),
-					NetworkType: route.IPv4Network,
-					Metric:      9999,
-					Masquerade:  false,
-					Enabled:     true,
-				},
-			},
-			inputSerial:                   1,
-			shouldCheckServerRoutes:       runtime.GOOS != "linux",
-			serverRoutesExpected:          0,
 			clientNetworkWatchersExpected: 0,
 		},
 		{
@@ -335,7 +313,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			},
 			inputRoutes:                   []*route.Route{},
 			inputSerial:                   1,
-			shouldCheckServerRoutes:       true,
 			serverRoutesExpected:          0,
 			clientNetworkWatchersExpected: 0,
 		},
@@ -384,7 +361,6 @@ func TestManagerUpdateRoutes(t *testing.T) {
 				},
 			},
 			inputSerial:                   1,
-			shouldCheckServerRoutes:       runtime.GOOS == "linux",
 			serverRoutesExpected:          2,
 			clientNetworkWatchersExpected: 1,
 		},
@@ -419,8 +395,9 @@ func TestManagerUpdateRoutes(t *testing.T) {
 
 			require.Len(t, routeManager.clientNetworks, testCase.clientNetworkWatchersExpected, "client networks size should match")
 
-			if testCase.shouldCheckServerRoutes {
-				require.Len(t, routeManager.serverRouter.routes, testCase.serverRoutesExpected, "server networks size should match")
+			if runtime.GOOS == "linux" {
+				sr := routeManager.serverRouter.(*defaultServerRouter)
+				require.Len(t, sr.routes, testCase.serverRoutesExpected, "server networks size should match")
 			}
 		})
 	}

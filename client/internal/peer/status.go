@@ -353,9 +353,13 @@ func (d *Status) onConnectionChanged() {
 }
 
 func (d *Status) notifyPeerListChanged() {
-	d.notifier.peerListChanged(len(d.peers) + len(d.offlinePeers))
+	d.notifier.peerListChanged(d.numOfPeers())
 }
 
 func (d *Status) notifyAddressChanged() {
 	d.notifier.localAddressChanged(d.localPeer.FQDN, d.localPeer.IP)
+}
+
+func (d *Status) numOfPeers() int {
+	return len(d.peers) + len(d.offlinePeers)
 }

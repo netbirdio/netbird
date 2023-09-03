@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -53,11 +54,17 @@ type User struct {
 	PATs       map[string]*PersonalAccessToken
 	// Blocked indicates whether the user is blocked. Blocked users can't use the system.
 	Blocked bool
+	// LastLogin is the last time the user logged in to IdP
+	LastLogin time.Time
 }
 
 // IsBlocked returns true if the user is blocked, false otherwise
 func (u *User) IsBlocked() bool {
 	return u.Blocked
+}
+
+func (u *User) LastDashboardLoginChanged(LastLogin time.Time) bool {
+	return LastLogin.After(u.LastLogin) && !u.LastLogin.IsZero()
 }
 
 // IsAdmin returns true if the user is an admin, false otherwise
@@ -82,6 +89,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 			Status:        string(UserStatusActive),
 			IsServiceUser: u.IsServiceUser,
 			IsBlocked:     u.Blocked,
+			LastLogin:     u.LastLogin,
 		}, nil
 	}
 	if userData.ID != u.Id {
@@ -102,6 +110,7 @@ func (u *User) ToUserInfo(userData *idp.UserData) (*UserInfo, error) {
 		Status:        string(userStatus),
 		IsServiceUser: u.IsServiceUser,
 		IsBlocked:     u.Blocked,
+		LastLogin:     u.LastLogin,
 	}, nil
 }
 
@@ -111,9 +120,7 @@ func (u *User) Copy() *User {
 	copy(autoGroups, u.AutoGroups)
 	pats := make(map[string]*PersonalAccessToken, len(u.PATs))
 	for k, v := range u.PATs {
-		patCopy := new(PersonalAccessToken)
-		*patCopy = *v
-		pats[k] = patCopy
+		pats[k] = v.Copy()
 	}
 	return &User{
 		Id:              u.Id,
@@ -123,6 +130,7 @@ func (u *User) Copy() *User {
 		ServiceUserName: u.ServiceUserName,
 		PATs:            pats,
 		Blocked:         u.Blocked,
+		LastLogin:       u.LastLogin,
 	}
 }
 
@@ -186,6 +194,7 @@ func (am *DefaultAccountManager) createServiceUser(accountID string, initiatorUs
 		AutoGroups:    newUser.AutoGroups,
 		Status:        string(UserStatusActive),
 		IsServiceUser: true,
+		LastLogin:     time.Time{},
 	}, nil
 }
 
@@ -215,6 +224,12 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.NotFound, "account %s doesn't exist", accountID)
 	}
 
+	// initiator is the one who is inviting the new user
+	initiatorUser, err := am.lookupUserInCache(userID, account)
+	if err != nil {
+		return nil, status.Errorf(status.NotFound, "user %s doesn't exist in IdP", userID)
+	}
+
 	// check if the user is already registered with this email => reject
 	user, err := am.lookupUserInCacheByEmail(invite.Email, accountID)
 	if err != nil {
@@ -234,7 +249,7 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 		return nil, status.Errorf(status.UserAlreadyExists, "can't invite a user with an existing NetBird account")
 	}
 
-	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID)
+	idpUser, err := am.idpManager.CreateUser(invite.Email, invite.Name, accountID, initiatorUser.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +275,6 @@ func (am *DefaultAccountManager) inviteNewUser(accountID, userID string, invite 
 	am.storeEvent(userID, newUser.Id, accountID, activity.UserInvited, nil)
 
 	return newUser.ToUserInfo(idpUser)
-
 }
 
 // GetUser looks up a user by provided authorization claims.
@@ -275,6 +289,21 @@ func (am *DefaultAccountManager) GetUser(claims jwtclaims.AuthorizationClaims) (
 	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
+
+	// this code should be outside of the am.GetAccountFromToken(claims) because this method is called also by the gRPC
+	// server when user authenticates a device. And we need to separate the Dashboard login event from the Device login event.
+	unlock := am.Store.AcquireAccountLock(account.Id)
+	newLogin := user.LastDashboardLoginChanged(claims.LastLogin)
+	err = am.Store.SaveUserLastLogin(account.Id, claims.UserId, claims.LastLogin)
+	unlock()
+	if newLogin {
+		meta := map[string]any{"timestamp": claims.LastLogin}
+		am.storeEvent(claims.UserId, claims.UserId, account.Id, activity.DashboardLogin, meta)
+		if err != nil {
+			log.Errorf("failed saving user last login: %v", err)
+		}
+	}
+
 	return user, nil
 }
 
@@ -600,8 +629,24 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 		}
 	}
 
-	if err = am.Store.SaveAccount(account); err != nil {
-		return nil, err
+	if update.AutoGroups != nil && account.Settings.GroupsPropagationEnabled {
+		removedGroups := difference(oldUser.AutoGroups, update.AutoGroups)
+		// need force update all auto groups in any case they will not be dublicated
+		account.UserGroupsAddToPeers(oldUser.Id, update.AutoGroups...)
+		account.UserGroupsRemoveFromPeers(oldUser.Id, removedGroups...)
+
+		account.Network.IncSerial()
+		if err = am.Store.SaveAccount(account); err != nil {
+			return nil, err
+		}
+
+		if err := am.updateAccountPeers(account); err != nil {
+			log.Errorf("failed updating account peers while updating user %s", accountID)
+		}
+	} else {
+		if err = am.Store.SaveAccount(account); err != nil {
+			return nil, err
+		}
 	}
 
 	defer func() {
@@ -629,7 +674,6 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 				} else {
 					log.Errorf("group %s not found while saving user activity event of account %s", g, account.Id)
 				}
-
 			}
 
 			for _, g := range addedGroups {
@@ -640,7 +684,6 @@ func (am *DefaultAccountManager) SaveUser(accountID, initiatorUserID string, upd
 				}
 			}
 		}
-
 	}()
 
 	if !isNil(am.idpManager) && !newUser.IsServiceUser {

@@ -1,14 +1,18 @@
 package server
 
 import (
+	"errors"
+	"regexp"
+	"strconv"
+	"unicode/utf8"
+
 	"github.com/miekg/dns"
+	"github.com/rs/xid"
+	log "github.com/sirupsen/logrus"
+
 	nbdns "github.com/netbirdio/netbird/dns"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
-	"github.com/rs/xid"
-	log "github.com/sirupsen/logrus"
-	"strconv"
-	"unicode/utf8"
 )
 
 const (
@@ -26,6 +30,8 @@ const (
 	UpdateNameServerGroupPrimary
 	// UpdateNameServerGroupDomains indicates a nameserver group' domains update operation
 	UpdateNameServerGroupDomains
+
+	domainPattern = `^(?i)[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,}$`
 )
 
 // NameServerGroupUpdateOperationType operation type
@@ -364,9 +370,8 @@ func validateDomainInput(primary bool, domains []string) error {
 			" you should set either primary or domain")
 	}
 	for _, domain := range domains {
-		_, valid := dns.IsDomainName(domain)
-		if !valid {
-			return status.Errorf(status.InvalidArgument, "nameserver group got an invalid domain: %s", domain)
+		if err := validateDomain(domain); err != nil {
+			return status.Errorf(status.InvalidArgument, "nameserver group got an invalid domain: %s %q", domain, err)
 		}
 	}
 	return nil
@@ -413,6 +418,24 @@ func validateGroups(list []string, groups map[string]*Group) error {
 		if !found {
 			return status.Errorf(status.InvalidArgument, "group id %s not found", id)
 		}
+	}
+
+	return nil
+}
+
+func validateDomain(domain string) error {
+	domainMatcher := regexp.MustCompile(domainPattern)
+	if !domainMatcher.MatchString(domain) {
+		return errors.New("domain should consists of only letters, numbers, and hyphens with no leading, trailing hyphens, or spaces")
+	}
+
+	labels, valid := dns.IsDomainName(domain)
+	if !valid {
+		return errors.New("invalid domain name")
+	}
+
+	if labels < 2 {
+		return errors.New("domain should consists of a minimum of two labels")
 	}
 
 	return nil

@@ -266,7 +266,8 @@ func TestUser_Copy(t *testing.T) {
 				LastUsed:       time.Now(),
 			},
 		},
-		Blocked: false,
+		Blocked:   false,
+		LastLogin: time.Now(),
 	}
 
 	err := validateStruct(user)

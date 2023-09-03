@@ -7,8 +7,6 @@ import (
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
-
-	"github.com/netbirdio/netbird/client/internal/linuxfw"
 )
 
 const (
@@ -28,18 +26,20 @@ func genKey(format string, input string) string {
 	return fmt.Sprintf(format, input)
 }
 
-// newFirewall if supported, returns an iptables manager, otherwise returns a nftables manager
-func newFirewall(parentCTX context.Context) firewallManager {
-	switch linuxfw.Check() {
-	case linuxfw.IPTABLES:
-		log.Info("iptables firewall manager will be used for routing management")
-		return newIptablesManager(parentCTX)
-	case linuxfw.NFTABLES:
-		log.Info("nftables firewall manager will be used for routing management")
-		return newNFTablesManager(parentCTX)
+// NewFirewall if supported, returns an iptables manager, otherwise returns a nftables manager
+func NewFirewall(parentCTX context.Context) (firewallManager, error) {
+	manager, err := newNFTablesManager(parentCTX)
+	if err == nil {
+		log.Debugf("nftables firewall manager will be used")
+		return manager, nil
 	}
-	log.Info("unable to identify firewall type, fallback to a dummy firewall manager")
-	return unimplementedFirewall{}
+	fMgr, err := newIptablesManager(parentCTX)
+	if err != nil {
+		log.Debugf("failed to initialize iptables for root mgr: %s", err)
+		return nil, err
+	}
+	log.Debugf("iptables firewall manager will be used")
+	return fMgr, nil
 }
 
 func getInPair(pair routerPair) routerPair {

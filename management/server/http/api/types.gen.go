@@ -27,6 +27,7 @@ const (
 	EventActivityCodeNameserverGroupUpdate                    EventActivityCode = "nameserver.group.update"
 	EventActivityCodePeerLoginExpirationDisable               EventActivityCode = "peer.login.expiration.disable"
 	EventActivityCodePeerLoginExpirationEnable                EventActivityCode = "peer.login.expiration.enable"
+	EventActivityCodePeerLoginExpire                          EventActivityCode = "peer.login.expire"
 	EventActivityCodePeerRename                               EventActivityCode = "peer.rename"
 	EventActivityCodePeerSshDisable                           EventActivityCode = "peer.ssh.disable"
 	EventActivityCodePeerSshEnable                            EventActivityCode = "peer.ssh.enable"
@@ -57,6 +58,7 @@ const (
 	EventActivityCodeUserJoin                                 EventActivityCode = "user.join"
 	EventActivityCodeUserPeerAdd                              EventActivityCode = "user.peer.add"
 	EventActivityCodeUserPeerDelete                           EventActivityCode = "user.peer.delete"
+	EventActivityCodeUserPeerLogin                            EventActivityCode = "user.peer.login"
 	EventActivityCodeUserRoleUpdate                           EventActivityCode = "user.role.update"
 	EventActivityCodeUserUnblock                              EventActivityCode = "user.unblock"
 )
@@ -129,6 +131,9 @@ type AccountRequest struct {
 
 // AccountSettings defines model for AccountSettings.
 type AccountSettings struct {
+	// GroupsPropagationEnabled Allows propagate the new user auto groups to peers that belongs to the user
+	GroupsPropagationEnabled *bool `json:"groups_propagation_enabled,omitempty"`
+
 	// JwtGroupsClaimName Name of the claim from which we extract groups names to add it to account groups.
 	JwtGroupsClaimName *string `json:"jwt_groups_claim_name,omitempty"`
 
@@ -761,6 +766,9 @@ type User struct {
 
 	// IsServiceUser Is true if this user is a service user
 	IsServiceUser *bool `json:"is_service_user,omitempty"`
+
+	// LastLogin Last time this user performed a login to the dashboard
+	LastLogin *time.Time `json:"last_login,omitempty"`
 
 	// Name User's name from idp provider
 	Name string `json:"name"`

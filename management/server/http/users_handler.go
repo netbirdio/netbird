@@ -270,5 +270,6 @@ func toUserResponse(user *server.UserInfo, currenUserID string) *api.User {
 		IsCurrent:     &isCurrent,
 		IsServiceUser: &user.IsServiceUser,
 		IsBlocked:     user.IsBlocked,
+		LastLogin:     &user.LastLogin,
 	}
 }

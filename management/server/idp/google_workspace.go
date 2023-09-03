@@ -185,7 +185,7 @@ func (gm *GoogleWorkspaceManager) GetAllAccounts() (map[string][]*UserData, erro
 }
 
 // CreateUser creates a new user in Google Workspace and sends an invitation.
-func (gm *GoogleWorkspaceManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (gm *GoogleWorkspaceManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	invite := true
 	metadata := AppMetadata{
 		WTAccountID:     accountID,

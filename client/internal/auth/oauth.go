@@ -59,19 +59,17 @@ func (t TokenInfo) GetTokenToUse() string {
 
 // NewOAuthFlow initializes and returns the appropriate OAuth flow based on the management configuration.
 func NewOAuthFlow(ctx context.Context, config *internal.Config) (OAuthFlow, error) {
-	log.Debug("getting device authorization flow info")
+	log.Debug("loading pkce authorization flow info")
 
-	// Try to initialize the Device Authorization Flow
-	deviceFlowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
+	pkceFlowInfo, err := internal.GetPKCEAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
 	if err == nil {
-		return NewDeviceAuthorizationFlow(deviceFlowInfo.ProviderConfig)
+		return NewPKCEAuthorizationFlow(pkceFlowInfo.ProviderConfig)
 	}
 
-	log.Debugf("getting device authorization flow info failed with error: %v", err)
-	log.Debugf("falling back to pkce authorization flow info")
+	log.Debugf("loading pkce authorization flow info failed with error: %v", err)
+	log.Debugf("falling back to device authorization flow info")
 
-	// If Device Authorization Flow failed, try the PKCE Authorization Flow
-	pkceFlowInfo, err := internal.GetPKCEAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
+	deviceFlowInfo, err := internal.GetDeviceAuthorizationFlowInfo(ctx, config.PrivateKey, config.ManagementURL)
 	if err != nil {
 		s, ok := gstatus.FromError(err)
 		if ok && s.Code() == codes.NotFound {
@@ -82,9 +80,9 @@ func NewOAuthFlow(ctx context.Context, config *internal.Config) (OAuthFlow, erro
 			return nil, fmt.Errorf("the management server, %s, does not support SSO providers, "+
 				"please update your server or use Setup Keys to login", config.ManagementURL)
 		} else {
-			return nil, fmt.Errorf("getting pkce authorization flow info failed with error: %v", err)
+			return nil, fmt.Errorf("getting device authorization flow info failed with error: %v", err)
 		}
 	}
 
-	return NewPKCEAuthorizationFlow(pkceFlowInfo.ProviderConfig)
+	return NewDeviceAuthorizationFlow(deviceFlowInfo.ProviderConfig)
 }

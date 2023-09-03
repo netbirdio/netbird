@@ -54,6 +54,10 @@ components:
           description: Period of time after which peer login expires (seconds).
           type: integer
           example: 43200
+        groups_propagation_enabled:
+          description: Allows propagate the new user auto groups to peers that belongs to the user
+          type: boolean
+          example: true
         jwt_groups_enabled:
           description: Allows extract groups from JWT claim and add it to account groups.
           type: boolean
@@ -96,6 +100,11 @@ components:
           type: string
           enum: [ "active","invited","blocked" ]
           example: active
+        last_login:
+          description: Last time this user performed a login to the dashboard
+          type: string
+          format: date-time
+          example: 2023-05-05T09:00:35.477782Z
         auto_groups:
           description: Groups to auto-assign to peers registered by this user
           type: array
@@ -369,7 +378,9 @@ components:
         expires_in:
           description: Expiration time in seconds
           type: integer
-          example: 43200
+          minimum: 86400
+          maximum: 31536000
+          example: 86400
         revoked:
           description: Setup key revocation status
           type: boolean
@@ -886,7 +897,7 @@ components:
           description: The string code of the activity that occurred during the event
           type: string
           enum: [ "user.peer.delete", "user.join", "user.invite", "user.peer.add", "user.group.add", "user.group.delete",
-                  "user.role.update", "user.block", "user.unblock",
+                  "user.role.update", "user.block", "user.unblock", "user.peer.login",
                   "setupkey.peer.add", "setupkey.add", "setupkey.update", "setupkey.revoke", "setupkey.overuse",
                   "setupkey.group.delete", "setupkey.group.add",
                   "rule.add", "rule.delete", "rule.update",
@@ -895,7 +906,7 @@ components:
                   "account.create", "account.setting.peer.login.expiration.update", "account.setting.peer.login.expiration.disable", "account.setting.peer.login.expiration.enable",
                   "route.add", "route.delete", "route.update",
                   "nameserver.group.add", "nameserver.group.delete", "nameserver.group.update",
-                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable",
+                  "peer.ssh.disable", "peer.ssh.enable", "peer.rename", "peer.login.expiration.disable", "peer.login.expiration.enable", "peer.login.expire",
                   "service.user.create", "personal.access.token.create", "service.user.delete", "personal.access.token.delete" ]
           example: route.add
         initiator_id:

@@ -362,7 +362,7 @@ func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 }
 
 // CreateUser creates a new user in authentik Idp and sends an invitation.
-func (am *AuthentikManager) CreateUser(email string, name string, accountID string) (*UserData, error) {
+func (am *AuthentikManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	ctx, err := am.authenticationContext()
 	if err != nil {
 		return nil, err

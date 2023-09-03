@@ -80,12 +80,14 @@ func (h *AccountsHandler) UpdateAccount(w http.ResponseWriter, r *http.Request) 
 	if req.Settings.JwtGroupsEnabled != nil {
 		settings.JWTGroupsEnabled = *req.Settings.JwtGroupsEnabled
 	}
+	if req.Settings.GroupsPropagationEnabled != nil {
+		settings.GroupsPropagationEnabled = *req.Settings.GroupsPropagationEnabled
+	}
 	if req.Settings.JwtGroupsClaimName != nil {
 		settings.JWTGroupsClaimName = *req.Settings.JwtGroupsClaimName
 	}
 
 	updatedAccount, err := h.accountManager.UpdateAccountSettings(accountID, user.Id, settings)
-
 	if err != nil {
 		util.WriteError(err, w)
 		return
@@ -102,6 +104,7 @@ func toAccountResponse(account *server.Account) *api.Account {
 		Settings: api.AccountSettings{
 			PeerLoginExpiration:        int(account.Settings.PeerLoginExpiration.Seconds()),
 			PeerLoginExpirationEnabled: account.Settings.PeerLoginExpirationEnabled,
+			GroupsPropagationEnabled:   &account.Settings.GroupsPropagationEnabled,
 			JwtGroupsEnabled:           &account.Settings.JWTGroupsEnabled,
 			JwtGroupsClaimName:         &account.Settings.JWTGroupsClaimName,
 		},

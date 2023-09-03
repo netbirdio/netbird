@@ -1,6 +1,6 @@
 <p align="center">
- <strong>:hatching_chick: New Release! Peer expiration.</strong>
-  <a href="https://github.com/netbirdio/netbird/releases">
+ <strong>:hatching_chick: New Release! Self-hosting in under 5 min.</strong>
+  <a href="https://github.com/netbirdio/netbird#quickstart-with-self-hosted-netbird">
        Learn more
      </a>   
 </p>
@@ -24,7 +24,7 @@
 
 <p align="center">
 <strong>
-  Start using NetBird at <a href="https://app.netbird.io/">app.netbird.io</a>
+  Start using NetBird at <a href="https://netbird.io/pricing">netbird.io</a>
   <br/>
   See <a href="https://netbird.io/docs/">Documentation</a>
   <br/>
@@ -40,26 +40,26 @@
 
 **Connect.** NetBird creates a WireGuard-based overlay network that automatically connects your machines over an encrypted tunnel, leaving behind the hassle of opening ports, complex firewall rules, VPN gateways, and so forth.
 
-**Secure.** NetBird isolates every machine and device by applying granular access policies, while allowing you to manage them intuitively from a single place.
-
-**Key features:**
-
-| Connectivity                             	                        | Management                                 	                             | Automation                                    	                            | Platforms    	                        |
-|-------------------------------------------------------------------|--------------------------------------------------------------------------|----------------------------------------------------------------------------|---------------------------------------|
-| <ul><li> - \[x] Kernel WireGuard </ul></li>                   	   | <ul><li> - \[x] Admin Web UI </ul></li>                           	      | <ul><li> - \[x] Public API </ul></li>                                	     | <ul><li> - \[x] Linux </ul></li>    	 |
-| <ul><li> - \[x] Peer-to-peer connections </ul></li>             	 | <ul><li> - \[x] Auto peer discovery and configuration </ul></li>  	      | <ul><li> - \[x] Setup keys for bulk network provisioning </ul></li>  	     | <ul><li> - \[x] Mac </ul></li>      	 |
-| <ul><li> - \[x] Peer-to-peer encryption </ul></li>              	 | <ul><li> - \[x] IdP integrations </ul></li>                       	      | <ul><li> - \[x] Self-hosting installation script </ul></li>              	 | <ul><li> - \[x] Windows </ul></li>  	 |
-| <ul><li> - \[x] Connection relay fallback </ul></li>            	 | <ul><li> - \[x] SSO & MFA support </ul></li>                      	      | <ul><li> - \[x] IdP groups sync with JWT </ul></li> 	                      | <ul><li> - \[x] Android </ul></li>  	 |
-| <ul><li> - \[x] Routes to external networks </ul></li>  	         | <ul><li> - \[x] Access control - groups & rules </ul></li>      	        | 	                                                                          | <ul><li> - \[ ] iOS </ul></li>      	 |
-| <ul><li> - \[x] NAT traversal with BPF </ul></li>                 | <ul><li> - \[x] Private DNS </ul></li>                            	      | 	                                                                          | <ul><li> - \[x] Docker </ul></li>   	 |
-|                                                                   | <ul><li> - \[x] Multiuser support </ul></li>                      	      | 	                                                                          | <ul><li> - \[x] OpenWRT </ul></li>  	 |
-| 	                                                                 | <ul><li> - \[x] Activity logging </ul></li>                       	      | 	                                                                          | 	                                     |
-| 	                                                                 | <ul><li> - \[x] SSH access management </ul></li>                       	 | 	                                                                          | 	                                     |
-
+**Secure.** NetBird enables secure remote access by applying granular access policies, while allowing you to manage them intuitively from a single place. Works universally on any infrastructure.
 
 ### Secure peer-to-peer VPN with SSO and MFA in minutes
 
 https://user-images.githubusercontent.com/700848/197345890-2e2cded5-7b7a-436f-a444-94e80dd24f46.mov
+
+### Key features
+
+| Connectivity                             	                        | Management                                 	                             | Automation                                    	                            | Platforms    	                        |
+|-------------------------------------------------------------------|--------------------------------------------------------------------------|----------------------------------------------------------------------------|---------------------------------------|
+| <ul><li> - \[x] Kernel WireGuard </ul></li>                   	   | <ul><li> - \[x] [Admin Web UI](https://github.com/netbirdio/dashboard) </ul></li>                           	      | <ul><li> - \[x] [Public API](https://docs.netbird.io/api) </ul></li>                                	     | <ul><li> - \[x] Linux </ul></li>    	 |
+| <ul><li> - \[x] Peer-to-peer connections </ul></li>             	 | <ul><li> - \[x] Auto peer discovery and configuration </ul></li>  	      | <ul><li> - \[x] [Setup keys for bulk network provisioning](https://docs.netbird.io/how-to/register-machines-using-setup-keys) </ul></li>  	     | <ul><li> - \[x] Mac </ul></li>      	 |
+| <ul><li> - \[x] Peer-to-peer encryption </ul></li>              	 | <ul><li> - \[x] [IdP integrations](https://docs.netbird.io/selfhosted/identity-providers) </ul></li>                       	      | <ul><li> - \[x] [Self-hosting quickstart script](https://docs.netbird.io/selfhosted/selfhosted-quickstart) </ul></li>              	 | <ul><li> - \[x] Windows </ul></li>  	 |
+| <ul><li> - \[x] Connection relay fallback </ul></li>            	 | <ul><li> - \[x] [SSO & MFA support](https://docs.netbird.io/how-to/installation#running-net-bird-with-sso-login) </ul></li>                      	      | <ul><li> - \[x] IdP groups sync with JWT </ul></li> 	                      | <ul><li> - \[x] Android </ul></li>  	 |
+| <ul><li> - \[x] [Routes to external networks](https://docs.netbird.io/how-to/routing-traffic-to-private-networks) </ul></li>  	         | <ul><li> - \[x] [Access control - groups & rules](https://docs.netbird.io/how-to/manage-network-access) </ul></li>      	        | 	                                                                          | <ul><li> - \[ ] iOS </ul></li>      	 |
+| <ul><li> - \[x] NAT traversal with BPF </ul></li>                 | <ul><li> - \[x] [Private DNS](https://docs.netbird.io/how-to/manage-dns-in-your-network) </ul></li>                            	      | 	                                                                          | <ul><li> - \[x] Docker </ul></li>   	 |
+|                                                                   | <ul><li> - \[x] [Multiuser support](https://docs.netbird.io/how-to/add-users-to-your-network) </ul></li>                      	      | 	                                                                          | <ul><li> - \[x] OpenWRT </ul></li>  	 |
+| 	                                                                 | <ul><li> - \[x] [Activity logging](https://docs.netbird.io/how-to/monitor-system-and-network-activity) </ul></li>                       	      | 	                                                                          | 	                                     |
+| 	                                                                 | <ul><li> - \[x] SSH access management </ul></li>                       	 | 	                                                                          | 	                                     |
+
 
 ### Quickstart with NetBird Cloud
 

@@ -2,6 +2,8 @@ package sharedsock
 
 import "golang.org/x/net/bpf"
 
+const magicCookie uint32 = 0x2112A442
+
 // IncomingSTUNFilter implements BPFFilter and filters out anything but incoming STUN packets to a specified destination port.
 // Other packets (non STUN) will be forwarded to the process that own the port (e.g., WireGuard).
 type IncomingSTUNFilter struct {

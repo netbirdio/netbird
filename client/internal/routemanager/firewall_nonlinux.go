@@ -3,9 +3,12 @@
 
 package routemanager
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
-// newFirewall returns an unimplemented Firewall manager
-func newFirewall(parentCtx context.Context) firewallManager {
-	return unimplementedFirewall{}
+// NewFirewall returns a nil manager
+func NewFirewall(context.Context) (firewallManager, error) {
+	return nil, fmt.Errorf("firewall not supported on this OS")
 }

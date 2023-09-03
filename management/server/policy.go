@@ -95,18 +95,22 @@ type PolicyRule struct {
 
 // Copy returns a copy of a policy rule
 func (pm *PolicyRule) Copy() *PolicyRule {
-	return &PolicyRule{
+	rule := &PolicyRule{
 		ID:            pm.ID,
 		Name:          pm.Name,
 		Description:   pm.Description,
 		Enabled:       pm.Enabled,
 		Action:        pm.Action,
-		Destinations:  pm.Destinations[:],
-		Sources:       pm.Sources[:],
+		Destinations:  make([]string, len(pm.Destinations)),
+		Sources:       make([]string, len(pm.Sources)),
 		Bidirectional: pm.Bidirectional,
 		Protocol:      pm.Protocol,
-		Ports:         pm.Ports[:],
+		Ports:         make([]string, len(pm.Ports)),
 	}
+	copy(rule.Destinations, pm.Destinations)
+	copy(rule.Sources, pm.Sources)
+	copy(rule.Ports, pm.Ports)
+	return rule
 }
 
 // ToRule converts the PolicyRule to a legacy representation of the Rule (for backwards compatibility)
@@ -147,9 +151,10 @@ func (p *Policy) Copy() *Policy {
 		Name:        p.Name,
 		Description: p.Description,
 		Enabled:     p.Enabled,
+		Rules:       make([]*PolicyRule, len(p.Rules)),
 	}
-	for _, r := range p.Rules {
-		c.Rules = append(c.Rules, r.Copy())
+	for i, r := range p.Rules {
+		c.Rules[i] = r.Copy()
 	}
 	return c
 }
