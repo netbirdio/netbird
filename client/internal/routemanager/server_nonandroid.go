@@ -25,7 +25,7 @@ func newServerRouter(ctx context.Context, wgInterface *iface.WGIface) *serverRou
 	return &serverRouter{
 		ctx:         ctx,
 		routes:      make(map[string]*route.Route),
-		firewall:    NewFirewall(ctx),
+		firewall:    newFirewall(ctx),
 		wgInterface: wgInterface,
 	}
 }
