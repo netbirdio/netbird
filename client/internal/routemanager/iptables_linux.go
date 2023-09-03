@@ -49,11 +49,10 @@ type iptablesManager struct {
 	mux        sync.Mutex
 }
 
-func newIptablesManager(parentCtx context.Context, ipv6Support bool) *iptablesManager {
+func newIptablesManager(parentCtx context.Context, ipv6Supported bool) (*iptablesManager, error) {
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
-		log.Errorf("failed to initialize iptables for ipv4: %s", err)
-		return nil
+		return nil, fmt.Errorf("failed to initialize iptables for ipv4: %s", err)
 	}
 
 	ctx, cancel := context.WithCancel(parentCtx)
@@ -64,14 +63,14 @@ func newIptablesManager(parentCtx context.Context, ipv6Support bool) *iptablesMa
 		rules:      make(map[string]map[string][]string),
 	}
 
-	if ipv6Support {
+	if ipv6Supported {
 		manager.ipv6Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv6)
 		if err != nil {
 			log.Warnf("failed to initialize iptables for ipv6: %s. Routes for this protocol won't be applied.", err)
 		}
 	}
 
-	return manager
+	return manager, nil
 }
 
 // CleanRoutingRules cleans existing iptables resources that we created by the agent
@@ -485,9 +484,4 @@ func getIptablesRuleType(table string) string {
 		ruleType = "nat"
 	}
 	return ruleType
-}
-
-func isIptablesClientAvailable(client *iptables.IPTables) bool {
-	_, err := client.ListChains("filter")
-	return err == nil
 }

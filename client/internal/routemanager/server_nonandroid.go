@@ -22,7 +22,10 @@ type defaultServerRouter struct {
 }
 
 func newServerRouter(ctx context.Context, wgInterface *iface.WGIface) (serverRouter, error) {
-	firewall := newFirewall(ctx)
+	firewall, err := newFirewall(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	return &defaultServerRouter{
 		ctx:         ctx,
