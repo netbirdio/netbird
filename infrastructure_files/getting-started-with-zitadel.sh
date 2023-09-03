@@ -487,7 +487,48 @@ renderCaddyfile() {
   }
 }
 
+(security_headers) {
+    header * {
+        # enable HSTS
+        # https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#strict-transport-security-hsts
+        # NOTE: Read carefully how this header works before using it.
+        # If the HSTS header is misconfigured or if there is a problem with
+        # the SSL/TLS certificate being used, legitimate users might be unable
+        # to access the website. For example, if the HSTS header is set to a
+        # very long duration and the SSL/TLS certificate expires or is revoked,
+        # legitimate users might be unable to access the website until
+        # the HSTS header duration has expired.
+        # The recommended value for the max-age is 2 year (63072000 seconds).
+        # But we are using 1 hour (3600 seconds) for testing purposes
+        # and ensure that the website is working properly before setting
+        # to two years.
+
+        Strict-Transport-Security "max-age=3600; includeSubDomains; preload"
+
+        # disable clients from sniffing the media type
+        # https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-content-type-options
+        X-Content-Type-Options "nosniff"
+
+        # clickjacking protection
+        # https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-frame-options
+        X-Frame-Options "DENY"
+
+        # xss protection
+        # https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#x-xss-protection
+        X-XSS-Protection "1; mode=block"
+
+        # Remove -Server header, which is an information leak
+        # Remove Caddy from Headers
+        -Server
+
+        # keep referrer data off of HTTP connections
+        # https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#referrer-policy
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+}
+
 :80${CADDY_SECURE_DOMAIN} {
+    import security_headers
     # Signal
     reverse_proxy /signalexchange.SignalExchange/* h2c://signal:10000
     # Management
