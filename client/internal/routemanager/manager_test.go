@@ -3,10 +3,11 @@ package routemanager
 import (
 	"context"
 	"fmt"
-	"github.com/pion/transport/v2/stdnet"
 	"net/netip"
 	"runtime"
 	"testing"
+
+	"github.com/pion/transport/v2/stdnet"
 
 	"github.com/stretchr/testify/require"
 
@@ -30,6 +31,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 		inputInitRoutes               []*route.Route
 		inputRoutes                   []*route.Route
 		inputSerial                   uint64
+		removeSrvRouter               bool
 		serverRoutesExpected          int
 		clientNetworkWatchersExpected int
 	}{
@@ -115,6 +117,35 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			},
 			inputSerial:                   1,
 			serverRoutesExpected:          1,
+			clientNetworkWatchersExpected: 1,
+		},
+		{
+			name: "Should Create 1 Route For Client and Skip Server Route On Empty Server Router",
+			inputRoutes: []*route.Route{
+				{
+					ID:          "a",
+					NetID:       "routeA",
+					Peer:        localPeerKey,
+					Network:     netip.MustParsePrefix("100.64.30.250/30"),
+					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+				{
+					ID:          "b",
+					NetID:       "routeB",
+					Peer:        remotePeerKey1,
+					Network:     netip.MustParsePrefix("8.8.9.9/32"),
+					NetworkType: route.IPv4Network,
+					Metric:      9999,
+					Masquerade:  false,
+					Enabled:     true,
+				},
+			},
+			inputSerial:                   1,
+			removeSrvRouter:               true,
+			serverRoutesExpected:          0,
 			clientNetworkWatchersExpected: 1,
 		},
 		{
@@ -384,6 +415,10 @@ func TestManagerUpdateRoutes(t *testing.T) {
 			ctx := context.TODO()
 			routeManager := NewManager(ctx, localPeerKey, wgInterface, statusRecorder, nil)
 			defer routeManager.Stop()
+
+			if testCase.removeSrvRouter {
+				routeManager.serverRouter = nil
+			}
 
 			if len(testCase.inputInitRoutes) > 0 {
 				err = routeManager.UpdateRoutes(testCase.inputSerial, testCase.inputRoutes)
