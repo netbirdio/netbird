@@ -49,29 +49,29 @@ type iptablesManager struct {
 	mux        sync.Mutex
 }
 
-func newIptablesManager(parentCtx context.Context) (*iptablesManager, error) {
+func newIptablesManager(parentCtx context.Context, ipv6Support bool) *iptablesManager {
 	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
-		return nil, err
-	} else if !isIptablesClientAvailable(ipv4Client) {
-		return nil, fmt.Errorf("iptables is missing for ipv4")
-	}
-	ipv6Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-	if err != nil {
-		log.Debugf("failed to initialize iptables for ipv6: %s", err)
-	} else if !isIptablesClientAvailable(ipv6Client) {
-		log.Infof("iptables is missing for ipv6")
-		ipv6Client = nil
+		log.Errorf("failed to initialize iptables for ipv4: %s", err)
+		return nil
 	}
 
 	ctx, cancel := context.WithCancel(parentCtx)
-	return &iptablesManager{
+	manager := &iptablesManager{
 		ctx:        ctx,
 		stop:       cancel,
 		ipv4Client: ipv4Client,
-		ipv6Client: ipv6Client,
 		rules:      make(map[string]map[string][]string),
-	}, nil
+	}
+
+	if ipv6Support {
+		manager.ipv6Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv6)
+		if err != nil {
+			log.Warnf("failed to initialize iptables for ipv6: %s. Routes for this protocol won't be applied.", err)
+		}
+	}
+
+	return manager
 }
 
 // CleanRoutingRules cleans existing iptables resources that we created by the agent

@@ -7,6 +7,8 @@ import (
 	"fmt"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/client/internal/checkfw"
 )
 
 const (
@@ -26,20 +28,25 @@ func genKey(format string, input string) string {
 	return fmt.Sprintf(format, input)
 }
 
-// NewFirewall if supported, returns an iptables manager, otherwise returns a nftables manager
-func NewFirewall(parentCTX context.Context) (firewallManager, error) {
-	manager, err := newNFTablesManager(parentCTX)
-	if err == nil {
-		log.Debugf("nftables firewall manager will be used")
-		return manager, nil
+// newFirewall if supported, returns an iptables manager, otherwise returns a nftables manager
+func newFirewall(parentCTX context.Context) firewallManager {
+	checkResult := checkfw.Check()
+	switch checkResult {
+	case checkfw.IPTABLES, checkfw.IPTABLESWITHV6:
+		log.Debug("creating an iptables firewall manager for route rules")
+		ipv6Supported := checkResult == checkfw.IPTABLESWITHV6
+		manager := newIptablesManager(parentCTX, ipv6Supported)
+		if manager != nil {
+			log.Info("iptables firewall manager will be used for route rules")
+			return manager
+		}
+	case checkfw.NFTABLES:
+		log.Info("nftables firewall manager will be used for route rules")
+		return newNFTablesManager(parentCTX)
 	}
-	fMgr, err := newIptablesManager(parentCTX)
-	if err != nil {
-		log.Debugf("failed to initialize iptables for root mgr: %s", err)
-		return nil, err
-	}
-	log.Debugf("iptables firewall manager will be used")
-	return fMgr, nil
+
+	log.Info("couldn't initialize nftables or iptables clients. Using a dummy firewall manager for route rules")
+	return &unimplementedFirewall{}
 }
 
 func getInPair(pair routerPair) routerPair {

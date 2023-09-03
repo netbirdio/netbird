@@ -16,7 +16,8 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		t.SkipNow()
 	}
 
-	manager, _ := newIptablesManager(context.TODO())
+	manager := newIptablesManager(context.TODO(), true)
+	require.NotNil(t, manager, "should return a valid iptables manager")
 
 	defer manager.CleanRoutingRules()
 
