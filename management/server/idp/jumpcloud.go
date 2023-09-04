@@ -54,7 +54,6 @@ func NewJumpCloudManager(config JumpCloudClientConfig, appMetrics telemetry.AppM
 		Timeout:   10 * time.Second,
 		Transport: httpTransport,
 	}
-
 	helper := JsonParser{}
 
 	if config.APIToken == "" {
@@ -84,30 +83,38 @@ func (jc *JumpCloudCredentials) Authenticate() (JWTToken, error) {
 	return JWTToken{}, nil
 }
 
-// UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
-func (jm *JumpCloudManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
+func (jm *JumpCloudManager) authenticationContext() context.Context {
+	return context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
 		Key: jm.apiToken,
 	})
-	updateReq := map[string]any{
+}
+
+// UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
+func (jm *JumpCloudManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
+	attributes := []interface{}{
+		JumpCloudAttribute{
+			Name:  "wtAccountID",
+			Value: appMetadata.WTAccountID,
+		},
+	}
+	if appMetadata.WTPendingInvite != nil {
+		attributes = append(attributes, JumpCloudAttribute{
+			Name:  "wtPendingInvite",
+			Value: appMetadata.WTPendingInvite,
+		})
+	}
+	updateReq := map[string]interface{}{
 		"body": v1.Systemuserput{
-			Attributes: []interface{}{
-				JumpCloudAttribute{
-					Name:  "wtAccountID",
-					Value: appMetadata.WTAccountID,
-				},
-				JumpCloudAttribute{
-					Name:  "wtPendingInvite",
-					Value: appMetadata.WTPendingInvite,
-				},
-			},
+			Attributes: attributes,
 		},
 	}
 
+	authCtx := jm.authenticationContext()
 	_, resp, err := jm.client.SystemusersApi.SystemusersPut(authCtx, userID, contentType, accept, updateReq)
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if jm.appMetrics != nil {
@@ -125,14 +132,12 @@ func (jm *JumpCloudManager) UpdateUserAppMetadata(userID string, appMetadata App
 
 // GetUserDataByID requests user data from JumpCloud via ID.
 func (jm *JumpCloudManager) GetUserDataByID(userID string, _ AppMetadata) (*UserData, error) {
-	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
-		Key: jm.apiToken,
-	})
-
+	authCtx := jm.authenticationContext()
 	user, resp, err := jm.client.SystemusersApi.SystemusersGet(authCtx, userID, contentType, accept, nil)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if jm.appMetrics != nil {
@@ -150,9 +155,6 @@ func (jm *JumpCloudManager) GetUserDataByID(userID string, _ AppMetadata) (*User
 
 // GetAccount returns all the users for a given profile.
 func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
-	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
-		Key: jm.apiToken,
-	})
 	searchFilter := map[string]interface{}{
 		"searchFilter": map[string]interface{}{
 			"filter": []string{accountID},
@@ -160,10 +162,12 @@ func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 		},
 	}
 
-	usersList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
+	authCtx := jm.authenticationContext()
+	userList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if jm.appMetrics != nil {
@@ -177,7 +181,7 @@ func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 	}
 
 	usersData := make([]*UserData, 0)
-	for _, user := range usersList.Results {
+	for _, user := range userList.Results {
 		userData := parseJumpCloudUser(user)
 		usersData = append(usersData, userData)
 	}
@@ -188,11 +192,8 @@ func (jm *JumpCloudManager) GetAccount(accountID string) ([]*UserData, error) {
 // GetAllAccounts gets all registered accounts with corresponding user data.
 // It returns a list of users indexed by accountID.
 func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
-	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
-		Key: jm.apiToken,
-	})
-
-	usersList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, nil)
+	authCtx := jm.authenticationContext()
+	userList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +210,7 @@ func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 	}
 
 	indexedUsers := make(map[string][]*UserData)
-	for _, user := range usersList.Results {
+	for _, user := range userList.Results {
 		userData := parseJumpCloudUser(user)
 
 		accountID := userData.AppMetadata.WTAccountID
@@ -227,9 +228,6 @@ func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 // CreateUser creates a new user in JumpCloud Idp and sends an invitation.
 func (jm *JumpCloudManager) CreateUser(email, name, accountID, invitedByEmail string) (*UserData, error) {
 	var firstName, lastName string
-	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
-		Key: jm.apiToken,
-	})
 
 	fields := strings.Fields(name)
 	if n := len(fields); n > 0 {
@@ -256,10 +254,12 @@ func (jm *JumpCloudManager) CreateUser(email, name, accountID, invitedByEmail st
 		},
 	}
 
+	authCtx := jm.authenticationContext()
 	user, resp, err := jm.client.SystemusersApi.SystemusersPost(authCtx, contentType, accept, createUserReq)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if jm.appMetrics != nil {
@@ -278,9 +278,6 @@ func (jm *JumpCloudManager) CreateUser(email, name, accountID, invitedByEmail st
 // GetUserByEmail searches users with a given email.
 // If no users have been found, this function returns an empty list.
 func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
-	authCtx := context.WithValue(context.Background(), v1.ContextAPIKey, v1.APIKey{
-		Key: jm.apiToken,
-	})
 	searchFilter := map[string]interface{}{
 		"searchFilter": map[string]interface{}{
 			"filter": []string{email},
@@ -288,10 +285,12 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 		},
 	}
 
-	usersList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
+	authCtx := jm.authenticationContext()
+	userList, resp, err := jm.client.SearchApi.SearchSystemusersPost(authCtx, contentType, accept, searchFilter)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if jm.appMetrics != nil {
@@ -305,7 +304,7 @@ func (jm *JumpCloudManager) GetUserByEmail(email string) ([]*UserData, error) {
 	}
 
 	usersData := make([]*UserData, 0)
-	for _, user := range usersList.Results {
+	for _, user := range userList.Results {
 		userData := parseJumpCloudUser(user)
 		usersData = append(usersData, userData)
 	}
