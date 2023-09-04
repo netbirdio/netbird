@@ -171,6 +171,11 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 		}
 		return NewGoogleWorkspaceManager(googleClientConfig, appMetrics)
 
+	case "jumpcloud":
+		jumpcloudConfig := JumpCloudClientConfig{
+			APIToken: config.ExtraConfig["ApiToken"],
+		}
+		return NewJumpCloudManager(jumpcloudConfig, appMetrics)
 	default:
 		return nil, fmt.Errorf("invalid manager type: %s", config.ManagerType)
 	}
