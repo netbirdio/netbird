@@ -133,6 +133,9 @@ type DefaultAccountManager struct {
 	// dnsDomain is used for peer resolution. This is appended to the peer's name
 	dnsDomain       string
 	peerLoginExpiry Scheduler
+
+	// userDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
+	userDeleteFromIDPEnabled bool
 }
 
 // Settings represents Account settings structure that can be modified via API and Dashboard
@@ -153,9 +156,6 @@ type Settings struct {
 
 	// JWTGroupsClaimName from which we extract groups name to add it to account groups
 	JWTGroupsClaimName string
-
-	// UserDeleteFromIDPEnabled allows to delete user from IDP when user is deleted from account
-	UserDeleteFromIDPEnabled bool
 }
 
 // Copy copies the Settings struct
@@ -166,7 +166,6 @@ func (s *Settings) Copy() *Settings {
 		JWTGroupsEnabled:           s.JWTGroupsEnabled,
 		JWTGroupsClaimName:         s.JWTGroupsClaimName,
 		GroupsPropagationEnabled:   s.GroupsPropagationEnabled,
-		UserDeleteFromIDPEnabled:   s.UserDeleteFromIDPEnabled,
 	}
 }
 
@@ -742,18 +741,19 @@ func (a *Account) UserGroupsRemoveFromPeers(userID string, groups ...string) {
 
 // BuildManager creates a new DefaultAccountManager with a provided Store
 func BuildManager(store Store, peersUpdateManager *PeersUpdateManager, idpManager idp.Manager,
-	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store,
+	singleAccountModeDomain string, dnsDomain string, eventStore activity.Store, userDeleteFromIDPEnabled bool,
 ) (*DefaultAccountManager, error) {
 	am := &DefaultAccountManager{
-		Store:              store,
-		peersUpdateManager: peersUpdateManager,
-		idpManager:         idpManager,
-		ctx:                context.Background(),
-		cacheMux:           sync.Mutex{},
-		cacheLoading:       map[string]chan struct{}{},
-		dnsDomain:          dnsDomain,
-		eventStore:         eventStore,
-		peerLoginExpiry:    NewDefaultScheduler(),
+		Store:                    store,
+		peersUpdateManager:       peersUpdateManager,
+		idpManager:               idpManager,
+		ctx:                      context.Background(),
+		cacheMux:                 sync.Mutex{},
+		cacheLoading:             map[string]chan struct{}{},
+		dnsDomain:                dnsDomain,
+		eventStore:               eventStore,
+		peerLoginExpiry:          NewDefaultScheduler(),
+		userDeleteFromIDPEnabled: userDeleteFromIDPEnabled,
 	}
 	allAccounts := store.GetAllAccounts()
 	// enable single account mode only if configured by user and number of existing accounts is not grater than 1
