@@ -91,26 +91,21 @@ func (jm *JumpCloudManager) authenticationContext() context.Context {
 
 // UpdateUserAppMetadata updates user app metadata based on userID and metadata map.
 func (jm *JumpCloudManager) UpdateUserAppMetadata(userID string, appMetadata AppMetadata) error {
-	attributes := []interface{}{
-		JumpCloudAttribute{
-			Name:  "wtAccountID",
-			Value: appMetadata.WTAccountID,
-		},
+	authCtx := jm.authenticationContext()
+	user, resp, err := jm.client.SystemusersApi.SystemusersGet(authCtx, userID, contentType, accept, nil)
+	if err != nil {
+		return err
 	}
-	if appMetadata.WTPendingInvite != nil {
-		attributes = append(attributes, JumpCloudAttribute{
-			Name:  "wtPendingInvite",
-			Value: appMetadata.WTPendingInvite,
-		})
-	}
+	defer resp.Body.Close()
+
+	attributes := buildUserAttributesUpdatePayload(user, appMetadata)
 	updateReq := map[string]interface{}{
 		"body": v1.Systemuserput{
 			Attributes: attributes,
 		},
 	}
 
-	authCtx := jm.authenticationContext()
-	_, resp, err := jm.client.SystemusersApi.SystemusersPut(authCtx, userID, contentType, accept, updateReq)
+	_, resp, err = jm.client.SystemusersApi.SystemusersPut(authCtx, userID, contentType, accept, updateReq)
 	if err != nil {
 		return err
 	}
@@ -197,6 +192,7 @@ func (jm *JumpCloudManager) GetAllAccounts() (map[string][]*UserData, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if jm.appMetrics != nil {
@@ -343,4 +339,45 @@ func parseJumpCloudUser(user v1.Systemuserreturn) *UserData {
 		ID:          user.Id,
 		AppMetadata: appMetadata,
 	}
+}
+
+// buildUserAttributesUpdatePayload constructs the updated user attributes based on system user and application metadata.
+func buildUserAttributesUpdatePayload(user v1.Systemuserreturn, appMetadata AppMetadata) (userAttributes []interface{}) {
+	var isAccountIDFound, isPendingInviteFound bool
+
+	for _, attribute := range user.Attributes {
+		if jcAttribute, ok := attribute.(JumpCloudAttribute); ok {
+			if jcAttribute.Name == "wtAccountID" {
+				jcAttribute.Value = appMetadata.WTAccountID
+				isAccountIDFound = true
+			}
+
+			if jcAttribute.Name == "wtPendingInvite" {
+				if appMetadata.WTPendingInvite != nil {
+					jcAttribute.Value = appMetadata.WTPendingInvite
+					isPendingInviteFound = true
+				}
+			}
+
+			attribute = jcAttribute
+		}
+
+		userAttributes = append(userAttributes, attribute)
+	}
+
+	if !isAccountIDFound {
+		userAttributes = append(userAttributes, JumpCloudAttribute{
+			Name:  "wtAccountID",
+			Value: appMetadata.WTAccountID,
+		})
+	}
+
+	if !isPendingInviteFound && appMetadata.WTPendingInvite != nil {
+		userAttributes = append(userAttributes, JumpCloudAttribute{
+			Name:  "wtPendingInvite",
+			Value: appMetadata.WTPendingInvite,
+		})
+	}
+
+	return userAttributes
 }
