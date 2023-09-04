@@ -4,6 +4,10 @@ import (
 	"time"
 )
 
+const (
+	SystemInitiator = "sys"
+)
+
 // Event represents a network/system activity event.
 type Event struct {
 	// Timestamp of the event
