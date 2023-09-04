@@ -359,7 +359,7 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 			return
 		}
 
-		if account.Settings.UserDeleteFromIDPEnabled {
+		if am.userDeleteFromIDPEnabled {
 			if err := am.idpManager.DeleteUser(targetUserID); err != nil {
 				log.Errorf("failed to delete user %s from IdP: %s", targetUserID, err)
 			}
