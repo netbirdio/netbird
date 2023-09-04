@@ -785,10 +785,6 @@ func TestAccountManager_AddPeer(t *testing.T) {
 
 	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
 	if err != nil {
-		return
-	}
-
-	if err != nil {
 		t.Fatal("error creating setup key")
 		return
 	}
@@ -931,10 +927,6 @@ func TestAccountManager_NetworkUpdates(t *testing.T) {
 	}
 
 	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
-	if err != nil {
-		return
-	}
-
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return
@@ -1115,10 +1107,6 @@ func TestAccountManager_DeletePeer(t *testing.T) {
 	}
 
 	setupKey, err := manager.CreateSetupKey(account.Id, "test-key", SetupKeyReusable, time.Hour, nil, 999, userID, false)
-	if err != nil {
-		return
-	}
-
 	if err != nil {
 		t.Fatal("error creating setup key")
 		return

@@ -133,6 +133,7 @@ func TestAuth0_RequestJWTToken(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			defer res.Body.Close()
 			body, err := io.ReadAll(res.Body)
 			assert.NoError(t, err, "unable to read the response body")
 

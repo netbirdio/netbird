@@ -146,12 +146,11 @@ func (d *DefaultManager) ApplyFiltering(networkMap *mgmProto.NetworkMap) {
 		// if this rule is member of rule selection with more than DefaultIPsCountForSet
 		// it's IP address can be used in the ipset for firewall manager which supports it
 		ipset := ipsetByRuleSelectors[d.getRuleGroupingSelector(r)]
-		ipsetName := ""
 		if ipset.name == "" {
 			d.ipsetCounter++
 			ipset.name = fmt.Sprintf("nb%07d", d.ipsetCounter)
 		}
-		ipsetName = ipset.name
+		ipsetName := ipset.name
 		pairID, rulePair, err := d.protoRuleToFirewallRule(r, ipsetName)
 		if err != nil {
 			log.Errorf("failed to apply firewall rule: %+v, %v", r, err)

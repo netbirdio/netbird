@@ -4,15 +4,16 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/netbirdio/netbird/management/server/telemetry"
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/oauth2/google"
 	admin "google.golang.org/api/admin/directory/v1"
 	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
-	"net/http"
-	"strings"
-	"time"
 )
 
 // GoogleWorkspaceManager Google Workspace manager client instance.
@@ -271,7 +272,8 @@ func getGoogleCredentials(serviceAccountKey string) (*google.Credentials, error)
 		admin.AdminDirectoryUserScope,
 	)
 	if err == nil {
-		return creds, err
+		// No need to fallback to the default Google credentials path
+		return creds, nil
 	}
 
 	log.Debugf("failed to retrieve Google credentials from ServiceAccountKey: %v", err)

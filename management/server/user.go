@@ -405,13 +405,13 @@ func (am *DefaultAccountManager) CreatePAT(accountID string, initiatorUserID str
 		return nil, err
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
-		return nil, status.Errorf(status.NotFound, "targetUser not found")
+	targetUser, ok := account.Users[targetUserID]
+	if !ok {
+		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if targetUser == nil {
+	executingUser, ok := account.Users[initiatorUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
@@ -447,13 +447,13 @@ func (am *DefaultAccountManager) DeletePAT(accountID string, initiatorUserID str
 		return status.Errorf(status.NotFound, "account not found: %s", err)
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
+	targetUser, ok := account.Users[targetUserID]
+	if !ok {
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if targetUser == nil {
+	executingUser, ok := account.Users[initiatorUserID]
+	if !ok {
 		return status.Errorf(status.NotFound, "user not found")
 	}
 
@@ -497,13 +497,13 @@ func (am *DefaultAccountManager) GetPAT(accountID string, initiatorUserID string
 		return nil, status.Errorf(status.NotFound, "account not found: %s", err)
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
+	targetUser, ok := account.Users[targetUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if targetUser == nil {
+	executingUser, ok := account.Users[initiatorUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
@@ -529,13 +529,13 @@ func (am *DefaultAccountManager) GetAllPATs(accountID string, initiatorUserID st
 		return nil, status.Errorf(status.NotFound, "account not found: %s", err)
 	}
 
-	targetUser := account.Users[targetUserID]
-	if targetUser == nil {
+	targetUser, ok := account.Users[targetUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
-	executingUser := account.Users[initiatorUserID]
-	if targetUser == nil {
+	executingUser, ok := account.Users[initiatorUserID]
+	if !ok {
 		return nil, status.Errorf(status.NotFound, "user not found")
 	}
 
