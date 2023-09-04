@@ -3,9 +3,10 @@ package server
 import (
 	"context"
 	"fmt"
-	"github.com/netbirdio/netbird/client/internal/auth"
 	"sync"
 	"time"
+
+	"github.com/netbirdio/netbird/client/internal/auth"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
@@ -315,7 +316,7 @@ func (s *Server) WaitSSOLogin(callerCtx context.Context, msg *proto.WaitSSOLogin
 	tokenInfo, err := s.oauthAuthFlow.flow.WaitToken(waitCTX, flowInfo)
 	if err != nil {
 		if err == context.Canceled {
-			return nil, nil
+			return nil, nil //nolint:nilnil
 		}
 		s.mutex.Lock()
 		s.oauthAuthFlow.expiresAt = time.Now()

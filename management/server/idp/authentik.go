@@ -3,10 +3,6 @@ package idp
 import (
 	"context"
 	"fmt"
-	"github.com/golang-jwt/jwt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	log "github.com/sirupsen/logrus"
-	"goauthentik.io/api/v3"
 	"io"
 	"net/http"
 	"net/url"
@@ -14,6 +10,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt"
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	log "github.com/sirupsen/logrus"
+	"goauthentik.io/api/v3"
 )
 
 // AuthentikManager authentik manager client instance.
@@ -236,6 +237,7 @@ func (am *AuthentikManager) UpdateUserAppMetadata(userID string, appMetadata App
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountUpdateUserAppMetadata()
@@ -267,6 +269,7 @@ func (am *AuthentikManager) GetUserDataByID(userID string, appMetadata AppMetada
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetUserDataByID()
@@ -294,6 +297,7 @@ func (am *AuthentikManager) GetAccount(accountID string) ([]*UserData, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetAccount()
@@ -330,6 +334,7 @@ func (am *AuthentikManager) GetAllAccounts() (map[string][]*UserData, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetAllAccounts()
@@ -389,6 +394,7 @@ func (am *AuthentikManager) CreateUser(email, name, accountID, invitedByEmail st
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountCreateUser()
@@ -416,6 +422,7 @@ func (am *AuthentikManager) GetUserByEmail(email string) ([]*UserData, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Body.Close()
 
 	if am.appMetrics != nil {
 		am.appMetrics.IDPMetrics().CountGetUserByEmail()
@@ -469,10 +476,11 @@ func (am *AuthentikManager) getUserGroupByName(name string) (string, error) {
 		return "", err
 	}
 
-	groupList, _, err := am.apiClient.CoreApi.CoreGroupsList(ctx).Name(name).Execute()
+	groupList, resp, err := am.apiClient.CoreApi.CoreGroupsList(ctx).Name(name).Execute()
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
 
 	if groupList != nil {
 		if len(groupList.Results) > 0 {
@@ -485,6 +493,7 @@ func (am *AuthentikManager) getUserGroupByName(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusCreated {
 		return "", fmt.Errorf("unable to create user group, statusCode: %d", resp.StatusCode)

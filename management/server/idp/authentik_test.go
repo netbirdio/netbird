@@ -2,13 +2,14 @@ package idp
 
 import (
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/telemetry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"io"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/netbirdio/netbird/management/server/telemetry"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewAuthentikManager(t *testing.T) {
@@ -133,6 +134,7 @@ func TestAuthentikRequestJWTToken(t *testing.T) {
 					t.Fatal(err)
 				}
 			} else {
+				defer resp.Body.Close()
 				body, err := io.ReadAll(resp.Body)
 				assert.NoError(t, err, "unable to read the response body")
 

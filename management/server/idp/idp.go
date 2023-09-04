@@ -92,7 +92,7 @@ func NewManager(config Config, appMetrics telemetry.AppMetrics) (Manager, error)
 
 	switch strings.ToLower(config.ManagerType) {
 	case "none", "":
-		return nil, nil
+		return nil, nil //nolint:nilnil
 	case "auth0":
 		auth0ClientConfig := config.Auth0ClientCredentials
 		if config.ClientConfig != nil {

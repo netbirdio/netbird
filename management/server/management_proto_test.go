@@ -141,11 +141,6 @@ func Test_SyncProtocol(t *testing.T) {
 		return
 	}
 
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
 	sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
 		WgPubKey: key.PublicKey().String(),
 		Body:     message,

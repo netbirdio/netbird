@@ -1022,7 +1022,7 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
@@ -1045,7 +1045,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData, error) {
