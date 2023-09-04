@@ -155,9 +155,11 @@ func (c *clientNetwork) startPeersStatusChangeWatcher() {
 
 func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 	state, err := c.statusRecorder.GetPeer(peerKey)
-	// TODO: should error and non Connected statuses be split?
-	if err != nil || state.ConnStatus != peer.StatusConnected {
-		return nil //nolint:nilerr
+	if err != nil {
+		return err
+	}
+	if state.ConnStatus != peer.StatusConnected {
+		return nil
 	}
 
 	err = c.wgInterface.RemoveAllowedIP(peerKey, c.network.String())
