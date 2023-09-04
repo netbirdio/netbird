@@ -99,6 +99,8 @@ type Peer struct {
 	LoginExpirationEnabled bool
 	// LastLogin the time when peer performed last login operation
 	LastLogin time.Time
+	// Indicate ephemeral peer attribute
+	Ephemeral bool
 }
 
 // AddedWithSSOLogin indicates whether this peer has been added with an SSO login by a user.
@@ -126,6 +128,7 @@ func (p *Peer) Copy() *Peer {
 		SSHEnabled:             p.SSHEnabled,
 		LoginExpirationEnabled: p.LoginExpirationEnabled,
 		LastLogin:              p.LastLogin,
+		Ephemeral:              p.Ephemeral,
 	}
 }
 
@@ -514,6 +517,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		AccountID: account.Id,
 	}
 
+	var ephemeral bool
 	if !addedByUser {
 		// validate the setup key if adding with a key
 		sk, err := account.FindSetupKey(upperKey)
@@ -528,6 +532,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		account.SetupKeys[sk.Key] = sk.IncrementUsage()
 		opEvent.InitiatorID = sk.Id
 		opEvent.Activity = activity.PeerAddedWithSetupKey
+		ephemeral = sk.Ephemeral
 	} else {
 		opEvent.InitiatorID = userID
 		opEvent.Activity = activity.PeerAddedByUser
@@ -562,6 +567,7 @@ func (am *DefaultAccountManager) AddPeer(setupKey, userID string, peer *Peer) (*
 		SSHKey:                 peer.SSHKey,
 		LastLogin:              time.Now().UTC(),
 		LoginExpirationEnabled: addedByUser,
+		Ephemeral:              ephemeral,
 	}
 
 	// add peer to 'All' group
