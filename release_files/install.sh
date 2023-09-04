@@ -18,8 +18,14 @@ ARCH="$(uname -m)"
 PACKAGE_MANAGER="bin"
 INSTALL_DIR=""
 
+get_auth_header_if_token_present() {
+    if [ -n "$GITHUB_TOKEN" ]; then
+        echo "-H \"Authorization: token ${GITHUB_TOKEN}\""
+    fi
+}
+
 get_latest_release() {
-    curl -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
+     curl $(get_auth_header_if_token_present) -s "https://api.github.com/repos/${OWNER}/${REPO}/releases/latest" \
     | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/'
 }
 
@@ -45,7 +51,7 @@ download_release_binary() {
     DOWNLOAD_URL="${BASE_URL}/${VERSION}/${BINARY_NAME}"
 
     echo "Installing $1 from $DOWNLOAD_URL"
-    cd /tmp && curl -LO "$DOWNLOAD_URL"
+    cd /tmp && curl $(get_auth_header_if_token_present) -LO "$DOWNLOAD_URL"
 
 
     if [ "$OS_TYPE" = "darwin" ] && [ "$1" = "$UI_APP" ]; then
