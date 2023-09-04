@@ -105,14 +105,6 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peerID string,
 
 	routesWithPrefix := account.GetRoutesByPrefix(prefix)
 
-	// TODO: This place is not clear. We've already checked the error above but there is additional logic.
-	//       Lets temporary disable the linter warning until we have clear understating
-	if err != nil { //nolint:govet
-		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			return nil
-		}
-		return status.Errorf(status.InvalidArgument, "failed to parse prefix %s", prefix.String())
-	}
 	for _, prefixRoute := range routesWithPrefix {
 		if prefixRoute.Peer == peerID {
 			return status.Errorf(status.AlreadyExists, "failed to add route with prefix %s - peer already has this route", prefix.String())
