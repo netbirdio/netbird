@@ -141,7 +141,7 @@ func (m *JWTValidator) ValidateAndParse(token string) (*jwt.Token, error) {
 		if m.options.CredentialsOptional {
 			log.Debugf("no credentials found (CredentialsOptional=true)")
 			// No error, just no token (and that is ok given that CredentialsOptional is true)
-			return nil, nil
+			return nil, nil //nolint:nilnil
 		}
 
 		// If we get here, the required token is missing
@@ -219,7 +219,7 @@ func getPemCert(token *jwt.Token, jwks *Jwks) (string, error) {
 		return generatePemFromJWK(jwks.Keys[k])
 	}
 
-	return "", errors.New("unable to find appropriate key")
+	return cert, errors.New("unable to find appropriate key")
 }
 
 func generatePemFromJWK(jwk JSONWebKey) (string, error) {

@@ -49,7 +49,7 @@ func cacheEntryExpiration() time.Duration {
 type AccountManager interface {
 	GetOrCreateAccountByUser(userId, domain string) (*Account, error)
 	CreateSetupKey(accountID string, keyName string, keyType SetupKeyType, expiresIn time.Duration,
-		autoGroups []string, usageLimit int, userID string) (*SetupKey, error)
+		autoGroups []string, usageLimit int, userID string, ephemeral bool) (*SetupKey, error)
 	SaveSetupKey(accountID string, key *SetupKey, userID string) (*SetupKey, error)
 	CreateUser(accountID, initiatorUserID string, key *UserInfo) (*UserInfo, error)
 	DeleteUser(accountID, initiatorUserID string, targetUserID string) error
@@ -1022,7 +1022,7 @@ func (am *DefaultAccountManager) lookupUserInCacheByEmail(email string, accountI
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 // lookupUserInCache looks up user in the IdP cache and returns it. If the user wasn't found, the function returns nil
@@ -1045,7 +1045,7 @@ func (am *DefaultAccountManager) lookupUserInCache(userID string, account *Accou
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil
 }
 
 func (am *DefaultAccountManager) refreshCache(accountID string) ([]*idp.UserData, error) {

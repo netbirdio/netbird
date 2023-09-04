@@ -7,11 +7,6 @@ import (
 	"time"
 
 	pb "github.com/golang/protobuf/proto" // nolint
-
-	"github.com/netbirdio/netbird/management/server/telemetry"
-
-	"github.com/netbirdio/netbird/management/server/jwtclaims"
-
 	"github.com/golang/protobuf/ptypes/timestamp"
 	log "github.com/sirupsen/logrus"
 	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
@@ -21,7 +16,9 @@ import (
 
 	"github.com/netbirdio/netbird/encryption"
 	"github.com/netbirdio/netbird/management/proto"
+	"github.com/netbirdio/netbird/management/server/jwtclaims"
 	internalStatus "github.com/netbirdio/netbird/management/server/status"
+	"github.com/netbirdio/netbird/management/server/telemetry"
 )
 
 // GRPCServer an instance of a Management gRPC API server
@@ -35,12 +32,11 @@ type GRPCServer struct {
 	jwtValidator           *jwtclaims.JWTValidator
 	jwtClaimsExtractor     *jwtclaims.ClaimsExtractor
 	appMetrics             telemetry.AppMetrics
+	ephemeralManager       *EphemeralManager
 }
 
 // NewServer creates a new Management server
-func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager,
-	turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics,
-) (*GRPCServer, error) {
+func NewServer(config *Config, accountManager AccountManager, peersUpdateManager *PeersUpdateManager, turnCredentialsManager TURNCredentialsManager, appMetrics telemetry.AppMetrics, ephemeralManager *EphemeralManager) (*GRPCServer, error) {
 	key, err := wgtypes.GeneratePrivateKey()
 	if err != nil {
 		return nil, err
@@ -92,6 +88,7 @@ func NewServer(config *Config, accountManager AccountManager, peersUpdateManager
 		jwtValidator:           jwtValidator,
 		jwtClaimsExtractor:     jwtClaimsExtractor,
 		appMetrics:             appMetrics,
+		ephemeralManager:       ephemeralManager,
 	}, nil
 }
 
@@ -141,6 +138,9 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 	}
 
 	updates := s.peersUpdateManager.CreateChannel(peer.ID)
+
+	s.ephemeralManager.OnPeerConnected(peer)
+
 	err = s.accountManager.MarkPeerConnected(peerKey.String(), true)
 	if err != nil {
 		log.Warnf("failed marking peer as connected %s %v", peerKey, err)
@@ -168,6 +168,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 
 			encryptedResp, err := encryption.EncryptMessage(peerKey, s.wgKey, update.Update)
 			if err != nil {
+				s.cancelPeerRoutines(peer)
 				return status.Errorf(codes.Internal, "failed processing update message")
 			}
 
@@ -176,6 +177,7 @@ func (s *GRPCServer) Sync(req *proto.EncryptedMessage, srv proto.ManagementServi
 				Body:     encryptedResp,
 			})
 			if err != nil {
+				s.cancelPeerRoutines(peer)
 				return status.Errorf(codes.Internal, "failed sending update message")
 			}
 			log.Debugf("sent an update to peer %s", peerKey.String())
@@ -193,6 +195,7 @@ func (s *GRPCServer) cancelPeerRoutines(peer *Peer) {
 	s.peersUpdateManager.CloseChannel(peer.ID)
 	s.turnCredentialsManager.CancelRefresh(peer.ID)
 	_ = s.accountManager.MarkPeerConnected(peer.Key, false)
+	s.ephemeralManager.OnPeerDisconnected(peer)
 }
 
 func (s *GRPCServer) validateToken(jwtToken string) (string, error) {
@@ -318,9 +321,15 @@ func (s *GRPCServer) Login(ctx context.Context, req *proto.EncryptedMessage) (*p
 		UserID:          userID,
 		SetupKey:        loginReq.GetSetupKey(),
 	})
+
 	if err != nil {
 		log.Warnf("failed logging in peer %s", peerKey)
 		return nil, mapError(err)
+	}
+
+	// if the login request contains setup key then it is a registration request
+	if loginReq.GetSetupKey() != "" {
+		s.ephemeralManager.OnPeerDisconnected(peer)
 	}
 
 	// if peer has reached this point then it has logged in

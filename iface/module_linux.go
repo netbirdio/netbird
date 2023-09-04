@@ -161,7 +161,7 @@ func getModulePath(name string) (string, error) {
 			}
 			if err != nil {
 				// skip broken files
-				return nil
+				return nil //nolint:nilerr
 			}
 
 			if !info.Type().IsRegular() {

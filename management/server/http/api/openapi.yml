@@ -350,6 +350,10 @@ components:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
           example: 0
+        ephemeral:
+          description: Indicate that the peer will be ephemeral or not
+          type: boolean
+          example: true
       required:
         - id
         - key
@@ -364,6 +368,7 @@ components:
         - auto_groups
         - updated_at
         - usage_limit
+        - ephemeral
     SetupKeyRequest:
       type: object
       properties:
@@ -395,6 +400,10 @@ components:
           description: A number of times this key can be used. The value of 0 indicates the unlimited usage.
           type: integer
           example: 0
+        ephemeral:
+          description: Indicate that the peer will be ephemeral or not
+          type: boolean
+          example: true
       required:
         - name
         - type

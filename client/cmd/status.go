@@ -109,9 +109,9 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 
 	ctx := internal.CtxInitState(context.Background())
 
-	resp, _ := getStatus(ctx, cmd)
+	resp, err := getStatus(ctx, cmd)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	if resp.GetStatus() == string(internal.StatusNeedsLogin) || resp.GetStatus() == string(internal.StatusLoginFailed) {
@@ -133,7 +133,7 @@ func statusFunc(cmd *cobra.Command, args []string) error {
 
 	outputInformationHolder := convertToStatusOutputOverview(resp)
 
-	statusOutputString := ""
+	var statusOutputString string
 	switch {
 	case detailFlag:
 		statusOutputString = parseToFullDetailSummary(outputInformationHolder)

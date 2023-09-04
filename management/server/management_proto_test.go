@@ -141,11 +141,6 @@ func Test_SyncProtocol(t *testing.T) {
 		return
 	}
 
-	if err != nil {
-		t.Fatal(err)
-		return
-	}
-
 	sync, err := client.Sync(context.TODO(), &mgmtProto.EncryptedMessage{
 		WgPubKey: key.PublicKey().String(),
 		Body:     message,
@@ -422,7 +417,9 @@ func startManagement(t *testing.T, config *Config) (*grpc.Server, string, error)
 		return nil, "", err
 	}
 	turnManager := NewTimeBasedAuthSecretsManager(peersUpdateManager, config.TURNConfig)
-	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager, nil)
+
+	ephemeralMgr := NewEphemeralManager(store, accountManager)
+	mgmtServer, err := NewServer(config, accountManager, peersUpdateManager, turnManager, nil, ephemeralMgr)
 	if err != nil {
 		return nil, "", err
 	}
