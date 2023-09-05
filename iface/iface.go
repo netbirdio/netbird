@@ -112,7 +112,7 @@ func (w *WGIface) Close() error {
 	return w.tun.Close()
 }
 
-// SetFilter sets packet filters for the userspace impelemntation
+// SetFilter sets packet filters for the userspace implementation
 func (w *WGIface) SetFilter(filter PacketFilter) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
