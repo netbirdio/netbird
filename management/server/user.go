@@ -347,34 +347,19 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		am.storeEvent(initiatorUserID, targetUserID, accountID, activity.UserDeleted, nil)
 	}
 
+	if !isNil(am.idpManager) {
+		err := am.deleteUserFromIDP(targetUserID, accountID)
+		if err != nil {
+			return err
+		}
+	}
+
 	delete(account.Users, targetUserID)
 
 	err = am.Store.SaveAccount(account)
 	if err != nil {
 		return err
 	}
-
-	go func() {
-		if isNil(am.idpManager) {
-			return
-		}
-
-		if am.userDeleteFromIDPEnabled {
-			if err := am.idpManager.DeleteUser(targetUserID); err != nil {
-				log.Errorf("failed to delete user %s from IdP: %s", targetUserID, err)
-			}
-			log.Debugf("user %s deleted from IdP", targetUserID)
-			return
-		}
-
-		if err := am.idpManager.UpdateUserAppMetadata(targetUserID, idp.AppMetadata{}); err != nil {
-			log.Errorf("failed to remove user %s app metadata in IdP: %s", targetUserID, err)
-		}
-
-		if _, err := am.refreshCache(accountID); err != nil {
-			log.Errorf("refresh account (%q) cache: %v", accountID, err)
-		}
-	}()
 
 	return nil
 }
@@ -854,6 +839,27 @@ func (am *DefaultAccountManager) expireAndUpdatePeers(account *Account, peers []
 		am.peersUpdateManager.CloseChannels(peerIDs)
 		if err := am.updateAccountPeers(account); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (am *DefaultAccountManager) deleteUserFromIDP(targetUserID, accountID string) error {
+	if am.userDeleteFromIDPEnabled {
+		log.Debugf("user %s deleted from IdP", targetUserID)
+		err := am.idpManager.DeleteUser(targetUserID)
+		if err != nil {
+			return fmt.Errorf("failed to delete user %s from IdP: %s", targetUserID, err)
+		}
+	} else {
+		err := am.idpManager.UpdateUserAppMetadata(targetUserID, idp.AppMetadata{})
+		if err != nil {
+			return fmt.Errorf("failed to remove user %s app metadata in IdP: %s", targetUserID, err)
+		}
+
+		_, err = am.refreshCache(accountID)
+		if err != nil {
+			log.Errorf("refresh account (%q) cache: %v", accountID, err)
 		}
 	}
 	return nil
