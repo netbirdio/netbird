@@ -747,57 +747,34 @@ func (m *Manager) AllowNetbird() error {
 
 	var chain *nftables.Chain
 	for _, c := range chains {
-		if c.Name == "filter" && c.Table.Name == "INPUT" {
+		if c.Table.Name == "filter" && c.Name == "INPUT" {
 			chain = c
 			break
 		}
 	}
 
-	var rules []*nftables.Rule
 	if chain == nil {
-		tables, err := m.rConn.ListTables()
-		if err != nil {
-			return fmt.Errorf("list of tables: %w", err)
-		}
-
-		var table *nftables.Table
-		for _, t := range tables {
-			if t.Name == "filter" {
-				table = t
-				break
-			}
-		}
-
-		if table == nil {
-			table = m.rConn.AddTable(&nftables.Table{
-				Name:   "filter",
-				Family: tf,
-			})
-		}
-
-		polAccept := nftables.ChainPolicyAccept
-		chain = m.rConn.AddChain(&nftables.Chain{
-			Name:     "INPUT",
-			Table:    table,
-			Hooknum:  nftables.ChainHookInput,
-			Priority: nftables.ChainPriorityFilter - 1,
-			Type:     nftables.ChainTypeFilter,
-			Policy:   &polAccept,
-		})
-	} else {
-		if rules, err = m.rConn.GetRules(chain.Table, chain); err != nil {
-			return err
-		}
-		if rule := m.detectAllowNetbirdRule(rules); rule != nil {
-			return nil
-		}
+		log.Debugf("chain INPUT not found. Skiping add allow netbird rule")
+		return nil
 	}
 
-	if err := m.applyAllowNetbirdRules(chain); err != nil {
-		log.Errorf("failed to apply allow input netbird rules: %v", err)
+	rules, err := m.rConn.GetRules(chain.Table, chain)
+	if err != nil {
+		return fmt.Errorf("failed to get rules for the INPUT chain: %v", err)
 	}
 
-	return m.rConn.Flush()
+	if rule := m.detectAllowNetbirdRule(rules); rule != nil {
+		log.Debugf("allow netbird rule already exists: %v", rule)
+		return nil
+	}
+
+	m.applyAllowNetbirdRules(chain)
+
+	err = m.rConn.Flush()
+	if err != nil {
+		return fmt.Errorf("failed to flush allow input netbird rules: %v", err)
+	}
+	return nil
 }
 
 func (m *Manager) flushWithBackoff() (err error) {
@@ -843,11 +820,7 @@ func (m *Manager) refreshRuleHandles(table *nftables.Table, chain *nftables.Chai
 	return nil
 }
 
-func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) error {
-	if chain == nil {
-		return fmt.Errorf("chain is not defined")
-	}
-
+func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) {
 	rule := &nftables.Rule{
 		Table: chain.Table,
 		Chain: chain,
@@ -865,7 +838,6 @@ func (m *Manager) applyAllowNetbirdRules(chain *nftables.Chain) error {
 		UserData: []byte(AllowNetbirdInputRuleID),
 	}
 	_ = m.rConn.InsertRule(rule)
-	return nil
 }
 
 func (m *Manager) detectAllowNetbirdRule(existedRules []*nftables.Rule) *nftables.Rule {
