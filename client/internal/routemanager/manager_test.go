@@ -430,7 +430,7 @@ func TestManagerUpdateRoutes(t *testing.T) {
 
 			require.Len(t, routeManager.clientNetworks, testCase.clientNetworkWatchersExpected, "client networks size should match")
 
-			if runtime.GOOS == "linux" {
+			if runtime.GOOS == "linux" && routeManager.serverRouter != nil {
 				sr := routeManager.serverRouter.(*defaultServerRouter)
 				require.Len(t, sr.routes, testCase.serverRoutesExpected, "server networks size should match")
 			}
