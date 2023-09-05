@@ -44,6 +44,7 @@ type Manager struct {
 type iFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
+	IsUserspaceBind() bool
 }
 
 type ruleset struct {
@@ -273,9 +274,33 @@ func (m *Manager) Reset() error {
 
 // AllowNetbird allows netbird interface traffic
 func (m *Manager) AllowNetbird() error {
-	// as we work with predefined FILTER table and INPUT chain
-	// jump rule for Netbird chain is part of the firewall
-	// initialization proccess
+	if m.wgIface.IsUserspaceBind() {
+		_, err := m.AddFiltering(
+			net.ParseIP("0.0.0.0"),
+			"all",
+			nil,
+			nil,
+			fw.RuleDirectionIN,
+			fw.ActionAccept,
+			"",
+			"allow netbird interface traffic",
+		)
+		if err != nil {
+			return fmt.Errorf("failed to allow netbird interface traffic: %w", err)
+		}
+		_, err = m.AddFiltering(
+			net.ParseIP("0.0.0.0"),
+			"all",
+			nil,
+			nil,
+			fw.RuleDirectionOUT,
+			fw.ActionAccept,
+			"",
+			"allow netbird interface traffic",
+		)
+		return err
+	}
+
 	return nil
 }
 

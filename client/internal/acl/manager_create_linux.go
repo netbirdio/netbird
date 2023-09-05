@@ -28,6 +28,7 @@ func Create(iface IFaceMapper) (*DefaultManager, error) {
 			log.Infof("failed to create iptables manager for access control: %s", err)
 		}
 	case checkfw.NFTABLES:
+		log.Debug("creating an nftables firewall manager for access control")
 		if fm, err = nftables.Create(iface); err != nil {
 			log.Debugf("failed to create nftables manager for access control: %s", err)
 		}
