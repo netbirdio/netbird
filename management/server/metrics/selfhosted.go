@@ -157,28 +157,30 @@ func (w *Worker) generatePayload(apiKey string) pushPayload {
 
 func (w *Worker) generateProperties() properties {
 	var (
-		uptime             float64
-		accounts           int
-		expirationEnabled  int
-		users              int
-		serviceUsers       int
-		pats               int
-		peers              int
-		peersSSHEnabled    int
-		setupKeysUsage     int
-		activePeersLastDay int
-		osPeers            map[string]int
-		userPeers          int
-		rules              int
-		rulesProtocol      map[string]int
-		rulesDirection     map[string]int
-		groups             int
-		routes             int
-		nameservers        int
-		uiClient           int
-		version            string
-		peerActiveVersions []string
-		osUIClients        map[string]int
+		uptime                float64
+		accounts              int
+		expirationEnabled     int
+		users                 int
+		serviceUsers          int
+		pats                  int
+		peers                 int
+		peersSSHEnabled       int
+		setupKeysUsage        int
+		ephemeralPeersSKs     int
+		ephemeralPeersSKUsage int
+		activePeersLastDay    int
+		osPeers               map[string]int
+		userPeers             int
+		rules                 int
+		rulesProtocol         map[string]int
+		rulesDirection        map[string]int
+		groups                int
+		routes                int
+		nameservers           int
+		uiClient              int
+		version               string
+		peerActiveVersions    []string
+		osUIClients           map[string]int
 	)
 	start := time.Now()
 	metricsProperties := make(properties)
@@ -224,6 +226,10 @@ func (w *Worker) generateProperties() properties {
 
 		for _, key := range account.SetupKeys {
 			setupKeysUsage = setupKeysUsage + key.UsedTimes
+			if key.Ephemeral {
+				ephemeralPeersSKs++
+				ephemeralPeersSKUsage = ephemeralPeersSKUsage + key.UsedTimes
+			}
 		}
 
 		for _, peer := range account.Peers {
@@ -269,6 +275,8 @@ func (w *Worker) generateProperties() properties {
 	metricsProperties["peers_ssh_enabled"] = peersSSHEnabled
 	metricsProperties["peers_login_expiration_enabled"] = expirationEnabled
 	metricsProperties["setup_keys_usage"] = setupKeysUsage
+	metricsProperties["ephemeral_peers_setup_keys"] = ephemeralPeersSKs
+	metricsProperties["ephemeral_peers_setup_keys_usage"] = ephemeralPeersSKUsage
 	metricsProperties["active_peers_last_day"] = activePeersLastDay
 	metricsProperties["user_peers"] = userPeers
 	metricsProperties["rules"] = rules
