@@ -10,18 +10,3 @@ type firewallManager interface {
 	// CleanRoutingRules cleans a firewall set of containers
 	CleanRoutingRules()
 }
-
-type unimplementedFirewall struct{}
-
-func (unimplementedFirewall) RestoreOrCreateContainers() error {
-	return nil
-}
-func (unimplementedFirewall) InsertRoutingRules(pair routerPair) error {
-	return nil
-}
-func (unimplementedFirewall) RemoveRoutingRules(pair routerPair) error {
-	return nil
-}
-
-func (unimplementedFirewall) CleanRoutingRules() {
-}

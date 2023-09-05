@@ -52,7 +52,7 @@ type ruleset struct {
 }
 
 // Create iptables firewall manager
-func Create(wgIface iFaceMapper) (*Manager, error) {
+func Create(wgIface iFaceMapper, ipv6Supported bool) (*Manager, error) {
 	m := &Manager{
 		wgIface: wgIface,
 		inputDefaultRuleSpecs: []string{
@@ -62,25 +62,21 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		rulesets: make(map[string]ruleset),
 	}
 
-	if err := ipset.Init(); err != nil {
+	err := ipset.Init()
+	if err != nil {
 		return nil, fmt.Errorf("init ipset: %w", err)
 	}
 
 	// init clients for booth ipv4 and ipv6
-	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	m.ipv4Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		return nil, fmt.Errorf("iptables is not installed in the system or not supported")
 	}
-	if isIptablesClientAvailable(ipv4Client) {
-		m.ipv4Client = ipv4Client
-	}
 
-	ipv6Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-	if err != nil {
-		log.Errorf("ip6tables is not installed in the system or not supported: %v", err)
-	} else {
-		if isIptablesClientAvailable(ipv6Client) {
-			m.ipv6Client = ipv6Client
+	if ipv6Supported {
+		m.ipv6Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv6)
+		if err != nil {
+			log.Warnf("ip6tables is not installed in the system or not supported: %v. Access rules for this protocol won't be applied.", err)
 		}
 	}
 
@@ -92,11 +88,6 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		return nil, fmt.Errorf("failed to reset firewall: %v", err)
 	}
 	return m, nil
-}
-
-func isIptablesClientAvailable(client *iptables.IPTables) bool {
-	_, err := client.ListChains("filter")
-	return err == nil
 }
 
 // AddFiltering rule to the firewall
