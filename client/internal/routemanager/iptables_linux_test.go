@@ -16,11 +16,12 @@ func TestIptablesManager_RestoreOrCreateContainers(t *testing.T) {
 		t.SkipNow()
 	}
 
-	manager, _ := newIptablesManager(context.TODO())
+	manager, err := newIptablesManager(context.TODO(), true)
+	require.NoError(t, err, "should return a valid iptables manager")
 
 	defer manager.CleanRoutingRules()
 
-	err := manager.RestoreOrCreateContainers()
+	err = manager.RestoreOrCreateContainers()
 	require.NoError(t, err, "shouldn't return error")
 
 	require.Len(t, manager.rules, 2, "should have created maps for ipv4 and ipv6")

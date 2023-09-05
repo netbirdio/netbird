@@ -19,6 +19,7 @@ const layerTypeAll = 0
 // IFaceMapper defines subset methods of interface required for manager
 type IFaceMapper interface {
 	SetFilter(iface.PacketFilter) error
+	Address() iface.WGAddress
 }
 
 // RuleSet is a set of rules grouped by a string key
@@ -30,6 +31,8 @@ type Manager struct {
 	incomingRules map[string]RuleSet
 	wgNetwork     *net.IPNet
 	decoders      sync.Pool
+	wgIface       IFaceMapper
+	resetHook func() error
 
 	mutex sync.RWMutex
 }
@@ -65,6 +68,7 @@ func Create(iface IFaceMapper) (*Manager, error) {
 		},
 		outgoingRules: make(map[string]RuleSet),
 		incomingRules: make(map[string]RuleSet),
+		wgIface:       iface,
 	}
 
 	if err := iface.SetFilter(m); err != nil {
@@ -167,17 +171,6 @@ func (m *Manager) DeleteRule(rule fw.Rule) error {
 		}
 		delete(m.outgoingRules[r.ip.String()], r.id)
 	}
-
-	return nil
-}
-
-// Reset firewall to the default state
-func (m *Manager) Reset() error {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	m.outgoingRules = make(map[string]RuleSet)
-	m.incomingRules = make(map[string]RuleSet)
 
 	return nil
 }
@@ -374,4 +367,9 @@ func (m *Manager) RemovePacketHook(hookID string) error {
 		}
 	}
 	return fmt.Errorf("hook with given id not found")
+}
+
+// SetResetHook which will be executed in the end of Reset method
+func (m *Manager) SetResetHook(hook func() error) {
+	m.resetHook = hook
 }

@@ -44,6 +44,7 @@ type Manager struct {
 type iFaceMapper interface {
 	Name() string
 	Address() iface.WGAddress
+	IsUserspaceBind() bool
 }
 
 type ruleset struct {
@@ -52,7 +53,7 @@ type ruleset struct {
 }
 
 // Create iptables firewall manager
-func Create(wgIface iFaceMapper) (*Manager, error) {
+func Create(wgIface iFaceMapper, ipv6Supported bool) (*Manager, error) {
 	m := &Manager{
 		wgIface: wgIface,
 		inputDefaultRuleSpecs: []string{
@@ -62,37 +63,32 @@ func Create(wgIface iFaceMapper) (*Manager, error) {
 		rulesets: make(map[string]ruleset),
 	}
 
-	if err := ipset.Init(); err != nil {
+	err := ipset.Init()
+	if err != nil {
 		return nil, fmt.Errorf("init ipset: %w", err)
 	}
 
 	// init clients for booth ipv4 and ipv6
-	ipv4Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	m.ipv4Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv4)
 	if err != nil {
 		return nil, fmt.Errorf("iptables is not installed in the system or not supported")
 	}
-	if isIptablesClientAvailable(ipv4Client) {
-		m.ipv4Client = ipv4Client
+
+	if ipv6Supported {
+		m.ipv6Client, err = iptables.NewWithProtocol(iptables.ProtocolIPv6)
+		if err != nil {
+			log.Warnf("ip6tables is not installed in the system or not supported: %v. Access rules for this protocol won't be applied.", err)
+		}
 	}
 
-	ipv6Client, err := iptables.NewWithProtocol(iptables.ProtocolIPv6)
-	if err != nil {
-		log.Errorf("ip6tables is not installed in the system or not supported: %v", err)
-	} else {
-		if isIptablesClientAvailable(ipv6Client) {
-			m.ipv6Client = ipv6Client
-		}
+	if m.ipv4Client == nil && m.ipv6Client == nil {
+		return nil, fmt.Errorf("iptables is not installed in the system or not enough permissions to use it")
 	}
 
 	if err := m.Reset(); err != nil {
 		return nil, fmt.Errorf("failed to reset firewall: %v", err)
 	}
 	return m, nil
-}
-
-func isIptablesClientAvailable(client *iptables.IPTables) bool {
-	_, err := client.ListChains("filter")
-	return err == nil
 }
 
 // AddFiltering rule to the firewall
@@ -276,6 +272,38 @@ func (m *Manager) Reset() error {
 	return nil
 }
 
+// AllowNetbird allows netbird interface traffic
+func (m *Manager) AllowNetbird() error {
+	if m.wgIface.IsUserspaceBind() {
+		_, err := m.AddFiltering(
+			net.ParseIP("0.0.0.0"),
+			"all",
+			nil,
+			nil,
+			fw.RuleDirectionIN,
+			fw.ActionAccept,
+			"",
+			"allow netbird interface traffic",
+		)
+		if err != nil {
+			return fmt.Errorf("failed to allow netbird interface traffic: %w", err)
+		}
+		_, err = m.AddFiltering(
+			net.ParseIP("0.0.0.0"),
+			"all",
+			nil,
+			nil,
+			fw.RuleDirectionOUT,
+			fw.ActionAccept,
+			"",
+			"allow netbird interface traffic",
+		)
+		return err
+	}
+
+	return nil
+}
+
 // Flush doesn't need to be implemented for this manager
 func (m *Manager) Flush() error { return nil }
 
@@ -406,7 +434,7 @@ func (m *Manager) client(ip net.IP) (*iptables.IPTables, error) {
 			return nil, fmt.Errorf("failed to create default drop all in netbird input chain: %w", err)
 		}
 
-		if err := client.AppendUnique("filter", "INPUT", m.inputDefaultRuleSpecs...); err != nil {
+		if err := client.Insert("filter", "INPUT", 1, m.inputDefaultRuleSpecs...); err != nil {
 			return nil, fmt.Errorf("failed to create input chain jump rule: %w", err)
 		}
 
