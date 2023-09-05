@@ -155,7 +155,10 @@ func (c *clientNetwork) startPeersStatusChangeWatcher() {
 
 func (c *clientNetwork) removeRouteFromWireguardPeer(peerKey string) error {
 	state, err := c.statusRecorder.GetPeer(peerKey)
-	if err != nil || state.ConnStatus != peer.StatusConnected {
+	if err != nil {
+		return err
+	}
+	if state.ConnStatus != peer.StatusConnected {
 		return nil
 	}
 

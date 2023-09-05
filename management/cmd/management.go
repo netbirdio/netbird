@@ -198,8 +198,11 @@ var (
 				return fmt.Errorf("failed creating HTTP API handler: %v", err)
 			}
 
+			ephemeralManager := server.NewEphemeralManager(store, accountManager)
+			ephemeralManager.LoadInitialPeers()
+
 			gRPCAPIHandler := grpc.NewServer(gRPCOpts...)
-			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, appMetrics)
+			srv, err := server.NewServer(config, accountManager, peersUpdateManager, turnManager, appMetrics, ephemeralManager)
 			if err != nil {
 				return fmt.Errorf("failed creating gRPC API handler: %v", err)
 			}
@@ -268,6 +271,7 @@ var (
 			SetupCloseHandler()
 
 			<-stopCh
+			ephemeralManager.Stop()
 			_ = appMetrics.Close()
 			_ = listener.Close()
 			if certManager != nil {

@@ -1,15 +1,16 @@
 package server
 
 import (
+	"net/netip"
+	"strconv"
+	"unicode/utf8"
+
 	"github.com/netbirdio/netbird/management/proto"
 	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/status"
 	"github.com/netbirdio/netbird/route"
 	"github.com/rs/xid"
 	log "github.com/sirupsen/logrus"
-	"net/netip"
-	"strconv"
-	"unicode/utf8"
 )
 
 const (
@@ -104,12 +105,6 @@ func (am *DefaultAccountManager) checkPrefixPeerExists(accountID, peerID string,
 
 	routesWithPrefix := account.GetRoutesByPrefix(prefix)
 
-	if err != nil {
-		if s, ok := status.FromError(err); ok && s.Type() == status.NotFound {
-			return nil
-		}
-		return status.Errorf(status.InvalidArgument, "failed to parse prefix %s", prefix.String())
-	}
 	for _, prefixRoute := range routesWithPrefix {
 		if prefixRoute.Peer == peerID {
 			return status.Errorf(status.AlreadyExists, "failed to add route with prefix %s - peer already has this route", prefix.String())

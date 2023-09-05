@@ -115,8 +115,10 @@ func TestAuthMiddleware_Handler(t *testing.T) {
 
 			handlerToTest.ServeHTTP(rec, req)
 
-			if rec.Result().StatusCode != tc.expectedStatusCode {
-				t.Errorf("expected status code %d, got %d", tc.expectedStatusCode, rec.Result().StatusCode)
+			result := rec.Result()
+			defer result.Body.Close()
+			if result.StatusCode != tc.expectedStatusCode {
+				t.Errorf("expected status code %d, got %d", tc.expectedStatusCode, result.StatusCode)
 			}
 		})
 	}

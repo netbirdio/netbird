@@ -992,14 +992,12 @@ func (e *Engine) parseNATExternalIPMappings() []string {
 			log.Warnf("invalid external IP, %s, ignoring external IP mapping '%s'", external, mapping)
 			break
 		}
-		if externalIP != nil {
-			mappedIP := externalIP.String()
-			if internalIP != nil {
-				mappedIP = mappedIP + "/" + internalIP.String()
-			}
-			mappedIPs = append(mappedIPs, mappedIP)
-			log.Infof("parsed external IP mapping of '%s' as '%s'", mapping, mappedIP)
+		mappedIP := externalIP.String()
+		if internalIP != nil {
+			mappedIP = mappedIP + "/" + internalIP.String()
 		}
+		mappedIPs = append(mappedIPs, mappedIP)
+		log.Infof("parsed external IP mapping of '%s' as '%s'", mapping, mappedIP)
 	}
 	if len(mappedIPs) != len(e.config.NATExternalIPs) {
 		log.Warnf("one or more external IP mappings failed to parse, ignoring all mappings")
