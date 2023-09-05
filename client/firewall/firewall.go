@@ -40,6 +40,9 @@ const (
 // It declares methods which handle actions required by the
 // Netbird client for ACL and routing functionality
 type Manager interface {
+	// AllowNetbird allows netbird interface traffic
+	AllowNetbird() error
+
 	// AddFiltering rule to the firewall
 	//
 	// If comment argument is empty firewall manager should set
