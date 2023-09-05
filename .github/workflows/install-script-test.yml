@@ -27,6 +27,7 @@ jobs:
         env:
           SKIP_UI_APP: ${{ matrix.skip_ui_mode }}
           USE_BIN_INSTALL: ${{ matrix.install_binary }}
+          GITHUB_TOKEN: ${{ secrets.RO_API_CALLER_TOKEN }}
         run: |
           [ "$SKIP_UI_APP" == "false" ] && export XDG_CURRENT_DESKTOP="none"
           cat release_files/install.sh | sh -x
