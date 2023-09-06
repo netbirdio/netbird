@@ -80,7 +80,7 @@ func (p *PKCEAuthorizationFlow) GetClientID(_ context.Context) string {
 }
 
 // RequestAuthInfo requests a authorization code login flow information.
-func (p *PKCEAuthorizationFlow) RequestAuthInfo(_ context.Context) (AuthFlowInfo, error) {
+func (p *PKCEAuthorizationFlow) RequestAuthInfo(ctx context.Context) (AuthFlowInfo, error) {
 	state, err := randomBytesInHex(24)
 	if err != nil {
 		return AuthFlowInfo{}, fmt.Errorf("could not generate random state: %v", err)
@@ -114,7 +114,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 	tokenChan := make(chan *oauth2.Token, 1)
 	errChan := make(chan error, 1)
 
-	go p.startServer(tokenChan, errChan)
+	go p.startServer(ctx, tokenChan, errChan)
 
 	select {
 	case <-ctx.Done():
@@ -126,7 +126,7 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 	}
 }
 
-func (p *PKCEAuthorizationFlow) startServer(tokenChan chan<- *oauth2.Token, errChan chan<- error) {
+func (p *PKCEAuthorizationFlow) startServer(ctx context.Context, tokenChan chan<- *oauth2.Token, errChan chan<- error) {
 	var wg sync.WaitGroup
 
 	parsedURL, err := url.Parse(p.oAuthConfig.RedirectURL)
@@ -141,37 +141,18 @@ func (p *PKCEAuthorizationFlow) startServer(tokenChan chan<- *oauth2.Token, errC
 			errChan <- err
 		}
 	}()
-
 	wg.Add(1)
+
+	go func() {
+		// shutdown the server on user cancellation
+		<-ctx.Done()
+		wg.Done()
+	}()
+
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		defer wg.Done()
 
-		tokenValidatorFunc := func() (*oauth2.Token, error) {
-			query := req.URL.Query()
-
-			if authError := query.Get(queryError); authError != "" {
-				authErrorDesc := query.Get(queryErrorDesc)
-				return nil, fmt.Errorf("%s.%s", authError, authErrorDesc)
-			}
-
-			// Prevent timing attacks on state
-			if state := query.Get(queryState); subtle.ConstantTimeCompare([]byte(p.state), []byte(state)) == 0 {
-				return nil, fmt.Errorf("invalid state")
-			}
-
-			code := query.Get(queryCode)
-			if code == "" {
-				return nil, fmt.Errorf("missing code")
-			}
-
-			return p.oAuthConfig.Exchange(
-				req.Context(),
-				code,
-				oauth2.SetAuthURLParam("code_verifier", p.codeVerifier),
-			)
-		}
-
-		token, err := tokenValidatorFunc()
+		token, err := p.validateToken(req)
 		if err != nil {
 			renderPKCEFlowTmpl(w, err)
 			errChan <- fmt.Errorf("PKCE authorization flow failed: %v", err)
@@ -186,6 +167,31 @@ func (p *PKCEAuthorizationFlow) startServer(tokenChan chan<- *oauth2.Token, errC
 	if err := server.Shutdown(context.Background()); err != nil {
 		log.Errorf("error while shutting down pkce flow server: %v", err)
 	}
+}
+
+func (p *PKCEAuthorizationFlow) validateToken(req *http.Request) (*oauth2.Token, error) {
+	query := req.URL.Query()
+
+	if authError := query.Get(queryError); authError != "" {
+		authErrorDesc := query.Get(queryErrorDesc)
+		return nil, fmt.Errorf("%s.%s", authError, authErrorDesc)
+	}
+
+	// Prevent timing attacks on state
+	if state := query.Get(queryState); subtle.ConstantTimeCompare([]byte(p.state), []byte(state)) == 0 {
+		return nil, fmt.Errorf("invalid state")
+	}
+
+	code := query.Get(queryCode)
+	if code == "" {
+		return nil, fmt.Errorf("missing code")
+	}
+
+	return p.oAuthConfig.Exchange(
+		req.Context(),
+		code,
+		oauth2.SetAuthURLParam("code_verifier", p.codeVerifier),
+	)
 }
 
 func (p *PKCEAuthorizationFlow) handleOAuthToken(token *oauth2.Token) (TokenInfo, error) {
