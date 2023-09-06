@@ -51,10 +51,12 @@ func initSetupKeysTestMetaData(defaultKey *server.SetupKey, newKey *server.Setup
 				}, user, nil
 			},
 			CreateSetupKeyFunc: func(_ string, keyName string, typ server.SetupKeyType, _ time.Duration, _ []string,
-				_ int, _ string, _ bool,
+				_ int, _ string, ephemeral bool,
 			) (*server.SetupKey, error) {
 				if keyName == newKey.Name || typ != newKey.Type {
-					return newKey, nil
+					nk := newKey.Copy()
+					nk.Ephemeral = ephemeral
+					return nk, nil
 				}
 				return nil, fmt.Errorf("failed creating setup key")
 			},
@@ -99,7 +101,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 	adminUser := server.NewAdminUser("test_user")
 
 	newSetupKey := server.GenerateSetupKey(newSetupKeyName, server.SetupKeyReusable, 0, []string{"group-1"},
-		server.SetupKeyUnlimitedUsage, false)
+		server.SetupKeyUnlimitedUsage, true)
 	updatedDefaultSetupKey := defaultSetupKey.Copy()
 	updatedDefaultSetupKey.AutoGroups = []string{"group-1"}
 	updatedDefaultSetupKey.Name = updatedSetupKeyName
@@ -143,7 +145,7 @@ func TestSetupKeysHandlers(t *testing.T) {
 			requestType: http.MethodPost,
 			requestPath: "/api/setup-keys",
 			requestBody: bytes.NewBuffer(
-				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"%s\",\"expires_in\":86400}", newSetupKey.Name, newSetupKey.Type))),
+				[]byte(fmt.Sprintf("{\"name\":\"%s\",\"type\":\"%s\",\"expires_in\":86400, \"ephemeral\":true}", newSetupKey.Name, newSetupKey.Type))),
 			expectedStatus:   http.StatusOK,
 			expectedBody:     true,
 			expectedSetupKey: toResponseBody(newSetupKey),
@@ -229,4 +231,5 @@ func assertKeys(t *testing.T, got *api.SetupKey, expected *api.SetupKey) {
 	assert.Equal(t, got.UsedTimes, expected.UsedTimes)
 	assert.Equal(t, got.Revoked, expected.Revoked)
 	assert.ElementsMatch(t, got.AutoGroups, expected.AutoGroups)
+	assert.Equal(t, got.Ephemeral, expected.Ephemeral)
 }
