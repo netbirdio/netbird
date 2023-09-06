@@ -216,5 +216,6 @@ func toResponseBody(key *server.SetupKey) *api.SetupKey {
 		AutoGroups: key.AutoGroups,
 		UpdatedAt:  key.UpdatedAt,
 		UsageLimit: key.UsageLimit,
+		Ephemeral:  key.Ephemeral,
 	}
 }
