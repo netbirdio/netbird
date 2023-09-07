@@ -37,6 +37,9 @@ func initEventsTestData(account string, user *server.User, events ...*activity.E
 					},
 				}, user, nil
 			},
+			GetUsersFromAccountFunc: func(accountID, userID string) ([]*server.UserInfo, error) {
+				return make([]*server.UserInfo, 0), nil
+			},
 		},
 		claimsExtractor: jwtclaims.NewClaimsExtractor(
 			jwtclaims.WithFromRequestContext(func(r *http.Request) jwtclaims.AuthorizationClaims {

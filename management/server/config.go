@@ -35,7 +35,8 @@ type Config struct {
 	TURNConfig *TURNConfig
 	Signal     *Host
 
-	Datadir string
+	Datadir                string
+	DataStoreEncryptionKey string
 
 	HttpConfig *HttpServerConfig
 

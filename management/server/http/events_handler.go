@@ -45,12 +45,40 @@ func (h *EventsHandler) GetAllEvents(w http.ResponseWriter, r *http.Request) {
 		util.WriteError(err, w)
 		return
 	}
-	events := make([]*api.Event, 0)
+	events := make([]*api.Event, 0, len(accountEvents))
 	for _, e := range accountEvents {
 		events = append(events, toEventResponse(e))
 	}
 
+	err = h.fillEventsWithInitiatorEmail(events, account.Id, user.Id)
+	if err != nil {
+		util.WriteError(err, w)
+		return
+	}
+
 	util.WriteJSONObject(w, events)
+}
+
+func (h *EventsHandler) fillEventsWithInitiatorEmail(events []*api.Event, accountId, userId string) error {
+	// build email map based on users
+	userInfos, err := h.accountManager.GetUsersFromAccount(accountId, userId)
+	if err != nil {
+		log.Errorf("failed to get users from account: %s", err)
+		return err
+	}
+
+	emails := make(map[string]string)
+	for _, ui := range userInfos {
+		emails[ui.ID] = ui.Email
+	}
+
+	// fill event with email of initiator
+	for _, event := range events {
+		if event.InitiatorEmail == "" {
+			event.InitiatorEmail = emails[event.InitiatorId]
+		}
+	}
+	return nil
 }
 
 func toEventResponse(event *activity.Event) *api.Event {
@@ -60,7 +88,7 @@ func toEventResponse(event *activity.Event) *api.Event {
 			meta[s] = fmt.Sprintf("%v", a)
 		}
 	}
-	return &api.Event{
+	e := &api.Event{
 		Id:           fmt.Sprint(event.ID),
 		InitiatorId:  event.InitiatorID,
 		Activity:     event.Activity.Message(),
@@ -69,4 +97,8 @@ func toEventResponse(event *activity.Event) *api.Event {
 		Timestamp:    event.Timestamp,
 		Meta:         meta,
 	}
+	if event.InitiatorEmail != nil {
+		e.InitiatorEmail = *event.InitiatorEmail
+	}
+	return e
 }

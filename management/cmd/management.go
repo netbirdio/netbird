@@ -23,6 +23,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/netbirdio/netbird/management/server/activity"
 	"github.com/netbirdio/netbird/management/server/activity/sqlite"
 	httpapi "github.com/netbirdio/netbird/management/server/http"
 	"github.com/netbirdio/netbird/management/server/jwtclaims"
@@ -146,10 +147,20 @@ var (
 			if disableSingleAccMode {
 				mgmtSingleAccModeDomain = ""
 			}
-			eventStore, err := sqlite.NewSQLiteStore(config.Datadir)
+			eventStore, key, err := initEventStore(config.Datadir, config.DataStoreEncryptionKey)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to initialize database: %s", err)
 			}
+
+			if key != "" {
+				log.Debugf("update config with activity store key")
+				config.DataStoreEncryptionKey = key
+				err := updateMgmtConfig(mgmtConfig, config)
+				if err != nil {
+					return fmt.Errorf("failed to write out store encryption key: %s", err)
+				}
+			}
+
 			accountManager, err := server.BuildManager(store, peersUpdateManager, idpManager, mgmtSingleAccModeDomain,
 				dnsDomain, eventStore, userDeleteFromIDPEnabled)
 			if err != nil {
@@ -286,6 +297,20 @@ var (
 		},
 	}
 )
+
+func initEventStore(dataDir string, key string) (activity.Store, string, error) {
+	var err error
+	if key == "" {
+		log.Debugf("generate new activity store encryption key")
+		key, err = sqlite.GenerateKey()
+		if err != nil {
+			return nil, "", err
+		}
+	}
+	store, err := sqlite.NewSQLiteStore(dataDir, key)
+	return store, key, err
+
+}
 
 func notifyStop(msg string) {
 	select {
@@ -438,6 +463,10 @@ func loadMgmtConfig(mgmtConfigPath string) (*server.Config, error) {
 	}
 
 	return loadedConfig, err
+}
+
+func updateMgmtConfig(path string, config *server.Config) error {
+	return util.WriteJson(path, config)
 }
 
 // OIDCConfigResponse used for parsing OIDC config response

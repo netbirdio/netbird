@@ -164,6 +164,9 @@ type Event struct {
 	// Id Event unique identifier
 	Id string `json:"id"`
 
+	// InitiatorEmail The e-mail address of the initiator of the event. E.g., an e-mail of a user that triggered the event.
+	InitiatorEmail string `json:"initiator_email"`
+
 	// InitiatorId The ID of the initiator of the event. E.g., an ID of a user that triggered the event.
 	InitiatorId string `json:"initiator_id"`
 

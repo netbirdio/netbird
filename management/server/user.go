@@ -342,11 +342,17 @@ func (am *DefaultAccountManager) DeleteUser(accountID, initiatorUserID string, t
 		return err
 	}
 
+	targetUserEmail, err := am.getEmailOfTargetUser(account.Id, initiatorUserID, targetUserID)
+	if err != nil {
+		log.Errorf("failed to resolve email address: %s", err)
+		return err
+	}
+
 	if targetUser.IsServiceUser {
 		meta := map[string]any{"name": targetUser.ServiceUserName}
 		am.storeEvent(initiatorUserID, targetUserID, accountID, activity.ServiceUserDeleted, meta)
 	} else {
-		am.storeEvent(initiatorUserID, targetUserID, accountID, activity.UserDeleted, nil)
+		am.storeEventWithDeletedTargetEmail(initiatorUserID, targetUserID, targetUserEmail, accountID, activity.UserDeleted, nil)
 	}
 
 	if !isNil(am.idpManager) {
@@ -865,6 +871,20 @@ func (am *DefaultAccountManager) deleteUserFromIDP(targetUserID, accountID strin
 		}
 	}
 	return nil
+}
+
+func (am *DefaultAccountManager) getEmailOfTargetUser(accountId string, initiatorId, targetId string) (string, error) {
+	userInfos, err := am.GetUsersFromAccount(accountId, initiatorId)
+	if err != nil {
+		return "", err
+	}
+	for _, ui := range userInfos {
+		if ui.ID == targetId {
+			return ui.Email, nil
+		}
+	}
+
+	return "", fmt.Errorf("email not found for user: %s", targetId)
 }
 
 func findUserInIDPUserdata(userID string, userData []*idp.UserData) (*idp.UserData, bool) {

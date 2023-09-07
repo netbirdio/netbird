@@ -4,12 +4,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"github.com/netbirdio/netbird/management/server/activity"
+	"path/filepath"
+	"time"
 
 	// sqlite driver
 	_ "github.com/mattn/go-sqlite3"
-	"path/filepath"
-	"time"
+	log "github.com/sirupsen/logrus"
+
+	"github.com/netbirdio/netbird/management/server/activity"
 )
 
 const (
@@ -24,19 +26,28 @@ const (
 		"meta TEXT," +
 		" target_id TEXT);"
 
-	selectStatement = "SELECT id, activity, timestamp, initiator_id, target_id, account_id, meta" +
-		" FROM events WHERE account_id = ? ORDER BY timestamp %s LIMIT ? OFFSET ?;"
+	creatTableAccountEmailQuery = `CREATE TABLE IF NOT EXISTS deleted_users (id TEXT NOT NULL, email TEXT NOT NULL);`
+
+	selectStatement = `SELECT events.id, activity, timestamp, initiator_id, i.email as "initiator_email", target_id, t.email as "target_email", account_id, meta
+    	FROM events 
+    	LEFT JOIN deleted_users i ON events.initiator_id = i.id 
+    	LEFT JOIN deleted_users t ON events.target_id = t.id
+		WHERE account_id = ? 
+		ORDER BY timestamp %s LIMIT ? OFFSET ?;`
 	insertStatement = "INSERT INTO events(activity, timestamp, initiator_id, target_id, account_id, meta) " +
 		"VALUES(?, ?, ?, ?, ?, ?)"
+
+	insertDeleteUserStatement = `INSERT INTO deleted_users(id, email) VALUES(?, ?)`
 )
 
 // Store is the implementation of the activity.Store interface backed by SQLite
 type Store struct {
-	db *sql.DB
+	db           *sql.DB
+	emailEncrypt *EmailEncrypt
 }
 
 // NewSQLiteStore creates a new Store with an event table if not exists.
-func NewSQLiteStore(dataDir string) (*Store, error) {
+func NewSQLiteStore(dataDir string, encryptionKey string) (*Store, error) {
 	dbFile := filepath.Join(dataDir, eventSinkDB)
 	db, err := sql.Open("sqlite3", dbFile)
 	if err != nil {
@@ -48,20 +59,37 @@ func NewSQLiteStore(dataDir string) (*Store, error) {
 		return nil, err
 	}
 
-	return &Store{db: db}, nil
+	_, err = db.Exec(creatTableAccountEmailQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	crypt, err := NewEmailEncrypt(encryptionKey)
+	if err != nil {
+		return nil, err
+	}
+
+	s := &Store{
+		db:           db,
+		emailEncrypt: crypt,
+	}
+
+	return s, nil
 }
 
-func processResult(result *sql.Rows) ([]*activity.Event, error) {
+func (store *Store) processResult(result *sql.Rows) ([]*activity.Event, error) {
 	events := make([]*activity.Event, 0)
 	for result.Next() {
 		var id int64
 		var operation activity.Activity
 		var timestamp time.Time
 		var initiator string
+		var initiatorEmail *string
 		var target string
+		var targetEmail *string
 		var account string
 		var jsonMeta string
-		err := result.Scan(&id, &operation, &timestamp, &initiator, &target, &account, &jsonMeta)
+		err := result.Scan(&id, &operation, &timestamp, &initiator, &initiatorEmail, &target, &targetEmail, &account, &jsonMeta)
 		if err != nil {
 			return nil, err
 		}
@@ -74,14 +102,35 @@ func processResult(result *sql.Rows) ([]*activity.Event, error) {
 			}
 		}
 
+		if targetEmail != nil {
+			email, err := store.emailEncrypt.Decrypt(*targetEmail)
+			if err != nil {
+				log.Errorf("failed to decrypt data: %s", *targetEmail)
+				meta["email"] = ""
+			} else {
+				meta["email"] = email
+			}
+		}
+
+		if initiatorEmail != nil {
+			email, err := store.emailEncrypt.Decrypt(*initiatorEmail)
+			if err != nil {
+				log.Errorf("failed to decrypt data: %s", *initiatorEmail)
+				*initiatorEmail = ""
+			} else {
+				*initiatorEmail = email
+			}
+		}
+
 		events = append(events, &activity.Event{
-			Timestamp:   timestamp,
-			Activity:    operation,
-			ID:          uint64(id),
-			InitiatorID: initiator,
-			TargetID:    target,
-			AccountID:   account,
-			Meta:        meta,
+			Timestamp:      timestamp,
+			Activity:       operation,
+			ID:             uint64(id),
+			InitiatorID:    initiator,
+			InitiatorEmail: initiatorEmail,
+			TargetID:       target,
+			AccountID:      account,
+			Meta:           meta,
 		})
 	}
 
@@ -105,12 +154,11 @@ func (store *Store) Get(accountID string, offset, limit int, descending bool) ([
 	}
 
 	defer result.Close() //nolint
-	return processResult(result)
+	return store.processResult(result)
 }
 
 // Save an event in the SQLite events table
 func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
-
 	stmt, err := store.db.Prepare(insertStatement)
 	if err != nil {
 		return nil, err
@@ -138,6 +186,22 @@ func (store *Store) Save(event *activity.Event) (*activity.Event, error) {
 	eventCopy := event.Copy()
 	eventCopy.ID = uint64(id)
 	return eventCopy, nil
+}
+
+func (store *Store) SaveWithDeletedUserEmail(event *activity.Event, email string) (*activity.Event, error) {
+	email = store.emailEncrypt.Encrypt(email)
+
+	stmt, err := store.db.Prepare(insertDeleteUserStatement)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = stmt.Exec(event.TargetID, email)
+	if err != nil {
+		return nil, err
+	}
+
+	return store.Save(event)
 }
 
 // Close the Store
