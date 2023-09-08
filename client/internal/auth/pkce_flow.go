@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -114,45 +113,33 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 	tokenChan := make(chan *oauth2.Token, 1)
 	errChan := make(chan error, 1)
 
-	go p.startServer(ctx, tokenChan, errChan)
+	parsedURL, err := url.Parse(p.oAuthConfig.RedirectURL)
+	if err != nil {
+		return TokenInfo{}, fmt.Errorf("failed to parse redirect URL: %v", err)
+	}
+
+	server := &http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
+	defer func() {
+		if err := server.Shutdown(context.Background()); err != nil {
+			log.Debugf("failed to close the server: %v", err)
+		}
+	}()
+
+	go p.startServer(server, tokenChan, errChan)
 
 	select {
 	case <-ctx.Done():
 		return TokenInfo{}, ctx.Err()
 	case token := <-tokenChan:
-		return p.handleOAuthToken(token)
+		return p.parseOAuthToken(token)
 	case err := <-errChan:
 		return TokenInfo{}, err
 	}
 }
 
-func (p *PKCEAuthorizationFlow) startServer(ctx context.Context, tokenChan chan<- *oauth2.Token, errChan chan<- error) {
-	var wg sync.WaitGroup
-
-	parsedURL, err := url.Parse(p.oAuthConfig.RedirectURL)
-	if err != nil {
-		errChan <- fmt.Errorf("failed to parse redirect URL: %v", err)
-		return
-	}
-
-	server := http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
-	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errChan <- err
-		}
-	}()
-	wg.Add(1)
-
-	go func() {
-		// shutdown the server on user cancellation
-		<-ctx.Done()
-		wg.Done()
-	}()
-
+func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<- *oauth2.Token, errChan chan<- error) {
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-		defer wg.Done()
-
-		token, err := p.validateToken(req)
+		token, err := p.handleRequest(req)
 		if err != nil {
 			renderPKCEFlowTmpl(w, err)
 			errChan <- fmt.Errorf("PKCE authorization flow failed: %v", err)
@@ -162,14 +149,12 @@ func (p *PKCEAuthorizationFlow) startServer(ctx context.Context, tokenChan chan<
 		renderPKCEFlowTmpl(w, nil)
 		tokenChan <- token
 	})
-
-	wg.Wait()
-	if err := server.Shutdown(context.Background()); err != nil {
-		log.Errorf("error while shutting down pkce flow server: %v", err)
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		errChan <- err
 	}
 }
 
-func (p *PKCEAuthorizationFlow) validateToken(req *http.Request) (*oauth2.Token, error) {
+func (p *PKCEAuthorizationFlow) handleRequest(req *http.Request) (*oauth2.Token, error) {
 	query := req.URL.Query()
 
 	if authError := query.Get(queryError); authError != "" {
@@ -177,7 +162,7 @@ func (p *PKCEAuthorizationFlow) validateToken(req *http.Request) (*oauth2.Token,
 		return nil, fmt.Errorf("%s.%s", authError, authErrorDesc)
 	}
 
-	// Prevent timing attacks on state
+	// Prevent timing attacks on the state
 	if state := query.Get(queryState); subtle.ConstantTimeCompare([]byte(p.state), []byte(state)) == 0 {
 		return nil, fmt.Errorf("invalid state")
 	}
@@ -194,7 +179,7 @@ func (p *PKCEAuthorizationFlow) validateToken(req *http.Request) (*oauth2.Token,
 	)
 }
 
-func (p *PKCEAuthorizationFlow) handleOAuthToken(token *oauth2.Token) (TokenInfo, error) {
+func (p *PKCEAuthorizationFlow) parseOAuthToken(token *oauth2.Token) (TokenInfo, error) {
 	tokenInfo := TokenInfo{
 		AccessToken:  token.AccessToken,
 		RefreshToken: token.RefreshToken,
