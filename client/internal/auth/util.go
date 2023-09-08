@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"reflect"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func randomBytesInHex(count int) (string, error) {
@@ -59,4 +62,19 @@ func isValidAccessToken(token string, audience string) error {
 	}
 
 	return fmt.Errorf("invalid JWT token audience field")
+}
+
+// isLinuxRunningDesktop checks if a Linux OS is running desktop environment.
+func isLinuxRunningDesktop() bool {
+	for _, env := range os.Environ() {
+		log.Info("found the env: ", env)
+		values := strings.Split(env, "=")
+		if len(values) == 2 {
+			key, value := values[0], values[1]
+			if key == "XDG_CURRENT_DESKTOP" && value != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
