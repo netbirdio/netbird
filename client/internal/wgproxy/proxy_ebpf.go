@@ -135,6 +135,7 @@ func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
 				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
 			}
 			p.removeTurnConn(endpointPort)
+			log.Debugf("stop forward turn packages to port: %d. error: %s", endpointPort, err)
 			return
 		}
 		err = p.sendPkg(buf[:n], endpointPort)
