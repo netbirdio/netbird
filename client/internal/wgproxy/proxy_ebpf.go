@@ -135,6 +135,7 @@ func (p *WGEBPFProxy) proxyToLocal(endpointPort uint16, remoteConn net.Conn) {
 				log.Errorf("failed to read from turn conn (endpoint: :%d): %s", endpointPort, err)
 			}
 			p.removeTurnConn(endpointPort)
+			log.Infof("stop forward turn packages to port: %d. error: %s", endpointPort, err)
 			return
 		}
 		err = p.sendPkg(buf[:n], endpointPort)
@@ -158,7 +159,7 @@ func (p *WGEBPFProxy) proxyToRemote() {
 		conn, ok := p.turnConnStore[uint16(addr.Port)]
 		p.turnConnMutex.Unlock()
 		if !ok {
-			log.Errorf("turn conn not found by port: %d", addr.Port)
+			log.Infof("turn conn not found by port: %d", addr.Port)
 			continue
 		}
 
