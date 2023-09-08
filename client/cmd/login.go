@@ -232,16 +232,7 @@ func openURL(cmd *cobra.Command, verificationURIComplete, userCode string) {
 
 // isLinuxRunningDesktop checks if a Linux OS is running desktop environment.
 func isLinuxRunningDesktop() bool {
-	for _, env := range os.Environ() {
-		values := strings.Split(env, "=")
-		if len(values) == 2 {
-			key, value := values[0], values[1]
-			if key == "XDG_CURRENT_DESKTOP" && value != "" {
-				return true
-			}
-		}
-	}
-	return false
+	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
 
 // isPKCEFlow determines if the PKCE flow is active or not,
