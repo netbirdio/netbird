@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"runtime"
 
-	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc/codes"
 	gstatus "google.golang.org/grpc/status"
 
@@ -92,7 +91,6 @@ func authenticateWithDeviceCodeFlow(ctx context.Context, config *internal.Config
 	if err != nil {
 		s, ok := gstatus.FromError(err)
 		if ok && s.Code() == codes.NotFound {
-			log.Info("no SSO configured for device authorization flow in management")
 			return nil, fmt.Errorf("no SSO provider returned from management. " +
 				"Please proceed with setting up this device using setup keys " +
 				"https://docs.netbird.io/how-to/register-machines-using-setup-keys")

@@ -7,11 +7,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
+	"os/exec"
 	"reflect"
 	"strings"
-
-	log "github.com/sirupsen/logrus"
 )
 
 func randomBytesInHex(count int) (string, error) {
@@ -64,17 +62,19 @@ func isValidAccessToken(token string, audience string) error {
 	return fmt.Errorf("invalid JWT token audience field")
 }
 
-// isLinuxRunningDesktop checks if a Linux OS is running desktop environment.
-func isLinuxRunningDesktop() bool {
-	for _, env := range os.Environ() {
-		log.Info("found the env: ", env)
-		values := strings.Split(env, "=")
-		if len(values) == 2 {
-			key, value := values[0], values[1]
-			if key == "XDG_CURRENT_DESKTOP" && value != "" {
-				return true
-			}
-		}
+// checkProcessRunning verifies if a specific process is currently running
+func checkProcessRunning(processName string) bool {
+	cmd := exec.Command("pgrep", processName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
 	}
-	return false
+	return strings.TrimSpace(string(output)) != ""
+}
+
+// isLinuxRunningDesktop checks if a Linux OS is running desktop environment
+func isLinuxRunningDesktop() bool {
+	isXServerRunning := checkProcessRunning("X")
+	isWaylandRunning := checkProcessRunning("wayland")
+	return isXServerRunning || isWaylandRunning
 }
