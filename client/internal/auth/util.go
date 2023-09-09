@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os/exec"
+	"os"
 	"reflect"
 	"strings"
 )
@@ -62,19 +62,7 @@ func isValidAccessToken(token string, audience string) error {
 	return fmt.Errorf("invalid JWT token audience field")
 }
 
-// checkProcessRunning verifies if a specific process is currently running
-func checkProcessRunning(processName string) bool {
-	cmd := exec.Command("pgrep", processName)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(string(output)) != ""
-}
-
 // isLinuxRunningDesktop checks if a Linux OS is running desktop environment
 func isLinuxRunningDesktop() bool {
-	isXServerRunning := checkProcessRunning("X")
-	isWaylandRunning := checkProcessRunning("wayland")
-	return isXServerRunning || isWaylandRunning
+	return os.Getenv("DESKTOP_SESSION") != "" || os.Getenv("XDG_CURRENT_DESKTOP") != ""
 }
