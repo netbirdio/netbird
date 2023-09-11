@@ -166,7 +166,7 @@ func (s *Settings) Copy() *Settings {
 // Account represents a unique account of the system
 type Account struct {
 	// we have to name column to aid as it collides with Network.Id when work with associations
-	Id string `gorm:"primaryKey;column:aid"`
+	Id string `gorm:"primaryKey"`
 
 	// User.Id it was created by
 	CreatedBy              string
@@ -174,21 +174,21 @@ type Account struct {
 	DomainCategory         string
 	IsDomainPrimaryAccount bool
 	SetupKeys              map[string]*SetupKey              `gorm:"-"`
-	SetupKeysG             []SetupKey                        `json:"-" gorm:"foreignKey:AccountID;references:aid"`
+	SetupKeysG             []SetupKey                        `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Network                *Network                          `gorm:"embedded;embeddedPrefix:network_"`
 	Peers                  map[string]*Peer                  `gorm:"-"`
-	PeersG                 []Peer                            `json:"-" gorm:"foreignKey:AccountID;references:aid"`
+	PeersG                 []Peer                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Users                  map[string]*User                  `gorm:"-"`
-	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:aid"`
+	UsersG                 []User                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Groups                 map[string]*Group                 `gorm:"-"`
-	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:aid"`
+	GroupsG                []Group                           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	Rules                  map[string]*Rule                  `gorm:"-"`
-	RulesG                 []Rule                            `json:"-" gorm:"foreignKey:AccountID;references:aid"`
-	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:aid"`
+	RulesG                 []Rule                            `json:"-" gorm:"foreignKey:AccountID;references:id"`
+	Policies               []*Policy                         `gorm:"foreignKey:AccountID;references:id"`
 	Routes                 map[string]*route.Route           `gorm:"-"`
-	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:aid"`
+	RoutesG                []route.Route                     `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	NameServerGroups       map[string]*nbdns.NameServerGroup `gorm:"-"`
-	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:aid"`
+	NameServerGroupsG      []nbdns.NameServerGroup           `json:"-" gorm:"foreignKey:AccountID;references:id"`
 	DNSSettings            DNSSettings                       `gorm:"embedded;embeddedPrefix:dns_settings_"`
 	// Settings is a dictionary of Account settings
 	Settings *Settings `gorm:"embedded;embeddedPrefix:settings_"`

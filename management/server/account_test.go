@@ -198,11 +198,11 @@ func TestAccount_GetPeerNetworkMap(t *testing.T) {
 	netIP := net.IP{100, 64, 0, 0}
 	netMask := net.IPMask{255, 255, 0, 0}
 	network := &Network{
-		Id:     "network",
-		Net:    net.IPNet{IP: netIP, Mask: netMask},
-		Dns:    "netbird.selfhosted",
-		Serial: 0,
-		mu:     sync.Mutex{},
+		Identifier: "network",
+		Net:        net.IPNet{IP: netIP, Mask: netMask},
+		Dns:        "netbird.selfhosted",
+		Serial:     0,
+		mu:         sync.Mutex{},
 	}
 
 	for _, testCase := range tt {
@@ -1308,7 +1308,7 @@ func TestAccount_Copy(t *testing.T) {
 			},
 		},
 		Network: &Network{
-			Id: "net1",
+			Identifier: "net1",
 		},
 		Peers: map[string]*Peer{
 			"peer1": {

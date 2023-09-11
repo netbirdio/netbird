@@ -2,52 +2,87 @@
     "Accounts": {
         "bf1c8084-ba50-4ce7-9439-34653001fc3b": {
             "Id": "bf1c8084-ba50-4ce7-9439-34653001fc3b",
+            "CreatedBy": "",
             "Domain": "test.com",
             "DomainCategory": "private",
             "IsDomainPrimaryAccount": true,
             "SetupKeys": {
                 "A2C8E62B-38F5-4553-B31E-DD66C696CEBB": {
+                    "Id": "",
+                    "AccountID": "",
                     "Key": "A2C8E62B-38F5-4553-B31E-DD66C696CEBB",
                     "Name": "Default key",
                     "Type": "reusable",
                     "CreatedAt": "2021-08-19T20:46:20.005936822+02:00",
                     "ExpiresAt": "2321-09-18T20:46:20.005936822+02:00",
+                    "UpdatedAt": "0001-01-01T00:00:00Z",
                     "Revoked": false,
-                    "UsedTimes": 0
-
+                    "UsedTimes": 0,
+                    "LastUsed": "0001-01-01T00:00:00Z",
+                    "AutoGroups": null,
+                    "UsageLimit": 0,
+                    "Ephemeral": false
                 }
             },
             "Network": {
-                "Id": "af1c8024-ha40-4ce2-9418-34653101fc3c",
+                "id": "af1c8024-ha40-4ce2-9418-34653101fc3c",
                 "Net": {
                     "IP": "100.64.0.0",
                     "Mask": "//8AAA=="
                 },
-                "Dns": null
+                "Dns": "",
+                "Serial": 0
             },
             "Peers": {},
             "Users": {
                 "edafee4e-63fb-11ec-90d6-0242ac120003": {
                     "Id": "edafee4e-63fb-11ec-90d6-0242ac120003",
+                    "AccountID": "",
                     "Role": "admin",
-                    "PATs": {}
+                    "IsServiceUser": false,
+                    "ServiceUserName": "",
+                    "AutoGroups": null,
+                    "PATs": {},
+                    "Blocked": false,
+                    "LastLogin": "0001-01-01T00:00:00Z"
                 },
                 "f4f6d672-63fb-11ec-90d6-0242ac120003": {
                     "Id": "f4f6d672-63fb-11ec-90d6-0242ac120003",
+                    "AccountID": "",
                     "Role": "user",
+                    "IsServiceUser": false,
+                    "ServiceUserName": "",
+                    "AutoGroups": null,
                     "PATs": {
                         "9dj38s35-63fb-11ec-90d6-0242ac120003": {
-                            "ID":"9dj38s35-63fb-11ec-90d6-0242ac120003",
-                            "Description":"some Description",
-                            "HashedToken":"SoMeHaShEdToKeN",
-                            "ExpirationDate":"2023-02-27T00:00:00Z",
-                            "CreatedBy":"user",
-                            "CreatedAt":"2023-01-01T00:00:00Z",
-                            "LastUsed":"2023-02-01T00:00:00Z"
+                            "ID": "9dj38s35-63fb-11ec-90d6-0242ac120003",
+                            "UserID": "",
+                            "Name": "",
+                            "HashedToken": "SoMeHaShEdToKeN",
+                            "ExpirationDate": "2023-02-27T00:00:00Z",
+                            "CreatedBy": "user",
+                            "CreatedAt": "2023-01-01T00:00:00Z",
+                            "LastUsed": "2023-02-01T00:00:00Z"
                         }
-                    }
+                    },
+                    "Blocked": false,
+                    "LastLogin": "0001-01-01T00:00:00Z"
                 }
+            },
+            "Groups": null,
+            "Rules": null,
+            "Policies": [],
+            "Routes": null,
+            "NameServerGroups": null,
+            "DNSSettings": null,
+            "Settings": {
+                "PeerLoginExpirationEnabled": false,
+                "PeerLoginExpiration": 86400000000000,
+                "GroupsPropagationEnabled": false,
+                "JWTGroupsEnabled": false,
+                "JWTGroupsClaimName": ""
             }
         }
-    }
+    },
+    "InstallationID": ""
 }

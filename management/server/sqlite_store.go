@@ -290,7 +290,7 @@ func (s *SqliteStore) GetAccount(accountID string) (*Account, error) {
 	result := s.db.Model(&account).
 		Preload("UsersG.PATsG"). // have to be specifies as this is nester reference
 		Preload(clause.Associations).
-		First(&account, "aid = ?", accountID)
+		First(&account, "id = ?", accountID)
 	if result.Error != nil {
 		return nil, status.Errorf(status.NotFound, "account not found")
 	}
