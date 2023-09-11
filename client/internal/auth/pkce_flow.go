@@ -120,8 +120,11 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 
 	server := &http.Server{Addr: fmt.Sprintf(":%s", parsedURL.Port())}
 	defer func() {
-		if err := server.Shutdown(context.Background()); err != nil {
-			log.Debugf("failed to close the server: %v", err)
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Errorf("failed to close the server: %v", err)
 		}
 	}()
 
@@ -138,7 +141,8 @@ func (p *PKCEAuthorizationFlow) WaitToken(ctx context.Context, _ AuthFlowInfo) (
 }
 
 func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<- *oauth2.Token, errChan chan<- error) {
-	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		token, err := p.handleRequest(req)
 		if err != nil {
 			renderPKCEFlowTmpl(w, err)
@@ -149,6 +153,8 @@ func (p *PKCEAuthorizationFlow) startServer(server *http.Server, tokenChan chan<
 		renderPKCEFlowTmpl(w, nil)
 		tokenChan <- token
 	})
+
+	server.Handler = mux
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		errChan <- err
 	}
