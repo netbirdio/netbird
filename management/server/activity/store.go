@@ -32,10 +32,6 @@ func (store *InMemoryEventStore) Save(event *Event) (*Event, error) {
 	return event, nil
 }
 
-func (store *InMemoryEventStore) SaveWithDeletedUserEmail(event *Event, email string) (*Event, error) {
-	panic("encryption feature is not supported in memory store")
-}
-
 // Get returns a list of ALL events that belong to the given accountID without taking offset, limit and order into consideration
 func (store *InMemoryEventStore) Get(accountID string, offset, limit int, descending bool) ([]*Event, error) {
 	store.mu.Lock()
