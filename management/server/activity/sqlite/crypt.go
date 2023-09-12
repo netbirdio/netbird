@@ -18,8 +18,11 @@ type EmailEncrypt struct {
 func GenerateKey() (string, error) {
 	key := make([]byte, 32)
 	_, err := rand.Read(key)
+	if err != nil {
+		return "", err
+	}
 	readableKey := base64.StdEncoding.EncodeToString(key)
-	return readableKey, err
+	return readableKey, nil
 }
 
 func NewEmailEncrypt(key string) (*EmailEncrypt, error) {
