@@ -2,6 +2,7 @@ package server
 
 import (
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -41,12 +42,12 @@ func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore,
 		return nil, err
 	}
 
-	//sql, err := db.DB()
-	//if err != nil {
-	//	return nil, err
-	//}
-	//conns := runtime.NumCPU()
-	//sql.SetMaxOpenConns(conns) // TODO: make it configurable
+	sql, err := db.DB()
+	if err != nil {
+		return nil, err
+	}
+	conns := runtime.NumCPU()
+	sql.SetMaxOpenConns(conns) // TODO: make it configurable
 
 	err = db.AutoMigrate(
 		&SetupKey{}, &Peer{}, &User{}, &PersonalAccessToken{}, &Group{}, &Rule{},
