@@ -916,7 +916,6 @@ components:
         initiator_email:
           description: The e-mail address of the initiator of the event. E.g., an e-mail of a user that triggered the event.
           type: string
-          format: email
           example: demo@netbird.io
         target_id:
           description: The ID of the target of the event. E.g., an ID of the peer that a user removed.
