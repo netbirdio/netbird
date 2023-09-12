@@ -33,7 +33,13 @@ type installation struct {
 
 // NewSqliteStore restores a store from the file located in the datadir
 func NewSqliteStore(dataDir string, metrics telemetry.AppMetrics) (*SqliteStore, error) {
-	file := filepath.Join(dataDir, "store.db")
+	storeStr := "store.db?cache=shared"
+	if runtime.GOOS == "windows" {
+		// Vo avoid `The process cannot access the file because it is being used by another process` on Windows
+		storeStr = "store.db"
+	}
+
+	file := filepath.Join(dataDir, storeStr)
 	db, err := gorm.Open(sqlite.Open(file), &gorm.Config{
 		Logger:      logger.Default.LogMode(logger.Silent),
 		PrepareStmt: true,
